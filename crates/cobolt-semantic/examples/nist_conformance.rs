@@ -125,6 +125,41 @@ fn truncate_at_col72(text: &str) -> String {
 ///   "before" number.
 /// * `col72` / `nist` / `nistdel` — the harness's own preparation, kept so the
 ///   pre-implementation measurements stay reproducible.
+/// Write the suite's COPY library to a directory and return it.
+///
+/// CCVS85 ships its copybooks inside the same distribution, as `*HEADER,CLBRY`
+/// members — 51 of them. The Source Text Manipulation module is *about* `COPY`
+/// and `REPLACE`, so without the library those programs cannot be measured at
+/// all: `COPY K1PRA.` reaches the parser as an ordinary word and every SM
+/// program stops there.
+///
+/// This is a harness gap, not a compiler one — `rcrun` has expanded copybooks
+/// all along (`cobolt_lexer::expand_copybooks`); the harness simply tokenized
+/// without ever running the preprocessor. The directory is built once per run.
+fn copy_library_dir(members: &[Member]) -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("nist-copy-library");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).ok()?;
+    let mut written = 0usize;
+    for m in members.iter().filter(|m| m.kind == "CLBRY") {
+        if m.name.is_empty() {
+            continue;
+        }
+        // The library members are card images too: strip the identification
+        // area so a copied line does not carry its program stamp into the
+        // including program.
+        let body = truncate_at_col72(&m.text);
+        if std::fs::write(dir.join(&m.name), body).is_ok() {
+            written += 1;
+        }
+    }
+    if written == 0 {
+        None
+    } else {
+        Some(dir)
+    }
+}
+
 fn prepare(pass: &str, text: &str) -> (String, SourceFormat) {
     match pass {
         "strict" => (text.to_string(), SourceFormat::FixedStrict),
@@ -486,6 +521,18 @@ fn main() {
         return;
     }
 
+    // ── failure-detail mode: `fails <MODULE|NAME>` ───────────────────────────
+    if pass == "fails" {
+        fails_pass(&members, &filter);
+        return;
+    }
+
+    // ── whole-report mode: `report <NAME>` ───────────────────────────────────
+    if pass == "report" {
+        report_pass(&members, &filter);
+        return;
+    }
+
     // ── drill-down mode: `dump <NAME>` ────────────────────────────────────────
     // Print every diagnostic for one member against its own (truncated) source
     // line, so a bucket like `unexpected token: Identifier("Y")` can be traced
@@ -522,6 +569,9 @@ fn main() {
         return;
     }
 
+    // The suite's own COPY library, written out once for this run.
+    let copy_dir = copy_library_dir(&members);
+
     let mut total = 0usize;
     let mut clean = 0usize;
     let mut parse_buckets: BTreeMap<String, (usize, usize)> = BTreeMap::new(); // msg -> (hits, programs)
@@ -542,9 +592,27 @@ fn main() {
 
         let (text, fmt) = prepare(&pass, &m.text);
 
+        // Expand `COPY` / `REPLACE` exactly the way `rcrun` does, against the
+        // suite's own copybook library. Without this the Source Text
+        // Manipulation module cannot be measured at all — its whole subject is
+        // the directive the harness would otherwise leave unexpanded.
+        //
+        // ⚠️ **Expansion flattens to free form**, which is why `rcrun` then
+        // tokenizes `Free` (cobolt-cli/src/main.rs). Flattening the result a
+        // second time as `FixedStrict` strips the column areas twice and
+        // corrupts every program — measured: it cost 19 programs across six
+        // modules while gaining 3 in SM.
+        let (text, lex_fmt) = match copy_dir.as_deref() {
+            Some(dir) => (
+                cobolt_lexer::expand_copybooks(&text, dir, fmt).text,
+                SourceFormat::Free,
+            ),
+            None => (text, fmt),
+        };
+
         eprintln!("[{total:>3}/459] {} ({} lines)", m.name, text.lines().count());
         let t0 = std::time::Instant::now();
-        let tokens = tokenize(&text, SourceFormat::FixedStrict);
+        let tokens = tokenize(&text, lex_fmt);
         let t_lex = t0.elapsed();
         let pr = cobolt_parser::parse(tokens);
         let t_all = t0.elapsed();
@@ -687,8 +755,10 @@ fn main() {
     println!("  ... {} distinct semantic buckets total", sem_buckets.len());
     println!();
 
-    println!("--- first failing diagnostic per program (first 60) ---");
-    for (name, p, s, first) in failures.iter().take(60) {
+    // Every failure, not a sample: a truncated list silently hides whole
+    // categories, and the tail is where the unfamiliar ones are.
+    println!("--- first failing diagnostic per program (all {}) ---", failures.len());
+    for (name, p, s, first) in failures.iter() {
         println!("  {name:<8} parse={p:<5} sem={s:<5} {first}");
     }
     println!("  ... {} failing programs total", failures.len());
@@ -711,7 +781,7 @@ fn main() {
             }
             println!("    {prog:<8} | {t}");
             shown.push(t);
-            if shown.len() >= 4 {
+            if shown.len() >= 12 {
                 break;
             }
         }
@@ -798,7 +868,7 @@ fn run_pass(members: &[Member], filter: &str) {
             continue;
         }
 
-        let outcome = run_one(&rcrun, &workroot, &m.name, &m.text);
+        let (outcome, _) = run_one(&rcrun, &workroot, &m.name, &m.text);
         outcomes.push((m.name.clone(), module, outcome));
     }
 
@@ -806,21 +876,138 @@ fn run_pass(members: &[Member], filter: &str) {
     report_run(&outcomes);
 }
 
+/// Run one program and hand back the failure detail its own report carries.
+///
+/// A CCVS `FAIL*` record is followed by `COMPUTED=` and `CORRECT =` records
+/// that name the defect outright, so reading them across a whole module is how
+/// a shared cause is found — one program's detail is an anecdote, forty
+/// programs' is a bucket. Records are `PIC X(120)` with no newline between
+/// them, so the report is re-split on that fixed width, exactly as
+/// [`score_ccvs_report`] counts markers without assuming line breaks.
+fn fails_pass(members: &[Member], filter: &str) {
+    let rcrun = match locate_rcrun() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "cannot find the `rcrun` binary. Build it first:\n    cargo build --release -p cobolt-cli"
+            );
+            std::process::exit(2);
+        }
+    };
+    let workroot = std::env::temp_dir().join("nist-fail-detail");
+    let _ = std::fs::remove_dir_all(&workroot);
+    std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
+
+    for m in members.iter().filter(|m| m.kind == "COBOL") {
+        if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
+            continue;
+        }
+        if is_out_of_scope(&module_of(&m.name)) {
+            continue;
+        }
+        let (outcome, report) = run_one(&rcrun, &workroot, &m.name, &m.text);
+        let report = match (&outcome, report) {
+            (RunOutcome::Ran(_, f, _), Some(r)) if *f > 0 => r,
+            _ => continue,
+        };
+        // Split on **bytes**, not characters: the record is `PIC X(120)`, a
+        // byte count. A report carrying `HIGH-VALUES` holds multi-byte
+        // sequences, and chunking by character drifted the alignment a little
+        // further with every one of them until the columns were unreadable.
+        let recs: Vec<String> = report
+            .as_bytes()
+            .chunks(120)
+            .map(|c| String::from_utf8_lossy(c).trim_end().to_string())
+            .collect();
+        println!("╔═══ {} ═══", m.name);
+        // CCVS writes a failing detail line twice on purpose
+        // (`IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE`), so the same record
+        // is skipped when it repeats.
+        let mut prev = String::new();
+        for (i, r) in recs.iter().enumerate() {
+            if !r.contains("FAIL*") || *r == prev {
+                prev.clone_from(r);
+                continue;
+            }
+            prev.clone_from(r);
+            println!("║ {r}");
+            // The record straight after a failure is that same failure written
+            // a second time; the `COMPUTED=` / `CORRECT =` pair that names the
+            // defect comes after it.
+            for follow in recs.iter().skip(i + 1).take(4) {
+                if follow == r {
+                    continue;
+                }
+                if follow.contains("FAIL*") || follow.is_empty() {
+                    break;
+                }
+                println!("║     {follow}");
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&workroot);
+}
+
+/// Print one program's whole CCVS report, re-split into its 120-byte records.
+///
+/// [`fails_pass`] shows only the `FAIL*` neighbourhood, which is enough to
+/// bucket a cause across a module but not to diagnose one program: the
+/// `COMPUTED=` / `CORRECT =` pair a test writes can sit several records away,
+/// and the paragraph headings that say *which* feature is under test are
+/// dropped entirely. This pass prints everything, in order.
+fn report_pass(members: &[Member], filter: &str) {
+    let rcrun = match locate_rcrun() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "cannot find the `rcrun` binary. Build it first:\n    cargo build --release -p cobolt-cli"
+            );
+            std::process::exit(2);
+        }
+    };
+    let want = filter.to_uppercase();
+    let m = match members.iter().find(|m| m.name == want) {
+        Some(m) => m,
+        None => {
+            eprintln!("no member named {want}");
+            std::process::exit(2);
+        }
+    };
+    let workroot = std::env::temp_dir().join("nist-report");
+    let _ = std::fs::remove_dir_all(&workroot);
+    std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
+    let (outcome, report) = run_one(&rcrun, &workroot, &m.name, &m.text);
+    println!("=== {} — {outcome:?} ===", m.name);
+    if let Some(r) = report {
+        // Byte chunks, not characters: see `fails_pass`.
+        for rec in r.as_bytes().chunks(120) {
+            println!("{}", String::from_utf8_lossy(rec).trim_end());
+        }
+    }
+    let _ = std::fs::remove_dir_all(&workroot);
+}
+
 /// Run one program in its own directory, under both budgets.
+///
+/// The raw report is returned alongside the score so [`fails_pass`] can read
+/// the detail records without running the program a second time.
 fn run_one(
     rcrun: &std::path::Path,
     workroot: &std::path::Path,
     name: &str,
     raw: &str,
-) -> RunOutcome {
+) -> (RunOutcome, Option<String>) {
     let dir = workroot.join(name);
     let _ = std::fs::remove_dir_all(&dir);
     if std::fs::create_dir_all(&dir).is_err() {
-        return RunOutcome::Crash("cannot create the work directory".into());
+        return (
+            RunOutcome::Crash("cannot create the work directory".into()),
+            None,
+        );
     }
     let src = dir.join(format!("{name}.cbl"));
     if std::fs::write(&src, raw).is_err() {
-        return RunOutcome::Crash("cannot write the source".into());
+        return (RunOutcome::Crash("cannot write the source".into()), None);
     }
 
     let child = std::process::Command::new(rcrun)
@@ -828,6 +1015,22 @@ fn run_one(
         .arg(&src)
         .arg("--source-format")
         .arg("fixed")
+        // The CCVS85 run instructions require the operator to set external
+        // switch 1 ON and switch 2 OFF before the suite runs: NC174A, NC253A
+        // and NC254A test `ON STATUS` / `OFF STATUS` against exactly that
+        // state and report "SWITCH-1 EXPECTED ON" when it is not set. The
+        // suite spells the two switches `XXXXX051` and `XXXXX052`, its
+        // placeholders for whatever the implementor calls them; `SWITCH-1` /
+        // `SWITCH-2` are set too so a substituted copy of the suite behaves
+        // the same. A program that declares no switch ignores all four.
+        .arg("--switch")
+        .arg("XXXXX051=ON")
+        .arg("--switch")
+        .arg("XXXXX052=OFF")
+        .arg("--switch")
+        .arg("SWITCH-1=ON")
+        .arg("--switch")
+        .arg("SWITCH-2=OFF")
         .current_dir(&dir)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
@@ -835,7 +1038,7 @@ fn run_one(
         .spawn();
     let mut child = match child {
         Ok(c) => c,
-        Err(e) => return RunOutcome::Crash(format!("cannot spawn rcrun: {e}")),
+        Err(e) => return (RunOutcome::Crash(format!("cannot spawn rcrun: {e}")), None),
     };
 
     let print_file = dir.join(CCVS_PRINT_FILE);
@@ -865,20 +1068,20 @@ fn run_one(
         std::thread::sleep(std::time::Duration::from_millis(50));
     };
 
-    let result = match outcome {
-        Some(bad) => bad,
+    let (result, report) = match outcome {
+        Some(bad) => (bad, None),
         None => match std::fs::read_to_string(&print_file) {
             Ok(report) => match score_ccvs_report(&report) {
-                Some((p, f, d)) => RunOutcome::Ran(p, f, d),
-                None => RunOutcome::NoReport,
+                Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(report)),
+                None => (RunOutcome::NoReport, Some(report)),
             },
-            Err(_) => RunOutcome::NoReport,
+            Err(_) => (RunOutcome::NoReport, None),
         },
     };
     // Reclaim the directory immediately — a sweep is hundreds of programs and
     // a runaway print file is measured in gigabytes.
     let _ = std::fs::remove_dir_all(&dir);
-    result
+    (result, report)
 }
 
 /// Count the assertions a CCVS85 program reported.

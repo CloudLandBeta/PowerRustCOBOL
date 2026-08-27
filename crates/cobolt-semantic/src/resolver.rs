@@ -223,6 +223,16 @@ impl<'a> ResolveCtx<'a> {
             Stmt::Perform { target, .. } => match target {
                 PerformTarget::Paragraph(name, s) => self.check_procedure(name, *s),
                 PerformTarget::Section(name, s) => self.check_procedure(name, *s),
+                // Both halves name a procedure; the qualifier only says which
+                // copy of a repeated name is meant.
+                PerformTarget::QualifiedParagraph {
+                    name,
+                    section,
+                    span,
+                } => {
+                    self.check_procedure(name, *span);
+                    self.check_procedure(section, *span);
+                }
                 PerformTarget::Thru { from, to, span } => {
                     self.check_procedure(from, *span);
                     self.check_procedure(to, *span);
@@ -257,7 +267,13 @@ impl<'a> ResolveCtx<'a> {
                     }
                 }
             },
-            Stmt::GoTo { target, span } => self.check_procedure(target, *span),
+            // An empty target is the altered `GO TO.`; the procedure-name comes
+            // from an `ALTER` at run time, so there is nothing to resolve here.
+            Stmt::GoTo { target, span } => {
+                if !target.is_empty() {
+                    self.check_procedure(target, *span)
+                }
+            }
             Stmt::GoToDepending {
                 targets,
                 depending,
@@ -730,6 +746,9 @@ impl<'a> ResolveCtx<'a> {
             }
             Condition::Not(inner, _) => self.resolve_condition(inner),
             Condition::ClassTest { expr, .. } => self.resolve_expr(expr),
+            // The class name is declared in SPECIAL-NAMES, not in the DATA
+            // DIVISION, so only the operand is a symbol to resolve.
+            Condition::UserClassTest { expr, .. } => self.resolve_expr(expr),
             Condition::SignTest { expr, .. } => self.resolve_expr(expr),
             Condition::ConditionName(name, span) => {
                 if !self.symbols.has_data_item(name) {
@@ -749,6 +768,10 @@ impl<'a> ResolveCtx<'a> {
                     self.warn(format!("'{name}' is not declared"), *span);
                 }
             }
+            // `IF FIRSTZ (1)` / `IF A OF IF-D32` — a condition-name reached
+            // through a reference. Resolving the reference checks the name and
+            // its qualifiers the same way any other reference is checked.
+            Condition::ConditionRef(expr, _) => self.resolve_expr(expr),
         }
     }
 

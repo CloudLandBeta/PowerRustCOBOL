@@ -119,11 +119,31 @@ fn scan(s: &str) -> Vec<PTok> {
             let quote = c;
             let start = i;
             i += 1;
-            while i < b.len() && b[i] != quote {
+            // **A literal ends at its line, and a doubled delimiter is content.**
+            // Both are the same rules the lexer applies (see token.rs); the
+            // preprocessor had neither, and it only has to know *where the
+            // literals are* so it does not read their contents as directives.
+            //
+            // Without the line limit, one unpaired quotation mark pairs with
+            // the next quote several lines away and shifts the parity of every
+            // literal after it. In CCVS85 that exposed the word `COPY` inside
+            // the copyright banner —
+            //   "CCVS74 NCC  COPY, NOT FOR DISTRIBUTION."
+            // — as a directive, and the resulting expansion corrupted four
+            // programs (NC215A, SG104A, SG105A, SG106A) that are otherwise
+            // clean. Exactly the defect 1.62.12 fixed in the lexer, still here.
+            while i < b.len() && b[i] != b'\n' {
+                if b[i] == quote {
+                    if i + 1 < b.len() && b[i + 1] == quote {
+                        i += 2; // doubled delimiter — one character of content
+                        continue;
+                    }
+                    break;
+                }
                 i += 1;
             }
             let inner = s[start + 1..i.min(b.len())].to_string();
-            if i < b.len() {
+            if i < b.len() && b[i] == quote {
                 i += 1;
             }
             toks.push(PTok {
@@ -512,6 +532,73 @@ mod tests {
         assert!(
             r.text.contains("01 FOO PIC 9."),
             "REPLACE OFF should stop rewriting: {}",
+            r.text
+        );
+    }
+
+    // ── The word COPY inside a literal is not a directive ────────────────────
+
+    /// A literal ends at its line, so an unpaired quotation mark cannot pair
+    /// with one several lines away and shift the parity of everything after it.
+    ///
+    /// This is what exposed `COPY` inside the CCVS85 copyright banner as a
+    /// directive and corrupted four otherwise-clean programs (NC215A, SG104A,
+    /// SG105A, SG106A). It is the same rule the lexer got in 1.62.12.
+    #[test]
+    fn the_word_copy_inside_a_literal_is_not_a_directive() {
+        let d = tmp();
+        write(&d, "K1PRA", "01 SHOULD-NOT-APPEAR PIC X.\n");
+        let src = "       IDENTIFICATION DIVISION.\n\
+                          PROGRAM-ID. BANNER.\n\
+                          DATA DIVISION.\n\
+                          WORKING-STORAGE SECTION.\n\
+                          01  CCVS-BANNER.\n\
+                   \x20          02 FILLER PIC X(40) VALUE\n\
+                   \x20          \"CCVS74 NCC  COPY, NOT FOR DISTRIBUTION.\".\n\
+                   \x20          02 FILLER PIC X(15) VALUE \" COPYRIGHT 1974\".\n\
+                          PROCEDURE DIVISION.\n\
+                          MAIN.\n\
+                   \x20          STOP RUN.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(
+            !r.text.contains("SHOULD-NOT-APPEAR"),
+            "the word COPY inside a literal was expanded as a directive:\n{}",
+            r.text
+        );
+        assert!(
+            r.text.contains("NOT FOR DISTRIBUTION"),
+            "the banner literal must survive intact:\n{}",
+            r.text
+        );
+    }
+
+    /// An unpaired quotation mark must not swallow a REAL directive on a
+    /// later line — the containment has to cut both ways.
+    #[test]
+    fn an_unpaired_quote_does_not_hide_a_later_copy() {
+        let d = tmp();
+        write(&d, "REAL", "01 REALLY-COPIED PIC X.\n");
+        let src = "01 A PIC X(20) VALUE \"unpaired.\n\
+                   COPY REAL.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(
+            r.text.contains("REALLY-COPIED"),
+            "a stray quote hid the COPY on the next line:\n{}",
+            r.text
+        );
+    }
+
+    /// A doubled delimiter is content, so a literal containing `""` does not
+    /// end early and expose what follows it.
+    #[test]
+    fn a_doubled_delimiter_does_not_end_the_literal_early() {
+        let d = tmp();
+        write(&d, "K9", "01 NOPE PIC X.\n");
+        let src = "01 A PIC X(40) VALUE \"say \"\"COPY K9.\"\" please\".\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(
+            !r.text.contains("NOPE"),
+            "COPY inside a doubled-quote literal was expanded:\n{}",
             r.text
         );
     }

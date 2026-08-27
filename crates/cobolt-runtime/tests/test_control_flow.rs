@@ -269,3 +269,26 @@ fn exit_perform_times_break() {
     "#;
     assert_eq!(run_capture(src), vec!["3"]);
 }
+
+/// An **altered** `GO TO` — one written with no target — falls through to the
+/// next sentence until an `ALTER` gives it a destination, and jumps there
+/// afterwards.
+#[test]
+fn altered_go_to_falls_through_until_altered() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ALTGO.
+       PROCEDURE DIVISION.
+       MAIN.
+           PERFORM SWITCHER
+           ALTER SWITCHER TO PROCEED TO TAKEN
+           PERFORM SWITCHER
+           STOP RUN.
+       SWITCHER.
+           GO TO.
+           DISPLAY "FELL THROUGH".
+       TAKEN.
+           DISPLAY "TAKEN".
+    "#;
+    assert_eq!(run_capture(src), vec!["FELL THROUGH", "TAKEN"]);
+}

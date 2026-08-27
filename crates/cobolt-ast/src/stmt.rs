@@ -112,6 +112,17 @@ pub enum WhenValue {
     Condition(Condition),
     /// A negated selection object: `WHEN NOT value`.
     Not(Box<WhenValue>),
+    /// An arithmetic **expression** as the selection object:
+    /// `WHEN (33 + (99 - 43))`. Compared against the EVALUATE subject exactly
+    /// as a literal object is; it is not a condition, and reading it as one is
+    /// what made the parenthesis fail to parse.
+    ///
+    /// ⚠️ New variants go at the END — this enum is bincode-serialized into
+    /// every compiled binary and a variant is identified by its ordinal.
+    Expr(Expr),
+    /// A range whose bounds are **data items** rather than literals:
+    /// `WHEN WRK-A THRU WRK-B`. [`WhenValue::Range`] carries literals only.
+    ExprRange(Expr, Expr),
 }
 
 /// The subject of an EVALUATE statement.
@@ -122,6 +133,13 @@ pub enum EvalSubject {
     True_,
     /// `EVALUATE FALSE`
     False_,
+    // ⚠️ New variants go at the END — this enum is bincode-serialized into every
+    // compiled binary and a variant is identified by its ordinal. See
+    // `Expr::AllSubscript` for what inserting one costs.
+    /// A **conditional expression** as the subject: `EVALUATE X NUMERIC`,
+    /// `EVALUATE A > B`. COBOL-85 allows it, and it is matched against
+    /// `WHEN TRUE` / `WHEN FALSE`.
+    Cond(Condition),
 }
 
 /// The flavour of an `EXIT` statement.
@@ -173,6 +191,16 @@ pub enum PerformTarget {
         stmts: Vec<Stmt>,
         /// Optional AFTER sub-varying clauses
         after: Vec<VaryingAfter>,
+    },
+    /// `PERFORM paragraph-name {OF|IN} section-name` — a paragraph name that
+    /// repeats across sections, qualified by the one that owns the copy meant.
+    ///
+    /// 🔴 New variants belong at the END of this enum. `PerformTarget` is
+    /// bincode-serialized and a variant is identified by its **ordinal**.
+    QualifiedParagraph {
+        name: String,
+        section: String,
+        span: Span,
     },
 }
 
@@ -337,20 +365,31 @@ pub enum Stmt {
     /// `MOVE CORRESPONDING group TO group`
     MoveCorresponding { from: Expr, to: Expr, span: Span },
 
-    /// `ADD CORRESPONDING group TO group [ROUNDED]`
+    /// `ADD CORRESPONDING group TO group [ROUNDED] [ON SIZE ERROR …]`
     AddCorresponding {
         from: Expr,
         to: Expr,
         rounded: bool,
         span: Span,
+        // ⚠️ New fields go at the END: bincode writes a variant's fields in
+        // declaration order, so inserting one above renumbers nothing but
+        // silently changes the encoding of every AST already built.
+        /// `[ON] SIZE ERROR imperative`, run once for the whole statement.
+        on_size_error: Vec<Stmt>,
+        /// `NOT [ON] SIZE ERROR imperative`.
+        not_on_size_error: Vec<Stmt>,
     },
 
-    /// `SUBTRACT CORRESPONDING group FROM group [ROUNDED]`
+    /// `SUBTRACT CORRESPONDING group FROM group [ROUNDED] [ON SIZE ERROR …]`
     SubtractCorresponding {
         from: Expr,
         to: Expr,
         rounded: bool,
         span: Span,
+        /// `[ON] SIZE ERROR imperative`, run once for the whole statement.
+        on_size_error: Vec<Stmt>,
+        /// `NOT [ON] SIZE ERROR imperative`.
+        not_on_size_error: Vec<Stmt>,
     },
 
     /// `INITIALIZE item … [REPLACING category DATA BY value …]` — category-aware
@@ -567,6 +606,13 @@ pub enum Stmt {
         advancing: Option<AdvancingClause>,
         invalid_key: Vec<Stmt>,
         not_invalid_key: Vec<Stmt>,
+        /// `AT END-OF-PAGE` / `AT EOP` — run when writing this record reaches
+        /// the FOOTING line of a LINAGE file's page body.
+        #[serde(default)]
+        at_eop: Vec<Stmt>,
+        /// `NOT AT END-OF-PAGE` — run when it does not.
+        #[serde(default)]
+        not_at_eop: Vec<Stmt>,
         span: Span,
     },
 
@@ -914,6 +960,7 @@ impl Stmt {
                 | PerformTarget::Varying { stmts, .. } => out.extend(stmts.iter()),
                 PerformTarget::Paragraph(..)
                 | PerformTarget::Section(..)
+                | PerformTarget::QualifiedParagraph { .. }
                 | PerformTarget::Thru { .. } => {}
             },
 
@@ -1120,4 +1167,14 @@ pub enum InspectSpec {
     Replacing(Vec<ReplaceSpec>),
     TallyingReplacing(Vec<TallySpec>, Vec<ReplaceSpec>),
     Converting { from: Expr, to: Expr },
+    /// `CONVERTING from TO to [BEFORE|AFTER INITIAL delimiter]` — the same
+    /// conversion restricted to a region of the item.
+    ///
+    /// ⚠️ New variants go at the END — this enum is bincode-serialized into
+    /// every compiled binary and a variant is identified by its ordinal.
+    ConvertingIn {
+        from: Expr,
+        to: Expr,
+        region: InspectRegion,
+    },
 }

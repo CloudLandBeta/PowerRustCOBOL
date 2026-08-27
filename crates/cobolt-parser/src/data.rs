@@ -11,13 +11,15 @@
 //! items.
 
 use cobolt_ast::data::{
-    ConditionValue, DataDecl, FileDescription, OccursClause, PicClause, PicKind, ScreenItem, Usage,
+    ConditionValue, DataDecl, FileDescription, Linage, OccursClause, PicClause, PicKind, ScreenItem,
+    Usage,
 };
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{DataDivision, DataSection};
 use cobolt_lexer::{Span, Token};
 
 use crate::expr::parse_literal;
+use crate::stmt::is_word;
 use crate::parser::Parser;
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -122,10 +124,17 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         p.advance(); // FD or SD
         let name = p.expect_identifier("file name");
         let mut is_global = false;
-        // Consume optional clauses until period
+        let mut linage: Option<Linage> = None;
+        // Consume optional clauses until period. Most are recorded elsewhere or
+        // do not affect execution; LINAGE does, so it is read rather than
+        // skipped.
         while !p.at(&Token::Period) && !p.at(&Token::Eof) {
             if p.at(&Token::Global) {
                 is_global = true;
+            }
+            if is_word(p.peek(), "LINAGE") {
+                linage = parse_linage_clause(p);
+                continue;
             }
             p.advance();
         }
@@ -136,10 +145,82 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             name,
             is_global,
             records: build_tree(records),
+            linage,
             span,
         });
     }
     fds
+}
+
+/// Parse `LINAGE IS n LINES [WITH FOOTING AT f] [LINES AT TOP t]
+/// [LINES AT BOTTOM b]`, positioned on the word `LINAGE`.
+///
+/// Every noise word is optional (`IS`, `LINES`, `WITH`, `AT`), so the clause is
+/// read by looking for its four numbers in order rather than by matching a
+/// fixed shape — which is also why a missing `FOOTING` defaults to the body
+/// size: end of page is then raised only when the body is full, exactly as the
+/// standard says.
+///
+/// None of `LINAGE`, `FOOTING`, `TOP` or `BOTTOM` is a lexer keyword, so they
+/// are matched by spelling — the same approach `CLOSE … WITH LOCK` uses, and it
+/// leaves a developer free to name an item `TOP`.
+fn parse_linage_clause(p: &mut Parser) -> Option<Linage> {
+    p.advance(); // LINAGE
+    p.eat(&Token::Is);
+    let lines = eat_required_integer(p)?;
+    // `LINES` and `LINE` are lexer keywords; the rest of the clause's words are
+    // not. Both spellings are noise here.
+    if !p.eat(&Token::Lines) {
+        p.eat(&Token::Line);
+    }
+
+    let mut footing = None;
+    let mut top = 0u32;
+    let mut bottom = 0u32;
+
+    loop {
+        p.eat(&Token::With);
+        if is_word(p.peek(), "FOOTING") {
+            p.advance();
+            if is_word(p.peek(), "AT") { p.advance(); }
+            footing = eat_required_integer(p);
+            continue;
+        }
+        if p.at(&Token::Lines) || p.at(&Token::Line) {
+            // `LINES AT TOP n` / `LINES AT BOTTOM n`
+            p.advance();
+            if is_word(p.peek(), "AT") { p.advance(); }
+            if is_word(p.peek(), "TOP") {
+                p.advance();
+                top = eat_required_integer(p).unwrap_or(0);
+                continue;
+            }
+            if is_word(p.peek(), "BOTTOM") {
+                p.advance();
+                bottom = eat_required_integer(p).unwrap_or(0);
+                continue;
+            }
+            continue;
+        }
+        if is_word(p.peek(), "TOP") {
+            p.advance();
+            top = eat_required_integer(p).unwrap_or(0);
+            continue;
+        }
+        if is_word(p.peek(), "BOTTOM") {
+            p.advance();
+            bottom = eat_required_integer(p).unwrap_or(0);
+            continue;
+        }
+        break;
+    }
+
+    Some(Linage {
+        lines,
+        footing: footing.unwrap_or(lines),
+        top,
+        bottom,
+    })
 }
 
 // ── Screen section (simplified) ───────────────────────────────────────────────
@@ -242,6 +323,8 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
     let mut is_global = false;
     let mut is_external = false;
     let mut blank_when_zero = false;
+    let mut justified = false;
+    let mut sign: Option<cobolt_ast::data::SignClause> = None;
 
     // Parse clauses until the period that terminates this item.
     loop {
@@ -264,7 +347,10 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
             // VALUE / VALUES
             Token::Value | Token::Values => {
                 p.advance();
-                p.eat(&Token::Is); // optional IS
+                // `VALUE IS` and `VALUES ARE` are both spellings of the same
+                // clause; the plural takes the plural copula.
+                p.eat(&Token::Is);
+                p.eat(&Token::Are);
                 if level == 88 {
                     // 88-level: collect one or more values/ranges
                     condition_values = parse_88_values(p);
@@ -331,10 +417,11 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 renames = Some(cobolt_ast::data::RenamesClause { from, thru });
             }
 
-            // JUSTIFIED [RIGHT] — ignored for MVP
+            // JUSTIFIED [RIGHT] — right-align an alphanumeric receiver.
             Token::Justified => {
                 p.advance();
                 p.eat(&Token::Right);
+                justified = true;
             }
 
             // SYNCHRONIZED [LEFT | RIGHT] — ignored
@@ -352,14 +439,21 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
                 blank_when_zero = true;
             }
 
-            // SIGN IS LEADING/TRAILING [SEPARATE] — ignored
+            // SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]
+            //
+            // Only SEPARATE changes storage — it adds one character position
+            // holding a literal `+`/`-`. TRAILING is the COBOL default, so the
+            // clause is recorded either way and the runtime decides.
             Token::Sign => {
                 p.advance();
                 p.eat(&Token::Is);
-                p.eat(&Token::Leading);
-                p.eat(&Token::Trailing);
-                p.eat(&Token::Separate);
+                let leading = p.eat(&Token::Leading);
+                if !leading {
+                    p.eat(&Token::Trailing);
+                }
+                let separate = p.eat(&Token::Separate);
                 p.eat(&Token::Character);
+                sign = Some(cobolt_ast::data::SignClause { leading, separate });
             }
 
             // Optional `IS` connective before a clause keyword, e.g.
@@ -417,6 +511,8 @@ fn parse_data_item(p: &mut Parser, level: u8, span: Span) -> DataDecl {
         blank_when_zero,
         children: Vec::new(), // filled in by build_tree
         span,
+        justified,
+        sign,
     }
 }
 
@@ -484,7 +580,34 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             // A `.` is the editing decimal point when more picture characters
             // follow it (e.g. `ZZ9.99`); otherwise it terminates the clause.
             Token::Period => {
-                if pic_continues(p.peek_at(1)) {
+                // `PIC ZZ,ZZZ.9` — the lexer turns an integer that follows a
+                // period into a *level number*, because that is where the next
+                // data item normally begins. Glued to the period it is no such
+                // thing: it is the picture's fractional digit. The spans say
+                // which, exactly as `B-C` vs `B - C` is decided in the lexer.
+                // Without this the template silently truncated at the period
+                // (`ZZ,ZZZ.9` → `ZZ,ZZZ`), losing both the digit and, with it,
+                // the item's numeric category. `.99` never had the problem —
+                // 99 is not a level number.
+                let glued_digits = match p.peek_at(1) {
+                    Token::LevelNumber(n) if p.peek_span_at(1).start == p.peek_span().end => {
+                        Some(*n)
+                    }
+                    _ => None,
+                };
+                if let Some(n) = glued_digits {
+                    p.advance(); // the '.'
+                    p.advance(); // the digit(s)
+                    template.push('.');
+                    template.push_str(&n.to_string());
+                    continue;
+                }
+                // Two periods in a row: the first is the picture's own editing
+                // decimal point and the second ends the entry —
+                // `02 WRK-EDIT-006 PIC 999999999999..`. Reading both as
+                // terminators dropped the point from the template and left a
+                // stray period that desynchronised the whole DATA DIVISION.
+                if pic_continues(p.peek_at(1)) || matches!(p.peek_at(1), Token::Period) {
                     p.advance();
                     template.push('.');
                 } else {
@@ -509,9 +632,24 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
                 template.push_str(&s);
             }
             Token::IntegerLiteral(n) => {
-                let n = n;
+                // The lexer kept the **value**, so a run of picture characters
+                // that happens to look like a number loses its leading zeros:
+                // `PIC 090909` (three digit positions between zero insertions)
+                // came back as `90909` and edited one character too narrow.
+                // The token's span still records how many characters were
+                // written, so the zeros are put back from that.
+                let span = p.peek_span();
                 p.advance();
-                template.push_str(&n.to_string());
+                let text = n.to_string();
+                let written = span.end.saturating_sub(span.start);
+                // …but a **repeat count** is a number, so `PIC 9(06)` means six
+                // digits, not `9(06)`. Only digits outside the parentheses are
+                // picture characters.
+                let is_repeat_count = template.ends_with('(');
+                if !is_repeat_count && written > text.len() {
+                    template.push_str(&"0".repeat(written - text.len()));
+                }
+                template.push_str(&text);
             }
             Token::LParen => {
                 p.advance();
@@ -635,6 +773,17 @@ fn analyze_pic(template: &str) -> (PicKind, u16, u16) {
         return (kind, expanded.len().min(u16::MAX as usize) as u16, 0);
     }
     if expanded.iter().any(|&c| c == 'A') && !expanded.iter().any(|&c| c == '9') {
+        // `PIC ABA` / `PIC A/AA` are alphanumeric-**edited**: the `B` and `/`
+        // are insertion characters that occupy positions of their own. Counting
+        // only the `A`s made the item two or three characters wide instead of
+        // three or four, so its own VALUE no longer fitted it (NC114M).
+        if has_editing {
+            return (
+                PicKind::AlphanumericEdited,
+                expanded.len().min(u16::MAX as usize) as u16,
+                0,
+            );
+        }
         return (PicKind::Alphabetic, count(&|c| c == 'A'), 0);
     }
     if expanded.iter().any(|&c| c == '9' || c == 'S') {
@@ -659,6 +808,50 @@ fn analyze_pic(template: &str) -> (PicKind, u16, u16) {
             .count()
             .min(u16::MAX as usize) as u16;
         return (kind, digits, decimals);
+    }
+
+    // A picture built only from numeric-editing characters — carrying no `9` and
+    // no `S` at all, e.g. `ZZZZ`, `$.**`, `$**.**CR`, `----` — is still numeric
+    // edited: `Z`, `*` and a floating `$`/`+`/`-` each stand for a digit
+    // position. Reaching the alphanumeric fallback made such an item a
+    // non-numeric one, so a perfectly legal `DIVIDE … GIVING` receiver was
+    // rejected. The digit-position rule mirrors `numedit::counts`, which is what
+    // actually formats the value at run time.
+    if expanded
+        .iter()
+        .any(|&c| matches!(c, 'Z' | '*' | '$' | '+' | '-'))
+    {
+        let point = expanded.iter().position(|&c| c == 'V' || c == '.');
+        let (int_part, frac_part): (&[char], &[char]) = match point {
+            Some(p) => (&expanded[..p], &expanded[p + 1..]),
+            None => (&expanded[..], &[]),
+        };
+        // A repeated `$`/`+`/`-` is a *floating* insertion: every occurrence but
+        // the leading one is a digit position.
+        let floats = |sym: char| expanded.iter().filter(|&&c| c == sym).count() > 1;
+        let (float_dollar, float_plus, float_minus) = (floats('$'), floats('+'), floats('-'));
+        let mut int_digits = 0usize;
+        for &c in int_part {
+            match c {
+                'Z' | '*' => int_digits += 1,
+                '$' if float_dollar => int_digits += 1,
+                '+' if float_plus => int_digits += 1,
+                '-' if float_minus => int_digits += 1,
+                _ => {}
+            }
+        }
+        // A floating run reserves one leading position for the symbol itself.
+        let anchor = float_dollar as usize + float_plus as usize + float_minus as usize;
+        let int_digits = int_digits.saturating_sub(anchor);
+        let frac_digits = frac_part
+            .iter()
+            .filter(|&&c| matches!(c, 'Z' | '*'))
+            .count();
+        return (
+            PicKind::NumericEdited,
+            int_digits.min(u16::MAX as usize) as u16,
+            frac_digits.min(u16::MAX as usize) as u16,
+        );
     }
 
     // Fallback — treat as a single alphanumeric position.
@@ -890,17 +1083,50 @@ fn negate_literal(lit: Literal) -> Literal {
     }
 }
 
+/// Read one value of an 88-level list, folding an optional leading sign.
+///
+/// The lexer emits `+`/`-` as its own token so `COMPUTE X = Y - 3` stays
+/// unambiguous, which leaves every signed literal to be reassembled by the
+/// parser — `88 F VALUE -9 THRU -2` is three signed literals, not a
+/// subtraction.
+fn parse_signed_literal(p: &mut Parser) -> Option<(Literal, Span)> {
+    let neg = if p.eat(&Token::Minus) {
+        true
+    } else {
+        p.eat(&Token::Plus);
+        false
+    };
+    let (lit, span) = parse_literal(p)?;
+    Some((if neg { negate_literal(lit) } else { lit }, span))
+}
+
 fn parse_88_values(p: &mut Parser) -> Vec<ConditionValue> {
     let mut values = Vec::new();
     loop {
-        // Also must not be at a clause boundary
-        if p.at(&Token::Period) || p.at(&Token::Eof) || p.at_level_number() {
+        // Also must not be at a clause boundary. A period *glued* to its digits
+        // is not one: it opens a numeric literal (`88 E VALUE .01, .11`), which
+        // COBOL-85 allows because only a *trailing* decimal point is forbidden.
+        if (p.at(&Token::Period) && !crate::expr::at_leading_decimal_point(p)) || p.at(&Token::Eof) {
             break;
         }
-        if let Some((lit, _)) = parse_literal(p) {
-            if p.at(&Token::Through) {
+        // A value that opens a line is offered by the lexer as a level number,
+        // because that is where the next entry normally begins:
+        //
+        //     88 COND-2  VALUES ARE 06 THRU 10
+        //                           16 THRU 20  00.
+        //
+        // `16` is a value, not a new entry. What tells them apart is the
+        // data-name a real entry must carry next; a value is followed by
+        // `THRU`, another value, a comma, or the closing period.
+        if p.at_level_number() && matches!(p.peek_at(1), Token::Identifier(_)) {
+            break;
+        }
+        if let Some((lit, _)) = parse_signed_literal(p) {
+            // `THRU` and `THROUGH` are the same word; the lexer keeps them as
+            // distinct tokens, so both spellings have to be accepted here.
+            if p.at(&Token::Through) || p.at(&Token::Thru) {
                 p.advance();
-                if let Some((lit2, _)) = parse_literal(p) {
+                if let Some((lit2, _)) = parse_signed_literal(p) {
                     values.push(ConditionValue::Range(lit, lit2));
                 } else {
                     values.push(ConditionValue::Single(lit));
@@ -965,10 +1191,16 @@ fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
         idx: usize,
         children_of: &[Vec<usize>],
         items: &mut Vec<Option<DataDecl>>,
+        inherited_sign: Option<cobolt_ast::data::SignClause>,
     ) -> DataDecl {
         let mut node = items[idx].take().unwrap();
+        // A SIGN clause written on a group applies to every subordinate signed
+        // numeric DISPLAY item that does not carry one of its own, and a nested
+        // group overrides it for its own subtree (NC116A TEST-17/TEST-18).
+        node.sign = node.sign.or(inherited_sign);
+        let pass_down = node.sign;
         for &ci in &children_of[idx] {
-            let child = build_node(ci, children_of, items);
+            let child = build_node(ci, children_of, items, pass_down);
             node.children.push(child);
         }
         node
@@ -976,14 +1208,16 @@ fn build_tree(items: Vec<DataDecl>) -> Vec<DataDecl> {
 
     roots
         .into_iter()
-        .map(|i| build_node(i, &children_of, &mut items_opt))
+        .map(|i| build_node(i, &children_of, &mut items_opt, None))
         .collect()
 }
 
 #[cfg(test)]
 mod pic_tests {
-    use super::{analyze_pic, expand_pic_template};
+    use super::{analyze_pic, expand_pic_template, parse_pic_clause};
+    use crate::parser::Parser;
     use cobolt_ast::data::PicKind;
+    use cobolt_lexer::{tokenize, SourceFormat, Token};
 
     #[test]
     fn expands_parenthesised_repetitions() {
@@ -1011,5 +1245,59 @@ mod pic_tests {
         assert_eq!(analyze_pic("9(7)V99"), (PicKind::Numeric, 7, 2));
         assert_eq!(analyze_pic("S9(4)"), (PicKind::Numeric, 4, 0));
         assert_eq!(analyze_pic("999"), (PicKind::Numeric, 3, 0));
+    }
+
+    /// An all-editing picture carries no `9`, but `Z`, `*` and a floating
+    /// `$`/`+`/`-` are digit positions all the same — NIST NC175A/NC203A use
+    /// exactly these as `DIVIDE`/`SUBTRACT … GIVING` receivers.
+    #[test]
+    fn editing_only_pictures_are_numeric_edited() {
+        assert_eq!(analyze_pic("ZZZZ"), (PicKind::NumericEdited, 4, 0));
+        assert_eq!(analyze_pic("$.**"), (PicKind::NumericEdited, 0, 2));
+        assert_eq!(analyze_pic("$**.**CR"), (PicKind::NumericEdited, 2, 2));
+        // A floating run spends one position on the symbol itself.
+        assert_eq!(analyze_pic("----"), (PicKind::NumericEdited, 3, 0));
+        assert_eq!(analyze_pic("$$$$.**"), (PicKind::NumericEdited, 3, 2));
+        // A picture that *does* carry a `9` keeps the long-standing counting.
+        assert_eq!(analyze_pic("$$$$.99"), (PicKind::NumericEdited, 2, 0));
+        // Editing characters that are *not* digit positions stay alphanumeric.
+        assert_eq!(analyze_pic("BBB"), (PicKind::Alphanumeric, 3, 0));
+    }
+
+    /// `PIC ZZ,ZZZ.9` — the lexer calls the `9` after a period a level number,
+    /// since that is where a new data item usually starts. Glued to the period
+    /// it is the picture's fractional digit, and the template must keep it.
+    #[test]
+    fn editing_decimal_point_keeps_a_single_trailing_digit() {
+        // The template is fed in exactly as it follows `PIC`, with a real data
+        // item behind it: the clause must take the glued digit and still stop
+        // before the next level number.
+        let pic = |src: &str| {
+            let text = format!(" {src}.\n01  B PIC XX.\n");
+            let toks = tokenize(&text, SourceFormat::Free);
+            let mut p = Parser::new(toks);
+            let clause = parse_pic_clause(&mut p).expect("a PICTURE clause");
+            // The clause stops *at* the terminating period, leaving it for the
+            // caller — and the next data item must still be intact behind it.
+            assert!(
+                matches!(p.peek(), Token::Period)
+                    && matches!(p.peek_at(1), Token::LevelNumber(1)),
+                "the next data item must survive, got {:?} then {:?}",
+                p.peek(),
+                p.peek_at(1)
+            );
+            clause
+        };
+
+        let a = pic("ZZ,ZZZ.9");
+        assert_eq!(a.template, "ZZ,ZZZ.9");
+        assert_eq!(a.kind, PicKind::NumericEdited);
+        assert_eq!((a.digits, a.decimals), (1, 0));
+
+        // Two digits never truncated: 99 is not a level number.
+        assert_eq!(pic("ZZ,ZZZ.99").template, "ZZ,ZZZ.99");
+        // …and the all-editing form keeps its digit too.
+        assert_eq!(pic("****.9").template, "****.9");
+        assert_eq!(pic("****.9").kind, PicKind::NumericEdited);
     }
 }

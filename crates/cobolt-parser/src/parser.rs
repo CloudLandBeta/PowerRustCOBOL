@@ -6,10 +6,13 @@
 
 //! Core [`Parser`] struct and token-cursor API.
 
+use cobolt_ast::data::{ConditionValue, DataDecl, PicClause, PicKind, Usage};
+use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{
-    AccessMode, AlternateKey, EnvironmentDivision, FileControl, FileOrganization,
-    InputOutputSection, RustItemBlock, StorageMode,
+    AccessMode, AlternateKey, DataDivision, DataSection, EnvironmentDivision, FileControl,
+    FileOrganization, InputOutputSection, RustItemBlock, StorageMode,
 };
+use cobolt_ast::stmt::Stmt;
 use cobolt_lexer::{Span, SpannedToken, Token};
 
 use crate::data::parse_data_division;
@@ -32,12 +35,45 @@ pub struct Parser {
     /// Item-level `EXEC RUST` blocks captured in the CONFIGURATION SECTION
     /// (spec 041 R19); moved into the program alongside `repository`.
     pub(crate) rust_items: Vec<RustItemBlock>,
+    /// `SPECIAL-NAMES. CLASS name IS lit [THRU lit] …` — user-defined classes,
+    /// moved into `Program::classes`. Distinct from the `CLASS` that appears
+    /// under `REPOSITORY`, which binds a Rust type: the two are told apart by
+    /// what follows the name (a string literal *and* nothing else is the
+    /// repository form; a class definition lists literals or ranges).
+    pub(crate) classes: Vec<(String, Vec<(char, char)>)>,
+    /// `SPECIAL-NAMES. ALPHABET name IS …` — collating sequences, moved into
+    /// `Program::alphabets`.
+    pub(crate) alphabets: Vec<(String, cobolt_ast::program::AlphabetSpec)>,
+    /// `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS name` — moved into
+    /// `Program::collating_sequence`.
+    pub(crate) collating_sequence: Option<String>,
+    /// `SPECIAL-NAMES. <switch> IS <mnemonic> ON STATUS IS <name> OFF STATUS IS
+    /// <name>` — external switches, as
+    /// `(implementor name, mnemonic, on-name, off-name)`.
+    ///
+    /// A switch has no storage of its own in this implementation: the mnemonic
+    /// becomes a one-character WORKING-STORAGE item holding `"1"` (on) or
+    /// `"0"` (off), and each status name becomes an 88-level condition on it,
+    /// so `IF ON-SWITCH-1` and `SET SW-1 TO ON` both work through machinery
+    /// that already exists.
+    pub(crate) switches: Vec<(String, String, Option<String>, Option<String>)>,
     /// Scratch: the class name from the most recently parsed
     /// `USAGE OBJECT REFERENCE <class>`, consumed by the data item being built.
     pub(crate) pending_object_class: Option<String>,
     /// Next id for a statement-level `EXEC RUST` block, handed out in source
     /// order (spec 041).
     pub(crate) next_block_id: u32,
+    /// Statements a single parse function produced *in addition* to the one it
+    /// returned, drained by `parse_stmts` straight after it. `ALTER a TO
+    /// PROCEED TO b, c TO PROCEED TO d` is one statement in the source and a
+    /// series of `Stmt::Alter`s in the AST; queueing the extras keeps
+    /// `Stmt::Alter` a single pair, so the bincode-serialized AST is untouched.
+    pub(crate) pending: Vec<Stmt>,
+    /// Set while a subscript list is being parsed, so `+3` written with a space
+    /// before the sign and none after it is read as a **signed literal that
+    /// starts the next subscript** rather than as addition. See
+    /// [`Parser::starts_signed_subscript`].
+    pub(crate) in_subscript: bool,
 }
 
 impl Parser {
@@ -62,9 +98,61 @@ impl Parser {
             decimal_comma: false,
             repository: Vec::new(),
             rust_items: Vec::new(),
+            classes: Vec::new(),
+            alphabets: Vec::new(),
+            collating_sequence: None,
+            switches: Vec::new(),
             pending_object_class: None,
             next_block_id: block_id_base,
+            pending: Vec::new(),
+            in_subscript: false,
         }
+    }
+
+    /// `true` when the cursor sits on a `+`/`-` that COBOL-85 reads as the sign
+    /// of a **signed integer literal opening the next subscript**, not as an
+    /// arithmetic operator — `ELEM (IN1 +3)` is `ELEM (IN1, 3)`.
+    ///
+    /// The separator comma is dropped by the lexer ("a comma means what a space
+    /// means"), so `ELEM (IN1, +3)` and `ELEM (IN1 +3)` arrive here as the same
+    /// token stream and both have to split. The three conditions are exactly the
+    /// standard's: relative indexing (`IN1 - 1`) writes the operator with a
+    /// space on **both** sides, so a sign glued to its digits is a literal.
+    ///
+    /// * a space before the sign — `TBL (I+1)` stays arithmetic, which is what
+    ///   RustCOBOL programs already written that way mean;
+    /// * no space between the sign and the digits;
+    /// * no `:` after the digits — that parenthesis is a reference
+    ///   modification, whose leftmost position is an arithmetic expression.
+    pub(crate) fn starts_signed_subscript(&self) -> bool {
+        if !self.in_subscript {
+            return false;
+        }
+        let Some(sign) = self.tokens.get(self.pos) else {
+            return false;
+        };
+        if !matches!(sign.token, Token::Plus | Token::Minus) {
+            return false;
+        }
+        let Some(num) = self.tokens.get(self.pos + 1) else {
+            return false;
+        };
+        if !matches!(num.token, Token::IntegerLiteral(_)) || num.span.start != sign.span.end {
+            return false;
+        }
+        let glued_left = self
+            .pos
+            .checked_sub(1)
+            .and_then(|i| self.tokens.get(i))
+            .map(|t| t.span.end == sign.span.start)
+            .unwrap_or(false);
+        if glued_left {
+            return false;
+        }
+        !matches!(
+            self.tokens.get(self.pos + 2).map(|t| &t.token),
+            Some(Token::Colon)
+        )
     }
 
     // ── Token inspection ─────────────────────────────────────────────────────
@@ -431,6 +519,72 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         None
     };
 
+    // Give each SPECIAL-NAMES switch a home in WORKING-STORAGE before the
+    // PROCEDURE DIVISION is parsed, so `IF ON-SWITCH-1` resolves through the
+    // ordinary 88-level machinery instead of needing a switch concept of its
+    // own. See `Parser::switches`.
+    let mut data = data;
+    let switch_names: Vec<(String, String)> = p
+        .switches
+        .iter()
+        .map(|(external, mnemonic, _, _)| (external.clone(), mnemonic.clone()))
+        .collect();
+    if !p.switches.is_empty() {
+        let switches = std::mem::take(&mut p.switches);
+        let decls: Vec<DataDecl> = switches
+            .into_iter()
+            .map(|(_, mnemonic, on_name, off_name)| {
+                let mut children = Vec::new();
+                if let Some(on) = on_name {
+                    children.push(switch_status_decl(on, "1"));
+                }
+                if let Some(off) = off_name {
+                    children.push(switch_status_decl(off, "0"));
+                }
+                DataDecl {
+                    level: 1,
+                    name: Some(mnemonic),
+                    picture: Some(PicClause {
+                        template: "X".into(),
+                        kind: PicKind::Alphanumeric,
+                        digits: 1,
+                        decimals: 0,
+                        span: Span::dummy(),
+                    }),
+                    // A switch is off until something turns it on.
+                    value: Some(Literal::String("0".into())),
+                    usage: Usage::Display,
+                    object_class: None,
+                    occurs: None,
+                    redefines: None,
+                    renames: None,
+                    condition_values: Vec::new(),
+                    is_global: false,
+                    is_external: false,
+                    blank_when_zero: false,
+                    children,
+                    span: Span::dummy(),
+                    justified: false,
+                    sign: None,
+                }
+            })
+            .collect();
+        let dd = data.get_or_insert_with(|| DataDivision {
+            sections: Vec::new(),
+            span: Span::dummy(),
+        });
+        match dd
+            .sections
+            .iter_mut()
+            .find_map(|s| match s {
+                DataSection::WorkingStorage(items) => Some(items),
+                _ => None,
+            }) {
+            Some(items) => items.extend(decls),
+            None => dd.sections.push(DataSection::WorkingStorage(decls)),
+        }
+    }
+
     // PROCEDURE DIVISION (required)
     let procedure = parse_procedure_division(p);
 
@@ -446,6 +600,9 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
     // item in it silently stopped resolving.
     let repository = std::mem::take(&mut p.repository);
     let rust_items = std::mem::take(&mut p.rust_items);
+    let classes = std::mem::take(&mut p.classes);
+    let alphabets = std::mem::take(&mut p.alphabets);
+    let collating_sequence = p.collating_sequence.take();
 
     // Collect nested programs until END PROGRAM or EOF
     let mut nested_programs = Vec::new();
@@ -490,12 +647,315 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         end_program_name,
         decimal_comma: p.decimal_comma,
         repository,
+        classes,
+        switch_names,
+        alphabets,
+        collating_sequence,
     }
 }
 
 /// Parse the ENVIRONMENT DIVISION, capturing the INPUT-OUTPUT SECTION's
 /// FILE-CONTROL entries (SELECT … ASSIGN …). The CONFIGURATION SECTION is
 /// skipped. Stops at DATA / PROCEDURE / END / EOF.
+/// One `88 <status-name> VALUE "<digit>"` for a switch's ON or OFF condition.
+fn switch_status_decl(name: String, digit: &str) -> DataDecl {
+    DataDecl {
+        level: 88,
+        name: Some(name),
+        picture: None,
+        value: None,
+        usage: Usage::Display,
+        object_class: None,
+        occurs: None,
+        redefines: None,
+        renames: None,
+        condition_values: vec![ConditionValue::Single(Literal::String(digit.into()))],
+        is_global: false,
+        is_external: false,
+        blank_when_zero: false,
+        children: Vec::new(),
+        span: Span::dummy(),
+        justified: false,
+        sign: None,
+    }
+}
+
+/// `true` when the cursor sits on a SPECIAL-NAMES **switch** clause.
+///
+/// The shape `<implementor-name> IS <mnemonic>` is shared with the ordinary
+/// mnemonic clause (`CONSOLE IS CRT`), so what identifies a switch is the
+/// `ON`/`OFF` status clause that follows it. Requiring one keeps every other
+/// mnemonic on the skip path it has always taken.
+fn at_switch_clause(p: &Parser) -> bool {
+    if !matches!(p.peek(), Token::Identifier(_)) {
+        return false;
+    }
+    // `IS` is optional here too: `SWITCH-1 SW-1 ON STATUS IS …`.
+    let after = if matches!(p.peek_at(1), Token::Is) { 2 } else { 1 };
+    if !matches!(p.peek_at(after), Token::Identifier(_)) {
+        return false;
+    }
+    matches!(p.peek_at(after + 1), Token::On)
+        || matches!(p.peek_at(after + 1), Token::Identifier(w) if w.eq_ignore_ascii_case("OFF"))
+}
+
+/// Parse `<implementor-name> [IS] <mnemonic> {ON|OFF} [STATUS] [IS] <name> …`.
+///
+/// The switch itself is not modelled: [`Parser::switches`] records the mnemonic
+/// and its status names, and the data division synthesises a one-character item
+/// with an 88 per status. See [`Parser::switches`] for why.
+fn parse_special_names_switch(p: &mut Parser) {
+    // The implementor's switch name (XXXXX051, SWITCH-1, …) — how the switch is
+    // known *outside* the program, and so how it is set.
+    let external = match p.peek() {
+        Token::Identifier(n) => n.to_ascii_uppercase(),
+        _ => return,
+    };
+    p.advance();
+    p.eat(&Token::Is);
+    let mnemonic = match p.peek() {
+        Token::Identifier(n) => {
+            let n = n.to_ascii_uppercase();
+            p.advance();
+            n
+        }
+        _ => return,
+    };
+    let mut on_name: Option<String> = None;
+    let mut off_name: Option<String> = None;
+    loop {
+        let is_on = matches!(p.peek(), Token::On);
+        let is_off = matches!(p.peek(), Token::Identifier(w) if w.eq_ignore_ascii_case("OFF"));
+        if !is_on && !is_off {
+            break;
+        }
+        p.advance(); // ON / OFF
+        p.eat(&Token::Status); // optional STATUS
+        p.eat(&Token::Is); // optional IS
+        let name = match p.peek() {
+            Token::Identifier(n) => {
+                let n = n.to_ascii_uppercase();
+                p.advance();
+                n
+            }
+            _ => break,
+        };
+        if is_on {
+            on_name = Some(name);
+        } else {
+            off_name = Some(name);
+        }
+    }
+    p.switches.push((external, mnemonic, on_name, off_name));
+}
+
+/// Parse `CLASS <name> [IS] {literal [{THROUGH|THRU} literal]} …`.
+///
+/// Operands the CCVS leaves as implementor placeholders (`XXXXX090`, an
+/// *ordinal* the validator substitutes) are consumed and dropped: the class
+/// then has fewer ranges than the source describes, which is a suite
+/// substitution the harness does not perform — not a parse failure.
+fn parse_special_names_class(p: &mut Parser) {
+    p.advance(); // CLASS
+    let name = match p.peek() {
+        Token::Identifier(n) => {
+            let n = n.to_ascii_uppercase();
+            p.advance();
+            n
+        }
+        _ => return,
+    };
+    p.eat(&Token::Is);
+
+    /// One operand's characters, empty for a placeholder identifier.
+    fn take_operand(p: &mut Parser) -> Option<Vec<char>> {
+        match p.peek().clone() {
+            Token::StringLiteral(s) => {
+                p.advance();
+                Some(s.chars().collect())
+            }
+            // A numeric operand is the character's ordinal position, 1-based.
+            Token::IntegerLiteral(n) => {
+                p.advance();
+                Some(
+                    u32::try_from(n - 1)
+                        .ok()
+                        .and_then(char::from_u32)
+                        .into_iter()
+                        .collect(),
+                )
+            }
+            Token::Identifier(w) if !is_special_names_clause_word(&w) => {
+                p.advance();
+                Some(Vec::new())
+            }
+            _ => None,
+        }
+    }
+
+    let mut ranges: Vec<(char, char)> = Vec::new();
+    while let Some(first) = take_operand(p) {
+        // `lit-1 THRU lit-2` is one inclusive range between the two literals'
+        // first characters; a bare literal puts **every** character of itself
+        // in the class, each as a range spanning only itself. `CLASS ABCD IS
+        // "ABCD"` describing only `A` is how `'ADCBA' IS ACTUAL-ABCD` failed.
+        if matches!(p.peek(), Token::Through | Token::Thru) {
+            p.advance();
+            let second = take_operand(p).unwrap_or_default();
+            if let (Some(a), Some(b)) = (first.first(), second.first()) {
+                ranges.push(if a <= b { (*a, *b) } else { (*b, *a) });
+            }
+            continue;
+        }
+        ranges.extend(first.into_iter().map(|c| (c, c)));
+    }
+    p.classes.push((name, ranges));
+}
+
+/// `SPECIAL-NAMES. ALPHABET alphabet-name IS {NATIVE | STANDARD-1 | STANDARD-2
+/// | EBCDIC | literal-phrase}`.
+///
+/// The literal phrase is an ordered list of *positions*. A bare literal puts
+/// each of its characters at the next position in turn; `lit-1 THRU lit-2`
+/// expands to one position per character of the inclusive native range; and
+/// `ALSO` folds the operands it joins into a single shared position, which is
+/// how `"I" ALSO "J" ALSO "K"` makes those three characters compare equal.
+/// A figurative constant names its native character, so `ALSO HIGH-VALUE`
+/// gives `0xFF` the position it is written at (NC215A, NC219A).
+fn parse_special_names_alphabet(p: &mut Parser) {
+    use cobolt_ast::program::AlphabetSpec;
+    p.advance(); // ALPHABET
+    let Some((name, _)) = p.eat_identifier() else {
+        return;
+    };
+    let name = name.to_ascii_uppercase();
+    p.eat(&Token::Is);
+
+    // A named standard sequence stands alone — no operand list follows.
+    if let Token::Identifier(w) = p.peek().clone() {
+        let spec = match w.to_ascii_uppercase().as_str() {
+            "NATIVE" => Some(AlphabetSpec::Native),
+            "STANDARD-1" | "STANDARD-2" => Some(AlphabetSpec::Standard),
+            "EBCDIC" => Some(AlphabetSpec::Ebcdic),
+            _ => None,
+        };
+        if let Some(spec) = spec {
+            p.advance();
+            p.alphabets.push((name, spec));
+            return;
+        }
+    }
+
+    /// `,` and `;` are pure separators in COBOL and may sit between any two
+    /// operands — NC215A writes `"I" ALSO "J", ALSO "K", ALSO "L"`. Stopping
+    /// at one truncated the alphabet silently: every character after the first
+    /// comma went unlisted, so `ALSO` never folded and the rest of the sequence
+    /// fell back to native order.
+    fn skip_separators(p: &mut Parser) {
+        while p.eat(&Token::Comma) || p.eat(&Token::Semicolon) {}
+    }
+
+    /// One operand's characters; `None` when the cursor is not on an operand.
+    fn take_operand(p: &mut Parser) -> Option<Vec<char>> {
+        skip_separators(p);
+        match p.peek().clone() {
+            Token::StringLiteral(s) => {
+                p.advance();
+                Some(s.chars().collect())
+            }
+            // A numeric operand is the character's ordinal position, 1-based.
+            Token::IntegerLiteral(n) => {
+                p.advance();
+                Some(
+                    u32::try_from(n - 1)
+                        .ok()
+                        .and_then(char::from_u32)
+                        .into_iter()
+                        .collect(),
+                )
+            }
+            Token::HighValues => {
+                p.advance();
+                Some(vec!['\u{ff}'])
+            }
+            Token::LowValues => {
+                p.advance();
+                Some(vec!['\u{0}'])
+            }
+            Token::Spaces => {
+                p.advance();
+                Some(vec![' '])
+            }
+            Token::Quotes => {
+                p.advance();
+                Some(vec!['"'])
+            }
+            Token::Zeros => {
+                p.advance();
+                Some(vec!['0'])
+            }
+            _ => None,
+        }
+    }
+
+    let mut groups: Vec<Vec<char>> = Vec::new();
+    while let Some(first) = take_operand(p) {
+        skip_separators(p);
+        // `lit-1 THRU lit-2` — one position per character of the native range.
+        if matches!(p.peek(), Token::Through | Token::Thru) {
+            p.advance();
+            let second = take_operand(p).unwrap_or_default();
+            if let (Some(&a), Some(&b)) = (first.first(), second.first()) {
+                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                for c in lo..=hi {
+                    groups.push(vec![c]);
+                }
+            }
+            continue;
+        }
+        // `lit-1 ALSO lit-2 ALSO …` — every operand shares ONE position.
+        let mut group: Vec<char> = first;
+        let mut folded = false;
+        loop {
+            skip_separators(p);
+            // `ALSO` is a reserved word, not an identifier — matching it as one
+            // meant the fold never triggered and every operand took a position
+            // of its own, so `"I" ALSO "J"` left I and J unequal.
+            if !p.eat(&Token::Also) {
+                break;
+            }
+            let Some(more) = take_operand(p) else { break };
+            group.extend(more);
+            folded = true;
+        }
+        if folded {
+            groups.push(group);
+        } else {
+            // A bare literal contributes each of its characters in turn, so the
+            // whole COBOL character set can be written as one long literal.
+            groups.extend(group.into_iter().map(|c| vec![c]));
+        }
+    }
+    p.alphabets.push((name, AlphabetSpec::Literal(groups)));
+}
+
+/// Words that open another SPECIAL-NAMES clause, so an operand scan must stop
+/// rather than swallow them.
+fn is_special_names_clause_word(w: &str) -> bool {
+    [
+        "CLASS",
+        "ALPHABET",
+        "SYMBOLIC",
+        "CURRENCY",
+        "DECIMAL-POINT",
+        "CURSOR",
+        "CRT",
+        "REPOSITORY",
+    ]
+    .iter()
+    .any(|k| w.eq_ignore_ascii_case(k))
+}
+
 fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
     let span = p.peek_span();
     p.advance(); // ENVIRONMENT
@@ -514,7 +974,9 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                 p.eat(&Token::Section);
                 p.expect_period();
                 // Skip configuration paragraphs until the next section/division,
-                // but capture `DECIMAL-POINT IS COMMA` from SPECIAL-NAMES.
+                // but capture `DECIMAL-POINT IS COMMA`, the SPECIAL-NAMES
+                // switches and classes, and the REPOSITORY bindings.
+                let mut in_repository = false;
                 while !matches!(
                     p.peek(),
                     Token::InputOutput
@@ -538,12 +1000,41 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         p.rust_items.push(RustItemBlock { source, span });
                         continue;
                     }
+                    // `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS name`.
+                    // `PROGRAM` lexes as its own keyword rather than an
+                    // identifier, so it is matched here and not in the
+                    // identifier dispatch below.
+                    if matches!(p.peek(), Token::Program)
+                        && matches!(p.peek_at(1), Token::Identifier(w) if w.eq_ignore_ascii_case("COLLATING"))
+                    {
+                        p.advance(); // PROGRAM
+                        p.advance(); // COLLATING
+                        p.eat(&Token::Sequence);
+                        p.eat(&Token::Is);
+                        if let Some((n, _)) = p.eat_identifier() {
+                            p.collating_sequence = Some(n.to_ascii_uppercase());
+                        }
+                        continue;
+                    }
                     let ident = if let Token::Identifier(s) = p.peek() {
                         Some(s.clone())
                     } else {
                         None
                     };
                     match ident.as_deref() {
+                        // `CLASS` means two different things in this section:
+                        // under REPOSITORY it binds a Rust type (spec 005),
+                        // under SPECIAL-NAMES it defines a character class.
+                        // Nothing about the clause itself tells them apart, so
+                        // the paragraph the cursor is in does.
+                        Some(s) if s.eq_ignore_ascii_case("REPOSITORY") => {
+                            in_repository = true;
+                            p.advance();
+                        }
+                        Some(s) if s.eq_ignore_ascii_case("SPECIAL-NAMES") => {
+                            in_repository = false;
+                            p.advance();
+                        }
                         Some(s) if s.eq_ignore_ascii_case("DECIMAL-POINT") => {
                             // … IS COMMA  (IS optional) within the next few tokens
                             for k in 1..=3 {
@@ -555,6 +1046,21 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                                 }
                             }
                             p.advance();
+                        }
+                        // SPECIAL-NAMES: CLASS <name> [IS] lit [THRU lit] …
+                        Some(s) if s.eq_ignore_ascii_case("CLASS") && !in_repository => {
+                            parse_special_names_class(p);
+                        }
+                        // SPECIAL-NAMES: ALPHABET <name> [IS] <sequence>
+                        Some(s) if s.eq_ignore_ascii_case("ALPHABET") && !in_repository => {
+                            parse_special_names_alphabet(p);
+                        }
+                        // A switch: `<implementor-name> IS <mnemonic>` followed
+                        // by an ON and/or OFF status clause. Without one of
+                        // those clauses the same shape is an ordinary mnemonic
+                        // (`CONSOLE IS CRT`), which stays skipped.
+                        Some(_) if at_switch_clause(p) => {
+                            parse_special_names_switch(p);
                         }
                         // REPOSITORY: CLASS <name> [IS|AS] "<external>"  (spec 005).
                         Some(s) if s.eq_ignore_ascii_case("CLASS") => {

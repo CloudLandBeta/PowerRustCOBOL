@@ -110,6 +110,69 @@ fn expand(template: &str, decimal_comma: bool) -> Vec<Sym> {
     out
 }
 
+/// Recover the numeric value a numeric-**edited** item's characters spell out.
+///
+/// This is COBOL-85 *de-editing* (6.18.4 GR4b): moving an edited item to a
+/// numeric one transfers the value, not the characters. Digits are collected,
+/// the decimal point fixes the scale, and `CR`, `DB` or a `-` anywhere in the
+/// item makes it negative; currency, grouping, `*` protection, `/` and `B`
+/// insertions and blanks carry no value and are dropped. `"$ 123.45CR"` under
+/// `PIC $(4)9.99CR` therefore yields `-123.45`.
+///
+/// Returns `(mantissa, decimals)`.
+pub fn deedit(edited: &str, decimal_comma: bool) -> (i128, u8) {
+    let dec_char = if decimal_comma { ',' } else { '.' };
+    let upper = edited.to_ascii_uppercase();
+    let negative = upper.contains("CR") || upper.contains("DB") || upper.contains('-');
+    let mut mantissa: i128 = 0;
+    let mut decimals: u8 = 0;
+    let mut after_point = false;
+    for c in upper.chars() {
+        if c == dec_char {
+            after_point = true;
+            continue;
+        }
+        if let Some(d) = c.to_digit(10) {
+            mantissa = mantissa.saturating_mul(10).saturating_add(d as i128);
+            if after_point {
+                decimals = decimals.saturating_add(1);
+            }
+        }
+    }
+    (if negative { -mantissa } else { mantissa }, decimals)
+}
+
+/// How many **trailing `P`** scaling positions an edited picture carries.
+///
+/// `P` marks a digit position the item does not store: `PIC ZZZPP` holds three
+/// digits standing for hundreds. Leading `P`s (`PPZZ`, a purely fractional
+/// item) are not handled here — no CCVS85 member uses one on an edited item,
+/// and guessing at the scale would be worse than leaving it alone.
+fn trailing_scale(template: &str) -> u32 {
+    let up = template.to_ascii_uppercase();
+    let mut count = 0u32;
+    // Walk back over `P`s and the repeat counts that may follow a symbol, and
+    // stop at the first character that occupies a stored position.
+    for c in up.chars().rev() {
+        match c {
+            'P' => count += 1,
+            'V' | ')' | '(' | '0'..='9' => {}
+            _ => break,
+        }
+    }
+    // `P(3)` — a repeat count, which the loop above counted as a single `P`.
+    if count > 0 {
+        if let Some(open) = up.rfind("P(") {
+            if let Some(close) = up[open..].find(')') {
+                if let Ok(n) = up[open + 2..open + close].parse::<u32>() {
+                    return n;
+                }
+            }
+        }
+    }
+    count
+}
+
 /// Number of integer and fractional **digit positions** the picture represents.
 pub fn digit_counts(template: &str, decimal_comma: bool) -> (usize, usize) {
     let syms = expand(template, decimal_comma);
@@ -140,9 +203,19 @@ fn counts(syms: &[Sym]) -> (usize, usize) {
     let anchor = (float_dollar as usize) + (float_plus as usize) + (float_minus as usize);
     let int_digits = int_digits.saturating_sub(anchor);
 
+    // A floating symbol after the decimal point is a digit position too —
+    // `PIC ++++.++` has two fractional digits. Counting only `9`/`Z`/`*` there
+    // made the picture look integral, so the value was rescaled to zero
+    // decimals and `12.34` printed as `12.00`.
     let frac_digits = frac_part
         .iter()
-        .filter(|s| matches!(s, Sym::Nine | Sym::Z | Sym::Star))
+        .filter(|s| match s {
+            Sym::Nine | Sym::Z | Sym::Star => true,
+            Sym::Dollar => float_dollar,
+            Sym::Plus => float_plus,
+            Sym::Minus => float_minus,
+            _ => false,
+        })
         .count();
     (int_digits, frac_digits)
 }
@@ -162,6 +235,16 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
     let grp_char = if decimal_comma { '.' } else { ',' };
     let syms = expand(template, decimal_comma);
     let (int_digits, frac_digits) = counts(&syms);
+    // Trailing `P`s are digit positions the item spans but does not store, so
+    // its digits stand for tens/hundreds/… and the value has to be brought down
+    // to them before it is edited. `PIC ZZZPP` receiving 900 shows `  9`, not
+    // `900`. (`expand` drops `P` from the symbol list, which is right for the
+    // width — those positions print nothing.)
+    let trailing_p = trailing_scale(template);
+    let mantissa = match 10i128.checked_pow(trailing_p) {
+        Some(d) if trailing_p > 0 => mantissa / d,
+        _ => mantissa,
+    };
     let negative = mantissa < 0;
 
     // Rescale the source value (truncating) to the picture's fractional width.
@@ -181,6 +264,42 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
     let float_plus = syms.iter().filter(|s| **s == Sym::Plus).count() > 1;
     let float_minus = syms.iter().filter(|s| **s == Sym::Minus).count() > 1;
     let floating = float_dollar || float_plus || float_minus;
+    // "If all numeric character positions are represented by the floating
+    // insertion symbol and the value is zero, the entire item is spaces"
+    // (COBOL-85 floating insertion editing). `PIC ++++` holding zero is six
+    // blanks, not `   +` — and `PIC ++.++` is blanks, not `  +.++`. The test is
+    // that no `9` claims a position of its own: every digit position belongs to
+    // the floating run.
+    // Zero suppression that covers **every** digit position blanks the whole
+    // item when the value is zero — the decimal point included. `PIC ZZZ.ZZ`
+    // holding zero reads as spaces, not `   .00`; the same is true of a
+    // floating `PIC ++++` or `PIC ++++.++`. A single `9` anywhere claims a
+    // position that must always print, so the rule no longer applies.
+    if mantissa == 0
+        && (floating || syms.iter().any(|s| *s == Sym::Z))
+        && !syms.iter().any(|s| *s == Sym::Nine)
+    {
+        return " ".repeat(edited_width(template, decimal_comma));
+    }
+    // The same rule for asterisk (check) protection, with `*` in place of the
+    // blank: a zero value in a picture whose digit positions are all `*` fills
+    // the item with asterisks, **including** the fractional positions and the
+    // grouping commas, leaving only the decimal point itself. `PIC *,***.**`
+    // holding zero reads `*****.**`, not `*****.00`.
+    if mantissa == 0
+        && syms.iter().any(|s| *s == Sym::Star)
+        && !syms.iter().any(|s| *s == Sym::Nine)
+    {
+        return syms
+            .iter()
+            .map(|s| match s {
+                Sym::Point => dec_char,
+                Sym::Slash => '/',
+                Sym::Blank => ' ',
+                _ => '*',
+            })
+            .collect();
+    }
     let float_char = if float_dollar {
         '$'
     } else if float_plus {
@@ -245,22 +364,49 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
         }
         let _ = k;
     }
-    // Position of the floating char: immediately left of the first shown digit.
+    // Position of the floating char: the **character** immediately left of the
+    // first digit that shows — counted in template symbols, not in digit
+    // tokens, because a grouping comma can sit between them. In `PIC --,---.--`
+    // holding -123 the sign belongs on the comma's position (`  -123.00`);
+    // placing it on the nearest digit token instead left the comma's space
+    // between the sign and the number (` - 123.00`).
     let float_pos = if floating {
-        supp_end.saturating_sub(1)
+        let mut dt = 0usize;
+        let mut first_shown = None;
+        for (i, &s) in int_syms.iter().enumerate() {
+            if is_int_digit_tok(s) {
+                if dt >= supp_end {
+                    first_shown = Some(i);
+                    break;
+                }
+                dt += 1;
+            }
+        }
+        match first_shown {
+            Some(i) => Some(i.saturating_sub(1)),
+            // Every integer position is suppressed but the item still prints
+            // (its fraction has `9`s): the symbol goes in the **last** integer
+            // position, so `PIC $$$$$.99` holding zero reads `    $.00`.
+            None => int_syms.iter().rposition(|s| is_int_digit_tok(*s)),
+        }
     } else {
-        usize::MAX
+        None
     };
 
     let mut out = String::new();
     let mut seen_sig = false; // have we emitted a real digit yet (for commas)?
     let mut dt_idx = 0usize;
-    for &s in int_syms {
+    for (si, &s) in int_syms.iter().enumerate() {
+        if float_pos == Some(si) {
+            out.push(float_char);
+            if is_int_digit_tok(s) {
+                dt_idx += 1;
+            }
+            continue;
+        }
         if is_int_digit_tok(s) {
             let suppressed = dt_idx < supp_end;
-            if floating && dt_idx == float_pos {
-                out.push(float_char);
-            } else if suppressed {
+            if suppressed {
                 out.push(if s == Sym::Star { '*' } else { ' ' });
             } else {
                 let d = digit_for_tok[dt_idx].unwrap_or(b'0');
@@ -282,6 +428,17 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
                         });
                     }
                 }
+                // A simple-insertion character inside the **suppression zone**
+                // is replaced by the suppression character, exactly as a
+                // grouping comma is: `PIC -*B*99` holding -42 reads `-***42`,
+                // not `-* *42`. Past the zone it prints itself.
+                Sym::Blank | Sym::InsZero | Sym::Slash if !seen_sig && supp_end > 0 => {
+                    out.push(if int_syms.iter().any(|x| *x == Sym::Star) {
+                        '*'
+                    } else {
+                        ' '
+                    });
+                }
                 Sym::Blank => out.push(' '),
                 Sym::InsZero => out.push('0'),
                 Sym::Slash => out.push('/'),
@@ -302,6 +459,23 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
         for &s in frac_syms {
             match s {
                 Sym::Nine | Sym::Z | Sym::Star => {
+                    out.push(*frac_src.get(fi).unwrap_or(&b'0') as char);
+                    fi += 1;
+                }
+                // In a **floating** picture the symbols after the decimal point
+                // are digit positions, not another sign: zero suppression never
+                // crosses the point, so `PIC ++++.++` holding 12 reads
+                // `  +12.00`, not `  +12.++`. Only a picture whose sign symbol
+                // appears once (a fixed trailing sign) prints the sign here.
+                Sym::Dollar if float_dollar => {
+                    out.push(*frac_src.get(fi).unwrap_or(&b'0') as char);
+                    fi += 1;
+                }
+                Sym::Plus if float_plus => {
+                    out.push(*frac_src.get(fi).unwrap_or(&b'0') as char);
+                    fi += 1;
+                }
+                Sym::Minus if float_minus => {
                     out.push(*frac_src.get(fi).unwrap_or(&b'0') as char);
                     fi += 1;
                 }

@@ -139,6 +139,99 @@ pub struct CobolEnvironment {
     /// run-unit-wide via the [`ExternalStore`] (spec 005); GLOBAL items are not
     /// listed here — they are shared only within a program's nested units.
     external_names: std::collections::HashSet<String>,
+    /// `REDEFINES` pairs as declared: `(redefining key, target key)`. Collected
+    /// while the DATA DIVISION is walked and folded into [`Self::redefine_links`]
+    /// once every symbol is known.
+    redefine_pairs: Vec<(String, String)>,
+    /// Live `REDEFINES` overlay: a storage key that lies inside one of two
+    /// overlaid descriptions maps to `(the description it belongs to, a
+    /// description that shares those bytes)`. A write anywhere inside one is
+    /// re-rendered into every other, which is what makes
+    /// `MOVE x TO COMPUTED-N` visible when the program then reads `COMPUTED-A`
+    /// or the group above them.
+    redefine_links: IndexMap<String, Vec<(String, String)>>,
+    /// Guard: a redefine refresh writes through `set`, which would otherwise
+    /// bounce straight back into the description that started it.
+    syncing: bool,
+    /// Numeric items whose PICTURE carries `P` scaling positions:
+    /// `key → (trailing Ps, leading Ps)`. Those positions are not stored, so
+    /// they always read as zero — see [`pic_scaling`].
+    scaling_p: IndexMap<String, (u32, u32)>,
+    /// Numeric items declared **without** `S`. They carry no operational sign,
+    /// so a negative sender is stored as its absolute value — `PIC 9(18)`
+    /// receiving `-733…` holds `733…`, which is what the standard's "the
+    /// absolute value is used" rule means in practice.
+    unsigned_numeric: std::collections::HashSet<String>,
+    /// Alphanumeric items declared `JUSTIFIED RIGHT`. See [`Self::set`].
+    justified: std::collections::HashSet<String>,
+    /// Alphanumeric-**edited** items: `key → PICTURE template`. Their insertion
+    /// characters (`B` → space, `0` → zero, `/` → slash) belong to the item, not
+    /// to whatever is moved into it, so every store re-applies the template.
+    /// See [`apply_alnum_edit`].
+    alnum_edited: IndexMap<String, String>,
+    /// Signed numeric DISPLAY items declared `SIGN IS … SEPARATE CHARACTER`:
+    /// `key → leading?`. The sign occupies its own character position — one
+    /// **more** than the item's digit positions — and always holds a literal
+    /// `+` or `-`, never a space, even for a value that arrived unsigned.
+    ///
+    /// Only SEPARATE appears here. With an embedded sign the item is exactly
+    /// its digit positions wide and the sign rides on the leading or trailing
+    /// digit, which is the representation the store already has.
+    sign_separate: IndexMap<String, bool>,
+}
+
+/// Distribute `src`'s characters across an alphanumeric-edited PICTURE.
+///
+/// `X`, `A` and `9` take the sender's next character (padding with spaces once
+/// it runs out); `B`, `0` and `/` are **insertion** characters and print
+/// themselves. `PIC XXBXX/XX` receiving spaces reads `"     /  "`, which is
+/// what `INITIALIZE` on such an item has to leave behind (NC223A) and what
+/// `MOVE "ABCDEF" TO it` turns into `"AB CD/EF"` (NC114M).
+fn apply_alnum_edit(template: &str, src: &str) -> String {
+    let mut out = String::new();
+    let mut chars = src.chars();
+    let up: Vec<char> = template.to_ascii_uppercase().chars().collect();
+    let mut i = 0usize;
+    while i < up.len() {
+        let c = up[i];
+        i += 1;
+        // `X(4)` and friends: a repeat count applies to the symbol before it.
+        let mut repeat = 1usize;
+        if up.get(i) == Some(&'(') {
+            let mut j = i + 1;
+            let mut n = 0usize;
+            while j < up.len() && up[j].is_ascii_digit() {
+                n = n * 10 + (up[j] as usize - '0' as usize);
+                j += 1;
+            }
+            if up.get(j) == Some(&')') {
+                repeat = n.max(1);
+                i = j + 1;
+            }
+        }
+        for _ in 0..repeat {
+            match c {
+                'X' | 'A' | '9' => out.push(chars.next().unwrap_or(' ')),
+                'B' => out.push(' '),
+                '0' => out.push('0'),
+                '/' => out.push('/'),
+                // Anything else in an alphanumeric-edited picture takes a
+                // character position of its own and is copied through.
+                other => out.push(other),
+            }
+        }
+    }
+    out
+}
+
+/// The bytes of `s` with trailing spaces removed — the significant part of a
+/// COBOL alphanumeric value, which a `JUSTIFIED` receiver aligns at its right.
+fn trim_trailing_spaces(bytes: &[u8]) -> &[u8] {
+    let mut end = bytes.len();
+    while end > 0 && bytes[end - 1] == b' ' {
+        end -= 1;
+    }
+    &bytes[..end]
 }
 
 /// Run-unit-wide `EXTERNAL` data store.
@@ -210,6 +303,101 @@ fn base_name(key: &str) -> &str {
         Some(i) => &key[..i],
         None => key,
     }
+}
+
+/// Largest description, in expanded storage slots, that a live `REDEFINES`
+/// overlay will keep in step on every write. See `build_redefine_links`.
+const REDEFINE_SYNC_BUDGET: usize = 256;
+
+/// The decimal scaling a plain numeric PICTURE's `P` positions apply.
+///
+/// `P` stands for a digit position the item does **not** store — it only says
+/// where the decimal point sits relative to the digits that are. `PIC 999PP`
+/// holds three digits standing for hundreds, so its value is the stored number
+/// × 100 and its low two positions always read as zero; `PIC PP99` holds two
+/// digits standing for ten-thousandths. An item therefore spans more digit
+/// positions than its storage does, which is why the capacity the rest of this
+/// file works with counts the `P`s while the record layout (bytes on disk)
+/// does not.
+///
+/// Returns `(integer positions, decimal positions, trailing Ps, leading Ps)`,
+/// or `None` for a picture with no `P` in it.
+fn pic_scaling(template: &str) -> Option<(u16, u16, u32, u32)> {
+    let chars: Vec<char> = template.to_ascii_uppercase().chars().collect();
+    let mut syms: Vec<char> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        i += 1;
+        let mut n = 1usize;
+        if chars.get(i) == Some(&'(') {
+            let mut j = i + 1;
+            let mut v = 0usize;
+            while j < chars.len() && chars[j].is_ascii_digit() {
+                v = v * 10 + (chars[j] as usize - '0' as usize);
+                j += 1;
+            }
+            if chars.get(j) == Some(&')') {
+                n = v.max(1);
+                i = j + 1;
+            }
+        }
+        if !matches!(c, '9' | 'P' | 'V') {
+            continue; // `S` and anything else occupies no digit position here
+        }
+        for _ in 0..n {
+            syms.push(c);
+        }
+    }
+    if !syms.contains(&'P') {
+        return None;
+    }
+    let leading_p = syms.iter().take_while(|c| **c == 'P').count() as u32;
+    let nines = syms.iter().filter(|c| **c == '9').count() as u32;
+    if leading_p > 0 {
+        // The implied point sits to the LEFT of the `P` run: every position,
+        // stored or not, is fractional.
+        return Some((0, (leading_p + nines) as u16, 0, leading_p));
+    }
+    // Trailing `P`s: the implied point sits to their RIGHT. A `V` written after
+    // them is that point spelled out.
+    let body: &[char] = match syms.last() {
+        Some('V') => &syms[..syms.len() - 1],
+        _ => &syms[..],
+    };
+    let trailing_p = body.iter().rev().take_while(|c| **c == 'P').count() as u32;
+    if trailing_p == 0 {
+        return None; // `P`s in the middle are not a picture COBOL allows
+    }
+    let v_at = body.iter().position(|c| *c == 'V');
+    let (int_nines, frac_nines) = match v_at {
+        Some(p) => (
+            body[..p].iter().filter(|c| **c == '9').count() as u32,
+            body[p + 1..].iter().filter(|c| **c == '9').count() as u32,
+        ),
+        None => (nines, 0),
+    };
+    Some((
+        (int_nines + trailing_p) as u16,
+        frac_nines as u16,
+        trailing_p,
+        0,
+    ))
+}
+
+/// The subscripts a storage key carries: `A(2,3)` → `[2, 3]`; `A` → `[]`.
+/// The inverse of [`subscript_key`].
+fn key_indices(key: &str) -> Vec<i64> {
+    let (Some(open), Some(close)) = (key.find('('), key.rfind(')')) else {
+        return Vec::new();
+    };
+    if close <= open + 1 {
+        return Vec::new();
+    }
+    key[open + 1..close]
+        .split(',')
+        .filter_map(|p| p.trim().parse::<i64>().ok())
+        .collect()
 }
 
 /// Build the storage key for a subscripted reference: `("A", [2])` → `"A(2)"`.
@@ -307,13 +495,163 @@ impl CobolEnvironment {
                                 &origin,
                             );
                         }
+                        // An FD has ONE record area, however many `01`s
+                        // describe it: they are implicit redefinitions of one
+                        // another, so a write through any of them is visible
+                        // through the rest. CCVS85 leans on this in every
+                        // program — the report line is built in `PRINT-REC`
+                        // and written as `DUMMY-RECORD` — and without the
+                        // overlay each `01` kept its own storage, so every
+                        // heading came out blank and the held line was written
+                        // once per page-break statement instead of once.
+                        let mut records = fd.records.iter().filter_map(|r| r.name.as_ref());
+                        if let Some(first) = records.next() {
+                            let target = env.canon_key(&first.to_ascii_uppercase(), &[]);
+                            for other in records {
+                                let key = env.canon_key(&other.to_ascii_uppercase(), &[]);
+                                env.redefine_pairs.push((key, target.clone()));
+                            }
+                        }
                     }
                 }
                 DataSection::Screen(_) => {} // screen items handled by forms layer
             }
         }
         sync_redefines(&mut env, data);
+        env.build_redefine_links();
         env
+    }
+
+    /// Fold the declared `REDEFINES` pairs into the live overlay map.
+    ///
+    /// Two descriptions that redefine the same target overlay each other too,
+    /// so the pairs form equivalence classes: `COMPUTED-A`, `COMPUTED-N`,
+    /// `COMPUTED-4V14` and `CM-18V0` are four readings of the same twenty
+    /// bytes, and a write through any one of them has to be visible through the
+    /// other three. Every storage key *inside* a description triggers the
+    /// refresh, so writing `COMPUTED-18V0` — subordinate to `CM-18V0` — updates
+    /// `COMPUTED-A` as well.
+    fn build_redefine_links(&mut self) {
+        if self.redefine_pairs.is_empty() {
+            return;
+        }
+        // target key → every description overlaying those bytes, target first.
+        let mut classes: IndexMap<String, Vec<String>> = IndexMap::new();
+        for (redefining, target) in std::mem::take(&mut self.redefine_pairs) {
+            // A target that is itself a REDEFINES joins that same class.
+            let root = classes
+                .iter()
+                .find(|(_, members)| members.contains(&target))
+                .map(|(k, _)| k.clone())
+                .unwrap_or(target);
+            let members = classes.entry(root.clone()).or_insert_with(|| vec![root]);
+            if !members.contains(&redefining) {
+                members.push(redefining);
+            }
+        }
+        for members in classes.values() {
+            // A refresh re-renders one whole description and distributes it
+            // across another, on every write anywhere inside either. That is
+            // affordable for the flat records this exists for — CCVS's
+            // `COMPUTED-A` / `COMPUTED-N` are twenty bytes — and ruinous for a
+            // redefined 10×10×10 table, where one `MOVE` would walk a thousand
+            // occurrences twice. Classes above the budget keep the old,
+            // storage-per-description behaviour rather than making the program
+            // unrunnable.
+            if members.iter().any(|m| self.occurrence_weight(m) > REDEFINE_SYNC_BUDGET) {
+                continue;
+            }
+            for own in members {
+                let peers: Vec<(String, String)> = members
+                    .iter()
+                    .filter(|p| *p != own)
+                    .map(|p| (own.clone(), p.clone()))
+                    .collect();
+                if peers.is_empty() {
+                    continue;
+                }
+                for trigger in self.subtree_keys(own) {
+                    self.redefine_links.insert(trigger, peers.clone());
+                }
+            }
+        }
+    }
+
+    /// How many storage slots one description covers once its OCCURS
+    /// dimensions are expanded — the cost of rendering or distributing it once.
+    fn occurrence_weight(&self, key: &str) -> usize {
+        self.subtree_keys(key)
+            .iter()
+            .map(|k| {
+                self.symbols
+                    .get(k)
+                    .map(|s| s.dims.iter().product::<usize>().max(1))
+                    .unwrap_or(1)
+            })
+            .sum()
+    }
+
+    /// A description's own key plus every subordinate storage key under it.
+    fn subtree_keys(&self, key: &str) -> Vec<String> {
+        let mut out = vec![key.to_string()];
+        let mut i = 0;
+        while i < out.len() {
+            if let Some(sym) = self.symbols.get(&out[i]) {
+                for ck in sym.layout_keys.clone() {
+                    if !out.contains(&ck) {
+                        out.push(ck);
+                    }
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// Re-render the description a write landed in into every description that
+    /// shares its bytes. Guarded so the refresh does not bounce back.
+    fn refresh_redefine_peers(&mut self, key: &str) {
+        if self.syncing {
+            return;
+        }
+        let Some(peers) = self.redefine_links.get(base_name(key)).cloned() else {
+            return;
+        };
+        self.syncing = true;
+        for (own, peer) in peers {
+            let bytes = self.display_string(&own).unwrap_or_default();
+            self.set_from_bytes(&peer, &bytes);
+        }
+        self.syncing = false;
+    }
+
+    /// Store the character form `s` into `key`, reading it the way `key` is
+    /// described: a group distributes it, an edited item keeps the characters,
+    /// and a plain numeric reads them as its own digit positions with the
+    /// implied decimal point in its declared place.
+    fn set_from_bytes(&mut self, key: &str, s: &str) {
+        if self.is_group(key) {
+            self.set_group(key, s);
+            return;
+        }
+        if self.edited_templates.contains_key(base_name(key)) {
+            self.set_str_left(key, s);
+            return;
+        }
+        if let Some(&(int_digits, decimals)) = self.field_caps.get(base_name(key)) {
+            let width = int_digits as usize + decimals as usize;
+            let mut digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
+            if digits.len() < width {
+                digits.push_str(&"0".repeat(width - digits.len()));
+            }
+            digits.truncate(width);
+            let mantissa = digits.parse::<i128>().unwrap_or(0);
+            let signed = if s.contains('-') { -mantissa } else { mantissa };
+            self.store
+                .insert(key.to_string(), CobolValue::Numeric(CobolNumeric::new(signed, decimals)));
+            return;
+        }
+        self.set_str_left(key, s);
     }
 
     /// Initialise `decl`; when `external` is set, record every storage key it
@@ -484,6 +822,13 @@ impl CobolEnvironment {
             // Canonical storage key: the leaf itself when unique, otherwise a
             // path-qualified key that disambiguates duplicated names.
             let key = self.canon_key(&leaf, quals);
+            // `REDEFINES` names a SIBLING, so the target shares this item's
+            // ancestor path. Record the pair; the overlay is wired up once
+            // every symbol exists (`build_redefine_links`).
+            if let Some(target) = &decl.redefines {
+                let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
+                self.redefine_pairs.push((key.clone(), tkey));
+            }
             // Register any 88-level condition-names qualifying this item.
             for c in &decl.children {
                 if c.level == 88 {
@@ -519,11 +864,17 @@ impl CobolEnvironment {
             // have no name to correspond by. A group's *bytes*, though, are all
             // of its items: drop the FILLERs and `01 T. 05 HH PIC 99. 05 PIC X
             // VALUE ":". 05 MM PIC 99.` reads back as "1234" instead of "12:34".
+            //
+            // A REDEFINES item is the exception: it is a second description of
+            // storage its target already owns, not storage of its own, so
+            // counting it made the group twice as wide as it is —
+            // `04 G. 05 D PIC 9(10). 05 R REDEFINES D PIC 9(6)V9999.` read back
+            // as twenty digits instead of ten.
             let layout_keys: Vec<String> = decl
                 .children
                 .iter()
                 .enumerate()
-                .filter(|(_, c)| c.level != 88 && c.level != 66)
+                .filter(|(_, c)| c.level != 88 && c.level != 66 && c.redefines.is_none())
                 .map(|(i, c)| match c.name.as_deref() {
                     Some(n) if !n.eq_ignore_ascii_case("FILLER") => {
                         self.canon_key(&n.to_ascii_uppercase(), &child_path)
@@ -578,7 +929,9 @@ impl CobolEnvironment {
                 .or_default()
                 .push(key.clone());
             // Record elementary (leaf) items in declaration order for 66 RENAMES.
-            if decl.children.is_empty() {
+            // 88-level condition-names do not make an item a group, so one that
+            // carries them is still a leaf and still belongs in the order.
+            if !has_storage_children(decl) {
                 self.elem_order.push(key.clone());
             }
             // Base/template slot + caps/edited (one value; subscript slots are
@@ -609,6 +962,12 @@ impl CobolEnvironment {
             if unnamed && child.children.is_empty() {
                 if let Some(parent) = owner_key.as_deref() {
                     let fk = filler_key(parent, i);
+                    // A FILLER holds bytes like any other leaf, so a 66 RENAMES
+                    // range that spans it has to carry it too. Leaving it out of
+                    // the order closed the gap it occupies: `RENAMES
+                    // SUB-GRP-FOR-RENAMES-1 THRU ELEM-FOR-RENAMES-2` read
+                    // "X123" instead of "X  123" (NC252A RENAM-TEST-5/6).
+                    self.elem_order.push(fk.clone());
                     self.insert_value(&fk, child);
                     continue;
                 }
@@ -644,7 +1003,19 @@ impl CobolEnvironment {
                 return;
             }
         }
-        let default = default_value(decl);
+        // `P` scaling positions are digit positions the item spans but does not
+        // store, so its capacity and its scale both count them while
+        // `pic.digits`/`pic.decimals` (the stored positions, and therefore the
+        // record layout's byte width) do not.
+        let scaled = decl
+            .picture
+            .as_ref()
+            .filter(|pic| pic.kind == PicKind::Numeric)
+            .and_then(|pic| pic_scaling(&pic.template));
+        let mut default = default_value(decl);
+        if let (Some((_, decimals, _, _)), CobolValue::Numeric(n)) = (scaled, &mut default) {
+            n.decimals = decimals.min(u8::MAX as u16) as u8;
+        }
         let value = if let Some(lit) = &decl.value {
             apply_literal(lit, &default)
         } else {
@@ -652,13 +1023,59 @@ impl CobolEnvironment {
         };
         if let Some(pic) = &decl.picture {
             if pic.kind == PicKind::Numeric {
-                let int_digits = pic.digits.min(u8::MAX as u16) as u8;
-                let decimals = pic.decimals.min(u8::MAX as u16) as u8;
-                self.field_caps
-                    .insert(upper.to_string(), (int_digits, decimals));
+                let (digits, decimals) = match scaled {
+                    Some((d, dec, _, _)) => (d, dec),
+                    None => (pic.digits, pic.decimals),
+                };
+                self.field_caps.insert(
+                    upper.to_string(),
+                    (
+                        digits.min(u8::MAX as u16) as u8,
+                        decimals.min(u8::MAX as u16) as u8,
+                    ),
+                );
+                if let Some((_, _, trailing_p, leading_p)) = scaled {
+                    self.scaling_p
+                        .insert(upper.to_string(), (trailing_p, leading_p));
+                }
+                // No `S` in the template means the item has no sign position
+                // to store one in, so it holds the **absolute** value of
+                // whatever is moved or computed into it.
+                // BLANK WHEN ZERO is not confined to an *edited* picture: the
+                // standard allows it on any numeric DISPLAY item, and
+                // `PIC 9(10) BLANK WHEN ZERO` holding zero reads as ten spaces.
+                // Registering it only for NumericEdited meant a plain picture
+                // kept its digits, and NC107A's BZERO-TEST-1/2 only passed
+                // because comparing those digits against spaces coerced both
+                // sides to 0.0.
+                if decl.blank_when_zero {
+                    self.blank_when_zero.insert(upper.to_string());
+                }
+                if !pic.template.to_ascii_uppercase().contains('S') {
+                    self.unsigned_numeric.insert(upper.to_string());
+                } else if let Some(sign) = decl.sign.filter(|s| s.separate) {
+                    // SEPARATE only means anything on a signed DISPLAY item:
+                    // an unsigned PICTURE has no sign to separate, and COMP
+                    // items are not stored as characters at all.
+                    if matches!(decl.usage, Usage::Display) {
+                        self.sign_separate.insert(upper.to_string(), sign.leading);
+                    }
+                }
+            }
+            // An alphanumeric-edited item owns its insertion characters, so the
+            // template is kept and re-applied on every store.
+            if pic.kind == PicKind::AlphanumericEdited {
+                self.alnum_edited
+                    .insert(upper.to_string(), pic.template.clone());
+            }
+            // JUSTIFIED applies only to an alphanumeric/alphabetic receiver;
+            // the standard does not allow it on a numeric or edited one.
+            if decl.justified && matches!(pic.kind, PicKind::Alphanumeric) {
+                self.justified.insert(upper.to_string());
             }
         }
         self.store.insert(upper.to_string(), value);
+        self.truncate_to_capacity(upper);
     }
 
     // ── Hierarchy / occurrence accessors ────────────────────────────────────
@@ -796,51 +1213,138 @@ impl CobolEnvironment {
     /// VALUE 60 THRU 100.` is an ordinary numeric field, and treating it as a
     /// group made it read back as the empty concatenation of no children.
     pub fn is_group(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
         self.symbols
-            .get(&name.to_ascii_uppercase())
+            .get(base_name(&key))
             .map(|s| s.is_group && !s.layout_keys.is_empty())
             .unwrap_or(false)
+    }
+
+    /// The storage keys that make up **one occurrence** of a group, in layout
+    /// order. `prefix` is the subscript the group itself was referenced with.
+    ///
+    /// A subordinate item that adds its own OCCURS contributes one key per
+    /// occurrence of the dimensions the prefix does not already fix, in
+    /// row-major order (the last dimension varies fastest) — so `GRP-1 (2)` of
+    /// `02 GRP-1 OCCURS 6. 03 ELEM1 PIC XXX OCCURS 4.` is
+    /// `ELEM1 (2,1) … ELEM1 (2,4)`, not the bare `ELEM1` template slot.
+    /// With an empty prefix this walks a whole table, which is what makes the
+    /// enclosing `01` record read and write as the flat bytes of every
+    /// occurrence.
+    fn occurrence_keys(&self, sym: &ItemSym, prefix: &[i64]) -> Vec<String> {
+        let mut out = Vec::new();
+        for ck in &sym.layout_keys {
+            // A synthetic FILLER slot has no symbol entry; it shares its
+            // parent's dimensions and so takes the prefix unchanged.
+            let dims: &[usize] = match self.symbols.get(ck) {
+                Some(cs) if cs.dims.len() > prefix.len() => &cs.dims[prefix.len()..],
+                _ => &[],
+            };
+            if dims.is_empty() {
+                out.push(subscript_key(ck, prefix));
+                continue;
+            }
+            let total: usize = dims.iter().product();
+            for n in 0..total {
+                let mut rem = n;
+                let mut idx = prefix.to_vec();
+                let mut tail = vec![0i64; dims.len()];
+                for d in (0..dims.len()).rev() {
+                    tail[d] = (rem % dims[d]) as i64 + 1;
+                    rem /= dims[d];
+                }
+                idx.extend_from_slice(&tail);
+                out.push(subscript_key(ck, &idx));
+            }
+        }
+        out
     }
 
     /// The synthesized value of a group: its subordinate items' display strings
     /// concatenated in declaration order. `None` when `name` is not a group.
     ///
-    /// Nested groups fold in through [`display_string`], which routes a group
-    /// back here — so a group of groups reads as the whole flattened record.
+    /// Accepts a subscripted key (`GRP-1(2)`), which reads that one occurrence
+    /// of the group. Nested groups fold in through [`display_string`], which
+    /// routes a group back here — so a group of groups reads as the whole
+    /// flattened record.
     pub fn group_value(&self, name: &str) -> Option<String> {
-        let sym = self.symbols.get(&name.to_ascii_uppercase())?;
+        let key = name.to_ascii_uppercase();
+        let sym = self.symbols.get(base_name(&key))?;
         // `layout_keys` empty ⇒ no subordinate data items ⇒ elementary, whatever
         // `is_group` says (88-level condition-names count as children there).
         if !sym.is_group || sym.layout_keys.is_empty() {
             return None;
         }
         let mut out = String::new();
-        for ck in &sym.layout_keys {
-            out.push_str(&self.display_string(ck).unwrap_or_default());
+        for ck in self.occurrence_keys(sym, &key_indices(&key)) {
+            out.push_str(&self.display_string(&ck).unwrap_or_default());
         }
         Some(out)
     }
 
     /// The stored width of one item in bytes — its rendered, fixed-width form.
     /// For a group that is the sum of its children, by the same recursion.
+    ///
+    /// A group's width is summed from its parts rather than measured on the
+    /// concatenation: building the string of a large table just to take its
+    /// length allocated the whole record on every child of every group move.
     fn item_width(&self, key: &str) -> usize {
+        if let Some(sym) = self.symbols.get(base_name(&key.to_ascii_uppercase())) {
+            if sym.is_group && !sym.layout_keys.is_empty() {
+                return self
+                    .occurrence_keys(sym, &key_indices(&key.to_ascii_uppercase()))
+                    .iter()
+                    .map(|k| self.item_width(k))
+                    .sum();
+            }
+        }
         self.display_string(key).map(|d| d.len()).unwrap_or(0)
+    }
+
+    /// The stored width of any item, in characters — a group's whole record or
+    /// an elementary item's own field.
+    ///
+    /// This is the size `UNSTRING … INTO a b c` (with no `DELIMITED BY`) hands
+    /// each receiver in turn: without a delimiter the standard splits the
+    /// source by the receivers' own sizes.
+    pub fn stored_width(&self, name: &str) -> usize {
+        self.item_width(&name.to_ascii_uppercase())
+    }
+
+    /// The total stored width of a **group**, in bytes: every subordinate item
+    /// of every occurrence, summed.
+    ///
+    /// `None` for an elementary item, whose fill width is
+    /// [`Self::alphanumeric_capacity`]. A group needs its own accessor because
+    /// `MOVE ALL literal TO <group>` fills the whole record — without one the
+    /// literal was written once and the rest of the record stayed as it was, so
+    /// `MOVE ALL "ABC…Z" TO <7-dimension table>` filled only the first
+    /// occurrence of the outermost OCCURS (NC242A/NC243A).
+    pub fn group_width(&self, name: &str) -> Option<usize> {
+        let key = name.to_ascii_uppercase();
+        let sym = self.symbols.get(base_name(&key))?;
+        if !sym.is_group || sym.layout_keys.is_empty() {
+            return None;
+        }
+        Some(self.item_width(&key))
     }
 
     /// Distribute `s` across a group's subordinate items by each one's stored
     /// width, left to right — a group move is alphanumeric, so the bytes land
     /// where they fall and each child is padded to its own width.
     ///
-    /// Recurses into subordinate groups so a nested record fills correctly.
+    /// Recurses into subordinate groups so a nested record fills correctly, and
+    /// accepts a subscripted key (`GRP-1(2)`) so a group move into one
+    /// occurrence of a table lands in that occurrence's own child slots.
     pub fn set_group(&mut self, name: &str, s: &str) {
         let key = name.to_ascii_uppercase();
-        let Some(sym) = self.symbols.get(&key) else {
+        let Some(sym) = self.symbols.get(base_name(&key)) else {
             return;
         };
         if !sym.is_group || sym.layout_keys.is_empty() {
             return; // elementary (see `is_group` on 88-level children)
         }
-        let child_keys = sym.layout_keys.clone();
+        let child_keys = self.occurrence_keys(sym, &key_indices(&key));
         let bytes = s.as_bytes();
         let mut pos = 0usize;
         for ck in child_keys {
@@ -854,12 +1358,22 @@ impl CobolEnvironment {
             let padded = format!("{chunk:<width$}");
             if self.is_group(&ck) {
                 self.set_group(&ck, &padded);
-            } else if self.field_caps.contains_key(&ck) {
-                // Numeric receiver: keep the digits the bytes spell out. A slice
-                // that is not a number (spaces from a short sender) leaves the
-                // child alone rather than zeroing it.
-                if let Ok(n) = padded.trim().parse::<i128>() {
-                    self.set(&ck, CobolValue::from_i64(n as i64));
+            } else if self.field_caps.contains_key(base_name(&ck)) {
+                // Numeric receiver: keep the digits the bytes spell out.
+                match padded.trim().parse::<i128>() {
+                    Ok(n) => self.set(&ck, CobolValue::from_i64(n as i64)),
+                    // A group move carries **bytes**, not values, so a slice
+                    // that is not a number lands in the child as it stands —
+                    // `MOVE SPACE TO <group of PIC 99 children>` has to leave
+                    // the group reading as spaces, which it cannot do while the
+                    // children keep their old digits.
+                    Err(_) if padded.trim().is_empty() => {
+                        let width = padded.len();
+                        self.store
+                            .insert(ck.clone(), CobolValue::from_str(&padded, width));
+                        self.refresh_redefine_peers(&ck);
+                    }
+                    Err(_) => {}
                 }
             } else {
                 self.set_str(&ck, &padded);
@@ -877,6 +1391,21 @@ impl CobolEnvironment {
             s.push_str(&self.display_string(k).unwrap_or_default());
         }
         Some(s)
+    }
+
+    /// The total stored width of a 66-level RENAMES item, in characters.
+    ///
+    /// `None` when `name` is not a RENAMES item. `MOVE ALL "X" TO <renames>`
+    /// needs this for the same reason a group does: the fill has to reach every
+    /// covered byte, not just the first (NC252A RENAM-TEST-3).
+    pub fn renames_width(&self, name: &str) -> Option<usize> {
+        let covered = self.renames.get(&name.to_ascii_uppercase())?;
+        Some(
+            covered
+                .iter()
+                .map(|k| self.display_string(k).map(|d| d.len()).unwrap_or(0))
+                .sum(),
+        )
     }
 
     /// Distribute `s` across the covered items of a RENAMES item by each item's
@@ -957,10 +1486,60 @@ impl CobolEnvironment {
     /// Integer-digit capacity of a numeric field, if known (for ON SIZE ERROR).
     pub fn integer_capacity(&self, name: &str) -> Option<u8> {
         let key = name.to_ascii_uppercase();
-        self.field_caps
+        if let Some((d, _)) = self
+            .field_caps
             .get(&key)
             .or_else(|| self.field_caps.get(base_name(&key)))
-            .map(|(d, _)| *d)
+        {
+            return Some(*d);
+        }
+        // A numeric-edited item keeps no `field_caps` entry — it holds its
+        // edited characters — so its capacity comes from the template's digit
+        // positions before the decimal point, exactly as its scale does. With
+        // no capacity the size error condition could never arise for one, and
+        // `MULTIPLY 999999 BY 999999 GIVING <PIC $**.99> ON SIZE ERROR …`
+        // truncated the product into the field instead of leaving it alone.
+        let template = self.edited_templates.get(base_name(&key))?;
+        let (int, _) = crate::numedit::digit_counts(template, self.decimal_comma);
+        Some(int.min(u8::MAX as usize) as u8)
+    }
+
+    /// Declared decimal places of a numeric field, if known.
+    ///
+    /// Read from the PICTURE rather than from the value, because a
+    /// **numeric-edited** item holds its edited character form: asking the
+    /// stored value for its scale returned nothing, so `ROUNDED` silently did
+    /// not round into one — `MULTIPLY .9 BY 80.12 GIVING <$$$$.99> ROUNDED`
+    /// edited the truncated 72.10 instead of 72.11.
+    pub fn decimal_places(&self, name: &str) -> Option<u8> {
+        let key = name.to_ascii_uppercase();
+        if let Some((_, d)) = self
+            .field_caps
+            .get(&key)
+            .or_else(|| self.field_caps.get(base_name(&key)))
+        {
+            return Some(*d);
+        }
+        // A numeric-edited item keeps no entry in `field_caps` — its scale is
+        // the count of digit positions after the template's decimal point.
+        let template = self.edited_templates.get(base_name(&key))?;
+        let (_, dec) = crate::numedit::digit_counts(template, self.decimal_comma);
+        Some(dec.min(u8::MAX as usize) as u8)
+    }
+
+    /// How many **trailing `P`** positions the item's PICTURE carries.
+    ///
+    /// Those positions are not stored but they *are* digit positions, so the
+    /// item's least significant digit sits that many powers of ten above the
+    /// units — which is the position `ROUNDED` has to round to. 0 for every
+    /// item without trailing `P`s, which is nearly all of them.
+    pub fn trailing_scale_positions(&self, name: &str) -> u32 {
+        let key = name.to_ascii_uppercase();
+        self.scaling_p
+            .get(&key)
+            .or_else(|| self.scaling_p.get(base_name(&key)))
+            .map(|(trailing, _)| *trailing)
+            .unwrap_or(0)
     }
 
     /// The de-edited character form of a plain numeric field for a MOVE to an
@@ -984,6 +1563,16 @@ impl CobolEnvironment {
         } else {
             None
         }
+    }
+
+    /// The value a numeric-**edited** item's characters spell out, or `None`
+    /// when the item is not numeric-edited. See [`crate::numedit::deedit`].
+    pub fn deedited_value(&self, name: &str) -> Option<CobolNumeric> {
+        let key = name.to_ascii_uppercase();
+        self.edited_templates.get(base_name(&key))?;
+        let chars = self.display_string(&key)?;
+        let (mantissa, decimals) = crate::numedit::deedit(&chars, self.decimal_comma);
+        Some(CobolNumeric::new(mantissa, decimals))
     }
 
     /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
@@ -1011,11 +1600,73 @@ impl CobolEnvironment {
     /// Store `s` left-justified (space-padded) into an alphanumeric field.
     pub fn set_str_left(&mut self, name: &str, s: &str) {
         let key = name.to_ascii_uppercase();
+        // An alphanumeric-edited receiver still imposes its template on the
+        // characters: this shortcut would otherwise drop the insertions and
+        // store the sender's digits raw.
+        if self.alnum_edited.contains_key(base_name(&key)) {
+            self.set(&key, CobolValue::from_str(s, s.len()));
+            return;
+        }
         let cap = match self.get(&key) {
             Some(CobolValue::String { capacity, .. }) => *capacity,
             _ => s.len(),
         };
-        self.store.insert(key, CobolValue::from_str(s, cap));
+        self.store.insert(key.clone(), CobolValue::from_str(s, cap));
+        self.refresh_redefine_peers(&key);
+    }
+
+    /// `true` when `name` is declared `BLANK WHEN ZERO`.
+    ///
+    /// Such an item holding zero *is* spaces — that is its character form — but
+    /// the value stays numeric so arithmetic on it is unaffected. A comparison
+    /// against an alphanumeric operand has to read the character form, and the
+    /// comparison itself sees only values, so the caller asks here.
+    pub fn is_blank_when_zero(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
+        self.blank_when_zero.contains(&key) || self.blank_when_zero.contains(base_name(&key))
+    }
+
+    /// `Some(leading?)` when `key` is a `SIGN IS … SEPARATE CHARACTER` item.
+    fn separate_sign_of(&self, key: &str) -> Option<bool> {
+        self.sign_separate
+            .get(key)
+            .or_else(|| self.sign_separate.get(base_name(key)))
+            .copied()
+    }
+
+    /// Put the operational sign of a `SIGN … SEPARATE CHARACTER` item into its
+    /// own character position.
+    ///
+    /// [`format_display_numeric`] renders the embedded form: bare digits, with a
+    /// `-` glued on only when the value is negative. A separate sign is a
+    /// declared *storage* position that is always occupied, so the digits are
+    /// stripped of any sign and an explicit `+` or `-` is placed at the front
+    /// (LEADING) or the back (TRAILING). `MOVE 15759 TO <S9(5) SIGN LEADING
+    /// SEPARATE>` therefore stores `+15759`, six characters, not `15759`
+    /// (NC116A SIG-TEST-GF-1 / GF-15 / GF-16).
+    /// Finish an unedited numeric item's character form: place a separate sign
+    /// if it has one, then blank the whole field if it is `BLANK WHEN ZERO` and
+    /// holds zero. Blanking comes last so the sign position is blanked too —
+    /// the clause blanks the *item*, not just its digits.
+    fn finish_numeric_display(&self, key: &str, n: &CobolNumeric, rendered: String) -> String {
+        let out = self.apply_separate_sign(key, n, rendered);
+        if n.mantissa == 0 && self.blank_when_zero.contains(base_name(key)) {
+            return " ".repeat(out.chars().count());
+        }
+        out
+    }
+
+    fn apply_separate_sign(&self, key: &str, n: &CobolNumeric, rendered: String) -> String {
+        let Some(leading) = self.separate_sign_of(key) else {
+            return rendered;
+        };
+        let digits = rendered.strip_prefix('-').unwrap_or(&rendered);
+        let sign = if n.mantissa < 0 { '-' } else { '+' };
+        if leading {
+            format!("{sign}{digits}")
+        } else {
+            format!("{digits}{sign}")
+        }
     }
 
     /// Render a data item for `DISPLAY`. A USAGE-DISPLAY numeric item is shown as
@@ -1039,7 +1690,37 @@ impl CobolEnvironment {
                 .get(&key)
                 .or_else(|| self.field_caps.get(base_name(&key)))
             {
-                return Some(format_display_numeric(n, int_digits));
+                // `P` positions are digit positions the item does **not**
+                // store, so they take no character here — `PIC 9P` is one byte
+                // wide holding tens, not two. `field_caps` counts them because
+                // it describes the item's *value* range; the character form
+                // has to take them back out, or every group containing such an
+                // item reads one byte too wide per `P` and every field after it
+                // shifts (NC253A's SUBTRACT CORRESPONDING group compare).
+                let (trailing_p, leading_p) = self
+                    .scaling_p
+                    .get(&key)
+                    .or_else(|| self.scaling_p.get(base_name(&key)))
+                    .copied()
+                    .unwrap_or((0, 0));
+                if trailing_p > 0 || leading_p > 0 {
+                    let stored_int = (int_digits as u32).saturating_sub(trailing_p);
+                    let stored_dec = (n.decimals as u32).saturating_sub(leading_p);
+                    let scaled = CobolNumeric::new(
+                        n.mantissa / 10i128.pow(trailing_p.min(38)),
+                        stored_dec.min(u8::MAX as u32) as u8,
+                    );
+                    return Some(self.finish_numeric_display(
+                        &key,
+                        &scaled,
+                        format_display_numeric(&scaled, stored_int.min(u8::MAX as u32) as u8),
+                    ));
+                }
+                return Some(self.finish_numeric_display(
+                    &key,
+                    n,
+                    format_display_numeric(n, int_digits),
+                ));
             }
         }
         Some(val.as_display_string())
@@ -1057,6 +1738,46 @@ impl CobolEnvironment {
     /// If the item does not exist it is inserted directly.
     pub fn set(&mut self, name: &str, value: CobolValue) {
         let key = name.to_ascii_uppercase();
+        // An alphanumeric-edited receiver re-imposes its own insertion
+        // characters on whatever arrives: the sender supplies only the
+        // characters for the `X`/`A`/`9` positions.
+        if let Some(template) = self.alnum_edited.get(base_name(&key)).cloned() {
+            let src = value.as_display_string();
+            let edited = apply_alnum_edit(&template, &src);
+            let width = edited.chars().count();
+            self.store
+                .insert(key.clone(), CobolValue::from_str(&edited, width));
+            self.refresh_redefine_peers(&key);
+            return;
+        }
+        // `JUSTIFIED RIGHT` reverses the alignment rule for an alphanumeric
+        // receiver: the sender's *right* end is placed at the receiver's right
+        // end, so a short sender is padded on the left and a long one loses its
+        // leftmost characters. Everything below (and `CobolValue::assign`)
+        // left-aligns, so the value is re-aligned here, once, before it lands.
+        let value = match (&value, self.justified.contains(base_name(&key))) {
+            (CobolValue::String { bytes, .. }, true) => {
+                match self.get(&key).and_then(|v| match v {
+                    CobolValue::String { capacity, .. } => Some(*capacity),
+                    _ => None,
+                }) {
+                    Some(cap) => {
+                        let src = trim_trailing_spaces(bytes);
+                        let mut out = vec![b' '; cap];
+                        let take = src.len().min(cap);
+                        // A sender wider than the receiver keeps its rightmost
+                        // `cap` characters; a narrower one is pushed right.
+                        out[cap - take..].copy_from_slice(&src[src.len() - take..]);
+                        CobolValue::String {
+                            bytes: out,
+                            capacity: cap,
+                        }
+                    }
+                    None => value,
+                }
+            }
+            _ => value,
+        };
         // Storing a numeric into a numeric-edited field runs the edit engine and
         // keeps the result as the edited string. (Edited template / BLANK WHEN
         // ZERO are keyed by the base item, shared by all occurrences.)
@@ -1075,7 +1796,8 @@ impl CobolEnvironment {
                 } else {
                     crate::numedit::format_edited(&template, num.mantissa, num.decimals, dc)
                 };
-                self.store.insert(key, CobolValue::from_str(&edited, width));
+                self.store.insert(key.clone(), CobolValue::from_str(&edited, width));
+                self.refresh_redefine_peers(&key);
                 return;
             }
         }
@@ -1093,7 +1815,63 @@ impl CobolEnvironment {
                 existing.assign(&value);
             }
         } else {
-            self.store.insert(key, value);
+            self.store.insert(key.clone(), value);
+        }
+        self.truncate_to_capacity(&key);
+        self.refresh_redefine_peers(&key);
+    }
+
+    /// Drop the high-order digits a numeric item has no room for.
+    ///
+    /// A numeric receiver holds exactly its declared digit positions. The
+    /// low-order end is already cut by the rescale in [`CobolValue::assign`];
+    /// this is the other end, which the standard truncates just as silently:
+    /// `01 M PIC 99V999.  MOVE 123.45 TO M.` leaves `23.450`, not `123.450`.
+    ///
+    /// Arithmetic reaches this through `store_arith`, which tests the capacity
+    /// *first* — so a statement with `ON SIZE ERROR` never gets here and its
+    /// receiver keeps its old value, while one without it truncates.
+    fn truncate_to_capacity(&mut self, key: &str) {
+        let Some(&(int_digits, _)) = self
+            .field_caps
+            .get(key)
+            .or_else(|| self.field_caps.get(base_name(key)))
+        else {
+            return;
+        };
+        let scaling = self.scaling_p.get(base_name(key)).copied();
+        let unsigned = self.unsigned_numeric.contains(key)
+            || self.unsigned_numeric.contains(base_name(key));
+        let Some(CobolValue::Numeric(n)) = self.store.get_mut(key) else {
+            return;
+        };
+        // An item with no `S` has nowhere to keep a sign: it stores the
+        // magnitude. Doing this first keeps the masks below working on the
+        // value that is actually held.
+        if unsigned {
+            n.mantissa = n.mantissa.abs();
+        }
+        let total = int_digits as u32 + n.decimals as u32;
+        // 38 decimal digits is the widest an `i128` mantissa can hold; a wider
+        // declaration cannot overflow it, so there is nothing to cut.
+        if total == 0 || total > 38 {
+            return;
+        }
+        let modulus = 10i128.pow(total);
+        if n.mantissa >= modulus || n.mantissa <= -modulus {
+            n.mantissa %= modulus;
+        }
+        // `P` positions carry no digit: whatever the sender offered for them is
+        // dropped, and they read back as zero. `%` truncates toward zero in
+        // Rust, so a negative value keeps its sign through both masks.
+        if let Some((trailing_p, leading_p)) = scaling {
+            if trailing_p > 0 && trailing_p <= 38 {
+                n.mantissa -= n.mantissa % 10i128.pow(trailing_p);
+            }
+            let stored = (n.decimals as u32).saturating_sub(leading_p);
+            if leading_p > 0 && stored <= 38 {
+                n.mantissa %= 10i128.pow(stored);
+            }
         }
     }
 
@@ -1127,6 +1905,18 @@ impl CobolEnvironment {
         let cap = match self.get(name) {
             Some(CobolValue::String { capacity, .. }) => *capacity,
             _ => s.len(),
+        };
+        // A `JUSTIFIED` receiver keeps the sender's **right** end, so the value
+        // must reach `set` at its own length: cutting it to the receiver's
+        // capacity here would throw away the very characters it wants and
+        // right-align what is left. `set` does the truncation instead.
+        let cap = if self
+            .justified
+            .contains(base_name(&name.to_ascii_uppercase()))
+        {
+            s.len()
+        } else {
+            cap
         };
         self.set(name, CobolValue::from_str(s, cap));
     }
@@ -1437,6 +2227,61 @@ fn find_decl_by_name(data: &DataDivision, name: &str) -> Option<DataDecl> {
     None
 }
 
+/// Whether `decl` is a group for layout purposes — that is, whether anything
+/// subordinate to it actually occupies storage.
+///
+/// 88-level condition-names do not: they name *values* of the item they hang
+/// under, not fields inside it. Counting them made an elementary item with a
+/// condition-name attached serialize to zero bytes, so `04 RDF3-5-15 PIC 9`
+/// with `88 HARD` / `88 SOFT` below it silently dropped out of its parent's
+/// image and kept its default while the next field took its byte (NC252A
+/// RDF-TEST-1, RDF-TEST-12).
+fn has_storage_children(decl: &DataDecl) -> bool {
+    decl.children.iter().any(|c| c.level != 88)
+}
+
+/// `Some(leading?)` when `decl` stores its operational sign in a character
+/// position of its own (`SIGN IS … SEPARATE CHARACTER`).
+///
+/// The REDEFINES serializer works from the declaration rather than from the
+/// environment's `sign_separate` map, because it renders the *declared* image
+/// of an item that may not have a live slot yet.
+fn separate_sign_of_decl(decl: &DataDecl) -> Option<bool> {
+    let pic = decl.picture.as_ref()?;
+    let sign = decl.sign.filter(|s| s.separate)?;
+    (pic.kind == PicKind::Numeric
+        && matches!(decl.usage, Usage::Display)
+        && pic.template.to_ascii_uppercase().contains('S'))
+    .then_some(sign.leading)
+}
+
+/// Render a numeric item's stored characters, honouring a separate sign.
+///
+/// `len` is the item's whole width, sign position included, so the digits get
+/// `len - 1` positions when there is a separate sign to place.
+fn numeric_image(n: &CobolNumeric, len: usize, sep_sign: Option<bool>) -> Vec<u8> {
+    let digit_len = if sep_sign.is_some() {
+        len.saturating_sub(1)
+    } else {
+        len
+    };
+    let digits = n.mantissa.unsigned_abs().to_string();
+    let mut s = if digits.len() < digit_len {
+        format!("{}{}", "0".repeat(digit_len - digits.len()), digits)
+    } else {
+        digits
+    };
+    if s.len() > digit_len {
+        s = s[s.len() - digit_len..].to_string();
+    }
+    let sign = if n.mantissa < 0 { '-' } else { '+' };
+    match sep_sign {
+        Some(true) => format!("{sign}{s}").into_bytes(),
+        Some(false) => format!("{s}{sign}").into_bytes(),
+        None => s.into_bytes(),
+    }
+}
+
 fn serialize_decl(
     env: &CobolEnvironment,
     decl: &DataDecl,
@@ -1465,15 +2310,29 @@ fn serialize_decl(
             local_quals.push(name_upper.clone());
         }
 
-        if !decl.children.is_empty() {
+        if has_storage_children(decl) {
             for c in &decl.children {
                 if c.level == 88 {
+                    continue;
+                }
+                // A subordinate REDEFINES entry redescribes bytes the sibling
+                // it redefines has already contributed — it is another reading
+                // of them, not more of them. Emitting it as well pushed every
+                // later field down by its width, so `02 RDF3 REDEFINES
+                // RDFDATA3` inserted a second copy of `ALLDONXX66` and the
+                // 36-element overlay above it read 11 bytes off (NC252A
+                // RDF-TEST-003/5, NC107A RDF-TEST-2/10/11).
+                if c.redefines.is_some() {
                     continue;
                 }
                 serialize_decl(env, c, &mut local_quals, &mut local_indices, bytes);
             }
         } else if let Some(pic) = &decl.picture {
-            let len = (pic.digits as usize + pic.decimals as usize).max(1);
+            // A separate sign is a declared storage position, so it widens the
+            // item by one and a REDEFINES overlay sees it (NC116A GF-1/GF-2).
+            let sep_sign = separate_sign_of_decl(decl);
+            let len = (pic.digits as usize + pic.decimals as usize).max(1)
+                + usize::from(sep_sign.is_some());
             let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
 
             let key = env.canon_key(&name_upper, quals);
@@ -1490,16 +2349,7 @@ fn serialize_decl(
             if let Some(v) = val {
                 match v {
                     CobolValue::Numeric(n) => {
-                        let digits = n.mantissa.unsigned_abs().to_string();
-                        let mut s = if digits.len() < len {
-                            format!("{}{}", "0".repeat(len - digits.len()), digits)
-                        } else {
-                            digits
-                        };
-                        if s.len() > len {
-                            s = s[s.len() - len..].to_string();
-                        }
-                        f_bytes = s.into_bytes();
+                        f_bytes = numeric_image(n, len, sep_sign);
                     }
                     other => {
                         let mut b = other.as_display_string().into_bytes();
@@ -1521,16 +2371,7 @@ fn serialize_decl(
                 }
                 match fallback_v {
                     CobolValue::Numeric(n) => {
-                        let digits = n.mantissa.unsigned_abs().to_string();
-                        let mut s = if digits.len() < len {
-                            format!("{}{}", "0".repeat(len - digits.len()), digits)
-                        } else {
-                            digits
-                        };
-                        if s.len() > len {
-                            s = s[s.len() - len..].to_string();
-                        }
-                        f_bytes = s.into_bytes();
+                        f_bytes = numeric_image(&n, len, sep_sign);
                     }
                     other => {
                         let mut b = other.as_display_string().into_bytes();
@@ -1574,19 +2415,50 @@ fn deserialize_decl(
             local_quals.push(name_upper.clone());
         }
 
-        if !decl.children.is_empty() {
+        if has_storage_children(decl) {
+            // Where each named child's bytes began, so that a REDEFINES sibling
+            // can be filled from the very same bytes rather than from the ones
+            // that follow them — the mirror of the skip in `serialize_decl`.
+            let mut child_start: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
             for c in &decl.children {
                 if c.level == 88 {
                     continue;
                 }
+                if let Some(target) = &c.redefines {
+                    // Overlay: read from where the target started and leave the
+                    // cursor untouched, because those bytes are already spent.
+                    if let Some(&start) = child_start.get(&target.to_ascii_uppercase()) {
+                        let mut overlay = start;
+                        deserialize_decl(
+                            env,
+                            c,
+                            &mut local_quals,
+                            &mut local_indices,
+                            bytes,
+                            &mut overlay,
+                        );
+                    }
+                    continue;
+                }
+                if let Some(n) = &c.name {
+                    child_start.insert(n.to_ascii_uppercase(), *offset);
+                }
                 deserialize_decl(env, c, &mut local_quals, &mut local_indices, bytes, offset);
             }
         } else if let Some(pic) = &decl.picture {
-            let len = (pic.digits as usize + pic.decimals as usize).max(1);
+            let sep_sign = separate_sign_of_decl(decl);
+            let len = (pic.digits as usize + pic.decimals as usize).max(1)
+                + usize::from(sep_sign.is_some());
             let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
 
+            // A redefining description may be WIDER than the storage it
+            // redescribes, so the cursor can walk past the end of the bytes.
+            // Both ends are clamped: clamping only `end` left `start > end` and
+            // the slice panicked.
+            let start = (*offset).min(bytes.len());
             let end = (*offset + len).min(bytes.len());
-            let slice = &bytes[*offset..end];
+            let slice = &bytes[start..end];
             *offset += len;
 
             if name_upper != "FILLER" {
@@ -1604,6 +2476,16 @@ fn deserialize_decl(
                         .map(|&b| if b.is_ascii_digit() { b as char } else { '0' })
                         .collect();
                     let mantissa: i128 = digits.parse().unwrap_or(0);
+                    // A separate sign is a real character in these bytes, and
+                    // the digit-only scan above has just turned it into a `0`.
+                    // Recover it before the value is stored, or an overlay
+                    // write through the redefining description silently drops
+                    // the sign of the item it redescribes.
+                    let mantissa = if sep_sign.is_some() && slice.contains(&b'-') {
+                        -mantissa
+                    } else {
+                        mantissa
+                    };
                     let decimals = pic.decimals.min(u8::MAX as u16) as u8;
                     env.set(
                         &key,

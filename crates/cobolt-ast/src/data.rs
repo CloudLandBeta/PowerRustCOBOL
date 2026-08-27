@@ -142,6 +142,36 @@ pub struct DataDecl {
     /// Nested subordinate data items (group items only).
     pub children: Vec<DataDecl>,
     pub span: Span,
+    /// `JUSTIFIED RIGHT` — an alphanumeric receiver aligns the sender at its
+    /// **right** end: a short sender is padded on the left and a long one has
+    /// its leftmost characters truncated, the mirror of the ordinary rule.
+    ///
+    /// 🔴 New fields belong at the END of this struct — `DataDecl` is
+    /// bincode-serialized field-by-field in declaration order.
+    pub justified: bool,
+    /// `SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]` — where the operational
+    /// sign of a signed DISPLAY item lives.
+    ///
+    /// `None` is the COBOL default (trailing, embedded in the last digit).
+    /// Written on a group, the clause applies to every subordinate signed
+    /// numeric DISPLAY item that does not carry one of its own.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub sign: Option<SignClause>,
+}
+
+/// A `SIGN IS LEADING | TRAILING [SEPARATE CHARACTER]` clause.
+///
+/// Only `separate` changes an item's storage: it adds one character position
+/// holding a literal `+` or `-`, at the front (`leading`) or the back. With an
+/// embedded sign the item is exactly its digit positions wide and the sign
+/// rides on the leading or trailing digit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignClause {
+    /// `LEADING` when true, `TRAILING` when false (the COBOL default).
+    pub leading: bool,
+    /// `SEPARATE CHARACTER` — the sign occupies its own character position.
+    pub separate: bool,
 }
 
 /// A 66-level `RENAMES item-1 [THRU item-2]` regrouping clause.
@@ -173,7 +203,32 @@ pub struct FileDescription {
     pub is_global: bool,
     /// Record descriptions belonging to this file.
     pub records: Vec<DataDecl>,
+    /// `LINAGE IS n LINES [WITH FOOTING AT f] [LINES AT TOP t] [LINES AT BOTTOM b]`
+    /// — the file is a printed report with a page body, and the runtime keeps a
+    /// `LINAGE-COUNTER` for it. `None` for an ordinary file.
+    #[serde(default)]
+    pub linage: Option<Linage>,
     pub span: Span,
+}
+
+/// The page layout of a `LINAGE` file.
+///
+/// COBOL-85 divides each page into a top margin, a **body** of `lines` lines,
+/// and a bottom margin. `LINAGE-COUNTER` counts lines written into the body,
+/// starting at 1; when it reaches `footing`, the `AT END-OF-PAGE` condition is
+/// true, which is how a report knows to print its page trailer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Linage {
+    /// Lines in the page body (`LINAGE IS n LINES`).
+    pub lines: u32,
+    /// `WITH FOOTING AT f` — the line at which end-of-page begins. Defaults to
+    /// `lines`, so without a FOOTING clause the condition is raised only when
+    /// the body is full.
+    pub footing: u32,
+    /// `LINES AT TOP t` — blank lines before the body.
+    pub top: u32,
+    /// `LINES AT BOTTOM b` — blank lines after the body.
+    pub bottom: u32,
 }
 
 // ── Screen items ──────────────────────────────────────────────────────────────
