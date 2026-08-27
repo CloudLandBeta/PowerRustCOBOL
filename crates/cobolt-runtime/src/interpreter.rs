@@ -4017,6 +4017,33 @@ impl Interpreter {
         // It is also the standard's rule rather than an optimisation of ours: a
         // subject with a side effect (`FUNCTION RANDOM`, a reference-modified
         // read) must not be re-run per branch.
+        // A bare **88-level condition-name** as a subject is a *conditional*
+        // subject, not a data item: `EVALUATE IT-IS-81 WHEN TRUE` selects on
+        // whether the condition holds. Read as an expression the name resolved
+        // to no slot at all, so the subject evaluated to 0 and `WHEN TRUE`
+        // never matched. Rewriting it to `EvalSubject::Cond` hands it to the
+        // arms that already compare truth values.
+        //
+        // Only pay for the rewrite when one is actually present — this runs on
+        // the generated event loop's `EVALUATE COBOL-CONTROL-ID` per event.
+        let rewritten: Option<Vec<EvalSubject>> = if subjects
+            .iter()
+            .any(|s| self.subject_condition_name(s).is_some())
+        {
+            Some(
+                subjects
+                    .iter()
+                    .map(|s| match self.subject_condition_name(s) {
+                        Some(c) => EvalSubject::Cond(c),
+                        None => s.clone(),
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let subjects: &[EvalSubject] = rewritten.as_deref().unwrap_or(subjects);
+
         let mut subject_values: Vec<Option<CobolValue>> = Vec::with_capacity(subjects.len());
         for s in subjects {
             subject_values.push(match s {
@@ -4076,6 +4103,19 @@ impl Interpreter {
         self.exec_stmts(other_stmts)
     }
 
+    /// An EVALUATE subject written as a bare word that names a declared
+    /// 88-level: the condition it stands for. `None` for anything else, which
+    /// is every ordinary data-item subject.
+    fn subject_condition_name(&self, s: &EvalSubject) -> Option<Condition> {
+        match s {
+            EvalSubject::Expr(Expr::Identifier(name, span)) => {
+                self.env.cond_name(name)?;
+                Some(Condition::ConditionName(name.clone(), *span))
+            }
+            _ => None,
+        }
+    }
+
     /// `pre` is the subject's value, evaluated once by [`Self::exec_evaluate`];
     /// `None` for a TRUE/FALSE subject, which has no value to compare.
     fn when_value_matches(
@@ -4117,7 +4157,33 @@ impl Interpreter {
                     && compare_values(subj, &hi_v, CmpOp::Le))
             }
             (EvalSubject::Expr(e), WhenValue::Condition(c)) => {
-                // EVALUATE expr WHEN condition — treat condition as boolean check
+                // A **bare name** as the selection object is an operand, not a
+                // condition: `EVALUATE 1234 WHEN WRK-DU-08V00` asks whether the
+                // subject equals that item. Only a declared 88-level is a
+                // condition here — the same ambiguity `Condition::NameOrAbbrev`
+                // resolves for abbreviated combined relations.
+                //
+                // Read as a condition the name fell through to the "truthy if
+                // non-zero" fallback, so *every* WHEN with a non-zero object
+                // matched whatever the subject held. Only the expect-equal
+                // direction passed, and it passed by accident.
+                if let Condition::ConditionName(name, _) = c {
+                    if self.env.cond_name(name).is_none() {
+                        let subj = match pre {
+                            Some(v) => v.clone(),
+                            None => self.eval_expr(e, e.span())?,
+                        };
+                        let key = self.env.resolve_name(name, &[]);
+                        let obj = self
+                            .env
+                            .get(&key)
+                            .cloned()
+                            .unwrap_or_else(|| CobolValue::from_i64(0));
+                        return Ok(compare_values(&subj, &obj, CmpOp::Eq));
+                    }
+                }
+                // A genuine condition — an 88-level, a relation, a class test —
+                // selects on its own truth value.
                 let _ = e;
                 self.eval_condition(c)
             }

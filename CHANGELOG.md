@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.27] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): execution 68 → 69 of 95, assertions 181 → 172
+failing.** NC225A goes 9 failures → 0. Compile stays at 94 / 95. No other
+module was touched (GOLDEN RULE #9).
+
+### Fixed — a bare word in EVALUATE was read as a truth test, not an operand
+
+Two readings of a bare word were wrong, and both failed in the same direction:
+they made a `WHEN` match when it should not have. Because the error only ever
+*added* matches, the expect-equal half of every test passed by accident and the
+feature looked implemented.
+
+**As a selection object.** In `EVALUATE 1234 WHEN WRK-DU-08V00` the object is
+an *operand* compared against the subject. It was parsed as a condition, and a
+bare name that is not a declared 88-level fell through to the "truthy if
+non-zero" fallback — so the item holding `78` matched the subject `1234`, and
+any non-zero object matched any subject at all. A declared 88-level object is
+still a condition; the ambiguity is resolved against the symbol table exactly
+as `Condition::NameOrAbbrev` already resolves it for abbreviated combined
+relations.
+
+**As a selection subject.** In `EVALUATE IT-IS-81 WHEN TRUE` the subject is a
+*conditional* subject — it selects on whether the condition holds. Read as a
+data item, the name resolved to no slot at all, evaluated to `0`, and
+`WHEN TRUE` never matched. A bare subject naming a declared 88-level is now
+rewritten to a conditional subject, which the existing truth-comparing arms
+already handle. The rewrite is skipped entirely when no subject is a
+condition-name, so the generated event loop's `EVALUATE COBOL-CONTROL-ID` pays
+nothing per event.
+
+Together these settle NC225A's six-subject `ALSO` case (EVA-TEST-GF-31), where
+five columns matched and the condition-name column did not, so selection fell
+through to a later branch.
+
+New tests: `test_evaluate_selection.rs` (9).
+
 ## [PowerRustCOBOL 1.62.26] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): assertions 183 → 181 failing.** Execution stays at
