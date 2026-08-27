@@ -670,7 +670,25 @@ impl<'a> ResolveCtx<'a> {
                 self.resolve_expr(lhs);
                 self.resolve_expr(rhs);
             }
-            Expr::FunctionCall { args, .. } => {
+            Expr::FunctionCall { name, args, span } => {
+                // An intrinsic the runtime does not implement used to return 0
+                // and say nothing, so a program computed a confidently wrong
+                // answer from a typo. Naming it at compile time is the whole
+                // point — a misspelling is far likelier than a genuinely
+                // unknown function, so the message suggests the nearest real
+                // name when there is one close enough to be worth suggesting.
+                if !cobolt_ast::intrinsics::is_intrinsic(name) {
+                    let msg = match cobolt_ast::intrinsics::closest_intrinsic(name) {
+                        Some(near) => format!(
+                            "'{name}' is not an intrinsic function RustCOBOL implements — did you mean FUNCTION {near}?"
+                        ),
+                        None => format!(
+                            "'{name}' is not an intrinsic function RustCOBOL implements. \
+                             The implemented set is listed in docs/cobol85-supported-syntax-en.md."
+                        ),
+                    };
+                    self.error(msg, *span);
+                }
                 for a in args {
                     self.resolve_expr(a);
                 }
@@ -688,6 +706,11 @@ impl<'a> ResolveCtx<'a> {
             }
             // Literals and figurative constants need no resolution.
             Expr::Literal(..) => {}
+            // `ALL` in a subscript position is not a name — it is the reserved
+            // word standing for every occurrence of the table it subscripts.
+            // The table itself is resolved through the enclosing `Subscript`'s
+            // base, so there is nothing to look up here.
+            Expr::AllSubscript(..) => {}
         }
     }
 

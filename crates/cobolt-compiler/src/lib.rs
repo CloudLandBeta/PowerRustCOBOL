@@ -2595,7 +2595,10 @@ fn load_program() -> cobolt_ast::program::Program {{
     let mut decoder = flate2::read::GzDecoder::new(PROGRAM_AST);
     let mut bytes = Vec::new();
     decoder.read_to_end(&mut bytes).expect("decompress embedded AST");
-    bincode::deserialize(&bytes).expect("deserialize embedded AST")
+    match bincode::deserialize(&bytes) {{
+        Ok(p) => p,
+        Err(e) => panic!("{ast_mismatch_help}: {{e}}"),
+    }}
 }}
 
 /// The embedded program for `form_id` (051 R1) — `None` when the build had
@@ -2639,8 +2642,25 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         window_fx_const = window_fx_const,
         run_call = run_call,
         form_runtime_code = form_runtime_code,
+        ast_mismatch_help = AST_MISMATCH_HELP,
     )
 }
+
+/// What a built application says when its embedded AST will not deserialize.
+///
+/// The AST is `bincode`-serialized into the binary, and bincode identifies an
+/// enum variant by its **ordinal** and a struct by its exact field list. So the
+/// blob is only readable by a `cobolt-ast` that matches the one that wrote it.
+/// When they differ, bincode's own message is
+/// `invalid value: integer 10, expected variant index 0 <= i < 10` — accurate,
+/// and useless to anyone who has not just edited the AST.
+///
+/// This replaces it with the cause and the cure. It is worth the two lines:
+/// the failure appears at *application start*, long after the build that
+/// caused it, and it looks like a bug in the developer's own program.
+const AST_MISMATCH_HELP: &str = "this application's embedded program was written by a \
+different version of PowerRustCOBOL than the one built into it, so it cannot be read. \
+Rebuild the application (Build, or `rcrun build`) with the current toolchain";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

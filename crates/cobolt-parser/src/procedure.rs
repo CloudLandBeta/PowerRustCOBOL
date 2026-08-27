@@ -105,9 +105,9 @@ fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
             break;
         }
         // Expect `section-name SECTION .`
-        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Section) {
+        if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Section) {
             let span = p.peek_span();
-            let _ = p.eat_identifier(); // section name (not retained)
+            let _ = eat_procedure_name(p); // section name (not retained)
             p.advance(); // SECTION
             p.expect_period();
 
@@ -199,12 +199,12 @@ fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
             break;
         }
         // Next declarative section header → stop.
-        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Section) {
+        if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Section) {
             break;
         }
         // Named paragraph header → take its statements; otherwise collect
         // orphan statements (parse_stmts stops at the next header on its own).
-        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Period) {
+        if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Period) {
             let para = parse_paragraph(p);
             stmts.extend(para.stmts);
         } else {
@@ -293,7 +293,7 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
         }
 
         // Expect `identifier SECTION .`
-        if !matches!(p.peek(), Token::Identifier(_)) {
+        if !is_procedure_name(p.peek()) {
             // Not a section header — try to recover
             p.emit_error(format!("expected section name, found {:?}", p.peek()));
             p.sync_to_period();
@@ -314,7 +314,7 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
         }
 
         let span = p.peek_span();
-        let (name, _) = p.eat_identifier().unwrap();
+        let (name, _) = eat_procedure_name(p).expect("guarded by is_procedure_name above");
         p.advance(); // SECTION
         p.expect_period();
 
@@ -335,6 +335,41 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
 /// that carries the leading sentences — two sections must not both produce a
 /// `<implicit>`, or the duplicate-procedure check would reject the program and
 /// the symbol table would keep only one of the two bodies.
+/// True when `tok` can be a **procedure-name** — a paragraph-name or a
+/// section-name.
+///
+/// COBOL-85 does not require a procedure-name to contain an alphabetic
+/// character; only a *data-name* does. `0 SECTION.` and `01.` are legal
+/// procedure-names, and CCVS85 writes them (NC114M). A digit run in this
+/// position therefore reaches the parser as `IntegerLiteral`, or as
+/// `LevelNumber` when it opens a line, and both spell the same name.
+pub(crate) fn is_procedure_name(tok: &Token) -> bool {
+    matches!(
+        tok,
+        Token::Identifier(_) | Token::IntegerLiteral(_) | Token::LevelNumber(_)
+    )
+}
+
+/// Consume a procedure-name and return its text with its span.
+///
+/// A numeric name is normalised to its decimal digits, so the header `01.` and
+/// a later `PERFORM 01` agree — both sides go through this function.
+pub(crate) fn eat_procedure_name(p: &mut Parser) -> Option<(String, cobolt_lexer::Span)> {
+    let span = p.peek_span();
+    match p.peek().clone() {
+        Token::Identifier(_) => p.eat_identifier(),
+        Token::IntegerLiteral(n) => {
+            p.advance();
+            Some((n.to_string(), span))
+        }
+        Token::LevelNumber(n) => {
+            p.advance();
+            Some((n.to_string(), span))
+        }
+        _ => None,
+    }
+}
+
 fn parse_paragraphs_until_section(p: &mut Parser, owner: &str) -> Vec<Paragraph> {
     let mut paragraphs = Vec::new();
     loop {
@@ -353,12 +388,12 @@ fn parse_paragraphs_until_section(p: &mut Parser, owner: &str) -> Vec<Paragraph>
         }
 
         // Section header → stop collecting paragraphs for the current section
-        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Section) {
+        if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Section) {
             break;
         }
 
         // Paragraph header: Identifier Period
-        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Period) {
+        if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Period) {
             let para = parse_paragraph(p);
             paragraphs.push(para);
         } else {
@@ -421,7 +456,7 @@ fn parse_paragraphs(p: &mut Parser) -> Vec<Paragraph> {
         }
 
         // Paragraph header: Identifier Period
-        if matches!(p.peek(), Token::Identifier(_)) && matches!(p.peek_at(1), Token::Period) {
+        if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Period) {
             let para = parse_paragraph(p);
             paragraphs.push(para);
         } else {
@@ -455,7 +490,7 @@ fn parse_paragraphs(p: &mut Parser) -> Vec<Paragraph> {
 
 fn parse_paragraph(p: &mut Parser) -> Paragraph {
     let span = p.peek_span();
-    let (name, _) = p.eat_identifier().unwrap(); // paragraph name
+    let (name, _) = eat_procedure_name(p).expect("guarded by is_procedure_name above"); // paragraph name
     p.expect_period(); // the period after the name
 
     // Collect statements until the next paragraph/section header or division end

@@ -45,6 +45,11 @@ See the LICENSE file in the project root for full license information.
 11. [Talking to the UI from COBOL](#11-talking-to-the-ui-from-cobol)
 12. [Generated code](#12-generated-code)
 13. [The RustCOBOL language](#13-the-rustcobol-language)
+    - [Writing it the way the standard lets you](#writing-it-the-way-the-standard-lets-you)
+    - [Handing a whole table to a function](#handing-a-whole-table-to-a-function)
+    - [Closing a file for good: `WITH LOCK`](#closing-a-file-for-good-with-lock)
+    - [Debugging lines](#debugging-lines)
+    - [Long and awkward text: the block literal](#long-and-awkward-text-the--block-literal)
 14. [Indexed files — a first-class resource](#14-indexed-files--a-first-class-resource)
 15. [SQL databases](#15-sql-databases)
 16. [HTTP / REST and AI agents](#16-http--rest-and-ai-agents)
@@ -3826,6 +3831,180 @@ extensions. Highlights a working COBOL programmer will rely on:
 
 > ⚠️ **Out of scope (today):** RELATIVE file organisation, cross-process record
 > locking, and OO `CLASS`/`METHOD` definitions are not implemented.
+
+### Writing it the way the standard lets you
+
+COBOL-85 allows several spellings that a PowerCOBOL or isCOBOL developer will
+have in their fingers already. All of these work, and none of them is required.
+
+**Commas and semicolons are decoration.** A `,` or `;` *followed by a space* is
+a **separator**: it may appear anywhere a space may appear, and it means exactly
+what a space means. These four lines are the same statement to the compiler:
+
+```cobol
+       MOVE ZERO TO DN3, DN4.
+       MOVE ZERO TO DN3 DN4.
+       CALL "SUB" USING TABLE-1, TABLE-2, DN1.
+       READ CUSTOMER-FILE ; AT END GO TO EOF-ROUTINE.
+```
+
+> ⚠️ **A comma with no space after it is a different thing.** That is how the
+> decimal comma (`1,5` under `DECIMAL-POINT IS COMMA`) and the PICTURE editing
+> comma (`PIC ZZ,ZZ9.99`) keep working. The rule is the standard's own: a
+> separator comma is a comma *followed by a space*.
+
+**Subscripts need only a space between them.** The comma is optional there too:
+
+```cobol
+       MOVE 1 TO CELL (1 2).
+       MOVE 1 TO CELL (1, 2).
+       MOVE W-3 TO CELL OF COLS OF ROWS (IDX-A IDX-B).
+```
+
+The last line is worth noting: the subscript follows the **complete** qualified
+name, which is the order the standard specifies.
+
+**A name may begin with a digit.** A user-defined word is drawn from `A-Z`,
+`0-9` and the hyphen; only a *data-name* has to contain at least one letter, and
+a paragraph or section name does not even need that:
+
+```cobol
+       01  25COUNT       PICTURE 99.
+       01  3-DEM-TBL     REDEFINES 3-DIMENSION-TBL.
+       0 SECTION.
+```
+
+> ⚠️ **An operator needs spaces around it.** `B - C` is a subtraction; `B-C` is
+> a data-name. That is the standard's rule and it is what makes `3-DEM-TBL` and
+> `WRK-DS-18V00-S` read as the single names they are. If you mean to subtract,
+> put spaces around the sign.
+
+**A literal escapes its own delimiter by doubling it.** COBOL has no backslash:
+
+```cobol
+       DISPLAY 'IT''S WORKING'.          *> IT'S WORKING
+       DISPLAY "HE SAID ""HI""".         *> HE SAID "HI"
+```
+
+The other delimiter needs no escaping at all, so `"IT'S"` is usually simpler.
+
+**`ALL` before a figurative constant is redundant and allowed.** `MOVE ALL
+ZEROS` is `MOVE ZEROS`. Before a literal, `ALL` *repeats* it to fill the whole
+receiving field:
+
+```cobol
+       01  WS-BAR PIC X(10).
+           MOVE ALL "-" TO WS-BAR.       *> ----------
+           MOVE ALL "ab" TO WS-BAR.      *> ababababab
+```
+
+### Handing a whole table to a function
+
+The statistical intrinsics take a variable number of arguments, and COBOL-85
+lets you pass an entire table by subscripting it with the reserved word `ALL`:
+
+```cobol
+       01  READINGS.
+           05  SAMPLE PIC 9(4) OCCURS 5 TIMES.
+       ...
+           COMPUTE WS-PEAK = FUNCTION MAX(SAMPLE(ALL)).
+           COMPUTE WS-AVG  = FUNCTION MEAN(SAMPLE(ALL)).
+```
+
+One written argument becomes one argument per occurrence. It works for `MAX`,
+`MIN`, `SUM`, `MEAN`, `MEDIAN`, `MIDRANGE`, `RANGE`, `VARIANCE`,
+`STANDARD-DEVIATION`, `ORD-MAX` and `ORD-MIN`.
+
+`ALL` may sit in one dimension of a multi-dimensional table with ordinary
+subscripts in the others, and expands in row-major order — so this sums one
+column:
+
+```cobol
+           COMPUTE WS-COL2 = FUNCTION SUM(CELL(ALL, 2)).
+```
+
+An `OCCURS … DEPENDING ON` table expands against its count at the moment the
+function is called.
+
+> **A function name you did not implement is now a compile error.** An
+> unrecognised `FUNCTION` used to return **0** silently, so a typo produced a
+> confident wrong answer that nothing reported. `FUNCTION SQRTT(4)` now fails to
+> compile and says *did you mean FUNCTION SQRT?*
+
+### Closing a file for good: `WITH LOCK`
+
+```cobol
+       CLOSE CUSTOMER-FILE WITH LOCK.
+```
+
+A file closed `WITH LOCK` may not be reopened in the same run. A later `OPEN`
+sets **file status 38** rather than succeeding, so the lock is a real
+guarantee rather than a comment. The tape phrases parse and are accepted as
+no-ops on disk:
+
+```cobol
+       CLOSE REEL-FILE REEL FOR REMOVAL.
+       CLOSE TAPE-FILE WITH NO REWIND.
+```
+
+### Debugging lines
+
+A `D` in **column 7** marks a *debugging line*. It is a **comment** unless the
+program asks for it:
+
+```cobol
+       SOURCE-COMPUTER. XYZ WITH DEBUGGING MODE.
+```
+
+Without that clause the line is not compiled — which is the standard's default,
+and the point of the feature: you leave your traces in the source and switch
+them on only when you need them.
+
+> ⚠️ **Fixed format only.** Free format has no indicator area, so it has no
+> debugging lines: a `D` there is an ordinary COBOL word.
+
+### Long and awkward text: the ``` block literal
+
+**This is a PowerRustCOBOL extension, not COBOL-85.** The standard has no
+multi-line literal at all — continuation is a fixed-format column mechanism —
+so free-format source had no way to write one, and no way to write a literal
+full of quotation marks without doubling every one.
+
+A block literal is fenced the way a Markdown code block is. The text is the
+lines *between* the fences, taken **verbatim**:
+
+````cobol
+       MOVE
+```
+Hello, World!
+```
+       TO WS-GREETING.
+````
+
+`WS-GREETING` receives `Hello, World!`.
+
+The rules are short:
+
+| | |
+|---|---|
+| The text starts on the **line after** the opening fence | anything after ``` on that line is a tag, like Markdown's `json` |
+| The closing fence's line is **not** text | nor is the newline before it, so a one-line block has no trailing newline |
+| Interior newlines **are** kept | that is the whole point |
+| **No escaping** | quotes and apostrophes are literal characters |
+
+Which makes embedded JSON, SQL and HTML readable:
+
+````cobol
+       MOVE
+```json
+{"name": "O'Brien", "tags": ["a", "b"], "ok": true}
+```
+       TO WS-PAYLOAD.
+       CALL "COBOL-HTTP-POST" USING WS-URL WS-PAYLOAD WS-RESPONSE.
+````
+
+> ⚠️ **Free format only.** Fixed format has an indicator column and a sequence
+> area, so a line of backticks there means something else and is refused.
 
 ### Unique declarations are enforced
 

@@ -257,7 +257,16 @@ fn write_header(out: &mut String) {
 
 fn write_identification(out: &mut String, form: &Form) {
     out.push_str("       IDENTIFICATION DIVISION.\n");
-    out.push_str(&format!("       PROGRAM-ID. {}.\n", form.name));
+    // A PROGRAM-ID is a COBOL *word*, not a literal: letters, digits and
+    // hyphens only. `cobol_word` is the same sanitizer every other generated
+    // identifier goes through, so a form named `MAIN FORM` or `MAIN'FORM`
+    // yields `MAIN-FORM` here instead of a malformed header. (The form's own
+    // name still reaches `FORM-NAME`'s VALUE clause verbatim, escaped as a
+    // literal — the two spellings have different rules.)
+    out.push_str(&format!(
+        "       PROGRAM-ID. {}.\n",
+        cobol_word(&form.name)
+    ));
     out.push('\n');
 }
 
@@ -344,8 +353,11 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
     out.push_str("       01 COBOL-EVENT-ID         PIC X(64)   VALUE SPACES.\n");
     out.push_str("       01 COBOL-CONTROL-ID       PIC X(64)   VALUE SPACES.\n");
     out.push_str("       01 COBOL-LAST-STATUS       PIC X(256)  VALUE SPACES.\n");
-    out.push_str("       01 FORM-NAME               PIC X(64)   VALUE ");
-    out.push_str(&format!("'{}'.\n", form.name));
+    out.push_str(&format!(
+        "       01 FORM-NAME               PIC X({})   VALUE ",
+        cobol_pic_x(&form.name, 64)
+    ));
+    out.push_str(&format!("'{}'.\n", cobol_lit(&form.name)));
     out.push('\n');
 
     let all_controls = collect_all_controls(&form.controls);
@@ -424,8 +436,10 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             ctrl.id
         ));
         out.push_str(&format!(
-            "       01 {}-BASE-URL      PIC X(2048) VALUE '{}'.\n",
-            pfx, base
+            "       01 {}-BASE-URL      PIC X({}) VALUE '{}'.\n",
+            pfx,
+            cobol_pic_x(&base, 2048),
+            cobol_lit(&base)
         ));
         let resp_item = ctrl
             .get_prop("ResponseDataItem")
@@ -473,7 +487,9 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             ctrl.id
         ));
         out.push_str(&format!(
-            "       01 {pfx}-SEARCH-ENGINE-ID PIC X(64)  VALUE '{engine_id}'.\n"
+            "       01 {pfx}-SEARCH-ENGINE-ID PIC X({})  VALUE '{}'.\n",
+            cobol_pic_x(&engine_id, 64),
+            cobol_lit(&engine_id)
         ));
         out.push_str(&format!(
             "       01 {pfx}-QUERY            PIC X(512) VALUE SPACES.\n"
@@ -482,7 +498,9 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             "       01 {pfx}-NUM-RESULTS      PIC 9(2)   VALUE {num_results}.\n"
         ));
         out.push_str(&format!(
-            "       01 {pfx}-SAFE-SEARCH      PIC X(6)   VALUE '{safe_search}'.\n"
+            "       01 {pfx}-SAFE-SEARCH      PIC X({})   VALUE '{}'.\n",
+            cobol_pic_x(&safe_search, 6),
+            cobol_lit(&safe_search)
         ));
         out.push('\n');
     }
@@ -556,7 +574,9 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
             ctrl.id, drv
         ));
         out.push_str(&format!(
-            "       01 {pfx}-CONN-STRING   PIC X(512)  VALUE '{cs}'.\n"
+            "       01 {pfx}-CONN-STRING   PIC X({})  VALUE '{}'.\n",
+            cobol_pic_x(&cs, 512),
+            cobol_lit(&cs)
         ));
         out.push_str(&format!(
             "       01 {pfx}-HANDLE        PIC 9(9)    VALUE 0.\n"
@@ -712,8 +732,10 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
         .unwrap_or_else(|| ctrl.id.clone());
 
     out.push_str(&format!(
-        "          05 {}-TEXT       PIC X(256) VALUE '{}'.\n",
-        prefix, caption_val
+        "          05 {}-TEXT       PIC X({}) VALUE '{}'.\n",
+        prefix,
+        cobol_pic_x(&caption_val, 256),
+        cobol_lit(&caption_val)
     ));
     out.push_str(&format!(
         "          05 {}-VISIBLE    PIC 9      VALUE {}.\n",
@@ -809,7 +831,9 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
             "          05 {prefix}-MAXIMUM    PIC S9(9) VALUE {max}.\n"
         ));
         out.push_str(&format!(
-            "          05 {prefix}-STYLE      PIC X(10)  VALUE '{style}'.\n"
+            "          05 {prefix}-STYLE      PIC X({})  VALUE '{}'.\n",
+            cobol_pic_x(&style, 10),
+            cobol_lit(&style)
         ));
     }
 
@@ -864,10 +888,14 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
             .unwrap_or_else(|| "0".into());
         let zoom = ctrl.get_prop("Zoom").map(|v| v.as_i64()).unwrap_or(2);
         out.push_str(&format!(
-            "          05 {prefix}-CENTER-LAT PIC X(32)  VALUE '{lat}'.\n"
+            "          05 {prefix}-CENTER-LAT PIC X({})  VALUE '{}'.\n",
+            cobol_pic_x(&lat, 32),
+            cobol_lit(&lat)
         ));
         out.push_str(&format!(
-            "          05 {prefix}-CENTER-LNG PIC X(32)  VALUE '{lng}'.\n"
+            "          05 {prefix}-CENTER-LNG PIC X({})  VALUE '{}'.\n",
+            cobol_pic_x(&lng, 32),
+            cobol_lit(&lng)
         ));
         out.push_str(&format!(
             "          05 {prefix}-ZOOM       PIC S9(4)  VALUE {zoom}.\n"
@@ -1932,11 +1960,13 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
             }
         ));
         out.push_str(&format!(
-            "       01 {pfx}-OPEN-MODE      PIC X(8)    VALUE '{}'.\n",
+            "       01 {pfx}-OPEN-MODE      PIC X({})    VALUE '{}'.\n",
+            cobol_pic_x(&mode, 8),
             cobol_lit(&mode)
         ));
         out.push_str(&format!(
-            "       01 {pfx}-LOAD-STRATEGY  PIC X(8)    VALUE '{}'.\n",
+            "       01 {pfx}-LOAD-STRATEGY  PIC X({})    VALUE '{}'.\n",
+            cobol_pic_x(&strategy, 8),
             cobol_lit(&strategy)
         ));
         out.push_str(&format!(
@@ -2446,8 +2476,47 @@ fn prop_bool(ctrl: &Control, key: &str, fallback: bool) -> bool {
     ctrl.get_prop(key).map(|v| v.as_bool()).unwrap_or(fallback)
 }
 
+/// Render a developer-supplied value as the BODY of an apostrophe-delimited
+/// COBOL alphanumeric literal — the text that sits between the two `'`.
+///
+/// A property value is free text: a caption, a URL, a connection string. Two
+/// things it can carry that a COBOL literal cannot, and both used to be
+/// interpolated raw:
+///
+/// * **the delimiter itself.** COBOL-85 escapes a literal's own delimiter by
+///   writing it twice, so one apostrophe becomes `''`. An unescaped one closed
+///   the literal early and the rest of the caption became stray COBOL words.
+/// * **a line break.** COBOL has no multi-line literal — a literal ends at its
+///   line — so a caption typed across two lines emitted a literal broken across
+///   two source lines with no continuation, which does not compile. Every
+///   control character (newline, carriage return, tab, and the rest) is folded
+///   to a single space so the value stays readable and the program stays valid.
+///
+/// The doubling is decoded by the lexer's `''` rule, so the round trip through
+/// the generated program is lossless for everything except the folded control
+/// characters, which cannot survive in a literal at all.
 fn cobol_lit(s: &str) -> String {
-    s.replace('\'', "''")
+    cobol_lit_value(s).replace('\'', "''")
+}
+
+/// The value `cobol_lit` will encode, before the delimiter is doubled — i.e.
+/// exactly the characters the generated field will hold at run time.
+fn cobol_lit_value(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
+/// Width for a `PIC X(n)` field that must hold `s`, never narrower than
+/// `floor`.
+///
+/// Sized from the **value**, not from the escaped literal: a doubled `''`
+/// occupies two characters in the source and one in storage. The floor keeps
+/// the familiar width for the short captions developers actually write, so the
+/// generated program only changes shape when a value genuinely would not fit —
+/// which previously truncated it against a hard-coded `PIC X(256)`.
+fn cobol_pic_x(s: &str, floor: usize) -> usize {
+    floor.max(cobol_lit_value(s).chars().count())
 }
 
 fn indexed_control_file_name(ctrl: &Control) -> String {
@@ -3641,6 +3710,181 @@ mod tests {
             "COBOL-DATA-BINDINGS-UPDATE.",
         ] {
             assert!(src.contains(needle), "missing {needle}\n{src}");
+        }
+    }
+
+    // ── A developer's property text is escaped before it becomes a literal ──
+    //
+    // `sidebar-form.cfrm` (operator's project, 2026-08-26) failed to build with
+    // "expected PROCEDURE DIVISION (line 367)". The cause was not the PROCEDURE
+    // DIVISION: a control's Caption carried a newline, the generator wrote it
+    // raw between two apostrophes, and the resulting literal was broken across
+    // two source lines with no continuation. An apostrophe in a caption —
+    // "Don't" — did the same thing by closing the literal early.
+
+    fn caption_line(src: &str) -> String {
+        src.lines()
+            .filter(|l| l.contains("-TEXT"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Every generated CODE line that opens a literal must also close it.
+    ///
+    /// Comment lines are exempt: `*>` runs to end of line, so an apostrophe in
+    /// the developer banner's prose ("your code's functionality") is text, not
+    /// an unbalanced delimiter.
+    fn assert_no_line_leaves_a_literal_open(src: &str) {
+        for (n, line) in src.lines().enumerate() {
+            if line.trim_start().starts_with("*>") {
+                continue;
+            }
+            let quotes = line.chars().filter(|c| *c == '\'').count();
+            assert!(
+                quotes % 2 == 0,
+                "line {} leaves a literal open: {line}",
+                n + 1
+            );
+        }
+    }
+
+    /// A caption containing the literal's own delimiter must round-trip: the
+    /// apostrophe is doubled in the source, which the lexer decodes back to one.
+    #[test]
+    fn an_apostrophe_in_a_caption_is_doubled_not_emitted_raw() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut btn = Control::new("BTN-1", ControlType::Button, 10, 10);
+        btn.set_prop("Caption", PropValue::String("Don't Save".into()));
+        form.controls.push(btn);
+
+        let src = generate(&form);
+        assert!(
+            src.contains("VALUE 'Don''t Save'."),
+            "apostrophe must be doubled, not closing the literal early:\n{}",
+            caption_line(&src)
+        );
+        assert_no_line_leaves_a_literal_open(&src);
+    }
+
+    /// The reported failure: a multi-line caption. COBOL has no multi-line
+    /// literal, so every control character folds to a space and the VALUE
+    /// clause stays on one line.
+    #[test]
+    fn a_newline_in_a_caption_never_breaks_the_literal_across_lines() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut lbl = Control::new("LBL-1", ControlType::Label, 10, 10);
+        lbl.set_prop("Caption", PropValue::String("First\nSecond\tThird".into()));
+        form.controls.push(lbl);
+
+        let src = generate(&form);
+        assert!(
+            src.contains("VALUE 'First Second Third'."),
+            "control characters must fold to spaces:\n{}",
+            caption_line(&src)
+        );
+        assert_no_line_leaves_a_literal_open(&src);
+    }
+
+    /// The PICTURE is sized from the value, so a caption longer than the old
+    /// hard-coded `PIC X(256)` fits instead of being silently truncated — and
+    /// the doubled delimiter does not inflate the width, because it is one
+    /// character in storage.
+    #[test]
+    fn the_picture_is_sized_from_the_value_not_the_escaped_literal() {
+        fn captioned(caption: &str) -> String {
+            let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+            let mut lbl = Control::new("LBL-1", ControlType::Label, 10, 10);
+            lbl.set_prop("Caption", PropValue::String(caption.to_string()));
+            form.controls.push(lbl);
+            generate(&form)
+        }
+
+        assert!(
+            captioned(&"A".repeat(300)).contains("PIC X(300) VALUE"),
+            "a 300-character caption needs PIC X(300)"
+        );
+        // Short values keep the familiar floor.
+        assert!(captioned("Hi").contains("PIC X(256) VALUE 'Hi'."));
+        // 260 apostrophes are 520 source characters but 260 stored ones.
+        assert!(
+            captioned(&"'".repeat(260)).contains("PIC X(260) VALUE"),
+            "PIC must count stored characters, not doubled source ones"
+        );
+    }
+
+    /// The same escaping guards every other developer-supplied literal, not
+    /// just the caption: a REST base URL and a SQL connection string also
+    /// reach a `VALUE '…'` clause, and both can legitimately contain an
+    /// apostrophe.
+    ///
+    /// The form NAME is deliberately a valid COBOL word here. It reaches three
+    /// places with three different spelling rules — `PROGRAM-ID` (a word),
+    /// `FORM-NAME`'s VALUE (a literal) and the `CALL "…"` of each derived
+    /// handler (a literal that must match the handler's own PROGRAM-ID) — and
+    /// only the first two are sanitized. Making an arbitrary form name safe in
+    /// all three means sanitizing `derive_paragraph_name` in `cobolt-forms`,
+    /// which is a wider change than this one; see the tracked follow-up.
+    #[test]
+    fn every_developer_supplied_literal_is_escaped() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut rest = Control::new("REST-1", ControlType::RestClient, 10, 10);
+        rest.set_prop("BaseUrl", PropValue::String("https://x/it's".into()));
+        form.controls.push(rest);
+        let mut db = Control::new("DB-1", ControlType::SqlDatabase, 10, 10);
+        db.set_prop("ConnectionString", PropValue::String("pw=a'b".into()));
+        form.controls.push(db);
+
+        let src = generate(&form);
+        assert!(
+            src.contains("VALUE 'https://x/it''s'."),
+            "base URL unescaped"
+        );
+        assert!(src.contains("VALUE 'pw=a''b'."), "connection string unescaped");
+        assert_no_line_leaves_a_literal_open(&src);
+    }
+
+    /// A `PROGRAM-ID` is a COBOL word, so a form name that is not one is
+    /// sanitized rather than emitted verbatim into the header.
+    #[test]
+    fn the_program_id_is_a_cobol_word_even_when_the_form_name_is_not() {
+        let form = Form::new("MAIN FORM", "Test", 800, 600);
+        let src = generate(&form);
+        assert!(
+            src.contains("PROGRAM-ID. MAIN-FORM."),
+            "PROGRAM-ID must be a COBOL word:\n{}",
+            src.lines()
+                .filter(|l| l.contains("PROGRAM-ID"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        // …while the name the developer typed still reaches FORM-NAME intact.
+        assert!(src.contains("VALUE 'MAIN FORM'."));
+    }
+
+    /// The escaped source must LEX back to the developer's exact text —
+    /// codegen's doubling and the lexer's un-doubling have to agree, or the
+    /// generated program holds different data than the designer shows.
+    #[test]
+    fn the_escaped_literal_lexes_back_to_the_original_text() {
+        for original in ["Don't", "a''b", "'", "plain", "He said \"hi\""] {
+            let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+            let mut lbl = Control::new("LBL-1", ControlType::Label, 10, 10);
+            lbl.set_prop("Caption", PropValue::String(original.to_string()));
+            form.controls.push(lbl);
+
+            let src = generate(&form);
+            let decoded: Vec<String> =
+                cobolt_lexer::tokenize(&src, cobolt_lexer::SourceFormat::Free)
+                    .into_iter()
+                    .filter_map(|st| match st.token {
+                        cobolt_lexer::Token::StringLiteral(s) => Some(s),
+                        _ => None,
+                    })
+                    .collect();
+            assert!(
+                decoded.iter().any(|s| s == original),
+                "{original:?} did not survive the round trip; literals seen: {decoded:?}"
+            );
         }
     }
 }

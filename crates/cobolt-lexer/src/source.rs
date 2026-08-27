@@ -152,7 +152,7 @@ fn preprocess_fixed_strict(source: &str) -> Vec<SourceLine> {
             content: flat_line.to_string(),
             line_number: (idx + 1) as u32,
             byte_offset,
-            is_comment: is_comment || is_debug,
+            is_comment: is_comment || (is_debug && !requests_debugging_mode(source)),
             comment_text: if is_comment {
                 Some(active.trim().to_string())
             } else if is_debug {
@@ -370,6 +370,35 @@ fn literal_state(fragment: &str, open: Option<char>) -> Option<char> {
     state
 }
 
+/// True when the program asks for its debugging lines to be compiled.
+///
+/// COBOL-85 puts a `D` (or `d`) in the indicator area to mark a **debugging
+/// line**, and the default is that such a line is a *comment*. It is compiled
+/// only when the program says so:
+///
+/// ```cobol
+///        SOURCE-COMPUTER. XYZ WITH DEBUGGING MODE.
+/// ```
+///
+/// This is a source-format decision — the indicator area only exists in fixed
+/// format — so it is answered here rather than in the parser, and it has to be
+/// answered before any line is classified. Comment lines are skipped so that a
+/// program merely *describing* debugging mode in its prose does not switch it
+/// on; CCVS85 programs discuss it in their banners.
+///
+/// Free format has no indicator area, so it has no debugging lines at all: a
+/// `D` there is an ordinary COBOL word and is left alone.
+pub(crate) fn requests_debugging_mode(source: &str) -> bool {
+    source.lines().any(|line| {
+        let indicator = line.chars().nth(6).unwrap_or(' ');
+        if matches!(indicator, '*' | '/') {
+            return false;
+        }
+        let upper = line.to_ascii_uppercase();
+        upper.contains("DEBUGGING MODE")
+    })
+}
+
 /// Pad a fragment out to the full Area A+B width.
 ///
 /// COBOL-85: when a line ends inside an alphanumeric literal, the spaces from
@@ -399,6 +428,8 @@ fn pad_area(fragment: &str) -> String {
 /// continued literal therefore reports the line the literal *started* on, which
 /// is the line worth looking at.
 pub fn flatten_fixed_strict(source: &str) -> String {
+    // A `D` line is a comment unless the program asked for debugging mode.
+    let debugging = requests_debugging_mode(source);
     let mut out: Vec<String> = Vec::new();
     // Index in `out` of the line a continuation should be appended to.
     let mut last_content: Option<usize> = None;
@@ -424,9 +455,16 @@ pub fn flatten_fixed_strict(source: &str) -> String {
             '*' | '/' => out.push(String::new()),
 
             // A debugging line is a comment unless the program requested
-            // debugging mode, which is the standard's default and the only
-            // behaviour available until the debug module lands.
-            'D' | 'd' => out.push(String::new()),
+            // debugging mode with `SOURCE-COMPUTER. … WITH DEBUGGING MODE.`
+            // — the standard's default, and the reason a `D` line must not
+            // simply be compiled.
+            'D' | 'd' if !debugging => out.push(String::new()),
+            'D' | 'd' => {
+                // Debugging mode is on: the line is ordinary source.
+                out.push(area.to_string());
+                last_content = Some(out.len() - 1);
+                open_lit = literal_state(area, None);
+            }
 
             '-' => {
                 let target = match last_content {
@@ -502,6 +540,8 @@ pub fn flatten_fixed_strict(source: &str) -> String {
 }
 
 pub fn flatten_fixed(source: &str) -> String {
+    // Same rule as the strict path — the two used to disagree about `D`.
+    let debugging = requests_debugging_mode(source);
     let mut out = String::with_capacity(source.len());
     for raw_line in source.lines() {
         // Work in char-columns so multi-byte characters (e.g. '─') are handled safely.
@@ -539,7 +579,18 @@ pub fn flatten_fixed(source: &str) -> String {
                     out.push_str("*> ");
                     out.push_str(&raw_line[col7_byte..line_end]);
                 }
-            } else if matches!(indicator, '-' | 'D') {
+            } else if matches!(indicator, 'D' | 'd') && !debugging {
+                // A debugging line is a comment unless the program asked for
+                // debugging mode. This path used to compile it unconditionally
+                // while `flatten_fixed_strict` treated it as a comment — the
+                // two disagreed about the same text.
+                out.push_str(&" ".repeat(6));
+                out.push(' ');
+                if char_count > 7 {
+                    out.push_str("*> ");
+                    out.push_str(&raw_line[col7_byte..line_end]);
+                }
+            } else if matches!(indicator, '-' | 'D' | 'd') {
                 out.push_str(&raw_line[..col6_byte]);
                 out.push(' ');
                 if char_count > 7 {

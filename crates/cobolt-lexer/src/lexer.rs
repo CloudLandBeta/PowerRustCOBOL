@@ -96,6 +96,10 @@ pub struct Lexer<'src> {
     peeked: Option<SpannedToken>,
     /// `true` after the first `Token::Eof` has been returned.
     done: bool,
+    /// The source format this lexer was built for. The block-literal fence is
+    /// a FREE-format construct: fixed format has an indicator column and a
+    /// sequence area, so a line of backticks there means something else.
+    format: SourceFormat,
     /// `true` at the very start of input, after a `Newline`, or after a
     /// `Period`.  Used to distinguish level-number literals (which appear
     /// only at the start of a data-description entry) from plain integers.
@@ -135,6 +139,7 @@ impl<'src> Lexer<'src> {
             emit_comments: false,
             peeked: None,
             done: false,
+            format,
             at_line_start: true,
         }
     }
@@ -183,6 +188,33 @@ impl<'src> Lexer<'src> {
             // Clone the entry so we don't hold a borrow while calling classify.
             let (result, range) = self.raw_tokens[self.pos].clone();
             self.pos += 1;
+
+            // ── Separator comma / semicolon (COBOL-85) ─────────────────────
+            //
+            // A `,` or `;` FOLLOWED BY A SPACE (or end of line) is a
+            // *separator*: pure punctuation that may appear anywhere a space
+            // may appear, and that means exactly what a space means. So
+            // `MOVE ZERO TO DN3, DN4.` is the same statement as
+            // `MOVE ZERO TO DN3 DN4.`, and a conforming compiler cannot tell
+            // them apart.
+            //
+            // It is dropped HERE, before `classify`, so it never becomes a
+            // token and never touches `at_line_start` — "means what a space
+            // means" is stronger than "a token the parser ignores", and only
+            // the first spelling keeps every future syntactic site correct
+            // without listing them.
+            //
+            // The rule is one-sided on purpose. A comma that is NOT followed
+            // by a space is never a separator, and that is precisely where the
+            // two constructs that genuinely need a comma live: the decimal
+            // comma (`1,5`, glued between digits, under `DECIMAL-POINT IS
+            // COMMA`) and the PICTURE editing comma (`PIC ZZ,ZZ9`, glued
+            // inside the template). Both keep their token untouched.
+            if matches!(result, Ok(RawToken::Comma) | Ok(RawToken::Semicolon))
+                && self.is_separator_punctuation(range.end)
+            {
+                continue;
+            }
 
             let span = self.make_span(range.start, range.end);
 
@@ -245,6 +277,32 @@ impl<'src> Lexer<'src> {
                 }
                 // Not followed by RUST — emit standalone Exec token and
                 // let the parser diagnose the error.
+            }
+
+            // ── Free-format block literal ─────────────────────────────────
+            // A fence opens a literal whose text is the lines between the
+            // fences, so the whole construct becomes one StringLiteral.
+            if token == Token::Fence {
+                return Some(self.capture_block_literal(span));
+            }
+
+            // ── A digit-leading word whose first letter is behind a hyphen ──
+            //
+            // `3-DEM-TBL` is a legal COBOL-85 user-defined word, but it cannot
+            // be matched by the `Word` regex: a `logos` DFA does not backtrack,
+            // so a pattern that allows a hyphen before the first letter eats
+            // `9999-` out of `PIC 9999-.` and then fails. See token.rs.
+            //
+            // Here the pieces have already been lexed as `3` `-` `DEM-TBL`, and
+            // their spans say whether the developer wrote them **glued**. Only
+            // a glued run becomes one word, which is exactly COBOL-85's rule:
+            // an arithmetic operator must have spaces around it, so `B - C` is
+            // a subtraction and `B-C` is a name. `PIC 9999-.` is untouched
+            // because no word follows its hyphen.
+            if let Token::IntegerLiteral(_) | Token::LevelNumber(_) = token {
+                if let Some(joined) = self.try_join_digit_leading_word(span) {
+                    return Some(joined);
+                }
             }
 
             return Some(SpannedToken::new(token, span));
@@ -345,6 +403,7 @@ impl<'src> Lexer<'src> {
             RawToken::Ampersand => Token::Ampersand,
 
             RawToken::Period => Token::Period,
+            RawToken::Fence => Token::Fence,
             RawToken::Comma => Token::Comma,
             RawToken::Semicolon => Token::Semicolon,
             RawToken::LParen => Token::LParen,
@@ -438,9 +497,146 @@ impl<'src> Lexer<'src> {
         ))
     }
 
+    /// Join `<digits>` `-` `<word>` into one user-defined word when the three
+    /// are written with no space between them.
+    ///
+    /// Returns `None` — consuming nothing — unless the whole run is glued, so
+    /// `9999 - X` stays a subtraction and `PIC 9999-.` stays an integer
+    /// followed by a hyphen.
+    fn try_join_digit_leading_word(&mut self, num_span: Span) -> Option<SpannedToken> {
+        let (minus, minus_range) = self.raw_tokens.get(self.pos)?.clone();
+        if !matches!(minus, Ok(RawToken::Minus)) || minus_range.start != num_span.end {
+            return None;
+        }
+        let (word, word_range) = self.raw_tokens.get(self.pos + 1)?.clone();
+        let text = match word {
+            Ok(RawToken::Word(w)) => w,
+            _ => return None,
+        };
+        if word_range.start != minus_range.end {
+            return None;
+        }
+
+        let digits = self.preprocessed.get(num_span.start..num_span.end)?.to_string();
+        let end = word_range.end;
+        self.pos += 2;
+        self.at_line_start = false;
+        let joined = format!("{digits}-{text}");
+        let span = Span::new(num_span.start, end, num_span.line, num_span.col);
+        Some(SpannedToken::new(Token::Identifier(joined), span))
+    }
+
+    /// Capture a **block literal**: the lines between a pair of ``` fences.
+    ///
+    /// ```text
+    ///     MOVE
+    ///     ```
+    ///     Hello, World!
+    ///     ```
+    ///     TO WS-GREETING.
+    /// ```
+    ///
+    /// The value is `Hello, World!`.
+    ///
+    /// # The rules, and why each one
+    ///
+    /// * **The text starts on the line after the opening fence.** Anything
+    ///   typed after ``` on the opening line is not content — it is the place a
+    ///   language tag would go in Markdown, which is the notation this borrows.
+    /// * **The closing fence's own line is not content**, and neither is the
+    ///   newline that precedes it. So a one-line block is exactly that line,
+    ///   with no trailing newline: the common case behaves as if the developer
+    ///   had typed a quoted literal.
+    /// * **Interior newlines are kept**, which is the entire point — COBOL-85
+    ///   has no multi-line literal at all, and fixed-format continuation is
+    ///   unavailable in free format.
+    /// * **No escaping.** The text is taken verbatim, so quotation marks and
+    ///   apostrophes need no doubling. That is what makes it useful for JSON,
+    ///   SQL and HTML.
+    ///
+    /// This is a **language extension**, not COBOL-85.
+    fn capture_block_literal(&mut self, fence_span: Span) -> SpannedToken {
+        // Fixed format has an indicator column and a sequence area, so a line
+        // of backticks there is not this construct. Say so rather than
+        // silently producing a literal the developer did not ask for.
+        if self.format != SourceFormat::Free {
+            self.errors.push(LexError::UnexpectedChar {
+                span: fence_span,
+                text: "a ``` block literal is a free-format construct; this source is fixed format"
+                    .into(),
+            });
+            return SpannedToken::new(
+                Token::Error("``` block literal requires free format".into()),
+                fence_span,
+            );
+        }
+
+        // Content begins after the opening fence's line ends.
+        let after_fence = &self.preprocessed[fence_span.end..];
+        let Some(nl) = after_fence.find('\n') else {
+            return self.unterminated_block(fence_span);
+        };
+        let content_start = fence_span.end + nl + 1;
+
+        // Find the closing fence: a line whose first non-blank text is ```.
+        let mut cursor = content_start;
+        let rest = &self.preprocessed[content_start..];
+        for line in rest.split_inclusive('\n') {
+            if line.trim_start().starts_with("```") {
+                // Content ends at the newline before this line — excluded.
+                let content_end = cursor.saturating_sub(1).max(content_start);
+                let text = self.preprocessed[content_start..content_end].to_string();
+                let close_end = cursor + line.trim_end_matches('\n').len();
+
+                // Skip every raw token the block swallowed.
+                while self.pos < self.raw_tokens.len()
+                    && self.raw_tokens[self.pos].1.start < close_end
+                {
+                    self.pos += 1;
+                }
+                self.at_line_start = false;
+                let span = Span::new(
+                    fence_span.start,
+                    close_end,
+                    fence_span.line,
+                    fence_span.col,
+                );
+                return SpannedToken::new(Token::StringLiteral(text), span);
+            }
+            cursor += line.len();
+        }
+        self.unterminated_block(fence_span)
+    }
+
+    /// An opening fence with no closing fence. Reported where it was opened —
+    /// the end of the file is not the useful place to look.
+    fn unterminated_block(&mut self, fence_span: Span) -> SpannedToken {
+        self.errors.push(LexError::UnexpectedChar {
+            span: fence_span,
+            text: "unterminated ``` block literal (missing closing ```)".into(),
+        });
+        self.pos = self.raw_tokens.len();
+        SpannedToken::new(
+            Token::Error("unterminated ``` block literal".into()),
+            fence_span,
+        )
+    }
+
     fn make_span(&self, start: usize, end: usize) -> Span {
         let (line, col) = self.line_index.line_col(start);
         Span::new(start, end, line, col)
+    }
+
+    /// True when the punctuation ending at `end` is a COBOL-85 **separator** —
+    /// that is, when it is followed by a space or by the end of the line.
+    ///
+    /// End of input counts: there is no character after it, which is the same
+    /// thing the standard's "followed by a space" is getting at.
+    fn is_separator_punctuation(&self, end: usize) -> bool {
+        match self.preprocessed[end..].chars().next() {
+            None => true,
+            Some(c) => c.is_whitespace(),
+        }
     }
 }
 

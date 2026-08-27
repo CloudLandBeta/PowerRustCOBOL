@@ -531,7 +531,17 @@ pub enum Stmt {
     },
 
     /// `CLOSE file …`
-    Close { files: Vec<String>, span: Span },
+    /// `CLOSE file [{REEL|UNIT} [FOR REMOVAL]] [WITH {NO REWIND|LOCK}]`.
+    ///
+    /// `locked` names the subset of `files` closed `WITH LOCK`, which COBOL-85
+    /// says may not be reopened in the same run unit. The reel/unit phrases are
+    /// multi-volume tape positioning; they parse and are accepted as no-ops on
+    /// disk, so nothing is recorded for them.
+    Close {
+        files: Vec<String>,
+        locked: Vec<String>,
+        span: Span,
+    },
 
     /// `READ file [NEXT|PREVIOUS] [INTO target] [KEY IS k]`
     /// `[AT END …] [NOT AT END …] [INVALID KEY …] [NOT INVALID KEY …]`

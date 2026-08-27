@@ -771,16 +771,44 @@ fn parse_usage_clause(p: &mut Parser) -> Usage {
 
 // ── OCCURS clause ─────────────────────────────────────────────────────────────
 
+/// Read an integer where the grammar requires one, accepting the `LevelNumber`
+/// spelling of the same digits.
+///
+/// The lexer decides between `IntegerLiteral` and `LevelNumber` from POSITION —
+/// a number that opens a line is taken for a level number — and it cannot know
+/// better, because a level number is only recognisable from context. So a
+/// clause whose count spills onto the next line arrives mis-typed:
+///
+/// ```cobol
+///     10  STUFF-1 OCCURS
+///             31 TIMES.
+/// ```
+///
+/// `31` opens its line, becomes `LevelNumber(31)`, and `expected integer after
+/// OCCURS` follows. Where an integer is *syntactically required*, the two
+/// spellings are the same number, so accepting both is exact rather than
+/// lenient — a real level number can never appear in this position.
+fn eat_required_integer(p: &mut Parser) -> Option<u32> {
+    match p.peek().clone() {
+        Token::IntegerLiteral(n) => {
+            p.advance();
+            Some(n as u32)
+        }
+        Token::LevelNumber(n) => {
+            p.advance();
+            Some(n as u32)
+        }
+        _ => None,
+    }
+}
+
 fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
     let span = p.peek_span();
 
     // OCCURS min TO max | OCCURS n
-    let first = match p.peek().clone() {
-        Token::IntegerLiteral(n) => {
-            p.advance();
-            n as u32
-        }
-        _ => {
+    let first = match eat_required_integer(p) {
+        Some(n) => n,
+        None => {
             p.emit_error("expected integer after OCCURS");
             0
         }
@@ -788,12 +816,9 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
 
     let (min, max) = if p.at(&Token::To) {
         p.advance();
-        let m = match p.peek().clone() {
-            Token::IntegerLiteral(n) => {
-                p.advance();
-                n as u32
-            }
-            _ => {
+        let m = match eat_required_integer(p) {
+            Some(n) => n,
+            None => {
                 p.emit_error("expected integer after TO in OCCURS");
                 first
             }

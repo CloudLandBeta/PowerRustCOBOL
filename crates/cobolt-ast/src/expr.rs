@@ -144,6 +144,37 @@ pub enum Expr {
         parens: bool,
         span: Span,
     },
+
+    // ⚠️ **NEW VARIANTS GO AT THE END — never in the middle.**
+    //
+    // This enum is serialized with `bincode` and embedded in every compiled
+    // binary (`cobolt-compiler`: lex → parse → semantic → bincode → deflate →
+    // `include_bytes!`). bincode identifies a variant by its **ordinal**, so
+    // inserting one renumbers every variant after it: an AST written before the
+    // change is then read as the wrong variants, and the misaligned stream
+    // surfaces as `invalid value: integer N, expected variant index 0 <= i < M`
+    // when a built application starts.
+    //
+    // That is not hypothetical — `AllSubscript` was first added after
+    // `Subscript`, which shifted `RefMod`, `FunctionCall`, `Arithmetic`,
+    // `Unary` and `Member` by one and broke an already-built demo. Appending
+    // keeps every existing ordinal, so only the new variant is unreadable by an
+    // older binary, which is the honest and expected limit.
+    /// The reserved word `ALL` used **as a subscript**, meaning *every*
+    /// occurrence of the table in that dimension:
+    ///
+    /// ```cobol
+    /// COMPUTE WS-NUM = FUNCTION MAX(IND(ALL)).
+    /// COMPUTE WS-NUM = FUNCTION SUM(TBL(ALL, 2)).
+    /// ```
+    ///
+    /// It is only meaningful inside [`Expr::Subscript::indices`] of an
+    /// intrinsic-function argument, where the caller expands it to one
+    /// argument per occurrence. It is **not** the figurative constant `ALL "X"`
+    /// — that is a [`Literal`], and the two are told apart by position: inside
+    /// a subscript list `ALL` is always this, because a figurative constant is
+    /// never a legal subscript.
+    AllSubscript(Span),
 }
 
 impl Expr {
@@ -154,6 +185,7 @@ impl Expr {
             Expr::Identifier(_, s) => *s,
             Expr::Qualified { span, .. } => *span,
             Expr::Subscript { span, .. } => *span,
+            Expr::AllSubscript(s) => *s,
             Expr::RefMod { span, .. } => *span,
             Expr::FunctionCall { span, .. } => *span,
             Expr::Arithmetic { span, .. } => *span,

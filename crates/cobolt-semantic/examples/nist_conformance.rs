@@ -470,6 +470,22 @@ fn main() {
         return;
     }
 
+    // ── EXECUTION scoring: `run [filter]` ────────────────────────────────────
+    //
+    // Every other pass measures **compilation**: does the front end accept the
+    // program. This one measures whether it *works* — it runs each program that
+    // compiles clean and reads the program's own `PASS`/`FAIL` report.
+    //
+    // The distinction is not academic. A CCVS85 program marks each assertion
+    // `PASS ` or `FAIL*` in its printed report and tallies them at the end, so
+    // the suite scores itself; a program can compile perfectly and still report
+    // every assertion failed. 32 of the 35 RELATIVE programs compile against a
+    // runtime with no RELATIVE engine at all.
+    if pass == "run" {
+        run_pass(&members, &filter);
+        return;
+    }
+
     // ── drill-down mode: `dump <NAME>` ────────────────────────────────────────
     // Print every diagnostic for one member against its own (truncated) source
     // line, so a bucket like `unexpected token: Identifier("Y")` can be traced
@@ -700,4 +716,338 @@ fn main() {
             }
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Execution scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// How one program ended.
+#[derive(Debug, Clone, PartialEq)]
+enum RunOutcome {
+    /// The front end rejected it — this pass never ran it.
+    CompileFail,
+    /// It ran to completion. `(pass, fail, deleted)` from its own report.
+    Ran(usize, usize, usize),
+    /// It ran to completion but printed no CCVS report at all.
+    NoReport,
+    /// Still running when the wall-clock budget expired.
+    Timeout,
+    /// Killed for writing more than the output budget — a runaway loop.
+    Runaway(u64),
+    /// The runtime refused it (a diagnostic, a panic, a non-zero exit).
+    Crash(String),
+}
+
+/// Wall-clock budget for one program.
+const RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// Output budget for one program's print file.
+///
+/// Not a nicety: `IF101A` compiles clean and then loops writing blank lines,
+/// producing **4.2 GB in ten minutes** on the first attempt at this pass. A
+/// wall-clock timeout alone would still let a full sweep fill the disk, so the
+/// size is checked on the same tick as the clock.
+const RUN_MAX_OUTPUT: u64 = 2 * 1024 * 1024;
+
+/// The CCVS85 print file. Programs `SELECT PRINT-FILE ASSIGN TO XXXXX055`,
+/// the installation card for the system printer, and RustCOBOL resolves an
+/// unbound ASSIGN name to a file of that name in the working directory — so
+/// each program is run in its own directory and this is where its report lands.
+const CCVS_PRINT_FILE: &str = "XXXXX055";
+
+fn run_pass(members: &[Member], filter: &str) {
+    let rcrun = match locate_rcrun() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "cannot find the `rcrun` binary. Build it first:\n    cargo build --release -p cobolt-cli"
+            );
+            std::process::exit(2);
+        }
+    };
+    let workroot = std::env::temp_dir().join("nist-exec-scoring");
+    let _ = std::fs::remove_dir_all(&workroot);
+    std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
+
+    let programs: Vec<&Member> = members
+        .iter()
+        .filter(|m| m.kind == "COBOL")
+        .filter(|m| filter.is_empty() || m.name.to_uppercase().starts_with(&filter.to_uppercase()))
+        .collect();
+
+    let mut outcomes: Vec<(String, String, RunOutcome)> = Vec::new();
+
+    for (i, m) in programs.iter().enumerate() {
+        let module = module_of(&m.name);
+        if is_out_of_scope(&module) {
+            continue;
+        }
+        eprintln!("[{}/{}] {}", i + 1, programs.len(), m.name);
+
+        let (text, fmt) = prepare("strict", &m.text);
+        let pr = cobolt_parser::parse(tokenize(&text, fmt));
+        let compiles = pr.diagnostics.iter().all(|d| !d.is_error())
+            && pr
+                .program
+                .as_ref()
+                .map(|p| cobolt_semantic::analyze(p).errors().count() == 0)
+                .unwrap_or(false);
+        if !compiles {
+            outcomes.push((m.name.clone(), module, RunOutcome::CompileFail));
+            continue;
+        }
+
+        let outcome = run_one(&rcrun, &workroot, &m.name, &m.text);
+        outcomes.push((m.name.clone(), module, outcome));
+    }
+
+    let _ = std::fs::remove_dir_all(&workroot);
+    report_run(&outcomes);
+}
+
+/// Run one program in its own directory, under both budgets.
+fn run_one(
+    rcrun: &std::path::Path,
+    workroot: &std::path::Path,
+    name: &str,
+    raw: &str,
+) -> RunOutcome {
+    let dir = workroot.join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    if std::fs::create_dir_all(&dir).is_err() {
+        return RunOutcome::Crash("cannot create the work directory".into());
+    }
+    let src = dir.join(format!("{name}.cbl"));
+    if std::fs::write(&src, raw).is_err() {
+        return RunOutcome::Crash("cannot write the source".into());
+    }
+
+    let child = std::process::Command::new(rcrun)
+        .arg("run")
+        .arg(&src)
+        .arg("--source-format")
+        .arg("fixed")
+        .current_dir(&dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => return RunOutcome::Crash(format!("cannot spawn rcrun: {e}")),
+    };
+
+    let print_file = dir.join(CCVS_PRINT_FILE);
+    let started = std::time::Instant::now();
+    let outcome = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    break None; // completed; the report is read below
+                }
+                break Some(RunOutcome::Crash(format!("exit {status}")));
+            }
+            Ok(None) => {}
+            Err(e) => break Some(RunOutcome::Crash(format!("wait failed: {e}"))),
+        }
+        let written = std::fs::metadata(&print_file).map(|md| md.len()).unwrap_or(0);
+        if written > RUN_MAX_OUTPUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            break Some(RunOutcome::Runaway(written));
+        }
+        if started.elapsed() > RUN_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            break Some(RunOutcome::Timeout);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+
+    let result = match outcome {
+        Some(bad) => bad,
+        None => match std::fs::read_to_string(&print_file) {
+            Ok(report) => match score_ccvs_report(&report) {
+                Some((p, f, d)) => RunOutcome::Ran(p, f, d),
+                None => RunOutcome::NoReport,
+            },
+            Err(_) => RunOutcome::NoReport,
+        },
+    };
+    // Reclaim the directory immediately — a sweep is hundreds of programs and
+    // a runaway print file is measured in gigabytes.
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// Count the assertions a CCVS85 program reported.
+///
+/// Each assertion line carries `P-OR-F`, which the program's own `PASS`,
+/// `FAIL` and `DE-LETE` paragraphs set to `PASS `, `FAIL*` or `*****`. Counting
+/// those markers is the program's own verdict, not the harness's opinion of it.
+///
+/// Returns `None` when the output carries no marker at all — the program
+/// produced something, but not a CCVS report.
+fn score_ccvs_report(report: &str) -> Option<(usize, usize, usize)> {
+    // **Not line-based.** The CCVS print file is declared `PIC X(120)` on a
+    // record-SEQUENTIAL file, so RustCOBOL writes fixed 120-byte records with
+    // no newline between them — the whole report is one very long line. A
+    // line-based scorer read that as a single record and scored nothing.
+    // Counting the markers across the whole text is independent of how the
+    // records happen to be delimited.
+    let pass = count_occurrences(report, "PASS ");
+    let fail = count_occurrences(report, "FAIL*");
+    let deleted = count_occurrences(report, "TEST DELETED");
+    if pass + fail + deleted == 0 {
+        None
+    } else {
+        Some((pass, fail, deleted))
+    }
+}
+
+/// Count non-overlapping occurrences of `needle`.
+fn count_occurrences(haystack: &str, needle: &str) -> usize {
+    if needle.is_empty() {
+        return 0;
+    }
+    let mut n = 0usize;
+    let mut rest = haystack;
+    while let Some(i) = rest.find(needle) {
+        n += 1;
+        rest = &rest[i + needle.len()..];
+    }
+    n
+}
+
+/// Find the `rcrun` binary next to this example.
+fn locate_rcrun() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("RCRUN") {
+        let p = PathBuf::from(p);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    // target/<profile>/examples/nist_conformance → target/<profile>/rcrun
+    let exe = std::env::current_exe().ok()?;
+    let profile_dir = exe.parent()?.parent()?;
+    for candidate in [profile_dir.join("rcrun"), profile_dir.join("rcrun.exe")] {
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn report_run(outcomes: &[(String, String, RunOutcome)]) {
+    println!("\n=== NIST CCVS85 EXECUTION scoring ===");
+    println!("Each program is run and its own PASS/FAIL report is read.\n");
+
+    let mut compile_fail = 0usize;
+    let mut ran = 0usize;
+    let mut all_pass = 0usize;
+    let mut some_fail = 0usize;
+    let mut no_report = 0usize;
+    let mut timeout = 0usize;
+    let mut runaway = 0usize;
+    let mut crash = 0usize;
+    let (mut tot_p, mut tot_f, mut tot_d) = (0usize, 0usize, 0usize);
+
+    // module → (in scope, executed clean)
+    let mut per_module: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut problems: Vec<(&str, &str, &RunOutcome)> = Vec::new();
+
+    for (name, module, o) in outcomes {
+        let e = per_module.entry(module.clone()).or_insert((0, 0));
+        e.0 += 1;
+        match o {
+            RunOutcome::CompileFail => compile_fail += 1,
+            RunOutcome::Ran(p, f, d) => {
+                ran += 1;
+                tot_p += p;
+                tot_f += f;
+                tot_d += d;
+                if *f == 0 {
+                    all_pass += 1;
+                    e.1 += 1;
+                } else {
+                    some_fail += 1;
+                    problems.push((name, module, o));
+                }
+            }
+            RunOutcome::NoReport => {
+                no_report += 1;
+                problems.push((name, module, o));
+            }
+            RunOutcome::Timeout => {
+                timeout += 1;
+                problems.push((name, module, o));
+            }
+            RunOutcome::Runaway(_) => {
+                runaway += 1;
+                problems.push((name, module, o));
+            }
+            RunOutcome::Crash(_) => {
+                crash += 1;
+                problems.push((name, module, o));
+            }
+        }
+    }
+    let in_scope = outcomes.len();
+
+    println!("--- programs ---");
+    println!("  in scope                : {in_scope}");
+    println!("  did not compile         : {compile_fail}");
+    println!("  ran to completion       : {ran}");
+    println!("    …reporting 0 failures : {all_pass}   <-- the real conformance figure");
+    println!("    …reporting failures   : {some_fail}");
+    println!("  ran but printed no report: {no_report}");
+    println!("  timed out (>{}s)        : {timeout}", RUN_TIMEOUT.as_secs());
+    println!(
+        "  runaway output (>{} MB) : {runaway}",
+        RUN_MAX_OUTPUT / (1024 * 1024)
+    );
+    println!("  crashed / refused       : {crash}");
+
+    println!("\n--- assertions, as the programs themselves report ---");
+    println!("  PASS    : {tot_p}");
+    println!("  FAIL    : {tot_f}");
+    println!("  DELETED : {tot_d}");
+    let scored = tot_p + tot_f;
+    if scored > 0 {
+        println!(
+            "  rate    : {:.1}% of {} scored assertions",
+            100.0 * tot_p as f64 / scored as f64,
+            scored
+        );
+    }
+
+    println!("\n--- per module (executed clean / in scope) ---");
+    for (module, (total, clean)) in &per_module {
+        println!("  {module:<6} {clean:>4} / {total:<4}");
+    }
+
+    if !problems.is_empty() {
+        println!("\n--- every program that compiled but did not run clean ---");
+        for (name, module, o) in problems.iter().take(80) {
+            let what = match o {
+                RunOutcome::Ran(p, f, _) => format!("{f} FAIL, {p} PASS"),
+                RunOutcome::NoReport => "no CCVS report printed".to_string(),
+                RunOutcome::Timeout => format!("timed out after {}s", RUN_TIMEOUT.as_secs()),
+                RunOutcome::Runaway(n) => format!("runaway output, {} MB and climbing", n / (1024 * 1024)),
+                RunOutcome::Crash(e) => format!("crashed: {e}"),
+                RunOutcome::CompileFail => unreachable!(),
+            };
+            println!("  {name:<9} {module:<5} {what}");
+        }
+        if problems.len() > 80 {
+            println!("  … and {} more", problems.len() - 80);
+        }
+    }
+
+    println!(
+        "\nNOTE: 'ran to completion reporting 0 failures' is the figure that means\n\
+         \"this program works\". The compilation score counts programs the front end\n\
+         accepts, which is a strictly weaker claim."
+    );
 }

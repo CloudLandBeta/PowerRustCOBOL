@@ -70,6 +70,20 @@ pub enum RawToken {
     #[regex(r#"[Xx]'([0-9A-Fa-f]{2})*'"#, |lex| hex_literal_chars(lex.slice()))]
     HexString(String),
 
+    // ── Free-format block-literal fence (PowerRustCOBOL extension) ─────────
+    //
+    // ```` ``` ```` opens and closes a **block literal**: a literal whose text
+    // is the lines between the fences. COBOL-85 has no multi-line literal at
+    // all — continuation is a fixed-format column mechanism — so free-format
+    // source had no way to write one. This is a language extension, not a
+    // conformance fix.
+    //
+    // The fence is only a raw token; `Lexer::next_token` turns the whole
+    // construct into one `StringLiteral`, the way `EXEC RUST` becomes one
+    // `ExecRustBlock`.
+    #[token("```")]
+    Fence,
+
     // ── String literals ────────────────────────────────────────────────────
     //
     // **A literal never crosses a newline.** COBOL-85 has no multi-line
@@ -87,18 +101,33 @@ pub enum RawToken {
     // line, the damage stops at the next newline.
     //
     // (`\\.` needs no change — Rust's `.` does not match `\n`.)
+    //
+    // **A doubled delimiter is one character of content.** COBOL-85 has no
+    // backslash escape: a literal's own delimiter is written TWICE, so `'IT''S'`
+    // is the four-character value `IT'S` and `""""` is one quotation mark. The
+    // `""` / `''` alternative in the body carries that rule, and the callback
+    // collapses each pair back to one character. `logos` prefers the longest
+    // match, so `""""` is read as one literal holding a quote rather than two
+    // empty ones — while a *spaced* pair, `"abc" "def"`, still stops at the
+    // first closing delimiter and stays two literals.
+    //
+    // The preprocessor's `literal_state` (source.rs) has always applied this
+    // rule when deciding whether a fixed-format line ends inside a literal;
+    // until now the lexer did not, so the two disagreed about the same text.
+    // `cobolt-codegen`'s `cobol_lit()` writes the doubled form when it escapes
+    // a developer's caption — an escape whose un-escape was missing.
 
     // Double-quoted: "Hello, World!"  (doubled "" is an escaped quote)
-    #[regex(r#""([^"\\\n]|\\.)*""#, |lex| {
+    #[regex(r#""([^"\\\n]|\\.|"")*""#, |lex| {
         let s = lex.slice();
-        s[1..s.len()-1].to_string()
+        s[1..s.len()-1].replace("\"\"", "\"")
     })]
     StringDouble(String),
 
     // Single-quoted: 'Hello'  (doubled '' is an escaped quote)
-    #[regex(r"'([^'\\\n]|\\.)*'", |lex| {
+    #[regex(r"'([^'\\\n]|\\.|'')*'", |lex| {
         let s = lex.slice();
-        s[1..s.len()-1].to_string()
+        s[1..s.len()-1].replace("''", "'")
     })]
     StringSingle(String),
 
@@ -120,6 +149,32 @@ pub enum RawToken {
     // must not end with a hyphen (the trailing-hyphen rule is enforced in
     // the Lexer layer, not here, to keep this regex simple).
     #[regex(r"[A-Za-z][A-Za-z0-9\-]*", |lex| lex.slice().to_string())]
+    //
+    // **A user-defined word MAY begin with a digit.** COBOL-85 draws a word
+    // from `A-Z`, `0-9` and the hyphen; only a *data-name* must contain at
+    // least one alphabetic character. `25COUNT`, `3-DEM-TBL`, `1ST-ENTRY` and
+    // `2ND-ENTRY` are all legal names, and the suite uses them.
+    //
+    // Requiring a leading letter split them: `25COUNT` came out as the integer
+    // `25` followed by the reserved word `COUNT`, which is why the diagnostic
+    // used to name a keyword that was nowhere in the source.
+    //
+    // The second regex says "digits, then at least one letter, then more word
+    // characters" — the letter is what separates a word from a number, and it
+    // is required, so `123` and the level number `01` are untouched. `logos`
+    // prefers the longest match, so `25COUNT` beats the integer `25` on length.
+    //
+    // ⚠️ **No hyphen before that first letter**, deliberately. A `logos` DFA
+    // does not backtrack: a pattern allowing `[0-9\-]*` before the letter
+    // consumes `9999-` out of `PIC 9999-.`, then fails at the `.` and reports
+    // the whole run as an error instead of falling back to the integer. That
+    // broke every numeric-edited PICTURE with a trailing sign.
+    //
+    // `3-DEM-TBL` — a legal name where `3-` could read as "three minus…" — is
+    // therefore NOT matched here. It is reassembled in `Lexer::next_token`
+    // from the glued `3` `-` `DEM-TBL`, where adjacency can be checked against
+    // the spans and `9999-` is safe because no word follows its hyphen.
+    #[regex(r"[0-9]+[A-Za-z][A-Za-z0-9\-]*", |lex| lex.slice().to_string())]
     Word(String),
 
     // ── Operators (longest match first) ────────────────────────────────────
@@ -581,7 +636,13 @@ pub enum Token {
     Period,    // .
     Comma,     // ,
     Semicolon, // ;
-    LParen,    // (
+    /// ``` — opens or closes a free-format **block literal**.
+    ///
+    /// Never reaches the parser: `Lexer::next_token` turns the whole fenced
+    /// construct into a single [`Token::StringLiteral`]. It exists as a token
+    /// only so the lexer can recognise the fence.
+    Fence,
+    LParen, // (
     RParen,    // )
     Colon,     // :
 

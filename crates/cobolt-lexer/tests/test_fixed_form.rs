@@ -240,3 +240,91 @@ fn eof_token_present() {
         "last token should be Eof"
     );
 }
+
+// ── Debugging lines (COBOL-85) ───────────────────────────────────────────────
+//
+// A `D` in the indicator area marks a **debugging line**. The standard's
+// default is that it is a *comment*; it is compiled only when the program says
+// `SOURCE-COMPUTER. … WITH DEBUGGING MODE.`
+//
+// The two fixed-format flatteners used to disagree: the strict path treated `D`
+// as a comment, the relaxed path compiled it unconditionally. Operator ruling,
+// 2026-08-26: follow the standard, in fixed format only.
+
+/// Without the clause, a `D` line contributes no source.
+#[test]
+fn a_debug_line_is_a_comment_without_debugging_mode() {
+    let src = "      * comment\n\
+               000100 IDENTIFICATION DIVISION.\n\
+               000200D    DISPLAY \"TRACE\".\n\
+               000300     DISPLAY \"REAL\".\n";
+    for fmt in [SourceFormat::Fixed, SourceFormat::FixedStrict] {
+        let toks = tokenize(src, fmt);
+        let strings: Vec<&String> = toks
+            .iter()
+            .filter_map(|st| match &st.token {
+                Token::StringLiteral(s) => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            strings,
+            vec![&"REAL".to_string()],
+            "{fmt:?}: the D line must not be compiled: {strings:?}"
+        );
+    }
+}
+
+/// With the clause, the same line IS source.
+#[test]
+fn a_debug_line_is_compiled_with_debugging_mode() {
+    let src = "000100 IDENTIFICATION DIVISION.\n\
+               000150 SOURCE-COMPUTER. XYZ WITH DEBUGGING MODE.\n\
+               000200D    DISPLAY \"TRACE\".\n\
+               000300     DISPLAY \"REAL\".\n";
+    for fmt in [SourceFormat::Fixed, SourceFormat::FixedStrict] {
+        let toks = tokenize(src, fmt);
+        let strings: Vec<&String> = toks
+            .iter()
+            .filter_map(|st| match &st.token {
+                Token::StringLiteral(s) => Some(s),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            strings.contains(&&"TRACE".to_string()),
+            "{fmt:?}: WITH DEBUGGING MODE must compile the D line: {strings:?}"
+        );
+        assert!(strings.contains(&&"REAL".to_string()), "{fmt:?}");
+    }
+}
+
+/// The phrase inside a COMMENT does not switch debugging on — CCVS85 programs
+/// describe debugging mode in their banners.
+#[test]
+fn the_phrase_in_a_comment_does_not_enable_debugging() {
+    let src = "000100* THIS PROGRAM TESTS WITH DEBUGGING MODE BEHAVIOUR\n\
+               000200D    DISPLAY \"TRACE\".\n\
+               000300     DISPLAY \"REAL\".\n";
+    let toks = tokenize(src, SourceFormat::FixedStrict);
+    let strings: Vec<&String> = toks
+        .iter()
+        .filter_map(|st| match &st.token {
+            Token::StringLiteral(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(strings, vec![&"REAL".to_string()], "{strings:?}");
+}
+
+/// **Free format has no indicator area**, so it has no debugging lines: a `D`
+/// there is an ordinary COBOL word and nothing special happens to it.
+#[test]
+fn free_format_has_no_debug_indicator() {
+    let toks = tokenize("MOVE D TO WS-X.\n", SourceFormat::Free);
+    assert!(
+        toks.iter()
+            .any(|st| matches!(&st.token, Token::Identifier(s) if s == "D")),
+        "a data item named D must survive in free format: {toks:?}"
+    );
+}

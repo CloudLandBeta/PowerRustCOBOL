@@ -62,10 +62,28 @@ pub(crate) fn try_parse_figurative(p: &mut Parser) -> Option<(FigurativeConstant
         // ALL "x"  — Token::All followed by a literal
         Token::All => {
             p.advance();
+            // `ALL` in front of another figurative constant is **redundant**:
+            // a figurative constant already fills its receiver, so `ALL ZEROS`
+            // means `ZEROS` and `ALL SPACES` means `SPACES`. COBOL-85 permits
+            // the spelling and ignores the `ALL`; it used to be rejected with
+            // "expected literal after ALL", because only a real literal was
+            // accepted here.
+            if let Some(fig) = match p.peek() {
+                Token::Spaces => Some(FigurativeConstant::Space),
+                Token::Zeros => Some(FigurativeConstant::Zero),
+                Token::HighValues => Some(FigurativeConstant::HighValue),
+                Token::LowValues => Some(FigurativeConstant::LowValue),
+                Token::Quotes => Some(FigurativeConstant::Quote),
+                Token::Nulls => Some(FigurativeConstant::Null),
+                _ => None,
+            } {
+                p.advance();
+                return Some((fig, span));
+            }
             if let Some((lit, _)) = parse_literal_inner(p) {
                 Some((FigurativeConstant::All(Box::new(lit)), span))
             } else {
-                p.emit_error("expected literal after ALL");
+                p.emit_error("expected a literal or figurative constant after ALL");
                 None
             }
         }
@@ -323,60 +341,8 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
         let mut expr = Expr::Identifier(name.clone(), id_span);
 
         // `( … )` after a name is either a subscript `(i[,j])` or a reference
-        // modification `(start:[length])`. Disambiguate on the first `:`.
-        if p.at(&Token::LParen) {
-            p.advance();
-            let first = parse_expr(p);
-            if p.at(&Token::Colon) {
-                // Reference modification: IDENT(start:[length])
-                p.advance();
-                let length = if p.at(&Token::RParen) {
-                    None
-                } else {
-                    Some(Box::new(parse_expr(p)))
-                };
-                p.expect(&Token::RParen);
-                let sp = id_span.merge(p.peek_span());
-                expr = Expr::RefMod {
-                    base: Box::new(expr),
-                    start: Box::new(first),
-                    length,
-                    span: sp,
-                };
-            } else {
-                // Subscript: IDENT(i[,j…])
-                let mut indices = vec![first];
-                while p.eat(&Token::Comma) {
-                    indices.push(parse_expr(p));
-                }
-                p.expect(&Token::RParen);
-                let sp = id_span.merge(p.peek_span());
-                expr = Expr::Subscript {
-                    base: Box::new(expr),
-                    indices,
-                    span: sp,
-                };
-                // A reference modification may follow a subscript: t(i)(s:l)
-                if p.at(&Token::LParen) {
-                    p.advance();
-                    let start = parse_expr(p);
-                    p.expect(&Token::Colon);
-                    let length = if p.at(&Token::RParen) {
-                        None
-                    } else {
-                        Some(Box::new(parse_expr(p)))
-                    };
-                    p.expect(&Token::RParen);
-                    let sp = id_span.merge(p.peek_span());
-                    expr = Expr::RefMod {
-                        base: Box::new(expr),
-                        start: Box::new(start),
-                        length,
-                        span: sp,
-                    };
-                }
-            }
-        }
+        // modification `(start:[length])`.
+        expr = parse_subscript_or_refmod(p, expr, id_span);
 
         // Qualified: IDENT OF/IN qualifier
         while p.at(&Token::Of) || p.at(&Token::In) {
@@ -397,6 +363,19 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
             };
         }
 
+        // A subscript may follow the COMPLETE qualified name — which is the
+        // order COBOL-85 actually specifies:
+        //
+        //     data-name-1 [OF data-name-2]… [(subscript…)]
+        //
+        // `CELL OF COLS OF ROWS (IDX-A IDX-B)` (NC135A) went unparsed: the
+        // subscript above is read before the OF chain, so nothing consumed the
+        // trailing list and the generic parenthesised-expression rule reported
+        // `expected RParen` at the second subscript. Both orders are accepted —
+        // the pre-qualification form has always been allowed here and nothing
+        // that relied on it changes.
+        expr = parse_subscript_or_refmod(p, expr, id_span);
+
         // Inline member-access chain: `obj::Caption`, `obj::GetText()`,
         // `Grid::Rows(I)::Cols(2)::Value` — a postfix `::` loop over `expr`.
         return Some(parse_member_chain(p, expr));
@@ -409,6 +388,116 @@ fn parse_primary(p: &mut Parser) -> Option<Expr> {
 /// expression, building nested [`Expr::Member`] nodes. `parens` records whether
 /// `()` followed the member (a method call / subscript) versus a bare property.
 /// Returns `base` unchanged when no `::` follows.
+/// Parse one entry of a subscript list.
+///
+/// Almost always an ordinary expression. The exception is the reserved word
+/// `ALL` standing alone, which COBOL-85 gives a second meaning **in a subscript
+/// position**: every occurrence of the table in that dimension, so a whole
+/// table can be handed to a statistical intrinsic —
+/// `FUNCTION MAX(IND(ALL))`, `FUNCTION SUM(TBL(ALL, 2))`.
+///
+/// **Position is what distinguishes it** from the figurative constant `ALL "X"`,
+/// not what follows it. A subscript is an integer expression or an index-name;
+/// a figurative constant is never a legal subscript, so inside these
+/// parentheses `ALL` can only be the table-wide meaning. Deciding by lookahead
+/// instead would be wrong the moment a subscript follows it — `TBL(ALL, 2)`
+/// reaches the parser as `TBL(ALL 2)` once the separator comma is dropped, and
+/// a lookahead rule reads that as the figurative constant `ALL 2`.
+///
+/// Because the decision lives here rather than in the lexer, `MOVE ALL "X" TO Y`
+/// — which is not a subscript position — is untouched.
+fn parse_subscript_index(p: &mut Parser) -> Expr {
+    if p.at(&Token::All) {
+        let span = p.peek_span();
+        p.advance();
+        return Expr::AllSubscript(span);
+    }
+    parse_expr(p)
+}
+
+/// Parse an optional `( … )` suffix on a data reference.
+///
+/// The parenthesis is either a **subscript** list — `TABLE (1 2)` — or a
+/// **reference modification** — `TEXT (3:5)`. They are told apart by the first
+/// `:`, which only reference modification can contain.
+///
+/// Returns `expr` untouched when there is no parenthesis, so the caller can
+/// apply it unconditionally.
+fn parse_subscript_or_refmod(p: &mut Parser, expr: Expr, id_span: Span) -> Expr {
+    if !p.at(&Token::LParen) {
+        return expr;
+    }
+    p.advance();
+    let first = parse_subscript_index(p);
+
+    if p.at(&Token::Colon) {
+        // Reference modification: IDENT(start:[length])
+        p.advance();
+        let length = if p.at(&Token::RParen) {
+            None
+        } else {
+            Some(Box::new(parse_expr(p)))
+        };
+        p.expect(&Token::RParen);
+        let sp = id_span.merge(p.peek_span());
+        return Expr::RefMod {
+            base: Box::new(expr),
+            start: Box::new(first),
+            length,
+            span: sp,
+        };
+    }
+
+    // Subscript: IDENT(i[,j…])
+    //
+    // COBOL-85 separates subscripts with a SPACE; the comma is an optional
+    // separator that means the same thing, so `TABLE (1 1 1)`,
+    // `TABLE (1, 1, 1)` and `TABLE (1 ,1, 1)` are one and the same reference.
+    // The list is therefore bounded by the closing parenthesis, not by the
+    // comma — bounding it by the comma read only the first subscript of the
+    // spaced form and then reported `expected RParen` at the second.
+    let mut indices = vec![first];
+    while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+        let before = p.pos;
+        p.eat(&Token::Comma);
+        indices.push(parse_subscript_index(p));
+        // Liveness guard: with the comma no longer guaranteed to advance the
+        // cursor, a subscript that consumes nothing must end the list rather
+        // than spin. `expect(RParen)` below reports it.
+        if p.pos == before {
+            break;
+        }
+    }
+    p.expect(&Token::RParen);
+    let sp = id_span.merge(p.peek_span());
+    let mut out = Expr::Subscript {
+        base: Box::new(expr),
+        indices,
+        span: sp,
+    };
+
+    // A reference modification may follow a subscript: t(i)(s:l)
+    if p.at(&Token::LParen) {
+        p.advance();
+        let start = parse_expr(p);
+        p.expect(&Token::Colon);
+        let length = if p.at(&Token::RParen) {
+            None
+        } else {
+            Some(Box::new(parse_expr(p)))
+        };
+        p.expect(&Token::RParen);
+        let sp = id_span.merge(p.peek_span());
+        out = Expr::RefMod {
+            base: Box::new(out),
+            start: Box::new(start),
+            length,
+            span: sp,
+        };
+    }
+    out
+}
+
 pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
     while *p.peek() == Token::Colon && *p.peek_at(1) == Token::Colon {
         let start = base.span();
@@ -426,9 +515,15 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
         if p.at(&Token::LParen) {
             parens = true;
             p.advance();
+            // The argument list is bounded by the closing parenthesis. It used
+            // to break the moment an argument was not followed by a comma,
+            // which stopped after the first argument once separator commas
+            // stopped being tokens.
             while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+                let before = p.pos;
                 args.push(parse_expr(p));
-                if !p.eat(&Token::Comma) {
+                p.eat(&Token::Comma);
+                if p.pos == before {
                     break;
                 }
             }
@@ -463,9 +558,16 @@ pub(crate) fn parse_member_chain(p: &mut Parser, mut base: Expr) -> Expr {
                     span: sp,
                 };
             } else {
+                // Same bound as the subscript list above: the closing
+                // parenthesis, not the comma.
                 let mut indices = vec![first];
-                while p.eat(&Token::Comma) {
+                while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+                    let before = p.pos;
+                    p.eat(&Token::Comma);
                     indices.push(parse_expr(p));
+                    if p.pos == before {
+                        break;
+                    }
                 }
                 p.expect(&Token::RParen);
                 let sp = base.span().merge(p.peek_span());

@@ -43,12 +43,12 @@ programs named.
 
 ### The scoreboard
 
-Measured 2026‑08‑25 at version 1.62.12, on the untouched distribution:
+Measured 2026‑08‑26 at version 1.62.15, on the untouched distribution:
 
 | | Programs | Share | Meaning |
 |---|---:|---:|---|
-| ✅ **PASS** | **242** | **55.8 %** | of the 434 in‑scope programs |
-| ❌ **FAIL** | **192** | 44.2 % | of the 434 in‑scope programs |
+| ✅ **PASS** | **332** | **76.5 %** | of the 434 in‑scope programs |
+| ❌ **FAIL** | **102** | 23.5 % | of the 434 in‑scope programs |
 | ⬜ **N/A** | **25** | — | modules outside RustCOBOL's scope (below) |
 | | **459** | | total programs in the suite |
 
@@ -67,7 +67,7 @@ lexer, parser, semantic analyser — with **zero errors**, using
 That is *compilation* conformance. It is **not** proof the program computes the
 right answer. A CCVS85 program also prints its own `PASS`/`FAIL` tally when it
 runs, and scoring that output is the **next stage** of this work — it is not
-included in the 242. Two measured cases show why the distinction matters:
+included in the 332 — see the execution scoreboard below. Two measured cases show why the distinction matters:
 
 - 30 of the 35 RELATIVE‑file programs compile cleanly, and the runtime has **no
   RELATIVE engine at all** — they would run and produce wrong results silently.
@@ -77,21 +77,51 @@ included in the 242. Two measured cases show why the distinction matters:
 So: **PASS = "RustCOBOL accepts every construct in this program."** Nothing more,
 yet.
 
+#### 🔴 The execution scoreboard — the number that means "it works"
+
+Everything above measures **compilation**. A CCVS85 program also *runs* and
+prints its own `PASS`/`FAIL` tally, and that tally is what the suite exists to
+produce. Since 1.62.15 the harness runs them:
+
+```bash
+cargo run -p cobolt-semantic --example nist_conformance -- run
+```
+
+Measured 2026‑08‑26 at 1.62.15:
+
+| | Programs |
+|---|---:|
+| in scope | 434 |
+| did not compile | 102 |
+| **ran to completion reporting 0 failures** | **0** |
+| looped until killed for output (>2 MB) | 170 |
+| timed out (>20 s) | 76 |
+| ran but printed no report | 66 |
+| crashed or were refused by the runtime | 21 |
+
+**332 programs compile and 0 of them work.** That is the honest state of the
+runtime against this suite, and it is the gap the compilation score cannot see.
+Every module reads 0 / n, so this is not one bad construct in one module — the
+CCVS85 boilerplate every program shares does not yet run to its end.
+
+> This is why the compilation figure is always reported as "RustCOBOL **accepts**
+> these constructs". Quoting it as a conformance level would be wrong.
+
 #### Per module
 
 | Module | What it tests | PASS / Total | |
 |---|---|---:|---|
-| NC | Nucleus | 30 / 95 | |
-| SQ | Sequential I/O | 47 / 85 | |
-| IC | Inter‑program communication | 32 / 47 | |
-| IF | Intrinsic functions | 29 / 45 | |
-| IX | Indexed I/O | 31 / 42 | |
-| ST | Sort / Merge | 30 / 40 | |
-| RL | Relative I/O | 30 / 35 | ⚠️ compiles; no runtime engine |
+| NC | Nucleus | 61 / 95 | |
+| SQ | Sequential I/O | 52 / 85 | |
+| IC | Inter‑program communication | 44 / 47 | |
+| IF | Intrinsic functions | **45 / 45** | ✅ complete |
+| IX | Indexed I/O | 40 / 42 | |
+| ST | Sort / Merge | 32 / 40 | |
+| RL | Relative I/O | 34 / 35 | ⚠️ compiles; no runtime engine |
 | SM | Source text manipulation (COPY/REPLACE) | 4 / 17 | |
-| DB | Debug | 9 / 15 | |
-| SG | Segmentation | 0 / 13 | ⚠️ now blocked on segment priority numbers |
-| **In scope** | | **242 / 434** | |
+| DB | Debug | 10 / 15 | |
+| SG | Segmentation | 10 / 13 | |
+| **In scope** | | **332 / 434** | |
 | CM | Communication | — | ⬜ N/A |
 | RW | Report Writer | — | ⬜ N/A |
 | OBSQ / OBIC / OBNC | Obsolete‑feature flagging | — | ⬜ N/A |
@@ -147,10 +177,13 @@ whose *first* error it is:
 | 1.62.8 | **222** | `--source-format=fixed` — the classic reference format, including continuation. See [Source formats](#source-formats). |
 | 1.62.10 | **237** | Numeric literals may begin with a decimal point (`.999`). Intrinsic functions 21 → 29, Nucleus 25 → 29, Sort/Merge 27 → 30. |
 | 1.62.11 | 241 | IDENTIFICATION comment-entry paragraphs. Debug 5 → 9. A smaller gain than the 32-program bucket suggests: 9 of those are Communication programs (N/A), and most of the rest hit a second blocker immediately after. |
-| **1.62.12** | **242** | A literal is confined to its line, so one stray quotation mark can no longer shift the parity of a whole file. Nucleus 29 → 30. The 6‑program bucket cleared: 4 moved on to segment priority numbers, 1 now passes. |
+| 1.62.12 | 242 | A literal is confined to its line, so one stray quotation mark can no longer shift the parity of a whole file. Nucleus 29 → 30. The 6‑program bucket cleared: 4 moved on to segment priority numbers, 1 now passes. |
+| 1.62.13 | 292 | Separator comma and semicolon are punctuation, not tokens; subscripts may be separated by spaces alone; a subscript may follow a complete qualified name; a doubled delimiter inside a literal is one character. Nucleus 30 → 56, Inter-program 32 → 44, Indexed 31 → 38. Three whole diagnostic buckets emptied. |
+| 1.62.14 | 317 | `FUNCTION MAX(TBL(ALL))` — a whole table as an intrinsic argument; `MOVE ALL "X"` fills the field; `CLOSE … WITH LOCK` / `NO REWIND` / `REEL`; a signed literal as a `WHEN` object; `PERFORM … TIMES` with a data-item count; an integer count written on a continuation line. **Intrinsic functions 45 / 45 — module complete.** |
+| **1.62.15** | **332** | An unknown `FUNCTION` name is a compile error instead of returning 0; a user-defined word may begin with a digit (`25COUNT`, `3-DEM-TBL`, `0 SECTION.`); a `D` line is a comment unless `WITH DEBUGGING MODE`. Segmentation 0 → 10, Nucleus 58 → 61. |
 
-> **The honest summary.** RustCOBOL accepts a little over **half** the in‑scope
-> NIST suite today, up from none four releases ago. The remaining 192 are not
+> **The honest summary.** RustCOBOL accepts just over **three quarters** of the in‑scope
+> NIST suite today, up from none seven releases ago. The remaining 102 are not
 > mysterious — they are ten named defects, each specified with the programs it
 > blocks. This table is the measure of progress, and it is updated with every
 > release.
@@ -679,7 +712,7 @@ unhandled error `FILE STATUS`.
 
 > **Corrected 2026‑08‑25.** This section used to open "The COBOL‑85 verb /
 > clause set is **fully covered**." Running the NIST CCVS85 suite disproved it:
-> **197 of 434 in‑scope programs still fail**, on constructs this document did
+> **102 of 434 in-scope programs still fail**, on constructs this document did
 > not list as gaps — separator commas and semicolons, `FUNCTION x(ALL)`,
 > `CLOSE … WITH LOCK`, `COPY` in Area B, IDENTIFICATION comment entries,
 > section priority numbers, digit‑leading data names, and — until 1.62.10 —

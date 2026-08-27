@@ -17,3 +17,9 @@ cobolt-forms   = { path = "../cobolt-forms" }
 cobolt-indexed = { path = "../cobolt-indexed" }
 indexmap       = { workspace = true }
 serde          = { workspace = true }
+
+[dev-dependencies]
+# The generator ESCAPES a developer's text into a COBOL literal; the lexer
+# UN-escapes it. The two rules have to agree, so the round-trip guard in
+# `tests` lexes the generated source back.
+cobolt-lexer = { path = "../cobolt-lexer" }

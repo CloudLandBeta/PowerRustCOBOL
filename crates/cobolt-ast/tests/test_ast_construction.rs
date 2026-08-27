@@ -375,6 +375,9 @@ fn stmt_open_close() {
     };
     let close = Stmt::Close {
         files: vec!["MY-FILE".into()],
+        // `CLOSE … WITH LOCK` names the subset that may not be reopened in the
+        // same run unit; a plain CLOSE locks nothing.
+        locked: Vec::new(),
         span: dummy_span(),
     };
     let _ = format!("{open:?} {close:?}");

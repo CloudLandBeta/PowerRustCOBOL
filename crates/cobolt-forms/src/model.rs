@@ -1361,11 +1361,41 @@ fn build_event_handler_template(event: &str, array_control: Option<&str>) -> Str
 /// Derive the nested-program name for an event handler.
 /// e.g. control_id="BTN-OK", event="Click"  →  "BTN-OK--CLICK"
 pub fn derive_paragraph_name(control_id: &str, event: &str) -> String {
+    // The result becomes a COBOL **word** — a nested `PROGRAM-ID` and the
+    // `CALL "…"` that reaches it — so it may hold only letters, digits and
+    // hyphens. Control ids are validated (`is_valid_control_id`), but this
+    // function is also called with the FORM NAME for form-level events
+    // (onLoad/onClose/onDeactivate/onDestroy), and a form name is not
+    // validated anywhere. A form called `MAIN'FORM` produced the handler name
+    // `MAIN'FORM--ONLOAD`, which is not a COBOL word in either place it is
+    // emitted.
+    //
+    // Sanitizing here rather than validating at entry is deliberate: a name
+    // that is *already* a COBOL word is returned unchanged, so every existing
+    // `.cfrm` keeps the exact `EventBinding.paragraph` it has on disk. Only
+    // names that could never have worked change.
     format!(
         "{}--{}",
-        control_id.to_ascii_uppercase(),
-        event.to_ascii_uppercase().replace(' ', "-")
+        cobol_word_part(control_id),
+        cobol_word_part(event)
     )
+}
+
+/// Fold one piece of a derived name into COBOL word characters.
+///
+/// Letters and digits are kept and upper-cased; anything else becomes a hyphen,
+/// with runs collapsed and the ends trimmed, since a COBOL word may not begin
+/// or end with one.
+fn cobol_word_part(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_owned()
 }
 
 /// A control id valid as a COBOL paragraph-name prefix / member-access root:
@@ -9266,5 +9296,54 @@ mod default_legibility_tests {
             f.background_color, "00000000",
             "the transparent default is what made legibility depend on the desktop"
         );
+    }
+}
+
+#[cfg(test)]
+mod derived_name_tests {
+    use super::derive_paragraph_name;
+
+    /// The overwhelmingly common case is unchanged, which is what makes the
+    /// sanitizer safe to add: every `.cfrm` on disk keeps its stored
+    /// `EventBinding.paragraph` exactly.
+    #[test]
+    fn an_ordinary_name_is_untouched() {
+        assert_eq!(derive_paragraph_name("BTN-OK", "onClick"), "BTN-OK--ONCLICK");
+        assert_eq!(
+            derive_paragraph_name("MAIN-FORM", "onLoad"),
+            "MAIN-FORM--ONLOAD"
+        );
+        assert_eq!(derive_paragraph_name("GRID1", "onChange"), "GRID1--ONCHANGE");
+    }
+
+    /// A form name that is not a COBOL word is folded into one. It reaches a
+    /// nested `PROGRAM-ID` and the `CALL "…"` that targets it, and neither can
+    /// hold an apostrophe or a space.
+    #[test]
+    fn a_name_that_is_not_a_cobol_word_is_folded_into_one() {
+        for (input, expect) in [
+            ("MAIN'FORM", "MAIN-FORM--ONLOAD"),
+            ("MAIN FORM", "MAIN-FORM--ONLOAD"),
+            ("MAIN.FORM", "MAIN-FORM--ONLOAD"),
+            ("Main Form 2", "MAIN-FORM-2--ONLOAD"),
+        ] {
+            assert_eq!(derive_paragraph_name(input, "onLoad"), expect, "{input}");
+        }
+    }
+
+    /// A COBOL word may not begin or end with a hyphen, and runs collapse.
+    #[test]
+    fn hyphen_runs_collapse_and_the_ends_are_trimmed() {
+        assert_eq!(derive_paragraph_name("  FORM  ", "onLoad"), "FORM--ONLOAD");
+        assert_eq!(derive_paragraph_name("A___B", "onLoad"), "A-B--ONLOAD");
+    }
+
+    /// Whatever the input, the two halves are joined by exactly the `--`
+    /// separator the generator and the event dispatcher both look for.
+    #[test]
+    fn the_double_hyphen_separator_survives_sanitizing() {
+        let n = derive_paragraph_name("MAIN FORM", "on Load");
+        assert!(n.contains("--"), "{n}");
+        assert_eq!(n.matches("--").count(), 1, "{n}");
     }
 }

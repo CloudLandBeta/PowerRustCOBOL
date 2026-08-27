@@ -993,6 +993,21 @@ impl CobolEnvironment {
             && matches!(self.get(&key), Some(CobolValue::String { .. }))
     }
 
+    /// The declared `PIC X(n)` width of an alphanumeric item, if it is one.
+    ///
+    /// `None` for a numeric, numeric-edited or undeclared item — the callers
+    /// that need a fill width (`MOVE ALL literal`) must not invent one.
+    pub fn alphanumeric_capacity(&self, name: &str) -> Option<usize> {
+        let key = name.to_ascii_uppercase();
+        if self.edited_templates.contains_key(base_name(&key)) {
+            return None;
+        }
+        match self.get(&key) {
+            Some(CobolValue::String { capacity, .. }) => Some(*capacity),
+            _ => None,
+        }
+    }
+
     /// Store `s` left-justified (space-padded) into an alphanumeric field.
     pub fn set_str_left(&mut self, name: &str, s: &str) {
         let key = name.to_ascii_uppercase();

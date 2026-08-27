@@ -1326,6 +1326,7 @@ version = "0.2.0"
 dependencies = [
  "cobolt-forms",
  "cobolt-indexed",
+ "cobolt-lexer",
  "indexmap",
  "serde",
 ]

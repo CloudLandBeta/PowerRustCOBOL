@@ -87,5 +87,6 @@ cobolt-codegen    = { path = "../cobolt-codegen" }
 cobolt-forms      = { path = "../cobolt-forms" }
 cobolt-lexer      = { path = "../cobolt-lexer" }
 cobolt-parser     = { path = "../cobolt-parser" }
+cobolt-semantic   = { path = "../cobolt-semantic" }
 pretty_assertions = { workspace = true }
 tempfile          = "3"

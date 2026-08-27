@@ -1,5 +1,362 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.15] — 2026-08-26
+
+### Added — block literals in free format (`` ``` ``)
+
+**A language extension, not COBOL-85.** The standard has no multi-line literal
+at all — continuation is a fixed-format column mechanism — so free-format source
+could not write one, nor write a literal full of quotation marks without
+doubling every one of them.
+
+A block literal is fenced the way a Markdown code block is; the text is the
+lines *between* the fences, taken verbatim:
+
+````cobol
+       MOVE
+```
+Hello, World!
+```
+       TO WS-GREETING.
+````
+
+`WS-GREETING` receives `Hello, World!`. The text starts on the line **after** the
+opening fence (anything after ``` on that line is a tag, as in Markdown), the
+closing fence's line is not text, and neither is the newline before it — so a
+one-line block behaves exactly like a quoted literal. Interior newlines are
+kept, and nothing needs escaping, which is what makes embedded JSON, SQL and
+HTML readable:
+
+````cobol
+       MOVE
+```json
+{"name": "O'Brien", "tags": ["a", "b"], "ok": true}
+```
+       TO WS-PAYLOAD.
+````
+
+Free format only: fixed format has an indicator column and a sequence area, so
+a line of backticks there means something else and is refused with a diagnostic
+that says so.
+
+### Fixed — an unknown `FUNCTION` name is now a compile error
+
+An intrinsic RustCOBOL does not implement used to log a warning and return
+**0**, so a typo produced a confidently wrong answer that nothing reported.
+
+```cobol
+       COMPUTE WS-X = FUNCTION SQRTT(4).
+```
+
+now fails to compile with *'SQRTT' is not an intrinsic function RustCOBOL
+implements — did you mean FUNCTION SQRT?*
+
+The implemented set (53 functions) is listed once, in `cobolt-ast`, and a test
+asserts in **both directions** that it matches what the interpreter implements —
+a listed name that is not implemented would compile and then fail at run time,
+and an implemented name that is not listed would be rejected though it works.
+That second direction is not hypothetical: `VARIANCE` was missing from the first
+draft of the list and two working NIST programs stopped compiling until the test
+was written.
+
+### Fixed — a user-defined word may begin with a digit
+
+COBOL-85 draws a word from `A-Z`, `0-9` and the hyphen; only a *data-name* must
+contain at least one letter, and a paragraph or section name need not:
+
+```cobol
+       01  25COUNT     PICTURE 99.
+       01  3-DEM-TBL   REDEFINES 3-DIMENSION-TBL.
+       0 SECTION.
+```
+
+None of these parsed. `25COUNT` came apart into the integer `25` and the
+reserved word `COUNT`, which is why the diagnostic used to name a keyword that
+was nowhere in the source.
+
+`3-DEM-TBL` is the case worth stating: `3-` could read as "three minus…", and
+the standard settles it in favour of the word because an arithmetic operator
+must have spaces around it — the same rule that already made `B-C` one word and
+`B - C` a subtraction.
+
+### Fixed — a debugging line is a comment unless the program asks for it
+
+A `D` in column 7 marks a debugging line. COBOL-85's default is that it is a
+**comment**; it is compiled only under:
+
+```cobol
+       SOURCE-COMPUTER. XYZ WITH DEBUGGING MODE.
+```
+
+The two fixed-format preprocessors disagreed about this — the strict path
+treated `D` as a comment, the relaxed path compiled it unconditionally — so the
+same text meant different things depending on which read it. `WITH DEBUGGING
+MODE` was not implemented at all. Fixed format only: free format has no
+indicator area, so a `D` there is an ordinary COBOL word.
+
+### Fixed — a built application could not read its own embedded program
+
+```
+deserialize embedded AST: Custom("invalid value: integer `10`,
+expected variant index 0 <= i < 10")
+```
+
+A compiled application carries its program as a `bincode`-serialized AST, and
+bincode identifies an enum variant by its **ordinal**. Adding a variant in the
+*middle* of `Expr` renumbered every variant after it, so a program written by
+one build could not be read by another — and the failure surfaced at
+application start, long after the build that caused it.
+
+The variant moved to the end of the enum, where it takes a new ordinal and
+leaves every existing one alone, and the enum now carries a comment saying why
+that matters. A mismatch that does still occur (adding a *field* changes the
+layout too) now reports the cause and the cure — *rebuild the application with
+the current toolchain* — instead of bincode's own message.
+
+### Fixed — a form name that is not a COBOL word
+
+`derive_paragraph_name` is called with the form name for form-level events, and
+a form name is not validated anywhere. A form called `MAIN'FORM` produced the
+handler `MAIN'FORM--ONLOAD`, emitted as both a nested `PROGRAM-ID` and the
+`CALL` that reaches it — neither of which may contain an apostrophe. A name that
+is already a COBOL word is returned unchanged, so every `.cfrm` on disk keeps
+the paragraph name it has stored.
+
+### NIST COBOL-85 conformance: 317 → 332 of 434 in-scope programs
+
+| Change | In-scope PASS |
+|---|---:|
+| 1.62.14 | 317 |
+| unknown `FUNCTION` → compile error; digit-leading words | 331 |
+| `VARIANCE` restored to the implemented list | **332** |
+
+Segmentation 0 → 10, Nucleus 58 → 61, Relative 32 → 34.
+
+### Added — execution scoring, and what it found
+
+Every conformance figure above measures **compilation**: whether the front end
+accepts the program. `nist_conformance run` now *runs* each program that
+compiles and reads the program's own `PASS`/`FAIL` report, which is what the
+CCVS85 suite exists to produce.
+
+**Of 434 in-scope programs, 0 run to completion.** 101 do not compile; of the
+332 that do, 170 loop until they are killed for output, 76 time out, 66 print no
+report, and 21 are refused by the runtime.
+
+That gap — 332 compile, 0 work — is the honest state of the runtime against the
+suite, and it is now measured rather than suspected.
+
+
+## [PowerRustCOBOL 1.62.14] — 2026-08-26
+
+### Fixed — a whole table can be handed to an intrinsic: `FUNCTION MAX(IND(ALL))`
+
+COBOL-85 passes a table entire to a statistical function by subscripting it with
+the reserved word `ALL`. One written argument becomes one argument per
+occurrence:
+
+```cobol
+       COMPUTE WS-NUM = FUNCTION MAX(IND(ALL)).
+       COMPUTE WS-NUM = FUNCTION SUM(TBL(ALL, 2)).
+```
+
+`ALL` was read as the figurative-constant prefix (`ALL "X"`), so the compiler
+demanded a literal after it. All eleven variable-length intrinsics are covered —
+`MAX`, `MIN`, `SUM`, `MEAN`, `MEDIAN`, `MIDRANGE`, `RANGE`, `VARIANCE`,
+`STANDARD-DEVIATION`, `ORD-MAX`, `ORD-MIN`.
+
+`ALL` may sit in one dimension of a multi-dimensional table with ordinary
+subscripts in the others, and expands in row-major order. An `OCCURS …
+DEPENDING ON` table expands against its count at the moment the function is
+called.
+
+### Fixed — `MOVE ALL "X"` filled one character, not the field
+
+```cobol
+       01  WS-T PIC X(5).
+           MOVE ALL "X" TO WS-T.       *> was "X    ", now "XXXXX"
+```
+
+`ALL` is the only figurative constant whose fill character is more than one
+byte, which is why `SPACES` and `ZEROS` never showed this. The literal landed
+once and the rest of the field stayed spaces.
+
+### Fixed — `MOVE ALL ZEROS` was rejected
+
+COBOL-85 allows `ALL` in front of another figurative constant, where it is
+simply redundant: `ALL ZEROS` is `ZEROS`. Only a real literal was accepted, so
+the spelling failed with "expected literal after ALL".
+
+### Fixed — `CLOSE … WITH LOCK` and the reel/unit phrases
+
+```cobol
+       CLOSE IX-FD2 WITH LOCK.
+       CLOSE SQ-FS1 WITH NO REWIND.
+       CLOSE TAPE-FILE REEL FOR REMOVAL.
+```
+
+None of these parsed; `WITH` was reported as an unexpected token, and `LOCK`
+was read as the name of another file to close.
+
+`WITH LOCK` is enforced rather than accepted and ignored: reopening that file in
+the same run unit now reports **file status 38**, which is the standard's code
+for exactly that. `REEL` / `UNIT` position a multi-volume tape and are accepted
+as no-ops on disk.
+
+### Fixed — a signed literal as a `WHEN` object
+
+```cobol
+       WHEN -0.000020 THRU 0.000020
+```
+
+The leading `-` made the parser read the object as the start of a condition, so
+it reported `expected comparison operator in condition` and then choked on the
+`THRU`.
+
+### Fixed — `PERFORM … TIMES` with a data item as the count
+
+```cobol
+       77  THREE PIC 9 VALUE 3.
+           PERFORM PFM-C THREE TIMES.
+```
+
+COBOL-85 allows an identifier as the repeat count, not only a literal.
+
+### Fixed — a clause whose count spills onto the next line
+
+```cobol
+           10  STUFF-1 OCCURS
+                   31 TIMES.
+```
+
+A number that opens a line is taken for a **level number** — it usually is one —
+so `31` arrived as a level number and `OCCURS` reported "expected integer after
+OCCURS". Where the grammar *requires* an integer, and a level number could never
+appear, both spellings are now read as the same number. The same applied to a
+`PERFORM … TIMES` count written on its own line.
+
+### NIST COBOL-85 conformance: 303 → 317 of 434 in-scope programs
+
+**The Intrinsic Functions module is now complete: 45 / 45.**
+
+| Change | In-scope PASS |
+|---|---:|
+| 1.62.13 | 303 |
+| CLOSE phrases · signed WHEN · PERFORM TIMES identifier | 314 |
+| integer counts on a continuation line | **317** |
+
+Module movement: IF 40 → 45, IX 38 → 40, ST 30 → 32, SQ 50 → 52, NC 56 → 58,
+RL 31 → 32.
+
+
+## [PowerRustCOBOL 1.62.13] — 2026-08-26
+
+### Fixed — a comma is punctuation, not an error
+
+COBOL-85 defines a **separator comma** and a **separator semicolon** as a comma
+or semicolon followed by a space. They are pure decoration: they may appear
+anywhere a space may appear, and they mean exactly what a space means. Every
+COBOL developer writes them, and PowerRustCOBOL rejected all of them:
+
+```cobol
+       MOVE ZERO TO DN3, DN4.
+       CALL "SUB" USING TABLE-01, TABLE-02, DN3.
+       PROCEDURE DIVISION USING TABLE-1, TABLE-2, DN1.
+       READ SQ-FS1 ; AT END GO TO READ-EOF.
+       01  WRK-AN-X-18-1, REDEFINES WRK-XN-18-1 PIC A(18).
+```
+
+All five now parse, along with every other place a separator can appear —
+`ENTRY` lists, `FUNCTION` arguments, `VALUE` literal lists, `OCCURS … KEY`
+lists, `SELECT` entries. The comma is dropped in the lexer rather than skipped
+at each grammar site, so a site nobody has written yet is already correct.
+
+**What still keeps its comma**, because a comma not followed by a space is
+never a separator:
+
+| Written | Read as |
+|---|---|
+| `1,5` under `DECIMAL-POINT IS COMMA` | one and a half — unchanged |
+| `PIC ZZ,ZZ9.99` | an editing comma in the template — unchanged |
+
+### Fixed — subscripts separated by spaces
+
+The only separator COBOL-85 *requires* between subscripts is a space. These are
+the same reference, and only the second used to parse:
+
+```cobol
+       MOVE 1 TO CELL (1  2).
+       MOVE 1 TO CELL (1, 2).
+```
+
+### Fixed — a subscript after a qualified name
+
+COBOL-85 puts the subscript after the **complete** qualified name —
+`data-name-1 [OF data-name-2]… [(subscript…)]`. That order was unparseable in
+either spelling:
+
+```cobol
+       MOVE W-3 TO CELL OF COLS OF ROWS (IDX-A  IDX-B).
+```
+
+The subscript was only ever read *before* the `OF` chain, so the trailing list
+fell through to the ordinary parenthesised-expression rule and reported
+`expected RParen` at the second subscript. Both orders are now accepted.
+
+### Fixed — a doubled quotation mark inside a literal
+
+COBOL-85 has no backslash escape. A literal's own delimiter is written **twice**,
+so `'IT''S'` is the four-character value `IT'S` and `""""` is one quotation
+mark. The lexer did not decode the doubling: `'IT''S'` became the two separate
+literals `IT` and `S`, silently.
+
+```cobol
+       DISPLAY 'IT''S WORKING'.        *> was: IT  ...  S WORKING
+```
+
+The source-format preprocessor had implemented this rule all along when deciding
+whether a fixed-format line ends inside a literal, so the two halves of the
+compiler disagreed about the same text.
+
+### Fixed — a caption with an apostrophe or a line break broke the build
+
+Generating a form wrote the developer's Caption, Text, base URL and connection
+string **raw** between two apostrophes. Two ordinary values broke the generated
+program:
+
+- **an apostrophe** — `Don't Save` — closed the literal early, and the rest of
+  the caption became stray COBOL words;
+- **a line break** in a caption emitted a literal split across two source lines
+  with no continuation, which is not valid COBOL.
+
+The reported symptom was a build blocked with `expected PROCEDURE DIVISION
+(line 367)` — a line number with no relationship to the caption that caused it.
+
+Delimiters are now doubled (the standard's escape, which the lexer decodes back)
+and control characters fold to a space. The `PICTURE` is also sized from the
+value instead of a hard-coded `PIC X(256)`, so a caption longer than 256
+characters is no longer silently truncated.
+
+A `PROGRAM-ID` is a COBOL word, not a literal, so a form name that is not one is
+sanitized there rather than emitted verbatim.
+
+### NIST COBOL-85 conformance: 242 → 292 of 434 in-scope programs
+
+| Change | In-scope PASS |
+|---|---:|
+| 1.62.12 (previous) | 242 |
+| doubled delimiter inside a literal | 244 |
+| separator comma / semicolon | 285 |
+| subscript after a qualified name | **292** |
+
+Three whole diagnostic buckets are now empty: `unexpected token in statement:
+Comma` (was 50 programs), `expected RParen` (23) and `unexpected token in
+statement: Semicolon` (14).
+
+Specs: `specs/nist/NIST-spec-separators.md`, with the plan and task record
+alongside it.
+
+
 ## [PowerRustCOBOL 1.62.12] — 2026-08-25
 
 ### Fixed — one stray quotation mark could shift an entire program

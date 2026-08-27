@@ -169,9 +169,15 @@ fn not_equal_operator() {
 }
 
 #[test]
-fn period_comma_parens() {
+fn period_parens() {
+    // The comma in `ADD A, B TO C (1).` is a COBOL-85 *separator* — it is
+    // followed by a space, so it means what a space means and produces no
+    // token at all. This assertion used to require `Token::Comma`, which
+    // pinned the pre-conformance behaviour; the separator rule is covered by
+    // `a_separator_comma_is_not_a_token` below, and the glued spellings that
+    // DO keep their comma have tests of their own.
     let t = toks("ADD A, B TO C (1).");
-    assert!(t.contains(&Token::Comma));
+    assert!(!t.contains(&Token::Comma));
     assert!(t.contains(&Token::LParen));
     assert!(t.contains(&Token::RParen));
     assert!(t.contains(&Token::Period));
@@ -366,4 +372,251 @@ fn an_unpaired_apostrophe_does_not_eat_the_next_line() {
         })
         .collect();
     assert_eq!(strings, vec![&"def".to_string()], "{strings:?}");
+}
+
+// ── Doubled delimiter inside a literal (COBOL-85) ────────────────────────────
+//
+// The standard's escape for a literal's own delimiter is to write it TWICE:
+// `'IT''S'` is the five-character value `IT'S`, and `"HE SAID ""HI"""` is
+// `HE SAID "HI"`. There is no backslash escape in COBOL.
+//
+// This is not academic. `cobolt-codegen`'s `cobol_lit()` escapes an
+// apostrophe by doubling it before writing a developer's caption into a
+// generated `VALUE '…'` clause. If the lexer does not decode the doubling,
+// that escape produces two adjacent literals instead of one value — the
+// escape and the un-escape must agree or the round trip silently loses data.
+
+#[test]
+fn a_doubled_apostrophe_is_one_apostrophe() {
+    let t = toks("MOVE 'IT''S' TO WS-X.");
+    assert_eq!(
+        t[1],
+        Token::StringLiteral("IT'S".to_string()),
+        "doubled '' must decode to one apostrophe: {t:?}"
+    );
+}
+
+#[test]
+fn a_doubled_quotation_mark_is_one_quotation_mark() {
+    let t = toks(r#"MOVE "HE SAID ""HI""" TO WS-X."#);
+    assert_eq!(
+        t[1],
+        Token::StringLiteral(r#"HE SAID "HI""#.to_string()),
+        "doubled \"\" must decode to one quotation mark: {t:?}"
+    );
+}
+
+/// A literal that is nothing BUT the doubled delimiter: four quotation marks
+/// are one literal holding one quotation mark, not two empty literals.
+#[test]
+fn four_delimiters_are_one_literal_holding_one_delimiter() {
+    let t = toks(r#"MOVE """" TO WS-X."#);
+    assert_eq!(t[1], Token::StringLiteral("\"".to_string()), "{t:?}");
+
+    let t = toks("MOVE '''' TO WS-X.");
+    assert_eq!(t[1], Token::StringLiteral("'".to_string()), "{t:?}");
+}
+
+/// The other delimiter is ordinary content and needs no doubling.
+#[test]
+fn the_other_delimiter_is_ordinary_content() {
+    let t = toks(r#"MOVE "IT'S" TO WS-X."#);
+    assert_eq!(t[1], Token::StringLiteral("IT'S".to_string()), "{t:?}");
+
+    let t = toks("MOVE 'HE SAID \"HI\"' TO WS-X.");
+    assert_eq!(
+        t[1],
+        Token::StringLiteral("HE SAID \"HI\"".to_string()),
+        "{t:?}"
+    );
+}
+
+/// Doubling must not resurrect the cross-line swallow that 1.62.12 closed:
+/// an unpaired quote still stops at the newline.
+#[test]
+fn doubling_does_not_let_a_literal_cross_a_line() {
+    let src = "MOVE \"abc TO X.\nMOVE \"def\" TO Y.\n";
+    let toks = tokenize(src, SourceFormat::Free);
+    let strings: Vec<&String> = toks
+        .iter()
+        .filter_map(|st| match &st.token {
+            Token::StringLiteral(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(strings, vec![&"def".to_string()], "{strings:?}");
+}
+
+/// Two SEPARATE literals written next to each other with a space between them
+/// stay two literals — doubling only applies to contiguous delimiters.
+#[test]
+fn two_spaced_literals_stay_two_literals() {
+    let t = toks(r#"DISPLAY "abc" "def"."#);
+    let strings: Vec<&Token> = t
+        .iter()
+        .filter(|t| matches!(t, Token::StringLiteral(_)))
+        .collect();
+    assert_eq!(
+        strings,
+        vec![
+            &Token::StringLiteral("abc".to_string()),
+            &Token::StringLiteral("def".to_string())
+        ],
+        "{t:?}"
+    );
+}
+
+// ── Separator comma and semicolon (COBOL-85) ─────────────────────────────────
+//
+// A comma or semicolon FOLLOWED BY A SPACE (or end of line) is a *separator*:
+// pure punctuation that may appear anywhere a space may appear and that means
+// exactly what a space means. `MOVE ZERO TO DN3, DN4.` and
+// `MOVE ZERO TO DN3 DN4.` are the same statement.
+//
+// The complement is what makes the rule safe: a comma NOT followed by a space
+// is never a separator, and that is exactly where the two constructs that need
+// a comma live — the decimal comma (`1,5`, glued between digits) and the
+// PICTURE editing comma (`PIC ZZ,ZZ9`, glued inside the template).
+
+#[test]
+fn a_separator_comma_is_not_a_token() {
+    let t = toks("MOVE ZERO TO DN3, DN4.");
+    assert!(
+        !t.contains(&Token::Comma),
+        "a comma followed by a space is a separator, not a token: {t:?}"
+    );
+    // …and the operands it separated are both still there.
+    assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "DN3")));
+    assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "DN4")));
+}
+
+#[test]
+fn a_separator_semicolon_is_not_a_token() {
+    // SQ203A, line 432.
+    let t = toks("READ SQ-FS1 ; AT END GO TO READ-FAIL.");
+    assert!(
+        !t.contains(&Token::Semicolon),
+        "a semicolon followed by a space is a separator: {t:?}"
+    );
+    // …and the clause it separated is untouched on both sides.
+    assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "SQ-FS1")));
+    assert!(t.contains(&Token::Go));
+    assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "READ-FAIL")));
+}
+
+/// A separator at end of line is still a separator — there is no character
+/// after it on the line, which is what "followed by a space" covers.
+#[test]
+fn a_separator_at_end_of_line_is_not_a_token() {
+    let t = toks("MOVE ZERO TO DN3,\n   DN4.");
+    assert!(!t.contains(&Token::Comma), "{t:?}");
+}
+
+/// The decimal comma is glued between digits, so it survives — including the
+/// diagnostic path that reports it when the unit did not declare
+/// `DECIMAL-POINT IS COMMA`.
+#[test]
+fn a_glued_decimal_comma_survives() {
+    let t = toks("MOVE 1,5 TO WS-X.");
+    assert!(
+        t.contains(&Token::Comma),
+        "a comma glued between digits is a decimal point, not a separator: {t:?}"
+    );
+}
+
+/// The PICTURE editing comma is glued inside the template and survives.
+#[test]
+fn a_glued_picture_comma_survives() {
+    let t = toks("05 WS-AMT PIC ZZ,ZZ9.99.");
+    assert!(
+        t.contains(&Token::Comma),
+        "PIC ZZ,ZZ9 must keep its editing comma: {t:?}"
+    );
+}
+
+/// CCVS85 writes a separator comma AND a separator semicolon between a
+/// data-name and its REDEFINES clause, precisely to prove they are ignorable
+/// (NC101A). Neither survives as a token.
+#[test]
+fn separators_in_a_data_description_are_not_tokens() {
+    let t = toks("01  WRK-AN-X-18-1, REDEFINES WRK-XN-18-1 PIC A(18).");
+    assert!(!t.contains(&Token::Comma), "{t:?}");
+    assert!(t.contains(&Token::Redefines));
+
+    let t = toks("01  WRK-DU-X-18V0-1; REDEFINES WRK-XN-18-1 PIC 9(18).");
+    assert!(!t.contains(&Token::Semicolon), "{t:?}");
+    assert!(t.contains(&Token::Redefines));
+}
+
+// ── Digit-leading user-defined words (COBOL-85) ──────────────────────────────
+//
+// A user-defined word is drawn from `A-Z`, `0-9` and the hyphen. Only a
+// *data-name* must contain at least one alphabetic character; a paragraph or
+// section name need not. `25COUNT` used to come apart into the integer `25` and
+// the reserved word `COUNT`, which is why the diagnostic named a keyword that
+// was nowhere in the source.
+
+#[test]
+fn a_word_may_begin_with_a_digit() {
+    let t = toks("MOVE ZERO TO 25COUNT.");
+    assert!(
+        t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "25COUNT")),
+        "{t:?}"
+    );
+}
+
+/// `3-DEM-TBL` is a name, not "three minus DEM-TBL": COBOL-85 requires spaces
+/// around an arithmetic operator, so a glued hyphen is part of the word.
+#[test]
+fn a_glued_hyphen_after_digits_is_part_of_the_word() {
+    let t = toks("01 3-DEM-TBL REDEFINES 3-DIMENSION-TBL.");
+    assert!(
+        t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "3-DEM-TBL")),
+        "{t:?}"
+    );
+    assert!(
+        t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "3-DIMENSION-TBL")),
+        "{t:?}"
+    );
+}
+
+/// …and a SPACED hyphen is still subtraction. This is the other half of the
+/// same rule, and the reason the join is decided on adjacency.
+#[test]
+fn a_spaced_hyphen_after_digits_is_still_subtraction() {
+    let t = toks("COMPUTE A = 5 - B.");
+    assert!(t.contains(&Token::Minus), "{t:?}");
+    assert!(t.contains(&Token::IntegerLiteral(5)), "{t:?}");
+    assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "B")), "{t:?}");
+}
+
+/// **The regression this nearly caused.** A numeric-edited PICTURE with a
+/// trailing sign must keep its integer and its hyphen as separate tokens. A
+/// word pattern that allowed a hyphen before the first letter consumed `9999-`
+/// and then failed, because a `logos` DFA does not backtrack — and every
+/// trailing-sign PICTURE stopped compiling.
+#[test]
+fn a_trailing_sign_picture_is_not_eaten_by_the_word_rule() {
+    for src in [
+        "05 X PIC 9999-.",
+        "05 Z PIC ZZZ,ZZ9.99-.",
+        "05 W PIC 99+.",
+    ] {
+        let t = toks(src);
+        assert!(
+            !t.iter().any(|tok| matches!(tok, Token::Error(_))),
+            "{src} must not produce an error token: {t:?}"
+        );
+    }
+}
+
+/// A pure digit run is still a number, and a level number is still a level
+/// number — the letter is what makes a word.
+#[test]
+fn digits_alone_are_still_a_number() {
+    let t = toks("01 X PIC 99.");
+    assert_eq!(t[0], Token::LevelNumber(1));
+    assert!(t.contains(&Token::IntegerLiteral(99)), "{t:?}");
+    let t = toks("ADD 123 TO X.");
+    assert!(t.contains(&Token::IntegerLiteral(123)), "{t:?}");
 }

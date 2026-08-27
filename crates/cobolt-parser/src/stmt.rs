@@ -705,10 +705,10 @@ fn parse_when_value(p: &mut Parser) -> WhenValue {
         p.advance();
         return WhenValue::Literal(Literal::Integer(0));
     }
-    if let Some((lit, _)) = parse_literal(p) {
+    if let Some(lit) = parse_signed_literal(p) {
         if p.at(&Token::Through) {
             p.advance();
-            if let Some((lit2, _)) = parse_literal(p) {
+            if let Some(lit2) = parse_signed_literal(p) {
                 return WhenValue::Range(lit, lit2);
             }
         }
@@ -717,6 +717,47 @@ fn parse_when_value(p: &mut Parser) -> WhenValue {
     // Condition-based WHEN
     let cond = parse_condition(p);
     WhenValue::Condition(cond)
+}
+
+/// A numeric literal that may carry a leading sign, as a `WHEN` object.
+///
+/// The lexer deliberately emits `+`/`-` as its own token rather than folding it
+/// into the literal, because `COMPUTE X = Y - 3.14` needs the operator. Every
+/// site that wants a *signed literal* therefore has to fold it itself, and
+/// `WHEN` did not:
+///
+/// ```cobol
+/// WHEN -0.000020 THRU 0.000020
+/// ```
+///
+/// The leading `-` made the object look like the start of a condition, so the
+/// parser reported `expected comparison operator in condition` and then choked
+/// on the `THRU`.
+///
+/// Returns `None` — leaving the cursor exactly where it started — when what
+/// follows is not a numeric literal, so a genuinely condition-shaped `WHEN`
+/// still falls through to `parse_condition`.
+fn parse_signed_literal(p: &mut Parser) -> Option<Literal> {
+    let start = p.pos;
+    let negate = if p.eat(&Token::Minus) {
+        true
+    } else {
+        p.eat(&Token::Plus);
+        false
+    };
+    match parse_literal(p) {
+        Some((lit, _)) if !negate => Some(lit),
+        Some((Literal::Integer(n), _)) => Some(Literal::Integer(-n)),
+        Some((Literal::Float(f), _)) => Some(Literal::Float(-f)),
+        Some((Literal::Decimal(m, s), _)) => Some(Literal::Decimal(-m, s)),
+        // A sign in front of something that cannot carry one (a string, a
+        // figurative constant) is not a signed literal at all. Rewind so the
+        // condition parser sees the original tokens.
+        _ => {
+            p.pos = start;
+            None
+        }
+    }
 }
 
 // ── PERFORM ───────────────────────────────────────────────────────────────────
@@ -799,15 +840,37 @@ fn parse_perform(p: &mut Parser) -> Stmt {
     };
 
     // PERFORM name n TIMES
-    if p.at(&Token::Times) || matches!(p.peek(), Token::IntegerLiteral(_)) {
-        // Could be "PERFORM PARA 5 TIMES" or just TIMES after a number
-        let count_expr = if matches!(p.peek(), Token::IntegerLiteral(_)) {
+    //
+    // COBOL-85: `PERFORM procedure-name {identifier-1|integer-1} TIMES` — the
+    // repeat count may be a DATA ITEM, not only a literal. `PERFORM PFM-C
+    // THREE TIMES.` (NC102A, where `77 THREE PIC 9 VALUE 3`) used to fall past
+    // every arm here and leave `THREE TIMES` unconsumed. An identifier only
+    // counts when `TIMES` actually follows it, so `PERFORM PARA-A` followed by
+    // an unrelated statement is untouched.
+    // A count that spills onto the next line arrives as `LevelNumber` rather
+    // than `IntegerLiteral` — the lexer takes a number that opens a line for a
+    // level number, and cannot know better. `PERFORM … THRU … 19 TIMES` with
+    // the count on its own line (RL105A, RL106A) is the same number either way.
+    let count_level = match p.peek() {
+        Token::LevelNumber(n) if matches!(p.peek_at(1), Token::Times) => Some(*n as i64),
+        _ => None,
+    };
+    if p.at(&Token::Times)
+        || matches!(p.peek(), Token::IntegerLiteral(_))
+        || count_level.is_some()
+        || (p.at_identifier() && matches!(p.peek_at(1), Token::Times))
+    {
+        let count_expr = if p.at(&Token::Times) {
+            p.advance(); // eat TIMES
+            Expr::Literal(Literal::Integer(1), span)
+        } else if let Some(n) = count_level {
+            p.advance(); // the number
+            p.eat(&Token::Times);
+            Expr::Literal(Literal::Integer(n), span)
+        } else {
             let e = parse_expr(p);
             p.eat(&Token::Times);
             e
-        } else {
-            p.advance(); // eat TIMES
-            Expr::Literal(Literal::Integer(1), span)
         };
         // Simple times — the paragraph name forms a non-inline target
         // For the AST, wrap as Times with para call inside
@@ -1290,11 +1353,56 @@ fn parse_close(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // CLOSE
     let mut files = Vec::new();
+    let mut locked = Vec::new();
     while p.at_identifier() {
         let (name, _) = p.eat_identifier().unwrap();
+
+        // COBOL-85: `CLOSE file [{REEL|UNIT} [FOR REMOVAL]] [WITH {NO REWIND|LOCK}]`.
+        //
+        // None of these words is a lexer keyword — they are ordinary
+        // identifiers everywhere else — so they are matched by spelling, the
+        // way `OPEN … WITH REGISTERED USER` already does. Matching them here
+        // also stops `REEL` or `LOCK` being mistaken for the NEXT file in the
+        // list, which is what the old loop did.
+        //
+        // REEL / UNIT position a multi-volume tape. There is no tape here, so
+        // they parse and do nothing — that is the honest reading on disk, and
+        // it is what the supported-syntax avoid-list already records for the
+        // single-run-unit model.
+        if is_word(p.peek(), "REEL") || is_word(p.peek(), "UNIT") {
+            p.advance();
+            if is_word(p.peek(), "FOR") && is_word(p.peek_at(1), "REMOVAL") {
+                p.advance();
+                p.advance();
+            } else if is_word(p.peek(), "REMOVAL") {
+                p.advance();
+            }
+        }
+
+        // `WITH` is optional in the standard: `CLOSE F LOCK` is `CLOSE F WITH LOCK`.
+        let had_with = p.eat(&Token::With);
+        if is_word(p.peek(), "LOCK") {
+            p.advance();
+            locked.push(name.clone());
+        } else if p.eat(&Token::No) {
+            // NO REWIND — leave the volume where it is. Tape again: parsed,
+            // then nothing to do.
+            if is_word(p.peek(), "REWIND") {
+                p.advance();
+            }
+        } else if had_with {
+            // `WITH` with nothing recognised after it. Say so rather than
+            // letting the next word be read as another file name.
+            p.emit_error("expected LOCK or NO REWIND after WITH in CLOSE");
+        }
+
         files.push(name);
     }
-    Stmt::Close { files, span }
+    Stmt::Close {
+        files,
+        locked,
+        span,
+    }
 }
 
 // ── READ ──────────────────────────────────────────────────────────────────────
@@ -2628,9 +2736,14 @@ fn parse_invoke(p: &mut Parser) -> Stmt {
             .unwrap_or_default();
         let mut args = Vec::new();
         if p.eat(&Token::LParen) {
+            // Bounded by the closing parenthesis, not by the comma — a
+            // separator comma is no longer a token, so `a, b` arrives as
+            // `a b` and a comma-bounded loop would stop after `a`.
             while !p.at(&Token::RParen) && !p.at(&Token::Eof) {
+                let before = p.pos;
                 args.push(parse_expr(p));
-                if !p.eat(&Token::Comma) {
+                p.eat(&Token::Comma);
+                if p.pos == before {
                     break;
                 }
             }

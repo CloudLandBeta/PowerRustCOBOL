@@ -780,6 +780,9 @@ pub struct Interpreter {
     record_to_file: HashMap<String, String>,
     /// Logical file name → currently-open handle.
     open_files: HashMap<String, OpenFile>,
+    /// Files closed `WITH LOCK`. COBOL-85 forbids reopening them in the same
+    /// run unit, so a later OPEN reports file status 38 rather than succeeding.
+    locked_files: std::collections::HashSet<String>,
     /// Selected indexed (ISAM) file engine (default: the built-in Rust engine).
     indexed_engine: crate::indexed::IndexedEngine,
     /// Per-file INDEXED observability log level (redb engine; default Off).
@@ -935,6 +938,7 @@ impl Interpreter {
             file_specs,
             record_to_file,
             open_files: HashMap::new(),
+            locked_files: std::collections::HashSet::new(),
             indexed_engine: crate::indexed::IndexedEngine::default(),
             indexed_log_level: crate::indexed_log::LogLevel::Off,
             indexed_log_format: crate::indexed_log::LogFormat::Text,
@@ -2565,7 +2569,7 @@ impl Interpreter {
                 span,
                 ..
             } => self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span),
-            Stmt::Close { files, .. } => self.exec_close(files),
+            Stmt::Close { files, locked, .. } => self.exec_close(files, locked),
             Stmt::Write {
                 record,
                 from,
@@ -2924,6 +2928,19 @@ impl Interpreter {
 
     fn exec_move(&mut self, from: &Expr, to: &[Expr]) -> Result<(), RuntimeError> {
         let val = self.eval_expr(from, from.span())?;
+        // `MOVE ALL "AB" TO X` **repeats** the literal across the whole
+        // receiver — that is what `ALL` means, and it is the only figurative
+        // constant whose fill character is more than one byte wide. Every
+        // other one (SPACES, ZEROS, HIGH-VALUES) pads correctly on its own
+        // because its fill character IS its value; `ALL` did not, so the
+        // literal landed once and the rest of the field stayed spaces. The
+        // receiver's declared width is only known here, per target.
+        let all_fill = match from {
+            Expr::Literal(Literal::Figurative(FigurativeConstant::All(inner)), _) => {
+                Some(literal_to_value(inner).as_display_string())
+            }
+            _ => None,
+        };
         // A numeric source moved to an alphanumeric receiver de-edits to its
         // zero-padded digit string (left-justified), per COBOL MOVE rules.
         let src_digits = match from {
@@ -2950,6 +2967,17 @@ impl Interpreter {
                 continue;
             }
             let name = self.resolve_lvalue(target);
+            // `ALL literal` fills this receiver to its declared width, so the
+            // value depends on the target and is built per target rather than
+            // once above. An empty literal has no fill character and is left
+            // alone rather than looping forever.
+            if let Some(fill) = all_fill.as_deref().filter(|f| !f.is_empty()) {
+                if let Some(width) = self.env.alphanumeric_capacity(&name) {
+                    let repeated: String = fill.chars().cycle().take(width).collect();
+                    self.env.set_str_left(&name, &repeated);
+                    continue;
+                }
+            }
             // `SET 88-name TO TRUE|FALSE` arrives here as MOVE 1|0 → set the
             // host item to (a value satisfying / violating) the condition.
             if let Some(info) = self.env.cond_name(&name).cloned() {
@@ -4596,6 +4624,15 @@ impl Interpreter {
 
         for raw in files {
             let file = raw.to_ascii_uppercase();
+            // A file closed `WITH LOCK` may not be reopened in this run unit
+            // (COBOL-85). File status 38 is the standard's code for exactly
+            // that, and reporting it is the point of the phrase — silently
+            // reopening would make the lock decorative.
+            if self.locked_files.contains(&file) {
+                self.set_file_status(&file, "38");
+                self.fire_declarative(&file, "38", false)?;
+                continue;
+            }
             // Remember the open-mode for mode-qualified USE declaratives.
             self.open_modes.insert(file.clone(), mode);
             let Some(spec) = self.file_specs.get(&file).cloned() else {
@@ -4674,10 +4711,15 @@ impl Interpreter {
         Ok(())
     }
 
-    fn exec_close(&mut self, files: &[String]) -> Result<(), RuntimeError> {
+    fn exec_close(&mut self, files: &[String], locked: &[String]) -> Result<(), RuntimeError> {
         use std::io::Write as _;
+        let locked: std::collections::HashSet<String> =
+            locked.iter().map(|f| f.to_ascii_uppercase()).collect();
         for raw in files {
             let file = raw.to_ascii_uppercase();
+            if locked.contains(&file) {
+                self.locked_files.insert(file.clone());
+            }
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
                     OpenFile::Writer { w, .. } => {
@@ -4906,7 +4948,7 @@ impl Interpreter {
                 None => break,
             }
         }
-        let _ = self.exec_close(&[file.to_string()]);
+        let _ = self.exec_close(&[file.to_string()], &[]);
         out
     }
 
@@ -4932,7 +4974,7 @@ impl Interpreter {
                 };
             }
         }
-        self.exec_close(&[file.to_string()])
+        self.exec_close(&[file.to_string()], &[])
     }
 
     fn exec_write(
@@ -8178,6 +8220,19 @@ impl Interpreter {
         match expr {
             Expr::Literal(lit, _) => Ok(literal_to_value(lit)),
 
+            // `ALL` as a subscript has no value of its own — it stands for
+            // every occurrence of the table it subscripts, and `eval_args`
+            // expands it into one argument per element before any of them is
+            // evaluated. Reaching here means it was written somewhere the
+            // expansion does not apply (outside an intrinsic-function
+            // argument), so it is reported rather than silently given a
+            // number.
+            Expr::AllSubscript(_) => Err(RuntimeError::General {
+                message: "ALL as a subscript is only meaningful as an intrinsic-function \
+                          argument, such as FUNCTION MAX(TABLE (ALL))"
+                    .into(),
+            }),
+
             // Member-access chain read as a value: `obj::Caption`,
             // `Grid::Rows(I)::Value`, `obj::Value::toUpperCase()` (spec 011).
             Expr::Member { .. } => self.eval_member(expr),
@@ -8751,19 +8806,117 @@ impl Interpreter {
                     Ok(CobolValue::from_i64(pos))
                 }
             }
-            _ => {
-                tracing::warn!("Unknown intrinsic function '{}' — returning 0", name);
-                Ok(CobolValue::from_i64(0))
-            }
+            // An unimplemented intrinsic used to log a warning and return 0, so
+            // a program carried on and reported a wrong answer with nothing to
+            // point at. The semantic analyser now rejects the call at compile
+            // time; this arm is what makes that guarantee real rather than
+            // best-effort, and it is what the drift test in
+            // `test_intrinsic_coverage.rs` detects.
+            other => Err(RuntimeError::General {
+                message: format!(
+                    "'{other}' is not an intrinsic function RustCOBOL implements"
+                ),
+            }),
         }
     }
 
     fn eval_args(&mut self, args: &[Expr], span: Span) -> Result<Vec<CobolValue>, RuntimeError> {
         let mut out = Vec::with_capacity(args.len());
         for a in args {
+            // `FUNCTION MAX(IND(ALL))` — a subscript of `ALL` stands for EVERY
+            // occurrence of the table in that dimension, so one written
+            // argument becomes as many actual arguments as the table has
+            // elements. This is the only place the expansion belongs: the
+            // statistical intrinsics all take a variable-length list, and each
+            // already reads whatever `eval_args` returns.
+            if let Expr::Subscript { base, indices, .. } = a {
+                if indices.iter().any(|i| matches!(i, Expr::AllSubscript(_))) {
+                    self.expand_all_subscript(a, base, indices, span, &mut out)?;
+                    continue;
+                }
+            }
             out.push(self.eval_expr(a, span)?);
         }
         Ok(out)
+    }
+
+    /// Expand a subscript list containing `ALL` into one value per occurrence.
+    ///
+    /// `ALL` may appear in any dimension, with ordinary subscripts in the
+    /// others — `FUNCTION SUM(TBL(ALL, 2))` is one column of a two-dimensional
+    /// table. Every `ALL` dimension is enumerated over its OCCURS count in
+    /// **row-major** order (last subscript varies fastest), which is the order
+    /// the table is laid out in and therefore the order `ORD-MAX` / `ORD-MIN`
+    /// must report an ordinal against.
+    ///
+    /// An `OCCURS … DEPENDING ON` table is expanded against the count *now*,
+    /// because `dims_of` reads the environment's current occurrence data.
+    fn expand_all_subscript(
+        &mut self,
+        whole: &Expr,
+        base: &Expr,
+        indices: &[Expr],
+        span: Span,
+        out: &mut Vec<CobolValue>,
+    ) -> Result<(), RuntimeError> {
+        let key = self.expr_to_name(base);
+        let dims = self.env.dims_of(&key);
+
+        // Without OCCURS metadata there is nothing to enumerate. Fall back to
+        // evaluating the reference as written rather than inventing a count —
+        // a wrong number of arguments would give the function a wrong answer
+        // in silence, which is worse than the original diagnostic.
+        if dims.len() < indices.len() || dims.iter().any(|&d| d == 0) {
+            out.push(self.eval_expr(whole, span)?);
+            return Ok(());
+        }
+
+        // Cartesian product over the ALL dimensions, row-major.
+        let mut fixed: Vec<i64> = Vec::with_capacity(indices.len());
+        for (pos, idx) in indices.iter().enumerate() {
+            let _ = pos;
+            match idx {
+                Expr::AllSubscript(_) => fixed.push(0), // placeholder, filled below
+                other => {
+                    fixed.push(self.eval_expr(other, span)?.as_i64().unwrap_or(1));
+                }
+            }
+        }
+        let all_positions: Vec<usize> = indices
+            .iter()
+            .enumerate()
+            .filter(|(_, i)| matches!(i, Expr::AllSubscript(_)))
+            .map(|(n, _)| n)
+            .collect();
+
+        let mut counters = vec![1i64; all_positions.len()];
+        loop {
+            for (slot, &pos) in all_positions.iter().enumerate() {
+                fixed[pos] = counters[slot];
+            }
+            let sub_key = crate::environment::subscript_key(&key, &fixed);
+            let value = self
+                .env
+                .get(&sub_key)
+                .cloned()
+                .unwrap_or_else(|| CobolValue::from_i64(0));
+            out.push(value);
+
+            // Advance the odometer, last ALL dimension fastest.
+            let mut slot = all_positions.len();
+            loop {
+                if slot == 0 {
+                    return Ok(());
+                }
+                slot -= 1;
+                let limit = dims[all_positions[slot]] as i64;
+                if counters[slot] < limit {
+                    counters[slot] += 1;
+                    break;
+                }
+                counters[slot] = 1;
+            }
+        }
     }
 
     // ── Condition evaluation ──────────────────────────────────────────────────

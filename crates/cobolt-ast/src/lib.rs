@@ -17,6 +17,7 @@
 //! | `program` | Top-level program structure and all divisions |
 //! | `data`    | DATA DIVISION: `DataDecl`, `PicClause`, `Usage`, `OccursClause` |
 //! | `expr`    | `Expr`, `Literal`, `FigurativeConstant`, `Condition`, operators |
+//! | `intrinsics` | the set of intrinsic functions RustCOBOL implements |
 //! | `stmt`    | `Stmt` and all supporting clause types |
 //!
 //! # Span
@@ -26,6 +27,7 @@
 //! inside the AST without requiring callers to carry a separate source map.
 
 pub mod data;
+pub mod intrinsics;
 pub mod expr;
 pub mod program;
 pub mod rust_types;
