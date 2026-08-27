@@ -41,6 +41,12 @@ pub struct Parser {
     /// what follows the name (a string literal *and* nothing else is the
     /// repository form; a class definition lists literals or ranges).
     pub(crate) classes: Vec<(String, Vec<(char, char)>)>,
+    /// `SPECIAL-NAMES. ALPHABET name IS …` — collating sequences, moved into
+    /// `Program::alphabets`.
+    pub(crate) alphabets: Vec<(String, cobolt_ast::program::AlphabetSpec)>,
+    /// `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS name` — moved into
+    /// `Program::collating_sequence`.
+    pub(crate) collating_sequence: Option<String>,
     /// `SPECIAL-NAMES. <switch> IS <mnemonic> ON STATUS IS <name> OFF STATUS IS
     /// <name>` — external switches, as
     /// `(implementor name, mnemonic, on-name, off-name)`.
@@ -93,6 +99,8 @@ impl Parser {
             repository: Vec::new(),
             rust_items: Vec::new(),
             classes: Vec::new(),
+            alphabets: Vec::new(),
+            collating_sequence: None,
             switches: Vec::new(),
             pending_object_class: None,
             next_block_id: block_id_base,
@@ -593,6 +601,8 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
     let repository = std::mem::take(&mut p.repository);
     let rust_items = std::mem::take(&mut p.rust_items);
     let classes = std::mem::take(&mut p.classes);
+    let alphabets = std::mem::take(&mut p.alphabets);
+    let collating_sequence = p.collating_sequence.take();
 
     // Collect nested programs until END PROGRAM or EOF
     let mut nested_programs = Vec::new();
@@ -639,6 +649,8 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         repository,
         classes,
         switch_names,
+        alphabets,
+        collating_sequence,
     }
 }
 
@@ -800,6 +812,133 @@ fn parse_special_names_class(p: &mut Parser) {
     p.classes.push((name, ranges));
 }
 
+/// `SPECIAL-NAMES. ALPHABET alphabet-name IS {NATIVE | STANDARD-1 | STANDARD-2
+/// | EBCDIC | literal-phrase}`.
+///
+/// The literal phrase is an ordered list of *positions*. A bare literal puts
+/// each of its characters at the next position in turn; `lit-1 THRU lit-2`
+/// expands to one position per character of the inclusive native range; and
+/// `ALSO` folds the operands it joins into a single shared position, which is
+/// how `"I" ALSO "J" ALSO "K"` makes those three characters compare equal.
+/// A figurative constant names its native character, so `ALSO HIGH-VALUE`
+/// gives `0xFF` the position it is written at (NC215A, NC219A).
+fn parse_special_names_alphabet(p: &mut Parser) {
+    use cobolt_ast::program::AlphabetSpec;
+    p.advance(); // ALPHABET
+    let Some((name, _)) = p.eat_identifier() else {
+        return;
+    };
+    let name = name.to_ascii_uppercase();
+    p.eat(&Token::Is);
+
+    // A named standard sequence stands alone — no operand list follows.
+    if let Token::Identifier(w) = p.peek().clone() {
+        let spec = match w.to_ascii_uppercase().as_str() {
+            "NATIVE" => Some(AlphabetSpec::Native),
+            "STANDARD-1" | "STANDARD-2" => Some(AlphabetSpec::Standard),
+            "EBCDIC" => Some(AlphabetSpec::Ebcdic),
+            _ => None,
+        };
+        if let Some(spec) = spec {
+            p.advance();
+            p.alphabets.push((name, spec));
+            return;
+        }
+    }
+
+    /// `,` and `;` are pure separators in COBOL and may sit between any two
+    /// operands — NC215A writes `"I" ALSO "J", ALSO "K", ALSO "L"`. Stopping
+    /// at one truncated the alphabet silently: every character after the first
+    /// comma went unlisted, so `ALSO` never folded and the rest of the sequence
+    /// fell back to native order.
+    fn skip_separators(p: &mut Parser) {
+        while p.eat(&Token::Comma) || p.eat(&Token::Semicolon) {}
+    }
+
+    /// One operand's characters; `None` when the cursor is not on an operand.
+    fn take_operand(p: &mut Parser) -> Option<Vec<char>> {
+        skip_separators(p);
+        match p.peek().clone() {
+            Token::StringLiteral(s) => {
+                p.advance();
+                Some(s.chars().collect())
+            }
+            // A numeric operand is the character's ordinal position, 1-based.
+            Token::IntegerLiteral(n) => {
+                p.advance();
+                Some(
+                    u32::try_from(n - 1)
+                        .ok()
+                        .and_then(char::from_u32)
+                        .into_iter()
+                        .collect(),
+                )
+            }
+            Token::HighValues => {
+                p.advance();
+                Some(vec!['\u{ff}'])
+            }
+            Token::LowValues => {
+                p.advance();
+                Some(vec!['\u{0}'])
+            }
+            Token::Spaces => {
+                p.advance();
+                Some(vec![' '])
+            }
+            Token::Quotes => {
+                p.advance();
+                Some(vec!['"'])
+            }
+            Token::Zeros => {
+                p.advance();
+                Some(vec!['0'])
+            }
+            _ => None,
+        }
+    }
+
+    let mut groups: Vec<Vec<char>> = Vec::new();
+    while let Some(first) = take_operand(p) {
+        skip_separators(p);
+        // `lit-1 THRU lit-2` — one position per character of the native range.
+        if matches!(p.peek(), Token::Through | Token::Thru) {
+            p.advance();
+            let second = take_operand(p).unwrap_or_default();
+            if let (Some(&a), Some(&b)) = (first.first(), second.first()) {
+                let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+                for c in lo..=hi {
+                    groups.push(vec![c]);
+                }
+            }
+            continue;
+        }
+        // `lit-1 ALSO lit-2 ALSO …` — every operand shares ONE position.
+        let mut group: Vec<char> = first;
+        let mut folded = false;
+        loop {
+            skip_separators(p);
+            // `ALSO` is a reserved word, not an identifier — matching it as one
+            // meant the fold never triggered and every operand took a position
+            // of its own, so `"I" ALSO "J"` left I and J unequal.
+            if !p.eat(&Token::Also) {
+                break;
+            }
+            let Some(more) = take_operand(p) else { break };
+            group.extend(more);
+            folded = true;
+        }
+        if folded {
+            groups.push(group);
+        } else {
+            // A bare literal contributes each of its characters in turn, so the
+            // whole COBOL character set can be written as one long literal.
+            groups.extend(group.into_iter().map(|c| vec![c]));
+        }
+    }
+    p.alphabets.push((name, AlphabetSpec::Literal(groups)));
+}
+
 /// Words that open another SPECIAL-NAMES clause, so an operand scan must stop
 /// rather than swallow them.
 fn is_special_names_clause_word(w: &str) -> bool {
@@ -861,6 +1000,22 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         p.rust_items.push(RustItemBlock { source, span });
                         continue;
                     }
+                    // `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS name`.
+                    // `PROGRAM` lexes as its own keyword rather than an
+                    // identifier, so it is matched here and not in the
+                    // identifier dispatch below.
+                    if matches!(p.peek(), Token::Program)
+                        && matches!(p.peek_at(1), Token::Identifier(w) if w.eq_ignore_ascii_case("COLLATING"))
+                    {
+                        p.advance(); // PROGRAM
+                        p.advance(); // COLLATING
+                        p.eat(&Token::Sequence);
+                        p.eat(&Token::Is);
+                        if let Some((n, _)) = p.eat_identifier() {
+                            p.collating_sequence = Some(n.to_ascii_uppercase());
+                        }
+                        continue;
+                    }
                     let ident = if let Token::Identifier(s) = p.peek() {
                         Some(s.clone())
                     } else {
@@ -895,6 +1050,10 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         // SPECIAL-NAMES: CLASS <name> [IS] lit [THRU lit] …
                         Some(s) if s.eq_ignore_ascii_case("CLASS") && !in_repository => {
                             parse_special_names_class(p);
+                        }
+                        // SPECIAL-NAMES: ALPHABET <name> [IS] <sequence>
+                        Some(s) if s.eq_ignore_ascii_case("ALPHABET") && !in_repository => {
+                            parse_special_names_alphabet(p);
                         }
                         // A switch: `<implementor-name> IS <mnemonic>` followed
                         // by an ON and/or OFF status clause. Without one of

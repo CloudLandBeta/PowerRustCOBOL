@@ -34,6 +34,7 @@
 
 pub mod async_op;
 pub mod channels;
+pub mod collation;
 pub mod compress;
 pub mod db_runtime;
 pub mod debugger;

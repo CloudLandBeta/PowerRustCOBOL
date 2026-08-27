@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.25] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): execution 66 → 68 of 95, assertions 191 → 183
+failing.** Compile stays at 94 / 95 and whole-suite compile at 419 / 434.
+NC215A and NC219A both went from failing to clean. No other module was touched
+(GOLDEN RULE #9).
+
+### Added — `ALPHABET` and `PROGRAM COLLATING SEQUENCE`
+
+`SPECIAL-NAMES. ALPHABET <name> IS …` and `OBJECT-COMPUTER. … PROGRAM
+COLLATING SEQUENCE IS <name>` were both skipped. A program that names an
+alphabet now orders **every** alphanumeric comparison it makes by that
+sequence rather than by the native character order.
+
+The literal phrase is an ordered list of positions: a bare literal contributes
+each of its characters in turn, `lit-1 THRU lit-2` expands to one position per
+character of the range, and `ALSO` folds the operands it joins into a **single
+shared position** — which is what makes `"I" ALSO "J"` compare equal. Any
+character the alphabet never mentions sorts after every character it does, in
+native order among themselves. A figurative constant used as an operand names
+its native character, so `ALSO HIGH-VALUE` gives `0xFF` the position written.
+
+The clause also redefines the figurative constants: `LOW-VALUE` and
+`HIGH-VALUE` name the characters at the ends of the *program's* sequence, so
+under `ALPHABET COLLATING-SEQ-1 IS "F" "U" "N" …` the program's `LOW-VALUE` is
+the letter `F`.
+
+`NATIVE`, `STANDARD-1` and `STANDARD-2` are the native order and need no
+table. **`EBCDIC` is not implemented** and leaves native ordering in force —
+recorded in the known-gaps list in `docs/cobol85-supported-syntax-en.md`.
+
+`Program` gained `alphabets` and `collating_sequence`, and
+`cobolt_ast::program::AlphabetSpec` is new — all at the **end** of their
+declarations, per the bincode-ordinal rule.
+
+### Fixed — a non-numeric string compared equal to zero
+
+COBOL-85 (VI-15 4.5.4) makes a comparison alphanumeric as soon as one operand
+is alphanumeric; the numeric operand is read as its characters. The runtime
+coerced the *text* side to `f64` instead, and a failed parse is `0.0` — so
+`IF WS-TEXT = 0` was true for any text whatsoever, `IF "A" < 0` was false, and
+`IF 9 < SPACE` was false. Text that really is a number keeps the numeric
+reading, so `IF WS-DIGITS = WS-NUM` still compares 42 with 42, and an
+uninitialised item — which has no characters at all — also keeps it, so
+`IF WS-PTR = NULL` on a never-`SET` POINTER is unaffected.
+
 ## [PowerRustCOBOL 1.62.24] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): execution 65 → 66 of 95, assertions 226 → 191

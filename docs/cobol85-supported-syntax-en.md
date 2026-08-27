@@ -846,7 +846,12 @@ gaps above, which are defects being worked through:
    no NC program carries an `ACCESS MODE` clause; the clause appears only in
    the DB, IC, IX, OBSQ, RL, RW, SQ and ST modules, so under GOLDEN RULE #9
    this waits until NC is finished.
-7. **The Communication module and Report Writer** — see
+7. ⚠️ **`ALPHABET … IS EBCDIC` is accepted but leaves native (ASCII) ordering
+   in force.** The literal phrase (`"A" THRU "H" "I" ALSO "J" …`), `NATIVE`,
+   `STANDARD‑1` and `STANDARD‑2` are all implemented and drive
+   `PROGRAM COLLATING SEQUENCE` for real; only the EBCDIC table is missing, and
+   naming it silently gets ASCII order. Same trap family as 4–6.
+8. **The Communication module and Report Writer** — see
    [N/A above](#-na--what-is-out-of-rustcobols-scope-and-why).
 
 > **Resolved (1.5.0):** the flat data model became hierarchical / occurrence‑aware,

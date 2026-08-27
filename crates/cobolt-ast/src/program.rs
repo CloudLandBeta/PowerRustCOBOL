@@ -288,6 +288,39 @@ pub struct Program {
     /// a switch is set outside the program, and the implementor name is what
     /// the outside world knows it by.
     pub switch_names: Vec<(String, String)>,
+    /// `SPECIAL-NAMES. ALPHABET alphabet-name IS …` — the collating sequences
+    /// this program defines, as `(uppercased alphabet name, spec)`.
+    ///
+    /// Declaring one changes nothing on its own; a sequence takes effect only
+    /// when `OBJECT-COMPUTER` names it in [`Self::collating_sequence`].
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub alphabets: Vec<(String, AlphabetSpec)>,
+    /// `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS alphabet-name` — the
+    /// alphabet that orders every alphanumeric comparison in this program, and
+    /// that redefines which characters `LOW-VALUE` and `HIGH-VALUE` name.
+    /// `None` leaves the native (ASCII) ordering in force.
+    pub collating_sequence: Option<String>,
+}
+
+/// How an `ALPHABET` clause defines a collating sequence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AlphabetSpec {
+    /// `NATIVE` — the machine's own character ordering, which is what a program
+    /// with no `PROGRAM COLLATING SEQUENCE` already uses.
+    Native,
+    /// `STANDARD-1` / `STANDARD-2` — ISO 7-bit; ASCII here.
+    Standard,
+    /// `EBCDIC`.
+    Ebcdic,
+    /// The literal phrase: an **ordered** list of groups, lowest position
+    /// first. Every character in one group shares a single ordinal — that is
+    /// what `ALSO` means — and any character not listed at all sorts after
+    /// every listed one, in native order.
+    ///
+    /// 🔴 New variants belong at the END of this enum — it is bincode-
+    /// serialized by variant ordinal.
+    Literal(Vec<Vec<char>>),
 }
 
 /// One item-level `EXEC RUST` block (spec 041 R19).

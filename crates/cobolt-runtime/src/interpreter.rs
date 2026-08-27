@@ -904,6 +904,19 @@ impl Interpreter {
             .collect();
         let switch_names = program.switch_names.clone();
 
+        // `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS <alphabet>` orders
+        // every alphanumeric comparison this program makes, so the table is
+        // published here, once, before any statement runs. Naming an alphabet
+        // that was never defined — or one of the standard sequences, which are
+        // the native order anyway — leaves native ordering in force.
+        crate::collation::set_active(program.collating_sequence.as_ref().and_then(|name| {
+            program
+                .alphabets
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                .and_then(|(_, spec)| crate::collation::Collation::from_spec(spec))
+        }));
+
         // Register all COBOL-85 nested programs (recursively).
         let mut nested_registry: HashMap<String, NestedProgram> = HashMap::new();
         for nested in &program.nested_programs {
@@ -3059,7 +3072,11 @@ impl Interpreter {
                 FigurativeConstant::Zero => Some("0".to_string()),
                 FigurativeConstant::Space => Some(" ".to_string()),
                 FigurativeConstant::Quote => Some("\"".to_string()),
-                FigurativeConstant::LowValue => Some("\u{0}".to_string()),
+                FigurativeConstant::LowValue => Some(
+                    crate::collation::active_low_value()
+                        .unwrap_or('\u{0}')
+                        .to_string(),
+                ),
                 // HIGH-VALUE is the byte 0xFF, which is not a character: as a
                 // Rust `char` it would encode to two UTF-8 bytes and every
                 // width downstream would be wrong. It keeps the byte-accurate
@@ -10150,8 +10167,15 @@ pub fn literal_to_value(lit: &Literal) -> CobolValue {
         Literal::Figurative(fig) => match fig {
             FigurativeConstant::Zero => CobolValue::from_i64(0),
             FigurativeConstant::Space => CobolValue::spaces(1),
-            FigurativeConstant::HighValue => CobolValue::figurative_high_values(1),
-            FigurativeConstant::LowValue => CobolValue::figurative_low_values(1),
+            // Under a `PROGRAM COLLATING SEQUENCE` these two name the ends of
+            // the *program's* sequence, not `0xFF`/`0x00`: NC219A's alphabet
+            // opens with `"F"`, so `LOW-VALUE` there is the letter F.
+            FigurativeConstant::HighValue => crate::collation::active_high_value()
+                .map(|ch| CobolValue::from_str(&ch.to_string(), 1))
+                .unwrap_or_else(|| CobolValue::figurative_high_values(1)),
+            FigurativeConstant::LowValue => crate::collation::active_low_value()
+                .map(|ch| CobolValue::from_str(&ch.to_string(), 1))
+                .unwrap_or_else(|| CobolValue::figurative_low_values(1)),
             FigurativeConstant::Quote => CobolValue::from_str("\"", 1),
             FigurativeConstant::Null => CobolValue::from_i64(0),
             FigurativeConstant::All(inner) => literal_to_value(inner),
@@ -10249,18 +10273,38 @@ pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
             CmpOp::Ge => lf >= rf,
         };
     }
-    // Cross-type: numeric vs string — compare as f64 if parsable, else string.
+    // Cross-type: numeric vs string — compare as f64 when the text side really
+    // is a number, and alphanumerically when it is not.
+    //
+    // COBOL-85 (VI-15 4.5.4) makes a comparison alphanumeric as soon as one
+    // operand is alphanumeric: the numeric operand is treated as though it had
+    // been moved to an alphanumeric item of the same size. Coercing the text
+    // side to `f64` instead turned every non-numeric string into 0.0, so
+    // `IF "A" < 0` and `IF 9 < SPACE` were both false and — worse — any text
+    // compared equal to zero. The narrowing keeps `IF WS-TEXT = 0` numeric when
+    // `WS-TEXT` actually holds digits (NC215A SEQ-TEST-GF-5/GF-6/GF-7).
     if l.is_numeric() || r.is_numeric() {
-        let lf = l.as_f64();
-        let rf = r.as_f64();
-        return match op {
-            CmpOp::Eq => (lf - rf).abs() < 1e-10,
-            CmpOp::Ne => (lf - rf).abs() >= 1e-10,
-            CmpOp::Lt => lf < rf,
-            CmpOp::Le => lf <= rf,
-            CmpOp::Gt => lf > rf,
-            CmpOp::Ge => lf >= rf,
+        let reads_as_number = |v: &CobolValue| -> bool {
+            // An uninitialised item has no characters to compare at all — that
+            // is what makes it different from an item holding a space — so it
+            // keeps the numeric reading. `IF WS-PTR = NULL` on a POINTER that
+            // was never SET is exactly this case.
+            matches!(v, CobolValue::Unset)
+                || v.is_numeric()
+                || v.as_display_string().trim().parse::<f64>().is_ok()
         };
+        if reads_as_number(l) && reads_as_number(r) {
+            let lf = l.as_f64();
+            let rf = r.as_f64();
+            return match op {
+                CmpOp::Eq => (lf - rf).abs() < 1e-10,
+                CmpOp::Ne => (lf - rf).abs() >= 1e-10,
+                CmpOp::Lt => lf < rf,
+                CmpOp::Le => lf <= rf,
+                CmpOp::Gt => lf > rf,
+                CmpOp::Ge => lf >= rf,
+            };
+        }
     }
     // Alphanumeric comparison. Per COBOL rules the shorter operand is padded on
     // the RIGHT with spaces to the length of the longer one, then compared
@@ -10271,6 +10315,25 @@ pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
     let width = ls.len().max(rs.len());
     let lp = format!("{ls:<width$}");
     let rp = format!("{rs:<width$}");
+    // `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS <alphabet>` replaces the
+    // native character order for every alphanumeric comparison in the program,
+    // and characters an `ALSO` phrase joins compare **equal** (NC215A, NC219A).
+    // The gate keeps the ordinary case a plain string comparison.
+    if crate::collation::is_active() {
+        if let Some(ord) =
+            crate::collation::with_active(|c| c.map(|c| c.compare(&lp, &rp)))
+        {
+            use std::cmp::Ordering;
+            return match op {
+                CmpOp::Eq => ord == Ordering::Equal,
+                CmpOp::Ne => ord != Ordering::Equal,
+                CmpOp::Lt => ord == Ordering::Less,
+                CmpOp::Le => ord != Ordering::Greater,
+                CmpOp::Gt => ord == Ordering::Greater,
+                CmpOp::Ge => ord != Ordering::Less,
+            };
+        }
+    }
     match op {
         CmpOp::Eq => lp == rp,
         CmpOp::Ne => lp != rp,
@@ -11826,11 +11889,15 @@ mod boolean_comparison_tests {
     fn ordinary_text_is_not_dragged_into_boolean_rules() {
         assert!(compare_values(&text("BTN-OK"), &text("BTN-OK"), CmpOp::Eq));
         assert!(!compare_values(&text("BTN-OK"), &text("BTN-NO"), CmpOp::Eq));
-        // Unchanged pre-existing behaviour: a non-numeric string against a
-        // number still goes through `as_f64`. Not endorsed, just not touched —
-        // widening that would be a different change with a different blast
-        // radius.
-        assert!(compare_values(&text("banana"), &num(0), CmpOp::Eq));
+        // Text that is not a number against a number is an **alphanumeric**
+        // comparison (COBOL-85 VI-15 4.5.4), so `banana` is not zero. This
+        // used to be the other way round — `as_f64("banana")` is 0.0, so every
+        // non-numeric string equalled 0 — and the widening it was waiting for
+        // arrived with the collating-sequence work (NC215A SEQ-TEST-GF-5).
+        assert!(!compare_values(&text("banana"), &num(0), CmpOp::Eq));
+        // Text that *is* a number keeps the numeric reading.
+        assert!(compare_values(&text("0"), &num(0), CmpOp::Eq));
+        assert!(compare_values(&text(" 42 "), &num(42), CmpOp::Eq));
     }
 
     /// Ordering operators are left alone: booleans have equality, not
@@ -11838,9 +11905,11 @@ mod boolean_comparison_tests {
     /// than acquiring an invented ordering.
     #[test]
     fn ordering_operators_are_not_given_boolean_meaning() {
-        // Falls through to the old numeric-vs-string path; the point is only
-        // that the boolean branch did not claim it.
-        let before = text("true").as_f64() > num(0).as_f64();
-        assert_eq!(compare_values(&text("true"), &num(0), CmpOp::Gt), before);
+        // Falls through to the ordinary comparison path; the point is only that
+        // the boolean branch did not claim it. `"true"` is not a number, so
+        // that path is the alphanumeric one and `"true" > "0"` holds on
+        // characters — it is not an invented ordering over booleans.
+        assert!(compare_values(&text("true"), &num(0), CmpOp::Gt));
+        assert!(!compare_values(&text("true"), &num(0), CmpOp::Lt));
     }
 }
