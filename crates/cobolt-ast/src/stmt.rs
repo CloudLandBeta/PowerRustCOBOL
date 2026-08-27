@@ -122,6 +122,13 @@ pub enum EvalSubject {
     True_,
     /// `EVALUATE FALSE`
     False_,
+    // ⚠️ New variants go at the END — this enum is bincode-serialized into every
+    // compiled binary and a variant is identified by its ordinal. See
+    // `Expr::AllSubscript` for what inserting one costs.
+    /// A **conditional expression** as the subject: `EVALUATE X NUMERIC`,
+    /// `EVALUATE A > B`. COBOL-85 allows it, and it is matched against
+    /// `WHEN TRUE` / `WHEN FALSE`.
+    Cond(Condition),
 }
 
 /// The flavour of an `EXIT` statement.

@@ -249,7 +249,11 @@ fn look_ahead_for_sections(p: &Parser) -> bool {
         let tok0 = p.peek_at(i);
         match tok0 {
             Token::Eof => break,
-            Token::Identifier(_) => {
+            // A section name need not contain a letter (`50 SECTION.`), so this
+            // asks for a procedure-name rather than an identifier — otherwise a
+            // numerically-named section is invisible here and the whole
+            // PROCEDURE DIVISION is parsed as flat paragraphs.
+            t if is_procedure_name(t) => {
                 if matches!(p.peek_at(i + 1), Token::Section) {
                     return true;
                 }

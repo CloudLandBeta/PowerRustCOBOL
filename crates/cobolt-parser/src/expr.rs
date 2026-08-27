@@ -204,6 +204,27 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
             Some((Literal::Decimal(mantissa, scale), span))
         }
 
+        // A number that OPENED a line, where an operand was meant.
+        //
+        // The lexer classifies a number at the start of a line as a level
+        // number — and it usually is one, which is why the classification
+        // exists — but a statement whose operand list spills onto the next line
+        // puts an ordinary integer in exactly that position:
+        //
+        //     SUBTRACT DNAME-1
+        //              1 FROM ERROR-COUNTER.
+        //
+        // The lexer cannot tell them apart, because a level number is only
+        // recognisable from context. Accepting the spelling **here** — in the
+        // literal parser, which is only reached where an expression is
+        // expected — is exact rather than lenient: the DATA DIVISION matches
+        // its entries on `Token::LevelNumber` before any expression is parsed,
+        // so a real level number never arrives at this arm.
+        Token::LevelNumber(n) => {
+            p.advance();
+            Some((Literal::Integer(n as i64), span))
+        }
+
         // A numeric literal that begins with the decimal point: `.5`, `.00001`.
         //
         // COBOL-85 allows this — a numeric literal must only not *end* with a
@@ -703,7 +724,13 @@ fn negate_cmp(op: CmpOp) -> CmpOp {
 
 /// If the current token is an identifier, return its name upper-cased.
 fn peek_ident_upper(p: &Parser) -> Option<String> {
-    if let Token::Identifier(s) = p.peek() {
+    peek_ident_upper_at(p, 0)
+}
+
+/// `peek_ident_upper` at a lookahead offset — used to see past an optional
+/// `NOT` before deciding whether a class or sign word follows.
+fn peek_ident_upper_at(p: &Parser, offset: usize) -> Option<String> {
+    if let Token::Identifier(s) = p.peek_at(offset) {
         Some(s.to_uppercase())
     } else {
         None
@@ -897,6 +924,56 @@ fn parse_condition_primary(p: &mut Parser) -> Condition {
 
         p.emit_error("unrecognised IS clause in condition");
         return Condition::ConditionName("<error>".into(), span);
+    }
+
+    // **The `IS` is optional** in a class or sign condition. COBOL-85 writes
+    // `IF X IS NUMERIC` and `IF X NUMERIC` alike, and `EVALUATE X NUMERIC`
+    // (NC225A) has no `IS` at all — there is nowhere to put one.
+    //
+    // A leading `NOT` is consumed only if a class or sign word really follows,
+    // so `a NOT = b` still reaches the relational path below with its `NOT`
+    // intact.
+    {
+        let after_not = usize::from(p.at(&Token::Not));
+        let word = peek_ident_upper_at(p, after_not);
+        let class = word.as_deref().and_then(|n| match n {
+            "NUMERIC" => Some(DataClass::Numeric),
+            "ALPHABETIC" => Some(DataClass::Alphabetic),
+            "ALPHABETIC-LOWER" => Some(DataClass::AlphabeticLower),
+            "ALPHABETIC-UPPER" => Some(DataClass::AlphabeticUpper),
+            _ => None,
+        });
+        // `ZERO` is a lexer keyword (the figurative constant), not an
+        // identifier, so the sign test has to look for the token as well as the
+        // word — exactly as the `IS` form below already does.
+        let sign = match word.as_deref() {
+            Some("POSITIVE") => Some(SignCond::Positive),
+            Some("NEGATIVE") => Some(SignCond::Negative),
+            _ if matches!(p.peek_at(after_not), Token::Zeros) => Some(SignCond::Zero),
+            _ => None,
+        };
+        if class.is_some() || sign.is_some() {
+            let negated = after_not == 1;
+            if negated {
+                p.advance(); // NOT
+            }
+            p.advance(); // the class / sign word
+            let sp = span.merge(p.peek_span());
+            return match class {
+                Some(c) => Condition::ClassTest {
+                    expr: lhs,
+                    negated,
+                    class: c,
+                    span: sp,
+                },
+                None => Condition::SignTest {
+                    expr: lhs,
+                    negated,
+                    sign: sign.expect("one of the two matched"),
+                    span: sp,
+                },
+            };
+        }
     }
 
     // The same test with `IS` left out: `x TRUE`, `x NOT FALSE`. Checked before

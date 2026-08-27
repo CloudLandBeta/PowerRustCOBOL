@@ -43,12 +43,12 @@ programs named.
 
 ### The scoreboard
 
-Measured 2026‑08‑27 at version 1.62.17, on the untouched distribution:
+Measured 2026‑08‑27 at version 1.62.18, on the untouched distribution:
 
 | | Programs | Share | Meaning |
 |---|---:|---:|---|
-| ✅ **PASS** | **380** | **87.6 %** | of the 434 in‑scope programs |
-| ❌ **FAIL** | **54** | 12.4 % | of the 434 in‑scope programs |
+| ✅ **PASS** | **391** | **90.1 %** | of the 434 in‑scope programs |
+| ❌ **FAIL** | **43** | 9.9 % | of the 434 in‑scope programs |
 | ⬜ **N/A** | **25** | — | modules outside RustCOBOL's scope (below) |
 | | **459** | | total programs in the suite |
 
@@ -111,17 +111,17 @@ CCVS85 boilerplate every program shares does not yet run to its end.
 
 | Module | What it tests | PASS / Total | |
 |---|---|---:|---|
-| NC | Nucleus | 64 / 95 | |
-| SQ | Sequential I/O | 81 / 85 | |
+| NC | Nucleus | 69 / 95 | |
+| SQ | Sequential I/O | 82 / 85 | |
 | IC | Inter‑program communication | 44 / 47 | |
 | IF | Intrinsic functions | **45 / 45** | ✅ complete |
 | IX | Indexed I/O | **42 / 42** | ✅ complete |
-| ST | Sort / Merge | 36 / 40 | |
+| ST | Sort / Merge | 38 / 40 | |
 | RL | Relative I/O | 34 / 35 | ⚠️ compiles; no runtime engine |
-| SM | Source text manipulation (COPY/REPLACE) | 13 / 17 | |
+| SM | Source text manipulation (COPY/REPLACE) | 14 / 17 | |
 | DB | Debug | 11 / 15 | |
-| SG | Segmentation | 10 / 13 | |
-| **In scope** | | **380 / 434** | |
+| SG | Segmentation | 12 / 13 | |
+| **In scope** | | **391 / 434** | |
 | CM | Communication | — | ⬜ N/A |
 | RW | Report Writer | — | ⬜ N/A |
 | OBSQ / OBIC / OBNC | Obsolete‑feature flagging | — | ⬜ N/A |
@@ -182,7 +182,8 @@ whose *first* error it is:
 | 1.62.14 | 317 | `FUNCTION MAX(TBL(ALL))` — a whole table as an intrinsic argument; `MOVE ALL "X"` fills the field; `CLOSE … WITH LOCK` / `NO REWIND` / `REEL`; a signed literal as a `WHEN` object; `PERFORM … TIMES` with a data-item count; an integer count written on a continuation line. **Intrinsic functions 45 / 45 — module complete.** |
 | 1.62.15 | 332 | An unknown `FUNCTION` name is a compile error instead of returning 0; a user-defined word may begin with a digit (`25COUNT`, `3-DEM-TBL`, `0 SECTION.`); a `D` line is a comment unless `WITH DEBUGGING MODE`. Segmentation 0 → 10, Nucleus 58 → 61. |
 | 1.62.16 | 376 | The `AT` in `AT END` is optional, so a bare `END` phrase no longer swallows the next paragraph header (33 programs). The COPY/REPLACE preprocessor confines a literal to its line, so the word COPY in the copyright banner is not a directive. A numeric literal may open an `ADD`/`SUBTRACT` operand list with its decimal point. **Indexed I/O complete, 42 / 42.** |
-| **1.62.17** | **380** | `LINAGE` page layout, `LINAGE-COUNTER`, and `WRITE … AT END-OF-PAGE` / `AT EOP` — implemented, not stubbed. Sequential I/O 77 → 81. |
+| 1.62.17 | 380 | `LINAGE` page layout, `LINAGE-COUNTER`, and `WRITE … AT END-OF-PAGE` / `AT EOP` — implemented, not stubbed. Sequential I/O 77 → 81. |
+| **1.62.18** | **391** | A number opening a continuation line is an operand where an expression is expected. The `IS` is optional in a class or sign condition, and a condition may be an `EVALUATE` subject. A procedure-name may be written entirely in digits, in references and headers alike. |
 
 > **The honest summary.** RustCOBOL accepts just over **three quarters** of the in‑scope
 > NIST suite today, up from none seven releases ago. The remaining 102 are not

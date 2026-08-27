@@ -3857,6 +3857,20 @@ impl Interpreter {
                 let _ = e;
                 self.eval_condition(c)
             }
+
+            // A **conditional expression** as the subject: `EVALUATE X NUMERIC`.
+            // Its truth value is what the branches select on, so `WHEN TRUE`
+            // and `WHEN FALSE` — which reach here as the literals 1 and 0 —
+            // compare against it.
+            (EvalSubject::Cond(cond), WhenValue::Literal(lit)) => {
+                let truth = self.eval_condition(cond)?;
+                let wanted = matches!(literal_to_value(lit).as_i64(), Some(1));
+                Ok(truth == wanted)
+            }
+            (EvalSubject::Cond(cond), WhenValue::Condition(c)) => {
+                Ok(self.eval_condition(cond)? == self.eval_condition(c)?)
+            }
+
             _ => Ok(false),
         }
     }

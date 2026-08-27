@@ -1,5 +1,77 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.18] — 2026-08-27
+
+### Fixed — a number that opens a continuation line is an operand
+
+A number at the start of a line is classified as a **level number**, and it
+usually is one. But a statement whose operand list spills onto the next line
+puts an ordinary integer in exactly that position:
+
+```cobol
+       SUBTRACT DNAME-1
+                1 FROM ERROR-COUNTER.
+       WRITE PRINT-REC FROM OVERPRINTED-LINE AFTER
+                000000000000000001 LINE.
+       DISPLAY "NUMERIC LITERALS "
+                21 SPACE  35  I-DATA
+```
+
+The lexer cannot tell the two apart — a level number is only recognisable from
+context — so the parser now accepts the spelling wherever an **expression** is
+expected. That is exact rather than lenient: the DATA DIVISION matches its
+entries before any expression is parsed, so a real level number never reaches
+the literal parser. Worth 8 programs.
+
+### Fixed — the `IS` is optional in a class or sign condition
+
+```cobol
+       IF IF-D8 POSITIVE  PERFORM PASS ELSE PERFORM FAIL.
+       IF WS-FIELD NUMERIC ...
+       IF WS-FIELD NOT NUMERIC ...
+```
+
+COBOL-85 writes `IF X IS NUMERIC` and `IF X NUMERIC` alike. Only the `IS`
+spelling was accepted, so the condition ended at the data name.
+
+A leading `NOT` is consumed only when a class or sign word really follows, so
+`a NOT = b` is still a negated comparison.
+
+### Fixed — a condition may be an `EVALUATE` subject
+
+```cobol
+       EVALUATE WRK-XN-00001-1 NUMERIC
+           WHEN TRUE  ...
+           WHEN FALSE ...
+       END-EVALUATE.
+```
+
+`EVALUATE` parsed its subject as a plain expression, so it stopped at the data
+name and `NUMERIC` was read as a statement — which then swallowed the `WHEN`
+branches and the `END-EVALUATE`.
+
+### Fixed — a procedure-name may be written entirely in digits
+
+COBOL-85 requires an alphabetic character in a *data-name*, but not in a
+paragraph or section name:
+
+```cobol
+       PERFORM 00.
+       GO TO 50.
+       00.
+       50 SECTION.
+```
+
+Neither the references nor the headers parsed. The header case also needed the
+statement-list scanner to recognise a numeric name as a boundary — without
+that, the previous paragraph's statements swallowed the header.
+
+### NIST COBOL-85 conformance: 380 → 391 of 434 in-scope programs
+
+**Over 90 % of the in-scope suite.** Nucleus 64 → 69, Segmentation 10 → 12,
+Sort/Merge 36 → 38.
+
+
 ## [PowerRustCOBOL 1.62.17] — 2026-08-27
 
 ### Added — `LINAGE`: the printed page, and `AT END-OF-PAGE`

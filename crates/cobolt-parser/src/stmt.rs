@@ -99,8 +99,14 @@ pub(crate) fn parse_stmts(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> Vec<
             break;
         }
 
-        // Paragraph or section header: Identifier [SECTION] .
-        if matches!(tok, Token::Identifier(_))
+        // Paragraph or section header: procedure-name [SECTION] .
+        //
+        // A procedure-name need not contain a letter — COBOL-85 allows one
+        // written entirely in digits, and CCVS85 declares `0 SECTION.` and a
+        // paragraph called `00.` — so this asks for a procedure-name rather
+        // than an identifier. Without it the header is not seen as a boundary
+        // and the previous paragraph's statement list swallows it.
+        if crate::procedure::is_procedure_name(&tok)
             && matches!(p.peek_at(1), Token::Period | Token::Section)
         {
             break;
@@ -621,7 +627,35 @@ fn parse_evaluate(p: &mut Parser) -> Stmt {
                 p.advance();
                 EvalSubject::False_
             }
-            _ => EvalSubject::Expr(parse_expr(p)),
+            // COBOL-85 allows a **conditional expression** as the subject —
+            // `EVALUATE X NUMERIC`, `EVALUATE A > B` — matched against
+            // `WHEN TRUE` / `WHEN FALSE`. Parsing it as a plain expression
+            // stopped at `X` and left `NUMERIC` to be read as a statement,
+            // which then swallowed the WHEN branches and END-EVALUATE.
+            //
+            // A bare name is the ordinary case (`EVALUATE X WHEN 1 …`), and
+            // `parse_condition` reports exactly that by returning a
+            // ConditionName with no operator — so it is rewound and re-read as
+            // the operand it is.
+            _ => {
+                // ⚠️ A trial parse must rewind the DIAGNOSTICS as well as the
+                // cursor. `parse_condition` reports "expected comparison
+                // operator in condition" for any subject that is not a plain
+                // name — a subscripted one, say — and those complaints
+                // survived the rewind, so every such EVALUATE gained a
+                // spurious error. Measured: it cost 35 programs, 35 of them in
+                // the Intrinsic Functions module alone.
+                let save = p.pos;
+                let saved_diags = p.diagnostics.len();
+                match parse_condition(p) {
+                    cobolt_ast::expr::Condition::ConditionName(..) => {
+                        p.pos = save;
+                        p.diagnostics.truncate(saved_diags);
+                        EvalSubject::Expr(parse_expr(p))
+                    }
+                    cond => EvalSubject::Cond(cond),
+                }
+            }
         };
         subjects.push(subj);
         if !p.at(&Token::Also) {
@@ -825,19 +859,22 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         };
     }
 
-    // Must have a paragraph/section name next
-    if !p.at_identifier() {
+    // Must have a paragraph/section name next. An all-numeric name is legal
+    // (`PERFORM 00.` — SG201A), so this asks for a procedure-name rather than
+    // an identifier.
+    if !crate::procedure::is_procedure_name(p.peek()) {
         // Bare PERFORM with no argument — just a no-op stub
         let target = PerformTarget::Inline { stmts: Vec::new() };
         return Stmt::Perform { target, span };
     }
 
-    let (name, _) = p.eat_identifier().unwrap();
+    let (name, _) =
+        crate::procedure::eat_procedure_name(p).expect("guarded by is_procedure_name above");
 
     // PERFORM name THRU name
     let to_name = if p.at(&Token::Through) {
         p.advance();
-        p.eat_identifier().map(|(n, _)| n)
+        crate::procedure::eat_procedure_name(p).map(|(n, _)| n)
     } else {
         None
     };
@@ -1057,8 +1094,13 @@ fn parse_go(p: &mut Parser) -> Stmt {
     p.eat(&Token::To); // consume TO if present
 
     let mut targets = Vec::new();
-    while p.at_identifier() {
-        let (name, _) = p.eat_identifier().unwrap();
+    // A procedure-name need not contain a letter: COBOL-85 lets a paragraph or
+    // section be named entirely with digits, and CCVS85 writes `GO TO 50.`
+    // (SG203A) against a section declared as `50 SECTION.`
+    while crate::procedure::is_procedure_name(p.peek()) {
+        let Some((name, _)) = crate::procedure::eat_procedure_name(p) else {
+            break;
+        };
         targets.push(name);
         // Stop before DEPENDING
         if p.at(&Token::Depending) {
@@ -3232,6 +3274,9 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
         p.peek(),
         Token::Identifier(_)
             | Token::IntegerLiteral(_)
+            // A number that opened a line: the lexer took it for a level
+            // number, but an expression is expected here (see parse_literal_inner).
+            | Token::LevelNumber(_)
             | Token::DecimalLiteral { .. }
             | Token::StringLiteral(_)
             | Token::Spaces
