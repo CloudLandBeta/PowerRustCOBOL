@@ -834,7 +834,19 @@ gaps above, which are defects being worked through:
 5. Unrecognised intrinsic‑function names still return **0** — the same silent
    failure mode. Spec:
    [intrinsics](../specs/nist/NIST-spec-intrinsic-function-gaps.md).
-6. **The Communication module and Report Writer** — see
+6. ⚠️ **An invalid `ACCESS MODE` / `ORGANIZATION` value is swallowed without a
+   diagnostic** — the same trap again, and this one is triggered by an ordinary
+   user typo. `ACCESS MODE IS` accepts only `SEQUENTIAL`, `RANDOM` or `DYNAMIC`
+   (`INDEXED` is an *organization*, not an access mode), but the SELECT clause
+   parser tests those three and lets anything else fall through to the generic
+   "skip an unknown token" arm, so the file silently keeps the default
+   `SEQUENTIAL` and misbehaves at run time instead of failing to compile.
+   `ORGANIZATION IS` has the identical shape. Both should raise a clear
+   compile‑time error naming the offending word. **Not a Nucleus problem** —
+   no NC program carries an `ACCESS MODE` clause; the clause appears only in
+   the DB, IC, IX, OBSQ, RL, RW, SQ and ST modules, so under GOLDEN RULE #9
+   this waits until NC is finished.
+7. **The Communication module and Report Writer** — see
    [N/A above](#-na--what-is-out-of-rustcobols-scope-and-why).
 
 > **Resolved (1.5.0):** the flat data model became hierarchical / occurrence‑aware,
