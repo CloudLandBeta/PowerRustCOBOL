@@ -125,6 +125,41 @@ fn truncate_at_col72(text: &str) -> String {
 ///   "before" number.
 /// * `col72` / `nist` / `nistdel` — the harness's own preparation, kept so the
 ///   pre-implementation measurements stay reproducible.
+/// Write the suite's COPY library to a directory and return it.
+///
+/// CCVS85 ships its copybooks inside the same distribution, as `*HEADER,CLBRY`
+/// members — 51 of them. The Source Text Manipulation module is *about* `COPY`
+/// and `REPLACE`, so without the library those programs cannot be measured at
+/// all: `COPY K1PRA.` reaches the parser as an ordinary word and every SM
+/// program stops there.
+///
+/// This is a harness gap, not a compiler one — `rcrun` has expanded copybooks
+/// all along (`cobolt_lexer::expand_copybooks`); the harness simply tokenized
+/// without ever running the preprocessor. The directory is built once per run.
+fn copy_library_dir(members: &[Member]) -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("nist-copy-library");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).ok()?;
+    let mut written = 0usize;
+    for m in members.iter().filter(|m| m.kind == "CLBRY") {
+        if m.name.is_empty() {
+            continue;
+        }
+        // The library members are card images too: strip the identification
+        // area so a copied line does not carry its program stamp into the
+        // including program.
+        let body = truncate_at_col72(&m.text);
+        if std::fs::write(dir.join(&m.name), body).is_ok() {
+            written += 1;
+        }
+    }
+    if written == 0 {
+        None
+    } else {
+        Some(dir)
+    }
+}
+
 fn prepare(pass: &str, text: &str) -> (String, SourceFormat) {
     match pass {
         "strict" => (text.to_string(), SourceFormat::FixedStrict),
@@ -522,6 +557,9 @@ fn main() {
         return;
     }
 
+    // The suite's own COPY library, written out once for this run.
+    let copy_dir = copy_library_dir(&members);
+
     let mut total = 0usize;
     let mut clean = 0usize;
     let mut parse_buckets: BTreeMap<String, (usize, usize)> = BTreeMap::new(); // msg -> (hits, programs)
@@ -542,9 +580,27 @@ fn main() {
 
         let (text, fmt) = prepare(&pass, &m.text);
 
+        // Expand `COPY` / `REPLACE` exactly the way `rcrun` does, against the
+        // suite's own copybook library. Without this the Source Text
+        // Manipulation module cannot be measured at all — its whole subject is
+        // the directive the harness would otherwise leave unexpanded.
+        //
+        // ⚠️ **Expansion flattens to free form**, which is why `rcrun` then
+        // tokenizes `Free` (cobolt-cli/src/main.rs). Flattening the result a
+        // second time as `FixedStrict` strips the column areas twice and
+        // corrupts every program — measured: it cost 19 programs across six
+        // modules while gaining 3 in SM.
+        let (text, lex_fmt) = match copy_dir.as_deref() {
+            Some(dir) => (
+                cobolt_lexer::expand_copybooks(&text, dir, fmt).text,
+                SourceFormat::Free,
+            ),
+            None => (text, fmt),
+        };
+
         eprintln!("[{total:>3}/459] {} ({} lines)", m.name, text.lines().count());
         let t0 = std::time::Instant::now();
-        let tokens = tokenize(&text, SourceFormat::FixedStrict);
+        let tokens = tokenize(&text, lex_fmt);
         let t_lex = t0.elapsed();
         let pr = cobolt_parser::parse(tokens);
         let t_all = t0.elapsed();
@@ -687,8 +743,10 @@ fn main() {
     println!("  ... {} distinct semantic buckets total", sem_buckets.len());
     println!();
 
-    println!("--- first failing diagnostic per program (first 60) ---");
-    for (name, p, s, first) in failures.iter().take(60) {
+    // Every failure, not a sample: a truncated list silently hides whole
+    // categories, and the tail is where the unfamiliar ones are.
+    println!("--- first failing diagnostic per program (all {}) ---", failures.len());
+    for (name, p, s, first) in failures.iter() {
         println!("  {name:<8} parse={p:<5} sem={s:<5} {first}");
     }
     println!("  ... {} failing programs total", failures.len());
@@ -711,7 +769,7 @@ fn main() {
             }
             println!("    {prog:<8} | {t}");
             shown.push(t);
-            if shown.len() >= 4 {
+            if shown.len() >= 12 {
                 break;
             }
         }

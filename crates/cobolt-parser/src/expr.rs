@@ -106,6 +106,22 @@ fn glued(p: &Parser, offset: usize) -> bool {
     p.peek_span_at(offset).start == p.peek_span_at(offset - 1).end
 }
 
+/// True when the current `.` opens a numeric literal rather than ending the
+/// sentence — `.499` in `SUBTRACT A B .499 FROM C`.
+///
+/// COBOL-85 requires a space after a sentence-ending period, so a period glued
+/// to its digits can only be a decimal point. Statement parsers that bound an
+/// operand list with `Token::Period` must ask this first, or they stop at the
+/// literal and read the rest of the statement as a new sentence.
+pub(crate) fn at_leading_decimal_point(p: &Parser) -> bool {
+    matches!(p.peek(), Token::Period)
+        && glued(p, 1)
+        && matches!(
+            p.peek_at(1),
+            Token::IntegerLiteral(_) | Token::LevelNumber(_)
+        )
+}
+
 /// Read the token at `offset` as a run of decimal digits: its value, and **how
 /// many digits were written**.
 ///

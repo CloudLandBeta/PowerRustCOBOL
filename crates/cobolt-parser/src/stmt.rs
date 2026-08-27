@@ -338,9 +338,12 @@ fn parse_add(p: &mut Parser) -> Stmt {
 
     let mut operands = Vec::new();
     // Collect sending operands until TO or GIVING (ADD a b GIVING c has no TO)
-    while !p.at(&Token::To) && !p.at(&Token::Giving) && !p.at(&Token::Eof) && !p.at(&Token::Period)
+    while !p.at(&Token::To)
+        && !p.at(&Token::Giving)
+        && !p.at(&Token::Eof)
+        && !at_terminating_period(p)
     {
-        if is_expr_start(p) {
+        if is_operand_start(p) {
             operands.push(parse_expr(p));
         } else {
             break; // unknown token — don't spin forever
@@ -440,9 +443,9 @@ fn parse_subtract(p: &mut Parser) -> Stmt {
     while !p.at(&Token::From)
         && !p.at(&Token::Giving)
         && !p.at(&Token::Eof)
-        && !p.at(&Token::Period)
+        && !at_terminating_period(p)
     {
-        if is_expr_start(p) {
+        if is_operand_start(p) {
             operands.push(parse_expr(p));
         } else {
             break;
@@ -541,7 +544,7 @@ fn parse_compute(p: &mut Parser) -> Stmt {
     p.advance(); // COMPUTE
                  // `COMPUTE r1 [ROUNDED] [r2 [ROUNDED] …] = expression`.
     let mut targets = Vec::new();
-    while !p.at(&Token::Eq) && !p.at(&Token::Eof) && !p.at(&Token::Period) {
+    while !p.at(&Token::Eq) && !p.at(&Token::Eof) && !at_terminating_period(p) {
         let t = parse_expr(p);
         let rounded = p.eat(&Token::Rounded);
         targets.push((t, rounded));
@@ -1446,6 +1449,22 @@ fn eat_at_end(p: &mut Parser) -> bool {
     }
     if is_word(p.peek(), "AT") && matches!(p.peek_at(1), Token::End | Token::AtEnd) {
         p.advance(); // AT
+        p.advance(); // END
+        return true;
+    }
+    // **The `AT` is optional.** COBOL-85 writes the phrase `[AT] END`, so
+    // `READ f END …` and `RETURN f END …` are the same statement as the `AT`
+    // spelling. CCVS85 tests both on purpose — ST101A writes one `RETURN` with
+    // "ALL OPTIONAL WORDS" and the next "WITHOUT OPTIONAL WORDS" — and the
+    // bare form was not accepted, so the phrase went unconsumed and the
+    // *following paragraph header* was read as part of the statement. That is
+    // why `OUTP3-EXIT` then looked undeclared to every `GO TO` targeting it.
+    // `eat_not_at_end` below already accepted the bare form; the two disagreed.
+    //
+    // A bare `END` also begins `END PROGRAM` and `END DECLARATIVES`, which are
+    // the only other things it can start, so those are excluded rather than
+    // swallowed.
+    if p.at(&Token::End) && !matches!(p.peek_at(1), Token::Program | Token::Declaratives) {
         p.advance(); // END
         return true;
     }
@@ -3129,6 +3148,31 @@ fn parse_throw(p: &mut Parser) -> Stmt {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 /// True if the current token can start an expression.
+/// True when an arithmetic **operand** may start here.
+///
+/// The sending side of `ADD` / `SUBTRACT` accepts a numeric literal that opens
+/// with the decimal point (`.499`); the RECEIVING side does not, and must not.
+/// `MOVE X TO Y.5` has no reading in COBOL-85 — the period ends the sentence
+/// and `5` cannot begin a statement — and the operator's standing ruling is
+/// that it stays a compile error rather than being quietly turned into an
+/// extra receiver. Keeping this separate from `is_expr_start` is what holds
+/// that line.
+fn is_operand_start(p: &Parser) -> bool {
+    is_expr_start(p) || crate::expr::at_leading_decimal_point(p)
+}
+
+/// True when the current `.` really does end the sentence.
+///
+/// A period glued to digits opens a numeric literal instead — `.499` — so an
+/// operand list bounded by `Token::Period` has to ask this rather than test the
+/// token. `SUBTRACT SUBTR-4 SUBTR-5 .499 FROM SUBTR-2 GIVING SUBTR-11.`
+/// (NC119A) otherwise ends at the `.`, and `499 FROM …` is read as a fresh
+/// sentence — reported as `unexpected token: IntegerLiteral(499)`, several
+/// tokens away from anything the developer got wrong.
+fn at_terminating_period(p: &Parser) -> bool {
+    p.at(&Token::Period) && !crate::expr::at_leading_decimal_point(p)
+}
+
 pub(crate) fn is_expr_start(p: &Parser) -> bool {
     matches!(
         p.peek(),

@@ -1,5 +1,84 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.16] — 2026-08-27
+
+### Fixed — the `AT` in `AT END` is optional
+
+COBOL-85 writes the phrase as `[AT] END`, so these are the same statement:
+
+```cobol
+       RETURN SORTFILE RECORD AT END GO TO EOF-PARA.
+       RETURN SORTFILE           END GO TO EOF-PARA.
+```
+
+Only the first was accepted. The second left the phrase unconsumed, and the
+statement then ran on and swallowed **the next paragraph header** — so every
+`GO TO` targeting that paragraph reported it undeclared, at a line far from the
+cause. CCVS85 writes both spellings on purpose, one after the other, labelled
+"WITH ALL OPTIONAL WORDS" and "WITHOUT OPTIONAL WORDS".
+
+`NOT AT END` already accepted the bare form; the two halves of the same rule
+disagreed.
+
+**This was the single largest defect left in the suite: 33 programs.**
+
+### Fixed — the word COPY inside a literal is not a directive
+
+The COPY/REPLACE preprocessor scanned a string literal to the next quotation
+mark **anywhere in the file**, so one unpaired quote shifted the parity of every
+literal after it and exposed ordinary prose as source text. In CCVS85 that made
+the copyright banner —
+
+```cobol
+           02 FILLER PIC X(40) VALUE
+           "CCVS74 NCC  COPY, NOT FOR DISTRIBUTION.".
+```
+
+— look like a `COPY` directive and corrupted four otherwise-clean programs.
+
+A literal now ends at its line and a doubled delimiter is content, which is
+exactly what the lexer has done since 1.62.12. The preprocessor never had
+either rule.
+
+### Fixed — a numeric literal may open an operand list with its decimal point
+
+```cobol
+       SUBTRACT SUBTR-4 SUBTR-5 .499 FROM SUBTR-2 GIVING SUBTR-11.
+       ADD .3 TO PERFORM4.
+```
+
+`ADD` and `SUBTRACT` bounded their sending-operand list with `Token::Period`, so
+the statement ended at the `.` of `.499` and `499 FROM …` was read as a new
+sentence — reported as `unexpected token: IntegerLiteral(499)`, pointing at the
+digits instead of the period.
+
+Adjacency is the rule, as elsewhere: COBOL-85 requires a space after a
+sentence-ending period, so a period glued to digits can only be a decimal point.
+**Only the sending side changed** — `MOVE X TO Y.5` is still a compile error,
+per the standing ruling, because a receiver may not begin with a decimal point.
+
+### NIST COBOL-85 conformance: 332 → 376 of 434 in-scope programs
+
+| Change | In-scope PASS |
+|---|---:|
+| 1.62.15 | 332 |
+| `[AT] END` — the `AT` is optional | 365 |
+| COPY library wired into the harness + the literal fix above | 372 |
+| a leading decimal point in an operand list | **376** |
+
+**Indexed I/O is now complete: 42 / 42** — the second module finished, after
+Intrinsic Functions. Sequential I/O 52 → 77, Sort/Merge 32 → 36, Source Text
+Manipulation 4 → 13, Nucleus 57 → 64.
+
+### The harness now expands COPY, as `rcrun` always has
+
+CCVS85 ships its 51 copybooks inside the same distribution, as `CLBRY` members.
+The conformance harness tokenized without ever running the preprocessor, so the
+Source Text Manipulation module — whose whole subject is `COPY` and `REPLACE` —
+could not be measured at all. It now writes the library out and expands through
+`cobolt_lexer::expand_copybooks`, the same path `rcrun` uses.
+
+
 ## [PowerRustCOBOL 1.62.15] — 2026-08-26
 
 ### Added — block literals in free format (`` ``` ``)

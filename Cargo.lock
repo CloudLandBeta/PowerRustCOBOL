@@ -1494,6 +1494,7 @@ dependencies = [
  "cobolt-codegen",
  "cobolt-forms",
  "cobolt-lexer",
+ "cobolt-semantic",
  "pretty_assertions",
 ]
 
