@@ -74,7 +74,7 @@ Both numbers are reported per module, and never conflated:
 
 | Module | Compile | Execution (0 failures) |
 |---|---:|---:|
-| **NC (Nucleus)** | **95 / 95** | **78 / 95** |
+| **NC (Nucleus)** | **95 / 95** | **79 / 95** |
 
 Work proceeds **one module at a time**: NC is finished only when both numbers
 reach 95, and no other module is worked on until it does. A broad compile score
@@ -827,6 +827,19 @@ unhandled error `FILE STATUS`.
   ⚠️ **Caveat:** an overlay larger than 256 expanded storage slots (a redefined
   10×10×10 table, say) keeps per‑description storage instead — refreshing it on
   every write would walk a thousand occurrences twice.
+- ✅ **An unnamed description is still a description.** `02 FILLER REDEFINES
+  <item>.` redescribes its target's bytes under no name of its own, and a write
+  to the target is visible through its children. Several children divide those
+  bytes between them, in layout order — the overlay is *not* an alias of its
+  first child. Two `FILLER REDEFINES` of one item are two independent readings,
+  each starting at the target's **first** byte. *(Before 1.62.36 an unnamed
+  redefining group was given no storage key at all, so its children read as
+  spaces however the target had been filled.)*
+- ✅ **A duplicated name inside an overlay** resolves to the same storage the
+  rest of the program reaches: `TAB-A` declared under two different groups keeps
+  one reading per declaration. *(Before 1.62.36 the overlay's initial copy was
+  keyed from a path missing its outer qualifiers, which only a duplicated name
+  can tell apart — so exactly the case that needs the qualifier lost it.)*
 - ✅ `JUSTIFIED [RIGHT]`, `SYNCHRONIZED/SYNC`, `BLANK [WHEN] ZERO`,
   `SIGN [IS] {LEADING|TRAILING} [SEPARATE]`, `GLOBAL`, `EXTERNAL` — accepted;
   `JUSTIFIED` and `SIGN … SEPARATE` do not yet change how the item is stored.

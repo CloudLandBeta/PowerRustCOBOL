@@ -1,5 +1,66 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.36] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): two ways a `REDEFINES` overlay lost its target's
+bytes.** NC204M is now **clean**, so execution goes **78 → 79 of 95** and
+assertions 104 → 101 failing (97.8 % of 4561). Compile holds at 95 of 95. No
+other module was touched (GOLDEN RULE #9).
+
+Both defects looked identical from the outside — the redefining description read
+back as **spaces** however the item it redescribes had been filled — and had
+nothing in common underneath.
+
+### Fixed — the overlay's storage keys were missing their outer qualifiers
+
+`sync_redefines` seeds the initial copy by walking the redefining declaration
+from an **empty** ancestor path, so every key it wrote was missing the outer
+qualifiers. That is invisible while the names inside the overlay are unique —
+`canon_key` hands a unique leaf straight back whatever path it is given — and
+wrong the moment one is duplicated, which is exactly when the qualified key
+carries the information.
+
+NC204M declares `TAB-A` under both `ACCEPT-D21` and `ACCEPT-D23`, so its
+`ACCEPT-D21 REDEFINES ACCEPT-VALUE21` wrote to a key nothing ever read:
+`ACC-TEST-F1-10` computed `"    ABCD    "` where `"....ABCD...."` was declared.
+The walk now carries the ancestor path, built the same way `init_decl_h` builds
+it — an unnamed group contributes nothing, every named group contributes itself
+— so the two agree on the answer.
+
+### Fixed — an unnamed redefining description had no key at all
+
+`02 FILLER REDEFINES <item>.` names bytes its target already owns, under no name
+of its own. `redefine_pairs` was only recorded `if is_named`, so no overlay pair
+existed and no write to the target ever reached the description:
+`ACC-14-CHARS-1-10` read empty after a successful `ACCEPT` into the item it
+redescribes (`ACC-TEST-F1-14-1`, `-14-2`).
+
+An unnamed *leaf* already gets a synthetic key under its parent; an unnamed
+**group** that redefines now gets the same, registered with the layout of its
+named children, and the ordinary overlay machinery takes over. It is a
+description, not an alias of its first child: several children divide the
+target's bytes between them, and a write through either side lands where the
+layout says it does.
+
+### Harness — NC204M's last two deck lines were wrong
+
+Read the overlays, not their names: both `FILLER REDEFINES ACCEPT-TEST-14-DATA`
+groups start at the item's **first** byte, so `ACC-14-CHARS-11-15` is bytes 1–5
+in spite of what it is called. Each `ACCEPT` therefore has to begin with what
+the paragraph after it checks, and the deck is now `"ABCDEFGHIJ"` then
+`"KLMNO"` — which is also what the CCVS85 run instructions have the operator
+type for the VI-71 6.5.4 GR4(a) test.
+
+### Known — an unnamed group with children reads short in its parent
+
+Found while testing, **not** caused by this change: `01 G. 02 T PIC X(5). 02
+FILLER. 03 C1 PIC X(5).` renders `G` as `T` alone. An unnamed group with
+children contributes a synthetic FILLER slot to its parent's layout and then
+stores nothing in it, so the parent reads short. Only the *redefining* form is
+repaired here; the plain form is recorded rather than changed inside a module
+pass (GOLDEN RULE #9), and `a_plain_filler_group_is_not_treated_as_an_overlay`
+pins the part that is correct.
+
 ## [PowerRustCOBOL 1.62.35] — 2026-08-28
 
 **NIST CCVS85 Nucleus (NC): `ACCEPT … FROM <mnemonic>` reads the operator.**

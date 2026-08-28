@@ -4018,6 +4018,29 @@ report programs are built on:
 > every `MOVE` would make the program unusable. Redefine records, not large
 > tables; if you need both readings of a table, `MOVE` between them explicitly.
 
+**A redefining description need not have a name.** Mainframe layouts often
+redescribe a field with an unnamed group, so that only the pieces are named:
+
+```cobol
+       01  IN-RECORD.
+           02  IN-DATE                     PIC X(8).
+           02  FILLER REDEFINES IN-DATE.
+               03  IN-DATE-YYYY            PIC X(4).
+               03  IN-DATE-MM              PIC XX.
+               03  IN-DATE-DD              PIC XX.
+```
+
+`MOVE "20260828" TO IN-DATE` then leaves `IN-DATE-MM` reading `08`. The children
+divide the target's bytes between them **in layout order**, exactly as they
+would under a named group — an unnamed overlay is a description, not another
+name for its first child.
+
+> **Note — two overlays of one field both start at its first byte.** Declaring
+> `02 FILLER REDEFINES IN-DATE.` twice gives two independent readings, each
+> beginning at `IN-DATE`'s first character. A second overlay does *not* continue
+> where the first left off. To reach a later part of the field, put a `FILLER`
+> of the right width in front of it inside the same overlay.
+
 **Subscripts need only a space between them.** The comma is optional there too:
 
 ```cobol

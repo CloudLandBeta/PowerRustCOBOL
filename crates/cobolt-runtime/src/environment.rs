@@ -1079,6 +1079,57 @@ impl CobolEnvironment {
             // `\u{2}` cannot occur in a COBOL name, so nothing in the program
             // can reach it — and store its value there.
             let unnamed = !matches!(child.name.as_deref(), Some(n) if !n.eq_ignore_ascii_case("FILLER"));
+            // An unnamed GROUP that REDEFINES describes bytes its target
+            // already owns, under no name of its own. `is_named` therefore gave
+            // it no storage key, so nothing recorded the pair and the overlay
+            // never refreshed — NC204M's
+            //
+            //     02  ACCEPT-TEST-14-DATA  PIC X(15).
+            //     02  FILLER  REDEFINES  ACCEPT-TEST-14-DATA.
+            //       03  ACC-14-CHARS-1-10  PIC X(10).
+            //
+            // read back as spaces however the item it redescribes had been
+            // filled. Give it the same synthetic key an unnamed *leaf* gets and
+            // register it as a group, so the ordinary overlay machinery can see
+            // a description here at all. Its children keep the keys the
+            // recursion below gives them: an unnamed group contributes nothing
+            // to the qualification path, so nothing a program writes changes.
+            if unnamed && child.redefines.is_some() && has_storage_children(child) {
+                if let (Some(parent), Some(target)) = (owner_key.as_deref(), &child.redefines) {
+                    let fk = filler_key(parent, i);
+                    let overlay_keys: Vec<String> = child
+                        .children
+                        .iter()
+                        .filter(|g| g.level != 88 && g.level != 66 && g.redefines.is_none())
+                        .filter_map(|g| g.name.as_ref())
+                        .filter(|n| !n.eq_ignore_ascii_case("FILLER"))
+                        .map(|n| self.canon_key(&n.to_ascii_uppercase(), quals))
+                        .collect();
+                    if !overlay_keys.is_empty() {
+                        self.symbols.insert(
+                            fk.clone(),
+                            ItemSym {
+                                dims: dims.clone(),
+                                children: Vec::new(),
+                                child_keys: Vec::new(),
+                                layout_keys: overlay_keys,
+                                quals: quals.clone(),
+                                is_group: true,
+                                index_names: Vec::new(),
+                                occurs: 0,
+                                keys: Vec::new(),
+                                scope: Some(scope),
+                                is_global: inherited_global || decl.is_global,
+                                pic: String::new(),
+                                origin: origin.to_owned(),
+                                depending_on: None,
+                            },
+                        );
+                        let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
+                        self.redefine_pairs.push((fk, tkey));
+                    }
+                }
+            }
             if unnamed && child.children.is_empty() {
                 if let Some(parent) = owner_key.as_deref() {
                     let fk = filler_key(parent, i);
@@ -2402,15 +2453,32 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
 }
 
 /// Copy initialized bytes from the redefined item to the redefining item.
+/// The ancestor group names a declaration is qualified by, outermost first.
+///
+/// This has to be built exactly the way [`CobolEnvironment::init_decl_h`]
+/// builds it, because both feed [`CobolEnvironment::canon_key`] and the two
+/// must agree on the answer: an **unnamed** group contributes nothing to the
+/// path (it has no name to qualify by), every named group contributes itself.
+fn push_qual(path: &[String], decl: &DataDecl) -> Vec<String> {
+    let mut out = path.to_vec();
+    if let Some(n) = &decl.name {
+        if !n.eq_ignore_ascii_case("FILLER") {
+            out.push(n.to_ascii_uppercase());
+        }
+    }
+    out
+}
+
 fn sync_redefines(env: &mut CobolEnvironment, data: &DataDivision) {
     let mut redefines_list = Vec::new();
 
-    fn find_redefines(decl: &DataDecl, list: &mut Vec<(DataDecl, String)>) {
+    fn find_redefines(decl: &DataDecl, path: &[String], list: &mut Vec<(DataDecl, String, Vec<String>)>) {
         if let Some(ref tgt) = decl.redefines {
-            list.push((decl.clone(), tgt.to_ascii_uppercase()));
+            list.push((decl.clone(), tgt.to_ascii_uppercase(), path.to_vec()));
         }
+        let child_path = push_qual(path, decl);
         for c in &decl.children {
-            find_redefines(c, list);
+            find_redefines(c, &child_path, list);
         }
     }
 
@@ -2420,13 +2488,13 @@ fn sync_redefines(env: &mut CobolEnvironment, data: &DataDivision) {
             | DataSection::LocalStorage(items)
             | DataSection::Linkage(items) => {
                 for decl in items {
-                    find_redefines(decl, &mut redefines_list);
+                    find_redefines(decl, &[], &mut redefines_list);
                 }
             }
             DataSection::FileSection(fds) => {
                 for fd in fds {
                     for rec in &fd.records {
-                        find_redefines(rec, &mut redefines_list);
+                        find_redefines(rec, &[], &mut redefines_list);
                     }
                 }
             }
@@ -2434,13 +2502,21 @@ fn sync_redefines(env: &mut CobolEnvironment, data: &DataDivision) {
         }
     }
 
-    for (redefining_decl, target_name) in redefines_list {
+    for (redefining_decl, target_name, path) in redefines_list {
+        // `REDEFINES` names a SIBLING, so the target carries the same ancestor
+        // path as the description redefining it. Searching the whole division
+        // for the name and starting from an empty path is what this used to do,
+        // and it produced a key missing every outer qualifier — invisible while
+        // the names inside were unique (`canon_key` hands a unique leaf straight
+        // back) and wrong the moment one was duplicated, which is exactly when
+        // the qualified key matters. NC204M declares `TAB-A` under both
+        // `ACCEPT-D21` and `ACCEPT-D23`, and its overlay read back as spaces.
         if let Some(target_decl) = find_decl_by_name(data, &target_name) {
             let mut bytes = Vec::new();
             serialize_decl(
                 env,
                 &target_decl,
-                &mut Vec::new(),
+                &mut path.clone(),
                 &mut Vec::new(),
                 &mut bytes,
             );
@@ -2449,7 +2525,7 @@ fn sync_redefines(env: &mut CobolEnvironment, data: &DataDivision) {
             deserialize_decl(
                 env,
                 &redefining_decl,
-                &mut Vec::new(),
+                &mut path.clone(),
                 &mut Vec::new(),
                 &bytes,
                 &mut offset,

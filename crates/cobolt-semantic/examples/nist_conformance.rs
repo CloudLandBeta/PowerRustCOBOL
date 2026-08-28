@@ -919,13 +919,17 @@ const NC204M_OPERATOR_LINES: &[&str] = &[
         "D001*002*003*004*005*006*007*008*009*010*011*012*013*014*015*016*017*018*019*020D021*022*023*024*025",
         "*026*027*028*029*030*031*032*033*034*035*036*037*038*039*040D041*042*043*044*045*046*047*048*049*050",
     ),
-    // ACCEPT-TEST-14-DATA, PIC X(15), read twice: `ACC-TEST-F1-14-1` checks
-    // characters 1–10 and `ACC-TEST-F1-14-2` characters 11–15. The test exists
-    // to show a device asking for more input when one record cannot fill the
-    // item (VI-71 6.5.4 GR4(a)); a console line here delivers all fifteen at
-    // once, which satisfies both assertions without the second request.
-    "ABCDEFGHIJKLMNO",
-    "ABCDEFGHIJKLMNO",
+    // ACCEPT-TEST-14-DATA, PIC X(15), read twice — the test exists to show a
+    // device asking for more input when one record cannot fill the item (VI-71
+    // 6.5.4 GR4(a)), so the two records are what the operator types.
+    //
+    // Read the overlays, not their names: both `FILLER REDEFINES
+    // ACCEPT-TEST-14-DATA` groups start at the item's first byte, so
+    // `ACC-14-CHARS-1-10` is bytes 1–10 and `ACC-14-CHARS-11-15`, in spite of
+    // what it is called, is bytes 1–5. Each `ACCEPT` therefore has to *begin*
+    // with what the paragraph after it checks.
+    "ABCDEFGHIJ", // ACC-TEST-F1-14-1 checks bytes 1–10
+    "KLMNO",      // ACC-TEST-F1-14-2 checks bytes 1–5
 ];
 
 fn run_pass(members: &[Member], filter: &str) {
