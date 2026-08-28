@@ -1,5 +1,86 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.30] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): execution 72 → 76 of 95.** Four programs clear
+outright — NC109M, NC110M, NC302M and NC303M — and the "printed no report"
+column goes 3 → 0. Compile stays at 94 / 95. No other module was touched
+(GOLDEN RULE #9).
+
+These four were previously described as unreachable without harness work. They
+were, and the harness work is here; two real runtime defects were hiding behind
+it, plus the conformance-flagging analysis the standard requires and this
+compiler never had.
+
+### Fixed — `ACCEPT` into a group left the receiver empty
+
+A group owns **no storage slot**: its value is synthesized from its subordinate
+items. `ACCEPT` wrote through `set_str`, which put the operator's whole line
+into a slot nothing ever reads back, so a group receiver stayed exactly as it
+was and the read appeared to succeed. NC109M accepts into `ACCEPT-D1` (two
+subordinate items) and into `X80-CHARACTER-FIELD` (one `FILLER`), and both
+compared equal to nothing afterwards.
+
+This is the same defect INSPECT carried until 1.62.28, and the dispatch now
+lives in one place — `Interpreter::store_text` — so the next verb that needs it
+does not have to rediscover it. Every text-valued `ACCEPT` source goes through
+it, not only Format 1: `ACCEPT WS-TODAY FROM DATE` into a group of YY/MM/DD is
+the ordinary way to write that.
+
+### Fixed — `VALUE QUOTE` initialised the item to spaces
+
+A figurative constant in a `VALUE` clause fills its item, exactly as `VALUE
+SPACE` does. `QUOTE` was falling through to "keep the default", so
+`PICTURE X VALUE QUOTE` held a space. NC109M's `ACCEPT-D18` is precisely that
+declaration, and the value it was compared against was therefore never a
+quotation mark.
+
+### Added — conformance flagging for the COBOL-85 obsolete elements
+
+`cobolt_semantic::flagging::flag_obsolete` reports the language elements the
+standard lists as obsolete: the five optional IDENTIFICATION DIVISION
+paragraphs, `MEMORY SIZE`, `ALTER`, `STOP` with a literal, and `GO TO` with no
+procedure-name. This is **not** error checking — every one of them compiles and
+runs as it always did, and none becomes an error or a warning on the ordinary
+build path. It is a separate entry point precisely so a normal compile does not
+start complaining about `AUTHOR`.
+
+The analysis reads the **token stream**, not the AST: most obsolete elements are
+IDENTIFICATION DIVISION paragraphs and the `MEMORY SIZE` clause, all of which
+the parser consumes and discards because they carry no meaning to preserve.
+Recording them in `Program` purely so a diagnostic pass could find them again
+would enlarge the AST for something no execution path reads.
+
+### Harness — the four members that could not be scored
+
+* **NC109M** reads eleven values from the operator. It now gets them: the deck
+  is recovered from the source rather than invented, since every accepted value
+  is compared against a paired `VALUE` literal in the program's own DATA
+  DIVISION. 0 pass / 24 fail → **16 pass / 0 fail**.
+* **NC110M** writes its report with `DISPLAY`, to the console, never to the CCVS
+  print file. The console is now captured and scored. Its two tests state their
+  own contract in the text they print, and that contract contains the literal
+  marker `PASS ` the generic scorer counts — so the per-member reading runs
+  first, or the *description* of a test is scored as the *result* of one.
+* **NC302M** and **NC303M** are flagging members with no PASS/FAIL machinery at
+  all. Each obsolete construct carries a `*Message expected for above statement:
+  OBSOLETE` comment and the program declares `*TOTAL NUMBER OF FLAGS EXPECTED =
+  N.`; that contract is machine-readable, so it is read and matched against
+  `flag_obsolete` rather than transcribed. **7 / 7** and **4 / 4**.
+
+A flagging member is now scored at compile time and never executed — running one
+scores nothing whatever it does. That also removes NC401M from the timeout
+column, though it still scores 0 of its 40: NC401M validates a different class,
+`NON-CONFORMING STANDARD`, which flags constructs outside the COBOL-85 *high
+subset* rather than obsolete ones. Its 44 honest failures are why the assertion
+tally reads 4386 pass / 168 fail against 4375 / 124 — the programs that could
+not be scored before were not passing, they were invisible.
+
+Two latent stalls went with it: `run_one` handed the child a pipe for stdout and
+another for stderr and then read neither, so any program displaying more than
+the operating-system pipe buffer would block forever and be scored as a timeout.
+Both now go to files.
+
 ## [PowerRustCOBOL 1.62.29] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): execution 71 → 72 of 95, assertions 151 → 136

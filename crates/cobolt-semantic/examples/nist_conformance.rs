@@ -527,6 +527,12 @@ fn main() {
         return;
     }
 
+    // ── flagging mode: `flag <MODULE|NAME>` ──────────────────────────────────
+    if pass == "flag" {
+        flag_pass(&members, &filter);
+        return;
+    }
+
     // ── whole-report mode: `report <NAME>` ───────────────────────────────────
     if pass == "report" {
         report_pass(&members, &filter);
@@ -826,6 +832,58 @@ const RUN_MAX_OUTPUT: u64 = 2 * 1024 * 1024;
 /// each program is run in its own directory and this is where its report lands.
 const CCVS_PRINT_FILE: &str = "XXXXX055";
 
+/// Where the child's console output is captured.
+///
+/// `run_one` used to hand the child a **pipe** for stdout and then never read
+/// it, which is a deadlock with a fuse on it: a program that displays more than
+/// the operating system's pipe buffer blocks forever on the write and is scored
+/// as a timeout rather than as whatever it actually was. Redirecting to a file
+/// drains it unconditionally, and it makes a program that reports on the
+/// console instead of to `XXXXX055` scoreable at all — see
+/// [`score_console_report`]. The name is deliberately not an `XXXXX0nn`
+/// installation card, so it can never collide with a member's own `ASSIGN`.
+const CCVS_CONSOLE_FILE: &str = "rcrun-console.txt";
+
+/// What the operator types, for the members that read from the console.
+///
+/// CCVS85 Format 1 `ACCEPT` reads from the operator, and the suite's run
+/// instructions tell them what to enter. The deck is **recovered from the
+/// source, not invented**: every accepted value is compared against a paired
+/// `VALUE` literal in the program's own DATA DIVISION, so each line below is
+/// the literal its test expects. A member not listed here is given a closed
+/// stdin, exactly as before.
+fn operator_input(name: &str) -> Option<String> {
+    let lines: &[&str] = match name {
+        "NC109M" => NC109M_OPERATOR_LINES,
+        _ => return None,
+    };
+    let mut s = lines.join("\n");
+    s.push('\n');
+    Some(s)
+}
+
+/// `NC109M`'s operator deck — 11 values, in the order the program accepts them.
+///
+/// Leading and trailing spaces are significant and are inside the quotes on
+/// purpose: `ACCEPT-D15` expects a single space and `ACCEPT-D12` a value that
+/// both starts and ends with one. `exec_accept` strips only the line
+/// terminator, so what is written here is what the program receives.
+const NC109M_OPERATOR_LINES: &[&str] = &[
+    "ABCDEFGHIJKLMNOPQRSTUVWXY Z", // ACCEPT-D1  vs ACCEPT-D2,  PIC X(27)
+    "0123456789",                  // ACCEPT-D3  vs ACCEPT-D4,  PIC 9(10)
+    "().+-*/$, =",                 // ACCEPT-D5  vs ACCEPT-D6,  PIC X(11)
+    "9",                           // ACCEPT-D7  vs ACCEPT-D8
+    "0",                           // ACCEPT-D9  vs ACCEPT-D10
+    " ABC            XYZ ",        // ACCEPT-D11 vs ACCEPT-D12, PIC A(20)
+    "012345678",                   // ACCEPT-D13 vs ACCEPT-D14, PIC 9(9)
+    " ",                           // ACCEPT-D15 vs ACCEPT-D16, VALUE SPACE
+    "\"",                          // ACCEPT-D17 vs ACCEPT-D18, VALUE QUOTE
+    "ABCD",                        // TAB-ACCEPT(2): "...." ABCD "...." = ACCEPT-D22
+    // ACCEPT-RESULTS, PIC X(80) — the 63 significant characters; ACCEPT
+    // space-pads the rest of the field.
+    "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z  0123456789",
+];
+
 fn run_pass(members: &[Member], filter: &str) {
     let rcrun = match locate_rcrun() {
         Some(p) => p,
@@ -865,6 +923,17 @@ fn run_pass(members: &[Member], filter: &str) {
                 .unwrap_or(false);
         if !compiles {
             outcomes.push((m.name.clone(), module, RunOutcome::CompileFail));
+            continue;
+        }
+
+        // A flagging member is a **compile-time** test. It carries no PASS/FAIL
+        // machinery at all — what is validated is the diagnostics the compiler
+        // emits for the constructs it contains — so it is scored against its
+        // own expectation comments and never executed. Running one scores
+        // nothing whatever it does, and `NC401M` loops.
+        if is_flagging_member(&m.text) {
+            let (p, f, _) = score_flagging(&m.text);
+            outcomes.push((m.name.clone(), module, RunOutcome::Ran(p, f, 0)));
             continue;
         }
 
@@ -1010,6 +1079,21 @@ fn run_one(
         return (RunOutcome::Crash("cannot write the source".into()), None);
     }
 
+    let console_path = dir.join(CCVS_CONSOLE_FILE);
+    let (console, errs) = match (
+        std::fs::File::create(&console_path),
+        std::fs::File::create(dir.join("rcrun-stderr.txt")),
+    ) {
+        (Ok(o), Ok(e)) => (o, e),
+        _ => {
+            return (
+                RunOutcome::Crash("cannot create the console files".into()),
+                None,
+            )
+        }
+    };
+    let deck = operator_input(name);
+
     let child = std::process::Command::new(rcrun)
         .arg("run")
         .arg(&src)
@@ -1032,14 +1116,34 @@ fn run_one(
         .arg("--switch")
         .arg("SWITCH-2=OFF")
         .current_dir(&dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        // A member that reads from the operator gets a pipe it can drain; every
+        // other one keeps the closed stdin, so an unexpected `ACCEPT` still
+        // returns immediately rather than hanging the sweep.
+        .stdin(if deck.is_some() {
+            std::process::Stdio::piped()
+        } else {
+            std::process::Stdio::null()
+        })
+        // Both to files, never to pipes — see `CCVS_CONSOLE_FILE`. `stderr`
+        // gets its own file rather than sharing: it carries the runtime's
+        // diagnostics, and a diagnostic interleaved into the console transcript
+        // could be scored as part of the program's report.
+        .stdout(std::process::Stdio::from(console))
+        .stderr(std::process::Stdio::from(errs))
         .spawn();
     let mut child = match child {
         Ok(c) => c,
         Err(e) => return (RunOutcome::Crash(format!("cannot spawn rcrun: {e}")), None),
     };
+
+    // Hand over the whole deck at once and close the pipe, so an `ACCEPT` past
+    // the end of the deck reads end-of-file instead of blocking.
+    if let Some(deck) = deck {
+        if let Some(mut sink) = child.stdin.take() {
+            use std::io::Write;
+            let _ = sink.write_all(deck.as_bytes());
+        }
+    }
 
     let print_file = dir.join(CCVS_PRINT_FILE);
     let started = std::time::Instant::now();
@@ -1070,13 +1174,21 @@ fn run_one(
 
     let (result, report) = match outcome {
         Some(bad) => (bad, None),
-        None => match std::fs::read_to_string(&print_file) {
-            Ok(report) => match score_ccvs_report(&report) {
-                Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(report)),
-                None => (RunOutcome::NoReport, Some(report)),
-            },
-            Err(_) => (RunOutcome::NoReport, None),
-        },
+        None => {
+            let printed = std::fs::read_to_string(&print_file).ok();
+            match printed.as_deref().and_then(score_ccvs_report) {
+                Some((p, f, d)) => (RunOutcome::Ran(p, f, d), printed),
+                // Nothing in the print file. The member may have reported on
+                // the console instead — see [`score_console_report`].
+                None => {
+                    let console = std::fs::read_to_string(&console_path).unwrap_or_default();
+                    match score_console_report(name, &console) {
+                        Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(console)),
+                        None => (RunOutcome::NoReport, printed),
+                    }
+                }
+            }
+        }
     };
     // Reclaim the directory immediately — a sweep is hundreds of programs and
     // a runaway print file is measured in gigabytes.
@@ -1107,6 +1219,183 @@ fn score_ccvs_report(report: &str) -> Option<(usize, usize, usize)> {
     } else {
         Some((pass, fail, deleted))
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Flagging members
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One `*Message expected for … statement: CLASS` comment.
+struct Expectation {
+    /// 1-based line of the **comment**, not of the construct it refers to.
+    line: u32,
+    /// The class CCVS85 names, e.g. `OBSOLETE`.
+    class: String,
+    /// `false` for "above statement", `true` for "following statement".
+    following: bool,
+}
+
+/// Read a member's flagging contract out of its own comments.
+///
+/// A flagging member has no PASS/FAIL machinery: it states what the compiler is
+/// supposed to say about each construct, in a comment attached to that
+/// construct, and ends with `*TOTAL NUMBER OF FLAGS EXPECTED = N.`. The contract
+/// is machine-readable, so it is read rather than transcribed.
+///
+/// **Truncation at column 72 is required, not tidiness.** `NC401M` writes
+/// `… statement: NON-CONFORMING STANDARDNC4014.2` — the class runs straight into
+/// the identification area with no separator, so reading the untruncated line
+/// yields a class name that matches nothing.
+fn flagging_expectations(text: &str) -> Vec<Expectation> {
+    let mut out = Vec::new();
+    for (i, line) in truncate_at_col72(text).lines().enumerate() {
+        if line.chars().nth(6) != Some('*') {
+            continue; // not a comment line
+        }
+        let upper = line.to_ascii_uppercase();
+        if !upper.contains("MESSAGE EXPECTED FOR") {
+            continue;
+        }
+        let Some((_, class)) = line.split_once(':') else {
+            continue;
+        };
+        out.push(Expectation {
+            line: i as u32 + 1,
+            class: class.trim().to_ascii_uppercase(),
+            following: upper.contains("FOLLOWING STATEMENT"),
+        });
+    }
+    out
+}
+
+/// The `*TOTAL NUMBER OF FLAGS EXPECTED = N.` a flagging member declares.
+fn declared_flag_total(text: &str) -> Option<usize> {
+    for line in truncate_at_col72(text).lines() {
+        let upper = line.to_ascii_uppercase();
+        let Some(at) = upper.find("TOTAL NUMBER OF FLAGS EXPECTED") else {
+            continue;
+        };
+        let digits: String = line[at..]
+            .chars()
+            .skip_while(|c| *c != '=')
+            .filter(|c| c.is_ascii_digit())
+            .collect();
+        return digits.parse().ok();
+    }
+    None
+}
+
+/// `true` if this member is scored by what the compiler *says* about it.
+fn is_flagging_member(text: &str) -> bool {
+    !flagging_expectations(text).is_empty()
+}
+
+/// Score a flagging member: its own expectations against what is really flagged.
+///
+/// Matching is greedy in source order, which is what the comments mean —
+/// "for above statement" claims the nearest preceding unclaimed flag of that
+/// class, "for following statement" the nearest following one.
+///
+/// A flag nothing expected counts as a **failure**, not as a free extra. The
+/// member declares a total, and a compiler that flags a construct the standard
+/// does not list is as wrong as one that stays silent about a construct it does.
+fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
+    let expectations = flagging_expectations(text);
+    let flags = cobolt_semantic::flagging::flag_obsolete(&tokenize(text, SourceFormat::FixedStrict));
+    let mut claimed = vec![false; flags.len()];
+    let mut pass = 0usize;
+    let mut detail: Vec<String> = Vec::new();
+
+    for e in &expectations {
+        let hit = (0..flags.len()).find(|&i| {
+            !claimed[i]
+                && flags[i].class.ccvs_name() == e.class
+                && if e.following {
+                    flags[i].line > e.line
+                } else {
+                    flags[i].line < e.line
+                }
+        });
+        match hit {
+            Some(i) => {
+                claimed[i] = true;
+                pass += 1;
+            }
+            None => detail.push(format!(
+                "L{:<5} expected {:<24} nothing flagged",
+                e.line, e.class
+            )),
+        }
+    }
+    for (i, f) in flags.iter().enumerate() {
+        if !claimed[i] {
+            detail.push(format!(
+                "L{:<5} flagged  {:<24} {} — not expected here",
+                f.line,
+                f.class.ccvs_name(),
+                f.element
+            ));
+        }
+    }
+    (pass, detail.len(), detail)
+}
+
+/// `flag <FILTER>` — what each flagging member expects against what is flagged.
+fn flag_pass(members: &[Member], filter: &str) {
+    println!("\n=== NIST CCVS85 FLAGGING ===");
+    println!("Members whose verdict is the diagnostics the compiler emits.\n");
+    let (mut tot_p, mut tot_f) = (0usize, 0usize);
+    for m in members.iter().filter(|m| m.kind == "COBOL") {
+        if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
+            continue;
+        }
+        if is_out_of_scope(&module_of(&m.name)) || !is_flagging_member(&m.text) {
+            continue;
+        }
+        let (p, f, detail) = score_flagging(&m.text);
+        let declared = declared_flag_total(&m.text);
+        tot_p += p;
+        tot_f += f;
+        println!(
+            "╔═══ {} — {p} matched, {f} wrong (declares {})",
+            m.name,
+            declared.map_or("no total".to_string(), |n| n.to_string())
+        );
+        for d in &detail {
+            println!("║ {d}");
+        }
+    }
+    println!("\n  matched : {tot_p}\n  wrong   : {tot_f}");
+}
+
+/// Score a member that reports on the console rather than to `XXXXX055`.
+///
+/// **The per-member reading comes first, and for `NC110M` it must.** That
+/// program states its own contract in the text it prints —
+/// `" PERFORM     THIS TEST FAILS UNLESS PASS APPEARS BELOW.   "` — and that
+/// sentence contains the literal marker `PASS ` that [`score_ccvs_report`]
+/// counts, trailing space and all. Handing the console to the generic scorer
+/// first therefore scores the *description* of a test as the *result* of one
+/// and calls the program clean before it has run anything.
+///
+/// `NC110M`'s PROCEDURE DIVISION is, by its own comment, "entirely of paragraph
+/// names and DISPLAY literal statements", and it declares two tests:
+///
+/// * `GO TO       THIS TEST PASSES UNLESS FAIL APPEARS BELOW.`
+/// * `PERFORM     THIS TEST FAILS UNLESS PASS APPEARS BELOW.`
+///
+/// Both are read exactly that way, against the indented one-word detail lines
+/// the program writes (`"             PASS"` / `"             FAIL"`), so the
+/// sentences above cannot be mistaken for the results below them.
+fn score_console_report(name: &str, console: &str) -> Option<(usize, usize, usize)> {
+    if name == "NC110M" {
+        let detail = |word: &str| console.lines().any(|l| l.trim() == word);
+        let go_to_ok = !detail("FAIL"); // "passes unless FAIL appears below"
+        let perform_ok = detail("PASS"); // "fails unless PASS appears below"
+        let pass = usize::from(go_to_ok) + usize::from(perform_ok);
+        return Some((pass, 2 - pass, 0));
+    }
+    score_ccvs_report(console)
 }
 
 /// Count non-overlapping occurrences of `needle`.

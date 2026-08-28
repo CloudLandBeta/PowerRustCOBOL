@@ -4489,14 +4489,23 @@ impl Interpreter {
                     .trim_end_matches('\n')
                     .trim_end_matches('\r')
                     .to_owned();
-                self.env.set_str(&name, &s);
+                // The receiver may be a group — `NC109M` accepts into
+                // `ACCEPT-D1` (two subordinate items) and into
+                // `X80-CHARACTER-FIELD` (one `FILLER`) — so the line has to be
+                // distributed rather than stored whole. See [`store_text`].
+                self.store_text(&name, &s);
             }
-            Some(AcceptSource::Date) => self.env.set_str(&name, &runtime_date()),
-            Some(AcceptSource::Time) => self.env.set_str(&name, &runtime_time()),
-            Some(AcceptSource::Day) => self.env.set_str(&name, &runtime_julian_day()),
+            // Every text-valued source distributes the same way: a group
+            // receiver is as legal here as it is on Format 1, and `ACCEPT
+            // WS-TODAY FROM DATE` into a group of YY/MM/DD is the ordinary way
+            // to write it.
+            Some(AcceptSource::Date) => self.store_text(&name, &runtime_date()),
+            Some(AcceptSource::Time) => self.store_text(&name, &runtime_time()),
+            Some(AcceptSource::Day) => self.store_text(&name, &runtime_julian_day()),
             Some(AcceptSource::DayOfWeek) => self.env.set_i64(&name, runtime_day_of_week()),
             Some(AcceptSource::CommandLine) => {
-                self.env.set_str(&name, &self.program_args.join(" "));
+                let args = self.program_args.join(" ");
+                self.store_text(&name, &args);
             }
             Some(AcceptSource::ArgumentNumber) => {
                 self.env.set_i64(&name, self.program_args.len() as i64);
@@ -4507,17 +4516,17 @@ impl Interpreter {
                     .get(self.argument_pointer.saturating_sub(1))
                     .cloned()
                     .unwrap_or_default();
-                self.env.set_str(&name, &val);
+                self.store_text(&name, &val);
             }
             Some(AcceptSource::EnvironmentValue) => {
                 let val = std::env::var(&self.env_name_register).unwrap_or_default();
-                self.env.set_str(&name, &val);
+                self.store_text(&name, &val);
             }
-            Some(AcceptSource::EscapeKey) => self.env.set_str(&name, "00"),
-            Some(AcceptSource::CrtStatus) => self.env.set_str(&name, "0000"),
+            Some(AcceptSource::EscapeKey) => self.store_text(&name, "00"),
+            Some(AcceptSource::CrtStatus) => self.store_text(&name, "0000"),
             Some(AcceptSource::Environment(var)) => {
                 let val = std::env::var(var).unwrap_or_default();
-                self.env.set_str(&name, &val);
+                self.store_text(&name, &val);
             }
         }
         Ok(())
@@ -4927,10 +4936,17 @@ impl Interpreter {
         Ok((lo.min(s.len()), hi.max(lo).min(s.len())))
     }
 
-    /// Write an INSPECT result back to its target, distributing across the
-    /// subordinate items when that target is a group. `set_str` alone would
-    /// store the whole record in a slot the group does not have.
-    fn inspect_store(&mut self, name: &str, s: &str) {
+    /// Write text to a data item, distributing across the subordinate items
+    /// when the target is a group.
+    ///
+    /// A group owns **no store slot** — its value is synthesized from its
+    /// children by `group_value` — so `set_str` alone writes the whole record
+    /// into a slot nothing ever reads back. Every verb whose receiver may be a
+    /// group has to come through here: INSPECT did not, and silently tallied
+    /// zero on group operands for its whole life (fixed in 1.62.28); Format 1
+    /// ACCEPT did not either, and left `NC109M`'s `ACCEPT-D1` and
+    /// `X80-CHARACTER-FIELD` empty after reading the operator's line.
+    fn store_text(&mut self, name: &str, s: &str) {
         if self.env.is_group(name) {
             self.env.set_group(name, s);
         } else {
@@ -5047,7 +5063,7 @@ impl Interpreter {
                     }
                     s = format!("{}{}{}", &s[..lo], win, &s[hi..]);
                 }
-                self.inspect_store(&name, &s);
+                self.store_text(&name, &s);
             }
             InspectSpec::Converting { from, to } => {
                 let from_s = self.eval_expr(from, span)?.as_display_string();
@@ -5055,7 +5071,7 @@ impl Interpreter {
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     s = s.replace(fc, &tc.to_string());
                 }
-                self.inspect_store(&name, &s);
+                self.store_text(&name, &s);
             }
             InspectSpec::ConvertingIn { from, to, region } => {
                 // The same character-for-character conversion, applied only
@@ -5068,7 +5084,7 @@ impl Interpreter {
                     window = window.replace(fc, &tc.to_string());
                 }
                 s.replace_range(lo..hi, &window);
-                self.inspect_store(&name, &s);
+                self.store_text(&name, &s);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
                 self.exec_inspect(target, &InspectSpec::Tallying(tallies.clone()), span)?;

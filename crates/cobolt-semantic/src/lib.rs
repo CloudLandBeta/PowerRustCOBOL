@@ -32,6 +32,7 @@
 
 pub mod duplicates;
 pub mod exec_rust;
+pub mod flagging;
 pub mod external;
 pub mod resolver;
 pub mod symbol_table;

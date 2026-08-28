@@ -2294,6 +2294,11 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
                 },
                 FigurativeConstant::HighValue => CobolValue::figurative_high_values(cap),
                 FigurativeConstant::LowValue => CobolValue::figurative_low_values(cap),
+                // QUOTE fills the field with the quotation character, exactly as
+                // SPACE fills it with blanks. Falling through to `default` left
+                // `VALUE QUOTE` reading as spaces — `NC109M`'s `ACCEPT-D18` is
+                // `PICTURE X VALUE QUOTE` and compared equal to nothing.
+                FigurativeConstant::Quote => CobolValue::from_str(&"\"".repeat(cap), cap),
                 _ => default.clone(),
             }
         }
