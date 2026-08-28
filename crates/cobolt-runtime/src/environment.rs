@@ -183,6 +183,20 @@ pub struct CobolEnvironment {
     /// its digit positions wide and the sign rides on the leading or trailing
     /// digit, which is the representation the store already has.
     sign_separate: IndexMap<String, bool>,
+    /// `REDEFINES` descriptions that **share storage outright**, mapping each
+    /// redefining item's template key to the corresponding key of the
+    /// description it redefines (`ENTRY-1-1` → `ENTRY-1`).
+    ///
+    /// Only layout-identical descriptions qualify — same items, same OCCURS
+    /// dimensions, same PICTUREs — because then the two readings are the same
+    /// bytes read the same way and one slot can serve both. That is the case
+    /// [`REDEFINE_SYNC_BUDGET`] exists to give up on: copying a redefined
+    /// 10×10×10 table on every write is ruinous, but sharing it costs nothing.
+    ///
+    /// Storage only. The symbol table stays per-description, so each keeps its
+    /// own `INDEXED BY` names — `SEARCH GRP-ENTRY-1` must still be driven by
+    /// `IDX-1-1` and not by the redefined table's `IDX-1`.
+    redefine_aliases: IndexMap<String, String>,
     /// Nesting depth of a group **move into** storage; zero when reading.
     ///
     /// A group containing an `OCCURS … DEPENDING ON` table uses the table's
@@ -575,6 +589,28 @@ impl CobolEnvironment {
             // storage-per-description behaviour rather than making the program
             // unrunnable.
             if members.iter().any(|m| self.occurrence_weight(m) > REDEFINE_SYNC_BUDGET) {
+                // Too big to keep in step by copying — but when the members are
+                // layout-identical there is nothing to keep in step: they are
+                // the same bytes read the same way, so they can share the slots
+                // outright. Free, exact, and no budget applies. NC234A's
+                // `3-DEM-TBL REDEFINES 3-DIMENSION-TBL` is this shape, and
+                // without it every name in the redefining description read as
+                // spaces however the redefined table had been filled.
+                let root = members[0].clone();
+                if members[1..].iter().all(|m| self.layouts_match(&root, m)) {
+                    let root_keys = self.subtree_keys(&root);
+                    let pairs: Vec<(String, String)> = members[1..]
+                        .iter()
+                        .flat_map(|m| {
+                            self.subtree_keys(m)
+                                .into_iter()
+                                .zip(root_keys.iter().cloned())
+                        })
+                        .collect();
+                    for (from, to) in pairs {
+                        self.redefine_aliases.insert(from, to);
+                    }
+                }
                 continue;
             }
             for own in members {
@@ -591,6 +627,46 @@ impl CobolEnvironment {
                 }
             }
         }
+    }
+
+    /// Follow a `REDEFINES` storage alias, keeping any subscript: with
+    /// `ENTRY-1-1` aliased to `ENTRY-1`, the key `ENTRY-1-1(2,3)` becomes
+    /// `ENTRY-1(2,3)`.
+    ///
+    /// Takes the already-uppercased key and hands it straight back when nothing
+    /// is aliased, which is every program that declares no layout-identical
+    /// `REDEFINES` — the map is empty and the check is one comparison.
+    fn storage_key(&self, key: String) -> String {
+        if self.redefine_aliases.is_empty() {
+            return key;
+        }
+        let base = base_name(&key);
+        match self.redefine_aliases.get(base) {
+            Some(target) => format!("{target}{}", &key[base.len()..]),
+            None => key,
+        }
+    }
+
+    /// Whether two descriptions cover their shared bytes the **same way** —
+    /// the same items in the same order, each with the same OCCURS dimensions
+    /// and the same PICTURE. Only then may they share storage.
+    ///
+    /// Conservative on purpose: an unnamed `FILLER` slot carries no symbol
+    /// entry to compare, so a description containing one does not qualify and
+    /// keeps the copying overlay.
+    fn layouts_match(&self, a: &str, b: &str) -> bool {
+        let (ka, kb) = (self.subtree_keys(a), self.subtree_keys(b));
+        if ka.len() != kb.len() {
+            return false;
+        }
+        ka.iter()
+            .zip(kb.iter())
+            .all(|(x, y)| match (self.symbols.get(x), self.symbols.get(y)) {
+                (Some(sx), Some(sy)) => {
+                    sx.dims == sy.dims && sx.pic == sy.pic && sx.is_group == sy.is_group
+                }
+                _ => false,
+            })
     }
 
     /// How many storage slots one description covers once its OCCURS
@@ -1565,7 +1641,7 @@ impl CobolEnvironment {
     /// Get an immutable reference to a data item's value. An un-written table
     /// occurrence falls back to the base item's (template) value.
     pub fn get(&self, name: &str) -> Option<&CobolValue> {
-        let key = name.to_ascii_uppercase();
+        let key = self.storage_key(name.to_ascii_uppercase());
         if let Some(v) = self.store.get(&key) {
             return Some(v);
         }
@@ -1691,7 +1767,7 @@ impl CobolEnvironment {
 
     /// Store `s` left-justified (space-padded) into an alphanumeric field.
     pub fn set_str_left(&mut self, name: &str, s: &str) {
-        let key = name.to_ascii_uppercase();
+        let key = self.storage_key(name.to_ascii_uppercase());
         // An alphanumeric-edited receiver still imposes its template on the
         // characters: this shortcut would otherwise drop the insertions and
         // store the sender's digits raw.
@@ -1820,7 +1896,8 @@ impl CobolEnvironment {
 
     /// Get a mutable reference to a data item's value.
     pub fn get_mut(&mut self, name: &str) -> Option<&mut CobolValue> {
-        self.store.get_mut(&name.to_ascii_uppercase())
+        let key = self.storage_key(name.to_ascii_uppercase());
+        self.store.get_mut(&key)
     }
 
     /// Set a data item to a new value.
@@ -1829,7 +1906,7 @@ impl CobolEnvironment {
     /// so that type coercions (rescaling, padding) are applied.
     /// If the item does not exist it is inserted directly.
     pub fn set(&mut self, name: &str, value: CobolValue) {
-        let key = name.to_ascii_uppercase();
+        let key = self.storage_key(name.to_ascii_uppercase());
         // An alphanumeric-edited receiver re-imposes its own insertion
         // characters on whatever arrives: the sender supplies only the
         // characters for the `X`/`A`/`9` positions.
@@ -2015,7 +2092,8 @@ impl CobolEnvironment {
 
     /// `true` if the named data item is declared.
     pub fn contains(&self, name: &str) -> bool {
-        self.store.contains_key(&name.to_ascii_uppercase())
+        let key = self.storage_key(name.to_ascii_uppercase());
+        self.store.contains_key(&key)
     }
 
     /// Iterate all data items in declaration order.

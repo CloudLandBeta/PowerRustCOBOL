@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.29] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): execution 71 → 72 of 95, assertions 151 → 136
+failing (97.0 %).** NC234A goes 15 failures → 0. Compile stays at 94 / 95
+(whole suite 419 / 434). No other module was touched (GOLDEN RULE #9).
+
+### Fixed — a large `REDEFINES` overlay lost every write
+
+Two descriptions of the same bytes were kept consistent by *copying* one into
+the other on every write. That is affordable for the flat twenty-byte records
+the mechanism exists for and ruinous for a redefined 10×10×10 table, where one
+`MOVE` walks a thousand occurrences twice — so descriptions past
+`REDEFINE_SYNC_BUDGET` gave up and kept **separate storage**. Every name in the
+redefining description then read as spaces, however the redefined table had
+been filled.
+
+When the two descriptions have the **same layout** — the same items, in the
+same order, with the same OCCURS dimensions and the same PICTUREs — there is
+nothing to copy: they are the same bytes read the same way, so they now share
+the storage slots outright. Exact, `O(1)` per access, and no budget applies.
+A description containing an unnamed `FILLER` has no symbol entry to compare
+against and keeps the copying overlay, as does any pair whose layouts differ.
+
+The sharing is **storage only**. Each description keeps its own symbol entry,
+and in particular its own `INDEXED BY` names — `SEARCH GRP-ENTRY-1` must be
+driven by `IDX-1-1`, not by the redefined table's `IDX-1`. That is why the
+aliasing sits at the storage accessors rather than in name resolution, where it
+would have silently handed the search the wrong index.
+
+> **Measured, not assumed.** Simply raising the budget to cover the table was
+> tried first: NC234A then took **20 s** and hit the harness timeout, trading
+> 15 failures for a program that does not finish. Sharing runs it in **0.09 s**.
+
+> **On the label.** These 15 failures were bucketed under `SEARCH VARYING LEV`
+> and `MULTIPLE SEARCH STMT`, which is the *feature* NC234A tests, not the
+> defect. `SEARCH … VARYING` was already correct; the tests search a redefining
+> table that had never received the data. A cause bucket names the test, not
+> the bug.
+
+New tests: `test_redefines_shared_storage.rs` (6).
+
 ## [PowerRustCOBOL 1.62.28] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): execution 69 → 71 of 95, assertions 172 → 151
