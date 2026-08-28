@@ -3935,6 +3935,23 @@ single digit, and a picture need carry no `9` at all:
 > as the characters you see on a report. Compute with a plain numeric item and
 > move the result into the edited one when you need both.
 
+**Check protection (`*`) fills the whole field when the value is zero.** This is
+the point of it on a cheque or a remittance line — nothing can be written into
+the blank. Every character position becomes an asterisk, the decimal point
+alone excepted, and that includes a fixed `$` and a trailing `CR` or `DB`:
+
+```cobol
+       01  NET-PAY  PIC $**.**CR.
+           MOVE ZERO TO NET-PAY.     *> ***.****
+           MOVE -2.34 TO NET-PAY.    *> $*2.34CR
+```
+
+The second line is the ordinary case: with a non-zero value only the *leading
+zeros* are protected, so the fixed `$` keeps its own position and `CR` prints
+because the value is negative. It is worth checking a zero against the field's
+declared width the first time you use one — `PIC $**.**CR` is eight character
+positions, because `CR` occupies two.
+
 **The currency symbol is yours to choose.** `SPECIAL-NAMES. CURRENCY [SIGN] [IS]
 literal` names the character that fills a currency position, and every picture
 rule then applies to that character instead of `$` — including the floating run,

@@ -74,7 +74,7 @@ Both numbers are reported per module, and never conflated:
 
 | Module | Compile | Execution (0 failures) |
 |---|---:|---:|
-| **NC (Nucleus)** | **95 / 95** | **79 / 95** |
+| **NC (Nucleus)** | **95 / 95** | **80 / 95** |
 
 Work proceeds **one module at a time**: NC is finished only when both numbers
 reach 95, and no other module is worked on until it does. A broad compile score
@@ -801,6 +801,15 @@ unhandled error `FILE STATUS`.
   (`MOVE 12300` stores it exactly; `MOVE 12345` stores 12300), and `PIC PP99`
   holds two standing for ten‑thousandths. The positions the `P`s occupy always
   read back as zero and take **no bytes** in a record layout.
+- ✅ **Check protection fills the whole item.** A zero value in a picture whose
+  digit positions are all `*` fills every character position with asterisks —
+  the fractional digits, the grouping commas, a fixed `$`, and a trailing `CR`
+  or `DB` alike — leaving only the decimal point itself: `PIC $**.**CR` holding
+  zero reads `***.****`, and `PIC *,***.**` reads `*****.**`. A **non**-zero
+  value protects only the leading zeros, so the fixed `$` keeps its own position
+  (`-2.34` → `$*2.34CR`). *(Before 1.62.37 `CR`/`DB` contributed one asterisk
+  instead of the two character positions they occupy, so such an item came back
+  one character short of its own width.)*
 - ✅ **High‑order truncation on a numeric MOVE.** A receiver holds exactly its
   declared digits at both ends: `01 M PIC 99V999.  MOVE 123.45 TO M.` leaves
   `23.450`. Arithmetic tests the receiver's capacity first, so a statement with

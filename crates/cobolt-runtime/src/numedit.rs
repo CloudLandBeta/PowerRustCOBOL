@@ -304,10 +304,17 @@ pub fn format_edited(
         return syms
             .iter()
             .map(|s| match s {
-                Sym::Point => dec_char,
-                Sym::Slash => '/',
-                Sym::Blank => ' ',
-                _ => '*',
+                Sym::Point => dec_char.to_string(),
+                Sym::Slash => "/".to_string(),
+                Sym::Blank => " ".to_string(),
+                // `CR` and `DB` occupy **two** character positions, which is
+                // what `edited_width` counts them as. Emitting one asterisk
+                // apiece left `PIC $**.**CR` holding zero a character short of
+                // its own width, and whatever padded it to width put a space
+                // there: `***.***_` instead of `***.****` (NC175A
+                // SUB-TEST-F2-28-5, -30-5, -32-5).
+                Sym::Cr | Sym::Db => "**".to_string(),
+                _ => "*".to_string(),
             })
             .collect();
     }
@@ -600,6 +607,36 @@ mod tests {
     fn check_protection_star() {
         // 12.34 → leading zeros (and the comma in the suppression zone) become '*'.
         assert_eq!(ed("***,**9.99", 1234, 2), "*****12.34");
+    }
+
+    /// A zero value under full check protection fills the item's **own width**,
+    /// and `CR`/`DB` occupy two character positions of it — which is what
+    /// `edited_width` counts them as. One asterisk apiece left the result a
+    /// character short and something else padded it with a space:
+    /// `PIC $**.**CR` read `***.***_` instead of `***.****`
+    /// (NIST CCVS85 NC175A SUB-TEST-F2-28-5, -30-5, -32-5).
+    #[test]
+    fn check_protection_fills_a_two_character_cr_or_db() {
+        for tpl in ["$**.**CR", "$**.**DB"] {
+            let got = ed(tpl, 0, 2);
+            assert_eq!(got, "***.****", "{tpl}");
+            assert_eq!(
+                got.chars().count(),
+                edited_width(tpl, false),
+                "{tpl}: a protected zero must fill the item's declared width"
+            );
+        }
+        // A non-zero value keeps CR/DB doing their own job: printed when the
+        // value is negative, two spaces when it is not. Both digit positions
+        // are filled here, so there is no leading zero to protect and the `$`
+        // prints as itself.
+        assert_eq!(ed("$**.**CR", -1234, 2), "$12.34CR");
+        assert_eq!(ed("$**.**CR", 1234, 2), "$12.34  ");
+        // …and a value that does leave a leading zero protects that position
+        // only. The lone `$` is a *fixed* insertion, so it keeps its own
+        // position here — it is the all-asterisks rule above, and nothing else,
+        // that turns it into a `*` when the value is zero.
+        assert_eq!(ed("$**.**CR", -234, 2), "$*2.34CR");
     }
 
     #[test]

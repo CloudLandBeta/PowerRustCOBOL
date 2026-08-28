@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.37] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): check protection fills a two-character `CR`/`DB`.**
+NC175A is now **clean**, so execution goes **79 → 80 of 95** and assertions
+101 → 98 failing (97.9 % of 4560). Compile holds at 95 of 95. No other module
+was touched (GOLDEN RULE #9).
+
+### Fixed — a protected zero came back one character short of its own width
+
+A zero value in a picture whose digit positions are all `*` fills every
+character position with asterisks, the decimal point alone excepted. The fill
+walked the expanded picture symbols and emitted **one** character per symbol —
+but `CR` and `DB` occupy **two** character positions, which is exactly what
+`edited_width` counts them as.
+
+`PIC $**.**CR` holding zero therefore produced seven characters where the item
+is eight wide, and whatever padded it to width put a space in the last
+position: `***.***` + a space, against the `***.****` the standard requires
+(NC175A `SUB-TEST-F2-28-5`, `-30-5`, `-32-5` — three assertions, one cause).
+
+The non-zero path was already right and is unchanged: only the *leading* zeros
+are protected there, so a lone `$` is a fixed insertion that keeps its own
+position (`-2.34` → `$*2.34CR`), and `CR` prints because the value is negative.
+
+### Documentation
+
+`docs/cobol85-supported-syntax-en.md` gains the check-protection rule under
+`PICTURE` (and the NIST scoreboard moves to 80/95);
+`docs/developers-guide-en.md` gains it beside the `PIC $**.**CR` example it
+already carried, with the note that `CR` is two character positions.
+
 ## [PowerRustCOBOL 1.62.36] — 2026-08-28
 
 **NIST CCVS85 Nucleus (NC): two ways a `REDEFINES` overlay lost its target's
