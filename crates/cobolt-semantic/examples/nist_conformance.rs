@@ -856,6 +856,7 @@ const CCVS_CONSOLE_FILE: &str = "rcrun-console.txt";
 fn operator_input(name: &str) -> Option<String> {
     let lines: &[&str] = match name {
         "NC109M" => NC109M_OPERATOR_LINES,
+        "NC204M" => NC204M_OPERATOR_LINES,
         _ => return None,
     };
     let mut s = lines.join("\n");
@@ -883,6 +884,48 @@ const NC109M_OPERATOR_LINES: &[&str] = &[
     // ACCEPT-RESULTS, PIC X(80) — the 63 significant characters; ACCEPT
     // space-pads the rest of the field.
     "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z  0123456789",
+];
+
+/// `NC204M`'s operator deck — 15 values, in the order the program accepts them.
+///
+/// NC204M is NC109M's twin: where NC109M writes Format 1 `ACCEPT` bare, NC204M
+/// routes every read through the mnemonic `ACCEPT-INPUT-DEVICE` that its
+/// `SPECIAL-NAMES` associates with the input device. The deck is recovered the
+/// same way — each accepted item is compared against a paired item whose value
+/// the program sets just above the `ACCEPT`, so every line here is that value.
+///
+/// The two lines the program's own numbering skips (`ACCEPT-D14`) are absent
+/// because NC204M has no `ACC-TEST` for them; the count is what the section
+/// actually reads, not what the data division declares.
+const NC204M_OPERATOR_LINES: &[&str] = &[
+    "ABCDEFGHIJKLMNOPQRSTUVWXY Z", // ACCEPT-D1  vs ACCEPT-D2,  X(20) + X(7)
+    "0123456789",                  // ACCEPT-D3  vs ACCEPT-D4,  PIC 9(10)
+    "().+-*/$, =",                 // ACCEPT-D5  vs ACCEPT-D6,  PIC X(11)
+    "9",                           // ACCEPT-D7  vs ACCEPT-D8
+    "0",                           // ACCEPT-D9  vs ACCEPT-D10
+    " ABC            XYZ ",        // ACCEPT-D11 vs ACCEPT-D12, PIC A(20)
+    " 9",                          // ACCEPT-D15 vs ACCEPT-D16, PIC XX
+    "\"",                          // ACCEPT-D17 vs ACCEPT-D18, VALUE QUOTE
+    "Q",                           // QUAL-ACCEPT OF ACCEPT-D19 vs ACCEPT-D20
+    "ABCD",                        // TAB-ACCEPT(2):  "...." ABCD "...."
+    "ABCD",                        // TAB-A IN ACCEPT-D23 (SUB=5): 16 dashes + ABCD
+    // 80X-CHARACTER-FIELD vs ACCEPT-RESULTS, PIC X(80) — the 63 significant
+    // characters; `ACCEPT` space-pads the rest of the field.
+    "A B C D E F G H I J K L M N O P Q R S T U V W X Y Z  0123456789",
+    // ACCEPT-D13 vs DISPLAY-F, PIC X(200) — DISPLAY-G then DISPLAY-H, as
+    // `ACC-INIT-F1-13` sets them. The `D` in place of a `*` separator at 020
+    // and 040 is the program's own marker, not a transcription slip.
+    concat!(
+        "D001*002*003*004*005*006*007*008*009*010*011*012*013*014*015*016*017*018*019*020D021*022*023*024*025",
+        "*026*027*028*029*030*031*032*033*034*035*036*037*038*039*040D041*042*043*044*045*046*047*048*049*050",
+    ),
+    // ACCEPT-TEST-14-DATA, PIC X(15), read twice: `ACC-TEST-F1-14-1` checks
+    // characters 1–10 and `ACC-TEST-F1-14-2` characters 11–15. The test exists
+    // to show a device asking for more input when one record cannot fill the
+    // item (VI-71 6.5.4 GR4(a)); a console line here delivers all fifteen at
+    // once, which satisfies both assertions without the second request.
+    "ABCDEFGHIJKLMNO",
+    "ABCDEFGHIJKLMNO",
 ];
 
 fn run_pass(members: &[Member], filter: &str) {

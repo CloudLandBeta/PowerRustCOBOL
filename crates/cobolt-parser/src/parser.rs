@@ -63,6 +63,16 @@ pub struct Parser {
     /// so `IF ON-SWITCH-1` and `SET SW-1 TO ON` both work through machinery
     /// that already exists.
     pub(crate) switches: Vec<(String, String, Option<String>, Option<String>)>,
+    /// `SPECIAL-NAMES. <implementor-name> [IS] <mnemonic>` — the ordinary
+    /// mnemonic clause (`CONSOLE IS CRT`, `XXXXX057 IS ACCEPT-INPUT-DEVICE`),
+    /// as `(implementor name, mnemonic)`, both uppercased.
+    ///
+    /// It lives on the parser for the same reason `currency` does: `ACCEPT x
+    /// FROM <mnemonic>` is Format 1 (read the device) while `ACCEPT x FROM
+    /// <undeclared name>` is the environment-variable extension, and the
+    /// ENVIRONMENT DIVISION always precedes the PROCEDURE DIVISION, so the
+    /// declared set is known by the time an `ACCEPT` needs it.
+    pub(crate) mnemonics: Vec<(String, String)>,
     /// Scratch: the class name from the most recently parsed
     /// `USAGE OBJECT REFERENCE <class>`, consumed by the data item being built.
     pub(crate) pending_object_class: Option<String>,
@@ -109,6 +119,7 @@ impl Parser {
             collating_sequence: None,
             currency: '$',
             switches: Vec::new(),
+            mnemonics: Vec::new(),
             pending_object_class: None,
             next_block_id: block_id_base,
             pending: Vec::new(),
@@ -757,6 +768,47 @@ fn parse_special_names_switch(p: &mut Parser) {
     p.switches.push((external, mnemonic, on_name, off_name));
 }
 
+/// `true` when the cursor sits on an ordinary SPECIAL-NAMES **mnemonic** clause
+/// — `<implementor-name> [IS] <mnemonic>` with no `ON`/`OFF` status after it.
+///
+/// The caller has already ruled out a switch, so the remaining ambiguity is the
+/// handful of SPECIAL-NAMES clauses that share the shape but name a facility
+/// rather than a device (`CURSOR IS …`, `CRT STATUS IS …`); those open with a
+/// reserved clause word, which is what excludes them here.
+fn at_mnemonic_clause(p: &Parser) -> bool {
+    let Token::Identifier(first) = p.peek() else {
+        return false;
+    };
+    if is_special_names_clause_word(first) {
+        return false;
+    }
+    let after = if matches!(p.peek_at(1), Token::Is) { 2 } else { 1 };
+    // Without an explicit `IS`, two adjacent identifiers are the only reading —
+    // but the second must not itself open the next clause, or `CONSOLE IS CRT
+    // CURRENCY "$"` would claim CURRENCY as a mnemonic.
+    matches!(p.peek_at(after), Token::Identifier(m) if !is_special_names_clause_word(m))
+}
+
+/// Parse `<implementor-name> [IS] <mnemonic>` and record the pair.
+///
+/// Nothing about the device is modelled: what the entry buys is the ability to
+/// recognise the mnemonic later, so `ACCEPT x FROM <mnemonic>` reads the
+/// hardware device (Format 1) instead of an environment variable.
+fn parse_special_names_mnemonic(p: &mut Parser) {
+    let Token::Identifier(system) = p.peek() else {
+        return;
+    };
+    let system = system.to_ascii_uppercase();
+    p.advance();
+    p.eat(&Token::Is); // optional IS
+    let Token::Identifier(mnemonic) = p.peek() else {
+        return;
+    };
+    let mnemonic = mnemonic.to_ascii_uppercase();
+    p.advance();
+    p.mnemonics.push((system, mnemonic));
+}
+
 /// Parse `CLASS <name> [IS] {literal [{THROUGH|THRU} literal]} …`.
 ///
 /// Operands the CCVS leaves as implementor placeholders (`XXXXX090`, an
@@ -985,6 +1037,12 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                 // but capture `DECIMAL-POINT IS COMMA`, the SPECIAL-NAMES
                 // switches and classes, and the REPOSITORY bindings.
                 let mut in_repository = false;
+                // Only the SPECIAL-NAMES paragraph declares mnemonics. The
+                // `<name> IS <name>` shape also occurs elsewhere in this
+                // section, so the paragraph the cursor is in is what makes a
+                // clause a mnemonic — the same reasoning `in_repository`
+                // already uses to tell the two meanings of CLASS apart.
+                let mut in_special_names = false;
                 while !matches!(
                     p.peek(),
                     Token::InputOutput
@@ -1037,10 +1095,19 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         // the paragraph the cursor is in does.
                         Some(s) if s.eq_ignore_ascii_case("REPOSITORY") => {
                             in_repository = true;
+                            in_special_names = false;
                             p.advance();
                         }
                         Some(s) if s.eq_ignore_ascii_case("SPECIAL-NAMES") => {
                             in_repository = false;
+                            in_special_names = true;
+                            p.advance();
+                        }
+                        Some(s)
+                            if s.eq_ignore_ascii_case("SOURCE-COMPUTER")
+                                || s.eq_ignore_ascii_case("OBJECT-COMPUTER") =>
+                        {
+                            in_special_names = false;
                             p.advance();
                         }
                         Some(s) if s.eq_ignore_ascii_case("DECIMAL-POINT") => {
@@ -1094,6 +1161,13 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         // (`CONSOLE IS CRT`), which stays skipped.
                         Some(_) if at_switch_clause(p) => {
                             parse_special_names_switch(p);
+                        }
+                        // `<implementor-name> [IS] <mnemonic>` — the ordinary
+                        // mnemonic clause. It used to be skipped a token at a
+                        // time, which left `ACCEPT x FROM <mnemonic>` unable to
+                        // tell a declared device from an environment variable.
+                        Some(_) if in_special_names && at_mnemonic_clause(p) => {
+                            parse_special_names_mnemonic(p);
                         }
                         // REPOSITORY: CLASS <name> [IS|AS] "<external>"  (spec 005).
                         Some(s) if s.eq_ignore_ascii_case("CLASS") => {

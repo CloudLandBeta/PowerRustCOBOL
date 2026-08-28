@@ -2324,9 +2324,15 @@ fn parse_accept_source(p: &mut Parser) -> AcceptSource {
             }
             return AcceptSource::Environment("<missing>".into());
         }
-        // mnemonic name
         p.advance();
-        AcceptSource::Environment(name)
+        // A mnemonic SPECIAL-NAMES declared names a hardware device, so this is
+        // Format 1 — read the device. Only an *undeclared* name falls through
+        // to the environment-variable extension.
+        if p.mnemonics.iter().any(|(_, m)| m == &name) {
+            AcceptSource::Mnemonic(name)
+        } else {
+            AcceptSource::Environment(name)
+        }
     } else {
         AcceptSource::Date // fallback
     }

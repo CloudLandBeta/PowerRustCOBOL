@@ -4482,7 +4482,10 @@ impl Interpreter {
             let _ = std::io::stdout().flush();
         }
         match from {
-            None => {
+            // Format 1, written either way: no FROM at all, or FROM a mnemonic
+            // SPECIAL-NAMES associated with the hardware device (`ACCEPT x FROM
+            // ACCEPT-INPUT-DEVICE`). Both read the operator.
+            None | Some(AcceptSource::Mnemonic(_)) => {
                 // Read one line from stdin.
                 use std::io::BufRead;
                 let stdin = std::io::stdin();

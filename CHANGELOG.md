@@ -1,5 +1,81 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.35] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): `ACCEPT … FROM <mnemonic>` reads the operator.**
+NC204M goes 15 failing assertions → 3, module assertions 116 → 104 failing
+(97.7 % of 4562). Execution holds at 78 of 95 and compile at 95 of 95 — NC204M
+keeps three failures, all of them one unrelated REDEFINES defect. No other
+module was touched (GOLDEN RULE #9).
+
+### Fixed — a declared mnemonic was read as an environment variable
+
+`SPECIAL-NAMES` associates an implementor's device with a name of the
+program's choosing, and Format 1 `ACCEPT` may then name it:
+
+```cobol
+       SPECIAL-NAMES.
+           XXXXX057 IS ACCEPT-INPUT-DEVICE.
+...
+           ACCEPT ACCEPT-D1 FROM ACCEPT-INPUT-DEVICE.
+```
+
+The ordinary `<implementor-name> [IS] <mnemonic>` clause was **skipped a token
+at a time** — only the switch form (`… ON STATUS IS …`) was ever recognised — so
+nothing recorded that the name had been declared. `parse_accept_source` fell
+through to its last case, the PowerRustCOBOL extension that reads an
+**environment variable** of that name, found none set, and stored nothing. Every
+read through a mnemonic returned empty.
+
+* The parser now records the clause (`Parser::mnemonics`), the way it already
+  records switches, classes and the currency symbol. It lives on the parser
+  because the ENVIRONMENT DIVISION precedes the PROCEDURE DIVISION, so the
+  declared set is known by the time an `ACCEPT` needs it.
+* `AcceptSource::Mnemonic(String)` (new, at the **end** of the enum — the AST is
+  bincode-serialized by variant ordinal) marks the standard reading. The
+  interpreter treats it exactly as a bare `ACCEPT`: one line from the operator,
+  distributed across a group receiver and space-filled to the item's width.
+* **The extension is untouched.** A name no `SPECIAL-NAMES` clause declares
+  still reads the environment variable. Which reading applies is decided by the
+  declaration, never by the spelling of the name.
+
+### Harness — NC204M's operator deck
+
+NC204M is NC109M's twin: fifteen `ACCEPT`s, each compared against a paired item
+whose value the program sets just above the read. The deck is therefore
+**recovered from the source, not invented**, exactly as NC109M's was — down to
+the significant leading and trailing spaces, the `QUOTE`, and the 200-character
+`DISPLAY-F` value. `nist_conformance` supplies it on the child's stdin.
+
+Twelve of NC204M's fifteen comparisons pass with that in place. The three that
+remain (`ACC-TEST-F1-10`, `-14-1`, `-14-2`) are a single **separate** defect: a
+`REDEFINES` overlay does not share the redefined item's bytes, so `TAB-ACCEPT`
+reads spaces where `ACCEPT-VALUE21`'s dots should be, and a `FILLER REDEFINES`
+group reads empty after a successful `ACCEPT`. That is the same family as
+NC107A and NC252A and is not addressed here.
+
+### Documentation
+
+* `docs/cobol85-supported-syntax-en.md` — the `ACCEPT` entry now states which of
+  the two readings applies and why. The NIST scoreboard is refreshed (NC 95/95
+  compile, 78/95 execution) and the section claiming five members "can never
+  reach 0 failures" is replaced: all five are scored, so **there is no
+  structural ceiling below 95** on the execution axis. That claim had been stale
+  since 1.62.30.
+* `docs/developers-guide-en.md` — a new *Naming the console: mnemonic device
+  names* section under `SPECIAL-NAMES`, including the note that a declared
+  mnemonic and an undeclared name are different sources.
+
+### Known — `ACCEPT … FROM ENVIRONMENT "name"` is unreachable
+
+Found while testing, **not** caused by this change and not repaired by it:
+`ENVIRONMENT` lexes as its own keyword (the division opens with it), so
+`parse_accept_source` never sees it as an identifier and its `ENVIRONMENT
+"name"` branch is dead — the statement is read as `FROM DATE` and the stray
+literal derails the sentence after it. `FROM ENVIRONMENT-VALUE` is a different
+source and works. No NC program writes the literal form, so it is recorded here
+rather than fixed inside a module pass (GOLDEN RULE #9).
+
 ## [PowerRustCOBOL 1.62.34] — 2026-08-28
 
 **NIST CCVS85 Nucleus (NC): a group `MOVE` now changes no bytes at all.**

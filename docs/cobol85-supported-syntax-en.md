@@ -74,28 +74,28 @@ Both numbers are reported per module, and never conflated:
 
 | Module | Compile | Execution (0 failures) |
 |---|---:|---:|
-| **NC (Nucleus)** | **94 / 95** | **65 / 95** |
+| **NC (Nucleus)** | **95 / 95** | **78 / 95** |
 
 Work proceeds **one module at a time**: NC is finished only when both numbers
 reach 95, and no other module is worked on until it does. A broad compile score
 across ten modules says nothing about whether any of them work.
 
-##### Four NC members can never reach "0 failures" as the harness scores it
+##### The five NC members that need more than a print file — all scored
 
 The execution score counts a program clean when its **own CCVS report** shows
 no failures. Five NC members print no such report, and not because anything is
-broken:
+broken. Each needed harness work rather than compiler work, and each now
+scores:
 
-| Member | Why it cannot be scored this way |
-|---|---|
-| **NC302M**, **NC303M**, **NC401M** | *Flagging* tests. They carry no `PASS`/`FAIL` machinery at all — each ends `TOTAL NUMBER OF FLAGS EXPECTED = n`, and the result being validated is the set of **diagnostics the compiler emits** for obsolete constructs. |
-| **NC110M** | Writes its report with `DISPLAY`, to the operator's console, not to the CCVS print file the harness reads. |
-| **NC109M** | Tests Format 1 `ACCEPT`, which reads from the operator. The validator is expected to supply the input; the harness runs with no stdin, so every comparison fails. |
+| Member | What it needs | How it is scored |
+|---|---|---|
+| **NC302M**, **NC303M**, **NC401M** | *Flagging* tests. They carry no `PASS`/`FAIL` machinery at all — each ends `TOTAL NUMBER OF FLAGS EXPECTED = n`, and the result being validated is the set of **diagnostics the compiler emits** for obsolete constructs (NC302M/NC303M) or for constructs above the high subset (NC401M). | The harness compares the diagnostics against the member's own expectation list, by line. The two classes are run as **separate passes**: `DATE-COMPILED` is both obsolete *and* above the high subset, so one combined pass gives each member the other's flags as false positives. |
+| **NC110M** | Writes its report with `DISPLAY`, to the operator's console, not to the CCVS print file the harness reads. | The child's console output is captured to a file and scored from there. |
+| **NC109M**, **NC204M** | Test Format 1 `ACCEPT`, which reads from the operator — NC109M writing it bare, NC204M through a mnemonic `SPECIAL-NAMES` associates with the input device. The validator is expected to supply the input; with no stdin every comparison fails. | The harness supplies an operator deck on the child's stdin. The deck is **recovered from the source, not invented**: each accepted item is compared against a paired item whose value the program sets just above the `ACCEPT`, so every line of the deck is that value. |
 
-Scoring these needs either operator input or a diagnostic-count check, both of
-which are harness work rather than compiler work. Until that lands, the
-attainable NC execution ceiling is **91 / 95**, and the target should be read
-that way.
+There is therefore **no structural ceiling below 95** on the execution axis:
+every in-scope NC program compiles, and every one of them is scored on what it
+itself reports.
 
 The comparable case that **was** settled is the external switch. NC174A, NC253A
 and NC254A test `ON STATUS` / `OFF STATUS` against a switch the operator sets
@@ -549,6 +549,15 @@ unhandled error `FILE STATUS`.
 - ✅ `ACCEPT id`.
 - ✅ `ACCEPT id FROM {DATE | TIME | DAY | DAY-OF-WEEK | COMMAND-LINE |
   ENVIRONMENT "name" | mnemonic}`.
+- ✅ **`FROM mnemonic-name` reads the operator** when `SPECIAL-NAMES` declares
+  the mnemonic (`XXXXX057 IS ACCEPT-INPUT-DEVICE.` … `ACCEPT ACCEPT-D1 FROM
+  ACCEPT-INPUT-DEVICE`) — that is Format 1, identical to a bare `ACCEPT id`.
+  A name **no `SPECIAL-NAMES` clause declares** keeps the PowerRustCOBOL
+  extension and reads the **environment variable** of that name. Which of the
+  two applies is decided by the declaration, never by the spelling.
+  *(Before 1.62.35 the ordinary `<implementor-name> IS <mnemonic>` clause was
+  skipped outright, so every mnemonic read an environment variable that was
+  never set and the receiving item was left empty.)*
 - ✅ `ACCEPT id AT {nnnn | LINE n COLUMN n}` positions the cursor (ANSI, CLI).
 - ✅ `FROM COMMAND-LINE` (whole command line) · `FROM ARGUMENT-NUMBER` (arg count)
   · `FROM ARGUMENT-VALUE` (arg at the pointer set by `DISPLAY n UPON

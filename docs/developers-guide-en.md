@@ -5895,6 +5895,41 @@ tests follow. The `IS` is optional, as it is for the built-in class tests.
 > ⚠️ A class name is a *class*, not a data item: it has no storage, cannot be
 > moved to or from, and only ever appears after `IS [NOT]` in a condition.
 
+### Naming the console: mnemonic device names
+
+The third thing `SPECIAL-NAMES` does is give the operator's terminal a name of
+your own, so the rest of the program reads and writes through that name instead
+of naming a device inline:
+
+```cobol
+       SPECIAL-NAMES.
+           CONSOLE IS OPERATOR-CONSOLE.
+```
+
+```cobol
+           DISPLAY "ENTER THE RUN DATE (YYYYMMDD):"
+                                   UPON OPERATOR-CONSOLE.
+           ACCEPT  WS-RUN-DATE     FROM OPERATOR-CONSOLE.
+```
+
+`ACCEPT … FROM <mnemonic>` is **Format 1** — exactly what a bare
+`ACCEPT WS-RUN-DATE` does. It reads one line from the operator, and the line is
+laid across the receiving item: a group receiver is cut among its subordinate
+items by their widths, and a line shorter than the item is space-filled to the
+end. The `IS` is optional, as everywhere else in `SPECIAL-NAMES`.
+
+This is the shape mainframe and validation-suite COBOL uses everywhere, and it
+is worth naming the console even when you only have one: the mnemonic is the
+single place to change if the program is later driven from somewhere else.
+
+> **Note — a mnemonic and an environment variable are different sources.**
+> PowerRustCOBOL also lets `ACCEPT id FROM SOME-NAME` read the **environment
+> variable** `SOME-NAME`, which is an extension rather than COBOL-85. The
+> declaration decides which you get: a name `SPECIAL-NAMES` declares reads the
+> operator, a name it does not declare reads the environment. So declaring the
+> mnemonic is what makes the read standard — and if an `ACCEPT` unexpectedly
+> returns nothing, check that the name is declared before looking anywhere else.
+
 ### Justified receivers and edited alphanumeric fields
 
 Two `PICTURE`-level facilities that PowerCOBOL developers reach for on report

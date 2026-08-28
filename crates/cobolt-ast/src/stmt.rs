@@ -77,6 +77,16 @@ pub enum AcceptSource {
     EscapeKey,
     /// `FROM CRT STATUS` — the screen status of the last operation (`"0000"`).
     CrtStatus,
+    /// `FROM <mnemonic-name>` where SPECIAL-NAMES associates the mnemonic with
+    /// an implementor-name — Format 1 `ACCEPT`, reading the hardware device.
+    ///
+    /// The mnemonic is kept rather than collapsed to "console" so a device
+    /// distinction remains available. A name SPECIAL-NAMES never declared is
+    /// **not** this variant: it stays [`AcceptSource::Environment`], which is
+    /// the non-standard extension that reads an environment variable.
+    ///
+    /// New variants go at the END — the AST is bincode-serialized by ordinal.
+    Mnemonic(String),
 }
 
 /// WRITE … ADVANCING clause.
