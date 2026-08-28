@@ -870,6 +870,116 @@ mod tests {
         assert_eq!(cont, vec![8, 12, 14], "{flags:?}");
     }
 
+    /// The statement detectors the per-statement table above does not reach,
+    /// each with the in-subset form it must stay silent on.
+    ///
+    /// Written out because a *matching total* is not evidence that a detector
+    /// works: the scorer claims the earliest unclaimed flag before each
+    /// expectation, so one dead detector and one spurious flag cancel out. That
+    /// is exactly how the subscript check shipped broken while NC401M read
+    /// 40 of 40.
+    #[test]
+    fn the_remaining_procedure_detectors() {
+        for (body, want) in [
+            (
+                "           EVALUATE BOX-A WHEN 1 MOVE \"A\" TO VARC END-EVALUATE.",
+                "EVALUATE statement",
+            ),
+            (
+                "           SEARCH TEST-CODE WHEN BOX-A = BOX-B NEXT SENTENCE.",
+                "SEARCH statement",
+            ),
+            (
+                "           IF BOX-B > BOX-C MOVE \"B\" TO VARD ELSE MOVE \"C\" TO VARD.",
+                "IF … ELSE",
+            ),
+            ("           GO TO.", "GO TO without a procedure-name"),
+        ] {
+            let got = subset_of(&proc(body));
+            assert!(
+                got.contains(&want),
+                "{want:?} not reported for {body:?}; got {got:?}"
+            );
+        }
+
+        // An `IF` with no `ELSE`, and a `GO TO` that names its target, are both
+        // in subset.
+        let plain = subset_of(&proc(
+            "           IF BOX-B > BOX-C MOVE \"B\" TO VARD.
+           GO TO NEXT-ONE.",
+        ));
+        assert!(plain.is_empty(), "{plain:?}");
+    }
+
+    /// The ENVIRONMENT and DATA DIVISION detectors the earlier tests do not
+    /// reach, each against the in-subset form of the same clause.
+    #[test]
+    fn the_remaining_declaration_detectors() {
+        let got = subset_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DECLS.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           ALPHABET TEST-ALPHABET IS \"A\" THRU \"F\"
+           SYMBOLIC CHARACTERS A IS 32.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COUNT-ITEM PIC 9(3) VALUE 3.
+       01 VAR-TABLE.
+          03 VT-ENTRY OCCURS 1 TO 9 TIMES DEPENDING ON COUNT-ITEM
+             INDEXED BY VT-IX PIC X(4).
+       01 SORTED-TABLE.
+          03 ST-ENTRY OCCURS 5 TIMES
+             ASCENDING KEY IS ST-KEY INDEXED BY ST-IX.
+             05 ST-KEY PIC X(4).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+       END PROGRAM DECLS.
+",
+        );
+        for want in [
+            "ALPHABET with a literal range",
+            "SYMBOLIC CHARACTERS clause",
+            "variable-length table with INDEXED BY",
+            "ASCENDING/DESCENDING KEY",
+            "END PROGRAM header",
+        ] {
+            assert!(got.contains(&want), "{want:?} missing from {got:?}");
+        }
+    }
+
+    /// The in-subset spellings of those same clauses draw nothing.
+    ///
+    /// `INDEXED BY` on a **fixed-length** table is ordinary — `SEARCH` needs it
+    /// — and only its combination with `DEPENDING ON` is above the subset. An
+    /// `ALPHABET` naming a standard sequence is in subset; only a literal range
+    /// is not.
+    #[test]
+    fn the_in_subset_spellings_draw_nothing() {
+        let got = subset_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INSUB.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           ALPHABET PLAIN-ONE IS NATIVE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COUNT-ITEM PIC 9(3) VALUE 3.
+       01 FIXED-TABLE.
+          03 FT-ENTRY OCCURS 5 TIMES INDEXED BY FT-IX PIC X(4).
+       01 VAR-TABLE.
+          03 VT-ENTRY OCCURS 1 TO 9 TIMES DEPENDING ON COUNT-ITEM PIC X(4).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+",
+        );
+        assert!(got.is_empty(), "{got:?}");
+    }
+
     /// A program written entirely inside the high subset draws no flags — the
     /// analysis has to be silent on the thing it is measuring against.
     #[test]

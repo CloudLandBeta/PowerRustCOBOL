@@ -17,16 +17,27 @@
 //! record reading `AAA    0AA     0AAAA`, with the old digits showing through
 //! wherever a numeric child sat.
 //!
-//! ## What is deliberately *not* byte-exact
+//! ## Byte-exactness, and the two assumptions it broke
 //!
-//! A slice that **does** spell a number is still stored as that number, so
-//! `"  123"` into a `PIC 9(5)` child reads back `00123` rather than `"  123"`.
-//! Strictly the standard changes no bytes at all. Storing the characters in
-//! that case too was measured at **NC 74 programs clean against 77**: a great
-//! many programs move a numeric group and then compute with its children, and
-//! the normalisation is what keeps those working. The stricter reading is
-//! recorded in `set_group` and in `last_case_documents_the_remaining_gap`
-//! below, not applied.
+//! The move changes **no** bytes: a slice that spells a number keeps its own
+//! characters too, so `"  123"` into a `PIC 9(5)` child stays `"  123"` and is
+//! not re-rendered `00123` through the child's PICTURE.
+//!
+//! The first attempt at that cost three clean NC programs, because two places
+//! took "what is in the slot?" as a proxy for "what is this item?" — a proxy
+//! that only held while a numeric item could not contain characters:
+//!
+//! * `CobolEnvironment::set` assigned into the byte image instead of restoring
+//!   the item's numeric identity, so `truncate_to_capacity` — which reads the
+//!   slot as `CobolValue::Numeric` to apply the unsigned-magnitude rule and the
+//!   high-order cut — bailed out, and `SUBTRACT CORRESPONDING` wrote `-11` into
+//!   an unsigned `PIC 99` (NC253A, NC220M).
+//! * `is_alphanumeric_field` answered from the slot, so after
+//!   `MOVE ZERO TO D-NAMES` the statement `MOVE 7 TO DNAME-2` wrote the
+//!   characters `"7  "`, left-justified, into a numeric item (NC112A).
+//!
+//! Both now consult the **declaration**. With that, byte-exactness costs
+//! nothing: 78 clean programs either way, and one assertion better.
 
 use std::sync::mpsc;
 
@@ -183,11 +194,10 @@ fn a_numeric_group_move_leaves_its_children_computable() {
     assert_eq!(out[0], "TOTAL=0154", "{out:#?}");
 }
 
-/// The remaining gap, recorded rather than asserted away: a slice that spells a
-/// number is re-rendered through the child's PICTURE, so a leading blank
-/// becomes a leading zero. See this file's header for why.
+/// A slice that spells a number keeps its own characters: the move changes no
+/// bytes, so a leading blank stays a blank instead of becoming a zero.
 #[test]
-fn last_case_documents_the_remaining_gap() {
+fn a_numeric_slice_keeps_its_own_characters() {
     let out = run(r#"
        IDENTIFICATION DIVISION.
        PROGRAM-ID. GMOVEGAP.
@@ -205,7 +215,36 @@ fn last_case_documents_the_remaining_gap() {
            DISPLAY "DST=[" DST "]".
            STOP RUN.
 "#);
-    // Byte-exact would be `XX  123YYYY`. Change this assertion only alongside a
-    // fresh NC measurement — the last attempt cost three clean programs.
-    assert_eq!(out[0], "DST=[XX00123YYYY]", "{out:#?}");
+    assert_eq!(out[0], "DST=[XX  123YYYY]", "{out:#?}");
+}
+
+/// The item is still **numeric** afterwards, in both directions: a later
+/// numeric `MOVE` restores its category rather than writing characters into it,
+/// and arithmetic applies the unsigned-magnitude rule.
+///
+/// These are the two assumptions byte-exactness broke — see the header.
+#[test]
+fn a_byte_image_does_not_cost_the_item_its_numeric_category() {
+    let out = run(r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GMOVECAT.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 D-NAMES.
+          02 DNAME-1 PICTURE 9(3) VALUE 1.
+          02 DNAME-2 PICTURE 9(3) VALUE 1.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE ZERO TO D-NAMES.
+           MOVE 7 TO DNAME-1.
+           DISPLAY "LIT =[" DNAME-1 "]".
+           SUBTRACT 11 FROM DNAME-2.
+           DISPLAY "UNSGN=[" DNAME-2 "]".
+           STOP RUN.
+"#);
+    // Not `"7  "`: a declared numeric item is never alphanumeric, whatever its
+    // slot is holding.
+    assert_eq!(out[0], "LIT =[007]", "{out:#?}");
+    // An unsigned item has nowhere to keep a sign, so it stores the magnitude.
+    assert_eq!(out[1], "UNSGN=[011]", "{out:#?}");
 }

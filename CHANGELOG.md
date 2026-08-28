@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.34] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): a group `MOVE` now changes no bytes at all.**
+Execution holds at 78 of 95 and compile at 95 of 95; assertions go 117 → 116
+failing, and NC252A 10 → 9. No other module was touched (GOLDEN RULE #9).
+
+### Fixed — a numeric item's category came from its slot, not its declaration
+
+1.62.32 recorded byte-exact group moves as a limitation: storing the characters
+of a slice that *does* spell a number cost three clean programs, so a numeric
+child kept being re-rendered through its PICTURE and `"  123"` came back
+`00123`. That measurement was real, but the cause was not the byte-exactness —
+it was two places that took **"what is in the slot?" as a proxy for "what is
+this item?"**. The proxy held only while a numeric item could not contain
+characters, and a group `MOVE` is an alphanumeric move that makes exactly that
+possible.
+
+* **`CobolEnvironment::set`** assigned into the byte image rather than restoring
+  the item's numeric identity. `truncate_to_capacity` reads the slot as
+  `CobolValue::Numeric` to apply the unsigned-magnitude rule and the high-order
+  cut, so it bailed out silently — and `SUBTRACT CORRESPONDING` wrote `-11` into
+  an unsigned `PIC 99` (NC253A `SUB-TEST-F3-1`, NC220M). A numeric write into a
+  slot holding bytes now rebuilds the item at its **declared scale** and then
+  assigns, so `MOVE 12 TO <PIC 9(3)V99>` still lands as 12.00.
+* **`is_alphanumeric_field`** answered from the slot. After
+  `MOVE ZERO TO D-NAMES`, the statement `MOVE 7 TO DNAME-2` therefore wrote the
+  characters `"7  "`, left-justified, into a numeric item (NC112A
+  `MOVE-TEST-F1-1-2` … `-10`). A **declared** numeric item is now never
+  alphanumeric, whatever its slot happens to hold.
+
+With those two fixed, byte-exactness costs nothing: the same 78 clean programs,
+one assertion better, and NC252A improves. `MOVE SRC TO DST` across a group now
+leaves every byte where it was, which is what the standard says it does.
+
+### Verification — every flagging detector is pinned
+
+`flag_high_subset` has ~30 detectors and 1.62.33 unit-tested 15 of them; the
+rest rested on NC401M's aggregate, which that same release proved can lie (a
+dead detector and a spurious flag cancelled out and the total still read 40 of
+40). The remaining nine are now tested individually — `EVALUATE`, `SEARCH`,
+`IF … ELSE`, `GO TO.`, `ALPHABET` with a literal range, `SYMBOLIC CHARACTERS`,
+a variable-length table with `INDEXED BY`, `ASCENDING/DESCENDING KEY` and
+`END PROGRAM` — each beside the in-subset spelling it must stay silent on. A
+fixed-length `INDEXED BY` and an `ALPHABET IS NATIVE` draw nothing, as they
+should. No detector now rests on the aggregate.
+
 ## [PowerRustCOBOL 1.62.33] — 2026-08-28
 
 **NIST CCVS85 Nucleus (NC): execution 77 → 78 of 95, assertions 117 failing

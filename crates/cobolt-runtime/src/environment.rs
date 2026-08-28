@@ -1551,16 +1551,12 @@ impl CobolEnvironment {
             } else if self.field_caps.contains_key(base_name(&ck)) {
                 // Numeric receiver: keep the digits the bytes spell out.
                 match padded.trim().parse::<i128>() {
-                    // A slice that spells a number is stored **as** that number.
-                    // Strictly the standard says a group move changes no bytes
-                    // at all, so `"  123"` should stay `"  123"` rather than
-                    // being re-rendered `00123` through the child's PICTURE —
-                    // but storing the characters here was measured at NC 74
-                    // programs against 77, because a great many programs move a
-                    // numeric group and then compute with its children. The
-                    // normalisation is load-bearing; the byte-exact reading is
-                    // recorded here rather than applied.
-                    Ok(n) => self.set(&ck, CobolValue::from_i64(n as i64)),
+                    Ok(_) => {
+                        let width = padded.len();
+                        self.store
+                            .insert(ck.clone(), CobolValue::from_str(&padded, width));
+                        self.refresh_redefine_peers(&ck);
+                    }
                     // A group move carries **bytes**, not values: the receiving
                     // item is a group, so the standard makes the whole move
                     // alphanumeric and each slice lands in its child exactly as
@@ -1789,8 +1785,23 @@ impl CobolEnvironment {
     /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
     pub fn is_alphanumeric_field(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
-        !self.edited_templates.contains_key(base_name(&key))
-            && matches!(self.get(&key), Some(CobolValue::String { .. }))
+        if self.edited_templates.contains_key(base_name(&key)) {
+            return false;
+        }
+        // A **declared** numeric item is never alphanumeric, whatever its slot
+        // happens to be holding at the time.
+        //
+        // Asking the slot used to be a good enough proxy, because only an
+        // alphanumeric item could hold characters. A group `MOVE` is an
+        // alphanumeric move, so a `PIC 9(3)` child can legitimately be holding
+        // `"000"` or `"AAA"` — and then the slot answers with what the last
+        // statement put there rather than with what the item *is*. `MOVE 7 TO
+        // DNAME-2` after `MOVE ZERO TO D-NAMES` wrote the characters `"7  "`,
+        // left-justified, into a numeric item (NC112A MOVE-TEST-F1-1-2).
+        if self.field_caps.contains_key(&key) || self.field_caps.contains_key(base_name(&key)) {
+            return false;
+        }
+        matches!(self.get(&key), Some(CobolValue::String { .. }))
     }
 
     /// The declared `PIC X(n)` width of an alphanumeric item, if it is one.
@@ -2020,12 +2031,38 @@ impl CobolEnvironment {
                 self.store.insert(key.clone(), base_val);
             }
         }
+        // A group `MOVE` leaves a **byte image** in its children, including the
+        // numeric ones — the standard makes that move alphanumeric, so a
+        // `PIC 99` child can legitimately be holding `"AA"` or `"  "`. The next
+        // *numeric* write has to restore the item's own category, because
+        // everything downstream keys off it: `truncate_to_capacity` reads the
+        // slot as `CobolValue::Numeric` to apply the unsigned-magnitude rule and
+        // the high-order cut, and assigning into a `String` slot instead left
+        // `SUBTRACT CORRESPONDING` writing `-11` into an unsigned `PIC 99`
+        // (NC253A SUB-TEST-F3-1, NC220M, NC112A).
+        //
+        // The replacement is built at the item's **declared scale** rather than
+        // taken from the source, so `MOVE 12 TO <PIC 9(3)V99>` still lands as
+        // 12.00 exactly as it would have through `assign`.
+        let declared = self
+            .field_caps
+            .get(&key)
+            .or_else(|| self.field_caps.get(base_name(&key)))
+            .copied();
         if let Some(existing) = self.store.get_mut(&key) {
-            if matches!(existing, CobolValue::Unset) {
-                // Replace an uninitialised slot outright so the value isn't lost.
-                *existing = value;
-            } else {
-                existing.assign(&value);
+            let byte_image = matches!(existing, CobolValue::String { .. });
+            match declared {
+                _ if matches!(existing, CobolValue::Unset) => {
+                    // Replace an uninitialised slot outright so the value isn't
+                    // lost.
+                    *existing = value;
+                }
+                Some((_, decimals)) if byte_image && value.as_exact().is_some() => {
+                    let mut fresh = CobolValue::Numeric(CobolNumeric::new(0, decimals as u8));
+                    fresh.assign(&value);
+                    *existing = fresh;
+                }
+                _ => existing.assign(&value),
             }
         } else {
             self.store.insert(key.clone(), value);
