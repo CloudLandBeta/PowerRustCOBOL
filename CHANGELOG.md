@@ -1,5 +1,53 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.31] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): compile 94 → 95 of 95, execution 76 → 77.** The
+module now compiles completely; the whole suite goes 419 → 420 of 434. No other
+module was touched (GOLDEN RULE #9).
+
+### Added — `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal`
+
+NC108M was the last Nucleus compile failure and was recorded as needing an
+"implementor-defined editing picture", `<(3),<<<.99`. It needs no such thing.
+Twenty lines earlier the program declares `CURRENCY "<"`, so that is an ordinary
+floating-currency picture with `<` in the role `$` normally plays — plain
+COBOL-85, and a gap rather than an extension. The clause was being parsed and
+thrown away.
+
+The declared symbol **replaces** `$` rather than joining it, which is what the
+standard says: a program that names a currency sign may no longer write `$` in a
+picture. The PICTURE *template* still spells a currency position `$` whatever
+the program calls it — `$` is the internal marker for "currency position", so
+every width and digit-count rule stays written once and only the formatter
+substitutes at the moment it emits one.
+
+### Fixed — a REDEFINES overlay mis-sized every numeric-edited item
+
+The record layout took an elementary item's width as `digits + decimals`. Those
+count **digit positions**, and for a numeric-edited picture they are not the
+width: `PIC $$$,$$$.99` occupies ten characters but reports two digits and no
+decimals, because `analyze_pic` splits the integer and fractional parts on `V`
+and this picture's separator is a real `.` — so both nines land in the integer
+part and every `$`, `,` and `.` position is counted by nothing.
+
+An overlay that believed the item was two bytes wide truncated everything it
+actually held and shifted every later field in the record up by eight.
+NC108M's `COMPLETE-FORMAT (19)` read `<` where ` <1,1` was stored. The width now
+comes from `numedit::edited_width`, which is what formats the value anyway.
+
+This predates the currency work and had nothing to do with it — the same failure
+reproduces on a plain `$` picture with no `SPECIAL-NAMES` clause at all.
+
+### Fixed — an alphanumeric `VALUE` changed a numeric item's category
+
+`PICTURE IS 9 VALUE IS "5"` stored a *string* where the item's number belongs,
+so every rule that asks whether the item is numeric answered no. `BLANK WHEN
+ZERO` was one of them: it is applied on the numeric display path, so the item
+kept its digit where the standard requires spaces (NC108M FMT-TEST-GF-3). A
+numeric item now keeps its category whatever the literal's is, and a literal
+that spells no number leaves the item at its default rather than guessing.
+
 ## [PowerRustCOBOL 1.62.30] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): execution 72 → 76 of 95.** Four programs clear

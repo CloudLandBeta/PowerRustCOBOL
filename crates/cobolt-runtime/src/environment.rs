@@ -120,6 +120,13 @@ pub struct CobolEnvironment {
     /// `DECIMAL-POINT IS COMMA` — comma is the decimal point and period the
     /// grouping symbol in edited PICs.
     decimal_comma: bool,
+    /// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` — the character a currency
+    /// position prints in an edited PICTURE.
+    ///
+    /// `None` means the standard's own default, `$`. It is an `Option` rather
+    /// than a plain `char` so `#[derive(Default)]` still gives the right
+    /// answer: a defaulted `char` is NUL, which would print as one.
+    currency_symbol: Option<char>,
     /// Hierarchy / OCCURS metadata, keyed by the item's canonical storage key.
     symbols: IndexMap<String, ItemSym>,
     /// Leaf names that occur more than once in the program (under different
@@ -456,19 +463,35 @@ impl CobolEnvironment {
 
     /// Like [`from_data_division`], but with the program's `DECIMAL-POINT IS COMMA`
     /// setting (affects how edited PICs are formatted).
+    /// The character a currency position prints in an edited PICTURE.
+    pub fn currency(&self) -> char {
+        self.currency_symbol.unwrap_or('$')
+    }
+
+    /// Record the program's `SPECIAL-NAMES. CURRENCY` symbol.
+    pub fn set_currency(&mut self, c: char) {
+        self.currency_symbol = Some(c);
+    }
+
     pub fn from_data_division_with(data: &DataDivision, decimal_comma: bool) -> Self {
-        Self::from_data_division_with_origin(data, decimal_comma, "")
+        Self::from_data_division_with_origin(data, decimal_comma, '$', "")
     }
 
     /// Like [`from_data_division_with`], and records the declaring program/form
     /// name for debugger variable details.
+    /// `currency` must be supplied here rather than set afterwards: an edited
+    /// item with a numeric `VALUE` is formatted while its declaration is being
+    /// read, so a symbol installed after construction would arrive too late for
+    /// the initial value and show `$` for the rest of the item's life.
     pub fn from_data_division_with_origin(
         data: &DataDivision,
         decimal_comma: bool,
+        currency: char,
         origin: &str,
     ) -> Self {
         let mut env = Self::new();
         env.decimal_comma = decimal_comma;
+        env.set_currency(currency);
         let origin = origin.to_owned();
         // Pass 1: count every leaf name so we know which need disambiguation.
         let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
@@ -1616,6 +1639,7 @@ impl CobolEnvironment {
         blank_when_zero: bool,
     ) {
         let dc = self.decimal_comma;
+        let cur = self.currency();
         let width = crate::numedit::edited_width(template, dc);
         if blank_when_zero {
             self.blank_when_zero.insert(name.to_string());
@@ -1623,12 +1647,13 @@ impl CobolEnvironment {
         let v = match value {
             Some(Literal::String(s)) => CobolValue::from_str(s, width),
             Some(Literal::Integer(n)) => CobolValue::from_str(
-                &crate::numedit::format_edited(template, *n as i128, 0, dc),
+                &crate::numedit::format_edited(template, *n as i128, 0, dc, cur),
                 width,
             ),
-            Some(Literal::Decimal(m, s)) => {
-                CobolValue::from_str(&crate::numedit::format_edited(template, *m, *s, dc), width)
-            }
+            Some(Literal::Decimal(m, s)) => CobolValue::from_str(
+                &crate::numedit::format_edited(template, *m, *s, dc, cur),
+                width,
+            ),
             _ => CobolValue::spaces(width),
         };
         self.edited_templates
@@ -1958,12 +1983,13 @@ impl CobolEnvironment {
             };
             if let Some(num) = num {
                 let dc = self.decimal_comma;
+                let cur = self.currency();
                 let width = crate::numedit::edited_width(&template, dc);
                 let edited = if self.blank_when_zero.contains(base_name(&key)) && num.mantissa == 0
                 {
                     " ".repeat(width)
                 } else {
-                    crate::numedit::format_edited(&template, num.mantissa, num.decimals, dc)
+                    crate::numedit::format_edited(&template, num.mantissa, num.decimals, dc, cur)
                 };
                 self.store.insert(key.clone(), CobolValue::from_str(&edited, width));
                 self.refresh_redefine_peers(&key);
@@ -2272,6 +2298,21 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
         }
         Literal::String(s) => match default {
             CobolValue::String { capacity, .. } => CobolValue::from_str(s, *capacity),
+            // A numeric item keeps its **category** whatever the literal's is:
+            // `PICTURE IS 9 VALUE IS "5"` holds the number five, not the
+            // character. Storing the characters instead replaced the item's
+            // `Numeric` with a `String`, and every rule that asks whether the
+            // item is numeric then answered no — `BLANK WHEN ZERO` among them,
+            // which reads its own zero through the numeric display path
+            // (NC108M FMT-TEST-GF-3). A literal that spells no number at all
+            // leaves the item at its default rather than guessing.
+            CobolValue::Numeric(num) => {
+                let mut v = CobolValue::Numeric(num.clone());
+                if let Some(src) = crate::value::parse_decimal(s) {
+                    v.assign(&CobolValue::Numeric(src));
+                }
+                v
+            }
             _ => CobolValue::from_str(s, s.len()),
         },
         Literal::Figurative(fig) => {
@@ -2457,6 +2498,26 @@ fn numeric_image(n: &CobolNumeric, len: usize, sep_sign: Option<bool>) -> Vec<u8
     }
 }
 
+/// The storage width, in characters, of one elementary item's PICTURE.
+///
+/// `digits + decimals` is the width for every category **except numeric-edited**,
+/// where those two count *digit positions* and the item is as wide as its edited
+/// form. `PIC $$$,$$$.99` occupies ten characters but reports two digits and no
+/// decimals: `analyze_pic` splits the integer and fractional parts on `V`, and
+/// this picture's decimal separator is a real `.`, so both nines land in the
+/// integer part and every `$`, `,` and `.` position is counted by nothing.
+///
+/// A REDEFINES overlay that believed the two came to a two-byte item truncated
+/// everything the item actually held, and every field after it in the record
+/// shifted up by eight — NC108M's `COMPLETE-FORMAT (19)` read `<` where
+/// ` <1,1` was stored.
+fn pic_storage_len(pic: &cobolt_ast::data::PicClause, decimal_comma: bool) -> usize {
+    if matches!(pic.kind, PicKind::NumericEdited) {
+        return crate::numedit::edited_width(&pic.template, decimal_comma).max(1);
+    }
+    (pic.digits as usize + pic.decimals as usize).max(1)
+}
+
 fn serialize_decl(
     env: &CobolEnvironment,
     decl: &DataDecl,
@@ -2506,8 +2567,8 @@ fn serialize_decl(
             // A separate sign is a declared storage position, so it widens the
             // item by one and a REDEFINES overlay sees it (NC116A GF-1/GF-2).
             let sep_sign = separate_sign_of_decl(decl);
-            let len = (pic.digits as usize + pic.decimals as usize).max(1)
-                + usize::from(sep_sign.is_some());
+            let len =
+                pic_storage_len(pic, env.decimal_comma) + usize::from(sep_sign.is_some());
             let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
 
             let key = env.canon_key(&name_upper, quals);
@@ -2623,8 +2684,8 @@ fn deserialize_decl(
             }
         } else if let Some(pic) = &decl.picture {
             let sep_sign = separate_sign_of_decl(decl);
-            let len = (pic.digits as usize + pic.decimals as usize).max(1)
-                + usize::from(sep_sign.is_some());
+            let len =
+                pic_storage_len(pic, env.decimal_comma) + usize::from(sep_sign.is_some());
             let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
 
             // A redefining description may be WIDER than the storage it

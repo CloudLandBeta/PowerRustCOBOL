@@ -301,6 +301,19 @@ pub struct Program {
     /// that redefines which characters `LOW-VALUE` and `HIGH-VALUE` name.
     /// `None` leaves the native (ASCII) ordering in force.
     pub collating_sequence: Option<String>,
+    /// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` — the character that plays
+    /// the currency-symbol role in an edited PICTURE. `'$'` when the program
+    /// declares nothing, which is the standard's own default.
+    ///
+    /// The PICTURE **template** always spells a currency position as `$`,
+    /// whatever the program calls it: `$` is the internal marker for "currency
+    /// position", so every width and digit-count rule stays written once.
+    /// Only the formatter substitutes this character, at the moment it emits
+    /// one. That is why `PICTURE <(3),<<<.99` under `CURRENCY "<"` needs no
+    /// special case anywhere but the two ends of the pipeline.
+    ///
+    /// 🔴 New fields belong at the END of this struct.
+    pub currency: char,
 }
 
 /// How an `ALPHABET` clause defines a collating sequence.

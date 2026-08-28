@@ -47,6 +47,12 @@ pub struct Parser {
     /// `OBJECT-COMPUTER. … PROGRAM COLLATING SEQUENCE IS name` — moved into
     /// `Program::collating_sequence`.
     pub(crate) collating_sequence: Option<String>,
+    /// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` — the character an edited
+    /// PICTURE may use in place of `$`. Read while parsing the DATA DIVISION's
+    /// PICTURE clauses, which is why it lives on the parser and not only on the
+    /// finished `Program`: the ENVIRONMENT DIVISION always precedes the DATA
+    /// DIVISION, so the symbol is known by the time a picture needs it.
+    pub(crate) currency: char,
     /// `SPECIAL-NAMES. <switch> IS <mnemonic> ON STATUS IS <name> OFF STATUS IS
     /// <name>` — external switches, as
     /// `(implementor name, mnemonic, on-name, off-name)`.
@@ -101,6 +107,7 @@ impl Parser {
             classes: Vec::new(),
             alphabets: Vec::new(),
             collating_sequence: None,
+            currency: '$',
             switches: Vec::new(),
             pending_object_class: None,
             next_block_id: block_id_base,
@@ -651,6 +658,7 @@ pub(crate) fn parse_single_program(p: &mut Parser) -> cobolt_ast::program::Progr
         switch_names,
         alphabets,
         collating_sequence,
+        currency: p.currency,
     }
 }
 
@@ -1046,6 +1054,31 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                                 }
                             }
                             p.advance();
+                        }
+                        // SPECIAL-NAMES: CURRENCY [SIGN] [IS] "<char>"
+                        Some(s) if s.eq_ignore_ascii_case("CURRENCY") => {
+                            p.advance(); // CURRENCY
+                            // SIGN and IS are both optional — NC108M writes the
+                            // clause as a bare `CURRENCY "<".`. SIGN has its own
+                            // token (the data-description `SIGN IS LEADING`
+                            // clause needs one), so matching it as an identifier
+                            // silently skipped nothing and left the literal
+                            // unread.
+                            if p.at(&Token::Sign) {
+                                p.advance();
+                            }
+                            p.eat(&Token::Is);
+                            if let Token::StringLiteral(lit) = p.peek() {
+                                // The standard allows exactly one character.
+                                // A longer literal is left alone rather than
+                                // truncated into something the program did not
+                                // ask for.
+                                let mut cs = lit.chars();
+                                if let (Some(c), None) = (cs.next(), cs.next()) {
+                                    p.currency = c;
+                                }
+                                p.advance();
+                            }
                         }
                         // SPECIAL-NAMES: CLASS <name> [IS] lit [THRU lit] …
                         Some(s) if s.eq_ignore_ascii_case("CLASS") && !in_repository => {

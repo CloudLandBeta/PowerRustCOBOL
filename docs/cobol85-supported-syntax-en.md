@@ -738,6 +738,21 @@ unhandled error `FILE STATUS`.
   a space** — COBOL‑85 requires one after a terminator, so `MOVE X TO Y.` is
   never read as the start of a fraction, and `MOVE X TO Y.5` is a compile
   error rather than a silent reinterpretation.
+- ✅ **`SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal`** — the character that fills
+  a currency position in an edited PICTURE. It **replaces** `$` rather than
+  joining it, so once a program declares one, `$` is no longer a picture
+  character there:
+  ```cobol
+  SPECIAL-NAMES.
+      CURRENCY "<".
+  ...
+  01  FL-LESS  PICTURE <(3),<<<.99  VALUE " <1,111.11".
+  ```
+  `MOVE ZERO TO FL-LESS` then reads `      <.00`, and `MOVE 1234` reads
+  ` <1,234.00` — the floating run behaves exactly as `$$$,$$$.99` does. The
+  literal must be one character, and COBOL‑85 forbids one that would collide
+  with a picture character or separator: not a digit, not one of
+  `A B C D E G N P R S V X Z`, and none of `space * + - , . ; ( ) " / =`.
 - ✅ **Hexadecimal literals** — `X"09"`, `x'0D0A'` (either case, either quote).
   One character per **pair** of hex digits, so the digit count must be even; an
   odd count or a non-hex digit is a malformed literal and is reported, not
@@ -753,7 +768,9 @@ unhandled error `FILE STATUS`.
   VALUE ":".` does, and either way it holds its bytes and its `VALUE` inside the
   group that contains it.
 - ✅ `PIC/PICTURE` with `X A 9 S V P` and edited symbols (`Z * $ + - CR DB B 0 /
-  , .`). **`P` is a decimal scaling position** — a digit position the item spans
+  , .`). The currency symbol is `$` unless `SPECIAL-NAMES. CURRENCY` named
+  another — see **Expressions, literals, USAGE** above. **`P` is a decimal
+  scaling position** — a digit position the item spans
   but does not store: `PIC S999PP` holds three digits standing for hundreds
   (`MOVE 12300` stores it exactly; `MOVE 12345` stores 12300), and `PIC PP99`
   holds two standing for ten‑thousandths. The positions the `P`s occupy always

@@ -229,6 +229,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         let local_env = CobolEnvironment::from_data_division_with_origin(
             data,
             prog.decimal_comma,
+            prog.currency,
             &prog.identification.program_id,
         );
         local_env
@@ -242,6 +243,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         CobolEnvironment::from_data_division_with_origin(
             data,
             prog.decimal_comma,
+            prog.currency,
             &prog.identification.program_id,
         )
         .symbol_entries()
@@ -882,6 +884,7 @@ impl Interpreter {
             CobolEnvironment::from_data_division_with_origin(
                 data,
                 program.decimal_comma,
+                program.currency,
                 &program.identification.program_id,
             )
         } else {

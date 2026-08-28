@@ -3935,6 +3935,31 @@ single digit, and a picture need carry no `9` at all:
 > as the characters you see on a report. Compute with a plain numeric item and
 > move the result into the edited one when you need both.
 
+**The currency symbol is yours to choose.** `SPECIAL-NAMES. CURRENCY [SIGN] [IS]
+literal` names the character that fills a currency position, and every picture
+rule then applies to that character instead of `$` — including the floating run,
+where a repeated symbol drifts right to sit against the first significant digit:
+
+```cobol
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           CURRENCY SIGN IS "£".
+       ...
+       01  INVOICE-TOTAL  PICTURE £(3),£££.99.
+           MOVE 1234 TO INVOICE-TOTAL.      *> reads  £1,234.00
+           MOVE ZERO TO INVOICE-TOTAL.      *> reads       £.00
+```
+
+> ⚠️ **It replaces `$`, it does not join it.** Once a program declares a currency
+> sign, `$` stops being a picture character in that program, and a picture that
+> still uses one is rejected. If you are porting a program that mixes the two,
+> change every picture in the same edit.
+>
+> The literal is one character, and the standard rules out any that would
+> collide with a picture character or a separator: not a digit, not one of
+> `A B C D E G N P R S V X Z`, and none of `space * + - , . ; ( ) " / =`.
+
 **A numeric receiver holds exactly its declared digits — at both ends.** A
 `MOVE` aligns on the decimal point, then drops whatever does not fit. The
 low-order end is the familiar one; the high-order end is cut just as silently:

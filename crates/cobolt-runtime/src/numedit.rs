@@ -229,7 +229,18 @@ pub fn edited_width(template: &str, decimal_comma: bool) -> usize {
 }
 
 /// Format `mantissa × 10^-decimals` against the numeric-edited `template`.
-pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma: bool) -> String {
+///
+/// `currency` is the character a currency position prints — `'$'` unless
+/// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` named another. The template
+/// always spells such a position as `$` whatever the program calls it, so every
+/// width and digit-count rule is written once and only the emission substitutes.
+pub fn format_edited(
+    template: &str,
+    mantissa: i128,
+    decimals: u8,
+    decimal_comma: bool,
+    currency: char,
+) -> String {
     // Output characters for the decimal point and grouping insertion.
     let dec_char = if decimal_comma { ',' } else { '.' };
     let grp_char = if decimal_comma { '.' } else { ',' };
@@ -301,7 +312,7 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
             .collect();
     }
     let float_char = if float_dollar {
-        '$'
+        currency
     } else if float_plus {
         if negative {
             '-'
@@ -442,7 +453,7 @@ pub fn format_edited(template: &str, mantissa: i128, decimals: u8, decimal_comma
                 Sym::Blank => out.push(' '),
                 Sym::InsZero => out.push('0'),
                 Sym::Slash => out.push('/'),
-                Sym::Dollar => out.push('$'), // fixed currency
+                Sym::Dollar => out.push(currency), // fixed currency
                 Sym::Plus => out.push(if negative { '-' } else { '+' }), // fixed leading/trailing +
                 Sym::Minus => out.push(if negative { '-' } else { ' ' }), // fixed sign
                 _ => {}
@@ -531,7 +542,7 @@ mod tests {
 
     /// Helper: edit `value` (given as mantissa+scale) against `template`.
     fn ed(template: &str, mantissa: i128, decimals: u8) -> String {
-        format_edited(template, mantissa, decimals, false)
+        format_edited(template, mantissa, decimals, false, '$')
     }
 
     #[test]
@@ -545,16 +556,36 @@ mod tests {
     #[test]
     fn decimal_point_is_comma_swaps_roles() {
         // 1234.50 under comma mode: '.' groups, ',' is the decimal point.
-        assert_eq!(format_edited("$ZZ.ZZ9,99-", 123450, 2, true), "$ 1.234,50 ");
+        assert_eq!(format_edited("$ZZ.ZZ9,99-", 123450, 2, true, '$'), "$ 1.234,50 ");
         assert_eq!(
-            format_edited("$ZZ.ZZ9,99-", -123450, 2, true),
+            format_edited("$ZZ.ZZ9,99-", -123450, 2, true, '$'),
             "$ 1.234,50-"
         );
         // PIC 9.999 in comma mode = 4 integer digits with period grouping.
         assert_eq!(digit_counts("9.999", true), (4, 0));
-        assert_eq!(format_edited("9.999", 1234, 0, true), "1.234");
+        assert_eq!(format_edited("9.999", 1234, 0, true, '$'), "1.234");
         // 999,99 → comma decimal point.
-        assert_eq!(format_edited("999,99", 12345, 2, true), "123,45");
+        assert_eq!(format_edited("999,99", 12345, 2, true, '$'), "123,45");
+    }
+
+    /// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` — the template still spells
+    /// a currency position `$`; only the emitted character changes. Both the
+    /// fixed and the floating forms substitute (NIST NC108M).
+    #[test]
+    fn a_declared_currency_symbol_replaces_the_dollar() {
+        // Fixed currency: one `$` in the picture, three integer positions.
+        assert_eq!(format_edited("$ZZ9.99", 12345, 2, false, '<'), "<123.45");
+        // Floating currency: the run drifts to the first significant digit.
+        assert_eq!(
+            format_edited("$(3),$$$.99", 111111, 2, false, '<'),
+            " <1,111.11"
+        );
+        assert_eq!(format_edited("$(3),$$$.99", 0, 0, false, '<'), "      <.00");
+        // The default is unchanged.
+        assert_eq!(
+            format_edited("$(3),$$$.99", 111111, 2, false, '$'),
+            " $1,111.11"
+        );
     }
 
     #[test]

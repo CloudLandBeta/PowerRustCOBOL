@@ -539,6 +539,9 @@ fn parse_item_name(p: &mut Parser) -> Option<String> {
 fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
     let span = p.peek_span();
     let mut template = String::new();
+    // The ENVIRONMENT DIVISION is parsed before the DATA DIVISION, so a
+    // `CURRENCY` clause has already been read by the time any picture is.
+    let currency = p.currency;
 
     // Collect tokens until a clause boundary or period
     loop {
@@ -607,7 +610,7 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
                 // `02 WRK-EDIT-006 PIC 999999999999..`. Reading both as
                 // terminators dropped the point from the template and left a
                 // stray period that desynchronised the whole DATA DIVISION.
-                if pic_continues(p.peek_at(1)) || matches!(p.peek_at(1), Token::Period) {
+                if pic_continues(p.peek_at(1), currency) || matches!(p.peek_at(1), Token::Period) {
                     p.advance();
                     template.push('.');
                 } else {
@@ -619,8 +622,12 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
                 p.advance();
                 template.push_str(&decimal_to_pic(mantissa, scale));
             }
-            // '$' currency is lexed as an error token.
-            Token::Error(ref s) if s == "$" => {
+            // The currency symbol — `$` unless SPECIAL-NAMES said otherwise.
+            // It is normalised to `$` in the template whatever the program
+            // calls it: `$` is the internal marker for "currency position", so
+            // every width and digit-count rule downstream stays written once.
+            // Only the formatter substitutes the real character back.
+            ref t if is_currency_token(t, currency) => {
                 p.advance();
                 template.push('$');
             }
@@ -705,7 +712,7 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
 
 /// True if `tok` can be part of a PICTURE string (used to tell an editing decimal
 /// point apart from the clause-terminating period).
-fn pic_continues(tok: &Token) -> bool {
+fn pic_continues(tok: &Token, currency: char) -> bool {
     matches!(
         tok,
         Token::IntegerLiteral(_)
@@ -718,7 +725,36 @@ fn pic_continues(tok: &Token) -> bool {
             | Token::Minus
             | Token::Slash
             | Token::Comma
-    ) || matches!(tok, Token::Error(s) if s == "$")
+    ) || is_currency_token(tok, currency)
+}
+
+/// True if `tok` is this program's currency symbol.
+///
+/// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` lets a program pick a
+/// different character for the currency position in an edited PICTURE, and the
+/// lexer has no idea which one that is — it tokenizes `<` as a less-than
+/// operator, and `$` as an unclassifiable character, long before the picture is
+/// read. The mapping back is therefore explicit.
+///
+/// COBOL-85 forbids a currency symbol that would collide with a picture
+/// character or a separator: not a digit, not one of `A B C D E G N P R S V X
+/// Z`, and none of `space * + - , . ; ( ) " / =`. What remains reaches the
+/// parser as an operator token (`<`, `>`, `&`), as an unclassifiable character
+/// (`$`, `#`, `@`, `%`), or — for the permitted letters — as a one-character
+/// identifier.
+fn is_currency_token(tok: &Token, currency: char) -> bool {
+    let one = |s: &str| s.chars().eq(std::iter::once(currency));
+    match tok {
+        Token::Lt => currency == '<',
+        Token::Gt => currency == '>',
+        Token::Ampersand => currency == '&',
+        Token::Error(s) => one(s),
+        // Guarded on a declared symbol: with the default `$` in force, a
+        // one-character identifier in a picture is `PIC A` or `PIC S`, never a
+        // currency position.
+        Token::Identifier(s) => currency != '$' && one(s),
+        _ => false,
+    }
 }
 
 /// Rebuild the picture text for a decimal literal token (`9.99`, `99.99`).
