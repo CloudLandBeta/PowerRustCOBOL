@@ -4058,6 +4058,44 @@ name for its first child.
 > where the first left off. To reach a later part of the field, put a `FILLER`
 > of the right width in front of it inside the same overlay.
 
+### Comparing a number with text
+
+`IF` compares two numbers **algebraically** — by value, sign and all. It
+compares two pieces of text **character by character**. What it does when you
+mix them is the rule worth knowing, because a screen field, a file record and a
+report line are all text:
+
+> **One numeric operand and one nonnumeric operand makes the whole comparison
+> nonnumeric.** The number is treated as though it had been moved to an
+> alphanumeric item **of its own size**, and the two are then compared as text.
+> That move carries the item's character positions and **not its sign**.
+
+```cobol
+       01  WS-AMOUNT   PIC S9(18).
+       01  WS-TYPED    PIC X(18).
+           MOVE -123456789012345678 TO WS-AMOUNT.
+           MOVE "123456789012345678" TO WS-TYPED.
+           IF WS-AMOUNT = WS-TYPED           *> TRUE — the sign is not compared
+```
+
+Three details decide whether the rule applies at all:
+
+- **The number must be an integer.** A `PIC S9(9)V9(9)` item has no character
+  position for its decimal point, so it has no text form to compare with. The
+  standard does not permit the comparison, and PowerRustCOBOL leaves such a
+  relation alone rather than inventing an answer.
+- **"Text" means *declared* as text.** A `PIC 99` item is numeric even at a
+  moment when it happens to hold characters — after a group `MOVE`, say — so
+  `IF WS-COUNT = 0` stays an ordinary numeric comparison.
+- **`ALL "x"` takes the size of the other operand**, which is the only size it
+  has: against a `PIC 9` item, `ALL "00"` is one character.
+
+> ⚠️ **The item's width is what is compared, not the value's.** `PIC 9(4)`
+> holding 12 is the four characters `0012`, so it equals `"0012"` and does *not*
+> equal `"12"`. If you are comparing a number against something a user typed,
+> compare against a field declared at the same width, or `MOVE` the number into
+> an edited item first and compare that.
+
 **Subscripts need only a space between them.** The comma is optional there too:
 
 ```cobol

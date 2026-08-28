@@ -49,7 +49,7 @@ fn string_with_special_chars() {
 #[test]
 fn integer_literal_positive() {
     let t = toks("ADD 42 TO WS-COUNT.");
-    assert_eq!(t[1], Token::IntegerLiteral(42));
+    assert_eq!(t[1], Token::IntegerLiteral(42, 2));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn integer_literal_zero() {
     let t = toks("MOVE 0 TO WS-X.");
     let tok = &t[1];
     assert!(
-        matches!(tok, Token::IntegerLiteral(0)),
+        matches!(tok, Token::IntegerLiteral(0, _)),
         "expected IntegerLiteral(0), got {tok:?}"
     );
 }
@@ -65,7 +65,7 @@ fn integer_literal_zero() {
 #[test]
 fn large_integer() {
     let t = toks("MOVE 99999 TO WS-X.");
-    assert_eq!(t[1], Token::IntegerLiteral(99999));
+    assert_eq!(t[1], Token::IntegerLiteral(99999, 5));
 }
 
 #[test]
@@ -137,9 +137,9 @@ fn level_66() {
 #[test]
 fn non_level_numbers_are_integers() {
     let t = toks("MOVE 50 TO WS-X.");
-    assert_eq!(t[1], Token::IntegerLiteral(50));
+    assert_eq!(t[1], Token::IntegerLiteral(50, 2));
     let t2 = toks("ADD 100 TO WS-X.");
-    assert_eq!(t2[1], Token::IntegerLiteral(100));
+    assert_eq!(t2[1], Token::IntegerLiteral(100, 3));
 }
 
 #[test]
@@ -586,7 +586,7 @@ fn a_glued_hyphen_after_digits_is_part_of_the_word() {
 fn a_spaced_hyphen_after_digits_is_still_subtraction() {
     let t = toks("COMPUTE A = 5 - B.");
     assert!(t.contains(&Token::Minus), "{t:?}");
-    assert!(t.contains(&Token::IntegerLiteral(5)), "{t:?}");
+    assert!(t.contains(&Token::IntegerLiteral(5, 1)), "{t:?}");
     assert!(t.iter().any(|t| matches!(t, Token::Identifier(s) if s == "B")), "{t:?}");
 }
 
@@ -616,7 +616,7 @@ fn a_trailing_sign_picture_is_not_eaten_by_the_word_rule() {
 fn digits_alone_are_still_a_number() {
     let t = toks("01 X PIC 99.");
     assert_eq!(t[0], Token::LevelNumber(1));
-    assert!(t.contains(&Token::IntegerLiteral(99)), "{t:?}");
+    assert!(t.contains(&Token::IntegerLiteral(99, 2)), "{t:?}");
     let t = toks("ADD 123 TO X.");
-    assert!(t.contains(&Token::IntegerLiteral(123)), "{t:?}");
+    assert!(t.contains(&Token::IntegerLiteral(123, 3)), "{t:?}");
 }

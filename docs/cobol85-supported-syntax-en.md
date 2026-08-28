@@ -74,7 +74,7 @@ Both numbers are reported per module, and never conflated:
 
 | Module | Compile | Execution (0 failures) |
 |---|---:|---:|
-| **NC (Nucleus)** | **95 / 95** | **80 / 95** |
+| **NC (Nucleus)** | **95 / 95** | **82 / 95** |
 
 Work proceeds **one module at a time**: NC is finished only when both numbers
 reach 95, and no other module is worked on until it does. A broad compile score
@@ -810,6 +810,24 @@ unhandled error `FILE STATUS`.
   (`-2.34` → `$*2.34CR`). *(Before 1.62.37 `CR`/`DB` contributed one asterisk
   instead of the two character positions they occupy, so such an item came back
   one character short of its own width.)*
+- ✅ **A numeric literal moves its characters, as written.** To an alphanumeric
+  receiver a literal contributes the digits the program typed, left‑justified
+  and space‑padded — `MOVE 2 TO <PIC X(4)>` is `"2   "`, and
+  `MOVE 060820000200 TO <six PIC 99 children>` fills them
+  `06 08 20 00 02 00`. The **receiver's** width never pads the literal; only its
+  own written width does. *(Before 1.62.38 the lexer kept only the value, so a
+  leading zero was lost and every following character shifted one place left.)*
+- ✅ **A relation between a numeric and a nonnumeric operand is nonnumeric**
+  (COBOL‑85 VI‑89 6.15.4 GR2). The numeric operand is treated as though moved to
+  an alphanumeric item of **its own size**, which transfers its character
+  positions and **not its operational sign**: `PIC S9(18)` holding
+  `-123456789012345678` compares **equal** to `PIC X(18)` holding
+  `"123456789012345678"`. Three conditions bound the rule — the numeric operand
+  must be an **integer**; "nonnumeric" is decided by the **declaration**, so a
+  `PIC 99` child holding characters after a group `MOVE` is still numeric; and
+  `ALL literal` takes the size of the other operand. *(Before 1.62.38 the
+  comparison was algebraic whenever the text side happened to parse as a
+  number.)*
 - ✅ **High‑order truncation on a numeric MOVE.** A receiver holds exactly its
   declared digits at both ends: `01 M PIC 99V999.  MOVE 123.45 TO M.` leaves
   `23.450`. Arithmetic tests the receiver's capacity first, so a statement with

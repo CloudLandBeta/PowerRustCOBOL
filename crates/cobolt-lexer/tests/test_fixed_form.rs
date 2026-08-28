@@ -99,7 +99,7 @@ fn sequence_numbers_ignored() {
     let t = toks_fixed(src);
     assert!(
         !t.iter()
-            .any(|tok| matches!(tok, Token::IntegerLiteral(100) | Token::IntegerLiteral(200))),
+            .any(|tok| matches!(tok, Token::IntegerLiteral(100, _) | Token::IntegerLiteral(200, _))),
         "sequence numbers should not tokenize"
     );
     assert_eq!(

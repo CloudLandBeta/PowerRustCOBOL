@@ -445,7 +445,7 @@ fn initial_bridge_args(value: &Option<Literal>) -> Vec<crate::rust_bridge::Bridg
     use crate::rust_bridge::BridgeValue;
     match value {
         Some(Literal::String(s)) => vec![BridgeValue::Str(s.clone())],
-        Some(Literal::Integer(n)) => vec![BridgeValue::Int(*n)],
+        Some(Literal::Integer(n) | Literal::IntegerDigits(n, _)) => vec![BridgeValue::Int(*n)],
         _ => Vec::new(),
     }
 }
@@ -2938,7 +2938,10 @@ impl Interpreter {
                 if let Some(lit) = literal {
                     let s = match lit {
                         Literal::String(s) => s.clone(),
-                        Literal::Integer(n) => n.to_string(),
+                        // Echoed to the operator, so show what was written.
+                        Literal::Integer(_) | Literal::IntegerDigits(..) => {
+                            lit.integer_digits().unwrap_or_default()
+                        }
                         _ => String::new(),
                     };
                     if !s.is_empty() {
@@ -3103,8 +3106,15 @@ impl Interpreter {
                 self.env.deedited_digits(&key)
             }
             // A numeric **literal** is an integer sender like any other:
-            // `MOVE 2 TO <PIC X(4)>` leaves `"2   "`, not `"   2"`.
-            Expr::Literal(Literal::Integer(n), _) => Some(n.unsigned_abs().to_string()),
+            // `MOVE 2 TO <PIC X(4)>` leaves `"2   "`, not `"   2"` — and the
+            // characters are the ones the program wrote, so a literal with
+            // leading zeros keeps them. `MOVE 060820000200 TO <group of six
+            // PIC 99>` fills the children `06 08 20 00 02 00`; taking the
+            // value's digits instead dropped the leading zero and shifted every
+            // child one position left (NC202A ADD-TEST-F3-7).
+            Expr::Literal(lit @ (Literal::Integer(_) | Literal::IntegerDigits(..)), _) => {
+                lit.integer_digits()
+            }
             _ => None,
         };
         // The same reference, read back as a *number* when it is numeric-edited
@@ -9633,6 +9643,95 @@ impl Interpreter {
         }
     }
 
+    /// COBOL-85 VI-89 6.15.4 GR2 — the **pseudo-move**.
+    ///
+    /// When one operand of a relation is numeric and the other is nonnumeric,
+    /// the comparison is a *nonnumeric* one: the numeric operand is treated as
+    /// though it had been moved to an alphanumeric item of the same size, and
+    /// the two are then compared character by character. The move is what makes
+    /// this more than a formality — it transfers the item's character positions
+    /// and **not its operational sign**, so `PIC S9(18)` holding
+    /// `-123456789012345678` compares equal to `PIC X(18)` holding
+    /// `"123456789012345678"` (NC103A `IF-TEST-GF-98`).
+    ///
+    /// "Of the same size" is why this lives here rather than in
+    /// [`compare_values`]: the size is the *item's*, and a `CobolValue` has
+    /// stopped being an item by then. A data item de-edits to its declared
+    /// digit positions; a literal contributes the digits the program wrote.
+    fn pseudo_move_numeric(&mut self, e: &Expr, v: &CobolValue) -> Option<CobolValue> {
+        if !v.is_numeric() {
+            return None;
+        }
+        // The rule names its own precondition: the numeric operand **shall be
+        // an integer**. A non-integer against a nonnumeric operand is not a
+        // permitted comparison at all, so the reading that was here before is
+        // left alone rather than replaced by a wrong one — a `PIC S9(9)V9(9)`
+        // item has no character position for its decimal point, and pseudo-
+        // moving it produced eighteen digits that matched nothing (NC112A
+        // MOVE-TEST-F1-2-*, which print equal and would have compared unequal).
+        if matches!(v, CobolValue::Numeric(n) if n.decimals != 0) {
+            return None;
+        }
+        let digits = match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(e);
+                self.env.deedited_digits(&key)
+            }
+            Expr::Literal(lit, _) => lit.integer_digits(),
+            _ => None,
+        }?;
+        Some(CobolValue::from_str(&digits, digits.len()))
+    }
+
+    /// Whether an operand is **nonnumeric** — decided by what it is declared to
+    /// be, never by what its slot happens to hold.
+    ///
+    /// That distinction is the whole of it. After a group `MOVE`, a `PIC 99`
+    /// child legitimately holds characters, and `IF XYZ-13 = 0` is still a
+    /// relation between two *numeric* operands — it compares algebraically and
+    /// the pseudo-move must not touch it. Reading the slot instead turned that
+    /// into `"0"` against `"00"` and failed it (NC208A `MOV-TEST-F1-3`).
+    fn is_nonnumeric_operand(&mut self, e: &Expr) -> bool {
+        match e {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(e);
+                self.env.is_alphanumeric_field(&key)
+            }
+            // A nonnumeric literal, and the figurative constants — which are
+            // characters whatever they are compared against.
+            Expr::Literal(Literal::String(_) | Literal::Figurative(_), _) => true,
+            _ => false,
+        }
+    }
+
+    /// Apply the pseudo-move to whichever side of a relation needs it.
+    ///
+    /// Exactly one operand numeric and the other nonnumeric is the case the
+    /// rule names. Two numerics compare algebraically; two nonnumerics were
+    /// never numeric; and an `Unset` operand is neither — it has no characters
+    /// at all, which is what distinguishes it from an item holding a space, so
+    /// it keeps the numeric reading (`IF WS-PTR = NULL`).
+    fn nonnumeric_relation(
+        &mut self,
+        le: &Expr,
+        l: CobolValue,
+        re: &Expr,
+        r: CobolValue,
+    ) -> (CobolValue, CobolValue) {
+        if l.is_numeric() && self.is_nonnumeric_operand(re) {
+            if let Some(p) = self.pseudo_move_numeric(le, &l) {
+                let r = size_all_literal(re, r, p.as_display_string().len());
+                return (p, r);
+            }
+        } else if r.is_numeric() && self.is_nonnumeric_operand(le) {
+            if let Some(p) = self.pseudo_move_numeric(re, &r) {
+                let l = size_all_literal(le, l, p.as_display_string().len());
+                return (l, p);
+            }
+        }
+        (l, r)
+    }
+
     /// Evaluate a boolean condition.
     pub fn eval_condition(&mut self, cond: &Condition) -> Result<bool, RuntimeError> {
         match cond {
@@ -9641,6 +9740,7 @@ impl Interpreter {
                 let r = self.eval_expr(rhs, *span)?;
                 let l = self.as_comparand(lhs, l);
                 let r = self.as_comparand(rhs, r);
+                let (l, r) = self.nonnumeric_relation(lhs, l, rhs, r);
                 Ok(compare_values(&l, &r, *op))
             }
             Condition::Not(inner, _) => Ok(!self.eval_condition(inner)?),
@@ -10284,7 +10384,9 @@ fn remove_collection_line(existing: &str, id: &str) -> String {
 
 pub fn literal_to_value(lit: &Literal) -> CobolValue {
     match lit {
-        Literal::Integer(n) => CobolValue::from_i64(*n),
+        // The written digit count is presentation, not value: as a *number* a
+        // literal with leading zeros is the same number without them.
+        Literal::Integer(n) | Literal::IntegerDigits(n, _) => CobolValue::from_i64(*n),
         Literal::Float(f) => CobolValue::from_f64(*f),
         Literal::Decimal(m, s) => CobolValue::Numeric(CobolNumeric::new(*m, *s)),
         Literal::String(s) => CobolValue::from_str(s, s.len()),
@@ -10332,6 +10434,29 @@ fn cob_ordering(a: &CobolValue, b: &CobolValue) -> std::cmp::Ordering {
     } else {
         Ordering::Greater
     }
+}
+
+/// `ALL literal` in a relation is the literal repeated to **the size of the
+/// other operand** — it has no length of its own to compare with.
+///
+/// `IF ALL "00" NOT > ZERO-D` with `ZERO-D PICTURE 9` compares against a single
+/// character, so the constant is `"0"` and the two are equal. Left at its
+/// written length it was `"00"` against `"0 "`, which is greater, and the test
+/// failed (NC250A `IF--TEST-106`).
+///
+/// Applied where the pseudo-move pairs a numeric operand with a nonnumeric one,
+/// which is where a size for it first exists. Any other operand is returned
+/// untouched.
+fn size_all_literal(e: &Expr, v: CobolValue, width: usize) -> CobolValue {
+    let Expr::Literal(Literal::Figurative(FigurativeConstant::All(inner)), _) = e else {
+        return v;
+    };
+    let unit = literal_to_value(inner).as_display_string();
+    if unit.is_empty() || width == 0 {
+        return v;
+    }
+    let repeated: String = unit.chars().cycle().take(width).collect();
+    CobolValue::from_str(&repeated, width)
 }
 
 pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {

@@ -177,7 +177,7 @@ pub fn flag_obsolete(tokens: &[SpannedToken]) -> Vec<Flag> {
                     && matches!(
                         next,
                         Some(Token::StringLiteral(_))
-                            | Some(Token::IntegerLiteral(_))
+                            | Some(Token::IntegerLiteral(..))
                             | Some(Token::DecimalLiteral { .. })
                     )
                 {
@@ -491,7 +491,7 @@ fn subset_procedure_flags(
                 Token::Period => break,
                 _ if depth != 1 => {}
                 Token::Colon => colon = true,
-                Token::Identifier(_) | Token::IntegerLiteral(_) => operands += 1,
+                Token::Identifier(_) | Token::IntegerLiteral(..) => operands += 1,
                 Token::Plus | Token::Minus | Token::Star | Token::Slash => operators += 1,
                 _ => {}
             }

@@ -299,7 +299,7 @@ impl<'src> Lexer<'src> {
             // an arithmetic operator must have spaces around it, so `B - C` is
             // a subtraction and `B-C` is a name. `PIC 9999-.` is untouched
             // because no word follows its hyphen.
-            if let Token::IntegerLiteral(_) | Token::LevelNumber(_) = token {
+            if let Token::IntegerLiteral(..) | Token::LevelNumber(_) = token {
                 if let Some(joined) = self.try_join_digit_leading_word(span) {
                     return Some(joined);
                 }
@@ -362,7 +362,11 @@ impl<'src> Lexer<'src> {
                 if self.at_line_start && keywords::is_level_number(n) {
                     Token::LevelNumber(n as u8)
                 } else {
-                    Token::IntegerLiteral(n as i64)
+                    // The raw token's regex is `[0-9]+`, so its span length is
+                    // exactly how many digits were written — leading zeros
+                    // included, which is the whole point of keeping it.
+                    let digits = span.end.saturating_sub(span.start).min(u8::MAX as usize) as u8;
+                    Token::IntegerLiteral(n as i64, digits)
                 }
             }
             RawToken::Integer(None) => {

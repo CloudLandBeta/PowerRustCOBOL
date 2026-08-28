@@ -1005,7 +1005,7 @@ fn parse_perform(p: &mut Parser) -> Stmt {
     }
 
     // Inline `PERFORM n TIMES … END-PERFORM` (count then TIMES, no paragraph).
-    if (matches!(p.peek(), Token::IntegerLiteral(_)) || p.at_identifier())
+    if (matches!(p.peek(), Token::IntegerLiteral(..)) || p.at_identifier())
         && matches!(p.peek_at(1), Token::Times)
     {
         let count = parse_expr(p);
@@ -1070,7 +1070,7 @@ fn parse_perform(p: &mut Parser) -> Stmt {
         _ => None,
     };
     if p.at(&Token::Times)
-        || matches!(p.peek(), Token::IntegerLiteral(_))
+        || matches!(p.peek(), Token::IntegerLiteral(..))
         || count_level.is_some()
         || at_times_count(p)
     {
@@ -3576,7 +3576,7 @@ pub(crate) fn is_expr_start(p: &Parser) -> bool {
     matches!(
         p.peek(),
         Token::Identifier(_)
-            | Token::IntegerLiteral(_)
+            | Token::IntegerLiteral(..)
             // A number that opened a line: the lexer took it for a level
             // number, but an expression is expected here (see parse_literal_inner).
             | Token::LevelNumber(_)

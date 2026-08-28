@@ -638,17 +638,16 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
                 p.advance();
                 template.push_str(&s);
             }
-            Token::IntegerLiteral(n) => {
-                // The lexer kept the **value**, so a run of picture characters
-                // that happens to look like a number loses its leading zeros:
-                // `PIC 090909` (three digit positions between zero insertions)
-                // came back as `90909` and edited one character too narrow.
-                // The token's span still records how many characters were
-                // written, so the zeros are put back from that.
-                let span = p.peek_span();
+            Token::IntegerLiteral(n, digits) => {
+                // A run of picture characters that happens to look like a
+                // number is one integer token, and its **value** loses the
+                // leading zeros: `PIC 090909` (three digit positions between
+                // zero insertions) came back as `90909` and edited one
+                // character too narrow. The token records how many digits were
+                // written, so they go back from that.
                 p.advance();
                 let text = n.to_string();
-                let written = span.end.saturating_sub(span.start);
+                let written = digits as usize;
                 // …but a **repeat count** is a number, so `PIC 9(06)` means six
                 // digits, not `9(06)`. Only digits outside the parentheses are
                 // picture characters.
@@ -715,7 +714,7 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
 fn pic_continues(tok: &Token, currency: char) -> bool {
     matches!(
         tok,
-        Token::IntegerLiteral(_)
+        Token::IntegerLiteral(..)
             | Token::DecimalLiteral { .. }
             | Token::Identifier(_)
             | Token::LParen
@@ -1019,7 +1018,7 @@ fn parse_usage_clause(p: &mut Parser) -> Usage {
 /// lenient — a real level number can never appear in this position.
 fn eat_required_integer(p: &mut Parser) -> Option<u32> {
     match p.peek().clone() {
-        Token::IntegerLiteral(n) => {
+        Token::IntegerLiteral(n, _) => {
             p.advance();
             Some(n as u32)
         }
@@ -1113,6 +1112,9 @@ fn parse_occurs_clause(p: &mut Parser) -> OccursClause {
 fn negate_literal(lit: Literal) -> Literal {
     match lit {
         Literal::Integer(n) => Literal::Integer(-n),
+        // The written digit count is the count of *digits*; the sign is not one
+        // of them, so it survives negation unchanged.
+        Literal::IntegerDigits(n, d) => Literal::IntegerDigits(-n, d),
         Literal::Decimal(m, s) => Literal::Decimal(-m, s),
         Literal::Float(f) => Literal::Float(-f),
         other => other,

@@ -1,5 +1,94 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.38] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): a numeric literal moves its characters, and a
+numeric operand compared with a nonnumeric one pseudo-moves.** NC202A and
+NC103A are now **clean** and NC105A goes 18 → 13, so execution reaches
+**80 → 82 of 95** and assertions 98 → 88 failing (98.1 % of 4559). Compile
+holds at 95 of 95. No other module was touched (GOLDEN RULE #9).
+
+### Fixed — a numeric literal lost the digits it was written with
+
+COBOL-85 moves a numeric literal's **characters** to an alphanumeric receiver,
+not its value. `MOVE 060820000200 TO CORR-DATA-2`, six `PIC 99` children, fills
+them `06 08 20 00 02 00`. The lexer kept only the value, so the leading zero was
+gone and the eleven remaining digits shifted every child one position left; the
+`ADD CORRESPONDING` that followed computed 63 where 09 was correct (NC202A
+`ADD-TEST-F3-7-1/2/3/5` — four assertions, one cause).
+
+The written width now rides along as a **digit count** rather than as text, so
+nothing allocates: `Token::IntegerLiteral(i64, u8)` and, for the literals that
+need it, `Literal::IntegerDigits(i64, u8)` (new, at the **end** of the enum —
+the AST is bincode-serialized by ordinal). A literal whose value renders back to
+what was written stays `Literal::Integer`, so the ordinary case keeps the shape
+every existing arm already handles.
+
+Widening the *token's arity* rather than adding a sibling variant is what made
+this safe: every one of its 24 pattern sites became a compile error, so the
+compiler enumerated the work instead of a `matches!` silently ceasing to match.
+
+⚠️ The receiver's width never enters into it. `MOVE 2 TO <PIC X(4)>` is still
+`"2   "`; padding to the receiver would make it `"0002"`.
+
+### Fixed — comparing a numeric operand with a nonnumeric one
+
+COBOL-85 VI-89 6.15.4 GR2: when one operand of a relation is numeric and the
+other nonnumeric, the comparison is a **nonnumeric** one — the numeric operand
+is treated as though it had been moved to an alphanumeric item of the same size,
+which transfers its character positions and **not its operational sign**. We
+compared algebraically instead, so `PIC S9(18)` holding `-123456789012345678`
+did not equal `PIC X(18)` holding `"123456789012345678"` (NC103A
+`IF-TEST-GF-98`).
+
+The pseudo-move lives beside `as_comparand`, where an operand is still an
+expression that names an item — "of the same size" is the *item's* size, and a
+`CobolValue` has stopped being an item by the time `compare_values` sees it.
+
+Three preconditions decide whether the rule applies, and each cost a program
+while it was missing:
+
+* **The numeric operand must be an integer.** The standard says so, and a
+  `PIC S9(9)V9(9)` item has no character position for its decimal point;
+  pseudo-moving it failed comparisons that print equal (NC112A).
+* **"Nonnumeric" is a property of the declaration, never of the slot.** After a
+  group `MOVE` a `PIC 99` child legitimately holds characters, and
+  `IF XYZ-13 = 0` is still a relation between two numeric operands (NC208A
+  `MOV-TEST-F1-3`).
+* **`ALL literal` takes the size of the other operand** — it has no other size.
+  `IF ALL "00" NOT > ZERO-D` with `ZERO-D PICTURE 9` compares against one
+  character (NC250A `IF--TEST-106`).
+
+### Fixed — `alphanumeric_capacity` answered from the slot
+
+The same proxy `is_alphanumeric_field` gave up in 1.62.34, in its sibling and
+for the same reason. After a group `MOVE` leaves characters in a `PIC 9` child,
+`MOVE ZERO TO DNAME-1` took the `MOVE ALL`-style fill path and wrote `"0"`
+repeated to the **byte slot's** width, so a `PICTURE 9` item read back as `000`
+(NC112A `MOVE-TEST-F1-2-*`).
+
+It compared equal to `0` anyway, because the old cross-type comparison coerced
+both sides to numbers — an accidental pass over a genuinely wrong item, and one
+the comparison fix above turned into an honest failure before this repaired it.
+A declared numeric item is never alphanumeric, whatever its slot holds.
+
+### Documentation
+
+`docs/cobol85-supported-syntax-en.md` — the `MOVE` and relation-condition rules,
+and the NIST scoreboard at 82/95. `docs/developers-guide-en.md` — a
+*Comparing a number with text* section, since the rule is one a PowerCOBOL or
+isCOBOL developer will meet the first time they compare a screen field against a
+number.
+
+### Known — `cobolt-ast`'s construction test does not compile
+
+Found while sweeping, **pre-existing** and untouched here:
+`crates/cobolt-ast/tests/test_ast_construction.rs` initialises `DataDecl`
+without `justified` and `sign`, and `Program` without five fields those types
+gained in earlier sessions. The whole crate's test target therefore fails to
+build, so it has not been running. Reported rather than repaired inside a module
+pass (GOLDEN RULE #9).
+
 ## [PowerRustCOBOL 1.62.37] — 2026-08-28
 
 **NIST CCVS85 Nucleus (NC): check protection fills a two-character `CR`/`DB`.**

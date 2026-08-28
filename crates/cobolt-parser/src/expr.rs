@@ -118,7 +118,7 @@ pub(crate) fn at_leading_decimal_point(p: &Parser) -> bool {
         && glued(p, 1)
         && matches!(
             p.peek_at(1),
-            Token::IntegerLiteral(_) | Token::LevelNumber(_)
+            Token::IntegerLiteral(..) | Token::LevelNumber(_)
         )
 }
 
@@ -136,7 +136,7 @@ pub(crate) fn at_leading_decimal_point(p: &Parser) -> bool {
 /// `IntegerLiteral(999)`.
 fn digit_run(p: &Parser, offset: usize) -> Option<(i128, u8)> {
     let value = match p.peek_at(offset) {
-        Token::IntegerLiteral(n) => *n as i128,
+        Token::IntegerLiteral(n, _) => *n as i128,
         Token::LevelNumber(n) => *n as i128,
         _ => return None,
     };
@@ -159,7 +159,7 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
             p.advance();
             Some((Literal::String(s), span))
         }
-        Token::IntegerLiteral(n) => {
+        Token::IntegerLiteral(n, digits) => {
             // Under DECIMAL-POINT IS COMMA, `123,45` is one decimal literal:
             // an integer, an *adjacent* comma, and an *adjacent* integer (no
             // spaces — a comma followed by a space is still a separator).
@@ -172,7 +172,7 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
                         return Some((join_decimal(n as i128, frac, scale), span));
                     }
                 }
-            } else if let (Token::Comma, Token::IntegerLiteral(frac)) =
+            } else if let (Token::Comma, Token::IntegerLiteral(frac, _)) =
                 (p.peek_at(1).clone(), p.peek_at(2).clone())
             {
                 // The SAME adjacency, with the clause absent. `8,49` is then
@@ -197,7 +197,16 @@ fn parse_literal_inner(p: &mut Parser) -> Option<(Literal, Span)> {
                 }
             }
             p.advance();
-            Some((Literal::Integer(n), span))
+            // A literal written with leading zeros keeps its width, because a
+            // move to an alphanumeric receiver transfers the characters as
+            // written. One that needs no padding stays `Integer`, so the common
+            // case is the shape everything already handles.
+            let written = digits as usize;
+            if written > n.unsigned_abs().to_string().len() {
+                Some((Literal::IntegerDigits(n, digits), span))
+            } else {
+                Some((Literal::Integer(n), span))
+            }
         }
         Token::DecimalLiteral { mantissa, scale } => {
             p.advance();
@@ -1273,7 +1282,7 @@ fn starts_arithmetic_object(p: &Parser) -> bool {
     let head = usize::from(signed);
     if !matches!(
         p.peek_at(head),
-        Token::Identifier(_) | Token::IntegerLiteral(_) | Token::DecimalLiteral { .. }
+        Token::Identifier(_) | Token::IntegerLiteral(..) | Token::DecimalLiteral { .. }
     ) {
         return false;
     }
@@ -1301,7 +1310,7 @@ fn starts_relation_after_operand(p: &Parser) -> bool {
 fn at_literal_object(p: &Parser) -> bool {
     matches!(
         p.peek(),
-        Token::IntegerLiteral(_)
+        Token::IntegerLiteral(..)
             | Token::DecimalLiteral { .. }
             | Token::StringLiteral(_)
             | Token::Spaces

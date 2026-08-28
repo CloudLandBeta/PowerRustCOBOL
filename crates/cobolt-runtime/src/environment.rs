@@ -1711,7 +1711,10 @@ impl CobolEnvironment {
         }
         let v = match value {
             Some(Literal::String(s)) => CobolValue::from_str(s, width),
-            Some(Literal::Integer(n)) => CobolValue::from_str(
+            // The PICTURE decides the width of an edited item, so only the
+            // literal's value matters here — leading zeros in the source change
+            // nothing a template does not already say.
+            Some(Literal::Integer(n) | Literal::IntegerDigits(n, _)) => CobolValue::from_str(
                 &crate::numedit::format_edited(template, *n as i128, 0, dc, cur),
                 width,
             ),
@@ -1862,6 +1865,19 @@ impl CobolEnvironment {
     pub fn alphanumeric_capacity(&self, name: &str) -> Option<usize> {
         let key = name.to_ascii_uppercase();
         if self.edited_templates.contains_key(base_name(&key)) {
+            return None;
+        }
+        // The same slot-as-declaration proxy [`Self::is_alphanumeric_field`]
+        // gave up in 1.62.34, and for the same reason: after a group `MOVE`
+        // leaves characters in a `PIC 9` child, the slot answers with what the
+        // last statement put there rather than with what the item *is*.
+        //
+        // `MOVE ZERO TO DNAME-1` then took the `MOVE ALL`-style fill path and
+        // wrote `"0"` repeated to the **byte slot's** width, so a `PICTURE 9`
+        // item read back as `000` (NC112A MOVE-TEST-F1-2-*). It compared equal
+        // to `0` anyway, because the old cross-type comparison coerced both
+        // sides to numbers — an accidental pass over a genuinely wrong item.
+        if self.field_caps.contains_key(&key) || self.field_caps.contains_key(base_name(&key)) {
             return None;
         }
         match self.get(&key) {
@@ -2377,13 +2393,20 @@ fn default_value(decl: &DataDecl) -> CobolValue {
 /// Apply a `VALUE` clause literal on top of a default value.
 fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
     match lit {
-        Literal::Integer(n) => match default {
+        // A `VALUE` literal written with leading zeros carries them into an
+        // alphanumeric item, exactly as a `MOVE` of the same literal would:
+        // `PIC X(4) VALUE 0012` is `"0012"`, not `"12  "`. A numeric receiver
+        // takes the value and its own PICTURE decides the width.
+        Literal::Integer(n) | Literal::IntegerDigits(n, _) => match default {
             CobolValue::Numeric(num) => {
                 let mut v = CobolValue::Numeric(num.clone());
                 v.assign(&CobolValue::from_i64(*n));
                 v
             }
-            CobolValue::String { capacity, .. } => CobolValue::from_str(&n.to_string(), *capacity),
+            CobolValue::String { capacity, .. } => CobolValue::from_str(
+                &lit.integer_digits().unwrap_or_else(|| n.to_string()),
+                *capacity,
+            ),
             _ => CobolValue::from_i64(*n),
         },
         Literal::Float(f) => CobolValue::from_f64(*f),

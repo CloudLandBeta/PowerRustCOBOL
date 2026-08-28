@@ -488,7 +488,10 @@ impl<'a> ResolveCtx<'a> {
                 (Expr::Literal(Literal::String(_), _), P::Number) => true,
                 (
                     Expr::Literal(
-                        Literal::Integer(_) | Literal::Float(_) | Literal::Decimal(_, _),
+                        Literal::Integer(_)
+                            | Literal::IntegerDigits(..)
+                            | Literal::Float(_)
+                            | Literal::Decimal(_, _),
                         _,
                     ),
                     P::Text,

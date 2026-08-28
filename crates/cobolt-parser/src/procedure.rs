@@ -350,7 +350,7 @@ fn parse_sections(p: &mut Parser) -> Vec<Section> {
 pub(crate) fn is_procedure_name(tok: &Token) -> bool {
     matches!(
         tok,
-        Token::Identifier(_) | Token::IntegerLiteral(_) | Token::LevelNumber(_)
+        Token::Identifier(_) | Token::IntegerLiteral(..) | Token::LevelNumber(_)
     )
 }
 
@@ -393,7 +393,7 @@ pub(crate) fn eat_procedure_name_qualified(
     let span = p.peek_span();
     let taken = match p.peek().clone() {
         Token::Identifier(_) => p.eat_identifier(),
-        Token::IntegerLiteral(n) => {
+        Token::IntegerLiteral(n, _) => {
             p.advance();
             Some((digits_as_written(n as i128, span), span))
         }

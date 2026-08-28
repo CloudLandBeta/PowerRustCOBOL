@@ -16563,6 +16563,12 @@ fn literal_preview_value(value: &Literal) -> String {
     match value {
         Literal::String(value) => value.clone(),
         Literal::Integer(value) => value.to_string(),
+        // A preview shows the source, so a literal written with leading zeros
+        // previews with them: `VALUE 0012` reads `0012`, not `12`.
+        Literal::IntegerDigits(n, _) => value
+            .integer_digits()
+            .map(|d| if *n < 0 { format!("-{d}") } else { d })
+            .unwrap_or_default(),
         Literal::Float(value) => trim_float_preview(*value),
         Literal::Decimal(mantissa, scale) => decimal_preview_value(*mantissa, *scale),
         Literal::Figurative(figurative) => figurative_preview_value(figurative),

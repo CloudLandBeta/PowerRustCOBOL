@@ -590,8 +590,17 @@ pub enum Token {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Literals
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    /// Integer literal, e.g. `42` or `007`.
-    IntegerLiteral(i64),
+    /// Integer literal: its value, and **how many digits were written**.
+    ///
+    /// `42` is `(42, 2)` and `007` is `(7, 3)`. The count is carried because a
+    /// numeric literal moved to an alphanumeric receiver transfers its
+    /// characters *as written* — `MOVE 060820000200 TO <group>` fills six
+    /// `PIC 99` children with `06 08 20 00 02 00`, which the value alone can no
+    /// longer say (NIST CCVS85 NC202A `ADD-TEST-F3-7`).
+    ///
+    /// It is a count rather than the text so the token stays `Copy`-cheap: the
+    /// written form is the value zero-padded to this width.
+    IntegerLiteral(i64, u8),
 
     /// Fixed-point decimal literal, e.g. `3.14` → `{ mantissa: 314, scale: 2 }`.
     /// Stored exactly (integer mantissa + decimal scale) — no `f64` rounding.
@@ -666,7 +675,7 @@ impl Token {
     pub fn description(&self) -> &'static str {
         match self {
             Token::Identifier(_) => "identifier",
-            Token::IntegerLiteral(_) => "integer literal",
+            Token::IntegerLiteral(..) => "integer literal",
             Token::DecimalLiteral { .. } => "decimal literal",
             Token::StringLiteral(_) => "string literal",
             Token::LevelNumber(_) => "level number",
@@ -688,7 +697,10 @@ impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Token::Identifier(s) => write!(f, "{s}"),
-            Token::IntegerLiteral(n) => write!(f, "{n}"),
+            // The written form, not the value: `007` is echoed back as `007`.
+            Token::IntegerLiteral(n, digits) => {
+                write!(f, "{:0>width$}", n, width = *digits as usize)
+            }
             Token::DecimalLiteral { mantissa, scale } => {
                 if *scale == 0 {
                     write!(f, "{mantissa}")

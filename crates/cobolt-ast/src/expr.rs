@@ -21,6 +21,44 @@ pub enum Literal {
     /// e.g. `3.14` → `Decimal(314, 2)`. Preserves up to 31 significant digits.
     Decimal(i128, u8),
     Figurative(FigurativeConstant),
+    /// An integer literal whose **written** digit count exceeds the canonical
+    /// rendering of its value — i.e. one carrying leading zeros: `060820000200`
+    /// is `IntegerDigits(60820000200, 12)`.
+    ///
+    /// Its *value* is `Integer`'s in every respect; the count exists because a
+    /// numeric literal moved to an alphanumeric receiver transfers its
+    /// characters **as written**. `MOVE 060820000200 TO <six PIC 99 children>`
+    /// fills them with `06 08 20 00 02 00`, which the value alone can no longer
+    /// say (NIST CCVS85 NC202A `ADD-TEST-F3-7`).
+    ///
+    /// A literal that needs no padding stays [`Literal::Integer`], so nothing
+    /// that already worked changes shape.
+    ///
+    /// New variants go at the END — the AST is bincode-serialized by ordinal.
+    IntegerDigits(i64, u8),
+}
+
+impl Literal {
+    /// An integer literal's digits **as the program wrote them**, unsigned.
+    ///
+    /// This is what a numeric literal contributes to an alphanumeric receiver:
+    /// COBOL-85 moves its characters, not its value, so `MOVE 2 TO <PIC X(4)>`
+    /// leaves `"2   "` and `MOVE 0012 TO <PIC X(4)>` leaves `"0012"`. The
+    /// receiver's width never enters into it — padding to the receiver would
+    /// turn the first of those into `"0002"`.
+    ///
+    /// `None` for every literal that is not an integer.
+    pub fn integer_digits(&self) -> Option<String> {
+        match self {
+            Literal::Integer(n) => Some(n.unsigned_abs().to_string()),
+            Literal::IntegerDigits(n, digits) => Some(format!(
+                "{:0>width$}",
+                n.unsigned_abs(),
+                width = *digits as usize
+            )),
+            _ => None,
+        }
+    }
 }
 
 /// COBOL figurative constants.

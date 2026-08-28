@@ -175,6 +175,7 @@ impl<'a> TypeCtx<'a> {
                 let from_is_numeric_lit = matches!(
                     from,
                     Expr::Literal(Literal::Integer(_), _)
+                        | Expr::Literal(Literal::IntegerDigits(..), _)
                         | Expr::Literal(Literal::Float(_), _)
                         | Expr::Literal(Literal::Decimal(_, _), _)
                 );

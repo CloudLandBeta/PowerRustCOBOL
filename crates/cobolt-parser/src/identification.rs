@@ -240,7 +240,7 @@ pub(crate) fn comment_entry_header_at(tokens: &[SpannedToken], idx: usize) -> Op
 fn comment_word(tok: &Token) -> String {
     match tok {
         Token::Identifier(_)
-        | Token::IntegerLiteral(_)
+        | Token::IntegerLiteral(..)
         | Token::DecimalLiteral { .. }
         | Token::StringLiteral(_)
         | Token::LevelNumber(_) => tok.to_string(),

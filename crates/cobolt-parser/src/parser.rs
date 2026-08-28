@@ -155,7 +155,7 @@ impl Parser {
         let Some(num) = self.tokens.get(self.pos + 1) else {
             return false;
         };
-        if !matches!(num.token, Token::IntegerLiteral(_)) || num.span.start != sign.span.end {
+        if !matches!(num.token, Token::IntegerLiteral(..)) || num.span.start != sign.span.end {
             return false;
         }
         let glued_left = self
@@ -835,7 +835,7 @@ fn parse_special_names_class(p: &mut Parser) {
                 Some(s.chars().collect())
             }
             // A numeric operand is the character's ordinal position, 1-based.
-            Token::IntegerLiteral(n) => {
+            Token::IntegerLiteral(n, _) => {
                 p.advance();
                 Some(
                     u32::try_from(n - 1)
@@ -924,7 +924,7 @@ fn parse_special_names_alphabet(p: &mut Parser) {
                 Some(s.chars().collect())
             }
             // A numeric operand is the character's ordinal position, 1-based.
-            Token::IntegerLiteral(n) => {
+            Token::IntegerLiteral(n, _) => {
                 p.advance();
                 Some(
                     u32::try_from(n - 1)
