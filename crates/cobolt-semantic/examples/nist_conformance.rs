@@ -36,6 +36,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use cobolt_lexer::{tokenize, SourceFormat};
+use cobolt_semantic::flagging::FlagClass;
 
 /// One extracted CCVS85 member.
 struct Member {
@@ -1301,7 +1302,20 @@ fn is_flagging_member(text: &str) -> bool {
 /// does not list is as wrong as one that stays silent about a construct it does.
 fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
     let expectations = flagging_expectations(text);
-    let flags = cobolt_semantic::flagging::flag_obsolete(&tokenize(text, SourceFormat::FixedStrict));
+    let tokens = tokenize(text, SourceFormat::FixedStrict);
+    // A member declares which class it is about, so only that analysis is run:
+    // `DATE-COMPILED` is both an obsolete element *and* above the high subset,
+    // and NC303M and NC401M each want it under their own name. Running both
+    // passes would hand every member the other's flags as false positives.
+    let wants_subset = expectations
+        .iter()
+        .any(|e| e.class == FlagClass::NonConforming.ccvs_name());
+    let mut flags = if wants_subset {
+        cobolt_semantic::flagging::flag_high_subset(&tokens, text)
+    } else {
+        cobolt_semantic::flagging::flag_obsolete(&tokens)
+    };
+    flags.sort_by_key(|f| f.line);
     let mut claimed = vec![false; flags.len()];
     let mut pass = 0usize;
     let mut detail: Vec<String> = Vec::new();
@@ -1340,6 +1354,38 @@ fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
     (pass, detail.len(), detail)
 }
 
+/// Both raw lists for one member: `(line, element)` flags and `(line, class)`
+/// expectations, each in source order.
+fn flagging_detail(text: &str) -> (Vec<(u32, String)>, Vec<(u32, String)>) {
+    let tokens = tokenize(text, SourceFormat::FixedStrict);
+    let expectations = flagging_expectations(text);
+    let wants_subset = expectations
+        .iter()
+        .any(|e| e.class == FlagClass::NonConforming.ccvs_name());
+    let mut flags = if wants_subset {
+        cobolt_semantic::flagging::flag_high_subset(&tokens, text)
+    } else {
+        cobolt_semantic::flagging::flag_obsolete(&tokens)
+    };
+    flags.sort_by_key(|f| f.line);
+    (
+        flags.into_iter().map(|f| (f.line, f.element.to_string())).collect(),
+        expectations
+            .into_iter()
+            .map(|e| {
+                (
+                    e.line,
+                    if e.following {
+                        format!("{} (following)", e.class)
+                    } else {
+                        e.class
+                    },
+                )
+            })
+            .collect(),
+    )
+}
+
 /// `flag <FILTER>` — what each flagging member expects against what is flagged.
 fn flag_pass(members: &[Member], filter: &str) {
     println!("\n=== NIST CCVS85 FLAGGING ===");
@@ -1363,6 +1409,22 @@ fn flag_pass(members: &[Member], filter: &str) {
         );
         for d in &detail {
             println!("║ {d}");
+        }
+        // With a mismatch, the surplus cascades: the matcher is greedy in
+        // source order, so one spurious flag early leaves the *last* one
+        // unclaimed and the report names a line that is perfectly correct.
+        // Seeing every flag beside every expectation is the only way to find
+        // the real culprit, so both lists are printed whenever they disagree.
+        if f > 0 {
+            let (flags, expectations) = flagging_detail(&m.text);
+            println!("║ ── flags emitted ──");
+            for (l, e) in flags {
+                println!("║   L{l:<5} {e}");
+            }
+            println!("║ ── expectations ──");
+            for (l, c) in expectations {
+                println!("║   L{l:<5} {c}");
+            }
         }
     }
     println!("\n  matched : {tot_p}\n  wrong   : {tot_f}");

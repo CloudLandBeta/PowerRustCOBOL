@@ -738,6 +738,23 @@ unhandled error `FILE STATUS`.
   a space** — COBOL‑85 requires one after a terminator, so `MOVE X TO Y.` is
   never read as the start of a fraction, and `MOVE X TO Y.5` is a compile
   error rather than a silent reinterpretation.
+- ✅ **Conformance flagging** (`cobolt_semantic::flagging`) — the standard asks a
+  conforming implementation to be able to tell a program which of the features
+  it uses sit outside a chosen conformance level. Two analyses answer that:
+  - `flag_obsolete` — the COBOL‑85 **obsolete‑element** set: the five optional
+    IDENTIFICATION DIVISION paragraphs, `MEMORY SIZE`, `ALTER`, `STOP` with a
+    literal, and `GO TO` with no procedure‑name.
+  - `flag_high_subset` — everything above the **high subset**, from `COMPUTE`,
+    `EVALUATE` and `INITIALIZE` through `CORRESPONDING`, reference modification,
+    qualification, `SET … TO TRUE` and a fourth subscript, down to continuing a
+    *word* or a *numeric literal* across a card boundary. (Continuing an
+    **alphanumeric** literal is in subset and is not reported.)
+
+  Neither is error checking, and neither runs on an ordinary build: every
+  construct they name is valid COBOL‑85 that RustCOBOL implements and executes.
+  They are separate entry points precisely so a normal compile never starts
+  warning about `AUTHOR` or about `COMPUTE`. NIST `NC302M`, `NC303M` and
+  `NC401M` validate them — 7, 4 and 40 flags, all matched.
 - ✅ **`SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal`** — the character that fills
   a currency position in an edited PICTURE. It **replaces** `$` rather than
   joining it, so once a program declares one, `$` is no longer a picture

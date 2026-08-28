@@ -1,5 +1,65 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.33] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): execution 77 → 78 of 95, assertions 117 failing
+(97.4 %).** NC401M goes 40 failures → 0, the last of the five members that could
+not be scored at all when this work started. Compile holds at 95 of 95, whole
+suite 420 of 434. No other module was touched (GOLDEN RULE #9).
+
+### Added — high-subset conformance flagging
+
+`cobolt_semantic::flagging::flag_high_subset` reports every element above the
+COBOL-85 **high subset**: `COMPUTE`, `EVALUATE`, `INITIALIZE`, `STRING`,
+`UNSTRING`, `SEARCH`, `CORRESPONDING`, `DIVIDE … REMAINDER`, `DISPLAY … UPON`,
+`ACCEPT … FROM DAY-OF-WEEK`, `INSPECT … CONVERTING`, `SET … TO TRUE`,
+`PERFORM … VARYING` and `… WITH TEST AFTER`, `IF … ELSE`, reference
+modification, qualified data-names, a fourth subscript, arithmetic in a
+relation, sign and complex conditions, `ALTER … TO PROCEED TO`, level 66 and 88
+entries, `RENAMES … THROUGH`, `VALUE ALL`, `ASCENDING/DESCENDING KEY`, a
+variable-length table with `INDEXED BY`, a `REDEFINES` of a `REDEFINES`, an
+`ALPHABET` with a literal range, `SYMBOLIC CHARACTERS`, `END PROGRAM`, and
+continuation of a word or a numeric literal.
+
+Everything in that list is valid COBOL-85 that RustCOBOL implements and runs.
+The analysis says only "this would not compile on a high-subset-only
+implementation", which is why it is an opt-in entry point that no ordinary
+build calls — the same discipline as the obsolete-element pass added in
+1.62.30, and the two are deliberately separate: `DATE-COMPILED` is *both*
+obsolete and above the subset, and NC303M and NC401M each want it reported
+under their own class.
+
+Two of the elements are lexical rather than syntactic. A continuation line
+exists in the card image and is gone by the time it reaches the token stream —
+`MUL` + `-TIPLY` is simply the word `MULTIPLY` — so the analysis reads the
+source alongside the tokens.
+
+### Two traps worth recording
+
+**A greedy matcher hides a wrong detector.** NC401M scored **40 of 40 on the
+first run**, and one of the forty was wrong. The subscript detector counted
+commas, and a comma followed by a space is a *separator* the lexer drops — so
+`(A, B, C, D, 1)` arrives as five bare operands and the detector never fired.
+A different spurious flag stood in for it, and because expectations claim the
+earliest unclaimed flag before them, the totals still balanced. Subscripts are
+now counted as operands less binary operators, and the `flag` pass prints both
+full lists whenever they disagree, since a surplus early on always surfaces as
+a complaint about a perfectly correct line at the end.
+
+**Not every continuation is above the subset.** Continuing an *alphanumeric
+literal* is available at every conformance level, and NC401M does not flag its
+own `"SUPERCALIFRAGILISTICEXPIALIDO` / `-"CIOUS"`. What it flags is continuing a
+**word** or a **numeric literal**. The two are told apart by what the
+continuation resumes with: a quotation mark reopens a literal, anything else
+carries on a word or a number.
+
+### Where NC now stands
+
+Every program in the module compiles, and 78 of 95 run to completion reporting
+zero failures. One program does not finish — NC201A stalls in
+`PFM-TEST-F4-13` — and sixteen report failures. The five members that were
+recorded as unreachable without harness work are all scored, and all five pass.
+
 ## [PowerRustCOBOL 1.62.32] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): assertions 168 → 161 failing (96.5 %).** Execution
