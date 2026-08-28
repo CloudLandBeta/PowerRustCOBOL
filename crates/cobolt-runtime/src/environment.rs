@@ -1551,19 +1551,37 @@ impl CobolEnvironment {
             } else if self.field_caps.contains_key(base_name(&ck)) {
                 // Numeric receiver: keep the digits the bytes spell out.
                 match padded.trim().parse::<i128>() {
+                    // A slice that spells a number is stored **as** that number.
+                    // Strictly the standard says a group move changes no bytes
+                    // at all, so `"  123"` should stay `"  123"` rather than
+                    // being re-rendered `00123` through the child's PICTURE —
+                    // but storing the characters here was measured at NC 74
+                    // programs against 77, because a great many programs move a
+                    // numeric group and then compute with its children. The
+                    // normalisation is load-bearing; the byte-exact reading is
+                    // recorded here rather than applied.
                     Ok(n) => self.set(&ck, CobolValue::from_i64(n as i64)),
-                    // A group move carries **bytes**, not values, so a slice
-                    // that is not a number lands in the child as it stands —
-                    // `MOVE SPACE TO <group of PIC 99 children>` has to leave
-                    // the group reading as spaces, which it cannot do while the
-                    // children keep their old digits.
-                    Err(_) if padded.trim().is_empty() => {
+                    // A group move carries **bytes**, not values: the receiving
+                    // item is a group, so the standard makes the whole move
+                    // alphanumeric and each slice lands in its child exactly as
+                    // it stands, whatever that child's PICTURE says. `MOVE
+                    // SPACE TO <group of PIC 99 children>` has to leave the
+                    // group reading as spaces, and `MOVE <120 bytes of "A"> TO
+                    // <group with PIC 9(5) children>` has to leave it reading
+                    // as `A`s (NC252A RDF-TEST-11).
+                    //
+                    // Only the blank slice used to be stored and every other
+                    // non-numeric one was **dropped**, so the child kept its old
+                    // digits and the record read `AAA    0AA     0AAAA`. A
+                    // numeric item holding characters is exactly what the
+                    // program asked for; using it in arithmetic afterwards is
+                    // undefined in COBOL-85, not our problem to prevent.
+                    Err(_) => {
                         let width = padded.len();
                         self.store
                             .insert(ck.clone(), CobolValue::from_str(&padded, width));
                         self.refresh_redefine_peers(&ck);
                     }
-                    Err(_) => {}
                 }
             } else {
                 self.set_str(&ck, &padded);

@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.32] — 2026-08-27
+
+**NIST CCVS85 Nucleus (NC): assertions 168 → 161 failing (96.5 %).** Execution
+holds at 77 of 95 and compile at 95 of 95. NC252A goes 13 failures → 10, NC250A
+14 → 11, NC105A 20 → 18, NC107A 10 → 9, NC103A 2 → 1. No other module was
+touched (GOLDEN RULE #9).
+
+### Fixed — a group `MOVE` dropped every slice a numeric child could not parse
+
+When the receiving item is a group the standard makes the whole move
+**alphanumeric**: each slice lands in its subordinate item exactly as it stands,
+whatever that item's PICTURE says. A numeric child therefore has to be able to
+hold characters that are not digits.
+
+`set_group` stored the slice when it spelled a number, stored it when it was
+entirely blank, and **dropped it otherwise** — so the child silently kept
+whatever it held before. `MOVE REDEF13 TO REDEF12` in NC252A moves 120 bytes of
+`A` into a group whose children include `PIC 9(5)` and six `PIC 9`, and the
+record came back reading `AAA    0AA     0AAAA`, with the old digits showing
+through wherever a numeric child sat. The comment above that code already said
+a non-numeric slice "lands in the child as it stands"; only the blank case ever
+did.
+
+A numeric item holding characters is exactly what the program asked for. Using
+it in arithmetic afterwards is undefined in COBOL-85, not something the runtime
+has to prevent.
+
+### Not done, and why — byte-exact group moves
+
+Strictly the standard changes *no* bytes on a group move, so a slice that does
+spell a number should keep its own characters too: `"  123"` into a `PIC 9(5)`
+child ought to stay `"  123"` rather than being re-rendered `00123` through the
+child's PICTURE.
+
+That was implemented and measured: **NC dropped from 77 clean programs to 74**,
+and assertions from 4406/161 to 4386/182. A great many programs move a numeric
+group and then compute with its children, and the normalisation is what keeps
+those working. The stricter reading is therefore recorded — in `set_group`, and
+as a test that pins the current behaviour with the measurement beside it — and
+not applied. Reversing it needs a fresh NC census, not an appeal to the text.
+
 ## [PowerRustCOBOL 1.62.31] — 2026-08-27
 
 **NIST CCVS85 Nucleus (NC): compile 94 → 95 of 95, execution 76 → 77.** The
