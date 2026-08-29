@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.67] — 2026-08-29
+
+**Two numeric operands compare algebraically, however their slots were
+filled.** NIST CCVS85 Indexed I/O goes from **30 to 32 of 42** programs running
+clean and past ninety per cent of assertions — 528 PASS / 60 FAIL → **528 PASS
+/ 58 FAIL**, 89.8 % → **90.1 %**.
+
+A group `MOVE` is an alphanumeric move: it transfers characters and converts
+nothing, so a `PIC 9(6)` child legitimately ends up holding the string
+`"000007"`. The item is still numeric and a relation between two numeric
+operands is still algebraic — but nothing put the value back into numeric form.
+When **both** sides of a comparison had been filled that way, neither looked
+numeric, the pseudo-move did not apply, and the two display strings were
+compared: `"000000007"` against `"000007"`, unequal.
+
+One side against a literal-valued numeric was always correct, which is why this
+went unnoticed. IX103A and IX203A both check a record number against the digits
+embedded in that record's key, and saw **every one of 500 records as a
+mismatch**.
+
+A numeric operand is now read back through its own PICTURE before the
+comparison. **The item's scale decides the value** — the same six characters are
+123456 in a `PIC 9(6)` and 1234.56 in a `PIC 9(4)V99` — so the declared decimal
+places are carried on the symbol and used here. A slot holding something that is
+not a run of digits is left exactly as it is; inventing a number would be worse
+than comparing what is there.
+
+This is the expression core that Nucleus runs through, and it was the first
+change in this run with real reach beyond indexed files. **Both protected
+baselines are exact: NC 95/95 with 4 614 PASS / 0 FAIL, SQ 85/85 with 624 PASS
+/ 0 FAIL.** Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.66] — 2026-08-29
 
 **A delete-resume keys on *which* record leaves, not how it was addressed** —

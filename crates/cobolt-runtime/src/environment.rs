@@ -90,6 +90,12 @@ pub struct ItemSym {
     pub is_global: bool,
     /// Raw PIC template, or an empty string for group/index items.
     pub pic: String,
+    /// Digits after the implied decimal point (`V`), from the item's PICTURE.
+    ///
+    /// Needed to read a numeric item back through its own scale when its slot
+    /// holds characters — a group `MOVE` puts `"123456"` into both `PIC 9(6)`
+    /// and `PIC 9(4)V99`, and those are 123456 and 1234.56.
+    pub pic_decimals: u16,
     /// Program/form/procedure that declared this item.
     pub origin: String,
     /// The `OCCURS … DEPENDING ON` item (uppercased), for a variable-length
@@ -1197,6 +1203,7 @@ impl CobolEnvironment {
                         .as_ref()
                         .map(|pic| pic.template.clone())
                         .unwrap_or_default(),
+                    pic_decimals: decl.picture.as_ref().map_or(0, |pic| pic.decimals),
                     origin: origin.to_owned(),
                     depending_on: decl
                         .occurs
@@ -1282,6 +1289,7 @@ impl CobolEnvironment {
                                 scope: Some(scope),
                                 is_global: inherited_global || decl.is_global,
                                 pic: String::new(),
+                                pic_decimals: 0,
                                 origin: origin.to_owned(),
                                 depending_on: None,
                             },
@@ -2148,6 +2156,14 @@ impl CobolEnvironment {
     }
 
     /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
+    /// Digits after the implied decimal point in this item's PICTURE, or 0 for
+    /// an item that has none. See [`ItemSym::pic_decimals`].
+    pub fn field_decimals(&self, name: &str) -> u16 {
+        self.symbols
+            .get(base_name(&name.to_ascii_uppercase()))
+            .map_or(0, |s| s.pic_decimals)
+    }
+
     pub fn is_alphanumeric_field(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         if self.edited_templates.contains_key(base_name(&key)) {

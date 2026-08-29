@@ -10994,6 +10994,49 @@ impl Interpreter {
         }
     }
 
+    /// Read a **numeric-declared** operand back through its own PICTURE.
+    ///
+    /// A group `MOVE` is an alphanumeric move: it transfers characters and
+    /// converts nothing, so a `PIC 9(6)` child legitimately ends up holding the
+    /// string `"000007"`. That is correct storage — the item is still numeric,
+    /// and a relation between two numeric operands is algebraic.
+    ///
+    /// Nothing put the value back into numeric form, so when **both** sides of
+    /// a comparison had been filled that way neither looked numeric, the
+    /// pseudo-move did not apply, and `compare_values` compared the two display
+    /// strings: `"000000007"` against `"000007"`, unequal. One side against a
+    /// literal-valued numeric was fine, which is why this survived so long.
+    /// IX103A and IX203A both check a record number against the digits embedded
+    /// in that record's key, and both saw every record as a mismatch.
+    ///
+    /// The item's own scale decides the value: `"123456"` is 123456 in a
+    /// `PIC 9(6)` and 1234.56 in a `PIC 9(4)V99`.
+    fn numeric_view(&mut self, e: &Expr, v: CobolValue) -> CobolValue {
+        if v.is_numeric() {
+            return v;
+        }
+        if !matches!(
+            e,
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }
+        ) {
+            return v;
+        }
+        let key = self.resolve_lvalue(e);
+        let scale = self.env.field_decimals(&key);
+        let s = v.as_display_string();
+        let digits = s.trim();
+        // Anything that is not a run of digits is left alone: the item may hold
+        // characters that are not a number at all, and inventing one would be
+        // worse than comparing what is there.
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return v;
+        }
+        match crate::value::parse_decimal(digits) {
+            Some(n) => CobolValue::Numeric(CobolNumeric::new(n.mantissa, scale as u8)),
+            None => v,
+        }
+    }
+
     /// Apply the pseudo-move to whichever side of a relation needs it.
     ///
     /// Exactly one operand numeric and the other nonnumeric is the case the
@@ -11030,6 +11073,16 @@ impl Interpreter {
                 let r = self.eval_expr(rhs, *span)?;
                 let l = self.as_comparand(lhs, l);
                 let r = self.as_comparand(rhs, r);
+                // Two numeric operands compare algebraically, whatever their
+                // slots happen to hold — see `numeric_view`.
+                let (l, r) = if !self.is_nonnumeric_operand(lhs) && !self.is_nonnumeric_operand(rhs)
+                {
+                    let l = self.numeric_view(lhs, l);
+                    let r = self.numeric_view(rhs, r);
+                    (l, r)
+                } else {
+                    (l, r)
+                };
                 let (l, r) = self.nonnumeric_relation(lhs, l, rhs, r);
                 let (l, r) = size_figuratives(lhs, l, rhs, r);
                 Ok(compare_values(&l, &r, *op))
