@@ -1266,6 +1266,27 @@ fn is_persistence(tok: &cobolt_lexer::Token) -> bool {
 }
 
 /// Parse a single `SELECT … ASSIGN …` entry in FILE-CONTROL.
+/// The `OF`/`IN` chain that may follow a `RECORD KEY` / `ALTERNATE RECORD KEY`
+/// data-name, returned innermost first.
+///
+/// A file may declare several keys with the same data-name, told apart only by
+/// the group each one sits in — IX215A writes `RECORD KEY IS IX-FD3-KEY IN
+/// IX-FD3-RECKEY-AREA` and then two alternates of the same name qualified into
+/// different areas. Dropping the chain made all three name the same bytes.
+fn parse_key_qualifiers(p: &mut Parser) -> Vec<String> {
+    let mut quals = Vec::new();
+    while p.at(&Token::Of) || p.at(&Token::In) {
+        p.advance(); // OF | IN
+        match p.eat_identifier() {
+            Some((g, _)) => quals.push(g),
+            // `OF` with nothing after it is a malformed clause; stop rather
+            // than spin.
+            None => break,
+        }
+    }
+    quals
+}
+
 fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let span = p.peek_span();
     p.advance(); // SELECT
@@ -1285,6 +1306,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut organization = FileOrganization::Sequential;
     let mut access = AccessMode::Sequential;
     let mut record_key: Option<String> = None;
+    let mut record_key_quals: Vec<String> = Vec::new();
     let mut file_status: Option<String> = None;
     let mut alternate_keys: Vec<AlternateKey> = Vec::new();
     // No STORAGE clause ⇒ default to DISK.
@@ -1330,6 +1352,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     p.eat(&Token::Key);
                     p.eat(&Token::Is);
                     if let Some((field, _)) = p.eat_identifier() {
+                        let quals = parse_key_qualifiers(p);
                         let mut with_duplicates = false;
                         p.eat(&Token::With);
                         if let Token::Identifier(d) = p.peek() {
@@ -1340,6 +1363,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                         }
                         alternate_keys.push(AlternateKey {
                             field,
+                            quals,
                             with_duplicates,
                         });
                     }
@@ -1423,6 +1447,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     p.eat(&Token::Is);
                     if p.at_identifier() {
                         record_key = p.eat_identifier().map(|(n, _)| n);
+                        record_key_quals = parse_key_qualifiers(p);
                     }
                 }
             }
@@ -1439,6 +1464,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         organization,
         access,
         record_key,
+        record_key_quals,
         alternate_keys,
         file_status,
         storage_mode,

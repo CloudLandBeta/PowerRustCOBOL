@@ -145,6 +145,10 @@ struct FileSpec {
     record_names: Vec<String>,
     /// RECORD KEY field name (INDEXED files).
     record_key: Option<String>,
+    /// The `OF`/`IN` chain qualifying that name, innermost first. Empty unless
+    /// the SELECT wrote one; several keys of one file may share a data-name and
+    /// be told apart only by this.
+    record_key_quals: Vec<String>,
     /// ALTERNATE RECORD KEY entries (INDEXED files).
     alternate_keys: Vec<AlternateKey>,
     /// STORAGE IS MEMORY | DISK (INDEXED files).
@@ -628,6 +632,11 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                         status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
                         record_names,
                         record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
+                        record_key_quals: fc
+                            .record_key_quals
+                            .iter()
+                            .map(|s| s.to_ascii_uppercase())
+                            .collect(),
                         alternate_keys: fc.alternate_keys.clone(),
                         storage_mode: fc.storage_mode,
                         data_compressing: fc.data_compressing,
@@ -676,7 +685,7 @@ fn make_indexed_engine(
     let primary = spec
         .record_key
         .as_deref()
-        .and_then(|k| layout.key_spec(k, false))
+        .and_then(|k| layout.key_spec_qualified(k, &spec.record_key_quals, false))
         .unwrap_or(KeySpec {
             offset: 0,
             len: reclen,
@@ -684,10 +693,13 @@ fn make_indexed_engine(
         });
     // Build alternate KeySpecs and their field names in lock-step (skipping any
     // alternate key field that isn't present in the FD record layout).
+    // The qualification is part of the key's identity: IX215A's IX-FD3 names
+    // all three of its keys `IX-FD3-KEY` and separates them by group alone, so
+    // resolving on the bare name gave the file three indexes over one field.
     let mut alts = Vec::new();
     let mut names: Vec<Option<String>> = vec![spec.record_key.clone()];
     for ak in &spec.alternate_keys {
-        if let Some(ks) = layout.key_spec(&ak.field, ak.with_duplicates) {
+        if let Some(ks) = layout.key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates) {
             alts.push(ks);
             names.push(Some(ak.field.clone()));
         }
@@ -6448,6 +6460,53 @@ impl Interpreter {
         Ok(())
     }
 
+    /// The bare data-name and `OF`/`IN` chain an expression names, without
+    /// resolving either through the environment.
+    ///
+    /// `expr_to_name` answers with a *storage key*, which is what a read or a
+    /// write needs. Choosing a file's key of reference is a different question:
+    /// the SELECT declared its keys as data-names plus qualifiers, and matching
+    /// against that declaration means comparing the same two things. IX215A
+    /// names all three keys of one file `IX-FD3-KEY`, so the qualifier is the
+    /// only thing that says which index a `READ … KEY IS` means.
+    fn expr_key_parts(&self, expr: &Expr) -> (String, Vec<String>) {
+        match expr {
+            Expr::Identifier(name, _) => (name.to_ascii_uppercase(), Vec::new()),
+            Expr::Qualified { name, of, .. } => (
+                name.to_ascii_uppercase(),
+                collect_quals(of)
+                    .iter()
+                    .map(|q| q.to_ascii_uppercase())
+                    .collect(),
+            ),
+            Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => self.expr_key_parts(base),
+            _ => (String::new(), Vec::new()),
+        }
+    }
+
+    /// Which of a file's keys an expression names: 0 for the RECORD KEY, `n+1`
+    /// for the nth ALTERNATE RECORD KEY, and 0 when nothing matches.
+    ///
+    /// A key matches when the data-names are the same **and** the qualifiers
+    /// the statement wrote are consistent with the ones the SELECT wrote —
+    /// either is allowed to be the shorter chain, because both are subsequences
+    /// of the field's real ancestry.
+    fn key_of_reference(&self, spec: &FileSpec, name: &str, quals: &[String]) -> usize {
+        fn agrees(a: &[String], b: &[String]) -> bool {
+            let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+            let mut it = long.iter();
+            short.iter().all(|s| it.any(|l| l == s))
+        }
+        if spec.record_key.as_deref() == Some(name) && agrees(quals, &spec.record_key_quals) {
+            return 0;
+        }
+        spec.alternate_keys
+            .iter()
+            .position(|ak| ak.field.eq_ignore_ascii_case(name) && agrees(quals, &ak.quals))
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    }
+
     /// The RECORD KEY bytes of a record image about to be written.
     ///
     /// Taken from the image rather than from the environment, so it is the key
@@ -6456,7 +6515,11 @@ impl Interpreter {
     /// field is not in the record layout, or the image is too short to hold it.
     fn record_key_of(&self, file: &str, buf: &[u8]) -> Option<Vec<u8>> {
         let spec = self.file_specs.get(file)?;
-        let ks = spec.layout.key_spec(spec.record_key.as_deref()?, false)?;
+        let ks = spec.layout.key_spec_qualified(
+            spec.record_key.as_deref()?,
+            &spec.record_key_quals,
+            false,
+        )?;
         buf.get(ks.offset..ks.offset + ks.len).map(<[u8]>::to_vec)
     }
 
@@ -6656,22 +6719,22 @@ impl Interpreter {
         } else {
             ReadDir::Next
         };
-        let key_field = key
-            .map(|e| self.expr_to_name(e))
-            .or_else(|| spec.record_key.clone());
-        let key_bytes = key_field
-            .as_ref()
-            .and_then(|kf| spec.layout.field_value(&self.env, kf));
-        let kor = match &key_field {
-            Some(kf) if spec.record_key.as_deref() == Some(kf.as_str()) => 0,
-            Some(kf) => spec
-                .alternate_keys
-                .iter()
-                .position(|ak| ak.field.eq_ignore_ascii_case(kf))
-                .map(|i| i + 1)
-                .unwrap_or(0),
-            None => 0,
+        // `READ … KEY IS` names a key by data-name and, where the file needs
+        // it, by qualifier; an unqualified READ uses the RECORD KEY.
+        let (key_name, key_quals) = match key {
+            Some(e) => self.expr_key_parts(e),
+            None => (
+                spec.record_key.clone().unwrap_or_default(),
+                spec.record_key_quals.clone(),
+            ),
         };
+        let key_bytes = (!key_name.is_empty())
+            .then(|| {
+                spec.layout
+                    .field_value_qualified(&self.env, &key_name, &key_quals)
+            })
+            .flatten();
+        let kor = self.key_of_reference(&spec, &key_name, &key_quals);
 
         // A sequential READ once `AT END` has been reached is 46, not a second
         // 10: the AT END left no valid next record, and reading on is a
@@ -6986,10 +7049,10 @@ impl Interpreter {
         let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
                                                             // RANDOM DELETE addresses the record by the current RECORD KEY value;
                                                             // sequential/dynamic DELETE removes the current (last read) record.
-        let key_bytes = spec
-            .record_key
-            .as_deref()
-            .and_then(|k| spec.layout.field_value(&self.env, k));
+        let key_bytes = spec.record_key.as_deref().and_then(|k| {
+            spec.layout
+                .field_value_qualified(&self.env, k, &spec.record_key_quals)
+        });
         let code = match self.open_files.get_mut(&file) {
             // Sequential DELETE removes the record the previous READ delivered,
             // and so requires one — the same rule, and the same status 43, that
@@ -7026,23 +7089,21 @@ impl Interpreter {
         let Some(spec) = self.file_specs.get(&file).cloned() else {
             return Ok(());
         };
-        let (op, key_field) = match key {
-            Some((op, e)) => (*op, self.expr_to_name(e)),
+        let (op, key_name, key_quals) = match key {
+            Some((op, e)) => {
+                let (n, q) = self.expr_key_parts(e);
+                (*op, n, q)
+            }
             None => (
                 cobolt_ast::expr::CmpOp::Eq,
                 spec.record_key.clone().unwrap_or_default(),
+                spec.record_key_quals.clone(),
             ),
         };
-        let key_bytes = spec.layout.field_value(&self.env, &key_field);
-        let kor = if spec.record_key.as_deref() == Some(key_field.as_str()) {
-            0
-        } else {
-            spec.alternate_keys
-                .iter()
-                .position(|ak| ak.field.eq_ignore_ascii_case(&key_field))
-                .map(|i| i + 1)
-                .unwrap_or(0)
-        };
+        let key_bytes = spec
+            .layout
+            .field_value_qualified(&self.env, &key_name, &key_quals);
+        let kor = self.key_of_reference(&spec, &key_name, &key_quals);
         let code = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 engine.set_key_of_reference(kor);

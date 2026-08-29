@@ -489,3 +489,84 @@ fn start_does_not_establish_a_record_for_rewrite() {
         "START positions the file but establishes no record:\n{joined}"
     );
 }
+
+/// Three keys of one file may share a data-name and be told apart only by the
+/// group each sits in.
+///
+/// IX215A declares `IX-FD3`'s prime key and both alternates as `IX-FD3-KEY`,
+/// qualified into three different areas. Resolving on the bare name gave all
+/// three the first field's offset, so the file had three indexes over one set
+/// of bytes and a read by an alternate returned the wrong record.
+#[test]
+fn same_named_keys_are_told_apart_by_their_qualifier() {
+    let path = temp_idx("qualkeys");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY IN PRIME-AREA\n\
+         \x20              ALTERNATE RECORD KEY IS R-KEY OF ALT1-AREA\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 PRIME-AREA.\n\
+         \x20            10 R-KEY  PIC X(4).\n\
+         \x20         05 ALT1-AREA.\n\
+         \x20            10 R-KEY  PIC X(4).\n\
+         \x20         05 R-NAME    PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"P001\" TO R-KEY IN PRIME-AREA\n\
+         \x20          MOVE \"A900\" TO R-KEY IN ALT1-AREA\n\
+         \x20          MOVE \"FIRST\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE DISPLAY \"W1 \" FS\n\
+         \x20          MOVE \"P002\" TO R-KEY IN PRIME-AREA\n\
+         \x20          MOVE \"A800\" TO R-KEY IN ALT1-AREA\n\
+         \x20          MOVE \"SECOND\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE DISPLAY \"W2 \" FS\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE SPACES TO R-NAME\n\
+         \x20          MOVE \"A800\" TO R-KEY IN ALT1-AREA\n\
+         \x20          READ F KEY IS R-KEY IN ALT1-AREA\n\
+         \x20             INVALID KEY DISPLAY \"ALTREAD BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"ALTREAD \" R-NAME\n\
+         \x20          END-READ\n\
+         \x20          MOVE SPACES TO R-NAME\n\
+         \x20          MOVE \"P001\" TO R-KEY IN PRIME-AREA\n\
+         \x20          READ F KEY IS R-KEY IN PRIME-AREA\n\
+         \x20             INVALID KEY DISPLAY \"PRIMEREAD BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"PRIMEREAD \" R-NAME\n\
+         \x20          END-READ\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(joined.contains("W1 00"), "first write:\n{joined}");
+    assert!(joined.contains("W2 00"), "second write:\n{joined}");
+    // A800 is the SECOND record's alternate key. Reading by the alternate must
+    // deliver that record — with the bare-name bug both keys indexed
+    // PRIME-AREA, so A800 matched nothing.
+    assert!(
+        joined.contains("ALTREAD SECOND"),
+        "the alternate key must index ALT1-AREA, not the prime area:\n{joined}"
+    );
+    assert!(
+        joined.contains("PRIMEREAD FIRST"),
+        "the prime key must still index PRIME-AREA:\n{joined}"
+    );
+}

@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.50] — 2026-08-29
+
+**A file's record keys are told apart by their `OF`/`IN` qualifier.** NIST
+CCVS85 Indexed I/O assertions go 358 PASS / 420 FAIL → **361 PASS / 417 FAIL**;
+programs running clean stay at 19 of 42.
+
+COBOL lets a file declare several keys whose data-names are the same and which
+are separated only by the group each one sits in. IX215A's `IX-FD3` does
+exactly that — `RECORD KEY IS IX-FD3-KEY IN IX-FD3-RECKEY-AREA`, then two
+alternates also called `IX-FD3-KEY`, qualified into `IX-FD3-ALTKEY1-AREA` and
+`IX-FD3-ALTKEY2-AREA`. The parser dropped the qualifier and every lookup went
+by bare name, so all three keys resolved to the first field: the file carried
+three indexes over one set of bytes, and a read by an alternate looked for its
+value in the prime key's characters.
+
+The qualifier is now part of a key's identity end to end:
+
+- The parser keeps the `OF`/`IN` chain written after `RECORD KEY IS` and after
+  each `ALTERNATE RECORD KEY IS`.
+- A record's byte layout records each field's enclosing groups, so a field can
+  be found by name **and** ancestry. Matching is by containment, as the
+  standard requires — `B OF D` names the field even when it sits in `B` in `C`
+  in `D` — and an unqualified name still takes the first field of that name.
+- Reading and writing a field goes through its qualified storage key, so a
+  record holding the same name in several groups no longer routes all of them
+  to whichever one happened to be stored under the bare name.
+- `READ … KEY IS` and `START … KEY IS` pick the key of reference by data-name
+  and qualifier together, which is the only thing that distinguishes IX-FD3's
+  three keys.
+
+A key whose qualifier names no group in the layout still resolves by bare name,
+so nothing that worked before is lost.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
 ## [PowerRustCOBOL 1.62.49] — 2026-08-29
 
 **Indexed files obey the sequential access mode's ordering rules** — NIST
