@@ -1,0 +1,121 @@
+{
+  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
+
+  "measured_at_version": "1.62.53",
+  "measured_at": "2026-08-29",
+
+  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
+
+  "rules": {
+    "one_module_at_a_time": "GOLDEN RULE #9 — finish the current module on both axes before starting the next. Record a tempting fix in another module under `parked` and move on.",
+    "two_axes_never_conflated": "Compile is the strictly weaker claim. Never quote it as if it meant the programs work.",
+    "full_regression_after_every_change": "Re-run the whole-suite strict census AND the execution pass for every finished module, not just the one in flight. The runtime is shared.",
+    "deleted_is_not_passed": "`***** ****TEST DELETED****` means the program failed its own setup and skipped the case. Track the DELETED count: it fell 108 -> 1 at 1.62.53 while the clean-program count barely moved, and that was real progress a failures-only reading would have missed."
+  },
+
+  "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "SG", "DB", "RL"],
+  "current_module": "IX",
+
+  "out_of_scope": {
+    "modules": ["CM", "RW", "OBIC", "OBNC", "OBSQ", "EXEC"],
+    "why": "Declared out of RustCOBOL scope in CLAUDE.md: CM is Communication, RW is Report Writer, OB* are the obsolete-element tests, EXEC85 is the suite driver. 25 programs, excluded from every score."
+  },
+
+  "whole_suite_compile": { "pass": 422, "total": 434, "pct": 97.2 },
+
+  "modules": {
+    "NC": {
+      "name": "Nucleus",
+      "state": "finished",
+      "protected": true,
+      "compile": [95, 95],
+      "execution": [95, 95],
+      "assertions": { "pass": 4614, "fail": 0, "deleted": 5 }
+    },
+    "SQ": {
+      "name": "Sequential I/O",
+      "state": "finished",
+      "protected": true,
+      "compile": [85, 85],
+      "execution": [85, 85],
+      "assertions": { "pass": 624, "fail": 0, "deleted": 6 }
+    },
+    "IX": {
+      "name": "Indexed I/O",
+      "state": "in_flight",
+      "protected": false,
+      "compile": [42, 42],
+      "execution": [19, 42],
+      "assertions": { "pass": 475, "fail": 122, "deleted": 1 }
+    },
+    "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
+    "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
+    "ST": { "name": "Sort/Merge", "state": "compile_only", "compile": [38, 40], "execution": null, "assertions": null },
+    "SM": { "name": "Source text manipulation", "state": "compile_only", "compile": [14, 17], "execution": null, "assertions": null },
+    "SG": { "name": "Segmentation", "state": "compile_only", "compile": [13, 13], "execution": null, "assertions": null },
+    "DB": { "name": "Debug", "state": "compile_only", "compile": [11, 15], "execution": null, "assertions": null },
+    "RL": {
+      "name": "Relative I/O",
+      "state": "blocked",
+      "compile": [34, 35],
+      "execution": null,
+      "assertions": null,
+      "blocked_on": "There is NO RELATIVE engine. The parser accepts `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) but nothing in the runtime ever matches that variant — no dispatch, no engine, no diagnostic. A program declaring it parses and then misbehaves silently. Bringing RL to 100% is a feature build, not a fix, and needs an operator decision before any agent starts it."
+    }
+  },
+
+  "work_queue": [
+    {
+      "id": "ix-generic-key-start",
+      "module": "IX",
+      "priority": 1,
+      "title": "Generic (partial) key START compares on the prefix",
+      "evidence": "`find_start` in crates/cobolt-runtime/src/indexed.rs (~line 833) opens with `let key = pad(key, ks_len);` — pad() space-fills to the full key width. COBOL-85 allows `START file KEY IS <op> data-name` where data-name is a SUBORDINATE item of the record key; the comparison then uses only that item's length. Space-padding turns `EQUAL TO` into a search for a key ending in blanks, which no record has.",
+      "fix_sketch": "Compare on the prefix of length min(key.len(), ks_len). Eq: first record whose leading bytes equal the prefix. Ge: range from the prefix low-padded (0x00). Gt: first in that range whose prefix is strictly greater. Le: last record up to the prefix high-padded (0xFF). Lt: last before the prefix low-padded. When the named item IS the whole key the lengths are equal and behaviour is unchanged, so this is additive.",
+      "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"],
+      "caveat": "THREE engines implement `start` and all need it. Leave `read_key` alone — the generic form is defined for START only.",
+      "failure_buckets": ["START EQ TO RECKEY ... SUBORDINATE D-I OF KEY", "STR {EQ,GT,NLT} ALTKY {W/DUP,W/O DUP}"]
+    },
+    {
+      "id": "ix-start-alt-after-rewrite",
+      "module": "IX",
+      "priority": 2,
+      "title": "START on an alternate key after a REWRITE",
+      "evidence": "8 failures reading `INVALID KEY ON START OF REWRITTEN RECORD`.",
+      "fix_sketch": "A REWRITE that changes an alternate key value must update that alternate's index — remove the old entry and insert the new one.",
+      "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"]
+    },
+    { "id": "ix-delete-ix21", "module": "IX", "priority": 3, "title": "DELETE — IX-21 4.3.2", "evidence": "5 failures in the DELETE-TEST-GF family.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
+    { "id": "ix301m", "module": "IX", "priority": 4, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
+    { "id": "ix-long-tail", "module": "IX", "priority": 5, "title": "Remaining IX programs", "evidence": "IX108A 20, IX209A 12, IX215A 11, IX103A 9, IX210A 9, IX203A 8, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then nine members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
+  ],
+
+  "dead_ends": [
+    {
+      "id": "blanket-module-directory-sharing",
+      "tried_at_version": "1.62.48",
+      "what": "Give every member of a module ONE shared work directory so the CCVS85 file chain works.",
+      "why_it_failed": "It took IX from 13 to 15 clean but broke members that need a file to be ABSENT: IX111A ('THE FILE IX-NOP WHICH DOES NOT EXIST', expecting status 35) and IX216A (OPEN EXTEND on an OPTIONAL file, expecting 05) both went red against leftovers from earlier programs.",
+      "what_to_do_instead": "Per-member `inherits_from()` table, each entry quoted from the consumer's own header comment. Never infer a dependency from two programs sharing an X-card."
+    }
+  ],
+
+  "parked": [],
+
+  "protected_baselines": {
+    "_why": "These must hold after EVERY change. If a fix breaks one, revert the commit and record a dead end — do not chase the regression forward.",
+    "NC": { "compile": [95, 95], "execution": [95, 95], "assertions_pass": 4614, "assertions_fail": 0 },
+    "SQ": { "compile": [85, 85], "execution": [85, 85], "assertions_pass": 624, "assertions_fail": 0 },
+    "whole_suite_compile_pass": 422
+  },
+
+  "history": [
+    { "version": "1.62.47", "change": "Harness supplies XXXXD001, the installation data file SQ203A reads", "effect": "SQ 84 -> 85 of 85; module finished" },
+    { "version": "1.62.48", "change": "Chained members run their declared producer", "effect": "IX 13 -> 16 clean (measurement fidelity, no runtime change)" },
+    { "version": "1.62.49", "change": "Sequential-access ordering rules for indexed files (21 / 43)", "effect": "IX 16 -> 19 clean" },
+    { "version": "1.62.50", "change": "Record keys told apart by their OF/IN qualifier", "effect": "IX +3 assertions" },
+    { "version": "1.62.51", "change": "Developer's Guide for 1.62.49 and 1.62.50", "effect": "GOLDEN RULE #3" },
+    { "version": "1.62.52", "change": "A REDEFINES item shares the bytes it redefines", "effect": "IX 417 -> 133 failures; IX215A 297 -> 15" },
+    { "version": "1.62.53", "change": "A RECORD KEY naming a group indexes that group", "effect": "IX 133 -> 122 failures; self-deleted tests 108 -> 1; assertions 72.1% -> 79.6%" }
+  ]
+}

@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.54] — 2026-08-29
+
+**The NIST conformance work becomes a resumable loop instead of a per-session
+hand-off.** No runtime change; this is process infrastructure.
+
+Two new artefacts:
+
+- **`NIST/progress.json`** — the committed conformance ledger, and from now on
+  the single source of truth for where the suite stands. It carries each
+  module's compile and execution figures, the protected baselines every future
+  change must preserve, a ranked `work_queue` with the evidence and fix sketch
+  for each item, a `dead_ends` list so a fresh session never retries a failed
+  approach, and the version history. It replaces the hand-written
+  `HANDOFF-*.md` files, which were re-derived from scratch each session and
+  drifted.
+- **`.claude/skills/nist-grind/SKILL.md`** — the loop protocol, so every
+  session and every subagent starts identically: orient from the ledger, pick
+  the top work item, diagnose (fan-out allowed, read-only), reduce to a minimal
+  repro, fix one thing, test, run the **full** regression, gate on the
+  protected baselines, add a regression test, bump, changelog, update the
+  ledger, commit, push, repeat.
+
+The gate is what makes it safe to run unattended: NC 95/95 with 4 614 PASS /
+0 FAIL and SQ 85/85 with 624 PASS / 0 FAIL must hold after every change, and a
+fix that breaks one is reverted and recorded as a dead end rather than chased
+forward.
+
+The skill encodes the traps this suite has already sprung — separate `cargo`
+invocations for `rcrun` and the harness, `zsh` not word-splitting unquoted
+variables, a deleted test not being a passing one, and harness limitations
+looking exactly like runtime regressions.
+
+Merging to `main` and posting to the forum remain outside the loop: both need
+an explicit ask.
+
+
 ## [PowerRustCOBOL 1.62.53] — 2026-08-29
 
 **A `RECORD KEY` that names a group now indexes that group's bytes.** NIST
