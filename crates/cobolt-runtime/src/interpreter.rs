@@ -6964,6 +6964,21 @@ impl Interpreter {
         } else {
             (pick(not_at_end, not_invalid_key), pick(at_end, invalid_key))
         };
+        // A statement's phrase covers **one** condition, not every failure. A
+        // keyed READ has `INVALID KEY` (statuses 21-24); a sequential one has
+        // `AT END` (10). Anything else — 30, 47, 48, 49, 92 — is an error the
+        // statement cannot handle: neither phrase runs, and the file's USE
+        // declarative is what deals with it.
+        //
+        // Running the failure phrase for any non-zero status meant a `READ` of
+        // a file that was never opened took the `AT END` path and suppressed
+        // the declarative, so IX114A never saw its handler for status 47. The
+        // 46 case above is the same rule, special-cased before this existed.
+        let phrase_condition_arose = if random {
+            matches!(code, "21" | "22" | "23" | "24")
+        } else {
+            code == status::EOF
+        };
         if code == status::OK {
             if let Some(b) = &buf {
                 // Every 01 of the FD describes the same record area, so each
@@ -7028,13 +7043,13 @@ impl Interpreter {
             }
             let _ = rec_name;
             self.exec_stmts(ok_branch)?;
-        } else {
+        } else if phrase_condition_arose {
             self.exec_stmts(fail_branch)?;
         }
         // On an unhandled error status, run the file's USE declarative. The
-        // statement "handled" the condition only if it supplied the matching
-        // AT END / INVALID KEY phrase (a non-empty failure branch).
-        self.fire_declarative(&file, code, !fail_branch.is_empty())?;
+        // statement "handled" the condition only if the status was one its
+        // phrase is defined for *and* it supplied that phrase.
+        self.fire_declarative(&file, code, phrase_condition_arose && !fail_branch.is_empty())?;
         Ok(())
     }
 

@@ -1220,3 +1220,83 @@ fn sequential_rewrite_may_not_change_the_key() {
         "a keyed REWRITE addresses its own record and is unaffected:\n{joined}"
     );
 }
+
+/// A statement's phrase covers one condition, not every failure.
+///
+/// A sequential `READ` has `AT END`, which is status **10** and nothing else; a
+/// keyed one has `INVALID KEY`, statuses 21-24. Any other error — 30, 47, 48,
+/// 49, 92 — is one the statement cannot handle: neither phrase runs, and the
+/// file's `USE` declarative deals with it.
+///
+/// Running the failure phrase for *any* non-zero status meant a `READ` of a
+/// file that was never opened took the `AT END` path and suppressed the
+/// declarative, so IX114A never saw its handler for status 47.
+#[test]
+fn a_read_error_outside_the_phrase_condition_reaches_the_declarative() {
+    let path = temp_idx("phrasecond");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC X(4).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      DECLARATIVES.\n\
+         \x20      D-SECT SECTION.\n\
+         \x20          USE AFTER STANDARD ERROR PROCEDURE ON F.\n\
+         \x20      D-PARA.\n\
+         \x20          DISPLAY \"DECLARATIVE \" FS.\n\
+         \x20      END DECLARATIVES.\n\
+         \x20      MAIN SECTION.\n\
+         \x20      M.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          READ F AT END DISPLAY \"ATEND-TAKEN\" END-READ\n\
+         \x20          DISPLAY \"AFTER-CLOSED-READ \" FS\n\
+         \x20          OPEN INPUT F\n\
+         \x20          READ F AT END DISPLAY \"ATEND-TAKEN\" END-READ\n\
+         \x20          READ F AT END DISPLAY \"REAL-ATEND\" END-READ\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // Reading a closed file is 47 — not an AT END condition.
+    assert!(
+        joined.contains("AFTER-CLOSED-READ 47"),
+        "a READ of a file that is not open is 47:\n{joined}"
+    );
+    assert!(
+        joined.contains("DECLARATIVE 47"),
+        "47 is not the AT END condition, so the USE declarative must run:\n{joined}"
+    );
+    // …and the phrase must not have been taken for it.
+    assert_eq!(
+        joined.matches("ATEND-TAKEN").count(),
+        0,
+        "the AT END phrase covers status 10 only:\n{joined}"
+    );
+    // A genuine end of file still reaches the phrase.
+    assert!(
+        joined.contains("REAL-ATEND"),
+        "reading past the last record is a real AT END:\n{joined}"
+    );
+}

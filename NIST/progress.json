@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.63",
+  "measured_at_version": "1.62.64",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,7 +49,7 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [28, 42],
+      "execution": [29, 42],
       "assertions": { "pass": 518, "fail": 70, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
@@ -81,14 +81,23 @@
 
   "work_queue": [
     {
-      "id": "ix-singleton-failures",
+      "id": "ix203a-read-next-always-fails",
       "module": "IX",
       "priority": 1,
-      "title": "The remaining single-failure programs, each a separate cause",
-      "worth": "Two programs at exactly 1 failure, the cheapest route from 28 toward 30 of 42.",
+      "title": "IX203A's READ ... NEXT RECORD never succeeds",
+      "worth": "9 failures in IX203A alone, and the same READ NEXT family appears in IX208A (9) and IX209A (9). Likely the largest remaining cluster.",
+      "evidence": "READ-TEST-F1-01 scans with `READ IX-FD1 NEXT RECORD AT END GO TO ...` and expects 501 attempts over 500 records; it computes 502, which is the loop's own safety valve (`IF WRK-CS-09V00-006 GREATER 501`) rather than an AT END. READ-TEST-F1-04 counts records whose UPDATE-NUMBER is neither 00 nor 01 and computes 502 against an expected 0 — every iteration saw a record that was never delivered. Together: the READ fails on every call and the record area is never filled.",
+      "exposed_by": "1.62.64. The AT END phrase used to run for any non-zero status, so the first failure exited the loop and hid this; F1-04 was passing only because the loop never reached the valve. Making the phrase cover status 10 alone stopped the masking.",
+      "next_probe": "Find the status that READ NEXT actually returns here — add a FILE STATUS display to an extracted copy, or reduce to a repro with IX203A's SELECT shape. IX203A is a chained member, so run its producers first. Note IX103A's F1-05 ('KEY VS RECORD') may be the same underlying defect seen from a different angle."
+    },
+    {
+      "id": "ix-singleton-failures",
+      "module": "IX",
+      "priority": 2,
+      "title": "The remaining single-failure program",
+      "worth": "One program left at exactly 1 failure. IX103A F1-05 may share a root with ix203a-read-next-always-fails.",
       "items": [
-        "IX103A READ-TEST-F1-05 'KEY VS RECORD; IX-28' — the record key value after a sequential read must equal the key embedded in the record just delivered.",
-        "IX114A REA-TEST-GF-01-0 'READ. 47 EXP.' — a READ on a file not open INPUT/I-O is status 47, and the program expects its USE declarative to be entered ('SHOULD HAVE EXECUTED DECLARATIVES IX-3,1.3.4(4)')."
+        "IX103A READ-TEST-F1-05 'KEY VS RECORD; IX-28' — the record key value after a sequential read must equal the key embedded in the record just delivered."
       ]
     },
     {
@@ -136,6 +145,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.64", "change": "A READ phrase covers one condition: AT END is status 10 only, INVALID KEY 21-24", "effect": "IX 28 -> 29 clean (IX114A). Assertions flat at 518/70: IX203A lost one, having relied on AT END swallowing a READ that fails on every call - see ix203a-read-next-always-fails." },
     { "version": "1.62.63", "change": "A sequential REWRITE may not change the record key: status 21, not 92", "effect": "IX 27 -> 28 clean (IX119A); 517 -> 518 PASS." },
     { "version": "1.62.62", "change": "SELECT OPTIONAL applies to keyed files: an absent optional file opens with 05", "effect": "IX 24 -> 27 clean. IX216A, IX217A and IX218A all went clean - three programs, where only IX216A had been predicted." },
     { "version": "1.62.61", "change": "SAME RECORD AREA implemented (AST, I-O-CONTROL parsing, READ propagation)", "effect": "IX 22 -> 24 clean; IX205A and IX206A both go clean, each having been at exactly 1 failure." },

@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.64] — 2026-08-29
+
+**A statement's conditional phrase covers one condition, not every failure.**
+NIST CCVS85 Indexed I/O goes from **28 to 29 of 42** programs running clean.
+
+A sequential `READ` has `AT END`, which is status **10** and nothing else; a
+keyed one has `INVALID KEY`, statuses **21–24**. Any other error — 30, 47, 48,
+49, 92 — is one the statement cannot handle: neither phrase runs, and the file's
+`USE` declarative deals with it.
+
+The failure phrase was being run for *any* non-zero status, and running it also
+counted as handling the condition, which suppressed the declarative. So a `READ`
+of a file that was never opened took the `AT END` path and IX114A never saw its
+handler for status 47. The `46` case had already been special-cased ahead of
+this; it is the same rule, now stated once.
+
+**One assertion moved the other way, and it is worth being plain about.**
+IX203A went from 8 failures to 9. Its scan loop is
+`READ IX-FD1 NEXT RECORD AT END GO TO …` with a safety valve after 501
+iterations, and its `READ NEXT` **fails on every call** — the record area is
+never filled. The `AT END` phrase was catching that first failure and leaving
+the loop early; with the masking gone the loop runs to its valve and counts 502
+records it never received. The defect was always there and was already failing
+three assertions; a fourth now reports it truthfully. It is recorded as the top
+work item, and it is the largest remaining cluster — the same `READ NEXT` family
+accounts for nine failures each in IX208A and IX209A.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.63] — 2026-08-29
 
 **A sequential `REWRITE` may not change the record's key.** NIST CCVS85 Indexed
