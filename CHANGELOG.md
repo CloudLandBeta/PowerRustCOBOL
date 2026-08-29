@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.78] — 2026-08-29
+
+**A separator comma before a sign is no longer discarded**, and two programs
+that crashed the interpreter now run. **IF (Conditional) goes from 24 to 32 of
+45 running clean**, 702 → 776 passing assertions (87.4 % → 91.9 %), with no
+crashes left in the module.
+
+A comma followed by a space is a COBOL-85 *separator*: it may stand anywhere a
+space may and means exactly what a space means, so the lexer dropped it.
+There is one place where that is not true. The standard tells a **sign** from a
+**binary operator** by the space that follows it — `A -3` is two operands,
+`A - 3` is one subtraction — so dropping the comma from
+
+```cobol
+           COMPUTE WS-NUM = FUNCTION MOD(A, -3).
+```
+
+leaves `A -3`, which read as a single subtraction. `MOD` was then called with
+one argument and the interpreter panicked reading the second. The comma is now
+kept when the next token is a `+` or `-`, which is enough for the parser to
+tell the two apart without teaching it the spacing rule.
+
+**The semicolon keeps no such exception.** It is never a list separator, only
+decoration, and no parser eats one — `MOVE ELEM3( +3; +5, +10) TO TEMP` is a
+subscript list the suite writes precisely to prove it. Applying the exception
+to both punctuations cost a program that had been passing, which is how the
+distinction was found.
+
+**An intrinsic called with too few arguments is now reported, not fatal.**
+`FUNCTION MOD needs 2 arguments, 1 given` is something a developer can act on;
+an index-out-of-bounds panic is not. A COBOL program must never be able to
+crash the interpreter, whatever it says.
+
 ## [PowerRustCOBOL 1.62.77] — 2026-08-29
 
 **Relative I/O is finished: 35 of 35 compiling, 34 of 34 running clean, 354

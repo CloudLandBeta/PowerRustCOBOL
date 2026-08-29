@@ -62,8 +62,8 @@
       "name": "Conditional",
       "state": "in_flight",
       "compile": [45, 45],
-      "execution": [24, 45],
-      "assertions": { "pass": 702, "fail": 101, "deleted": 0 },
+      "execution": [32, 45],
+      "assertions": { "pass": 776, "fail": 68, "deleted": 0 },
       "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members."
     },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -111,8 +111,9 @@
     {
       "id": "if-two-crashes",
       "module": "IF",
-      "priority": 0,
-      "title": "IF124A and IF133A crash the interpreter (exit 101)",
+      "priority": 99,
+      "resolved_at": "1.62.78 — and the `next_probe` advice was worth its line: the panic message named interpreter.rs:10771 (`args[1]` of FUNCTION MOD), which was the whole diagnosis. The cause was in the LEXER, two crates away: a separator comma followed by a sign was dropped, so `FUNCTION MOD(A, -3)` became `A -3` and read as one subtraction. Fixing it took IF from 24 to 32 clean — the two crashes were the visible edge of a defect that was also costing assertions in six other members.",
+      "title": "RESOLVED — IF124A and IF133A crash the interpreter (exit 101)",
       "worth": "Two programs, and the only two of their kind in the module — a crash is a runtime panic, not a wrong answer, so it is a different class of defect from the other 101 failures and almost certainly a smaller fix.",
       "evidence": "Measured at 1.62.77 baselining IF. Both report `crashed: exit exit status: 101`, which is a Rust panic rather than a COBOL-level failure. No assertions are scored for either, so their true contribution to the module is unknown until they run.",
       "next_probe": "Extract each and run it by hand — the panic message names the file and line, which is usually the whole diagnosis. `extract IF124A > IF124A.cbl` then run it with the two switches; do not read the CCVS report first, read stderr."
@@ -201,6 +202,14 @@
 
   "dead_ends": [
     {
+      "id": "separator-exception-applied-to-the-semicolon-too",
+      "tried_at_version": "1.62.78",
+      "what": "Keep a separator COMMA OR SEMICOLON when the next token is a sign, so `FUNCTION MOD(A, -3)` stops reading as one subtraction.",
+      "why_it_failed": "It fixed IF but broke NC245A, which had been passing — NC 95/95 -> 94/95, a protected baseline. NC245A is the separator test itself and writes `MOVE ELEM3( +3; +5, +10) TO TEMP`: a semicolon is never a list separator in COBOL, only decoration, and no parser eats one, so keeping it is a parse error rather than a separator.",
+      "what_to_do_instead": "The exception belongs to the COMMA alone. Both the function-argument and subscript parsers already eat a comma between elements, so keeping it there costs nothing; the semicolon has no such reader anywhere.",
+      "the_lesson": "The regression was invisible in the module being worked on and only showed up in the whole-suite gate. Run every finished module after ANY lexer or parser change — those two crates have no module boundary."
+    },
+    {
       "id": "blanket-module-directory-sharing",
       "tried_at_version": "1.62.48",
       "what": "Give every member of a module ONE shared work directory so the CCVS85 file chain works.",
@@ -221,6 +230,7 @@
   },
 
   "history": [
+    { "version": "1.62.78", "change": "A separator comma before a sign is kept, so `FUNCTION MOD(A, -3)` is two arguments and not one subtraction; an intrinsic called short is reported rather than fatal", "effect": "IF 24 -> 32 of 45, 702 -> 776 PASS, 87.4% -> 91.9%, and the module's two crashes (IF124A, IF133A) are gone. NC, SQ, IX and RL exact; compile census 423/434 held. Applying the same exception to the SEMICOLON broke NC245A — see dead_ends." },
     { "version": "1.62.77", "change": "Three front-end fixes finish RL: `RELATIVE data-name` with KEY omitted, file status 14, and an unterminated conditional phrase reading past ELSE", "effect": "RL 24 -> 34 of 34, 354 PASS / 0 FAIL - the module is FINISHED, from a 14/35 baseline in one session. Whole-suite compile 422 -> 423 of 434 (RL210A). NC, SQ and IX exact. The ELSE fix is general and applies to every module." },
     { "version": "1.62.76", "change": "ORGANIZATION IS RELATIVE gets an engine (relative.rs, container PRCREL1 + MEMORY) and all seven verbs dispatch to it; the harness learns RL's ten chained members", "effect": "RL 14 -> 24 of 35, 196/140 -> 326 PASS / 38 FAIL (58.3% -> 89.6%), and the four timeouts are gone. IX reaches 41/41 with 574 PASS / 0 FAIL - IX106A's last four failures were the relative file it shares with the indexed ones, so IX is FINISHED. NC and SQ exact; compile census 422/434 unchanged." },
     { "version": "1.62.47", "change": "Harness supplies XXXXD001, the installation data file SQ203A reads", "effect": "SQ 84 -> 85 of 85; module finished" },

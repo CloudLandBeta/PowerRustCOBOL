@@ -196,6 +196,55 @@ fn ac8_the_decimal_comma_still_works() {
     assert!(errors(src).is_empty(), "{:?}", errors(src));
 }
 
+/// A separator comma before a **sign** is the one that carries meaning.
+///
+/// COBOL-85 tells a sign from a binary operator by the space that follows it:
+/// `A -3` is two operands, `A - 3` is one subtraction. Drop the comma from
+/// `FUNCTION MOD(A, -3)` and what is left reads as a subtraction — the function
+/// is called with one argument, and IF124A and IF133A crashed the interpreter
+/// on the second.
+#[test]
+fn a_comma_before_a_sign_still_separates_two_arguments() {
+    let data = "01  A       PIC S9(9)V9(9) VALUE 11.\n01  WS-NUM  PIC S9(9)V9(9).\n";
+    let src = program(data, "    COMPUTE WS-NUM = FUNCTION MOD(A, -3).\n");
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+    let ast = format!("{:?}", parse(tokenize(&src, SourceFormat::Free)).program);
+    assert!(
+        !ast.contains("Subtract") && !ast.contains("Sub,"),
+        "the two arguments were merged into a subtraction: {ast}"
+    );
+}
+
+/// …and it does not become required. Without the comma the two operands are
+/// still two, because the sign is glued to its literal.
+#[test]
+fn a_sign_after_a_comma_is_not_a_binary_operator() {
+    let data = "01  A       PIC S9(9)V9(9) VALUE 11.\n01  WS-NUM  PIC S9(9)V9(9).\n";
+    let with = program(data, "    COMPUTE WS-NUM = FUNCTION MAX(A, -3, 7).\n");
+    let without = program(data, "    COMPUTE WS-NUM = FUNCTION MAX(A -3 7).\n");
+    assert!(errors(&with).is_empty(), "{:?}", errors(&with));
+    assert!(errors(&without).is_empty(), "{:?}", errors(&without));
+}
+
+/// The **semicolon** keeps no such exception: it is never a list separator,
+/// only decoration, so it is dropped even before a sign.
+///
+/// NC245A writes exactly this to prove it — a subscript list mixing both
+/// punctuations with signed subscripts — and keeping the semicolon is a parse
+/// error rather than a separator.
+#[test]
+fn a_semicolon_before_a_sign_is_still_only_decoration() {
+    let data = "01  ELEM3-TABLE.\n   05 ELEM3 PIC 9 OCCURS 20 TIMES.\n01  TEMP PIC 9.\n";
+    for body in [
+        "    MOVE ELEM3( +3; +5, +10) TO TEMP.\n",
+        "    MOVE ELEM3 (+3, 5; 10) TO TEMP.\n",
+        "    ADD ELEM3 (3; 5; 10) TO TEMP.\n",
+    ] {
+        let src = program(data, body);
+        assert!(errors(&src).is_empty(), "{body}: {:?}", errors(&src));
+    }
+}
+
 /// The RustCOBOL member-call argument list is not COBOL-85, but it is real
 /// syntax and its comma is followed by a space — so it went through the same
 /// change and must not have regressed to a single argument.

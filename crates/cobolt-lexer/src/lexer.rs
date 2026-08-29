@@ -210,9 +210,29 @@ impl<'src> Lexer<'src> {
             // comma (`1,5`, glued between digits, under `DECIMAL-POINT IS
             // COMMA`) and the PICTURE editing comma (`PIC ZZ,ZZ9`, glued
             // inside the template). Both keep their token untouched.
-            if matches!(result, Ok(RawToken::Comma) | Ok(RawToken::Semicolon))
-                && self.is_separator_punctuation(range.end)
-            {
+            //
+            // **One case where a COMMA does not mean what a space means**:
+            // when the next token is a `+` or `-`. COBOL-85 tells a sign from
+            // a binary operator by the space after it — `A -3` is two operands
+            // and `A - 3` is one subtraction — and dropping the comma from
+            // `FUNCTION MOD(A, -3)` leaves `A -3`, which the parser then read
+            // as a single subtraction. The function was called with one
+            // argument and the interpreter panicked on the second (IF124A,
+            // IF133A). Every one of the suite's 74 comma-then-sign sites is a
+            // list — a function's arguments or an item's subscripts — and both
+            // parsers already eat a comma between elements, so keeping it
+            // costs nothing.
+            //
+            // The **semicolon** is excluded from that exception. It is never a
+            // list separator in COBOL, only decoration, and no parser eats one:
+            // NC245A writes `MOVE ELEM3( +3; +5, +10)` to prove a semicolon may
+            // stand wherever a space may, and keeping it there is a parse error.
+            let dropped_separator = match result {
+                Ok(RawToken::Comma) => !self.next_raw_is_sign(),
+                Ok(RawToken::Semicolon) => true,
+                _ => false,
+            };
+            if dropped_separator && self.is_separator_punctuation(range.end) {
                 continue;
             }
 
@@ -641,6 +661,20 @@ impl<'src> Lexer<'src> {
             None => true,
             Some(c) => c.is_whitespace(),
         }
+    }
+
+    /// Whether the token after the one being examined is a `+` or `-`.
+    ///
+    /// This is the one place a separator comma carries meaning: `A, -3` is two
+    /// operands and `A -3` — what is left once the comma is dropped — reads as
+    /// one subtraction, because COBOL-85 distinguishes a sign from a binary
+    /// operator by the space that follows it. Keeping the comma is what lets
+    /// the parser tell the two apart without teaching it the spacing rule.
+    fn next_raw_is_sign(&self) -> bool {
+        matches!(
+            self.raw_tokens.get(self.pos).map(|(t, _)| t),
+            Some(Ok(RawToken::Plus)) | Some(Ok(RawToken::Minus))
+        )
     }
 }
 

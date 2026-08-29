@@ -766,6 +766,30 @@ fn make_indexed_engine(
     }
 }
 
+/// The two arguments of a two-argument intrinsic, or a reportable error.
+///
+/// `FUNCTION MOD(A, -3)` was reaching the interpreter with one argument — the
+/// lexer had dropped the separator comma and the parser read `A -3` as a
+/// subtraction — and indexing the second panicked, which is how IF124A and
+/// IF133A came out of the harness as "crashed" rather than as failures. The
+/// lexer no longer drops that comma, but a program is still free to write the
+/// call wrong, and a COBOL program must never be able to crash the interpreter.
+fn two_args<'a>(
+    name: &str,
+    args: &'a [Expr],
+    span: Span,
+) -> Result<(&'a Expr, &'a Expr), RuntimeError> {
+    match args {
+        [a, b, ..] => Ok((a, b)),
+        _ => Err(RuntimeError::IntrinsicArity {
+            name: name.to_string(),
+            needed: 2,
+            given: args.len(),
+            span,
+        }),
+    }
+}
+
 /// The integer digit positions a PICTURE describes — the `9`s to the left of
 /// any `V`, with `9(n)` counting as *n* of them.
 ///
@@ -10767,16 +10791,18 @@ impl Interpreter {
                 Ok(CobolValue::from_f64(v.sqrt()))
             }
             "MOD" => {
-                let a = self.eval_expr(&args[0], span)?.as_f64();
-                let b = self.eval_expr(&args[1], span)?.as_f64();
+                let (x, y) = two_args(name, args, span)?;
+                let a = self.eval_expr(x, span)?.as_f64();
+                let b = self.eval_expr(y, span)?.as_f64();
                 if b == 0.0 {
                     return Err(RuntimeError::DivisionByZero { span });
                 }
                 Ok(CobolValue::from_f64(a - (a / b).floor() * b))
             }
             "REM" => {
-                let a = self.eval_expr(&args[0], span)?.as_f64();
-                let b = self.eval_expr(&args[1], span)?.as_f64();
+                let (x, y) = two_args(name, args, span)?;
+                let a = self.eval_expr(x, span)?.as_f64();
+                let b = self.eval_expr(y, span)?.as_f64();
                 if b == 0.0 {
                     return Err(RuntimeError::DivisionByZero { span });
                 }
@@ -11004,8 +11030,9 @@ impl Interpreter {
             "ANNUITY" => {
                 // Ratio of one payment to the present value of a series of `n`
                 // payments at interest `rate`: rate / (1 − (1+rate)^−n).
-                let rate = self.eval_expr(&args[0], span)?.as_f64();
-                let n = self.eval_expr(&args[1], span)?.as_f64();
+                let (r, count) = two_args(name, args, span)?;
+                let rate = self.eval_expr(r, span)?.as_f64();
+                let n = self.eval_expr(count, span)?.as_f64();
                 let v = if rate == 0.0 {
                     if n == 0.0 {
                         0.0
