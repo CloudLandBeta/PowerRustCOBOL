@@ -1300,3 +1300,140 @@ fn a_read_error_outside_the_phrase_condition_reaches_the_declarative() {
         "reading past the last record is a real AT END:\n{joined}"
     );
 }
+
+/// Deleting during a **dynamic** scan does not skip the next record either.
+///
+/// Under `ACCESS MODE IS DYNAMIC` a scan reads with `READ NEXT` and then
+/// deletes, and the delete is addressed by key — but the record leaving is
+/// still the one the cursor sits on, so the B+tree slot shifts underneath it
+/// exactly as in the sequential form. The first fix guarded on *how* the record
+/// was addressed rather than *which* record it was, and missed this: IX203A's
+/// scan lost 96 of 500 records and 24 of its 125 deletions.
+#[test]
+fn deleting_during_a_dynamic_scan_does_not_skip_the_next_record() {
+    let path = temp_idx("dyndelscan");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS     PIC XX.\n\
+         \x20      01 I      PIC 9(4) VALUE 0.\n\
+         \x20      01 READS  PIC 9(4) VALUE 0.\n\
+         \x20      01 EVERY4 PIC 9(4) VALUE 0.\n\
+         \x20      01 DELS   PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 20\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"REC\" TO R-NAME\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F.\n\
+         \x20      SCAN.\n\
+         \x20          ADD 1 TO READS\n\
+         \x20          ADD 1 TO EVERY4\n\
+         \x20          READ F NEXT AT END GO TO DONE END-READ\n\
+         \x20          IF EVERY4 = 4\n\
+         \x20             DELETE F END-DELETE\n\
+         \x20             ADD 1 TO DELS\n\
+         \x20             MOVE 0 TO EVERY4\n\
+         \x20          END-IF\n\
+         \x20          GO TO SCAN.\n\
+         \x20      DONE.\n\
+         \x20          DISPLAY \"READS \" READS \" DELS \" DELS\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("READS 0021"),
+        "all 20 records then AT END; a skip shows up as a lower count:\n{joined}"
+    );
+    assert!(joined.contains("DELS 0005"), "records 4, 8, 12, 16, 20:\n{joined}");
+}
+
+/// A `START` supersedes a resume left pending by a `DELETE`.
+///
+/// The resume says "carry on after the record that just went"; a `START` says
+/// where the file is now, and must win. Without that, IX213A's `START ... KEY
+/// IS EQUAL` was overridden and the following `READ` reported `FILE IS AT END`
+/// instead of delivering the record it had positioned on.
+#[test]
+fn start_supersedes_a_pending_delete_resume() {
+    let path = temp_idx("startafterdel");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 I  PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 10\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"REC\" TO R-NAME\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          READ F NEXT AT END CONTINUE END-READ\n\
+         \x20          DELETE F END-DELETE\n\
+         \x20          MOVE 8 TO R-KEY\n\
+         \x20          START F KEY IS EQUAL TO R-KEY\n\
+         \x20             INVALID KEY DISPLAY \"START BAD \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"WRONG-ATEND\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("GOT 0008"),
+        "the READ must resume where START put it, not after the deleted \
+         record:\n{joined}"
+    );
+    assert!(
+        !joined.contains("WRONG-ATEND"),
+        "a stale resume drove the file to end-of-file:\n{joined}"
+    );
+}

@@ -1054,6 +1054,9 @@ impl DiskIndexedFile {
         match found {
             Some((leaf, idx, recid)) => {
                 self.cursor = Some((leaf, idx));
+                // A keyed READ says where the file now is, which supersedes any
+                // resume a DELETE had left pending.
+                self.resume_key = None;
                 self.current = Some(recid);
                 match self.directory.get(recid as usize).copied() {
                     Some(loc) if loc.is_live() => match self.load_record_bytes(loc) {
@@ -1213,6 +1216,11 @@ impl DiskIndexedFile {
                     Some(p) => Some(p),
                     None => None,
                 };
+                // START says where the file now is. A resume left pending by an
+                // earlier DELETE would otherwise override it and the next READ
+                // would carry on from the deleted record instead — IX213A
+                // STARTs at AAA020 and got `FILE IS AT END`.
+                self.resume_key = None;
                 self.current = None;
                 status::OK
             }
@@ -1360,12 +1368,17 @@ impl DiskIndexedFile {
         // did with the raw slot. Applies whether or not the deleted record is
         // the cursor's own.
         //
-        // **Only for the sequential form**, where the record being deleted is
-        // the one the scan just read (`random_key` is None, so `recid` came
-        // from `current`). A keyed DELETE removes some other record while the
-        // cursor sits elsewhere; that entry is still there and stepping from
-        // its slot is still right.
-        if random_key.is_none() && self.resume_key.is_none() {
+        // The test is **which record is going**, not how it was addressed.
+        // Under `ACCESS MODE IS DYNAMIC` a scan reads with `READ NEXT` and then
+        // deletes, and the interpreter addresses that delete by key — but the
+        // record leaving is still the one the cursor is sitting on, so the slot
+        // shifts underneath it exactly as in the sequential form. Guarding on
+        // `random_key.is_none()` missed that: IX203A's scan lost 96 of 500
+        // records and 24 of its 125 deletions.
+        //
+        // A keyed DELETE of some *other* record leaves the cursor's own entry
+        // in place, and stepping from its slot is still right.
+        if self.current == Some(recid) && self.resume_key.is_none() {
             if let Some((leaf, idx)) = self.cursor {
                 if let Ok(Some((k, _))) = self.entry_at(leaf, idx) {
                     self.resume_key = Some(k);

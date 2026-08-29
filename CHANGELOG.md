@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.66] — 2026-08-29
+
+**A delete-resume keys on *which* record leaves, not how it was addressed** —
+and a `START` or keyed `READ` discards one that is pending. NIST CCVS85 Indexed
+I/O goes from **29 to 30 of 42** programs running clean; assertions 521 PASS /
+67 FAIL → **528 PASS / 60 FAIL** (88.6 % → **89.8 %**). IX203A falls from six
+failures to one, and IX212A and IX213A both go clean.
+
+Two corrections to the cursor work of 1.62.58.
+
+**The guard tested the wrong thing.** A scan under `ACCESS MODE IS DYNAMIC`
+reads with `READ NEXT` and then deletes, and that delete is addressed by key —
+but the record leaving is still the one the cursor sits on, so the B+tree slot
+shifts underneath it exactly as in the sequential form. Guarding on "was this a
+keyed delete" missed it entirely: IX203A's scan lost **96 of 500 records and 24
+of its 125 deletions**. The condition is now whether the record being deleted is
+the cursor's current one, which covers both forms and still leaves a keyed
+delete of some *other* record alone.
+
+**A pending resume outlived its welcome.** The resume says "carry on after the
+record that just went"; a `START` says where the file is *now*, and must win.
+Nothing cleared it, so IX213A's `START … KEY IS EQUAL` was overridden and the
+following `READ` reported `FILE IS AT END` instead of the record it had
+positioned on. `START` and a keyed `READ` both discard it now.
+
+The in-memory and redb engines key their cursors and are unaffected by any of
+this.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.65] — 2026-08-29
 
 **IX203A declares its producer, completing the IX2xx chain.** Test-harness
