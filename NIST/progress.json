@@ -58,7 +58,14 @@
       "assertions": { "pass": 574, "fail": 0, "deleted": 1 },
       "finished_at": "1.62.76 — the RELATIVE engine closed IX106A's last four failures, which were the relative file it exercises alongside the sequential and indexed ones. Scored out of 41: IX301M is excluded from execution by operator ruling (see rules.ix301m_out_of_scope) and still counts in the compile census."
     },
-    "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
+    "IF": {
+      "name": "Conditional",
+      "state": "in_flight",
+      "compile": [45, 45],
+      "execution": [24, 45],
+      "assertions": { "pass": 702, "fail": 101, "deleted": 0 },
+      "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members."
+    },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
     "ST": { "name": "Sort/Merge", "state": "compile_only", "compile": [38, 40], "execution": null, "assertions": null },
     "SM": { "name": "Source text manipulation", "state": "compile_only", "compile": [14, 17], "execution": null, "assertions": null },
@@ -100,6 +107,25 @@
       "cause": "1.62.69 made the AT END phrase fire only for status 10, which is correct: 47 is not the AT END condition. But with no USE declarative the statement now falls through and the loop repeats the same failing READ. Before that change the phrase fired on any non-zero status and the loop exited, which was wrong for the right reason.",
       "the_question": "COBOL-85 says an unhandled I-O error invokes the file's USE declarative, and with none declared the result is implementor-defined. Spinning is a poor choice. Terminating the run with a diagnostic, the way an unhandled runtime error already does, is defensible and would surface the real problem instead of a timeout. This is a design decision, so it is recorded rather than taken.",
       "caveat": "Do NOT fix it by making AT END fire on other statuses again — that reintroduces the defect 1.62.69 corrected, and IX114A depends on the current behaviour."
+    },
+    {
+      "id": "if-two-crashes",
+      "module": "IF",
+      "priority": 0,
+      "title": "IF124A and IF133A crash the interpreter (exit 101)",
+      "worth": "Two programs, and the only two of their kind in the module — a crash is a runtime panic, not a wrong answer, so it is a different class of defect from the other 101 failures and almost certainly a smaller fix.",
+      "evidence": "Measured at 1.62.77 baselining IF. Both report `crashed: exit exit status: 101`, which is a Rust panic rather than a COBOL-level failure. No assertions are scored for either, so their true contribution to the module is unknown until they run.",
+      "next_probe": "Extract each and run it by hand — the panic message names the file and line, which is usually the whole diagnosis. `extract IF124A > IF124A.cbl` then run it with the two switches; do not read the CCVS report first, read stderr."
+    },
+    {
+      "id": "if-flagging-members",
+      "module": "IF",
+      "priority": 1,
+      "title": "IF401M / IF402M / IF403M ask for subset flagging we do not emit",
+      "worth": "32 of the module's 101 failures sit in three programs.",
+      "evidence": "IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5.",
+      "the_question": "IF401M is the *high*-subset shape, the same as IX401M which scores 10 of 10 — so this is a real gap in `flagging::flag_high_subset`, not the intermediate-subset scoping question that ruled IX301M and RL301M out. Check each member's own header before assuming which kind it is: a member asking a high-subset implementation to flag features it does NOT support is in scope, one asking it to flag features it DOES support is not.",
+      "next_probe": "Read the `Message expected` comments in each and compare against what `flag_high_subset` emits today."
     },
     {
       "id": "rl-remaining-failures",
