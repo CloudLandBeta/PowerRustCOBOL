@@ -5963,7 +5963,33 @@ impl Interpreter {
                     self.indexed_log_format,
                 );
                 engine.set_registered_user(reg_user.clone());
-                let code = engine.open(map_open_mode(mode));
+                // `SELECT OPTIONAL` applies to a keyed file exactly as it does
+                // to a sequential one, and the rules were only ever written for
+                // the sequential branch. A file that is not there opens anyway
+                // and the program is told so with status **05**.
+                //
+                // For `INPUT` the engine would refuse a missing file with 35, so
+                // the container is materialised by opening it I-O — the same
+                // answer the sequential branch already gives, where `INPUT` on
+                // an OPTIONAL file uses `create(true)`. Reads then find it empty
+                // and raise `AT END`, which is what the standard asks for.
+                let optional_absent = spec.optional
+                    && !existed
+                    && matches!(
+                        mode,
+                        OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                    );
+                let open_as = if optional_absent && mode == OpenMode::Input {
+                    OpenMode::InputOutput
+                } else {
+                    mode
+                };
+                let code = engine.open(map_open_mode(open_as));
+                let code = if optional_absent && (code == "00" || code == "35") {
+                    "05"
+                } else {
+                    code
+                };
                 self.open_files
                     .insert(file.clone(), OpenFile::Indexed(engine));
                 self.set_file_status(&file, code);

@@ -1069,3 +1069,63 @@ fn same_record_area_shares_one_record_between_two_files() {
          put there; without it FA's record is still blank:\n{joined}"
     );
 }
+
+/// `SELECT OPTIONAL` applies to a keyed file too: a file that is not there
+/// opens anyway, and the program is told so with status **05**.
+///
+/// The rule was written only for the sequential branch of `OPEN`; the INDEXED
+/// branch took the engine's status straight through, so an `OPEN EXTEND` of an
+/// absent optional file reported a plain 00 and IX216A could not tell the two
+/// cases apart. `INPUT` is included because the engine would otherwise refuse a
+/// missing file with 35.
+#[test]
+fn optional_keyed_file_that_is_absent_opens_with_05() {
+    for mode in ["EXTEND", "I-O", "INPUT"] {
+        let path = temp_idx(&format!("optabsent{}", mode.replace('-', "")));
+        let _ = std::fs::remove_file(&path);
+        let src = format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. T.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      INPUT-OUTPUT SECTION.\n\
+             \x20      FILE-CONTROL.\n\
+             \x20          SELECT OPTIONAL F ASSIGN TO \"{path}\"\n\
+             \x20              ORGANIZATION IS INDEXED\n\
+             \x20              ACCESS MODE IS SEQUENTIAL\n\
+             \x20              RECORD KEY IS R-KEY\n\
+             \x20              FILE STATUS IS FS.\n\
+             \x20      DATA DIVISION.\n\
+             \x20      FILE SECTION.\n\
+             \x20      FD F.\n\
+             \x20      01 R.\n\
+             \x20         05 R-KEY  PIC X(4).\n\
+             \x20         05 R-NAME PIC X(8).\n\
+             \x20      WORKING-STORAGE SECTION.\n\
+             \x20      01 FS PIC XX.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20      MAIN.\n\
+             \x20          OPEN {mode} F\n\
+             \x20          DISPLAY \"ABSENT \" FS\n\
+             \x20          CLOSE F\n\
+             \x20          OPEN {mode} F\n\
+             \x20          DISPLAY \"PRESENT \" FS\n\
+             \x20          CLOSE F\n\
+             \x20          STOP RUN.\n",
+            path = path.display(),
+            mode = mode
+        );
+        let out = run_capture(&src);
+        let _ = std::fs::remove_file(&path);
+        let joined = out.join("\n");
+        assert!(
+            joined.contains("ABSENT 05"),
+            "OPEN {mode} of an absent OPTIONAL keyed file is 05:\n{joined}"
+        );
+        // The second open finds the file the first one created, so it is a
+        // plain success — 05 must not be reported for a file that is there.
+        assert!(
+            joined.contains("PRESENT 00"),
+            "OPEN {mode} of a file now present is 00:\n{joined}"
+        );
+    }
+}

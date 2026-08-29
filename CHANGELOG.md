@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.62] — 2026-08-29
+
+**`SELECT OPTIONAL` applies to keyed files too.** NIST CCVS85 Indexed I/O goes
+from **24 to 27 of 42** programs running clean; assertions 512 PASS / 79 FAIL →
+**517 PASS / 71 FAIL** (86.6 % → **87.9 %**).
+
+A file declared `SELECT OPTIONAL` need not exist when the program runs: it opens
+anyway and the program is told so with status **05**. That rule had been written
+only for the sequential branch of `OPEN`. The INDEXED branch passed the engine's
+own status straight through, so `OPEN EXTEND` of a file that was not there
+reported a plain **00** and a program could not tell the two cases apart —
+IX216A checks exactly that distinction.
+
+`OPEN INPUT` is included: the engine would otherwise refuse a missing file with
+35, so the container is materialised by opening it I-O and reads then find it
+empty and raise `AT END` — the same answer the sequential branch already gives,
+where `INPUT` on an OPTIONAL file uses `create(true)`.
+
+A file that *is* present still opens with a plain 00; 05 means absent-and-created
+and nothing else.
+
+**Three programs went clean, where one was predicted** — IX216A, IX217A and
+IX218A. The other two were failing on the same rule without it having been
+separately diagnosed.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.61] — 2026-08-29
 
 **`SAME RECORD AREA` is implemented.** NIST CCVS85 Indexed I/O goes from **22
