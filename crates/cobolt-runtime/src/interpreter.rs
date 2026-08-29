@@ -8190,6 +8190,36 @@ impl Interpreter {
                             aliased.push((pk.clone(), self.env.alias_target(pk)));
                             self.env.set_alias(pk, ak);
                         }
+                        // A **group** parameter is handed over whole, and the
+                        // callee reads its *fields* — under its own names for
+                        // them, which need not be the caller's. IC204A declares
+                        // `SUB-TABLE-1` over `SUB-DN2 / SUB-DN3 / SUB-DN4`
+                        // while its caller passes `TABLE-1` over `DN2 / DN3 /
+                        // DN4`. The two describe the same bytes, so the
+                        // subordinate items are paired by **position** — there
+                        // is nothing else to pair them by — and aliased in
+                        // lock-step. Without it the callee wrote its own
+                        // LINKAGE slots and the caller saw nothing (IC203A's
+                        // thirteen `DN2 INCORRECT` / `DN4 INCORRECT`).
+                        let pairs: Vec<(String, String)> = {
+                            let p = self
+                                .env
+                                .symbol(pk)
+                                .map(|s| s.layout_keys.clone())
+                                .unwrap_or_default();
+                            let a = self
+                                .env
+                                .symbol(ak)
+                                .map(|s| s.layout_keys.clone())
+                                .unwrap_or_default();
+                            p.into_iter().zip(a).collect()
+                        };
+                        for (p_sub, a_sub) in pairs {
+                            if p_sub != a_sub {
+                                aliased.push((p_sub.clone(), self.env.alias_target(&p_sub)));
+                                self.env.set_alias(&p_sub, &a_sub);
+                            }
+                        }
                     } else if let Some(v) = self.env.get(ak).cloned() {
                         // BY CONTENT / BY VALUE: a copy taken at entry, with no
                         // write-back.

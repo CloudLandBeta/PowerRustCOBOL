@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.85] — 2026-08-29
+
+**A group parameter's fields are paired with the argument's by position.** The
+two programs need not use the same names for them, and until now only the group
+itself was bound — so a called program wrote its own LINKAGE slots and the
+caller saw nothing change.
+
+```cobol
+      *    the caller
+       01  TABLE-1.
+           02  DN2 PICTURE XXX.
+           02  DN3 PICTURE 99.
+           02  DN4 PICTURE X(5).
+...
+           CALL "IC204A" USING TABLE-1, DN1.
+
+      *    the called program
+       01  SUB-TABLE-1.
+           02  SUB-DN2 PIC XXX.
+           02  SUB-DN3 PIC 99.
+           02  SUB-DN4 PIC X(5).
+       PROCEDURE DIVISION USING SUB-TABLE-1, SUB-DN1.
+```
+
+The same bytes under different names. Matching by name reaches nothing, so the
+subordinate items are paired in declaration order — there is nothing else to
+pair them by — and each is aliased onto the caller's, alongside the group.
+
+**IC (Inter-program Communication) goes from 194 to 206 passing assertions**
+(75.8 % → 80.5 %), 62 → 50 failures. IC203A alone went from 13 failures to 1.
+
 ## [PowerRustCOBOL 1.62.84] — 2026-08-29
 
 **`CALL … USING` binds the caller's storage, not a copy of it.** A `BY

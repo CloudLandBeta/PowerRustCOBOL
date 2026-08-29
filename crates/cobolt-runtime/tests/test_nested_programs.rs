@@ -452,6 +452,53 @@ fn a_parameter_binds_to_its_argument_not_to_its_own_name() {
     assert_eq!(i.env.get_i64("DN4").unwrap_or(-1), 5, "DN4");
 }
 
+/// A group parameter's fields are paired with the argument's **by position**,
+/// because the two programs need not use the same names for them.
+///
+/// IC204A declares `SUB-TABLE-1` over `SUB-DN2 / SUB-DN3 / SUB-DN4` while its
+/// caller passes `TABLE-1` over `DN2 / DN3 / DN4`. Same bytes, different names
+/// — matching by name reaches nothing, and the callee wrote its own LINKAGE
+/// slots while the caller saw no change at all (IC203A's `DN2 INCORRECT`).
+#[test]
+fn a_group_parameters_fields_are_paired_by_position() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 TABLE-1.
+          05 DN2 PIC XXX   VALUE "AAA".
+          05 DN3 PIC 99    VALUE 7.
+          05 DN4 PIC X(5)  VALUE SPACE.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "CALLEE" USING TABLE-1.
+           STOP RUN.
+       END PROGRAM CALLER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLEE.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 SUB-TABLE-1.
+          05 SUB-DN2 PIC XXX.
+          05 SUB-DN3 PIC 99.
+          05 SUB-DN4 PIC X(5).
+       PROCEDURE DIVISION USING SUB-TABLE-1.
+       MAIN-2.
+           MOVE "YES" TO SUB-DN2.
+           ADD 1 TO SUB-DN3.
+           MOVE "EQUAL" TO SUB-DN4.
+           EXIT PROGRAM.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    assert_eq!(i.env.get_string("DN2").unwrap_or_default(), "YES", "DN2");
+    assert_eq!(i.env.get_i64("DN3").unwrap_or(-1), 8, "DN3");
+    assert_eq!(i.env.get_string("DN4").unwrap_or_default(), "EQUAL", "DN4");
+}
+
 /// A callee reads the **fields of a record it was handed** by name, so a group
 /// parameter's subordinate items must keep resolving to the caller's.
 ///
