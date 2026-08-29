@@ -245,6 +245,52 @@ fn a_semicolon_before_a_sign_is_still_only_decoration() {
     }
 }
 
+/// With **no separator at all**, the space still settles it.
+///
+/// COBOL-85 tells a sign from a binary operator by the space that follows it,
+/// so `10.2 -0.2` is two operands and `10.2 - 0.2` is one subtraction. IF132A
+/// writes `FUNCTION RANGE(10.2 -0.2, 5.6, -15.6)` with no comma between the
+/// first two arguments and expects four of them.
+#[test]
+fn a_sign_glued_to_a_literal_starts_a_new_operand() {
+    let data = "01  WS-NUM  PIC S9(9)V9(4).\n";
+    let src = program(
+        data,
+        "    COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).\n",
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+    let ast = format!("{:?}", parse(tokenize(&src, SourceFormat::Free)).program);
+    // Four arguments, so the mantissa of -0.2 survives as its own literal.
+    assert!(
+        ast.contains("-2") && !ast.contains("Sub"),
+        "the first two arguments merged into a subtraction: {ast}"
+    );
+}
+
+/// …and a properly spaced operator is still an operator.
+#[test]
+fn a_spaced_sign_is_still_a_binary_operator() {
+    let data = "01  WS-NUM  PIC S9(9)V9(4).\n";
+    let spaced = program(data, "    COMPUTE WS-NUM = 10.2 - 0.2.\n");
+    assert!(errors(&spaced).is_empty(), "{:?}", errors(&spaced));
+    let ast = format!("{:?}", parse(tokenize(&spaced, SourceFormat::Free)).program);
+    assert!(ast.contains("Sub"), "the subtraction was lost: {ast}");
+}
+
+/// The rule reaches only as far as a **literal** before the sign. An
+/// identifier cannot be told from a keyword here, and both `PICTURE -9(9).9(9)`
+/// and `VARYING … BY -1` are "operand, gap, glued sign, digits".
+#[test]
+fn a_glued_sign_after_a_word_is_left_alone() {
+    let data = "01  N-EDIT  PICTURE -9(9).9(9).\n01  WS-I PIC S9(4).\n01 WS-N PIC S9(9).\n";
+    let src = program(
+        data,
+        "    PERFORM VARYING WS-I FROM 60 BY -1 UNTIL WS-I < 1\n\
+         \x20       CONTINUE\n    END-PERFORM.\n",
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
 /// The RustCOBOL member-call argument list is not COBOL-85, but it is real
 /// syntax and its comma is followed by a space — so it went through the same
 /// change and must not have regressed to a single argument.

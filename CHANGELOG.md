@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.81] — 2026-08-29
+
+**A sign glued to a literal is a sign, not an operator. The Conditional module
+is finished: 45 of 45 on both axes, 841 assertions, 0 failures.**
+
+COBOL-85 tells the two apart by the space that *follows*: a binary operator
+must have a space on both sides, so `10.2 -0.2` is two operands and
+`10.2 - 0.2` is one subtraction. The suite writes
+
+```cobol
+           COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).
+```
+
+with no comma between the first two arguments at all, and expects four of them:
+25.8 is 10.2 minus −15.6. Read as a subtraction it was three arguments and
+25.6.
+
+**The guard is deliberately narrower than the rule.** It fires only when the
+token before the sign is a numeric literal or a closing parenthesis. An
+*identifier* before it cannot be told from a keyword at the lexical level, and
+`PICTURE -9(9).9(9)` and `VARYING … BY -1` are both "operand, gap, glued sign,
+digits" — neither is a place to change anything. Widening it is a decision for
+the whole-suite gate, not a guess.
+
 ## [PowerRustCOBOL 1.62.80] — 2026-08-29
 
 **A quotient no longer loses its decimals to a long divisor**, and the

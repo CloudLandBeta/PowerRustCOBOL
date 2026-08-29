@@ -22,8 +22,8 @@
   },
 
   "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "SG", "DB", "RL"],
-  "current_module": "IF",
-  "_current_module_note": "RL finished at 1.62.77. RL was taken out of order by operator ruling (rules.start_rl_now); the queue now returns to `module_order`, whose first unfinished entry is IF (Conditional). It has never been measured on the execution axis — baseline it before planning anything.",
+  "current_module": "IC",
+  "_current_module_note": "IF finished at 1.62.81. Next in `module_order` is IC (Inter-program communication), baselined at 1.62.81: 6 of 47 clean, 134 PASS / 129 FAIL — by far the weakest module measured so far, and the first whose subject is a whole language area (CALL / nested programs / LINKAGE) rather than a set of functions. Two members also fail to compile.",
 
   "out_of_scope": {
     "modules": ["CM", "RW", "OBIC", "OBNC", "OBSQ", "EXEC"],
@@ -60,13 +60,22 @@
     },
     "IF": {
       "name": "Conditional",
-      "state": "in_flight",
+      "state": "finished",
+      "protected": true,
       "compile": [45, 45],
-      "execution": [44, 45],
-      "assertions": { "pass": 841, "fail": 1, "deleted": 0 },
+      "execution": [45, 45],
+      "assertions": { "pass": 841, "fail": 0, "deleted": 0 },
+      "finished_at": "1.62.81 — from a 24/45 baseline. Five causes, none of them in the module's own subject matter: a lexer separator rule (twice), a flagging gap, NUMVAL's argument grammar, an argument-list comparison, and a division overflow path. The Conditional module is a test of intrinsic functions, and every defect it found lived somewhere else.",
       "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members."
     },
-    "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
+    "IC": {
+      "name": "Inter-program communication",
+      "state": "in_flight",
+      "compile": [45, 47],
+      "execution": [6, 47],
+      "assertions": { "pass": 134, "fail": 129, "deleted": 4 },
+      "baselined_at": "1.62.81 — 51.0% of 263 assertions, the weakest module measured so far. No crashes and no timeouts, so the programs run; they get the answers wrong. Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
+    },
     "ST": { "name": "Sort/Merge", "state": "compile_only", "compile": [38, 40], "execution": null, "assertions": null },
     "SM": { "name": "Source text manipulation", "state": "compile_only", "compile": [14, 17], "execution": null, "assertions": null },
     "SG": { "name": "Segmentation", "state": "compile_only", "compile": [13, 13], "execution": null, "assertions": null },
@@ -130,6 +139,17 @@
       "next_probe": "Read the `Message expected` comments in each and compare against what `flag_high_subset` emits today."
     },
     {
+      "id": "ic-separately-compiled-subprograms",
+      "module": "IC",
+      "priority": 0,
+      "title": "IC's callers need their subprograms, which are separate suite members",
+      "worth": "Very likely most of the module's 129 failures, and it is a MEASUREMENT question before it is a runtime one — read this before writing any code.",
+      "evidence": "Measured at 1.62.81. IC108A's report says `SUBPROGRAM IC109A ERROR`, `SUBPROGRAM IC110A ERROR`, `SUBPROGRAM IC111A ERROR` and `IC109A CALLED N TIMES` — IC109A, IC110A and IC111A are separate members of the suite. IC101A fails all five of its `CALL...USING DATA-NM` tests the same way. The harness runs one source file through `rcrun`, so a `CALL \"IC109A\"` has nothing to call.",
+      "the_question": "This is the IX/RL chained-member problem in a different shape: there the producer wrote a FILE the consumer read, here the callee IS the program the caller invokes. The fix is likely in the harness (concatenate or otherwise make the called members available to the caller), not in the runtime — and confirming that FIRST avoids inventing a CALL defect that does not exist. See the ledger's `harness-limits-look-like-runtime-regressions` lesson.",
+      "next_probe": "Extract IC108A and IC109A, run IC108A by hand, and read what `CALL \"IC109A\"` actually does — a failed CALL, a no-op, or an ON EXCEPTION path. Then check how the suite expects separately-compiled programs to be presented: CCVS85 members carry their own IDENTIFICATION DIVISION, so several may be intended to compile into one run unit.",
+      "caveat": "Do NOT assume every IC failure is this. IC106A's are about INDEX and REDEFINES items in the LINKAGE SECTION, which is a real runtime question and independent of how the subprogram is supplied."
+    },
+    {
       "id": "if-numeric-intrinsic-accuracy",
       "module": "IF",
       "priority": 99,
@@ -140,8 +160,9 @@
     {
       "id": "if-range-05-glued-sign",
       "module": "IF",
-      "priority": 0,
-      "title": "IF132A F-RANGE-05: a sign glued to a literal is a sign, not an operator",
+      "priority": 99,
+      "resolved_at": "1.62.81 — done, and it cost nothing. The `why_not_done_yet` risk assessment below was too pessimistic in one specific way: it assumed the rule had to apply after any operand. Restricting the guard to a NUMERIC LITERAL or `)` before the sign removed the whole PICTURE / BY -1 exposure, because those follow a word. All five finished modules and the compile census were exact on the first run.",
+      "title": "RESOLVED — IF132A F-RANGE-05: a sign glued to a literal is a sign, not an operator",
       "worth": "The LAST failing assertion in IF. Nothing else stands between the module and 45/45.",
       "evidence": "`COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).` — there is NO comma between the first two arguments. The test expects 25.8, which is 10.2 - (-15.6), so the suite means four arguments. We read `10.2 - 0.2` as one subtraction and get three, giving 25.6.",
       "the_rule": "COBOL-85 tells a sign from a binary operator by the space AFTER it: a binary operator must be surrounded by spaces, so `10.2 -0.2` is two operands and `10.2 - 0.2` is one subtraction. This is the same rule that motivated the comma exception at 1.62.78, but the other half of it — there the comma made the boundary explicit, here nothing does.",
@@ -246,10 +267,12 @@
     "SQ": { "compile": [85, 85], "execution": [85, 85], "assertions_pass": 624, "assertions_fail": 0 },
     "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
     "RL": { "compile": [35, 35], "execution": [34, 34], "assertions_pass": 354, "assertions_fail": 0 },
+    "IF": { "compile": [45, 45], "execution": [45, 45], "assertions_pass": 841, "assertions_fail": 0 },
     "whole_suite_compile_pass": 423
   },
 
   "history": [
+    { "version": "1.62.81", "change": "A sign glued to a literal is a sign, not a binary operator, when what precedes it is a numeric literal or `)`", "effect": "IF 44 -> 45 of 45, 841 PASS / 0 FAIL - the module is FINISHED, from a 24/45 baseline. NC, SQ, IX and RL exact on the first run; compile census 423/434 held. IC baselined at 6/47." },
     { "version": "1.62.80", "change": "A quotient keeps its decimals when the divisor has many; MAX/MIN/ORD-MAX/ORD-MIN compare with cob_ordering and keep the first of a tie; a separator comma before `(` is kept", "effect": "IF 37 -> 44 of 45, 824 -> 841 PASS, 97.7% -> 99.9%. Three separate causes, not the one family the queue predicted. NC, SQ, IX and RL exact; compile census 423/434 held." },
     { "version": "1.62.79", "change": "NUMVAL/NUMVAL-C read the sign in either position, CR/DB, and the currency argument; intrinsic functions are flagged as above the high subset, and two detectors stop misreading a function's argument list", "effect": "IF 32 -> 37 of 45, 776 -> 824 PASS, 91.9% -> 97.7%. IF401M/402M/403M go to 44 of 44 flags matched with 0 wrong. NC, SQ, IX and RL exact; compile census 423/434 held." },
     { "version": "1.62.78", "change": "A separator comma before a sign is kept, so `FUNCTION MOD(A, -3)` is two arguments and not one subtraction; an intrinsic called short is reported rather than fatal", "effect": "IF 24 -> 32 of 45, 702 -> 776 PASS, 87.4% -> 91.9%, and the module's two crashes (IF124A, IF133A) are gone. NC, SQ, IX and RL exact; compile census 423/434 held. Applying the same exception to the SEMICOLON broke NC245A — see dead_ends." },

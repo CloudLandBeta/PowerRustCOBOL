@@ -334,6 +334,15 @@ impl<'src> Lexer<'src> {
                 }
             }
 
+            // ── A sign glued to a literal is a sign, not an operator ────────
+            if let Token::Plus | Token::Minus = token {
+                if let Some(signed) =
+                    self.try_join_signed_literal(span, matches!(token, Token::Minus))
+                {
+                    return Some(signed);
+                }
+            }
+
             return Some(SpannedToken::new(token, span));
         }
     }
@@ -557,6 +566,69 @@ impl<'src> Lexer<'src> {
         let joined = format!("{digits}-{text}");
         let span = Span::new(num_span.start, end, num_span.line, num_span.col);
         Some(SpannedToken::new(Token::Identifier(joined), span))
+    }
+
+    /// Join a `+`/`-` and the numeric literal glued to it into one **signed
+    /// literal**, when the sign follows an operand it is separated from.
+    ///
+    /// COBOL-85 tells a sign from a binary operator by the space *after* it: a
+    /// binary operator must have a space on both sides, so `10.2 -0.2` is two
+    /// operands and `10.2 - 0.2` is one subtraction. IF132A writes
+    ///
+    /// ```text
+    ///     COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).
+    /// ```
+    ///
+    /// with no comma between the first two arguments at all, and expects four
+    /// of them — 25.8 is 10.2 minus −15.6. Read as a subtraction it is three,
+    /// and the answer is 25.6.
+    ///
+    /// **The guard is deliberately narrower than the rule.** It fires only when
+    /// the token before the sign is a numeric literal or a closing
+    /// parenthesis, because an *identifier* before it cannot be told from a
+    /// keyword at this level: `PICTURE -9(9).9(9)` and `VARYING … BY -1` are
+    /// both "operand, gap, glued sign, digits" and neither is a place to change
+    /// anything. Widen it only against the whole-suite gate.
+    fn try_join_signed_literal(&mut self, sign_span: Span, negative: bool) -> Option<SpannedToken> {
+        // What precedes the sign must be an operand, and separated from it —
+        // `5-3` is a name and `5 - 3` is a subtraction; only `5 -3` is this.
+        let (prev, prev_range) = self.raw_tokens.get(self.pos.checked_sub(2)?)?.clone();
+        if !matches!(
+            prev,
+            Ok(RawToken::Integer(_)) | Ok(RawToken::Float(_)) | Ok(RawToken::RParen)
+        ) || prev_range.end == sign_span.start
+        {
+            return None;
+        }
+        // …and the literal must be glued to the sign.
+        let (lit, lit_range) = self.raw_tokens.get(self.pos)?.clone();
+        if lit_range.start != sign_span.end {
+            return None;
+        }
+        let token = match lit {
+            Ok(RawToken::Integer(Some(n))) => {
+                let digits = lit_range.len().min(u8::MAX as usize) as u8;
+                let v = n as i64;
+                Token::IntegerLiteral(if negative { -v } else { v }, digits)
+            }
+            Ok(RawToken::Float(Some(text))) => {
+                let (mantissa, scale) = parse_decimal_token(&text)?;
+                Token::DecimalLiteral {
+                    mantissa: if negative { -mantissa } else { mantissa },
+                    scale,
+                }
+            }
+            _ => return None,
+        };
+        let span = Span::new(
+            sign_span.start,
+            lit_range.end,
+            sign_span.line,
+            sign_span.col,
+        );
+        self.pos += 1;
+        self.at_line_start = false;
+        Some(SpannedToken::new(token, span))
     }
 
     /// Capture a **block literal**: the lines between a pair of ``` fences.
