@@ -6580,22 +6580,43 @@ impl Interpreter {
         let Some(f) = spec.layout.field_qualified(name, quals) else {
             return 0;
         };
-        let same_extent = |ks: &crate::indexed::KeySpec| ks.offset == f.offset && ks.len == f.len;
-        if spec
+        let primary = spec
             .record_key
             .as_deref()
-            .and_then(|k| spec.layout.key_spec_qualified(k, &spec.record_key_quals, false))
-            .is_some_and(|ks| same_extent(&ks))
-        {
+            .and_then(|k| spec.layout.key_spec_qualified(k, &spec.record_key_quals, false));
+        let alt_spec = |ak: &AlternateKey| {
+            spec.layout
+                .key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates)
+        };
+        // An item covering exactly a key's bytes *is* that key — that is how a
+        // `REDEFINES` of a key names it.
+        let exact = |ks: &crate::indexed::KeySpec| ks.offset == f.offset && ks.len == f.len;
+        if primary.as_ref().is_some_and(exact) {
+            return 0;
+        }
+        if let Some(i) = spec.alternate_keys.iter().position(|ak| {
+            alt_spec(ak).is_some_and(|ks| exact(&ks))
+        }) {
+            return i + 1;
+        }
+        // Failing that, an item that begins where a key begins and is shorter
+        // is the **generic** form: a subordinate item naming the key's leftmost
+        // part, which selects that key and searches on the prefix. IX209A's
+        // START-TEST-GF-23 says so outright — "AN OPERAND IN THE KEY PHRASE
+        // WHICH IS NOT THE NAME OF AN ALTERNATE KEY BUT IS THE NAME OF A DATA
+        // ITEM WHICH IS SUBORDINATE TO THE ALTERNATE KEY". Requiring an exact
+        // extent left those STARTs on key of reference 0, searching the primary
+        // index for an alternate key's characters.
+        //
+        // Exact matches are tried first, so a key that is itself the leftmost
+        // part of a longer one still resolves to itself.
+        let prefix_of = |ks: &crate::indexed::KeySpec| ks.offset == f.offset && f.len < ks.len;
+        if primary.as_ref().is_some_and(prefix_of) {
             return 0;
         }
         spec.alternate_keys
             .iter()
-            .position(|ak| {
-                spec.layout
-                    .key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates)
-                    .is_some_and(|ks| same_extent(&ks))
-            })
+            .position(|ak| alt_spec(ak).is_some_and(|ks| prefix_of(&ks)))
             .map(|i| i + 1)
             .unwrap_or(0)
     }

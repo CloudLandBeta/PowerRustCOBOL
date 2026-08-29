@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.67",
+  "measured_at_version": "1.62.68",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,8 +49,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [32, 42],
-      "assertions": { "pass": 528, "fail": 58, "deleted": 1 }
+      "execution": [35, 42],
+      "assertions": { "pass": 550, "fail": 33, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -80,19 +80,9 @@
   },
 
   "work_queue": [
-    {
-      "id": "ix-start-alt-after-rewrite",
-      "module": "IX",
-      "priority": 1,
-      "title": "START on an alternate key after a REWRITE",
-      "evidence": "8 failures in IX215A, all `START REDF ALT-KEY-1` / `ALT-KEY-2`, reporting COMPUTED='INVALID KEY ON START' against an expected record number (START-TEST-GF-05 expects 9, GF-06 expects 50). The START on the alternate returns 23 for a record that was rewritten.",
-      "hypothesis_disproven": "The obvious explanation — that a REWRITE fails to reindex a changed alternate — is WRONG, checked 2026-08-29. Both the in-memory engine (index_remove then index_insert) and the disk engine (alt_tree_key diff, bt_delete then bt_insert) already do it, and a minimal repro passes end to end: rewrite a record changing its alternate, START on the new value finds it, START on the old value correctly returns 23. Do not re-derive this.",
-      "next_probe": "What differs in IX215A is the shape, not the verb: its alternates are reached through REDEFINES and are declared on IX-FD1/IX-FD2, with ALT-KEY-2 carrying WITH DUPLICATES. Build the repro again with (a) an alternate key that is a REDEFINES of another item, and (b) an alternate WITH DUPLICATES, and rewrite a record that shares its duplicate alternate value with another. The duplicate case is the likelier culprit — removing one record's entry from a duplicate set is where an index goes wrong.",
-      "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"]
-    },
-    { "id": "ix-delete-ix21", "module": "IX", "priority": 2, "title": "DELETE — IX-21 4.3.2", "evidence": "Re-bucket after 1.62.60 moved IX103A down to a single failure: the DELETE family now centres on IX208A (9), IX203A (8) and IX106A (4).", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
-    { "id": "ix301m", "module": "IX", "priority": 3, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
-    { "id": "ix-long-tail", "module": "IX", "priority": 4, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
+    { "id": "ix-delete-ix21", "module": "IX", "priority": 1, "title": "DELETE — IX-21 4.3.2", "evidence": "After 1.62.68 the remaining programs are IX208A (9), IX301M (7), IX401M (5), IX106A (4), IX207A (4), IX211A (2), IX215A (2). Re-bucket with `fails IX` before starting - the START fixes cleared most of what was here.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
+    { "id": "ix301m", "module": "IX", "priority": 2, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
+    { "id": "ix-long-tail", "module": "IX", "priority": 3, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
   "dead_ends": [
@@ -125,6 +115,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.68", "change": "A generic START key may name a subordinate item of an ALTERNATE key", "effect": "IX 32 -> 35 clean, 528 -> 550 PASS, 58 -> 33 failures, 90.1% -> 94.3%. IX209A, IX210A, IX214A clean; IX215A 8 -> 2." },
     { "version": "1.62.67", "change": "Two numeric operands compare algebraically even when both slots hold group-MOVE characters", "effect": "IX 30 -> 32 clean (IX103A and IX203A), 60 -> 58 failures, past 90%. Touched the comparison core NC runs through; NC and SQ both exact." },
     { "version": "1.62.66", "change": "Delete-resume keys on WHICH record leaves, not how it was addressed; START and keyed READ discard a pending resume", "effect": "IX 29 -> 30 clean, 521 -> 528 PASS. IX203A 6 -> 1 failure, IX212A and IX213A clean." },
     { "version": "1.62.65", "change": "IX203A declares its producer (IX202A), completing the IX2xx chain", "effect": "IX203A 9 -> 6 failures; 518 -> 521 PASS. Clean count unchanged at 29." },

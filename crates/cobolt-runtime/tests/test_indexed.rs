@@ -1437,3 +1437,78 @@ fn start_supersedes_a_pending_delete_resume() {
         "a stale resume drove the file to end-of-file:\n{joined}"
     );
 }
+
+/// A generic `START` key may name a subordinate item of an **alternate** key.
+///
+/// The operand need not be the alternate key itself: an item beginning where
+/// the key begins and shorter than it names that key and searches on the
+/// prefix. IX209A's START-TEST-GF-23 says so outright — "AN OPERAND IN THE KEY
+/// PHRASE WHICH IS NOT THE NAME OF AN ALTERNATE KEY BUT IS THE NAME OF A DATA
+/// ITEM WHICH IS SUBORDINATE TO THE ALTERNATE KEY".
+///
+/// The key of reference was matched by *exact* byte extent, so a subordinate
+/// item resolved to no key at all and fell back to 0 — searching the primary
+/// index for an alternate key's characters.
+#[test]
+fn a_generic_start_key_selects_the_alternate_it_is_part_of() {
+    let path = temp_idx("genalt");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC X(4).\n\
+         \x20         05 R-ALT.\n\
+         \x20            10 R-ALT-1-5 PIC X(5).\n\
+         \x20            10 R-ALT-6-8 PIC X(3).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY\n\
+         \x20          MOVE \"AAAAA\" TO R-ALT-1-5 MOVE \"111\" TO R-ALT-6-8\n\
+         \x20          MOVE \"FIRST\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY\n\
+         \x20          MOVE \"BBBBB\" TO R-ALT-1-5 MOVE \"222\" TO R-ALT-6-8\n\
+         \x20          MOVE \"SECOND\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE SPACES TO R-ALT\n\
+         \x20          MOVE \"BBBBB\" TO R-ALT-1-5\n\
+         \x20          START F KEY IS EQUAL TO R-ALT-1-5\n\
+         \x20             INVALID KEY DISPLAY \"GEN BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"GEN OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY \"/\" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("GEN OK 00"),
+        "the leftmost part of an alternate key selects that alternate; matching \
+         on an exact extent left this on the primary index:\n{joined}"
+    );
+    assert!(
+        joined.contains("GOT K002/SECOND"),
+        "and positions on the record whose alternate begins with it:\n{joined}"
+    );
+}

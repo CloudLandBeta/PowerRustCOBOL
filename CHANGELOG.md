@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.68] — 2026-08-29
+
+**A generic `START` key may name a subordinate item of an *alternate* key.**
+NIST CCVS85 Indexed I/O goes from **32 to 35 of 42** programs running clean;
+assertions 528 PASS / 58 FAIL → **550 PASS / 33 FAIL** (90.1 % → **94.3 %**).
+IX209A, IX210A and IX214A all go clean, and IX215A falls from eight failures to
+two.
+
+The operand of `START … KEY IS` need not be the key itself. An item that begins
+where a key begins and is shorter than it names that key and searches on the
+prefix — the generic form, implemented for the primary key in 1.62.55. IX209A's
+`START-TEST-GF-23` states it outright: *"AN OPERAND IN THE KEY PHRASE WHICH IS
+NOT THE NAME OF AN ALTERNATE KEY BUT IS THE NAME OF A DATA ITEM WHICH IS
+SUBORDINATE TO THE ALTERNATE KEY."*
+
+Selecting the key of reference matched only an **exact** byte extent, which is
+right for a `REDEFINES` of a key but wrong for a subordinate item: being
+shorter, it matched nothing and fell back to key 0, searching the **primary**
+index for an alternate key's characters. Every such `START` took the
+`INVALID KEY` path.
+
+An exact extent still wins where there is one, so a key that happens to be the
+leftmost part of a longer key resolves to itself rather than to its container.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.67] — 2026-08-29
 
 **Two numeric operands compare algebraically, however their slots were
