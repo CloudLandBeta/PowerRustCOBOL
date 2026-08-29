@@ -864,6 +864,67 @@ fn operator_input(name: &str) -> Option<String> {
     Some(s)
 }
 
+/// The data files the **installation** supplies, planted into a member's work
+/// directory before it runs.
+///
+/// CCVS85 leaves some inputs for the installation to provide, exactly as it
+/// leaves the operator deck, the external switches and the `XXXXX053` RERUN
+/// card. `XXXXD001` is one of them: it is the *file present* half of SQ203A's
+/// `SELECT OPTIONAL` test, and **no member of the suite writes it** — all 459
+/// were checked. Without it that half cannot run at all in a fresh directory,
+/// and the program correctly reports the absence as a failure.
+///
+/// A member not listed here gets nothing, and its directory is untouched.
+fn installation_data_files(name: &str) -> &'static [(&'static str, &'static str)] {
+    match name {
+        "SQ203A" => &[("XXXXD001", SQ203A_XXXXD001)],
+        _ => &[],
+    }
+}
+
+/// `XXXXD001` — one 120-character record, for SQ203A's present optional file.
+///
+/// **The content is the suite's own, not the assertions'.** SQ203A's
+/// `READ-TEST-GF-04` creates a file of exactly this shape for `SQ-FS3` a few
+/// paragraphs further down, and every field below is set the way that
+/// paragraph sets it, against the `FILE-RECORD-INFO` skeleton the program
+/// declares. Only two fields differ, and both are forced by which file this
+/// is: `XFILE-NAME` names `SQ-FS1` rather than `SQ-FS3`, and
+/// `RECORDS-IN-FILE` says 1 rather than 750 because this file holds one
+/// record. The fields that paragraph never sets are zero or blank.
+///
+/// `SQ-FS1` is `ORGANIZATION IS SEQUENTIAL` with a single fixed 120-byte `01`,
+/// so the file is these 120 bytes and nothing else — no length prefix and no
+/// line terminator, or the `READ` would return a short or shifted record.
+const SQ203A_XXXXD001: &str = concat!(
+    "     ",  //   0  FILLER              PIC X(5)
+    "SQ-FS1", //   5  XFILE-NAME          PIC X(6)
+    "        ", // 11  FILLER              PIC X(8)
+    "R1-F-G", //  19  XRECORD-NAME        PIC X(6)
+    " ",      //  25  FILLER              PIC X(1)
+    "1",      //  26  REELUNIT-NUMBER     PIC 9(1)
+    "       ", // 27  FILLER              PIC X(7)
+    "000001", //  34  XRECORD-NUMBER      PIC 9(6)
+    "      ", //  40  FILLER              PIC X(6)
+    "00",     //  46  UPDATE-NUMBER       PIC 9(2)
+    "     ",  //  48  FILLER              PIC X(5)
+    "0000",   //  53  ODO-NUMBER          PIC 9(4)
+    "     ",  //  57  FILLER              PIC X(5)
+    "SQ203",  //  62  XPROGRAM-NAME       PIC X(5)  ("SQ203A" truncated to X(5))
+    "       ", // 67  FILLER              PIC X(7)
+    "000120", //  74  XRECORD-LENGTH      PIC 9(6)
+    "       ", // 80  FILLER              PIC X(7)
+    "RC",     //  87  CHARS-OR-RECORDS    PIC X(2)
+    " ",      //  89  FILLER              PIC X(1)
+    "0001",   //  90  XBLOCK-SIZE         PIC 9(4)
+    "      ", //  94  FILLER              PIC X(6)
+    "000001", // 100  RECORDS-IN-FILE     PIC 9(6)
+    "     ",  // 106  FILLER              PIC X(5)
+    "SQ",     // 111  XFILE-ORGANIZATION  PIC X(2)
+    "      ", // 113  FILLER              PIC X(6)
+    "S",      // 119  XLABEL-TYPE         PIC X(1)
+);
+
 /// `NC109M`'s operator deck — 11 values, in the order the program accepts them.
 ///
 /// Leading and trailing spaces are significant and are inside the quotes on
@@ -1157,6 +1218,18 @@ fn run_one(
     let src = dir.join(format!("{name}.cbl"));
     if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
+    }
+
+    // Whatever the installation is expected to have on disk before the program
+    // starts. Written before the run, never after, so the program sees it on
+    // its first OPEN.
+    for (fname, content) in installation_data_files(name) {
+        if std::fs::write(dir.join(fname), content).is_err() {
+            return (
+                RunOutcome::Crash(format!("cannot write the {fname} data file")),
+                None,
+            );
+        }
     }
 
     let console_path = dir.join(CCVS_CONSOLE_FILE);
@@ -1694,4 +1767,72 @@ fn report_run(outcomes: &[(String, String, RunOutcome)]) {
          \"this program works\". The compilation score counts programs the front end\n\
          accepts, which is a strictly weaker claim."
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `XXXXD001` must be exactly one 120-character record.
+    ///
+    /// A record one byte long or short still satisfies SQ203A — the two fields
+    /// it checks sit in the first 40 bytes, so a trailing stray byte lands past
+    /// everything the program reads and the test passes over a malformed file.
+    /// Length is therefore checked here rather than inferred from a green run.
+    #[test]
+    fn sq203a_installation_record_is_one_120_byte_record() {
+        assert_eq!(
+            SQ203A_XXXXD001.len(),
+            120,
+            "SQ-FS1 is a fixed 120-byte sequential file; the record must fill it exactly"
+        );
+        assert!(
+            SQ203A_XXXXD001.is_ascii(),
+            "a multi-byte character would push every later field out of position"
+        );
+    }
+
+    /// Each named field sits where the `FILE-RECORD-INFO` skeleton puts it.
+    ///
+    /// The offsets are recomputed here from the skeleton's own PICTURE widths,
+    /// independently of the `concat!` above, so a mis-sized FILLER in the
+    /// constant shows up as a field landing in the wrong place instead of
+    /// silently shifting its neighbours.
+    #[test]
+    fn sq203a_installation_record_fields_are_where_the_skeleton_says() {
+        let r = SQ203A_XXXXD001;
+        for (off, len, want, field) in [
+            (5usize, 6usize, "SQ-FS1", "XFILE-NAME"),
+            (19, 6, "R1-F-G", "XRECORD-NAME"),
+            (26, 1, "1", "REELUNIT-NUMBER"),
+            (34, 6, "000001", "XRECORD-NUMBER"),
+            (62, 5, "SQ203", "XPROGRAM-NAME"),
+            (74, 6, "000120", "XRECORD-LENGTH"),
+            (87, 2, "RC", "CHARS-OR-RECORDS"),
+            (90, 4, "0001", "XBLOCK-SIZE"),
+            (100, 6, "000001", "RECORDS-IN-FILE"),
+            (111, 2, "SQ", "XFILE-ORGANIZATION"),
+            (119, 1, "S", "XLABEL-TYPE"),
+        ] {
+            assert_eq!(
+                &r[off..off + len],
+                want,
+                "{field} should occupy bytes {off}..{}",
+                off + len
+            );
+        }
+    }
+
+    /// Only the members that need one get a data file.
+    #[test]
+    fn installation_data_files_are_opt_in() {
+        assert_eq!(installation_data_files("SQ203A").len(), 1);
+        assert_eq!(installation_data_files("SQ203A")[0].0, "XXXXD001");
+        for untouched in ["SQ202A", "NC101A", "IX101A"] {
+            assert!(
+                installation_data_files(untouched).is_empty(),
+                "{untouched} should get no planted files"
+            );
+        }
+    }
 }

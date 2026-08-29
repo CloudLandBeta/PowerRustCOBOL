@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.47] — 2026-08-29
+
+**NIST CCVS85 Sequential I/O (SQ) is complete — 85 of 85 on both axes**, with
+assertions at **624 PASS / 0 FAIL** (100 %), up from 623 PASS / 1 FAIL. Nucleus
+is unmoved at 95 of 95 on both axes, 4 614 assertions, none failing, and the
+whole-suite compile census is unchanged at 422 of 434.
+
+The last member, **SQ203A**, tests `SELECT OPTIONAL` with the file both present
+and absent. The present half reads `XXXXD001`, a data file the CCVS85
+*installation* supplies — no member of the suite writes it, so in a fresh
+directory that half could not run at all and the program correctly reported the
+absence as a failure.
+
+The test harness now plants the file, the same way it already supplies the
+operator decks, the external switch settings and the `XXXXX053` RERUN card.
+**The record is the suite's own, not the assertions'**: SQ203A's own
+`READ-TEST-GF-04` builds a file of exactly this shape for `SQ-FS3` a few
+paragraphs later, and every field is set the way that paragraph sets it against
+the program's `FILE-RECORD-INFO` skeleton. Only two differ, both forced by
+which file this is — `XFILE-NAME` names `SQ-FS1`, and `RECORDS-IN-FILE` says 1
+because the file holds one record.
+
+Three tests pin the record: that it is exactly one 120-byte ASCII record (a
+stray byte would land past everything SQ203A reads, passing over a malformed
+file), that each named field sits where the skeleton's PICTURE widths put it,
+and that no other member gets a planted file.
+
+*Runtime behaviour is unchanged — this release moves the measurement, not the
+compiler.*
+
 ## [PowerRustCOBOL 1.62.46] — 2026-08-28
 
 **NIST CCVS85 Sequential I/O (SQ) reaches 84 of 85 on execution** — assertions
