@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.60",
+  "measured_at_version": "1.62.61",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,8 +49,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [22, 42],
-      "assertions": { "pass": 512, "fail": 81, "deleted": 1 }
+      "execution": [24, 42],
+      "assertions": { "pass": 512, "fail": 79, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -81,25 +81,9 @@
 
   "work_queue": [
     {
-      "id": "ix-same-record-area",
-      "module": "IX",
-      "priority": 1,
-      "title": "SAME RECORD AREA is not implemented at all",
-      "worth": "Two programs, each currently at exactly 1 failure: IX205A (READ-TEST-F1-10) and IX206A (READ-TEST-F1-08). Both would go clean, taking IX from 22 to 24 of 42.",
-      "evidence": "IX205A's I-O-CONTROL says `SAME RECORD IX-FD1 IX-FD2.` and its own note explains the expectation: 'IN TESTING THE SAME AREA CLAUSE THE RECORD AREA SHOULD BE SHARED BY BOTH FILES IX-FD1 AND IX-FD2, THEREFORE FILE IX-FD2 IS READ AND THE RECORD IDENTIFIED FOR IX-FD1 IS ACCESSED'. The test reads IX-FD2, then checks that IX-FD1's 01 shows XFILE-NAME = 'IX-FD2'.",
-      "state_of_the_code": "Nothing anywhere: grep for SAME / same_area / IoControl across the lexer, parser and AST finds no hits. The parser reads FILE-CONTROL and then leaves the rest of INPUT-OUTPUT SECTION to the outer loop's catch-all, so the whole I-O-CONTROL paragraph is skipped silently. That is why these programs compile 42/42 and still do the wrong thing — the same shape as the 1.62.60 optional-words bug.",
-      "fix_sketch": [
-        "AST: add `same_areas: Vec<Vec<String>>` to InputOutputSection — one entry per SAME clause, holding the file names that share an area.",
-        "Parser: after the SELECT loop in the InputOutput arm, parse an I-O-CONTROL paragraph; within it `SAME [RECORD] [AREA] [FOR] file-1 file-2 ... .` Ignore the other I-O-CONTROL clauses (RERUN, MULTIPLE FILE) as now.",
-        "Interpreter: build a map from file name to the other files sharing its area. On a successful READ, after distributing the bytes into the read file's own 01s, store the same image into every 01 of each sharing file (store_bytes then distribute, exactly as the multi-01 path already does).",
-        "Do NOT try to alias storage. Copying the image on READ is what these tests observe, and it keeps the change inside the existing record-distribution path."
-      ],
-      "caveat": "`SAME AREA` and `SAME RECORD AREA` differ in the standard — plain SAME AREA also shares the file's buffers, and only one such file may be open at a time. IX205A opens both files at once and uses the RECORD form, so implement SAME RECORD AREA semantics and leave the stricter open-time rule of plain SAME AREA alone unless a member turns out to test it."
-    },
-    {
       "id": "ix-singleton-failures",
       "module": "IX",
-      "priority": 2,
+      "priority": 1,
       "title": "The remaining single-failure programs, each a separate cause",
       "worth": "Four more programs at exactly 1 failure. With ix-same-record-area they are the cheapest route from 22 to 28 of 42.",
       "items": [
@@ -154,6 +138,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.61", "change": "SAME RECORD AREA implemented (AST, I-O-CONTROL parsing, READ propagation)", "effect": "IX 22 -> 24 clean; IX205A and IX206A both go clean, each having been at exactly 1 failure." },
     { "version": "1.62.60", "change": "ORGANIZATION IS and the word KEY are optional words in a SELECT", "effect": "IX 19 -> 22 clean, 483 -> 512 PASS, 113 -> 81 FAIL, 81.0% -> 86.3%. Largest single gain of the session." },
     { "version": "1.62.59", "change": "Producer chains run in the consumer's own directory (harness)", "effect": "IX 482 -> 483 PASS. Harness figures now match a by-hand chain run exactly, isolating a real over-read." },
     { "version": "1.62.58", "change": "Deleting during a sequential scan no longer skips the next record (disk engine cursor resumes by key)", "effect": "No NIST movement - the programs that would show it stop earlier for other reasons. Real defect, proven by repro and regression test." },

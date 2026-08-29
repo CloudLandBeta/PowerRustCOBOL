@@ -987,3 +987,85 @@ fn organization_and_record_key_accept_their_optional_words() {
          wrote; treating it as a byte stream gives a wildly different count:\n{joined}"
     );
 }
+
+/// `SAME RECORD AREA` makes two files share one record area.
+///
+/// The files' `01`s describe the same storage, so a `READ` of one is visible
+/// through the record name of the other. IX205A states it plainly: "IN TESTING
+/// THE SAME AREA CLAUSE THE RECORD AREA SHOULD BE SHARED BY BOTH FILES ...
+/// THEREFORE FILE IX-FD2 IS READ AND THE RECORD IDENTIFIED FOR IX-FD1 IS
+/// ACCESSED".
+///
+/// The whole `I-O-CONTROL` paragraph used to be skipped, so the clause did
+/// nothing at all and the program still compiled — the same shape as the
+/// optional-words defect.
+#[test]
+fn same_record_area_shares_one_record_between_two_files() {
+    let a = temp_idx("samearea_a");
+    let b = temp_idx("samearea_b");
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT FA ASSIGN TO \"{a}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS A-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20          SELECT FB ASSIGN TO \"{b}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS B-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      I-O-CONTROL.\n\
+         \x20          SAME   RECORD  FA  FB.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD FA.\n\
+         \x20      01 RA.\n\
+         \x20         05 A-KEY  PIC X(4).\n\
+         \x20         05 A-NAME PIC X(8).\n\
+         \x20      FD FB.\n\
+         \x20      01 RB.\n\
+         \x20         05 B-KEY  PIC X(4).\n\
+         \x20         05 B-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT FA\n\
+         \x20          MOVE \"AK01\" TO A-KEY MOVE \"FROM-A\" TO A-NAME\n\
+         \x20          WRITE RA END-WRITE\n\
+         \x20          CLOSE FA\n\
+         \x20          OPEN OUTPUT FB\n\
+         \x20          MOVE \"BK01\" TO B-KEY MOVE \"FROM-B\" TO B-NAME\n\
+         \x20          WRITE RB END-WRITE\n\
+         \x20          CLOSE FB\n\
+         \x20          MOVE SPACES TO RA\n\
+         \x20          OPEN INPUT FB\n\
+         \x20          READ FB AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"VIA-B \" B-KEY \"/\" B-NAME\n\
+         \x20          DISPLAY \"VIA-A \" A-KEY \"/\" A-NAME\n\
+         \x20          CLOSE FB\n\
+         \x20          STOP RUN.\n",
+        a = a.display(),
+        b = b.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("VIA-B BK01/FROM-B"),
+        "the file actually read must deliver its own record:\n{joined}"
+    );
+    assert!(
+        joined.contains("VIA-A BK01/FROM-B"),
+        "sharing one record area means FA's record shows what the READ of FB \
+         put there; without it FA's record is still blank:\n{joined}"
+    );
+}

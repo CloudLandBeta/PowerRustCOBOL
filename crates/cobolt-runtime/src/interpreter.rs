@@ -564,6 +564,30 @@ fn bridge_to_cobol(b: crate::rust_bridge::BridgeValue) -> CobolValue {
     }
 }
 
+/// Map each file to the others sharing its record area, from I-O-CONTROL
+/// `SAME [RECORD] AREA`.
+///
+/// One entry per file in each group, listing that group's other members, so a
+/// `READ` can find its peers by name without walking the groups.
+fn build_same_area_peers(program: &Program) -> HashMap<String, Vec<String>> {
+    let mut peers: HashMap<String, Vec<String>> = HashMap::new();
+    let Some(io) = program.environment.as_ref().and_then(|e| e.input_output.as_ref()) else {
+        return peers;
+    };
+    for group in &io.same_areas {
+        for f in group {
+            let f = f.to_ascii_uppercase();
+            let others: Vec<String> = group
+                .iter()
+                .map(|o| o.to_ascii_uppercase())
+                .filter(|o| *o != f)
+                .collect();
+            peers.entry(f).or_default().extend(others);
+        }
+    }
+    peers
+}
+
 /// Build the file registry from the program's FILE-CONTROL (SELECT) entries and
 /// FILE SECTION (FD) records: `(logical name → spec, record name → file name)`.
 fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<String, String>) {
@@ -1005,6 +1029,14 @@ pub struct Interpreter {
     /// record is not written. Cleared by `OPEN` and `CLOSE`, so the order is
     /// judged within one open of the file and not across two.
     last_write_key: HashMap<String, Vec<u8>>,
+    /// Logical file name → the other files it shares a record area with, from
+    /// I-O-CONTROL `SAME [RECORD] AREA`.
+    ///
+    /// Those files' `01`s describe **one** piece of storage, so a `READ` of any
+    /// of them is visible through the record names of all of them. IX205A reads
+    /// `IX-FD2` and then asserts that `IX-FD1`'s record shows IX-FD2's
+    /// contents.
+    same_area_peers: HashMap<String, Vec<String>>,
 }
 
 /// Where a sequential `READ` found the record it delivered.
@@ -1119,6 +1151,7 @@ impl Interpreter {
         );
 
         let (file_specs, record_to_file) = build_file_specs(&program);
+        let same_area_peers = build_same_area_peers(&program);
 
         // Build the DECLARATIVES' own paragraph space and locate each handler's
         // section inside it.
@@ -1202,6 +1235,7 @@ impl Interpreter {
             last_read: HashMap::new(),
             read_established: std::collections::HashSet::new(),
             last_write_key: HashMap::new(),
+            same_area_peers,
         }
     }
 
@@ -6922,6 +6956,19 @@ impl Interpreter {
                         // named fields, and SQ127A's record is one 120-byte
                         // FILLER. The layout then re-imposes those named
                         // fields, whose PICTUREs interpret their own slice.
+                        self.store_bytes(name, b);
+                        layout.distribute(&mut self.env, b);
+                    }
+                }
+                // Files joined by I-O-CONTROL `SAME [RECORD] AREA` describe one
+                // piece of storage, so the bytes just read are visible through
+                // every one of their record names too (IX205A reads IX-FD2 and
+                // reads the result back out of IX-FD1's record).
+                for peer in self.same_area_peers.get(&file).cloned().unwrap_or_default() {
+                    let Some(pspec) = self.file_specs.get(&peer).cloned() else {
+                        continue;
+                    };
+                    for (name, layout) in &pspec.record_layouts {
                         self.store_bytes(name, b);
                         layout.distribute(&mut self.env, b);
                     }

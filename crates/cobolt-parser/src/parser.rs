@@ -1238,8 +1238,10 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         }
                     }
                 }
+                let same_areas = parse_io_control(p);
                 input_output = Some(InputOutputSection {
                     file_controls,
+                    same_areas,
                     span: io_span,
                 });
             }
@@ -1266,6 +1268,58 @@ fn is_persistence(tok: &cobolt_lexer::Token) -> bool {
 }
 
 /// Parse a single `SELECT … ASSIGN …` entry in FILE-CONTROL.
+/// The `I-O-CONTROL` paragraph, returning its `SAME … AREA` groups.
+///
+/// Only the `SAME` clause is modelled. `RERUN`, `MULTIPLE FILE TAPE` and the
+/// rest are consumed and discarded, exactly as the whole paragraph was before.
+///
+/// Form: `SAME [RECORD] [SORT] [SORT-MERGE] [AREA] [FOR] file-1 file-2 … .`
+/// IX205A writes it at its most abbreviated — `SAME RECORD IX-FD1 IX-FD2.` —
+/// with neither `AREA` nor `FOR`, so every one of those words is optional here.
+///
+/// `SAME`, `AREA`, `FOR` and `I-O-CONTROL` are not lexer keywords; they arrive
+/// as identifiers and are matched by name.
+fn parse_io_control(p: &mut Parser) -> Vec<Vec<String>> {
+    let mut groups = Vec::new();
+    let is_word = |t: &Token, w: &str| matches!(t, Token::Identifier(s) if s.eq_ignore_ascii_case(w));
+    if !is_word(p.peek(), "I-O-CONTROL") {
+        return groups;
+    }
+    p.advance();
+    p.expect_period();
+    while is_word(p.peek(), "SAME") {
+        p.advance();
+        // Consume the qualifying words in whatever combination was written,
+        // then the file names. `RECORD` is a lexer keyword; the rest are not.
+        loop {
+            if p.eat(&Token::Record) {
+                continue;
+            }
+            if ["SORT", "SORT-MERGE", "AREA", "FOR"]
+                .iter()
+                .any(|w| is_word(p.peek(), w))
+            {
+                p.advance();
+                continue;
+            }
+            break;
+        }
+        let mut files = Vec::new();
+        while p.at_identifier() {
+            match p.eat_identifier() {
+                Some((f, _)) => files.push(f.to_ascii_uppercase()),
+                None => break,
+            }
+        }
+        p.expect_period();
+        // A group of one shares nothing.
+        if files.len() > 1 {
+            groups.push(files);
+        }
+    }
+    groups
+}
+
 /// The organization itself, after any optional `ORGANIZATION IS`.
 ///
 /// `LINE SEQUENTIAL` is two words and must be tried before bare `SEQUENTIAL`.

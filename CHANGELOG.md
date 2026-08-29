@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.61] — 2026-08-29
+
+**`SAME RECORD AREA` is implemented.** NIST CCVS85 Indexed I/O goes from **22
+to 24 of 42** programs running clean; failures 81 → 79.
+
+Files named together in an I-O-CONTROL `SAME [RECORD] AREA` clause share one
+record area: their `01`s describe the same storage, so a `READ` of any one of
+them is visible through the record names of all of them. IX205A states the
+expectation in its own note — *"IN TESTING THE SAME AREA CLAUSE THE RECORD AREA
+SHOULD BE SHARED BY BOTH FILES IX-FD1 AND IX-FD2, THEREFORE FILE IX-FD2 IS READ
+AND THE RECORD IDENTIFIED FOR IX-FD1 IS ACCESSED"* — and IX206A tests the same
+thing.
+
+The clause was not modelled anywhere: the parser read FILE-CONTROL and left the
+rest of INPUT-OUTPUT SECTION to a catch-all, so the whole `I-O-CONTROL`
+paragraph was skipped and the clause did nothing. As with the optional words in
+1.62.60, **this never failed a compile** — the programs built cleanly and
+quietly did the wrong thing.
+
+Now: the AST carries the groups, the parser reads an `I-O-CONTROL` paragraph
+and its `SAME` clauses, and a successful `READ` lays the record image into the
+record descriptions of every file sharing the area. The qualifying words are
+all optional in any combination — IX205A writes it at its most abbreviated,
+`SAME RECORD IX-FD1 IX-FD2.`, with neither `AREA` nor `FOR`. `RERUN` and the
+other I-O-CONTROL clauses are still consumed and ignored, as before.
+
+Plain `SAME AREA` also shares the files' buffers and restricts which may be
+open at once; the members here use the `RECORD` form with both files open, so
+only that is implemented.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.60] — 2026-08-29
 
 **`ORGANIZATION IS` and the word `KEY` are optional words.** NIST CCVS85

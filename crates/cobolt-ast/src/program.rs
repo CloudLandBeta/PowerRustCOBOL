@@ -67,6 +67,13 @@ pub struct SpecialName {
 pub struct InputOutputSection {
     /// FILE-CONTROL paragraph entries.
     pub file_controls: Vec<FileControl>,
+    /// I-O-CONTROL `SAME [RECORD] [AREA]` groups — one entry per clause, each
+    /// listing the files that share one record area.
+    ///
+    /// Files in a group are described by several `01`s over the *same* storage,
+    /// so a `READ` of one is visible through the record name of the others.
+    #[serde(default)]
+    pub same_areas: Vec<Vec<String>>,
     pub span: Span,
 }
 
