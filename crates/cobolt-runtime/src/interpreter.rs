@@ -6825,9 +6825,20 @@ impl Interpreter {
         // key of reference (primary = 0, else the matching alternate index).
         // NEXT/PREVIOUS force sequential; an unqualified READ is random by
         // RECORD KEY under RANDOM or DYNAMIC access, sequential otherwise.
+        //
+        // **The phrase settles the format when the direction does not.**
+        // `AT END` belongs to the sequential READ and `INVALID KEY` to the
+        // keyed one, so a statement carrying `AT END` is sequential even where
+        // the access mode would otherwise make it random — `NEXT` is optional
+        // in that format. IX208A walks the file with `START … KEY IS GREATER`
+        // followed by `READ IX-FS2 RECORD AT END`, ten records at a time; read
+        // as random by RECORD KEY it never moved off the START and eight
+        // assertions failed. `KEY IS` still forces the keyed form outright.
         let sequential_dir = direction != ReadDirection::Default;
+        let has_at_end = !at_end.is_empty() || !not_at_end.is_empty();
         let random = !sequential_dir
-            && (key.is_some() || matches!(spec.access, AccessMode::Random | AccessMode::Dynamic));
+            && (key.is_some()
+                || (!has_at_end && matches!(spec.access, AccessMode::Random | AccessMode::Dynamic)));
         let read_dir = if direction == ReadDirection::Previous {
             ReadDir::Previous
         } else {

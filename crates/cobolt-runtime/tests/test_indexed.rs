@@ -1512,3 +1512,69 @@ fn a_generic_start_key_selects_the_alternate_it_is_part_of() {
         "and positions on the record whose alternate begins with it:\n{joined}"
     );
 }
+
+/// `AT END` makes a `READ` sequential even where the access mode would not.
+///
+/// `AT END` belongs to the sequential READ and `INVALID KEY` to the keyed one,
+/// and `NEXT` is optional in the sequential format. So a `READ … AT END` under
+/// `ACCESS MODE IS DYNAMIC` continues from where a `START` left the file rather
+/// than re-reading by RECORD KEY. `KEY IS` still forces the keyed form.
+#[test]
+fn at_end_makes_a_read_sequential_under_dynamic_access() {
+    let path = temp_idx("atendseq");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC X(4).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"TWO\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K003\" TO R-KEY MOVE \"THREE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY\n\
+         \x20          START F KEY IS GREATER R-KEY END-START\n\
+         \x20          READ F RECORD AT END DISPLAY \"ATEND-1\" END-READ\n\
+         \x20          DISPLAY \"R1 \" R-KEY\n\
+         \x20          READ F RECORD AT END DISPLAY \"ATEND-2\" END-READ\n\
+         \x20          DISPLAY \"R2 \" R-KEY\n\
+         \x20          MOVE \"K001\" TO R-KEY\n\
+         \x20          READ F RECORD INVALID KEY DISPLAY \"KEYED BAD\" END-READ\n\
+         \x20          DISPLAY \"R3 \" R-KEY \"/\" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("R1 K002"),
+        "AT END makes this sequential, so it continues past the START; read as \
+         keyed it would re-deliver K001:\n{joined}"
+    );
+    assert!(joined.contains("R2 K003"), "and on to the next:\n{joined}");
+    // INVALID KEY is the keyed form's phrase, and still addresses by key.
+    assert!(
+        joined.contains("R3 K001/ONE"),
+        "INVALID KEY keeps the keyed form:\n{joined}"
+    );
+}

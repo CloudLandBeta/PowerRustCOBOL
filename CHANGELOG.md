@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.69] — 2026-08-29
+
+**`AT END` makes a `READ` sequential even where the access mode would not.**
+
+`AT END` belongs to the sequential `READ` and `INVALID KEY` to the keyed one,
+and `NEXT` is optional in the sequential format. A `READ … AT END` under
+`ACCESS MODE IS DYNAMIC` is therefore sequential: it continues from wherever a
+`START` left the file, rather than re-reading by `RECORD KEY`. `KEY IS` still
+forces the keyed form outright.
+
+**No NIST score movement, and that is worth saying plainly.** The program that
+prompted the change, IX208A, declares `ACCESS MODE IS SEQUENTIAL`, so its reads
+were already sequential and this does not touch them. The fix is kept because
+it is validated on its own terms — a `START … KEY IS GREATER` followed by
+`READ … AT END` under DYNAMIC now walks to the next two records where it
+previously re-delivered the record the key still named.
+
+IX208A's real defect is recorded instead, with three causes ruled out by
+evidence: not the READ format, not a missing producer, and not the simple form
+of the construct, which a repro walks correctly.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. IX holds at 35 of 42, 550 PASS / 33
+FAIL. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.68] — 2026-08-29
 
 **A generic `START` key may name a subordinate item of an *alternate* key.**
