@@ -96,7 +96,11 @@
       "title": "IX215A: a short generic key on a WITH DUPLICATES alternate finds the wrong record",
       "worth": "2 failures, the last two in IX215A.",
       "evidence": "Record 176 is rewritten so its ALTKEY2 becomes 'DCDCDCDCDC100ALTKEY2'. The test then does `START IX-FD1 KEY IS EQUAL TO R-ALTKEY2-1-2` — positions 1-2 of ALTKEY2, so the generic key is just 'DC' — and reads NEXT, expecting record 176. It computes 4. The qualified-name variant of the same test expects 190 and computes 12. Both return a small record number where a large one is expected, so the search lands on the wrong member of the duplicate set rather than failing outright.",
-      "next_probe": "Two things differ from the repro that passes: the key is only 2 characters of a much longer alternate, and that alternate carries WITH DUPLICATES, whose disk tree key is altvalue+recid. Check `generic_key_bounds` against a duplicates alternate specifically — lo/hi are klen bytes while stored keys are klen+recid, so the Eq band may admit entries whose alt value merely sorts inside it. Build the repro with a 2-of-20 character prefix on a duplicates alternate and several records sharing it."
+      "ruled_out": [
+        "NOT the construct in isolation. Three repros all deliver the right record: (a) a 2-of-20 character generic key on a WITH DUPLICATES alternate; (b) the same where the target's alternate value was set by a REWRITE rather than the original WRITE; (c) the same where the operand is a 2-character item inside a REDEFINES of the alternate key, at the nesting depth IX215A uses. Do not rebuild these — they are in the git history of this entry and they pass.",
+        "NOT generic_key_bounds against a duplicates alternate: repro (a) covers exactly that and is correct."
+      ],
+      "next_probe": "Stop building repros and look at the DATA. IX215A carries ~500 records and its own note says 'ALTERNATE-KEY-2 CONTAINS DUPLICATE KEYS EVERY 10TH'. Record 4 may legitimately hold an ALTKEY2 that also begins 'DC' and sorts before record 176's 'DCDCDCDCDC100ALTKEY2' — in which case returning 4 is defensible on key order and the question becomes what order the suite expects *within* a duplicate set (creation order is what the engines implement; see the redb `seq` table). Extract IX215A, run its producers, and dump the ALTKEY2 of records 4, 12, 176 and 190 with a small reader before changing any engine code."
     },
     {
       "id": "ix211a-duplicate-key-walk",
