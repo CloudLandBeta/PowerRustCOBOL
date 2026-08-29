@@ -72,9 +72,11 @@
       "name": "Inter-program communication",
       "state": "in_flight",
       "compile": [45, 47],
-      "execution": [6, 47],
-      "assertions": { "pass": 134, "fail": 129, "deleted": 4 },
-      "baselined_at": "1.62.81 — 51.0% of 263 assertions, the weakest module measured so far. No crashes and no timeouts, so the programs run; they get the answers wrong. Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
+      "execution": [10, 25],
+      "assertions": { "pass": 187, "fail": 71, "deleted": 4 },
+      "baselined_at": "1.62.81 — 6 of 47, 134 PASS / 129 FAIL. Corrected at 1.62.82 once the harness supplied each caller's callees: 10 of 25, 187 PASS / 71 FAIL, 72.5%.",
+      "denominator_note": "The execution denominator is 25, not 47. Twenty-two of IC's members are `SUBRTN` callees — separately compiled subprograms with no CCVS report of their own — so running one alone could only ever fail. They are still counted on the COMPILE axis, where the module remains 45 of 47. When comparing against the 1.62.81 baseline use 6 -> 10 of 25.",
+      "shape": "Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. No crashes and no timeouts: the programs run and get the answers wrong. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
     },
     "ST": { "name": "Sort/Merge", "state": "compile_only", "compile": [38, 40], "execution": null, "assertions": null },
     "SM": { "name": "Source text manipulation", "state": "compile_only", "compile": [14, 17], "execution": null, "assertions": null },
@@ -141,8 +143,9 @@
     {
       "id": "ic-separately-compiled-subprograms",
       "module": "IC",
-      "priority": 0,
-      "title": "IC's callers need their subprograms, which are separate suite members",
+      "priority": 99,
+      "resolved_at": "1.62.82 — and it was a harness gap, exactly as `the_question` suspected. The suite declares each callee on its own control card, `*HEADER,COBOL,IC101A,SUBRTN,IC102A`, and the splitter only knew `SUBPRG`, so every callee took its CALLER's name and `extract IC102A` produced nothing. Callers now run with their callees concatenated into one run unit: IC 6 -> 10 of its 25 tests, 134 -> 187 PASS. **The trap:** SUBPRG and SUBRTN are NOT synonyms — SUBPRG names the next test of the same group (IX101A,SUBPRG,IX102A is the producer chain) and every one is a scored member. Treating them alike excluded SQ203A and took SQ from 85/85 to 84/84.",
+      "title": "RESOLVED — IC's callers need their subprograms, which are separate suite members",
       "worth": "Very likely most of the module's 129 failures, and it is a MEASUREMENT question before it is a runtime one — read this before writing any code.",
       "evidence": "Measured at 1.62.81. IC108A's report says `SUBPROGRAM IC109A ERROR`, `SUBPROGRAM IC110A ERROR`, `SUBPROGRAM IC111A ERROR` and `IC109A CALLED N TIMES` — IC109A, IC110A and IC111A are separate members of the suite. IC101A fails all five of its `CALL...USING DATA-NM` tests the same way. The harness runs one source file through `rcrun`, so a `CALL \"IC109A\"` has nothing to call.",
       "the_question": "This is the IX/RL chained-member problem in a different shape: there the producer wrote a FILE the consumer read, here the callee IS the program the caller invokes. The fix is likely in the harness (concatenate or otherwise make the called members available to the caller), not in the runtime — and confirming that FIRST avoids inventing a CALL defect that does not exist. See the ledger's `harness-limits-look-like-runtime-regressions` lesson.",
@@ -272,6 +275,7 @@
   },
 
   "history": [
+    { "version": "1.62.82", "change": "The harness learns the `SUBRTN` control card: a caller runs with its separately compiled callees concatenated, and a callee is not scored as a test", "effect": "IC 6 -> 10 of its 25 tests, 134 -> 187 PASS / 129 -> 71 FAIL, 51.0% -> 72.5%. No compiler or runtime change. Denominator corrected from 47 to 25 (22 members are callees). Treating SUBPRG as a callee too broke SQ (85/85 -> 84/84) and was reverted within the same change." },
     { "version": "1.62.81", "change": "A sign glued to a literal is a sign, not a binary operator, when what precedes it is a numeric literal or `)`", "effect": "IF 44 -> 45 of 45, 841 PASS / 0 FAIL - the module is FINISHED, from a 24/45 baseline. NC, SQ, IX and RL exact on the first run; compile census 423/434 held. IC baselined at 6/47." },
     { "version": "1.62.80", "change": "A quotient keeps its decimals when the divisor has many; MAX/MIN/ORD-MAX/ORD-MIN compare with cob_ordering and keep the first of a tie; a separator comma before `(` is kept", "effect": "IF 37 -> 44 of 45, 824 -> 841 PASS, 97.7% -> 99.9%. Three separate causes, not the one family the queue predicted. NC, SQ, IX and RL exact; compile census 423/434 held." },
     { "version": "1.62.79", "change": "NUMVAL/NUMVAL-C read the sign in either position, CR/DB, and the currency argument; intrinsic functions are flagged as above the high subset, and two detectors stop misreading a function's argument list", "effect": "IF 32 -> 37 of 45, 776 -> 824 PASS, 91.9% -> 97.7%. IF401M/402M/403M go to 44 of 44 flags matched with 0 wrong. NC, SQ, IX and RL exact; compile census 423/434 held." },

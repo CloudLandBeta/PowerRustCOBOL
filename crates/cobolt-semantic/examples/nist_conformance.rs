@@ -43,6 +43,13 @@ struct Member {
     kind: String,
     name: String,
     text: String,
+    /// The test whose `CALL` this member answers, when its header card declared
+    /// it a `SUBPRG`/`SUBRTN` of one.
+    ///
+    /// A separately compiled subprogram has no CCVS report of its own — it does
+    /// work for its caller and returns — so it is not a test. It has to be
+    /// *present* when its caller runs, and nothing more.
+    subprogram_of: Option<String>,
 }
 
 /// Split the CCVS85 distribution on its `*HEADER,<kind>,<name>` /
@@ -61,16 +68,35 @@ fn split_members(source: &str) -> Vec<Member> {
             //   own PROGRAM-ID is the 4th field; the 2nd names the driving test.
             // Trailing text past the name (some cards carry a sequence stamp) is
             // not part of the name.
+            //
+            // `*HEADER,COBOL,IC101A,SUBRTN,IC102A` — a **called subprogram**.
+            //
+            // The two words are not synonyms, and the difference decides
+            // whether the member is a test:
+            //
+            // * `SUBPRG` names the next *program of the same group*, and every
+            //   one is a full test with its own report — `IX101A,SUBPRG,IX102A`
+            //   is the pair whose chain `inherits_from` already describes, and
+            //   `SQ202A,SUBPRG,SQ203A` is a scored member.
+            // * `SUBRTN` names a program the test **calls**. All 24 are in IC
+            //   and OBIC, and each one answers a literal `CALL "IC102A"`.
+            //
+            // Read as an ordinary header a SUBRTN member took its *caller's*
+            // name, so `IC102A` was a second member called `IC101A` and
+            // `extract IC102A` produced nothing.
             let mut parts = rest.split(',');
             let kind = parts.next().unwrap_or("").trim().to_string();
             let test = parts.next().unwrap_or("").trim().to_string();
             let sub = parts.next().unwrap_or("").trim().to_string();
             let subname = parts.next().unwrap_or("").trim().to_string();
-            let raw = if sub == "SUBPRG" && !subname.is_empty() {
-                subname
-            } else {
-                test
-            };
+            let named_apart = (sub == "SUBPRG" || sub == "SUBRTN") && !subname.is_empty();
+            let is_callee = sub == "SUBRTN" && !subname.is_empty();
+            let caller = test
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let raw = if named_apart { subname } else { test };
             let name = raw
                 .split_whitespace()
                 .next()
@@ -80,6 +106,7 @@ fn split_members(source: &str) -> Vec<Member> {
                 kind,
                 name,
                 text: String::new(),
+                subprogram_of: is_callee.then_some(caller),
             });
             continue;
         }
@@ -1149,9 +1176,15 @@ fn run_pass(members: &[Member], filter: &str) {
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
 
+    // A separately compiled subprogram is not a test. It carries no CCVS
+    // report — it does work for its caller and returns — so running it alone
+    // scores nothing, and counting it as a program that failed to run clean is
+    // simply wrong. It is still measured on the **compile** axis, where it is
+    // ordinary COBOL like any other member.
     let programs: Vec<&Member> = members
         .iter()
         .filter(|m| m.kind == "COBOL")
+        .filter(|m| m.subprogram_of.is_none())
         .filter(|m| filter.is_empty() || m.name.to_uppercase().starts_with(&filter.to_uppercase()))
         .collect();
 
@@ -1218,7 +1251,10 @@ fn fails_pass(members: &[Member], filter: &str) {
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
 
-    for m in members.iter().filter(|m| m.kind == "COBOL") {
+    for m in members
+        .iter()
+        .filter(|m| m.kind == "COBOL" && m.subprogram_of.is_none())
+    {
         if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
             continue;
         }
@@ -1445,11 +1481,38 @@ fn run_one(
     let _ = std::fs::remove_dir_all(&dir);
     // Whatever this member says it inherits, written into its directory first.
     run_producers(rcrun, &dir, members, name);
-    let r = run_one_in(rcrun, &dir, name, raw);
+    let source = with_subprograms(members, name, raw);
+    let r = run_one_in(rcrun, &dir, name, &source);
     // Reclaim the directory — a sweep is hundreds of programs and a runaway
     // print file is measured in gigabytes.
     let _ = std::fs::remove_dir_all(&dir);
     r
+}
+
+/// A test's source followed by every subprogram declared to belong to it.
+///
+/// The Inter-program Communication module is *about* `CALL`, and its callees
+/// are separate members of the deck: `IC101A` calls `IC102A`, and `IC108A`
+/// calls `IC109A`, `IC110A` and `IC111A`. Run on its own a caller has nothing
+/// to call, which is why IC measured 6 of 47 with no crash and no timeout — the
+/// programs ran and got the answers wrong.
+///
+/// Concatenating them puts every program in one run unit, which is what the
+/// suite's own build instructions do: each member carries a complete
+/// IDENTIFICATION DIVISION, so the result is a sequence of programs rather than
+/// a nested one. A member with no subprograms is returned untouched.
+fn with_subprograms(members: &[Member], name: &str, raw: &str) -> String {
+    let mut out = raw.to_string();
+    for sub in members
+        .iter()
+        .filter(|m| m.subprogram_of.as_deref() == Some(name))
+    {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&sub.text);
+    }
+    out
 }
 
 /// Run one program in an already-chosen directory, leaving it in place.
@@ -2087,6 +2150,62 @@ mod tests {
                 off + len
             );
         }
+    }
+
+    /// `SUBPRG` and `SUBRTN` are not synonyms, and the difference decides
+    /// whether a member is a test.
+    ///
+    /// `SUBPRG` names the next program of the same *group* — every one is a
+    /// full test with its own report. `SUBRTN` names a program the test
+    /// **calls**. Folding the two together excluded `SQ203A` from scoring and
+    /// took SQ from 85 of 85 to 84 of 84.
+    #[test]
+    fn subprg_is_a_test_and_subrtn_is_a_callee() {
+        let deck = "*HEADER,COBOL,SQ202A\n\
+                    000100 IDENTIFICATION DIVISION.\n\
+                    *END-OF,SQ202A\n\
+                    *HEADER,COBOL,SQ202A,SUBPRG,SQ203A\n\
+                    000100 IDENTIFICATION DIVISION.\n\
+                    *END-OF,SQ203A\n\
+                    *HEADER,COBOL,IC101A,SUBRTN,IC102A\n\
+                    000100 IDENTIFICATION DIVISION.\n\
+                    *END-OF,IC102A\n";
+        let members = split_members(deck);
+        let by = |n: &str| members.iter().find(|m| m.name == n).expect(n);
+
+        // Both are named by their own 4th field, not by the driving test.
+        assert_eq!(by("SQ203A").name, "SQ203A");
+        assert_eq!(by("IC102A").name, "IC102A");
+        // …but only the SUBRTN belongs to its caller.
+        assert_eq!(by("SQ203A").subprogram_of, None);
+        assert_eq!(by("IC102A").subprogram_of.as_deref(), Some("IC101A"));
+        assert_eq!(by("SQ202A").subprogram_of, None);
+    }
+
+    /// A caller's source carries its callees; a member with none is untouched.
+    #[test]
+    fn a_caller_is_run_with_its_subprograms() {
+        let deck = "*HEADER,COBOL,IC108A\nCALLER\n*END-OF,IC108A\n\
+                    *HEADER,COBOL,IC108A,SUBRTN,IC109A\nCALLEE-ONE\n*END-OF,IC109A\n\
+                    *HEADER,COBOL,IC108A,SUBRTN,IC110A\nCALLEE-TWO\n*END-OF,IC110A\n\
+                    *HEADER,COBOL,NC101A\nALONE\n*END-OF,NC101A\n";
+        let members = split_members(deck);
+        let text = |n: &str| {
+            members
+                .iter()
+                .find(|m| m.name == n)
+                .map(|m| m.text.clone())
+                .unwrap()
+        };
+
+        let joined = with_subprograms(&members, "IC108A", &text("IC108A"));
+        assert!(joined.contains("CALLER"), "{joined}");
+        assert!(joined.contains("CALLEE-ONE"), "{joined}");
+        assert!(joined.contains("CALLEE-TWO"), "{joined}");
+
+        // A member that declares no callee is handed back exactly as it was.
+        let alone = with_subprograms(&members, "NC101A", &text("NC101A"));
+        assert_eq!(alone, text("NC101A"));
     }
 
     /// The producer table is opt-in and terminates.

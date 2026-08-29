@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.82] — 2026-08-29
+
+**A NIST harness change, with no compiler or runtime change behind it.** The
+Inter-program Communication module is *about* `CALL`, and its callees are
+separate members of the distribution — `IC101A` calls `IC102A`, `IC108A` calls
+`IC109A`, `IC110A` and `IC111A`. The harness ran one source file at a time, so
+a caller had nothing to call.
+
+The suite says so on its own control cards, in a word the splitter did not
+know:
+
+```text
+*HEADER,COBOL,IC101A,SUBRTN,IC102A
+```
+
+**`SUBPRG` and `SUBRTN` are not synonyms**, and the difference decides whether
+a member is a test at all. `SUBPRG` names the next program of the same *group*
+— every one is a full test with its own report, and `IX101A,SUBPRG,IX102A` is
+exactly the chain the producer table already describes. `SUBRTN` names a
+program the test **calls**; all 24 are in IC and OBIC, and each answers a
+literal `CALL`. Folding the two together cost `SQ203A` its place and took SQ
+from 85 of 85 to 84 of 84, which is how the distinction was found.
+
+A caller now runs with its callees concatenated into one run unit, and a callee
+is no longer scored as a test that failed to produce a report. **IC goes from
+6 to 10 of its 25 tests running clean**, 134 → 187 passing assertions
+(51.0 % → 72.5 %). The compile census is unchanged at 423 of 434: a callee is
+ordinary COBOL and still counts there.
+
+> **Note.** IC's execution denominator changes from 47 to 25 with this release.
+> The 47 counted the 22 callees as tests; they have no CCVS report, so running
+> one alone could only ever fail. The comparable figures are **6 → 10 of 25**.
+
 ## [PowerRustCOBOL 1.62.81] — 2026-08-29
 
 **A sign glued to a literal is a sign, not an operator. The Conditional module
