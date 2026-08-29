@@ -1126,6 +1126,14 @@ fn substitute_implementor_names(raw: &str) -> String {
     // characters with `char::from_u32(n - 1)`.
     raw.replace("XXXXX090", "66      ")
         .replace("XXXXX091", "69      ")
+        // `XXXXX053` is the I-O-CONTROL **RERUN clause** card: CCVS85 leaves it
+        // for the installation to fill in, because the clause names an
+        // implementor's checkpoint file. Left as the bare word it is neither a
+        // RERUN nor anything else, so SQ302M's first `Message expected …
+        // OBSOLETE` refers to a construct that is not in the source. Filling it
+        // in is what a validating installation does, and it is the only way
+        // that expectation can be tested at all. One line in, one line out.
+        .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS")
 }
 
 /// Run one program in its own directory, under both budgets.
@@ -1384,7 +1392,7 @@ fn is_flagging_member(text: &str) -> bool {
 /// does not list is as wrong as one that stays silent about a construct it does.
 fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
     let expectations = flagging_expectations(text);
-    let tokens = tokenize(text, SourceFormat::FixedStrict);
+    let tokens = tokenize(&substitute_implementor_names(text), SourceFormat::FixedStrict);
     // A member declares which class it is about, so only that analysis is run:
     // `DATE-COMPILED` is both an obsolete element *and* above the high subset,
     // and NC303M and NC401M each want it under their own name. Running both
@@ -1439,7 +1447,7 @@ fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
 /// Both raw lists for one member: `(line, element)` flags and `(line, class)`
 /// expectations, each in source order.
 fn flagging_detail(text: &str) -> (Vec<(u32, String)>, Vec<(u32, String)>) {
-    let tokens = tokenize(text, SourceFormat::FixedStrict);
+    let tokens = tokenize(&substitute_implementor_names(text), SourceFormat::FixedStrict);
     let expectations = flagging_expectations(text);
     let wants_subset = expectations
         .iter()

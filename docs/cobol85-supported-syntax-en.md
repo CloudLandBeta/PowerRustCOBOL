@@ -165,29 +165,28 @@ For contrast, the same table at 1.62.23 read 65 clean of 95, 4 278 PASS /
 | in scope | 85 |
 | did not compile | 0 |
 | ran to completion | 83 |
-| **…reporting 0 failures** | **79** |
-| …reporting failures | 4 |
+| **…reporting 0 failures** | **84** |
+| …reporting failures | 1 |
 | ran but printed no report | 0 |
 | timed out (>20 s) | 0 |
-| runaway output (>2 MB) | 2 |
+| runaway output (>2 MB) | 0 |
 | crashed or were refused by the runtime | 0 |
 
-Assertions: **595 PASS / 25 FAIL**, 96.0 % of 620 scored. At 1.62.42 the same
-table read **10** clean of 85, 20 crashed, 1 timed out and 215 PASS / 190 FAIL —
-the crash cluster was one defect, declarative paragraphs losing their names; at
-1.62.43 it read 44 clean and 471 PASS / 162 FAIL. Variable-length records, the
-shared record area, `FILLER` widths, `READ … INTO` and sequential `REWRITE`
-landed in 1.62.44; mode-qualified `USE`, `CLOSE REEL/UNIT`, `SELECT OPTIONAL`,
-`LINAGE-COUNTER` at `OPEN` and out-of-range record lengths in 1.62.45.
+Assertions: **623 PASS / 1 FAIL**, 99.8 % of 624 scored, and **every program
+runs to completion**. At 1.62.42 the same table read **10** clean of 85, 20
+crashed, 1 timed out and 215 PASS / 190 FAIL — the crash cluster was one defect,
+declarative paragraphs losing their names; at 1.62.43 it read 44 clean and
+471 PASS / 162 FAIL. Variable-length records, the shared record area, `FILLER`
+widths, `READ … INTO` and sequential `REWRITE` landed in 1.62.44;
+mode-qualified `USE`, `CLOSE REEL/UNIT`, `SELECT OPTIONAL`, `LINAGE-COUNTER` at
+`OPEN` and out-of-range record lengths in 1.62.45; data-name `LINAGE` values and
+the sequential-I/O flagging detectors in 1.62.46.
 
-Six members are still short, and **24 of the 25 remaining FAILs belong to three
-of them**:
+One member is still short:
 
 | Member | What is left |
 |---|---|
-| SQ302M, SQ303M, SQ401M | **Flagging** — no assertions at all. They score the compiler's `OBSOLETE` / `NON-CONFORMING STANDARD` diagnostics, and 24 of the constructs they name are not yet detected (`LABEL RECORDS`, `VALUE OF`, `DATA RECORDS`, `MULTIPLE FILE TAPE`, `OPEN … REVERSED`, and the SQ high-subset list). |
-| SQ208M, SQ210M | Runaway print file — killed at the 2 MB output budget. |
-| SQ203A | Needs `XXXXD001`, a data file the CCVS85 *installation* supplies; the program never writes it, so the "file present" half of its `SELECT OPTIONAL` test cannot run here. Its "file absent" half passes. |
+| SQ203A | Needs `XXXXD001`, a data file the CCVS85 **installation** supplies. No member of the suite writes it, so the "file present" half of its `SELECT OPTIONAL` test cannot run here; the "file absent" half passes. This is a missing installation input, not a defect in RustCOBOL. |
 
 > A `FAIL*` detail line is written **twice** on purpose — CCVS's `PRINT-DETAIL`
 > runs `IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE` — while `PASS ` is
@@ -811,6 +810,10 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
 - ✅ **`FILLER` occupies its bytes in an FD record**, and
   `SIGN IS SEPARATE CHARACTER` makes a signed DISPLAY item one character wider
   than its digit positions.
+- ✅ **FD `LINAGE` takes data-names as well as integers** —
+  `LINAGE LINAGE-CTR FOOTING FOOT-CTR TOP TOP-CTR BOTTOM BOTTOM-CTR`. The page is
+  measured from those items at each `WRITE`, so a program may resize it while it
+  runs. `LINAGE-COUNTER` is one when the file is opened.
 - ✅ **A sequential `READ` after `AT END` is `46`, not a second `10`.** The
   `AT END` left no valid next record, so reading on is a different error from
   reaching the end. `46` is a class‑4 status, so neither `AT END` nor

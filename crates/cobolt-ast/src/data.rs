@@ -266,6 +266,22 @@ pub struct Linage {
     pub top: u32,
     /// `LINES AT BOTTOM b` — blank lines after the body.
     pub bottom: u32,
+    /// Each value may be written as a **data-name** instead of an integer —
+    /// `LINAGE LINAGE-CTR FOOTING FOOT-CTR TOP TOP-CTR BOTTOM BOTTOM-CTR` — and
+    /// is then read from that item when the page is measured, so a program can
+    /// size its page at run time. A `None` means the clause stated a number,
+    /// and the matching `u32` above is it.
+    ///
+    /// 🔴 New fields go at the END — `Linage` is bincode-serialized
+    /// field-by-field in declaration order.
+    #[serde(default)]
+    pub lines_name: Option<String>,
+    #[serde(default)]
+    pub footing_name: Option<String>,
+    #[serde(default)]
+    pub top_name: Option<String>,
+    #[serde(default)]
+    pub bottom_name: Option<String>,
 }
 
 // ── Screen items ──────────────────────────────────────────────────────────────

@@ -97,6 +97,12 @@ fn is_word(tok: &Token, w: &str) -> bool {
     matches!(tok, Token::Identifier(s) if s.eq_ignore_ascii_case(w))
 }
 
+/// [`is_word`] for a token that may not be there — the look-ahead past the end
+/// of the stream is simply not that word.
+fn is_word_opt(tok: Option<&Token>, w: &str) -> bool {
+    tok.is_some_and(|t| is_word(t, w))
+}
+
 /// Report every COBOL-85 obsolete element in a token stream.
 ///
 /// Flags come out in source order. The stream must be the **whole** compilation
@@ -161,9 +167,42 @@ pub fn flag_obsolete(tokens: &[SpannedToken]) -> Vec<Flag> {
                 if is_word(&st.token, "MEMORY") && matches!(next, Some(Token::SizeError)) {
                     flags.push(Flag::obsolete("MEMORY SIZE clause", st.span));
                 }
+                // I-O-CONTROL: `RERUN` names a checkpoint file, and `MULTIPLE
+                // FILE TAPE` says several files share one reel. Both describe
+                // hardware COBOL-85 no longer assumes, and both are obsolete.
+                if is_word(&st.token, "RERUN") {
+                    flags.push(Flag::obsolete("RERUN clause", st.span));
+                }
+                if is_word(&st.token, "MULTIPLE")
+                    && matches!(next, Some(Token::File))
+                    && is_word_opt(tokens.get(i + 2).map(|t| &t.token), "TAPE")
+                {
+                    flags.push(Flag::obsolete("MULTIPLE FILE TAPE clause", st.span));
+                }
             }
 
-            Division::Data => {}
+            // ── DATA DIVISION clauses ───────────────────────────────────────
+            // Three FD clauses describe the label and record layout of a tape
+            // volume, which COBOL-85 stopped requiring a program to state.
+            Division::Data => {
+                if matches!(st.token, Token::Label)
+                    && matches!(next, Some(Token::Record) | Some(Token::Records))
+                {
+                    flags.push(Flag::obsolete("LABEL RECORDS clause", st.span));
+                    continue;
+                }
+                if matches!(st.token, Token::Data)
+                    && matches!(next, Some(Token::Record) | Some(Token::Records))
+                {
+                    flags.push(Flag::obsolete("DATA RECORDS clause", st.span));
+                    continue;
+                }
+                // `VALUE OF implementor-name IS …` in an FD — not the `VALUE`
+                // of a data item, which the `OF` is what separates.
+                if matches!(st.token, Token::Value) && matches!(next, Some(Token::Of)) {
+                    flags.push(Flag::obsolete("VALUE OF clause", st.span));
+                }
+            }
 
             // ── PROCEDURE DIVISION statements ───────────────────────────────
             Division::Procedure => {
@@ -197,6 +236,18 @@ pub fn flag_obsolete(tokens: &[SpannedToken]) -> Vec<Flag> {
                     };
                     if matches!(after, Some(Token::Period)) {
                         flags.push(Flag::obsolete("GO TO without a procedure-name", st.span));
+                    }
+                }
+                // `OPEN INPUT f REVERSED` reads a tape from its end. The word
+                // is not a keyword, and it can only follow a file name inside
+                // an OPEN, so the statement is what qualifies it.
+                if matches!(st.token, Token::Open) {
+                    if let Some(at) = tokens[i..]
+                        .iter()
+                        .take_while(|t| !matches!(t.token, Token::Period))
+                        .find(|t| is_word(&t.token, "REVERSED"))
+                    {
+                        flags.push(Flag::obsolete("OPEN … REVERSED", at.span));
                     }
                 }
             }
@@ -314,6 +365,31 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
                 if is_word(&st.token, "SYMBOLIC") {
                     emit(&mut flags, &mut once, "SYMBOLIC CHARACTERS clause", line);
                 }
+                // ── FILE-CONTROL clauses above the subset ───────────────────
+                // `OPTIONAL` only ever qualifies a file name in a SELECT, so
+                // the word alone identifies it.
+                if matches!(st.token, Token::Select) && is_word_opt(next, "OPTIONAL") {
+                    emit(&mut flags, &mut once, "SELECT OPTIONAL", line);
+                }
+                if is_word(&st.token, "RESERVE") {
+                    emit(&mut flags, &mut once, "RESERVE clause", line);
+                }
+                if is_word(&st.token, "PADDING") {
+                    emit(&mut flags, &mut once, "PADDING CHARACTER clause", line);
+                }
+                if matches!(st.token, Token::Record) && is_word_opt(next, "DELIMITER") {
+                    emit(&mut flags, &mut once, "RECORD DELIMITER clause", line);
+                }
+                // ── I-O-CONTROL clauses ─────────────────────────────────────
+                if is_word(&st.token, "SAME") {
+                    emit(&mut flags, &mut once, "SAME AREA clause", line);
+                }
+                if is_word(&st.token, "MULTIPLE")
+                    && matches!(next, Some(Token::File))
+                    && is_word_opt(tokens.get(i + 2).map(|t| &t.token), "TAPE")
+                {
+                    emit(&mut flags, &mut once, "MULTIPLE FILE TAPE clause", line);
+                }
             }
 
             Division::Data => {
@@ -364,6 +440,27 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
                 if matches!(st.token, Token::Value) && matches!(next, Some(Token::All)) {
                     emit(&mut flags, &mut once, "VALUE ALL literal", line);
                 }
+                // ── FD clauses above the subset ─────────────────────────────
+                // Variable blocking: `BLOCK CONTAINS n TO m`. Fixed blocking
+                // (`BLOCK CONTAINS n`) is in the subset, and the `TO` is what
+                // separates them.
+                if matches!(st.token, Token::Block)
+                    && tokens[i..]
+                        .iter()
+                        .take_while(|t| !matches!(t.token, Token::Period))
+                        .any(|t| matches!(t.token, Token::To))
+                {
+                    emit(&mut flags, &mut once, "BLOCK CONTAINS n TO m", line);
+                }
+                if matches!(st.token, Token::Record) && matches!(next, Some(Token::Varying)) {
+                    emit(&mut flags, &mut once, "RECORD VARYING clause", line);
+                }
+                if is_word(&st.token, "LINAGE") {
+                    emit(&mut flags, &mut once, "LINAGE clause", line);
+                }
+                if matches!(st.token, Token::Value) && matches!(next, Some(Token::Of)) {
+                    emit(&mut flags, &mut once, "VALUE OF clause", line);
+                }
             }
 
             Division::Procedure => {
@@ -400,6 +497,61 @@ fn subset_procedure_flags(
     once: &mut Vec<&'static str>,
     emit: &mut impl FnMut(&mut Vec<Flag>, &mut Vec<&'static str>, &'static str, u32),
 ) {
+    // ── file-verb phrases above the subset ──────────────────────────────────
+    // Each is a *phrase* of `OPEN` or `CLOSE` whose word is not a keyword, so
+    // the statement it belongs to is what qualifies it: `LOCK` and `REMOVAL`
+    // are ordinary words a program may use as data names elsewhere. The flag is
+    // reported at the statement's own line, which is where the member's comment
+    // points.
+    if matches!(st.token, Token::Close | Token::Open) {
+        let sentence = || {
+            tokens[i..]
+                .iter()
+                .take_while(|t| !matches!(t.token, Token::Period))
+        };
+        let closing = matches!(st.token, Token::Close);
+        for (word, element) in [
+            ("REMOVAL", "CLOSE … FOR REMOVAL"),
+            ("REWIND", "OPEN/CLOSE … WITH NO REWIND"),
+            ("LOCK", "CLOSE … WITH LOCK"),
+            ("REVERSED", "OPEN … REVERSED"),
+        ] {
+            // `LOCK` and `REMOVAL` are CLOSE phrases; `REVERSED` is an OPEN
+            // one. `NO REWIND` belongs to both.
+            let applies = match word {
+                "REMOVAL" | "LOCK" => closing,
+                "REVERSED" => !closing,
+                _ => true,
+            };
+            if applies && sentence().any(|t| is_word(&t.token, word)) {
+                emit(flags, once, element, line);
+            }
+        }
+        if !closing && matches!(next, Some(Token::Extend)) {
+            emit(flags, once, "OPEN EXTEND", line);
+        }
+    }
+    // `READ … NEXT RECORD` — the explicit sequential read of a DYNAMIC-access
+    // file, which the subset has no ACCESS MODE for.
+    if matches!(st.token, Token::Read)
+        && tokens[i..]
+            .iter()
+            .take_while(|t| !matches!(t.token, Token::Period))
+            .any(|t| is_word(&t.token, "NEXT"))
+    {
+        emit(flags, once, "READ … NEXT RECORD", line);
+    }
+    // `WRITE … AT END-OF-PAGE` — the page-overflow phrase, which exists only
+    // for a LINAGE file.
+    if matches!(st.token, Token::Write)
+        && tokens[i..]
+            .iter()
+            .take_while(|t| !matches!(t.token, Token::Period))
+            .any(|t| is_word(&t.token, "END-OF-PAGE") || is_word(&t.token, "EOP"))
+    {
+        emit(flags, once, "WRITE … AT END-OF-PAGE", line);
+    }
+
     // ── whole statements ────────────────────────────────────────────────────
     let simple: &[(&'static str, bool)] = &[
         ("COMPUTE statement", matches!(st.token, Token::Compute)),
@@ -1053,6 +1205,207 @@ mod tests {
            STOP RUN.
 ",
         );
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    // ── sequential I/O elements (NIST SQ302M / SQ303M / SQ401M) ─────────────
+
+    /// The three FD clauses that describe a tape volume's labels and records.
+    /// Each is tested on its own, because a positional matcher scoring the
+    /// whole member would let one live detector stand in for a dead one.
+    #[test]
+    fn fd_tape_clauses_are_obsolete() {
+        let got = flags_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FDOBS.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TFIL ASSIGN TO \"t.dat\".
+       I-O-CONTROL.
+           RERUN ON TFIL EVERY 5000 RECORDS.
+       DATA DIVISION.
+       FILE SECTION.
+       FD TFIL
+           LABEL RECORDS STANDARD
+           VALUE OF ID IS \"X\"
+           DATA RECORDS ARE FREC.
+       01 FREC PIC X(8).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+",
+        );
+        assert_eq!(
+            got,
+            vec![
+                "RERUN clause",
+                "LABEL RECORDS clause",
+                "VALUE OF clause",
+                "DATA RECORDS clause",
+            ]
+        );
+    }
+
+    /// `MULTIPLE FILE TAPE` in I-O-CONTROL and `OPEN … REVERSED` in the
+    /// PROCEDURE DIVISION — the two SQ303M names.
+    #[test]
+    fn multiple_file_tape_and_open_reversed_are_obsolete() {
+        let got = flags_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TAPEOBS.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TFIL ASSIGN TO \"t.dat\".
+           SELECT TFIL2 ASSIGN TO \"u.dat\".
+       I-O-CONTROL.
+           MULTIPLE FILE TAPE CONTAINS TFIL2.
+       DATA DIVISION.
+       FILE SECTION.
+       FD TFIL.
+       01 FREC PIC X(8).
+       FD TFIL2.
+       01 FREC2 PIC X(8).
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN INPUT TFIL REVERSED.
+           CLOSE TFIL.
+           STOP RUN.
+",
+        );
+        assert_eq!(
+            got,
+            vec!["MULTIPLE FILE TAPE clause", "OPEN … REVERSED"]
+        );
+    }
+
+    /// The FILE-CONTROL and I-O-CONTROL clauses SQ401M names, each on its own
+    /// line so a wrong line number shows up as a wrong element here.
+    #[test]
+    fn file_control_clauses_above_the_subset() {
+        let got = subset_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FCSUB.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT OPTIONAL TFIL ASSIGN TO \"t.dat\"
+               RESERVE 2 AREAS
+               ORGANIZATION IS SEQUENTIAL
+               PADDING CHARACTER IS \"P\"
+               RECORD DELIMITER IS STANDARD-1.
+           SELECT TFIL2 ASSIGN TO \"u.dat\".
+       I-O-CONTROL.
+           SAME RECORD AREA FOR TFIL2, TFIL.
+           MULTIPLE FILE TAPE CONTAINS TFIL2.
+       DATA DIVISION.
+       FILE SECTION.
+       FD TFIL.
+       01 FREC PIC X(8).
+       FD TFIL2.
+       01 FREC2 PIC X(8).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+",
+        );
+        assert_eq!(
+            got,
+            vec![
+                "SELECT OPTIONAL",
+                "RESERVE clause",
+                "PADDING CHARACTER clause",
+                "RECORD DELIMITER clause",
+                "SAME AREA clause",
+                "MULTIPLE FILE TAPE clause",
+            ]
+        );
+    }
+
+    /// The FD clauses SQ401M names. `BLOCK CONTAINS n` alone is *in* subset —
+    /// only the `n TO m` variable-blocking form is above it — so the fixed form
+    /// is checked here too.
+    #[test]
+    fn fd_clauses_above_the_subset() {
+        let got = subset_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FDSUB.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TFIL ASSIGN TO \"t.dat\".
+           SELECT TFIL2 ASSIGN TO \"u.dat\".
+       DATA DIVISION.
+       FILE SECTION.
+       FD TFIL
+           BLOCK CONTAINS 1 TO 8 RECORDS
+           RECORD VARYING IN SIZE FROM 1 TO 8 CHARACTERS
+           LINAGE IS 20 LINES
+           VALUE OF ID IS \"X\".
+       01 FREC PIC X(8).
+       FD TFIL2
+           BLOCK CONTAINS 8 RECORDS.
+       01 FREC2 PIC X(8).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+",
+        );
+        assert_eq!(
+            got,
+            vec![
+                "BLOCK CONTAINS n TO m",
+                "RECORD VARYING clause",
+                "LINAGE clause",
+                "VALUE OF clause",
+            ],
+            "fixed BLOCK CONTAINS must not be flagged"
+        );
+    }
+
+    /// The file-verb phrases SQ401M names. Each belongs to a particular verb —
+    /// `LOCK` and `REMOVAL` to `CLOSE`, `REVERSED` to `OPEN` — so a phrase on
+    /// the wrong verb must not fire.
+    #[test]
+    fn file_verb_phrases_above_the_subset() {
+        let got = subset_of(&proc(
+            "           CLOSE TFIL REEL FOR REMOVAL.
+           CLOSE TFIL WITH NO REWIND.
+           CLOSE TFIL WITH LOCK.
+           OPEN INPUT TFIL REVERSED.
+           OPEN INPUT TFIL WITH NO REWIND.
+           OPEN EXTEND TFIL.
+           READ TFIL NEXT RECORD AT END CONTINUE END-READ.
+           WRITE FREC AT END-OF-PAGE CONTINUE END-WRITE.",
+        ));
+        assert_eq!(
+            got,
+            vec![
+                "CLOSE … FOR REMOVAL",
+                "OPEN/CLOSE … WITH NO REWIND",
+                "CLOSE … WITH LOCK",
+                "OPEN … REVERSED",
+                "OPEN/CLOSE … WITH NO REWIND",
+                "OPEN EXTEND",
+                "READ … NEXT RECORD",
+                "WRITE … AT END-OF-PAGE",
+            ]
+        );
+    }
+
+    /// A plain `OPEN`/`CLOSE`/`READ`/`WRITE` carries none of those phrases and
+    /// must flag nothing — the detectors key on the phrase, not the verb.
+    #[test]
+    fn plain_file_verbs_are_not_flagged() {
+        let got = subset_of(&proc(
+            "           OPEN INPUT TFIL.
+           READ TFIL AT END CONTINUE END-READ.
+           CLOSE TFIL.
+           OPEN OUTPUT TFIL.
+           WRITE FREC.
+           CLOSE TFIL.",
+        ));
         assert!(got.is_empty(), "{got:?}");
     }
 }

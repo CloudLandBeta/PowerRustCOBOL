@@ -1,5 +1,66 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.46] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) reaches 84 of 85 on execution** — assertions
+595 PASS / 25 FAIL → **623 PASS / 1 FAIL** (99.8 %) — with every program now
+running to completion. Compile stays 85 of 85 for SQ and 422 of 434 for the
+whole suite; Nucleus stays at 95 of 95 on both axes, 4 614 assertions, none
+failing.
+
+The one member still short, **SQ203A**, needs `XXXXD001` — a data file the
+CCVS85 *installation* supplies. No member of the suite writes it, so the "file
+present" half of its `SELECT OPTIONAL` test cannot run here; the "file absent"
+half passes.
+
+### Fixed — a `LINAGE` clause may name data items, not just numbers
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE LINAGE-CTR
+               FOOTING FOOT-CTR
+               TOP TOP-CTR
+               BOTTOM BOTTOM-CTR.
+```
+
+Every part of the clause may name an item instead of stating an integer, so a
+program can size its page at run time. Requiring integers made the whole clause
+fail to parse, and the file then had **no page at all**: `AT END-OF-PAGE` could
+never become true, so a report written with
+
+```cobol
+           WRITE PRINT-REC AFTER ADVANCING 1 LINE
+               AT END-OF-PAGE PERFORM PAGE-TRAILER
+           END-WRITE.
+```
+
+looping until end of page never stopped. NIST SQ208M and SQ210M each wrote
+gigabytes before the harness killed them; both now run to completion. The page
+is measured from the named items at each write, so changing one between writes
+changes the page.
+
+### Added — conformance flagging for the sequential-I/O elements
+
+`nist_conformance flag` reports the constructs COBOL-85 lists as **obsolete** or
+**above the high subset**. The sequential-I/O elements were not detected at all;
+all of them now are, with no spurious flag anywhere in the suite:
+
+* **Obsolete** — `RERUN`, `MULTIPLE FILE TAPE`, `LABEL RECORDS`, `VALUE OF`,
+  `DATA RECORDS`, `OPEN … REVERSED`.
+* **Above the high subset** — `SELECT OPTIONAL`, `RESERVE`, `PADDING
+  CHARACTER`, `RECORD DELIMITER`, `SAME AREA`, `MULTIPLE FILE TAPE`,
+  `BLOCK CONTAINS n TO m` (the fixed `BLOCK CONTAINS n` is *in* subset),
+  `RECORD VARYING`, `LINAGE`, `VALUE OF`, `CLOSE … FOR REMOVAL`,
+  `OPEN/CLOSE … WITH NO REWIND`, `CLOSE … WITH LOCK`, `OPEN … REVERSED`,
+  `OPEN EXTEND`, `READ … NEXT RECORD`, `WRITE … AT END-OF-PAGE`.
+
+None of this changes what compiles or runs: every construct listed still works
+exactly as before. Flagging only *reports* where the standard places it, and it
+stays an opt-in entry point rather than part of an ordinary build.
+
+SQ302M goes 0 → 4 of 4, SQ303M 0 → 2 of 2 and SQ401M 0 → 18 of 18; NC401M is
+unchanged at 40 of 40.
+
 ## [PowerRustCOBOL 1.62.45] — 2026-08-28
 
 **NIST CCVS85 Sequential I/O (SQ) goes 67 → 79 of 85 on execution**, assertions

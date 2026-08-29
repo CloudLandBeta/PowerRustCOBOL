@@ -262,23 +262,23 @@ fn parse_record_clause(p: &mut Parser) -> Option<RecordSizing> {
 fn parse_linage_clause(p: &mut Parser) -> Option<Linage> {
     p.advance(); // LINAGE
     p.eat(&Token::Is);
-    let lines = eat_required_integer(p)?;
+    let (lines, lines_name) = eat_linage_value(p)?;
     // `LINES` and `LINE` are lexer keywords; the rest of the clause's words are
     // not. Both spellings are noise here.
     if !p.eat(&Token::Lines) {
         p.eat(&Token::Line);
     }
 
-    let mut footing = None;
-    let mut top = 0u32;
-    let mut bottom = 0u32;
+    let mut footing: Option<(u32, Option<String>)> = None;
+    let mut top = (0u32, None);
+    let mut bottom = (0u32, None);
 
     loop {
         p.eat(&Token::With);
         if is_word(p.peek(), "FOOTING") {
             p.advance();
             if is_word(p.peek(), "AT") { p.advance(); }
-            footing = eat_required_integer(p);
+            footing = eat_linage_value(p);
             continue;
         }
         if p.at(&Token::Lines) || p.at(&Token::Line) {
@@ -287,35 +287,63 @@ fn parse_linage_clause(p: &mut Parser) -> Option<Linage> {
             if is_word(p.peek(), "AT") { p.advance(); }
             if is_word(p.peek(), "TOP") {
                 p.advance();
-                top = eat_required_integer(p).unwrap_or(0);
+                top = eat_linage_value(p).unwrap_or((0, None));
                 continue;
             }
             if is_word(p.peek(), "BOTTOM") {
                 p.advance();
-                bottom = eat_required_integer(p).unwrap_or(0);
+                bottom = eat_linage_value(p).unwrap_or((0, None));
                 continue;
             }
             continue;
         }
         if is_word(p.peek(), "TOP") {
             p.advance();
-            top = eat_required_integer(p).unwrap_or(0);
+            top = eat_linage_value(p).unwrap_or((0, None));
             continue;
         }
         if is_word(p.peek(), "BOTTOM") {
             p.advance();
-            bottom = eat_required_integer(p).unwrap_or(0);
+            bottom = eat_linage_value(p).unwrap_or((0, None));
             continue;
         }
         break;
     }
 
+    let (footing_lines, footing_name) = match footing {
+        Some(f) => f,
+        // No FOOTING: end of page is raised only when the body is full. With a
+        // data-name body size that has to stay a *name*, or the default would
+        // freeze at whatever number happened to be parsed.
+        None => (lines, lines_name.clone()),
+    };
     Some(Linage {
         lines,
-        footing: footing.unwrap_or(lines),
-        top,
-        bottom,
+        footing: footing_lines,
+        top: top.0,
+        bottom: bottom.0,
+        lines_name,
+        footing_name,
+        top_name: top.1,
+        bottom_name: bottom.1,
     })
+}
+
+/// One value of a `LINAGE` clause: an integer, or the data-name that holds it.
+///
+/// COBOL-85 lets every part of the clause name an item instead of stating a
+/// number, so a program can size its page at run time. Requiring an integer
+/// made `LINAGE LINAGE-CTR FOOTING FOOT-CTR` fail the whole clause, and the
+/// file then had no page at all — `AT END-OF-PAGE` could never become true and
+/// a report that writes until end of page wrote for ever (SQ208M, SQ210M).
+///
+/// The integer is returned alongside the name so a caller that has no
+/// environment to read still has a usable default.
+fn eat_linage_value(p: &mut Parser) -> Option<(u32, Option<String>)> {
+    if let Some(n) = eat_required_integer(p) {
+        return Some((n, None));
+    }
+    p.eat_identifier().map(|(n, _)| (0, Some(n.to_ascii_uppercase())))
 }
 
 // ── Screen section (simplified) ───────────────────────────────────────────────

@@ -6476,6 +6476,12 @@ impl Interpreter {
             return Ok(());
         };
 
+        // The page geometry, with any data-name resolved now: the clause may
+        // name an item rather than state a number, and the program is free to
+        // change it between writes.
+        let body = self.linage_value(linage.lines, linage.lines_name.as_deref());
+        let footing = self.linage_value(linage.footing, linage.footing_name.as_deref());
+
         // How far this write moved down the page. `ADVANCING PAGE` is a new
         // page rather than a line count.
         let (lines, new_page) = match advancing {
@@ -6491,7 +6497,7 @@ impl Interpreter {
             *counter = 1;
         } else {
             *counter += lines;
-            if *counter > linage.lines {
+            if *counter > body {
                 // The body is full: this record begins the next page.
                 *counter = lines.max(1);
             }
@@ -6502,7 +6508,7 @@ impl Interpreter {
         // name refers to the file just written.
         self.env.set_i64("LINAGE-COUNTER", now as i64);
 
-        if now >= linage.footing {
+        if now >= footing {
             if !at_eop.is_empty() {
                 self.exec_stmts(at_eop)?;
             }
@@ -6510,6 +6516,20 @@ impl Interpreter {
             self.exec_stmts(not_at_eop)?;
         }
         Ok(())
+    }
+
+    /// One `LINAGE` value: the data item's current value when the clause named
+    /// one, otherwise the integer it stated.
+    ///
+    /// A named item that is missing or zero falls back to the literal, so a
+    /// page can never measure zero lines — that would make every write overflow
+    /// and the end-of-page condition meaningless.
+    fn linage_value(&self, literal: u32, name: Option<&str>) -> u32 {
+        let from_item = name
+            .and_then(|n| self.env.get_i64(n))
+            .filter(|n| *n > 0)
+            .map(|n| n as u32);
+        from_item.unwrap_or(literal).max(1)
     }
 
     /// The line count of an `ADVANCING` clause, or `None` for `ADVANCING PAGE`.

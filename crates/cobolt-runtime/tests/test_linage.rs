@@ -206,3 +206,64 @@ fn a_file_without_linage_never_raises_end_of_page() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(out, vec!["DONE"], "no LINAGE means no page to end: {out:?}");
 }
+
+/// Every part of a `LINAGE` clause may name a data item instead of stating a
+/// number, and the page is measured from those items when the write happens.
+///
+/// Requiring integers made the whole clause fail to parse, so the file had no
+/// page at all: `AT END-OF-PAGE` could never become true, and a report that
+/// writes until end of page wrote for ever — NIST SQ208M and SQ210M each filled
+/// gigabytes before the harness killed them.
+#[test]
+fn linage_values_may_be_data_names() {
+    let dir = std::env::temp_dir().join("rcbl-linage-names");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rep.txt").to_string_lossy().replace('\\', "/");
+    let out = run_capture(&format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. LINNAME.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT PRT ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS LINE SEQUENTIAL.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD  PRT\n\
+         \x20          LINAGE LINAGE-CTR\n\
+         \x20              FOOTING FOOT-CTR\n\
+         \x20              TOP TOP-CTR\n\
+         \x20              BOTTOM BOTTOM-CTR.\n\
+         \x20      01  PRT-REC PIC X(20).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      77  LINAGE-CTR PIC 999 VALUE 10.\n\
+         \x20      01  FOOT-CTR   PIC 999 VALUE 8.\n\
+         \x20      01  TOP-CTR    PIC 999 VALUE 2.\n\
+         \x20      01  BOTTOM-CTR PIC 999 VALUE 3.\n\
+         \x20      01  WS-I PIC 9(2) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT PRT.\n\
+         \x20          PERFORM 9 TIMES\n\
+         \x20              ADD 1 TO WS-I\n\
+         \x20              MOVE \"line\" TO PRT-REC\n\
+         \x20              WRITE PRT-REC BEFORE ADVANCING 1 LINE\n\
+         \x20                  AT END-OF-PAGE DISPLAY \"EOP=\" WS-I\n\
+         \x20                  NOT AT END-OF-PAGE DISPLAY \"OK=\" WS-I\n\
+         \x20              END-WRITE\n\
+         \x20          END-PERFORM.\n\
+         \x20          CLOSE PRT.\n\
+         \x20          STOP RUN.\n"
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    // The same geometry as `end_of_page_is_raised_from_the_footing_line`, only
+    // named rather than written out: a 10-line body footing at 8.
+    assert_eq!(
+        out,
+        vec![
+            "OK=01", "OK=02", "OK=03", "OK=04", "OK=05", "OK=06", "OK=07", "EOP=08", "EOP=09",
+        ],
+        "LINAGE with data-names: {out:?}"
+    );
+}

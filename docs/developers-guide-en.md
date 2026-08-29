@@ -5023,6 +5023,61 @@ rewriting is how you *ask* for a different length, and `44` is the answer.
 > rewriting "the record I read three reads ago". Keep the loop tight: read,
 > change, rewrite, read again.
 
+### Printed reports with page control: `LINAGE`
+
+If you have been counting lines by hand to decide when to print a page trailer,
+`LINAGE` does it for you. It divides the print file into a top margin, a **body**
+of so many lines, and a bottom margin, and gives you a counter and a condition:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE IS 60 LINES
+               WITH FOOTING AT 55
+               LINES AT TOP 3
+               LINES AT BOTTOM 3.
+       01  PRINT-REC PIC X(132).
+```
+
+`LINAGE-COUNTER` holds the current line of the body, counting from 1, and is set
+back to 1 whenever the file is opened. `WRITE` gains a page-overflow phrase:
+
+```cobol
+           WRITE PRINT-REC AFTER ADVANCING 1 LINE
+               AT END-OF-PAGE     PERFORM PAGE-TRAILER
+               NOT AT END-OF-PAGE ADD 1 TO WS-LINES-ON-PAGE
+           END-WRITE.
+```
+
+`AT END-OF-PAGE` (or `AT EOP`) becomes true from the **footing** line onward —
+line 55 above — which is what gives you room to print a trailer before the body
+is full. Without a `FOOTING` clause the condition waits until the body is full.
+`WRITE … AFTER ADVANCING PAGE` starts a new page and resets the counter.
+
+**Every value may be a data item instead of a number**, which is how you size a
+page at run time — from a control record, a parameter file, or the operator:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE LINAGE-CTR
+               FOOTING FOOT-CTR
+               TOP TOP-CTR
+               BOTTOM BOTTOM-CTR.
+       ...
+       WORKING-STORAGE SECTION.
+       77  LINAGE-CTR PIC 999 VALUE 66.
+       01  FOOT-CTR   PIC 999 VALUE 60.
+       01  TOP-CTR    PIC 999 VALUE 3.
+       01  BOTTOM-CTR PIC 999 VALUE 3.
+```
+
+The page is measured from those items at each `WRITE`, so changing one between
+writes changes the page from that point on.
+
+> ⚠️ **A file with no `LINAGE` clause has no page**, so `AT END-OF-PAGE` on it
+> can never become true. A loop written as "keep writing until end of page" then
+> never ends. If a report of yours runs away, the `LINAGE` clause is the first
+> thing to check.
+
 ### Rust inside COBOL — `EXEC RUST`
 
 `EXEC RUST … END-EXEC` embeds **real Rust**, compiled into your program. Not a
