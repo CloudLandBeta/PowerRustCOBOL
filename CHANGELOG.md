@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.72] — 2026-08-29
+
+**IX301M is excluded from execution scoring** (operator ruling). NIST CCVS85
+Indexed I/O is now scored out of 41 and stands at **38 of 41**, assertions
+**566 PASS / 8 FAIL** — **98.6 %**.
+
+IX301M's own header says what it is: *"TESTS THE FLAGGING OF INTERMEDIATE
+SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED INPUT-OUTPUT."* Every
+construct it expects flagged — `ORGANIZATION IS INDEXED`, `ACCESS MODE IS
+RANDOM`, `RECORD KEY IS`, and the `NOT INVALID KEY` phrases — is one
+PowerRustCOBOL implements. A compiler validating at the **high** subset must
+not flag a feature it supports, so those seven expectations are unreachable by
+design rather than by defect. Only a minimum-subset validation would satisfy
+them. Compare IX401M, which asks for *high*-subset flagging and scores 10 of 10.
+
+**The exclusion is from the execution score only.** IX301M is perfectly good
+COBOL, compiles clean, and still counts in the `strict` census — which stays at
+**422 of 434**, unmoved.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing.
+
+Two further operator rulings are recorded in the ledger and take effect next:
+Relative I/O starts now rather than after IX, and redb becomes the default disk
+engine so duplicate-retrieval ordering can be fixed there instead of by a
+PRCIDXD1 format change.
+
+
 ## [PowerRustCOBOL 1.62.71] — 2026-08-29
 
 **The compiler flags the Indexed I/O constructs that sit above the high

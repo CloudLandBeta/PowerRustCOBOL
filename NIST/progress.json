@@ -1,12 +1,16 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.71",
+  "measured_at_version": "1.62.72",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
 
   "rules": {
+    "never_ask_take_the_recommended_action": "OPERATOR RULING 2026-08-29, given twice — do NOT stop to ask. When a choice arises, take the recommended course of action and proceed. Record the decision and the reasoning in this ledger so it can be reviewed after the fact, but never block the loop on a question.",
+    "ix301m_out_of_scope": "OPERATOR RULING 2026-08-29 — IX301M is OUT OF SCOPE. It tests INTERMEDIATE-subset flagging, and every construct it expects flagged (ORGANIZATION IS INDEXED, ACCESS MODE IS RANDOM, RECORD KEY IS, the NOT INVALID KEY phrases) is one PowerRustCOBOL implements. A high-subset implementation must not flag features it supports, so its 7 expectations are unreachable by design rather than by defect. IX is scored out of 41.",
+    "start_rl_now": "OPERATOR RULING 2026-08-29 — START RELATIVE I/O NOW, before IX is finished. This deliberately suspends GOLDEN RULE #9's one-module-at-a-time ordering: IX106A tests DELETE and REWRITE across relative, sequential and indexed files together, so IX cannot close without an RL engine. RL is the largest single piece of work outstanding.",
+    "redb_becomes_the_default": "OPERATOR RULING 2026-08-29 — fix duplicate-retrieval ordering in the redb engine, which already keeps a `seq` table for it, AND MAKE REDB THE DEFAULT disk engine. This avoids a PRCIDXD1 format change but is a large change in its own right: every `STORAGE IS DISK` file moves to redb, including the ones NC's and SQ's tests run through. Expect to spend iterations on the gate; revert rather than chase.",
     "everything_is_technical_debt": "OPERATOR RULING 2026-08-29 — until all NIST implementation is done, there are NO new features; everything is technical debt being paid. Consequences: all of it goes on the `fixes` branch, none of it splits into a features commit, and none of it belongs on forum f=96. This overrides the usual feature/fix classification for the duration, and it covers RL (Relative I/O) too, which is missing COBOL-85 that should already have worked rather than a capability beyond the standard.",
     "no_forum_posts": "OPERATOR RULING 2026-08-29 — do not post to cobolforo.es at all while the grind is running. Announcements are batched and are the operator's call.",
     "commit_and_push_before_stopping": "OPERATOR RULING 2026-08-29 — never end a session with work uncommitted. Commit and push `fixes` before stopping, subject only to the São Paulo push window (inside it, commit and defer the push).",
@@ -18,7 +22,7 @@
   },
 
   "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "SG", "DB", "RL"],
-  "current_module": "IX",
+  "current_module": "RL",
 
   "out_of_scope": {
     "modules": ["CM", "RW", "OBIC", "OBNC", "OBSQ", "EXEC"],
@@ -49,8 +53,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [38, 42],
-      "assertions": { "pass": 567, "fail": 14, "deleted": 1 }
+      "execution": [38, 41],
+      "assertions": { "pass": 566, "fail": 8, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -75,7 +79,7 @@
         "A deleted slot must stay addressable and read as not-present — a relative file is a numbered slot table, not a dense list.",
         "Reuse the storage split the INDEXED engines already have (STORAGE IS MEMORY | DISK) rather than inventing a fourth container format."
       ],
-      "sequencing": "Do NOT start RL until IX is 100/100 on both axes (GOLDEN RULE #9). It is last in module_order for that reason. It is large enough to be worth planning before coding, but as technical debt it does NOT need the feature pipeline — plan it in the ledger's work_queue and implement on `fixes`."
+      "sequencing": "SUPERSEDED 2026-08-29 — the operator ruled START RL NOW, before IX is finished (see rules.start_rl_now). IX106A cannot pass without it. It is large enough to be worth planning before coding, but as technical debt it does NOT need the feature pipeline — plan it in the ledger's work_queue and implement on `fixes`."
     }
   },
 
@@ -188,6 +192,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.72", "change": "IX301M excluded from execution scoring (operator ruling): intermediate-subset flagging does not apply", "effect": "IX now scored out of 41: 38/41, 566 PASS / 8 FAIL, 98.6%. Compile census unchanged at 422/434 - the program is good COBOL and still counts there." },
     { "version": "1.62.71", "change": "Flag the Indexed constructs above the high subset (IX401M)", "effect": "IX 37 -> 38 clean, 561 -> 567 PASS, 97.6%. IX401M 5 wrong -> 0. RECORD VARYING now matches the optional IS, which is what IX401M writes." },
     { "version": "1.62.70", "change": "Opt-code T and U are mutually exclusive; the harness selects T", "effect": "IX 35 -> 37 clean, 550 -> 561 PASS, 33 -> 20 failures, 94.3% -> 96.6%. IX207A and IX208A clean; IX107A unaffected." },
     { "version": "1.62.69", "change": "AT END makes a READ sequential even under DYNAMIC access; NEXT is optional in that format", "effect": "No NIST movement - IX208A, which prompted it, uses SEQUENTIAL access. A real conformance fix, validated on its own repro: under DYNAMIC a READ ... AT END after a START now continues instead of re-reading by RECORD KEY." },

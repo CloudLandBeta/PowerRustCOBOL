@@ -250,6 +250,28 @@ fn is_out_of_scope(module: &str) -> bool {
     matches!(module, "CM" | "RW" | "OBSQ" | "OBIC" | "OBNC" | "EXEC")
 }
 
+/// Members whose **verdict** does not apply to this implementation, though the
+/// program itself is perfectly good COBOL.
+///
+/// Excluded from the execution score only — they still compile, and still
+/// count in the `strict` census, because there is nothing wrong with them as
+/// source.
+///
+/// `IX301M` says what it is in its own header: "TESTS THE FLAGGING OF
+/// INTERMEDIATE SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED
+/// INPUT-OUTPUT". Every construct it expects flagged — `ORGANIZATION IS
+/// INDEXED`, `ACCESS MODE IS RANDOM`, `RECORD KEY IS`, and the `NOT INVALID
+/// KEY` phrases — is one PowerRustCOBOL implements. A compiler validating at
+/// the **high** subset must not flag a feature it supports, so those seven
+/// expectations are unreachable by design rather than by defect. Only a
+/// minimum-subset validation would satisfy them.
+///
+/// Operator ruling, 2026-08-29. Compare `IX401M`, which asks for *high*-subset
+/// flagging and scores 10 of 10.
+fn verdict_does_not_apply(name: &str) -> bool {
+    matches!(name, "IX301M")
+}
+
 fn module_of(name: &str) -> String {
     let cut = name
         .char_indices()
@@ -1107,7 +1129,7 @@ fn run_pass(members: &[Member], filter: &str) {
 
     for (i, m) in programs.iter().enumerate() {
         let module = module_of(&m.name);
-        if is_out_of_scope(&module) {
+        if is_out_of_scope(&module) || verdict_does_not_apply(&m.name) {
             continue;
         }
         eprintln!("[{}/{}] {}", i + 1, programs.len(), m.name);

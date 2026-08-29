@@ -17,6 +17,18 @@ durable, it belongs in the ledger (`dead_ends`, `work_queue`, `history`) or in
 
 ---
 
+## Never stop to ask
+
+**Operator ruling, 2026-08-29, given twice: do NOT ask questions. Take the
+recommended course of action and proceed.** Record the decision and the
+reasoning in the ledger so it can be reviewed afterwards, but never block the
+loop on a question. If a choice looks like it needs a judgement call, make the
+call, say which way you went and why, and keep going.
+
+The standing rulings already given are in the ledger under `rules` — read them
+before deciding anything: IX301M is out of scope, RL starts now, and redb
+becomes the default disk engine.
+
 ## The invariants — these outrank speed
 
 1. **One module at a time, in order** (GOLDEN RULE #9). Finish the current
