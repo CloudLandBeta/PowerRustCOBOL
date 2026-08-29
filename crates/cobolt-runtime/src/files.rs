@@ -41,6 +41,13 @@ pub struct FieldPos {
     pub len: usize,
     pub numeric: bool,
     pub decimals: u8,
+    /// Whether this entry describes a **group** rather than an elementary item.
+    ///
+    /// A group holds no value of its own — its characters are its children's,
+    /// concatenated — so its bytes have to be asked for as a group. Reading one
+    /// as if it were an elementary item finds nothing and yields spaces, which
+    /// is what made a `RECORD KEY` naming a group search the file for blanks.
+    pub is_group: bool,
 }
 
 /// Byte layout of an FD record: total length plus every elementary field.
@@ -48,6 +55,16 @@ pub struct FieldPos {
 pub struct RecordLayout {
     pub len: usize,
     pub fields: Vec<FieldPos>,
+    /// The record's **group** items, with the extent each one spans.
+    ///
+    /// `fields` holds elementary items only, because those are what a record
+    /// is read into and written from. A `RECORD KEY`, though, usually names a
+    /// *group* — IX214A's is `IX-FS1-KEY`, three subordinate items across 13
+    /// bytes — and with nowhere to find it the key resolved to nothing and the
+    /// engine fell back to indexing the whole record. Keys are looked up here
+    /// when no elementary field matches; nothing else consults it, so reading
+    /// and writing records behave exactly as before.
+    pub groups: Vec<FieldPos>,
 }
 
 /// Lay out one data description: recurse into a group's children, or take an
@@ -58,6 +75,7 @@ fn walk(
     path: &mut Vec<String>,
     offset: &mut usize,
     fields: &mut Vec<FieldPos>,
+    groups: &mut Vec<FieldPos>,
 ) {
     let times = d
         .occurs
@@ -67,10 +85,11 @@ fn walk(
     // `SIGN IS … SEPARATE` written on a group applies to every subordinate
     // signed item that does not carry its own.
     let sign = d.sign.or(sign);
-    for _ in 0..times {
+    for i in 0..times {
         if !d.children.is_empty() {
             // A group name qualifies everything under it. `FILLER` groups
             // have no name and qualify nothing.
+            let began = *offset;
             let pushed = match &d.name {
                 Some(n) => {
                     path.push(n.to_ascii_uppercase());
@@ -78,9 +97,25 @@ fn walk(
                 }
                 None => false,
             };
-            walk_siblings(&d.children, sign, path, offset, fields);
+            walk_siblings(&d.children, sign, path, offset, fields, groups);
             if pushed {
                 path.pop();
+            }
+            // Record the group's extent, so a key that names it can be found.
+            // Only the first occurrence: an unsubscripted key reference means
+            // the first one, and the rest would just be duplicates of the name.
+            if i == 0 {
+                if let Some(name) = &d.name {
+                    groups.push(FieldPos {
+                        name: name.to_ascii_uppercase(),
+                        quals: path.iter().rev().cloned().collect(),
+                        offset: began,
+                        len: offset.saturating_sub(began).max(1),
+                        numeric: false,
+                        decimals: 0,
+                        is_group: true,
+                    });
+                }
             }
         } else if let Some(pic) = &d.picture {
             // `SIGN IS SEPARATE CHARACTER` gives the sign its own character
@@ -109,6 +144,7 @@ fn walk(
                     len,
                     numeric,
                     decimals: pic.decimals.min(u8::MAX as u16) as u8,
+                    is_group: false,
                 });
             }
             *offset += len;
@@ -136,6 +172,7 @@ fn walk_siblings(
     path: &mut Vec<String>,
     offset: &mut usize,
     fields: &mut Vec<FieldPos>,
+    groups: &mut Vec<FieldPos>,
 ) {
     // Sibling name → where it started and how wide it is, in declaration order.
     let mut placed: Vec<(String, usize)> = Vec::new();
@@ -150,7 +187,7 @@ fn walk_siblings(
             *offset = at;
         }
         let began = *offset;
-        walk(c, sign, path, offset, fields);
+        walk(c, sign, path, offset, fields, groups);
         if target.is_some() {
             // Storage is shared, so the record continues where it already was.
             // The `max` is defensive: the standard forbids a redefinition wider
@@ -180,13 +217,21 @@ fn is_subsequence(needle: &[String], hay: &[String]) -> bool {
 /// `digits + decimals` bytes). OCCURS multiplies the subtree width.
 pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     let mut fields = Vec::new();
+    let mut groups = Vec::new();
     let mut offset = 0usize;
 
     // The `01` itself does not qualify its subordinates — a key is written
     // `IX-FD3-KEY IN IX-FD3-RECKEY-AREA`, naming the group, not the record.
     let mut path: Vec<String> = Vec::new();
     if record.children.is_empty() {
-        walk(record, record.sign, &mut path, &mut offset, &mut fields);
+        walk(
+            record,
+            record.sign,
+            &mut path,
+            &mut offset,
+            &mut fields,
+            &mut groups,
+        );
     } else {
         walk_siblings(
             &record.children,
@@ -194,11 +239,13 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
             &mut path,
             &mut offset,
             &mut fields,
+            &mut groups,
         );
     }
     RecordLayout {
         len: offset.max(1),
         fields,
+        groups,
     }
 }
 
@@ -218,13 +265,20 @@ impl RecordLayout {
     /// With no match on the qualifiers this falls back to the bare name, so a
     /// qualifier naming a group that is not in the layout still finds the
     /// field rather than silently losing the key.
+    /// A **group** name resolves to the extent it spans, which is how a
+    /// `RECORD KEY` naming a group is found — elementary fields are searched
+    /// first, so nothing that already resolved changes.
     pub fn field_qualified(&self, name: &str, quals: &[String]) -> Option<&FieldPos> {
         let n = name.to_ascii_uppercase();
         let wanted: Vec<String> = quals.iter().map(|q| q.to_ascii_uppercase()).collect();
-        self.fields
-            .iter()
-            .find(|f| f.name == n && is_subsequence(&wanted, &f.quals))
-            .or_else(|| self.fields.iter().find(|f| f.name == n))
+        let matching = |set: &'_ [FieldPos]| -> Option<usize> {
+            set.iter()
+                .position(|f| f.name == n && is_subsequence(&wanted, &f.quals))
+                .or_else(|| set.iter().position(|f| f.name == n))
+        };
+        matching(&self.fields)
+            .map(|i| &self.fields[i])
+            .or_else(|| matching(&self.groups).map(|i| &self.groups[i]))
     }
 
     /// A `KeySpec` for the named key field (its slice of the record).
@@ -329,6 +383,14 @@ fn env_key(env: &CobolEnvironment, f: &FieldPos) -> String {
 
 /// The exact-`len` byte image of one field's current value.
 fn field_bytes(env: &CobolEnvironment, f: &FieldPos) -> Vec<u8> {
+    // A group's characters are its children's, concatenated, and only the
+    // environment can assemble them — it holds no value under the group's own
+    // name. `env.get` returns nothing for one, which yielded a key of spaces.
+    if f.is_group {
+        let mut b = env.display_bytes(&env_key(env, f)).unwrap_or_default();
+        b.resize(f.len, b' ');
+        return b;
+    }
     match env.get(&env_key(env, f)) {
         Some(CobolValue::Numeric(n)) => {
             let digits = n.mantissa.unsigned_abs().to_string();
