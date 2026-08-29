@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.56] — 2026-08-29
+
+**A key of reference may be named through a `REDEFINES`.** NIST CCVS85 Indexed
+I/O assertions go 481 PASS / 115 FAIL → **484 PASS / 112 FAIL**, 80.7 % →
+**81.2 %**.
+
+A key is the **storage** it names, not the name itself, and `REDEFINES` gives
+the same bytes a second name. IX215A declares `ALTERNATE RECORD KEY IS
+IX-FD1-ALTKEY1` and then starts on `IX-REDF-ALTKEY1 REDEFINES IX-FD1-ALTKEY1`.
+Matching the `START`/`READ` operand against the declared names alone left that
+statement on key of reference 0 — searching the **primary** index for an
+alternate key's characters — so it took the `INVALID KEY` path every time.
+
+When the operand is not one of the declared key names, its byte range in the
+record is now compared against each declared key's extent, and an item covering
+exactly a key's bytes *is* that key. Naming a declared key directly still
+matches by name first, so nothing that worked before changes.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
 ## [PowerRustCOBOL 1.62.55] — 2026-08-29
 
 **`START` accepts a generic (partial) key.** NIST CCVS85 Indexed I/O assertions

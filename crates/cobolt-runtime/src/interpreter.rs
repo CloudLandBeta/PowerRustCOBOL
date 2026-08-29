@@ -6500,9 +6500,42 @@ impl Interpreter {
         if spec.record_key.as_deref() == Some(name) && agrees(quals, &spec.record_key_quals) {
             return 0;
         }
-        spec.alternate_keys
+        if let Some(i) = spec
+            .alternate_keys
             .iter()
             .position(|ak| ak.field.eq_ignore_ascii_case(name) && agrees(quals, &ak.quals))
+        {
+            return i + 1;
+        }
+        // Not one of the declared names — but a key is the **storage** it names,
+        // not the name itself. `REDEFINES` gives the same bytes a second name,
+        // and a program may use either: IX215A declares `ALTERNATE RECORD KEY IS
+        // IX-FD1-ALTKEY1` and then starts on `IX-REDF-ALTKEY1 REDEFINES
+        // IX-FD1-ALTKEY1`. Matching on the name alone left that START on key of
+        // reference 0, searching the PRIMARY index for an alternate key's
+        // characters, and it took the INVALID KEY path every time.
+        //
+        // So fall back to the byte range: an item covering exactly a declared
+        // key's extent *is* that key.
+        let Some(f) = spec.layout.field_qualified(name, quals) else {
+            return 0;
+        };
+        let same_extent = |ks: &crate::indexed::KeySpec| ks.offset == f.offset && ks.len == f.len;
+        if spec
+            .record_key
+            .as_deref()
+            .and_then(|k| spec.layout.key_spec_qualified(k, &spec.record_key_quals, false))
+            .is_some_and(|ks| same_extent(&ks))
+        {
+            return 0;
+        }
+        spec.alternate_keys
+            .iter()
+            .position(|ak| {
+                spec.layout
+                    .key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates)
+                    .is_some_and(|ks| same_extent(&ks))
+            })
             .map(|i| i + 1)
             .unwrap_or(0)
     }

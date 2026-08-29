@@ -726,3 +726,73 @@ fn start_on_a_subordinate_item_of_the_key_matches_on_the_prefix() {
          the first of them:\n{joined}"
     );
 }
+
+/// A key of reference may be named through a `REDEFINES`.
+///
+/// A key is the storage it names, not the name itself, and `REDEFINES` gives
+/// the same bytes a second name. IX215A declares `ALTERNATE RECORD KEY IS
+/// IX-FD1-ALTKEY1` and then starts on `IX-REDF-ALTKEY1 REDEFINES
+/// IX-FD1-ALTKEY1`. Matching on the name alone left that `START` on key of
+/// reference 0 — searching the PRIMARY index for an alternate key's characters
+/// — so it took the INVALID KEY path every time.
+#[test]
+fn a_redefines_of_a_key_names_the_same_key_of_reference() {
+    let path = temp_idx("redefkey");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC X(4).\n\
+         \x20         05 R-ALT.\n\
+         \x20            10 R-ALT-A PIC X(3).\n\
+         \x20            10 R-ALT-B PIC X(3).\n\
+         \x20         05 R-REDF REDEFINES R-ALT PIC X(6).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"AAABBB\" TO R-REDF\n\
+         \x20          MOVE \"ONE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"CCCDDD\" TO R-REDF\n\
+         \x20          MOVE \"TWO\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE \"CCCDDD\" TO R-REDF\n\
+         \x20          START F KEY IS EQUAL TO R-REDF\n\
+         \x20             INVALID KEY DISPLAY \"REDF BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"REDF OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY \"/\" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("REDF OK 00"),
+        "a REDEFINES of the alternate key must select that alternate, not fall \
+         back to the primary index:\n{joined}"
+    );
+    assert!(
+        joined.contains("GOT K002/TWO"),
+        "and it must position on the record that alternate value belongs to:\n{joined}"
+    );
+}
