@@ -570,3 +570,73 @@ fn same_named_keys_are_told_apart_by_their_qualifier() {
         "the prime key must still index PRIME-AREA:\n{joined}"
     );
 }
+
+/// A `RECORD KEY` that names a **group** indexes that group's bytes.
+///
+/// Most CCVS85 record keys are groups — IX214A's is `IX-FS1-KEY`, three
+/// subordinate items across 13 bytes. A record layout lists only elementary
+/// fields, so the key resolved to nothing: the engine fell back to indexing the
+/// whole record, and reading the key back gave spaces, so `START` searched the
+/// file for blanks and returned 23 on every attempt.
+#[test]
+fn a_record_key_naming_a_group_indexes_that_group() {
+    let path = temp_idx("groupkey");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 KEY-AREA.\n\
+         \x20            10 R-KEY.\n\
+         \x20               15 R-K1 PIC XX.\n\
+         \x20               15 R-K2 PIC XX.\n\
+         \x20         05 R-NAME    PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 WRK-KEY PIC X(4).\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"TWO\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          MOVE \"K003\" TO R-KEY MOVE \"THREE\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE \"K003\" TO WRK-KEY\n\
+         \x20          MOVE WRK-KEY TO KEY-AREA\n\
+         \x20          START F KEY IS EQUAL TO R-KEY\n\
+         \x20             INVALID KEY DISPLAY \"START BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"START OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F AT END DISPLAY \"AT END\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY \" \" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("START OK 00"),
+        "a group RECORD KEY must be found, not searched for as spaces:\n{joined}"
+    );
+    assert!(
+        joined.contains("GOT K003 THREE"),
+        "the START must position at K003, so the READ delivers it:\n{joined}"
+    );
+}

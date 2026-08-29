@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.53] — 2026-08-29
+
+**A `RECORD KEY` that names a group now indexes that group's bytes.** NIST
+CCVS85 Indexed I/O assertions go 343 PASS / 133 FAIL → **475 PASS / 122 FAIL**,
+lifting the pass rate from 72.1 % to **79.6 %** — and the count of tests the
+programs *deleted* for failing their own setup falls from **108 to 1**, so far
+more of the suite now actually executes.
+
+Most COBOL record keys name a **group**, not an elementary item: IX214A's is
+`IX-FS1-KEY`, three subordinate items across 13 bytes. A record layout listed
+only elementary fields, so a group key was found nowhere at all. Two things
+went wrong at once:
+
+- The engine fell back to indexing **offset 0 for the whole record**, so every
+  key of the file covered the entire 240-byte record image.
+- Reading the key's value found no item under that name and yielded **spaces**,
+  so `START` searched the file for a blank key and returned `23` every time.
+  The `READ` after it then delivered whatever record the cursor happened to be
+  on, and the program reported "TEST IMPROPERLY INITIALIZED" and deleted itself.
+
+The layout now records each group's extent alongside the elementary fields, and
+a key resolves to a group when no elementary field matches — elementary items
+are searched first, so nothing that already resolved changes. A group's bytes
+are asked for *as a group*, since a group holds no value of its own; its
+characters are its children's, concatenated.
+
+Reading and writing records are untouched: only key resolution consults the new
+group extents.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
 ## [PowerRustCOBOL 1.62.52] — 2026-08-29
 
 **A `REDEFINES` item no longer takes bytes of its own in an FD record.** NIST
