@@ -890,6 +890,10 @@ fn inherits_from(name: &str) -> Option<&'static str> {
     Some(match name {
         // "THE FILE USED AS INPUT IS THAT CREATED BY IX101."
         "IX102A" => "IX101A",
+        // "THE FILE USED IS THAT RESULTING FROM IX102." Its own file is card
+        // 24 spelled `XXXXD024`, which IX102A wrote as `XXXXP024` — see
+        // `canonical_x_cards`.
+        "IX103A" => "IX102A",
         // "THE ROUTINE USES THE FILE IX-FS3 WHICH HAS BEEN CREATED BY IX109."
         "IX110A" => "IX109A",
         // "THIS ROUTINE USES THE MASS STORAGE FILE IX-FS3 CREATED IN IX113A."
@@ -938,7 +942,7 @@ fn run_producers(
 /// A member not listed here gets nothing, and its directory is untouched.
 fn installation_data_files(name: &str) -> &'static [(&'static str, &'static str)] {
     match name {
-        "SQ203A" => &[("XXXXD001", SQ203A_XXXXD001)],
+        "SQ203A" => &[("XXXXX001", SQ203A_XXXXD001)],
         _ => &[],
     }
 }
@@ -1242,7 +1246,58 @@ fn report_pass(members: &[Member], filter: &str) {
 /// These are fixed-format decks: a shorter operand drags the sequence area in
 /// columns 73-80 leftwards into the content area, where `NC1744.2` would then
 /// be read as code.
+/// Collapse the `XXXXP nnn` / `XXXXD nnn` spellings of an X-card onto the
+/// canonical `XXXXX nnn`.
+///
+/// An X-card is identified by its **number**, not by the letter in position 5.
+/// IX103A's own header lists "X-24 INDEXED FILE IMPLEMENTOR-NAME IN ASSGN TO
+/// CLAUSE FOR DATA FILE IX-FS1" and "X-44 … FOR INDEX FILE IX-FS1" — the number
+/// says which file, and card 24 appears in the deck as `XXXXX024` (43 times),
+/// `XXXXP024` (6) and `XXXXD024` (2). A validating installation replaces each
+/// card with one implementor name, so all three spellings name one file.
+///
+/// Left alone they are three different files, and a chain breaks in silence:
+/// IX102A creates IX-FS1 as `XXXXP024`, IX103A processes "THE FILE USED IS
+/// THAT RESULTING FROM IX102" as `XXXXD024`, and every one of its sequential
+/// reads hit AT END on the first call because the file it opened had never
+/// been written.
+///
+/// **Only `P` and `D` are collapsed**, the two for which the deck gives direct
+/// evidence. `XXXXY382` and `XXXXY066` are left as they are — their numbers
+/// match no other card, so there is nothing to say they are variants of
+/// anything.
+///
+/// The replacement is the same eight characters, which matters: these are
+/// fixed-format decks and a shorter operand would drag the sequence area in
+/// columns 73-80 into the content area.
+fn canonical_x_cards(raw: &str) -> String {
+    let b = raw.as_bytes();
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0;
+    while i < b.len() {
+        // `XXXX` + (`P` | `D`) + three digits, and nothing alphanumeric before
+        // it, so a longer identifier that merely ends this way is untouched.
+        let card_here = i + 8 <= b.len()
+            && &b[i..i + 4] == b"XXXX"
+            && matches!(b[i + 4], b'P' | b'D')
+            && b[i + 5..i + 8].iter().all(u8::is_ascii_digit)
+            // A COBOL word may contain hyphens, so `MY-XXXXP024` is one
+            // identifier and not a card reference.
+            && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'-'));
+        if card_here {
+            out.push_str("XXXXX");
+            out.push_str(&raw[i + 5..i + 8]);
+            i += 8;
+        } else {
+            out.push(raw[i..].chars().next().unwrap_or('\0'));
+            i += raw[i..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    out
+}
+
 fn substitute_implementor_names(raw: &str) -> String {
+    let raw = &canonical_x_cards(raw);
     // ASCII puts `A` at 65 and `D` at 68, so the 1-based ordinal positions are
     // 66 and 69 — the values `parse_special_names_class` turns back into
     // characters with `char::from_u32(n - 1)`.
@@ -1961,11 +2016,37 @@ mod tests {
         }
     }
 
+    /// An X-card is identified by its number, not the letter in position 5.
+    ///
+    /// Card 24 appears in the deck as `XXXXX024`, `XXXXP024` and `XXXXD024`.
+    /// Left as three names it is three files, and IX102A writing `XXXXP024`
+    /// while IX103A reads `XXXXD024` silently breaks a chain the suite's own
+    /// header declares.
+    #[test]
+    fn x_card_letter_variants_collapse_onto_one_card() {
+        assert_eq!(canonical_x_cards("XXXXP024"), "XXXXX024");
+        assert_eq!(canonical_x_cards("XXXXD024"), "XXXXX024");
+        assert_eq!(canonical_x_cards("XXXXX024"), "XXXXX024");
+        // Same width, or the sequence area in columns 73-80 slides into the
+        // content area of a fixed-format deck.
+        assert_eq!(canonical_x_cards("XXXXD001").len(), 8);
+        // Untouched: their numbers match no other card, so there is nothing to
+        // say they are variants of anything.
+        assert_eq!(canonical_x_cards("XXXXY382"), "XXXXY382");
+        // Not a card: an identifier that merely ends this way keeps its shape.
+        assert_eq!(canonical_x_cards("MY-XXXXP024"), "MY-XXXXP024");
+        // In context, with the rest of the line intact.
+        assert_eq!(
+            canonical_x_cards("     SELECT IX-FS1 ASSIGN XXXXP024   IX1024.2"),
+            "     SELECT IX-FS1 ASSIGN XXXXX024   IX1024.2"
+        );
+    }
+
     /// Only the members that need one get a data file.
     #[test]
     fn installation_data_files_are_opt_in() {
         assert_eq!(installation_data_files("SQ203A").len(), 1);
-        assert_eq!(installation_data_files("SQ203A")[0].0, "XXXXD001");
+        assert_eq!(installation_data_files("SQ203A")[0].0, "XXXXX001");
         for untouched in ["SQ202A", "NC101A", "IX101A"] {
             assert!(
                 installation_data_files(untouched).is_empty(),

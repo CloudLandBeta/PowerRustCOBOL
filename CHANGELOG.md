@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.57] — 2026-08-29
+
+**An X-card is identified by its number, not by the letter in position 5.**
+Test-harness fidelity; no runtime change.
+
+The CCVS85 deck spells card 24 three ways — `XXXXX024` (43 times), `XXXXP024`
+(6) and `XXXXD024` (2) — and IX103A's own header lists it once, as *"X-24
+INDEXED FILE IMPLEMENTOR-NAME IN ASSGN TO CLAUSE FOR DATA FILE IX-FS1"*. A
+validating installation replaces each card with one implementor name, so all
+three spellings are one file. The harness left them as three, which silently
+broke a chain the suite declares: IX102A creates IX-FS1 as `XXXXP024`, IX103A
+processes *"THE FILE USED IS THAT RESULTING FROM IX102"* as `XXXXD024`, and
+every sequential read hit `AT END` on the first call because the file it opened
+had never been written.
+
+The `P` and `D` spellings now collapse onto the canonical `XXXXX nnn` — same
+eight characters, since a shorter operand would drag the sequence area in
+columns 73-80 into the content area of a fixed-format deck. `XXXXY382` and
+`XXXXY066` are left alone: their numbers match no other card. IX103A also joins
+the producer table, quoting its own header.
+
+**IX assertions went 484 PASS / 112 FAIL → 482 PASS / 114 FAIL, and that is a
+gain, not a loss.** IX103A's delete scan now reaches 35 records instead of
+dying on the first `READ`, and two assertions that had never executed at all
+now run — and fail truthfully. A test that never ran was never passing. The
+remaining IX103A failures are real and are the next thing to fix.
+
+The ledger records the rule this settles: the regression gate is **absolute**
+for finished modules and the compile census, but the module in flight may
+legitimately score lower when the measurement becomes more honest — and that
+must be stated, never hidden and never reverted to protect a number.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.56] — 2026-08-29
 
 **A key of reference may be named through a `REDEFINES`.** NIST CCVS85 Indexed

@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.56",
+  "measured_at_version": "1.62.57",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -13,7 +13,8 @@
     "one_module_at_a_time": "GOLDEN RULE #9 — finish the current module on both axes before starting the next. Record a tempting fix in another module under `parked` and move on.",
     "two_axes_never_conflated": "Compile is the strictly weaker claim. Never quote it as if it meant the programs work.",
     "full_regression_after_every_change": "Re-run the whole-suite strict census AND the execution pass for every finished module, not just the one in flight. The runtime is shared.",
-    "deleted_is_not_passed": "`***** ****TEST DELETED****` means the program failed its own setup and skipped the case. Track the DELETED count: it fell 108 -> 1 at 1.62.53 while the clean-program count barely moved, and that was real progress a failures-only reading would have missed."
+    "deleted_is_not_passed": "`***** ****TEST DELETED****` means the program failed its own setup and skipped the case. Track the DELETED count: it fell 108 -> 1 at 1.62.53 while the clean-program count barely moved, and that was real progress a failures-only reading would have missed.",
+    "gate_protects_finished_modules_absolutely": "The regression gate is ABSOLUTE for finished modules (NC, SQ) and for the whole-suite compile census: those figures must match exactly or the change is reverted. For the module IN FLIGHT the score may legitimately FALL when a harness-fidelity change makes the measurement more honest — assertions that were unreachable start running and start failing. That happened at 1.62.57: IX went 484 -> 482 PASS because IX103A finally found the file IX102A writes, so its scan ran 35 records deep instead of dying on the first READ, and two assertions that had never executed began to fail truthfully. When this happens, SAY SO explicitly with the reason; never revert a fidelity gain to protect a number, and never let a fidelity loss hide behind one."
   },
 
   "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "SG", "DB", "RL"],
@@ -49,7 +50,7 @@
       "protected": false,
       "compile": [42, 42],
       "execution": [19, 42],
-      "assertions": { "pass": 484, "fail": 112, "deleted": 1 }
+      "assertions": { "pass": 482, "fail": 114, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -122,6 +123,8 @@
     { "version": "1.62.52", "change": "A REDEFINES item shares the bytes it redefines", "effect": "IX 417 -> 133 failures; IX215A 297 -> 15" },
     { "version": "1.62.53", "change": "A RECORD KEY naming a group indexes that group", "effect": "IX 133 -> 122 failures; self-deleted tests 108 -> 1; assertions 72.1% -> 79.6%" },
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
-    { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" }
+    { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
+    { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.57", "change": "X-card letter variants (XXXXP/XXXXD nnn) collapse onto one card; IX103A declares its producer", "effect": "IX103A's scan reaches 35 records instead of dying on the first READ. Assertions went 484 -> 482 PASS: two that had never executed now run and fail truthfully. A fidelity gain that shows as a score dip — see rules.gate_protects_finished_modules_absolutely." }
   ]
 }
