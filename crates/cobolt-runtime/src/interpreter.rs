@@ -149,6 +149,10 @@ struct FileSpec {
     /// the SELECT wrote one; several keys of one file may share a data-name and
     /// be told apart only by this.
     record_key_quals: Vec<String>,
+    /// `RELATIVE KEY IS data-name` — the integer record number a RELATIVE file
+    /// is addressed by. Not part of the record: the program sets it before a
+    /// random access, and a sequential read fills it in.
+    relative_key: Option<String>,
     /// ALTERNATE RECORD KEY entries (INDEXED files).
     alternate_keys: Vec<AlternateKey>,
     /// STORAGE IS MEMORY | DISK (INDEXED files).
@@ -656,6 +660,7 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                         status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
                         record_names,
                         record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
+                        relative_key: fc.relative_key.clone().map(|s| s.to_ascii_uppercase()),
                         record_key_quals: fc
                             .record_key_quals
                             .iter()

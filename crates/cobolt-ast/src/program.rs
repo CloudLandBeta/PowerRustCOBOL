@@ -94,6 +94,14 @@ pub struct FileControl {
     /// first. See [`AlternateKey::quals`].
     #[serde(default)]
     pub record_key_quals: Vec<String>,
+    /// `RELATIVE KEY IS data-name` — the integer record number a RELATIVE file
+    /// is addressed by.
+    ///
+    /// Unlike a RECORD KEY this is **not** part of the record: it is an
+    /// ordinary data item the program sets before a random `READ`/`WRITE`, and
+    /// that the runtime fills in on a sequential read.
+    #[serde(default)]
+    pub relative_key: Option<String>,
     /// ALTERNATE RECORD KEY entries.
     pub alternate_keys: Vec<AlternateKey>,
     /// FILE STATUS data-item name.

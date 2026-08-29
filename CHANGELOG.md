@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.75] — 2026-08-29
+
+**`RELATIVE KEY IS` is parsed and carried into the runtime**, and Relative I/O
+is baselined. First step of the RL build; **no score movement yet**, because
+nothing consumes the key.
+
+`RELATIVE KEY IS data-name` names the integer record number a relative file is
+addressed by. Unlike a `RECORD KEY` it is not part of the record: the program
+sets it before a random `READ`/`WRITE`, and the runtime fills it in on a
+sequential read. It now reaches `FileControl` and the runtime's file registry.
+
+**This also repairs a defect introduced in 1.62.60.** Making `ORGANIZATION IS`
+optional added a clause arm for a bare `RELATIVE`, and that arm swallowed
+`RELATIVE KEY IS RL-KEY` as an organization clause, dropping the key entirely.
+The word `KEY` after `RELATIVE` is what tells the two apart.
+
+**RL baseline, measured for the first time: 14 of 35 running clean**, 196 PASS
+/ 140 FAIL (58.3 %). Four members — RL102A, RL109A, RL202A and RL207A — time
+out rather than fail, which is the spin already recorded: a `READ` that errors
+inside the ordinary `GO TO` loop repeats forever, and with no RELATIVE engine
+every read errors.
+
+Nucleus, Sequential I/O and Indexed I/O are unmoved: **NC 95/95, SQ 85/85, IX
+40/41**, with 4 614, 624 and 570 assertions passing. Whole-suite compile stays
+422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.74] — 2026-08-29
 
 **A `REWRITE` that changes an alternate key joins the end of its new duplicate

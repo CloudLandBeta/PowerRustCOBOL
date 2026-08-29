@@ -1381,6 +1381,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut organization = FileOrganization::Sequential;
     let mut access = AccessMode::Sequential;
     let mut record_key: Option<String> = None;
+    let mut relative_key: Option<String> = None;
     let mut record_key_quals: Vec<String> = Vec::new();
     let mut file_status: Option<String> = None;
     let mut alternate_keys: Vec<AlternateKey> = Vec::new();
@@ -1485,6 +1486,19 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                 p.eat(&Token::Is);
                 organization = parse_organization(p).unwrap_or(organization);
             }
+            // `RELATIVE KEY [IS] data-name` names the integer record number a
+            // RELATIVE file is addressed by. The word also introduces the bare
+            // organization clause, so `KEY` after it is what tells the two
+            // apart — without this the key was consumed as an organization and
+            // silently dropped.
+            Token::Relative if matches!(p.peek_at(1), Token::Key) => {
+                p.advance(); // RELATIVE
+                p.advance(); // KEY
+                p.eat(&Token::Is);
+                if p.at_identifier() {
+                    relative_key = p.eat_identifier().map(|(n, _)| n);
+                }
+            }
             Token::Line | Token::Sequential | Token::Relative | Token::Indexed => {
                 match parse_organization(p) {
                     Some(o) => organization = o,
@@ -1560,6 +1574,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         organization,
         access,
         record_key,
+        relative_key,
         record_key_quals,
         alternate_keys,
         file_status,

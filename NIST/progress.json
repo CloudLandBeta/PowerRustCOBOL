@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.74",
+  "measured_at_version": "1.62.75",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -64,10 +64,10 @@
     "DB": { "name": "Debug", "state": "compile_only", "compile": [11, 15], "execution": null, "assertions": null },
     "RL": {
       "name": "Relative I/O",
-      "state": "authorised_technical_debt",
+      "state": "in_flight",
       "compile": [34, 35],
-      "execution": null,
-      "assertions": null,
+      "execution": [14, 35],
+      "assertions": { "pass": 196, "fail": 140, "deleted": 5 },
       "operator_ruling": "2026-08-29 — IMPLEMENT Relative file support as the NIST suite expects it, and treat it as TECHNICAL DEBT, not a feature: RELATIVE is COBOL-85 that should already have worked, so under GOLDEN RULE #4 it is a fix. It goes on the `fixes` branch like everything else, needs no features commit, and is not an f=96 item. This is the one place in the queue where building missing capability is authorised; elsewhere a genuine grammar gap is still recorded and parked, not invented.",
       "starting_point": "There is NO RELATIVE engine today. The parser accepts `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) but nothing in the runtime ever matches that variant — no dispatch, no engine, no diagnostic — so a program declaring it parses and then misbehaves silently. See the File I/O section of CLAUDE.md.",
       "scope_notes": [
@@ -192,6 +192,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.75", "change": "RELATIVE KEY IS is parsed and carried to the runtime; RL baselined at 14/35", "effect": "No score movement - nothing consumes the key yet. Fixes a bug introduced at 1.62.60: the bare-organization arm swallowed RELATIVE KEY IS as an ORGANIZATION clause and dropped the key." },
     { "version": "1.62.74", "change": "A REWRITE that changes an alternate key joins the end of its new duplicate set", "effect": "IX 39 -> 40 of 41, 99.3%. IX215A clean. The only remaining failure in the module is IX106A, which needs a RELATIVE engine - the predicted ceiling." },
     { "version": "1.62.73", "change": "redb becomes the default disk engine; its record-length handling fixed to match PRCIDXD1", "effect": "IX 38 -> 39 of 41, 566 -> 568 PASS, 99.0%. IX211A clean on redb seq ordering; IX105A needed two one-word fixes (fit and decode_value truncated long records). NC and SQ exact." },
     { "version": "1.62.72", "change": "IX301M excluded from execution scoring (operator ruling): intermediate-subset flagging does not apply", "effect": "IX now scored out of 41: 38/41, 566 PASS / 8 FAIL, 98.6%. Compile census unchanged at 422/434 - the program is good COBOL and still counts there." },
