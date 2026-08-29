@@ -1,5 +1,537 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.43] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) compiles completely — 85 of 85 — and goes
+10 → 44 of 85 on execution.** The twenty programs that crashed outright now all
+run: they shared one defect. Assertions go 215 PASS / 190 FAIL to
+**471 PASS / 162 FAIL**, and the one program that timed out no longer does.
+Whole-suite compile 420 → **422 of 434**. Nucleus is unchanged at 95 of 95 on
+both axes, 4 614 assertions with none failing (GOLDEN RULE #9: SQ is the module
+in flight, and NC's ceiling is protected by re-measuring it after every change).
+
+This release also restores the TextBox's `Picture` property, which was present
+in the earliest versions and had been removed without cause.
+
+### Fixed — a declarative's paragraphs keep their names
+
+Every paragraph of a `DECLARATIVES` section was flattened into one statement
+list and the names thrown away, so a `USE` handler could not reach its own code:
+`PERFORM DECL-FAIL` and `GO TO OUTPUT-ERROR-PROCESS` died with "undefined
+paragraph", and the handler ran *every* paragraph's body in sequence unless a
+`GO TO` escaped first. That one defect is the whole twenty-program crash
+cluster (SQ122A, SQ132A, SQ226A and seventeen more).
+
+A handler is now entered at the top of its section and flows to the section's
+end, with its paragraphs named. They live in their own name space, which the
+standard forces in both directions: control never *falls* from the main body
+into a declarative, and a name declared in both resolves to the declarative's
+copy while a handler runs and to the body's everywhere else. The main body
+follows the declaratives in that space, so a handler may also `PERFORM` a
+paragraph of the non-declarative portion — and every declarative section is in
+it, because SQ226A's EXTEND handler performs a paragraph belonging to the
+OUTPUT handler's section.
+
+### Fixed — a `FILE STATUS` item declared as a group receives the code
+
+COBOL-85 allows the item to be a two-character **group**, and SQ132A declares
+`01 SQ-FS1-STATUS` over two `PIC X` children. A group is read back from its
+children, not from its own slot, so writing the code to the group key left the
+children holding whatever the program seeded them with: `IF SQ-FS1-STATUS = "42"`
+compared against that seed, and *every* status test on such a file failed. This
+is what moved the module most — 14 → 38 programs clean on its own — and
+SQ121A's 20-second timeout cleared with it.
+
+### Fixed — `OPEN` of a file that is already open is 41
+
+It returned `00` and re-opened the file, which silently truncated an `OUTPUT`
+file the program had just written. The status is now `41`, the file is left
+exactly as it was, and the file's declarative fires (SQ139A, SQ140A, SQ131A).
+
+### Fixed — a sequential `READ` after `AT END` is 46
+
+Reading on past the end returned a second `10`. The `AT END` left no valid next
+record, so the next sequential `READ` is `46` — a class-4 status, which means
+neither `AT END` nor `NOT AT END` runs for it and the `USE` declarative is what
+handles it. A fresh `OPEN`, or a successful `START`, establishes a record again
+(SQ136A–SQ138A).
+
+### Fixed — one `OPEN` may carry several mode groups
+
+`OPEN INPUT SQ-FS1, SQ-FS3 OUTPUT SQ-FS4.` is COBOL-85's multi-phrase `OPEN`.
+The parser read exactly one mode and then collected file names, so `OUTPUT` — a
+keyword, not an identifier — was left unconsumed and the statement was rejected:
+`unexpected token in statement: Output`. Each group now opens in its own mode,
+with `SHARING` / `WITH LOCK` / `REGISTERED USER` applying to the statement. This
+is the whole of the compile gain (SQ128A, SQ206A).
+
+### Fixed — a TextBox declares the COBOL `PICTURE` its contents obey
+
+The `Picture` property was present in the earliest versions and was removed at
+some point without cause, which left a TextBox generating `PIC X(512)` no matter
+what the box was for: a box collecting an amount produced an alphanumeric item,
+so every comparison against it followed alphanumeric rules and the operator
+could type anything into it.
+
+The property is back on the TextBox and is honoured everywhere the control is
+drawn or generated. It does two jobs. As a **validator** it decides, per
+character position, which bytes are legal — `PIC A(3)` letters and spaces,
+`PIC 9(3)` digits, `PIC X(3)` anything — the COBOL-85 reading, not the
+permissive one; entry stays plain text validated per keystroke, never a
+separator mask that pre-seeds grouping characters and walks the caret over
+them. As a **mask** it shows the edited form at rest and the plain stored value
+under the caret, so `PIC ZZ9.99` holding `12.34` reads `" 12.34"` until it is
+focused. The decimal separator and currency character come from the form's
+`SPECIAL-NAMES`, so a running form and the COBOL it generates cannot disagree
+about `DECIMAL-POINT IS COMMA`.
+
+The generated item now carries that same picture, so a comparison against it is
+right by construction rather than by a coercion at run time. **An existing
+`.cfrm` is unaffected**: an empty `Picture` means "not set", and the effective
+picture is then `X(n)` derived from `MaximumLength` exactly as before. Where a
+picture *is* set, its own width is authoritative and `MaximumLength` no longer
+bounds the field.
+
+The numeric-edited PICTURE engine moved from `cobolt-runtime` to `cobolt-forms`
+(`numedit.rs`, joined by the new `picture.rs`) so the TextBox and the
+interpreter edit through the same code; `cobolt-runtime` re-exports it, leaving
+every `crate::numedit::…` call site unchanged.
+
+### Tests
+
+`crates/cobolt-runtime/tests/test_declaratives_and_status.rs` — six cases: a
+handler performing and jumping to its own paragraphs (and *not* running the one
+its `GO TO` skips), the main body not falling into a declarative, a group
+`FILE STATUS`, `41` leaving the file's contents intact, `46` and its release by
+a fresh `OPEN`, and a two-group `OPEN`.
+`crates/cobolt-codegen/tests/textbox_picture.rs` — the picture a TextBox
+declares reaches the generated data item, and a form written without the
+property still generates what it always did.
+
+### Documentation
+
+`docs/cobol85-supported-syntax-en.md` — the declaratives entry now states the
+name-space rule and the section-bounded entry/exit; `OPEN` gains the multi-group
+form and `41`; `READ` gains `46`. The scoreboard carries an SQ execution table
+beside NC's, the per-module table and conformance history are re-measured, and
+the stale "three quarters / remaining 102" summary is corrected to 97.2 % / 12.
+`docs/developers-guide-en.md` — the "a declarative handler is straight-line,
+`GO TO` is not supported" note was wrong and is replaced with a worked
+multi-paragraph handler, the caveat that the two portions never run into each
+other, and a table of the three error statuses only a declarative surfaces.
+
+## [PowerRustCOBOL 1.62.42] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC) is complete: 95 of 95 on compile *and* on
+execution, with 0 failing assertions out of 4614.** Execution goes **90 → 95 of
+95**; every program in the module now runs to completion, where NC201A
+previously did not finish at all. Nine corrections, every one a COBOL-85 rule
+that was missing rather than a new capability. Whole-suite compile is unchanged
+at 420 of 434. No other module was touched (GOLDEN RULE #9).
+
+### Fixed — a 66-level `RENAMES` is qualified by its record
+
+A 66 has no parent in the level hierarchy, so it was registered under its bare
+name and left out of name resolution entirely. Three things followed from that:
+two records declaring the same 66 name resolved to whichever was parsed last, so
+`MOVE "CALIFORNIA" TO RENAME-5 OF T-RENAMES-DATA` landed in the *other* record;
+a name shared with an ordinary data item resolved to the data item, so
+`HARRY OF A-GLOB` read an unrelated field instead of the regrouping; and
+`RENAME-6 IN T-RENAMES-DATA` — a qualified *read* — never consulted the RENAMES
+table at all and came back as 0.
+
+Each 66 now takes the record it regroups as its ancestor path, keys itself the
+way a data item does and joins `by_leaf`, so `resolve_canonical` reaches it with
+the ordinary subsequence rule; the operands of the `RENAMES` clause resolve in
+that same record. (NC209A MOV-TEST-F2-5, NC252A RENAM-TEST-8/9/10.)
+
+### Fixed — a renamed table contributes every occurrence
+
+`elem_order` holds one entry per *declaration*, so a covered `OCCURS` item
+contributed a single slot: `66 RENAME-7 RENAMES ITEM-1 THRU TABLE-2` read back
+as `"BOSTO"` instead of `"BOSTON MASSACHUSETTS"` (NC252A RENAM-TEST-11).
+
+### Fixed — a `RENAMES` over one item *is* that item
+
+COBOL-85 gives such an item the description of the item it renames.
+`66 RENAME-12 RENAMES WIDGET-4`, where `WIDGET-4` is `PIC 9(4)`, is a four-digit
+numeric item — so `ADD 3500 TO RENAME-12` with 8000 in it overflows. The
+receiver was the RENAMES' own key, which nothing reads, so `ON SIZE ERROR` never
+fired *and* nothing was stored (NC252A RENAM-TEST-16/17).
+
+### Fixed — an 88-level condition-name on a group tests the group's bytes
+
+A group owns no slot: it *is* its children. Reading its own slot made every
+condition declared on a group false whatever the record held —
+`01 TABLE-86. 88 B86 VALUE "ABCABC". 02 …` never matched the six bytes the
+record actually contained (NC250A IF--TEST-87/88).
+
+### Fixed — a figurative constant is sized to the other operand, `VALUE` included
+
+`ALL literal` is repeated to the size of the operand it is compared with, in
+both directions: `IF IF-D6 EQUAL TO ALL "BA"` against a ten-character item is
+`"BABABABABA"`, not `"BA"` padded with spaces. The same rule applies to a
+figurative constant written as an 88's `VALUE`: `88 B VALUE QUOTE` on a
+`PIC X(4)` host is four quotes, and `88 D VALUE ALL "BAC"` is `"BACB"`. Only
+`VALUE SPACE` had ever worked, because its padding happens to be the character
+it repeats (NC250A IF--TEST-4, IF--TEST-26, IF--TEST-28).
+
+### Fixed — a group operand is category alphanumeric
+
+Pairing one with a numeric item takes the nonnumeric comparison, in which the
+numeric side becomes its characters padded on the **right**: `PIC 9(5)` holding
+12345 is `"12345     "` against a ten-byte group holding `"0000012345"`, and
+unequal. They were being compared algebraically (NC250A IF--TEST-77).
+
+### Fixed — `NOT` before an abbreviation object negates the relation
+
+In an abbreviated combined relation condition, a `NOT` followed by an *object*
+rather than by a relational operator negates the implied relation:
+`a > b OR NOT c` is `a > b OR NOT (a > c)`. It was read as a test of the
+object's own truth, which gives the same answer only when the object is zero —
+so NC250A IF-TEST-122 passed throughout and IF-TEST-123, whose operand is 12,
+did not.
+
+### Fixed — an `INSPECT … REPLACING` series shares one scan
+
+The standard gives a series of replacing operands one shared left-to-right
+inspection, as a tallying series already had: at each position the operands are
+tried in the order written, the first that matches replaces those characters and
+the scan resumes past them. Applied one at a time, each operand saw the previous
+one's output — `FIRST "L " BY "ZZ" AFTER INITIAL "AL"` erased the very `"L "`
+that the next operand was anchored on, and `"BAD"` survived to the end
+(NC216A INS-TEST-F3-19).
+
+### Fixed — a signed DISPLAY item has no minus sign among its characters
+
+`INSPECT` reads an item's character positions, and a signed DISPLAY item carries
+its sign as an overpunch on a digit rather than in a position of its own. So
+`INSPECT <PIC S9(5) holding -12345> TALLYING … FOR ALL "-"` is 0. The sign is
+restored on the way out, so a `REPLACING` over the digits does not change it.
+`SIGN IS … SEPARATE CHARACTER` is unaffected — there the sign *is* a position
+(NC216A INS-TEST-F1-23).
+
+### Fixed — nested `REDEFINES` overlays stay in step
+
+A key inside more than one overlay kept only the **last** class built, and one
+global flag suppressed every further refresh rather than just the write bouncing
+back. Between them, a write through a 01-level redefinition reached the
+redefined record and stopped: `MOVE 11 TO RDFDATA16` never reached the
+`RDF3 REDEFINES RDFDATA3` inside it, nor the `RDF3-5-1 REDEFINES RDF3-5` inside
+that, whose 88 the test asks about. Links now carry every class a key belongs
+to, and the guard blocks only the description being written (NC252A
+RDF-TEST-12/13).
+
+### Fixed — `PERFORM … WITH TEST AFTER VARYING`, and what a VARYING loop leaves behind
+
+Three separate rules of `PERFORM VARYING`, and the reason NC201A never finished:
+
+* **`WITH TEST AFTER` was parsed and discarded** for the VARYING form, so every
+  such loop ran test-before. A body that assigns its own loop variables — NC201A
+  PFM-TEST-F4-14 sets both — then augmented the outer one past its terminating
+  value on each pass and never satisfied the condition at the point it was
+  tested. That one program was the whole of the module's "timed out" column. The
+  inline `PERFORM WITH TEST AFTER VARYING … END-PERFORM` spelling was rejected
+  outright and now parses.
+* **An `AFTER` identifier is reset to its `FROM` value when its loop ends**,
+  before the next level out is augmented, so an inner variable does not survive
+  its own loop; the outermost one does (PFM-TEST-F4-3, PFM-TEST-F4-4).
+* **A subscripted VARYING identifier follows its subscript.** It was resolved
+  once, so the augment wrote one fixed occurrence while the `UNTIL` — evaluated
+  fresh — read another (PFM-TEST-F4-24).
+
+### Tests
+
+`test_qualified_renames.rs` (6), `test_condition_operands.rs` (8),
+`test_inspect_series_and_signs.rs` (5), `test_nested_redefines.rs` (3) and
+`test_perform_varying_forms.rs` (4) are new; each pins the rule rather than the
+program, and several pin the case that kept passing for the wrong reason.
+
+`cobolt-ast`'s own tests **build again** — `tests/test_ast_construction.rs` had
+been initialising `DataDecl` and `Program` without fields those types gained
+several sessions ago, so that crate's 31 tests had not run in some time. The
+missing fields are supplied.
+
+## [PowerRustCOBOL 1.62.41] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): qualified condition-names, the group-operand MOVE
+rules, `HIGH-VALUE` as a byte, what `CORRESPONDING` may not pair, and the single
+scan an `INSPECT … TALLYING` series shares.** NC246A, NC104A and NC105A are now
+**clean**, so execution reaches **87 → 90 of 95** and failing assertions go
+**53 → 17** (99.6 % of 4555). Compile holds at 95 of 95. No other module was
+touched (GOLDEN RULE #9).
+
+### Fixed — a qualified condition-name picks the declaration it names
+
+One 88-level name may be declared under several groups — CCVS85 declares
+`EQUALS-A` under three separate tables — and a reference tells them apart with
+`OF`/`IN`, exactly as a data reference does. The environment held **one** entry
+per name, so the last declaration silently won every lookup and the subscript
+written on the reference was then applied to the wrong host:
+`EQUALS-M OF … OF GROUP-1-TABLE (13)` tested occurrence 13 of a table that has
+only four, read nothing, and came out false. The tell was that the *harder* case
+passed — the three-dimensional table happened to be declared last (NC246A
+QUAL-TEST-08/10/11, NC250A).
+
+`cond_names` now holds every declaration in source order with its own
+qualification path, and `cond_name_qual` resolves against it with the same
+subsequence rule `resolve_canonical` uses for data names.
+
+### Fixed — a group operand carries bytes, not values
+
+COBOL-85 6.18.4 makes a move alphanumeric-to-alphanumeric whenever either
+operand is a group item: the other operand's PICTURE contributes its *size* and
+nothing else. A group *receiver* already followed that rule; a group *sender*
+did not, so an elementary receiver still edited, de-edited or parsed what
+arrived.
+
+* `MOVE <group holding "123ABC"> TO <PIC 0XXXXX0>` leaves `"123ABC "`, not the
+  edited `"0123AB0"` (NC105A MOVE-TEST-F1-20); into a `PIC 9999V999` it leaves
+  those six characters and a space, which the item's `PIC X(7)` REDEFINES reads
+  back (F1-17); into a `PIC 99` it truncates to `"12"` (F1-16).
+* `JUSTIFIED RIGHT` still decides which end pads and which end is lost — a
+  fifteen-byte group into a `PIC A(7) JUSTIFIED` keeps its rightmost seven
+  (NC107A JUST-TEST-04).
+* **A group distributes its own bytes into its children verbatim.** An
+  alphanumeric-edited child had its insertion characters re-imposed on an
+  already-edited slice, turning `"1 A05"` into `"1  0A"` (NC105A F1-13).
+* **A `VALUE` clause on a group reaches its children.** It was stored in the
+  group's own slot — and a group has no slot anyone reads back — so
+  `01 MOVE29A VALUE "$123.45". 02 MOVE30 PIC $999.99.` left `MOVE30` empty
+  (NC104A MOVE-TEST-F1-29).
+
+New: `CobolEnvironment::set_verbatim_bytes` (the bytes-are-bytes writer, also
+used by group distribution) and `set_move_bytes` (the same with the alphanumeric
+move's alignment rule).
+
+### Fixed — `HIGH-VALUE` fills its receiver, and a group is read as bytes
+
+`0xFF` is not a character, so `HIGH-VALUE` could not ride the string-fill path
+that `SPACE` and `ZERO` use and was left to `CobolValue::assign`, which laid
+down one byte and padded the rest with **spaces**. A group receiver fared
+worse: the value went through `as_display_string` and arrived as the three bytes
+of U+FFFD.
+
+* `MOVE HIGH-VALUE TO <PIC X(10)>` is ten `0xFF` bytes; into a group it is
+  distributed across the children (NC105A MOVE-TEST-F1-67).
+* An alphanumeric-edited receiver still places its insertion characters — the
+  fill only reaches the source positions, so `PIC XX0XXBXXX` holds
+  `FF FF '0' FF FF ' ' FF FF FF` (F1-69). `apply_alnum_edit` now works on bytes.
+* **Reading a group operand is byte-accurate too.** `eval_expr` synthesized a
+  group through a `String`, so a group filled with `HIGH-VALUE` compared unequal
+  to `HIGH-VALUE` and read three times its own width.
+* Under a `PROGRAM COLLATING SEQUENCE` the constant names an ordinary character
+  and that character's bytes are the fill unit, as before.
+
+### Fixed — what `CORRESPONDING` may not pair, and what it must reach
+
+* **COBOL-85 6.18.4 GR1 excludes an item described with `REDEFINES` or
+  `RENAMES`.** A 66-level regrouping was receiving the sender's like-named item
+  and overwriting the two items it renames (NC209A MOV-TEST-F2-5), and so was
+  the item under a `REDEFINES` branch (F2-6). The exclusion is on the
+  *declaration*, not the name: 66-levels no longer enter `ItemSym.children` at
+  all, and a redefining item is skipped by key — excluding by name broke a plain
+  item that merely shares its name with a 66 elsewhere (F2-4).
+* **Either operand may name one occurrence of a table of groups.** The symbol
+  table is keyed by the base item, so `MOVE CORRESPONDING … TO C-FLOCK (4)`
+  matched nothing and the statement moved nothing at all. The operand's
+  subscripts are now carried onto each paired child key, and the recursion keeps
+  carrying them (NC209A MOV-TEST-F2-7, -F2-8).
+
+### Fixed — an `INSPECT … TALLYING` series shares one scan
+
+COBOL-85 6.17.3 inspects the item **once**, left to right; at each character
+position the operands are tried in the order they were written, and the first
+that matches takes the position, the scan resuming past the characters it
+consumed. Every operand used to sweep the whole item on its own, so the same
+characters were tallied several times over: `TALLYING t1 FOR ALL "AA" t2 FOR
+ALL "A"` on `"AABA"` gave `t2 = 3` where the standard gives 1 (NC216A
+INS-TEST-F1-27), and a `FOR LEADING` operand counted a run whose first character
+an earlier operand had already taken (INS-TEST-F3-19). `CHARACTERS` now counts
+only the positions no earlier operand claimed. Each operand keeps its own
+`BEFORE`/`AFTER` window, computed once on the item as it stands.
+
+### Tests
+
+`test_qualified_condition_names.rs` (5) and `test_group_sender_moves.rs` (8) are
+new; `test_figurative_and_byte_fidelity.rs` (+4), `test_qualified_goto_and_corr.rs`
+(+4) and `test_inspect.rs` (+5) grew. Two of the condition-name tests assert the
+same program in **both** declaration orders — order-independence is the property,
+not any single answer.
+
+## [PowerRustCOBOL 1.62.40] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): figurative constants, byte fidelity, `JUSTIFIED`,
+the `NUMERIC` class test, two `REDEFINES` rules, a floating currency symbol and
+`STRING`'s delimiter series.** NC211A, NC174A, NC107A and NC217A are now
+**clean**, so execution reaches **83 → 87 of 95** and failing assertions go
+**84 → 53** (98.8 % of 4558). Compile holds at 95 of 95. No other module was
+touched (GOLDEN RULE #9).
+
+### Fixed — a figurative constant takes the size of what it is written against
+
+* **`VALUE ALL "literal"` fills its item.** `PICTURE X(6) VALUE ALL "ABC"` is
+  `"ABCABC"`. Every other figurative constant is a single character and the
+  arms above it filled with that; `ALL` is the only one whose unit can be wider
+  than a byte, so it fell through to the item's default and the item was left
+  holding spaces (NC211A FIG-TEST-1/2). `ALL` in front of another *figurative*
+  never reaches that path — the parser folds `ALL SPACES` down to `SPACES`.
+* **A figurative constant in a relation is repeated to the other operand's
+  size.** `IF QT = QUOTE` with `QT PICTURE XXX` compares `"""` against `"""`.
+  At one character it was compared against `"` padded on the right with spaces,
+  which is not equal. `SPACE` and `ZERO` never showed the defect — the padding a
+  short operand already gets happens to produce what `SPACE` would repeat, and
+  `ZERO` compares algebraically — so `QUOTE`, `HIGH-VALUE` and `LOW-VALUE`
+  carried it alone (NC211A FIG-TEST-3).
+
+### Fixed — `HIGH-VALUE` is a byte, not a character
+
+`HIGH-VALUE` is `0xFF`, which is not valid UTF-8 and has no spelling one byte
+wide. Every path that carried a record through a Rust `String` replaced it with
+a three-byte U+FFFD and **shifted every field after it by two**. The item still
+read as "some high value", so only a field further along the record showed it.
+
+* `CobolEnvironment` gained `group_bytes`, `display_bytes`, `set_group_bytes`
+  and `set_bytes`; `set_group` now delegates to the byte form, so the slicing
+  and padding a group move does happen on bytes throughout.
+* `MOVE <group> TO <group>` takes the sender's stored bytes.
+* `STRING` assembles its result as bytes, matches delimiters byte for byte, and
+  stores through the new `store_bytes` (NC217A STR-TEST-GF-9).
+* **Not covered:** reference modification (`X (1:1)`) still reads the text form.
+  It is the next member of this family.
+
+### Fixed — `JUSTIFIED RIGHT` on an alphabetic item
+
+The clause was recorded only for `PicKind::Alphanumeric`, so
+`PICTURE A(5) JUSTIFIED RIGHT` parsed, was forgotten, and every `MOVE` into it
+left-aligned. Both halves of the rule were missing: a short sender is pushed
+right, and a **long** one loses its leftmost characters (NC107A JUST-TEST-03,
+JUST-TEST-04; also five assertions in NC105A).
+
+### Fixed — the `NUMERIC` class test
+
+An item whose PICTURE carries no operational sign is numeric only when **every
+character position holds a digit**. Reading it with `parse::<f64>` accepted a
+sign, a decimal point, an exponent and surrounding spaces, so `PICTURE X(5)`
+holding `"+1234"` answered "numeric" (NC211A CC--TEST-GF-48, NC174A
+CLASS-TEST-GF-8/10). The declaration decides, as ever: a *numeric* item holding
+characters — which a group `MOVE` can produce — keeps the value-based reading.
+
+### Fixed — two independent `REDEFINES` rules
+
+* **An overlay carries the target's bytes into a numeric peer.** The sync
+  filtered every non-digit out of the characters and padded what was left, so
+  `"00ABCDEFGHI  4321 "` read back as `004321000000000000` and `IS NUMERIC`
+  answered yes about an item full of letters. When the bytes *do* spell digits
+  the numeric reading is unchanged (NC174A CLASS-TEST-GF-8).
+* **A 01-level `REDEFINES` may describe more storage than it redefines.**
+  NC107A overlays a 46-byte `REDEF10` with a 92-byte `REDEF11` and a 120-byte
+  `REDEF12`, then reads past the redefined item's end. Bytes beyond a
+  description's own length are not that description's to state, so the peer
+  keeps its own; rendering the shorter one onto the longer padded the tail with
+  spaces and erased it (RDF-TEST-9, RDF-TEST-10; also two in NC252A).
+
+### Fixed — a letter currency symbol floats across its whole run
+
+`CURRENCY SIGN IS "W"` makes `PICTURE WWWWW` a floating currency string. When
+the symbol is a letter the run arrives as **one identifier** — `WWWWW`, not
+five tokens — so testing for a one-character identifier rejected every floating
+currency picture that did not use `$` (NC107A CURR-TEST-1).
+
+### Fixed — `STRING`
+
+* **`DELIMITED BY` governs the whole series of senders that precedes it**, not
+  only the one it is written after (COBOL-85 6.24.3). Binding it to the last
+  sender left the earlier ones with no phrase, which is `DELIMITED BY SIZE`, so
+  the whole of each was appended and `STRING "A0" "B0D" … DELIMITED BY ZERO`
+  built `"A0B0D"` where the standard wants `"ABCDE"` (NC217A STR-TEST-GF-10,
+  GF-11, GF-14).
+* **`STRING … INTO <group>` reaches the group's children.** A group owns no
+  store slot, so writing its own slot left the record untouched (STR-TEST-GF-21)
+  — the same dispatch INSPECT and `ACCEPT` already come through.
+
+### Fixed — a `CLASS` or `ALPHABET` ordinal operand on its own source line
+
+A number that opens a line is lexed as a level number whenever it could be one,
+and 1-49, 66, 77 and 88 all can. The ordinal position of `A` is exactly 66, so
+`CLASS ORDINAL-A-ONLY IS` followed by `66` on the next line arrived as
+`LevelNumber(66)`, matched nothing, and the class described no character at all.
+Only the DATA DIVISION has level numbers and the lexer has no division context;
+the clause itself says what the number is. Both `CLASS` and `ALPHABET` carried
+the same gap (NC174A CLASS-TEST-GF-39/41/43).
+
+### Harness — the CCVS implementor substitutions
+
+`XXXXX090` and `XXXXX091` are the suite's placeholders for the ordinal positions
+of `A` and `D` in the implementor's character set; NC174A and NC254A declare the
+same three classes twice, once with literals and once with these, and check that
+the two agree. `nist_conformance` now substitutes them (66 and 69), padded to
+the placeholder's own eight characters so the fixed-format sequence area in
+columns 73-80 is not dragged into the content area. This is the same kind of
+implementor input the switch settings and operator decks already supply.
+
+### Tests
+
+`test_figurative_and_byte_fidelity.rs` (6), `test_justified_class_currency.rs`
+(6), `test_string_delimiter_series.rs` (5).
+
+## [PowerRustCOBOL 1.62.39] — 2026-08-28
+
+**NIST CCVS85 Nucleus (NC): a qualified `GO TO`, and `MOVE CORRESPONDING` where
+one side of a pair is a group.** NC208A is now **clean** and NC209A goes 8 → 7,
+so execution reaches **82 → 83 of 95** and assertions 88 → 84 failing (98.2 % of
+4559). Compile holds at 95 of 95. No other module was touched
+(GOLDEN RULE #9).
+
+### Fixed — `GO TO paragraph {OF|IN} section` ignored its qualifier
+
+The qualifier picks which of two like-named paragraphs is meant.
+`PERFORM … OF …` already honoured it; `GO TO` resolved against `para_order`,
+which is keyed by bare name and hands back the **first** definition anywhere in
+the program. NC208A declares `PAR-4B` in both `QUAL-SECTION-1` and
+`QUAL-SECTION-2` and jumps to the second — it landed in the first, the copy
+whose own comment says it should never be entered (`PAR-TEST-F2-4`).
+
+* `Stmt::GoTo` gained `section: Option<String>` at the **end** of its fields
+  (the AST is bincode-serialized by declaration order), parsed with the
+  `eat_procedure_name_qualified` helper `PERFORM` already uses.
+* `RuntimeError::GoTo` carries the qualifier through to whichever loop catches
+  the signal, and one resolver — `Interpreter::goto_index` — is shared by the
+  sites that used to call `para_order.iter().position(…)` directly. An unknown
+  qualifier falls back to the unqualified lookup rather than losing the jump,
+  the same choice `PERFORM … OF …` makes.
+* Two cases deliberately do **not** take a qualifier: `GO TO … DEPENDING ON`,
+  whose targets are a bare list, and a `GO TO` an `ALTER` has redirected — the
+  redirection names its own target outright.
+* Nested-program dispatch (`run_para_sequence`) ignores the qualifier on
+  purpose: it walks that program's own paragraph space, and `section_span`
+  reads the outer one.
+
+### Fixed — a corresponding pair with a group on one side moved nothing
+
+COBOL-85 asks only that **at least one** item of a corresponding pair be
+elementary, so a group may legitimately face an elementary item. A group owns no
+store slot — its value is synthesized from its subordinate items — so:
+
+* a group **receiver** was written through `env.set` under the group's own name,
+  which put the record where nothing reads it back (`MOV-TEST-F1-4`: source
+  `MOVE-CORR-4 PIC XXX` = `"XYZ"`, receiver a group of `999` + `XXX`, which kept
+  its spaces); and
+* a group **sender** was read through `env.get`, which yielded nothing, so the
+  receiver was left as it was (`MOV-TEST-F1-5`: `MOVE-CORR-G5` is a group of
+  `XXX` + `99` sending into a plain `X(5)`).
+
+Both now go through the group-aware paths — `Interpreter::store_text` and
+`CobolEnvironment::group_value` — that INSPECT (1.62.28) and `ACCEPT` (1.62.30)
+already use. Two groups facing each other still **recurse**; that pairing is not
+the elementary case and is not flattened into one alphanumeric move.
+
+### Documentation
+
+`docs/cobol85-supported-syntax-en.md` — the qualified `GO TO` and the
+CORRESPONDING group rule, and the NIST scoreboard at 83/95.
+`docs/developers-guide-en.md` — both, beside the material they belong with.
+
 ## [PowerRustCOBOL 1.62.38] — 2026-08-28
 
 **NIST CCVS85 Nucleus (NC): a numeric literal moves its characters, and a

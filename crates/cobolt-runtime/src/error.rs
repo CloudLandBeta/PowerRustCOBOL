@@ -47,8 +47,16 @@ pub enum RuntimeError {
     ExecRustError { message: String, span: Span },
 
     /// GO TO control-flow signal — not a real error; caught by the main run loop.
+    ///
+    /// `section` carries a `GO TO paragraph {OF|IN} section` qualifier through
+    /// to whichever loop catches the signal: every one of them resolves the
+    /// name against `para_order`, which is keyed by bare name and hands back
+    /// the first definition anywhere in the program.
     #[error("GO TO {target}")]
-    GoTo { target: String },
+    GoTo {
+        target: String,
+        section: Option<String>,
+    },
 
     /// `EXIT PERFORM [CYCLE]` — control-flow signal caught by the nearest
     /// enclosing inline PERFORM loop. `cycle` = continue to the next iteration;

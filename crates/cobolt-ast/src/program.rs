@@ -172,8 +172,14 @@ pub struct ProcedureDivision {
     pub span: Span,
 }
 
-/// A single `USE AFTER STANDARD ERROR PROCEDURE` declarative and its handler
-/// statements (the body of its declarative SECTION, flattened).
+/// A single `USE AFTER STANDARD ERROR PROCEDURE` declarative and the body of
+/// its declarative SECTION.
+///
+/// The section keeps its paragraph structure: a `USE` procedure is entered at
+/// the top of its section and flows through the paragraphs to the section's
+/// end, and a `PERFORM`/`GO TO` inside it names those paragraphs. Flattening
+/// them into one statement list threw the names away, so `PERFORM DECL-FAIL`
+/// died with "undefined paragraph" (SQ132A, SQ122A, SQ226A).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UseProcedure {
     /// `ON file-1 [file-2 …]` — specific files this handler covers (uppercased).
@@ -182,9 +188,18 @@ pub struct UseProcedure {
     pub modes: Vec<UseMode>,
     /// True when neither files nor modes were named (applies to every file).
     pub catch_all: bool,
-    /// The handler statements (all paragraphs of the declarative section).
+    /// The statements between the `USE` sentence and the section's first
+    /// paragraph header — the section's own preamble, which is all there is
+    /// when the handler declares no paragraphs.
     pub stmts: Vec<Stmt>,
     pub span: Span,
+    // ── Appended fields ───────────────────────────────────────────────────
+    // The AST is bincode-serialized by field declaration order, so anything
+    // new goes at the END.
+    /// The declarative SECTION's own name (uppercased).
+    pub section: String,
+    /// The section's named paragraphs, in declaration order.
+    pub paras: Vec<Paragraph>,
 }
 
 /// The open-mode a `USE` declarative applies to.

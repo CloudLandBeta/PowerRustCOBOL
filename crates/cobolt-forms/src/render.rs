@@ -66,6 +66,21 @@ pub trait FormState {
     fn transform(&self, _base: &Control) -> RenderTransform {
         RenderTransform::IDENTITY
     }
+    /// Whether the form declares `SPECIAL-NAMES. DECIMAL-POINT IS COMMA`.
+    ///
+    /// A control's `Picture` reads its separators from the *form*, not from the
+    /// picture: under this convention a comma is the decimal point and a period
+    /// is the grouping character. Defaults to the standard convention, so a
+    /// state source that has no COBOL program behind it (the designer canvas,
+    /// a test) needs no change.
+    fn decimal_comma(&self) -> bool {
+        false
+    }
+    /// The character a currency position prints — `'$'` unless
+    /// `SPECIAL-NAMES. CURRENCY [SIGN] [IS] literal` named another.
+    fn currency(&self) -> char {
+        '$'
+    }
 }
 
 /// A live render transform for one control (animation). `dx`/`dy` shift it in
@@ -1883,6 +1898,8 @@ pub fn render_form_with_chrome(
                 alpha,
                 enabled,
                 notch_bg,
+                input.state.decimal_comma(),
+                input.state.currency(),
                 &mut out,
                 &mut open_combos,
             );
@@ -2583,6 +2600,19 @@ impl UiEvent {
 /// The egui interaction id for a running control, derived from its COBOL id.
 fn rt_id(id: &str) -> egui::Id {
     egui::Id::new(("rt_ctrl", id))
+}
+
+/// Whether the control names a `Picture` of its own, as opposed to having one
+/// derived from `MaximumLength`.
+///
+/// The distinction matters for the length bound: an explicit picture's width is
+/// authoritative and `MaximumLength` no longer applies, but a *derived* picture
+/// was built from `MaximumLength` in the first place, so bounding by either
+/// gives the same answer and the existing property stays in charge.
+fn has_explicit_picture(ctrl: &Control) -> bool {
+    ctrl.get_prop("Picture")
+        .map(|v| !v.as_str().trim().is_empty())
+        .unwrap_or(false)
 }
 
 /// Read a control property as a string (empty when unset). Booleans/ints are
@@ -3577,6 +3607,10 @@ fn render_interactive(
     // control shows through, so colours that must stay legible on the face can
     // be measured against what the eye actually sees.
     form_bg: Color32,
+    // The form's COBOL separator convention and currency character, which a
+    // control's `Picture` validates and edits against.
+    decimal_comma: bool,
+    currency: char,
     out: &mut RenderOutput,
     open_combos: &mut Vec<OpenCombo>,
 ) {
@@ -3713,7 +3747,35 @@ fn render_interactive(
                     paint::parse_color(&fg)
                 }
             };
+            // The COBOL PICTURE the contents obey. It is both validator and
+            // mask: every keystroke is checked against what is legal at that
+            // character position, and the box shows the *edited* form at rest
+            // and the plain stored value under the caret.
+            let picture = ctrl
+                .effective_picture()
+                .map(|t| crate::picture::Picture::parse(&t, decimal_comma));
             let mut buf = sv(ctrl, "Text");
+            // The picture is a mask as well as a validator: at rest the box
+            // shows the EDITED form, and under the caret the plain stored
+            // value, so `PIC ZZ9.99` holding 12.34 reads " 12.34" until it is
+            // clicked into and "12.34" while it is being typed. The raw value
+            // is what the control actually holds — the edited text is only ever
+            // a view, and is never written back.
+            let has_focus = ui.memory(|m| m.has_focus(ctrl_id));
+            let raw_before = buf.clone();
+            // Whether the buffer below holds the EDITED view rather than the
+            // value. While it does, nothing it contains may be written back —
+            // the edited text is a rendering of the value, not the value, and
+            // storing it would turn "1234.5" into "1,234.50" permanently.
+            let showing_edited = match &picture {
+                Some(p) => !has_focus && p.is_edited(),
+                None => false,
+            };
+            if showing_edited {
+                if let Some(p) = &picture {
+                    buf = p.display(&buf, false, decimal_comma, currency);
+                }
+            }
             // The designer paints the face with the control's own font
             // (family + size); the editable overlay must match or the run
             // form silently falls back to egui's default ~14 px font.
@@ -3770,8 +3832,21 @@ fn render_interactive(
                 .get_prop("ReadOnly")
                 .map(|v| v.as_bool())
                 .unwrap_or(false);
-            // 0 = no limit, which is the seeded default.
-            let char_limit = sv(ctrl, "MaximumLength").parse::<usize>().unwrap_or(0);
+            // 0 = no limit, which is the seeded default. An explicit picture
+            // is authoritative, so its own width bounds the field and
+            // MaximumLength no longer does.
+            //
+            // The limit is the RAW length even while the box is showing its
+            // edited view, which is longer ("$1,234.50" is nine characters, the
+            // value seven). That is safe: `char_limit` gates what may be
+            // INSERTED, not the buffer it is handed, so the edited text is
+            // still painted whole — `an_unfocused_textbox_paints_its_picture_edited`
+            // pins that. Bounding by the edited width instead would let the
+            // operator type more digits than the item can hold.
+            let char_limit = match &picture {
+                Some(p) if has_explicit_picture(ctrl) => p.max_raw_len(),
+                _ => sv(ctrl, "MaximumLength").parse::<usize>().unwrap_or(0),
+            };
             // The FIRST character of the property masks the text. egui's own
             // `password` mode cannot be used: it masks with a fixed bullet,
             // and this property names the character to mask WITH.
@@ -3954,10 +4029,24 @@ fn render_interactive(
                 })
                 .inner
             };
+            // Per-keystroke validation. egui is immediate-mode, so a keystroke
+            // is refused by putting the previous value back and reporting no
+            // change — the operator sees the character simply not appear.
+            // `accepts_partial`, not `accepts`: a number has to be typeable
+            // through its incomplete states ("-", "12.").
+            let refused = match &picture {
+                Some(p) if resp.changed() && !read_only && !showing_edited => {
+                    !p.accepts_partial(&buf, decimal_comma)
+                }
+                _ => false,
+            };
+            if refused {
+                buf = raw_before.clone();
+            }
             // A read-only field reports no change: egui already refused the
             // edit, and announcing one would fire onChange for a value that
             // never moved.
-            if resp.changed() && !read_only {
+            if resp.changed() && !read_only && !refused && !showing_edited {
                 out.prop_updates
                     .push((id.to_owned(), "Text".to_owned(), buf.clone()));
                 out.events.push(UiEvent::change(id, &buf));
@@ -3968,6 +4057,25 @@ fn render_interactive(
                 out.events.push(UiEvent::ev(id, "onEnter"));
             }
             if resp.lost_focus() {
+                // The sign may be typed at either end; the picture decides
+                // where it ends up. Normalising on the way out rather than per
+                // keystroke lets the operator type it first or last without the
+                // caret jumping under their hands.
+                if let Some(p) = &picture {
+                    // `buf` holds the raw value here: the box still had focus
+                    // when this frame began, so no edited view was substituted.
+                    if !read_only && !showing_edited {
+                        let normalized = p.normalize_sign(&buf, decimal_comma);
+                        if normalized != buf {
+                            out.prop_updates.push((
+                                id.to_owned(),
+                                "Text".to_owned(),
+                                normalized.clone(),
+                            ));
+                            out.events.push(UiEvent::change(id, &normalized));
+                        }
+                    }
+                }
                 out.events.push(UiEvent::ev(id, "onLostFocus"));
                 out.events.push(UiEvent::ev(id, "onLeave"));
             }
@@ -9564,6 +9672,45 @@ mod tests {
     /// [`painted_text_layout_interactive`] with the host's own default chrome.
     fn painted_captions(controls: &[Control]) -> (Vec<PaintedText>, Map<String, Rect>) {
         painted_text_layout_interactive(controls, |_| {})
+    }
+
+    /// **A `Picture` is a mask as well as a validator.** An unfocused TextBox
+    /// paints the *edited* text; the raw stored value is what it holds, and is
+    /// only shown once the caret is in the box.
+    #[test]
+    fn an_unfocused_textbox_paints_its_picture_edited() {
+        let mut tb = Control::new("TB-PIC", ControlType::TextBox, 10, 10);
+        tb.rect = crate::model::Rect::new(10, 10, 220, 28);
+        tb.set_prop("Picture", "ZZ,ZZ9.99");
+        tb.set_prop("Text", "1234.5");
+        let (texts, _) = painted_captions(&[tb]);
+        let painted: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
+        assert!(
+            painted.iter().any(|t| t.contains("1,234.50")),
+            "an unfocused box must paint the edited form; painted: {painted:?}"
+        );
+        // And the raw value is NOT what reaches the screen.
+        assert!(
+            !painted.iter().any(|t| t.trim() == "1234.5"),
+            "the raw value must not be painted at rest; painted: {painted:?}"
+        );
+    }
+
+    /// A **character** picture edits nothing, so the box paints exactly what it
+    /// holds. Padding a `PIC X(256)` out to its width at rest would put 250
+    /// spaces on the screen and move the text under a Center/Right alignment.
+    #[test]
+    fn a_character_picture_paints_the_value_unpadded() {
+        let mut tb = Control::new("TB-TXT", ControlType::TextBox, 10, 10);
+        tb.rect = crate::model::Rect::new(10, 10, 220, 28);
+        tb.set_prop("Picture", "X(30)");
+        tb.set_prop("Text", "PLAINVALUE");
+        let (texts, _) = painted_captions(&[tb]);
+        assert!(
+            texts.iter().any(|t| t.text == "PLAINVALUE"),
+            "painted: {:?}",
+            texts.iter().map(|t| &t.text).collect::<Vec<_>>()
+        );
     }
 
     /// **A container clips the TEXT inside it, not just the box around it.**

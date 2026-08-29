@@ -201,6 +201,18 @@ pub enum PerformTarget {
         stmts: Vec<Stmt>,
         /// Optional AFTER sub-varying clauses
         after: Vec<VaryingAfter>,
+        /// `true` = `WITH TEST BEFORE` (the default), `false` = `TEST AFTER`.
+        ///
+        /// `TEST AFTER` runs the body once before any condition is tested, and
+        /// then tests innermost-first. It was parsed and thrown away, so
+        /// `PERFORM … WITH TEST AFTER VARYING …` ran as `TEST BEFORE` — and a
+        /// body that assigns the loop variables (NC201A PFM-TEST-F4-14 sets
+        /// both of them) then never satisfied the outer condition at the point
+        /// it was tested, and the program did not terminate.
+        ///
+        /// ⚠️ New fields go at the END — this enum is bincode-serialized and a
+        /// variant's fields are written in declaration order.
+        test_before: bool,
     },
     /// `PERFORM paragraph-name {OF|IN} section-name` — a paragraph name that
     /// repeats across sections, qualified by the one that owns the copy meant.
@@ -538,8 +550,20 @@ pub enum Stmt {
         span: Span,
     },
 
-    /// `GO TO paragraph`
-    GoTo { target: String, span: Span },
+    /// `GO TO paragraph [{OF|IN} section]`
+    GoTo {
+        target: String,
+        span: Span,
+        /// `GO TO paragraph {OF|IN} section` — the qualifier picks which of two
+        /// like-named paragraphs is meant. NC208A declares `PAR-4B` in both
+        /// `QUAL-SECTION-1` and `QUAL-SECTION-2`, and unqualified resolution
+        /// takes the first definition anywhere in the program. `None` = the
+        /// ordinary unqualified form.
+        ///
+        /// New fields go at the END — the AST is bincode-serialized by
+        /// declaration order.
+        section: Option<String>,
+    },
 
     /// `GO TO paragraph … DEPENDING ON data-item`
     GoToDepending {
@@ -577,6 +601,11 @@ pub enum Stmt {
         /// per-file observability log. `None` = not supplied.
         registered_user: Option<Expr>,
         span: Span,
+        /// The second and later `mode files…` groups of a multi-phrase `OPEN`
+        /// (`OPEN INPUT SQ-FS1 OUTPUT SQ-FS3.`). Appended rather than folded
+        /// into `mode`/`files` because the AST is bincode-serialized by field
+        /// declaration order. Empty for the ordinary single-mode form.
+        extra_modes: Vec<(OpenMode, Vec<String>)>,
     },
 
     /// `CLOSE file …`

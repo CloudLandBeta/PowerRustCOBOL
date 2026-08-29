@@ -43,12 +43,12 @@ programs named.
 
 ### The scoreboard
 
-Measured 2026‑08‑27 at version 1.62.22, on the untouched distribution:
+Measured 2026‑08‑28 at version 1.62.43, on the untouched distribution:
 
 | | Programs | Share | Meaning |
 |---|---:|---:|---|
-| ✅ **PASS** | **418** | **96.3 %** | of the 434 in‑scope programs |
-| ❌ **FAIL** | **16** | 3.7 % | of the 434 in‑scope programs |
+| ✅ **PASS** | **422** | **97.2 %** | of the 434 in‑scope programs |
+| ❌ **FAIL** | **12** | 2.8 % | of the 434 in‑scope programs |
 | ⬜ **N/A** | **25** | — | modules outside RustCOBOL's scope (below) |
 | | **459** | | total programs in the suite |
 
@@ -74,7 +74,7 @@ Both numbers are reported per module, and never conflated:
 
 | Module | Compile | Execution (0 failures) |
 |---|---:|---:|
-| **NC (Nucleus)** | **95 / 95** | **82 / 95** |
+| **NC (Nucleus)** | **95 / 95** | **83 / 95** |
 
 Work proceeds **one module at a time**: NC is finished only when both numbers
 reach 95, and no other module is worked on until it does. A broad compile score
@@ -134,22 +134,49 @@ produce. Since 1.62.15 the harness runs them:
 cargo run -p cobolt-semantic --example nist_conformance -- run
 ```
 
-Measured 2026‑08‑27 at 1.62.23, **for NC only** — under GOLDEN RULE #9 no other
-module is worked on until NC reaches its ceiling on both axes:
+Measured 2026‑08‑28 at 1.62.43. Under GOLDEN RULE #9 one module is finished
+before the next is started: **NC (Nucleus) is complete on both axes**, so
+**SQ (Sequential I/O)** is the module in flight.
+
+**NC — Nucleus**
 
 | | Programs |
 |---|---:|
 | in scope | 95 |
-| did not compile | 1 |
-| ran to completion | 89 |
-| **…reporting 0 failures** | **65** |
-| …reporting failures | 24 |
-| ran but printed no report | 3 |
-| timed out (>20 s) | 2 |
+| did not compile | 0 |
+| ran to completion | 95 |
+| **…reporting 0 failures** | **95** |
+| …reporting failures | 0 |
+| ran but printed no report | 0 |
+| timed out (>20 s) | 0 |
 | crashed or were refused by the runtime | 0 |
 
-The assertions the programs themselves report: **4 278 PASS / 226 FAIL**,
-95.0 % of 4 504 scored.
+The assertions the programs themselves report: **4 614 PASS / 0 FAIL**,
+100 % of 4 614 scored. (5 more are `DELETED` — CCVS's own marker for a test the
+program itself skips.)
+
+For contrast, the same table at 1.62.23 read 65 clean of 95, 4 278 PASS /
+226 FAIL. The gap between "compiles" and "works" is what closed.
+
+**SQ — Sequential I/O (in flight)**
+
+| | Programs |
+|---|---:|
+| in scope | 85 |
+| did not compile | 0 |
+| ran to completion | 83 |
+| **…reporting 0 failures** | **44** |
+| …reporting failures | 39 |
+| ran but printed no report | 0 |
+| timed out (>20 s) | 0 |
+| runaway output (>2 MB) | 2 |
+| crashed or were refused by the runtime | 0 |
+
+Assertions: **471 PASS / 162 FAIL**, 74.4 % of 633 scored. At 1.62.42 the same
+table read **10** clean of 85, 20 crashed, 1 timed out and 215 PASS / 190 FAIL —
+the crash cluster was one defect, declarative paragraphs losing their names.
+The largest remaining theme is **variable-length records** (`RECORD IS VARYING`
+/ `RECORD CONTAINS n TO m`), which the sequential reader does not yet honour.
 
 > A `FAIL*` detail line is written **twice** on purpose — CCVS's `PRINT-DETAIL`
 > runs `IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE` — while `PASS ` is
@@ -170,8 +197,8 @@ cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
 
 | Module | What it tests | PASS / Total | |
 |---|---|---:|---|
-| NC | Nucleus | 94 / 95 | NC108M — the implementor-defined editing picture `<(3),<<<.99` |
-| SQ | Sequential I/O | 83 / 85 | the `OPEN` mode written on a continuation line |
+| NC | Nucleus | **95 / 95** | ✅ complete — and complete on **execution** too (see the scoreboard above) |
+| SQ | Sequential I/O | **85 / 85** | ✅ complete on compile; **44 / 85 on execution** — the module in flight |
 | IC | Inter‑program communication | 45 / 47 | `END-CALL` reaches the statement dispatcher instead of being consumed by its `CALL`; one subscripted condition-name |
 | IF | Intrinsic functions | **45 / 45** | ✅ complete |
 | IX | Indexed I/O | **42 / 42** | ✅ complete |
@@ -180,7 +207,7 @@ cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
 | RL | Relative I/O | 34 / 35 | ⚠️ **compiles only — no runtime engine.** `ORGANIZATION IS RELATIVE` parses and is never matched at run time, so this row overstates real capability. The one failure is a dangling `ELSE` |
 | SM | Source text manipulation (COPY/REPLACE) | 14 / 17 | a `$` inside a data-name; qualified/subscripted pseudo-text; a `PERFORM … VARYING` form |
 | DB | Debug | 11 / 15 | `GO-TO` used as a user-defined word, colliding with the `GO TO` keyword pair; one program uses the Communication verb `DISABLE` |
-| **In scope** | | **419 / 434** | |
+| **In scope** | | **422 / 434** | |
 | CM | Communication | — | ⬜ N/A |
 | RW | Report Writer | — | ⬜ N/A |
 | OBSQ / OBIC / OBNC | Obsolete‑feature flagging | — | ⬜ N/A |
@@ -245,12 +272,20 @@ whose *first* error it is:
 | **1.62.19** | **396** | A numeric-edited item is a numeric item. The editing decimal point keeps a digit that follows it (`PIC ZZ,ZZZ.9` no longer truncates to `ZZ,ZZZ`), and a picture built only from editing characters — `ZZZZ`, `$.**`, `$**.**CR` — is numeric-edited rather than alphanumeric. Both made a legal arithmetic `GIVING` receiver look non-numeric. |
 | **1.62.18** | **391** | A number opening a continuation line is an operand where an expression is expected. The `IS` is optional in a class or sign condition, and a condition may be an `EVALUATE` subject. A procedure-name may be written entirely in digits, in references and headers alike. |
 | **1.62.21** | **417** | The Nucleus pass. `ALTER` is a series and `GO TO.` is the altered GO TO; an all-digit procedure-name keeps its leading zeros; a condition-name may be subscripted or qualified; a parenthesised arithmetic expression is an operand, not a nested condition; `MULTIPLY`/`DIVIDE` format 1 take a receiver series; `WITH TEST` may precede `VARYING` and a repeat count may be subscripted; `PERFORM imperative … END-PERFORM` needs no phrase; a paragraph-name may be qualified by its section; `ELSE` is not swallowed by an `ON SIZE ERROR` imperative or a nested ELSE branch; abbreviated combined relations accept arithmetic and class/sign objects; `INSPECT` carries its ALL/LEADING category across operands and `CONVERTING` takes a region; `UNSTRING TALLYING` follows `WITH POINTER`. **Nucleus 76 → 92 of 95 compiling, 16 → 28 executing clean.** |
+| **1.62.43** | **422** | **The Sequential I/O module compiles completely — 85 of 85 — and goes 10 → 44 of 85 on execution.** A declarative's paragraphs keep their names, so a `USE` handler can `PERFORM` and `GO TO` them (20 programs stopped crashing); a `FILE STATUS` item declared as a two-character *group* receives the code; `OPEN` of an already-open file is `41` and does not re-open it; a sequential `READ` after `AT END` is `46`; and one `OPEN` may carry several mode groups (`OPEN INPUT f1 OUTPUT f2`), which is the whole of the compile gain. |
+| **1.62.42** | **420** | **The Nucleus module is finished — 95 of 95 compiling *and* 95 of 95 executing clean, 4 614 assertions with none failing.** A `66 RENAMES` is qualified by its record, covers every occurrence of a table it reaches over, and is the item it renames when it renames exactly one; an 88 declared on a group tests the group's bytes; a figurative constant is sized to the other operand, `VALUE` included; a group operand is category alphanumeric; `NOT` before an abbreviation object negates the relation; an `INSPECT … REPLACING` series shares one scan and a signed DISPLAY item has no `-` among its characters; `REDEFINES` overlays nest; and `PERFORM … WITH TEST AFTER VARYING` is honoured, an `AFTER` variable is reset when its loop ends, and a subscripted `VARYING` identifier follows its subscript. That last group is why NC201A finished at all. |
 
-> **The honest summary.** RustCOBOL accepts just over **three quarters** of the in‑scope
-> NIST suite today, up from none seven releases ago. The remaining 102 are not
-> mysterious — they are ten named defects, each specified with the programs it
+> **The honest summary.** RustCOBOL accepts **97.2 %** of the in‑scope NIST
+> suite today, up from none nine releases ago. The remaining 12 are not
+> mysterious — they are named defects, each specified with the programs it
 > blocks. This table is the measure of progress, and it is updated with every
 > release.
+>
+> **And one module is finished on the axis that counts.** The Nucleus runs
+> 95 of 95 programs clean, not merely compiles them — see the execution
+> scoreboard above. Under GOLDEN RULE #9 that is the gate for starting the next
+> module, so **Sequential I/O is now in flight**: complete on compile, 44 of 85
+> on execution.
 
 ---
 
@@ -466,7 +501,13 @@ Check/Build at the developer's line with the remedy named.
 ✅ `SORT` / `MERGE` with `RELEASE` / `RETURN` (functional — see below).
 ✅ `DECLARATIVES … END DECLARATIVES` with `USE AFTER STANDARD ERROR PROCEDURE ON
 {file… | INPUT | OUTPUT | I-O | EXTEND}` — file-error handlers fired on an
-unhandled error `FILE STATUS`.
+unhandled error `FILE STATUS`. A handler is **entered at the top of its section
+and runs to the section's end**, and its paragraphs keep their names, so it may
+`PERFORM` and `GO TO` them — including a paragraph of *another* declarative
+section. Declarative paragraphs live in their own name space: control never
+falls from the main body into them, and a name declared in both resolves to the
+declarative's copy while a handler is running and to the body's everywhere else.
+A declarative may also `PERFORM` a paragraph of the non-declarative portion.
 ❌ **Not recognized — do not use:** `ENTRY`,
 `GENERATE`/`INITIATE`/`TERMINATE`, `SEND`/`RECEIVE`, `ENABLE`/`DISABLE`.
 
@@ -476,8 +517,34 @@ unhandled error `FILE STATUS`.
 
 ### MOVE
 - ✅ `MOVE {id|lit|figurative} TO id1 [id2 …]` (multiple receivers).
+- ✅ **A group operand makes the whole move alphanumeric** (COBOL-85 6.18.4).
+  The other operand's PICTURE contributes its *size* and nothing else: no
+  editing, no de-editing, no numeric conversion. `MOVE <group holding "123ABC">`
+  leaves `"123ABC "` in a `PIC 0XXXXX0` (not the edited `"0123AB0"`), the same
+  six characters and a space in a `PIC 9999V999`, and `"12"` in a `PIC 99`.
+  `JUSTIFIED RIGHT` still decides which end pads and which end is lost.
+  The same rule governs a group's own bytes: each child takes its slice
+  verbatim, so an alphanumeric-edited child is **not** re-edited.
+- ✅ **A `VALUE` clause on a group** initialises the group's bytes and is
+  distributed across its children — `01 G VALUE "$123.45". 02 E PIC $999.99.`
+  leaves `E` holding `"$123.45"`.
 - ✅ `MOVE CORRESPONDING g1 TO g2` — moves each subordinate item the two groups
   share by name, recursing through matching sub-groups.
+- ✅ **`CORRESPONDING` excludes an item described with `REDEFINES` or `RENAMES`**
+  (COBOL-85 6.18.4 GR1), on either side, along with everything subordinate to
+  it. The exclusion is on the *declaration*, not the name: a plain item that
+  merely shares its name with a 66-level elsewhere still corresponds.
+- ✅ **Either `CORRESPONDING` operand may name one occurrence of a table of
+  groups** — `MOVE CORRESPONDING C-LEVEL TO C-FLOCK (4)` writes that
+  occurrence's own slots, and the subscript is carried through the recursion.
+- ✅ **A pair needs only ONE of its two items to be elementary.** A group may
+  face an elementary item, and the move across it is an alphanumeric one: an
+  elementary `PIC XXX` sending into a group of `999` + `XXX` fills its six
+  characters, and a group of `XXX` + `99` sending into a plain `X(5)` fills it.
+  Two groups facing each other still **recurse** — that pairing is not the
+  elementary case. *(Before 1.62.39 either direction moved nothing at all: a
+  group owns no store slot, so the write went where nothing reads it back and
+  the read yielded the empty string.)*
 - ✅ **Reference modification `id(start:len)`** — sender (substring) and receiver
   (spliced partial assignment); works on every verb's operands. `length` optional.
   It addresses **character positions**, so a numeric operand is taken at its full
@@ -535,9 +602,31 @@ unhandled error `FILE STATUS`.
 - ✅ inline `PERFORM n TIMES … END-PERFORM` (no paragraph).
 - ✅ `PERFORM p [THRU p2] VARYING v FROM a BY b UNTIL c` — runs the paragraph each
   iteration (out‑of‑line, no `END-PERFORM`).
+- ✅ **`WITH TEST AFTER` applies to `VARYING`**, written on either side of the
+  phrase and inline or out-of-line. The body runs once before anything is
+  tested, and the conditions are then tested **innermost first**; the level whose
+  condition is false is augmented, every level inside it restarts at its `FROM`
+  value, and the body runs again. A variable is augmented only when its test
+  comes out false, so the test that ends the loop leaves it as the body did.
+- ✅ **An `AFTER` variable is reset to its `FROM` value when its loop ends**,
+  before the next level out is augmented (COBOL-85 6.20.4 GR10(d)). After the
+  whole `PERFORM`, the inner variables read their `FROM` values and only the
+  outermost holds the value that ended it.
+- ✅ **A subscripted `VARYING` identifier follows its subscript.**
+  `PERFORM p VARYING TBL (S1) FROM 10 BY INC (S2) UNTIL TBL (S1) > 70` augments
+  whichever occurrence `S1` selects at that moment, so a body that advances `S1`
+  walks the table.
 
 ### GO TO / CONTINUE / EXIT / STOP
-- ✅ `GO TO p` · `GO TO p1 p2 … DEPENDING ON id` · `GOBACK` / `GO BACK`.
+- ✅ `GO TO p` · `GO TO p {OF|IN} section` · `GO TO p1 p2 … DEPENDING ON id` ·
+  `GOBACK` / `GO BACK`.
+- ✅ **The `{OF|IN} section` qualifier picks which copy is meant** when a
+  paragraph name repeats across sections, exactly as it does on `PERFORM`. An
+  **unknown** section falls back to the unqualified lookup rather than losing
+  the jump. `GO TO … DEPENDING ON` takes a bare list of names and no qualifier,
+  and a `GO TO` an `ALTER` has redirected follows the redirection — which names
+  its own target outright. *(Before 1.62.39 the qualifier parsed and was then
+  ignored, so the jump landed on the first definition anywhere in the program.)*
 - ✅ `CONTINUE` · `STOP RUN` · `STOP literal`.
 - ✅ plain `EXIT` is a no‑op return point; `EXIT PROGRAM` returns to the caller.
 - ✅ `EXIT PERFORM [CYCLE]` (break / continue the nearest inline PERFORM),
@@ -579,8 +668,18 @@ unhandled error `FILE STATUS`.
 - ✅ `STRING {src [DELIMITED BY {SIZE | SPACE[S] | delim}]} … INTO target
   [WITH POINTER p] [[ON] OVERFLOW imp] [NOT [ON] OVERFLOW imp] [END-STRING]`.
   Overflow = the assembled string is wider than the receiving field.
-- ✅ **Extension — smart default `DELIMITED BY`** (when the clause is omitted on
-  an operand): alphanumeric `PIC X`/`A` items default to `SPACES` (trailing pad
+- ✅ **A `DELIMITED BY` phrase governs the whole series of senders that precedes
+  it**, not only the one it is written after:
+  `STRING "A0" "B0D" "C0X" DELIMITED BY ZERO INTO T` delimits all three and
+  builds `"ABC"`. A statement may carry several phrases, each governing the
+  senders since the previous one; senders after the last phrase take the whole
+  of each. *(Before 1.62.40 only the sender written immediately before the
+  phrase was delimited.)*
+- ✅ **`INTO` a group item** distributes across the group's subordinate items.
+- ✅ **The result is assembled byte for byte**, so `STRING HIGH-VALUE` moves the
+  single byte `0xFF` and occupies one character position.
+- ✅ **Extension — smart default `DELIMITED BY`** (when no phrase governs an
+  operand): alphanumeric `PIC X`/`A` items default to `SPACES` (trailing pad
   dropped); string literals, numeric, numeric-edited items, `FUNCTION` results
   and expressions default to `SIZE`. Data items are moved in their field form
   (numeric → full PIC-width digits; numeric-edited → edited characters).
@@ -600,6 +699,37 @@ unhandled error `FILE STATUS`.
 - ✅ `INSPECT … TALLYING … REPLACING …` — **both halves applied**.
 - ✅ `BEFORE/AFTER INITIAL` confines each phrase to a sub‑region of the field.
   (TALLYING accumulates onto the counter, per COBOL.)
+- ✅ **A series of TALLYING operands shares ONE left-to-right scan** (COBOL-85
+  6.17.3). At each character position the operands are tried in the order they
+  were written; the first that matches takes the position and the scan resumes
+  past the characters it consumed. So `TALLYING t1 FOR ALL "AA" t2 FOR ALL "A"`
+  on `"AABA"` gives `t1 = 1, t2 = 1` — writing the operands the other way round
+  gives `t1 = 3, t2 = 0`. `LEADING` must match from its window's left edge with
+  no gap, so an earlier operand taking that position ends the run before it
+  starts, and `CHARACTERS` counts only the positions no earlier operand claimed.
+- ✅ **A series of REPLACING operands shares ONE scan too**, by the same rule:
+  the first operand that matches at a position replaces those characters and the
+  scan resumes past them, so no later operand can see them. Each operand's
+  `BEFORE`/`AFTER` window is fixed **before any replacement**, which is what
+  lets one operand be anchored on characters an earlier one overwrites:
+
+  ```cobol
+  MOVE "CAN NOT BE ALL BAD." TO SUBJ.
+  INSPECT SUBJ REPLACING
+      FIRST "L " BY "ZZ"  AFTER INITIAL "AL"
+      FIRST "BAD" BY "ZZZ" AFTER "L "
+      ALL   "." BY "Z"     AFTER "AL".
+  *> SUBJ is now "CAN NOT BE ALZZZZZZ"
+  ```
+
+  Applied one operand at a time the first phrase would erase the `"L "` the
+  second is anchored on, and `"BAD"` would survive.
+- ✅ **A signed DISPLAY item has no `-` among its character positions.** The
+  operational sign is an overpunch on a digit, so
+  `INSPECT <PIC S9(5) holding -12345> TALLYING c FOR ALL "-"` gives **0** while
+  `FOR ALL "5"` gives 1. The sign is restored afterwards, so a `REPLACING` over
+  the digits leaves it alone. `SIGN IS … SEPARATE CHARACTER` is the case where
+  the sign *is* a position, and it is counted.
 
 ### SET
 - ✅ `SET t1 [t2 …] TO {TRUE | FALSE | expr}` (compiled to MOVE).
@@ -636,6 +766,12 @@ unhandled error `FILE STATUS`.
   ONLY}] [WITH LOCK] [WITH REGISTERED [USER] {literal|data-item}]`; `CLOSE f …`.
   (`SHARING` / `WITH LOCK` parse and are honoured where meaningful — advisory in
   the single‑run‑unit model.)
+- ✅ **One `OPEN` may carry several mode groups**, each with its own files:
+  `OPEN INPUT SQ-FS1, SQ-FS3 OUTPUT SQ-FS4.` Every group is opened in its own
+  mode; `SHARING` / `WITH LOCK` / `REGISTERED USER` apply to the statement.
+- ✅ **`OPEN` of a file that is already open is `41`**, and the file is left as
+  it was — the statement does **not** re-open it. (Re-opening an `OUTPUT` file
+  would silently truncate what the program had already written.)
 - ✅ **`OPEN … WITH REGISTERED [USER] {literal | data-item}`** (PowerRustCOBOL
   extension) — records the operator/user in the INDEXED observability log
   (`user=` field on every event line for that file's session). Purely
@@ -644,6 +780,11 @@ unhandled error `FILE STATUS`.
 - ✅ `READ f [RECORD] [{NEXT|PREVIOUS}] [INTO id] [KEY IS k] [WITH [NO] LOCK]
   [AT END …][NOT AT END …][INVALID KEY …][NOT INVALID KEY …][END-READ]`.
   `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.
+- ✅ **A sequential `READ` after `AT END` is `46`, not a second `10`.** The
+  `AT END` left no valid next record, so reading on is a different error from
+  reaching the end. `46` is a class‑4 status, so neither `AT END` nor
+  `NOT AT END` runs for it — the file's `USE` declarative is what handles it.
+  A fresh `OPEN`, or a successful `START`, establishes a record again.
 - ✅ `UNLOCK f [RECORD[S]]` releases the file's record locks.
 - ✅ **`COMMIT` / `ROLLBACK`** — program-controlled transactions over **every**
   open INDEXED file. `OPEN` starts a transaction; `COMMIT` confirms the pending
@@ -687,6 +828,14 @@ unhandled error `FILE STATUS`.
 - ✅ Word relations: `[IS] [NOT] EQUAL TO`, `[IS] [NOT] GREATER [THAN] [OR EQUAL
   TO]`, `[IS] [NOT] LESS [THAN] [OR EQUAL TO]`.
 - ✅ Class: `id IS [NOT] {NUMERIC | ALPHABETIC | ALPHABETIC-LOWER | ALPHABETIC-UPPER}`.
+  An item whose PICTURE carries **no operational sign** is `NUMERIC` only when
+  every character position holds a digit — `PIC X(5)` holding `"+1234"`,
+  `"1.234"` or `"12 45"` is **not** numeric. *(Before 1.62.40 the test parsed
+  the characters as a number, so a sign, a decimal point, an exponent and
+  surrounding spaces were all accepted.)*
+- ✅ **A user-defined `CLASS` operand may be an ordinal position** — `CLASS
+  ORDINAL-A-ONLY IS 66` names the 66th character of the native set — and the
+  operand may sit on its own source line. The same holds for `ALPHABET`.
 - ✅ Sign: `id IS [NOT] {POSITIVE | NEGATIVE | ZERO}`.
 - ✅ 88‑level condition‑name (bare name as a condition).
 - ✅ **`TRUE` / `FALSE` as operands** (PowerRustCOBOL extension) — sugar for `1`
@@ -708,6 +857,23 @@ unhandled error `FILE STATUS`.
   A bare identifier after AND/OR following a comparison is resolved at runtime:
   a known 88‑level condition‑name evaluates as one, otherwise it is the object
   `a = c`. (An identifier immediately followed by `AND` keeps AND precedence.)
+- ✅ **`NOT` before an abbreviation *object* negates the relation**, not the
+  object: `a > b OR NOT c` is `a > b OR NOT (a > c)`. The `NOT <relational
+  operator>` spelling (`AND NOT < x`) is the operator form and is unchanged, and
+  a `NOT` that opens an ordinary condition — `NOT (…)`, `NOT x = y`,
+  `NOT x NUMERIC` — keeps its own meaning. *(Before 1.62.42 the object form was
+  read as "the object is non‑zero", which gives the same answer only when the
+  object happens to hold zero.)*
+- ✅ **A condition‑name declared on a group tests the group's bytes.** A group
+  owns no storage of its own — it *is* its children — so
+  `01 T. 88 B VALUE "ABCABC". 02 A PIC XXX. 02 B2 PIC XXX.` compares against the
+  six characters the record holds.
+- ✅ **A figurative constant is repeated to the size of the other operand**, and
+  that includes one written as an 88's `VALUE`: `88 B VALUE QUOTE` on a
+  `PIC X(4)` host is four quotes, and `88 D VALUE ALL "BAC"` is `"BACB"`.
+  `ALL literal` is sized in **both** directions — `IF X EQUAL TO ALL "BA"` on a
+  ten‑character `X` compares against `"BABABABABA"`, not `"BA"` padded with
+  spaces.
 
 ---
 
@@ -733,6 +899,16 @@ unhandled error `FILE STATUS`.
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).
+- ✅ **A figurative constant fills its whole receiver**, including
+  `HIGH-VALUE` — `MOVE HIGH-VALUE TO <PIC X(10)>` is ten `0xFF` bytes, and into
+  a group it is distributed across the children. An alphanumeric-edited receiver
+  still places its insertion characters, so `PIC XX0XXBXXX` holds
+  `FF FF '0' FF FF ' ' FF FF FF`. Under a `PROGRAM COLLATING SEQUENCE` the
+  constant names an ordinary character and that character fills instead.
+  ⚠️ `HIGH-VALUE` is the **byte** `0xFF`, not a character. Reading a group
+  operand, editing and every move path carry it byte for byte, but
+  **reference modification is not yet byte-accurate** — `IF X (1:1) =
+  HIGH-VALUE` is false for an item that genuinely holds `0xFF`.
 - ✅ **A numeric literal may begin with the decimal point** — `.5`, `-.5`,
   `.000000001`. COBOL‑85 requires only that a literal not *end* with one, so
   `5.` is still the number 5 followed by a sentence terminator.
@@ -775,7 +951,11 @@ unhandled error `FILE STATUS`.
   01  FL-LESS  PICTURE <(3),<<<.99  VALUE " <1,111.11".
   ```
   `MOVE ZERO TO FL-LESS` then reads `      <.00`, and `MOVE 1234` reads
-  ` <1,234.00` — the floating run behaves exactly as `$$$,$$$.99` does. The
+  ` <1,234.00` — the floating run behaves exactly as `$$$,$$$.99` does. A
+  **letter** currency symbol works the same way: `CURRENCY SIGN IS "W"` makes
+  `PICTURE WWWWW` a five-position floating currency string, so `MOVE 12` reads
+  `  W12`. *(Before 1.62.40 a run of a letter symbol was read as one word and
+  rejected, so only `$` floated.)* The
   literal must be one character, and COBOL‑85 forbids one that would collide
   with a picture character or separator: not a digit, not one of
   `A B C D E G N P R S V X Z`, and none of `space * + - , . ; ( ) " / =`.
@@ -824,8 +1004,10 @@ unhandled error `FILE STATUS`.
   `-123456789012345678` compares **equal** to `PIC X(18)` holding
   `"123456789012345678"`. Three conditions bound the rule — the numeric operand
   must be an **integer**; "nonnumeric" is decided by the **declaration**, so a
-  `PIC 99` child holding characters after a group `MOVE` is still numeric; and
-  `ALL literal` takes the size of the other operand. *(Before 1.62.38 the
+  `PIC 99` child holding characters after a group `MOVE` is still numeric — and
+  a **group** is nonnumeric whatever its children are, so `PIC 9(5)` holding
+  12345 against a ten‑byte group holding `"0000012345"` is `"12345     "` and
+  unequal; and `ALL literal` takes the size of the other operand. *(Before 1.62.38 the
   comparison was algebraic whenever the text side happened to parse as a
   number.)*
 - ✅ **High‑order truncation on a numeric MOVE.** A receiver holds exactly its
@@ -844,7 +1026,11 @@ unhandled error `FILE STATUS`.
   indexing.
 - ✅ `USAGE [IS] {DISPLAY | BINARY | COMP | COMP-1 | COMP-2 | COMP-3 |
   PACKED-DECIMAL | COMP-5}` (and `COMP-4`→COMP, `COMP-X`→COMP-5).
-- ✅ `VALUE` (numeric/signed/alphanumeric/figurative/`ALL`).
+- ✅ `VALUE` (numeric/signed/alphanumeric/figurative/`ALL`). **`VALUE ALL
+  "literal"` repeats its unit across the whole item** — `PIC X(6) VALUE ALL
+  "ABC"` is `"ABCABC"` and `PIC X(9) VALUE ALL "XY"` is `"XYXYXYXYX"`.
+  *(Before 1.62.40 only the single-character figurative constants filled their
+  item and `ALL "literal"` left it holding spaces.)*
 - ✅ `OCCURS n [TIMES] [DEPENDING ON id] [ASCENDING/DESCENDING KEY …] [INDEXED BY …]`.
 - ✅ `REDEFINES` — a **live** second reading of the same bytes. It adds no
   storage (so it does not widen the group that holds it), and a write through
@@ -854,6 +1040,13 @@ unhandled error `FILE STATUS`.
   ⚠️ **Caveat:** an overlay larger than 256 expanded storage slots (a redefined
   10×10×10 table, say) keeps per‑description storage instead — refreshing it on
   every write would walk a thousand occurrences twice.
+- ✅ **Overlays nest.** A `REDEFINES` inside a record that is itself redefined
+  is reached in both directions, however deep: writing two bytes through a
+  01‑level redefinition reaches the redefined record, the `REDEFINES` of a group
+  inside it, and the `REDEFINES` of an item inside *that* — including an 88
+  declared on the innermost one. Each description is re‑rendered once per write.
+  *(Before 1.62.42 a key belonging to more than one overlay kept only the
+  last‑declared one, and a single guard stopped the chain after its first hop.)*
 - ✅ **An unnamed description is still a description.** `02 FILLER REDEFINES
   <item>.` redescribes its target's bytes under no name of its own, and a write
   to the target is visible through its children. Several children divide those
@@ -867,16 +1060,57 @@ unhandled error `FILE STATUS`.
   one reading per declaration. *(Before 1.62.36 the overlay's initial copy was
   keyed from a path missing its outer qualifiers, which only a duplicated name
   can tell apart — so exactly the case that needs the qualifier lost it.)*
-- ✅ `JUSTIFIED [RIGHT]`, `SYNCHRONIZED/SYNC`, `BLANK [WHEN] ZERO`,
+- ✅ `JUSTIFIED [RIGHT]` — **stores right‑aligned**, on an *alphanumeric* or an
+  *alphabetic* item. A sender narrower than the receiver is padded on the left;
+  a sender wider than it keeps its **right** end, losing its leftmost
+  characters — the opposite of the ordinary rule. *(Before 1.62.40 the clause
+  was recorded only for alphanumeric items, so `PICTURE A(5) JUSTIFIED RIGHT`
+  parsed and then left‑aligned like any other item.)*
+- ✅ `SYNCHRONIZED/SYNC`, `BLANK [WHEN] ZERO`,
   `SIGN [IS] {LEADING|TRAILING} [SEPARATE]`, `GLOBAL`, `EXTERNAL` — accepted;
-  `JUSTIFIED` and `SIGN … SEPARATE` do not yet change how the item is stored.
+  `SIGN … SEPARATE` does not yet change how the item is stored.
+- ✅ **A `REDEFINES` at the 01 level may describe more storage than the item it
+  redefines**, and the bytes past that item's end belong to whichever
+  description is long enough to name them. Writing through a shorter
+  description leaves the longer one's tail alone.
+- ✅ **A `REDEFINES` overlay carries the redefined item's bytes**, including
+  into a numeric peer: a `PIC S9(18)` overlay of an `X(18)` holding
+  `"00ABCDEFGHI  4321 "` reads those characters back, and `IS NUMERIC` answers
+  **no** for them. When the bytes do spell digits the numeric reading is
+  unchanged.
 - ✅ `88 name VALUE v [v …]` / `VALUE a THRU b` — **real condition‑names**: the
   level‑88 binds to its host item; testing checks the host against the VALUEs /
   ranges, and `SET 88-name TO TRUE` stores a satisfying value into the host.
+- ✅ **A condition‑name may be declared under more than one group, and `OF`/`IN`
+  tells them apart** — exactly as it does for a data name, and intermediate
+  levels may be skipped:
+  ```cobol
+  IF EQUALS-M OF TABLE-LEVEL-5 OF TABLE-LEVEL-4
+           IN TABLE-LEVEL-3 OF TABLE-LEVEL-2
+           OF GROUP-1-TABLE (13)   *> occurrence 13 of THIS table's host
+  ```
+  The subscript belongs to the host item, so it selects which occurrence the
+  VALUEs are tested against. An **unqualified** reference to a duplicated
+  condition‑name is ambiguous in COBOL‑85; the runtime takes the first
+  declaration, the same rule it applies to an ambiguous data name.
 - ✅ `USAGE INDEX` declares an integer index register (`SET`/`SEARCH` use it);
   `USAGE POINTER` — see **Pointers** above.
 - ✅ `66 NEW RENAMES item-1 [{THRU|THROUGH} item-2]` — a regrouping alias;
   reading concatenates the covered items, writing distributes by field width.
+  - ✅ **A 66 is qualified by the record it regroups**, exactly as a data item
+    is qualified by the group above it, so the same 66 name may be declared once
+    per record and told apart with `OF`/`IN`:
+    `MOVE "CALIFORNIA" TO RENAME-5 OF T-RENAMES-DATA`. This works on reads and
+    writes alike, and a 66 wins over an ordinary data item that happens to share
+    its name. The operands of the `RENAMES` clause resolve in that same record,
+    so a duplicated `NAME-2` names this record's.
+  - ✅ **A covered table contributes every occurrence**, not just its first:
+    `66 R RENAMES ITEM-1 THRU TABLE-2`, where `TABLE-2` holds
+    `03 T PIC XXX OCCURS 5`, is 20 characters wide.
+  - ✅ **A 66 over exactly one item *is* that item** — same PICTURE, same
+    category, same storage. `66 R RENAMES W` where `W` is `PIC 9(4)` is a
+    four-digit numeric item, so `ADD 3500 TO R` with 8000 in it raises
+    `ON SIZE ERROR` and leaves it unchanged.
 - Sections: `WORKING-STORAGE`, `LOCAL-STORAGE`, `LINKAGE`, `FILE`; `SCREEN`
   parsed but not executed.
 

@@ -809,6 +809,16 @@ fn parse_special_names_mnemonic(p: &mut Parser) {
     p.mnemonics.push((system, mnemonic));
 }
 
+/// A `CLASS` or `ALPHABET` operand written as a number: the **1-based ordinal
+/// position** of a character in the native character set, so `66` is `A`.
+fn ordinal_operand(n: i64) -> Vec<char> {
+    u32::try_from(n - 1)
+        .ok()
+        .and_then(char::from_u32)
+        .into_iter()
+        .collect()
+}
+
 /// Parse `CLASS <name> [IS] {literal [{THROUGH|THRU} literal]} …`.
 ///
 /// Operands the CCVS leaves as implementor placeholders (`XXXXX090`, an
@@ -837,13 +847,20 @@ fn parse_special_names_class(p: &mut Parser) {
             // A numeric operand is the character's ordinal position, 1-based.
             Token::IntegerLiteral(n, _) => {
                 p.advance();
-                Some(
-                    u32::try_from(n - 1)
-                        .ok()
-                        .and_then(char::from_u32)
-                        .into_iter()
-                        .collect(),
-                )
+                Some(ordinal_operand(n))
+            }
+            // The same integer wearing the lexer's guess. A number that opens a
+            // line becomes a `LevelNumber` whenever it *could* be one, and
+            // 1-49, 66, 77 and 88 all can — so an operand written on its own
+            // line arrived as `LevelNumber(66)`, matched nothing here, and the
+            // class or alphabet ended up describing no character at all. Only
+            // the DATA DIVISION has level numbers and the lexer has no division
+            // context; this clause already says what the number is. NC174A and
+            // NC254A both split `CLASS … IS` from its operand, and the ordinal
+            // of `A` is exactly 66.
+            Token::LevelNumber(n) => {
+                p.advance();
+                Some(ordinal_operand(i64::from(n)))
             }
             Token::Identifier(w) if !is_special_names_clause_word(&w) => {
                 p.advance();
@@ -926,13 +943,20 @@ fn parse_special_names_alphabet(p: &mut Parser) {
             // A numeric operand is the character's ordinal position, 1-based.
             Token::IntegerLiteral(n, _) => {
                 p.advance();
-                Some(
-                    u32::try_from(n - 1)
-                        .ok()
-                        .and_then(char::from_u32)
-                        .into_iter()
-                        .collect(),
-                )
+                Some(ordinal_operand(n))
+            }
+            // The same integer wearing the lexer's guess. A number that opens a
+            // line becomes a `LevelNumber` whenever it *could* be one, and
+            // 1-49, 66, 77 and 88 all can — so an operand written on its own
+            // line arrived as `LevelNumber(66)`, matched nothing here, and the
+            // class or alphabet ended up describing no character at all. Only
+            // the DATA DIVISION has level numbers and the lexer has no division
+            // context; this clause already says what the number is. NC174A and
+            // NC254A both split `CLASS … IS` from its operand, and the ordinal
+            // of `A` is exactly 66.
+            Token::LevelNumber(n) => {
+                p.advance();
+                Some(ordinal_operand(i64::from(n)))
             }
             Token::HighValues => {
                 p.advance();

@@ -964,7 +964,7 @@ fn parse_perform(p: &mut Parser) -> Stmt {
 
     // PERFORM VARYING …
     if p.at(&Token::Varying) {
-        let target = parse_perform_varying(p);
+        let target = parse_perform_varying(p, true);
         return Stmt::Perform { target, span };
     }
 
@@ -992,6 +992,12 @@ fn parse_perform(p: &mut Parser) -> Stmt {
             p.eat(&Token::Before);
             true
         };
+        // `PERFORM WITH TEST AFTER VARYING … END-PERFORM` — the inline form of
+        // the phrase. Demanding `UNTIL` here rejected it outright.
+        if p.at(&Token::Varying) {
+            let target = parse_perform_varying(p, test_before);
+            return Stmt::Perform { target, span };
+        }
         p.expect(&Token::Until);
         let condition = parse_condition(p);
         let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
@@ -1149,6 +1155,7 @@ fn parse_perform(p: &mut Parser) -> Stmt {
                 until,
                 stmts: vec![para_stmt],
                 after,
+                test_before,
             };
             return Stmt::Perform { target, span };
         }
@@ -1221,7 +1228,7 @@ fn parse_varying_clauses(p: &mut Parser) -> VaryingHeader {
 }
 
 /// Inline `PERFORM VARYING … END-PERFORM` (body parsed up to END-PERFORM).
-fn parse_perform_varying(p: &mut Parser) -> PerformTarget {
+fn parse_perform_varying(p: &mut Parser, test_before: bool) -> PerformTarget {
     let (var, from, by, until, after) = parse_varying_clauses(p);
     let stmts = parse_stmts(p, &|tok| matches!(tok, Token::EndPerform));
     p.eat(&Token::EndPerform);
@@ -1232,6 +1239,7 @@ fn parse_perform_varying(p: &mut Parser) -> PerformTarget {
         until,
         stmts,
         after,
+        test_before,
     }
 }
 
@@ -1260,14 +1268,30 @@ fn parse_go(p: &mut Parser) -> Stmt {
     p.eat(&Token::To); // consume TO if present
 
     let mut targets = Vec::new();
+    // `GO TO paragraph {OF|IN} section` — the qualifier picks which of two
+    // like-named paragraphs is meant, exactly as it does on PERFORM. Only the
+    // first name can carry one: the multi-name form is `GO TO … DEPENDING ON`,
+    // whose targets are a bare list.
+    let mut section = None;
     // A procedure-name need not contain a letter: COBOL-85 lets a paragraph or
     // section be named entirely with digits, and CCVS85 writes `GO TO 50.`
     // (SG203A) against a section declared as `50 SECTION.`
     while crate::procedure::is_procedure_name(p.peek()) {
-        let Some((name, _)) = crate::procedure::eat_procedure_name(p) else {
-            break;
+        let (name, qualifier) = if targets.is_empty() {
+            let Some((name, _, q)) = crate::procedure::eat_procedure_name_qualified(p) else {
+                break;
+            };
+            (name, q)
+        } else {
+            let Some((name, _)) = crate::procedure::eat_procedure_name(p) else {
+                break;
+            };
+            (name, None)
         };
         targets.push(name);
+        if qualifier.is_some() {
+            section = qualifier;
+        }
         // Stop before DEPENDING
         if p.at(&Token::Depending) {
             break;
@@ -1291,7 +1315,11 @@ fn parse_go(p: &mut Parser) -> Stmt {
     // is not an error here — the runtime resolves it, and falls through when no
     // ALTER has set it yet.
     let target = targets.into_iter().next().unwrap_or_default();
-    Stmt::GoTo { target, span }
+    Stmt::GoTo {
+        target,
+        span,
+        section,
+    }
 }
 
 // ── CONTINUE ──────────────────────────────────────────────────────────────────
@@ -1477,37 +1505,27 @@ fn parse_open(p: &mut Parser) -> Stmt {
     let span = p.peek_span();
     p.advance(); // OPEN
 
-    let mode = match p.peek().clone() {
-        Token::Input => {
-            p.advance();
-            OpenMode::Input
-        }
-        Token::Output => {
-            p.advance();
-            OpenMode::Output
-        }
-        Token::IoMode => {
-            p.advance();
-            OpenMode::InputOutput
-        }
-        Token::Extend => {
-            p.advance();
-            OpenMode::Extend
-        }
-        _ => {
-            p.emit_error(format!(
-                "expected INPUT/OUTPUT/I-O/EXTEND, found {:?}",
-                p.peek()
-            ));
-            OpenMode::Input
-        }
-    };
-
-    let mut files = Vec::new();
+    // COBOL-85 lets one OPEN carry several `mode file…` groups —
+    // `OPEN INPUT SQ-FS1 OUTPUT SQ-FS3.` (SQ128A, SQ206A). Reading exactly one
+    // mode left `OUTPUT` — a keyword, not an identifier — unconsumed, and the
+    // statement was rejected.
+    let mut groups: Vec<(OpenMode, Vec<String>)> = Vec::new();
     let mut sharing = None;
     let mut lock = false;
     let mut registered_user = None;
     loop {
+        let next_mode = match p.peek() {
+            Token::Input => Some(OpenMode::Input),
+            Token::Output => Some(OpenMode::Output),
+            Token::IoMode => Some(OpenMode::InputOutput),
+            Token::Extend => Some(OpenMode::Extend),
+            _ => None,
+        };
+        if let Some(m) = next_mode {
+            p.advance();
+            groups.push((m, Vec::new()));
+            continue;
+        }
         // SHARING WITH {ALL OTHER | NO OTHER | READ ONLY}
         if is_word(p.peek(), "SHARING") {
             parse_sharing(p, &mut sharing);
@@ -1538,11 +1556,25 @@ fn parse_open(p: &mut Parser) -> Stmt {
         }
         if p.at_identifier() {
             let (name, _) = p.eat_identifier().unwrap();
-            files.push(name);
+            match groups.last_mut() {
+                Some((_, files)) => files.push(name),
+                // A file named before any mode is malformed; the mode error
+                // below reports it, and the name is kept under the default.
+                None => groups.push((OpenMode::Input, vec![name])),
+            }
             continue;
         }
         break;
     }
+
+    if groups.is_empty() {
+        p.emit_error(format!(
+            "expected INPUT/OUTPUT/I-O/EXTEND, found {:?}",
+            p.peek()
+        ));
+        groups.push((OpenMode::Input, Vec::new()));
+    }
+    let (mode, files) = groups.remove(0);
 
     Stmt::Open {
         mode,
@@ -1551,6 +1583,7 @@ fn parse_open(p: &mut Parser) -> Stmt {
         lock,
         registered_user,
         span,
+        extra_modes: groups,
     }
 }
 
@@ -2400,27 +2433,43 @@ fn parse_string_verb(p: &mut Parser) -> Stmt {
 
     let mut operands: Vec<(Expr, Option<Expr>)> = Vec::new();
 
-    // Collect (source DELIMITED BY delimiter) pairs
+    // Collect (source DELIMITED BY delimiter) pairs.
+    //
+    // A `DELIMITED BY` phrase governs the **whole series of sources that
+    // precedes it**, not just the one it is written after:
+    //
+    // ```cobol
+    // STRING "A0" "B0D" "C0LKJSD" DELIMITED BY ZERO INTO ID7-XN-5
+    // ```
+    //
+    // delimits all three. Attaching the delimiter to the last source alone left
+    // the earlier ones `None`, which is DELIMITED BY SIZE, so the whole of each
+    // was appended and NC217A's STR-TEST-GF-10 built `"A0B0D"` where the
+    // standard wants `"ABCDE"` (also GF-11 and GF-14).
+    let mut pending: Vec<Expr> = Vec::new();
     while is_expr_start(p) && !p.at(&Token::Into) && !p.at(&Token::Eof) {
-        let src = parse_expr(p);
-        let delim = if p.at(&Token::Delimited) {
+        pending.push(parse_expr(p));
+        if p.at(&Token::Delimited) {
             p.advance();
             p.eat(&Token::By);
             // `DELIMITED BY SIZE`: the lexer maps the bare word SIZE to the
             // `SizeError` token (reserved for ON SIZE ERROR). Recognise it here
             // and treat it as the SIZE delimiter (append the whole source).
-            if p.at(&Token::SizeError) {
+            let delim = if p.at(&Token::SizeError) {
                 let sp = p.peek_span();
                 p.advance();
-                Some(Expr::Literal(Literal::String("SIZE".to_string()), sp))
+                Expr::Literal(Literal::String("SIZE".to_string()), sp)
             } else {
-                Some(parse_expr(p))
+                parse_expr(p)
+            };
+            for src in pending.drain(..) {
+                operands.push((src, Some(delim.clone())));
             }
-        } else {
-            None
-        };
-        operands.push((src, delim));
+        }
     }
+    // Sources after the last `DELIMITED BY` (or a statement with none at all)
+    // take the whole of each sender.
+    operands.extend(pending.into_iter().map(|src| (src, None)));
 
     p.expect(&Token::Into);
     let into = parse_expr(p);

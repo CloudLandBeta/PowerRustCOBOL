@@ -111,6 +111,12 @@ pub struct LiveState<'a> {
     /// each, so only WHO DRAWS THEM changes. The renderer skips an invisible
     /// control outright, leaving no rect behind.
     pub hidden: Option<&'a std::collections::HashSet<String>>,
+    /// The form's `SPECIAL-NAMES` paragraph, verbatim.
+    ///
+    /// A control's `Picture` reads its decimal separator and currency character
+    /// from here, so the running form and the COBOL program it generates cannot
+    /// disagree about what `DECIMAL-POINT IS COMMA` means.
+    pub special_names: &'a str,
 }
 
 impl<'a> LiveState<'a> {
@@ -130,6 +136,12 @@ impl<'a> LiveState<'a> {
 }
 
 impl<'a> cobolt_forms::render::FormState for LiveState<'a> {
+    fn decimal_comma(&self) -> bool {
+        cobolt_forms::picture::decimal_comma_from_special_names(self.special_names)
+    }
+    fn currency(&self) -> char {
+        cobolt_forms::picture::currency_from_special_names(self.special_names)
+    }
     fn live(&self, base: &cobolt_forms::Control) -> cobolt_forms::Control {
         match self.entry(base) {
             Some(s) => cobolt_forms::render::merge_props(base, s.props.iter()),
@@ -212,6 +224,7 @@ mod tests {
             state: &state,
             anim: &anim,
             hidden: None,
+            special_names: "",
         };
         assert!(live.entry(&ctrl).is_some(), "LABEL-1 must resolve for Label-1");
     }

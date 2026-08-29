@@ -1434,6 +1434,10 @@ pub struct Tr {
     pub menu_lbl_target: &'static str,
     pub menu_lbl_enabled: &'static str,
     pub menu_edit_btn: &'static str,
+    /// The TextBox's `Picture` property row — the COBOL PICTURE its contents
+    /// obey. `PICTURE` itself is a COBOL keyword and stays English in every
+    /// language; only the surrounding word is translated.
+    pub prop_picture: &'static str,
     /// 049 — the SideMenu's FullHeight property row.
     pub prop_full_height: &'static str,
     /// 049 — the SideMenu's Collapsed property row (the state it opens in).
@@ -2661,6 +2665,7 @@ const EN: Tr = Tr {
     menu_lbl_target: "Target",
     menu_lbl_enabled: "Enabled",
     menu_edit_btn: "Edit Menu...",
+    prop_picture: "COBOL PICTURE",
     prop_full_height: "Full height",
     prop_collapsed: "Start collapsed",
     prop_icon_size_open: "Icon size (Open)",
@@ -3842,6 +3847,7 @@ const ES: Tr = Tr {
     menu_lbl_target: "Destino",
     menu_lbl_enabled: "Habilitado",
     menu_edit_btn: "Editar Menu...",
+    prop_picture: "PICTURE COBOL",
     prop_full_height: "Altura completa",
     prop_collapsed: "Iniciar contraído",
     prop_icon_size_open: "Tamaño de icono (abierta)",
@@ -5023,6 +5029,7 @@ const PT: Tr = Tr {
     menu_lbl_target: "Destino",
     menu_lbl_enabled: "Habilitado",
     menu_edit_btn: "Editar Menu...",
+    prop_picture: "PICTURE COBOL",
     prop_full_height: "Altura total",
     prop_collapsed: "Iniciar recolhido",
     prop_icon_size_open: "Tamanho do ícone (aberta)",
@@ -6203,6 +6210,7 @@ const JA: Tr = Tr {
     menu_lbl_target: "ターゲット",
     menu_lbl_enabled: "有効",
     menu_edit_btn: "メニュー編集...",
+    prop_picture: "COBOL PICTURE",
     prop_full_height: "ウィンドウ全高",
     prop_collapsed: "折りたたんで開始",
     prop_icon_size_open: "アイコンサイズ(展開時)",
@@ -7391,6 +7399,7 @@ const ZH: Tr = Tr {
     menu_lbl_target: "目标",
     menu_lbl_enabled: "启用",
     menu_edit_btn: "编辑菜单...",
+    prop_picture: "COBOL PICTURE",
     prop_full_height: "整窗高度",
     prop_collapsed: "启动时折叠",
     prop_icon_size_open: "图标大小(展开时)",
@@ -8572,6 +8581,7 @@ const FR: Tr = Tr {
     menu_lbl_target: "Cible",
     menu_lbl_enabled: "Active",
     menu_edit_btn: "Editer le menu...",
+    prop_picture: "PICTURE COBOL",
     prop_full_height: "Hauteur totale",
     prop_collapsed: "Demarrer replie",
     prop_icon_size_open: "Taille d'icone (ouverte)",

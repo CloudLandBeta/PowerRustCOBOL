@@ -1323,6 +1323,41 @@ fn at_literal_object(p: &Parser) -> bool {
     )
 }
 
+/// True if the cursor is on a `NOT` that negates an abbreviated relation whose
+/// object follows directly — `… OR NOT c`, which is `NOT (subject op c)`.
+///
+/// Distinct from `NOT <relational-operator>` (the operator form, handled by
+/// [`parse_abbrev_comparison`]) and from a `NOT` opening an ordinary condition
+/// (`NOT (…)`, `NOT x = y`, `NOT x NUMERIC`), which keep their own meaning.
+fn at_negated_object(p: &Parser) -> bool {
+    if !p.at(&Token::Not) || !matches!(p.peek_at(1), Token::Identifier(_)) {
+        return false;
+    }
+    // `NOT SIGN-1 ZERO` is a negated sign condition on a new subject, and
+    // anything followed by a relational operator, a qualifier or another `NOT`
+    // is the subject of a full relation.
+    if at_class_or_sign_word(p, 2) {
+        return false;
+    }
+    !matches!(
+        p.peek_at(2),
+        Token::Eq
+            | Token::NotEq
+            | Token::Lt
+            | Token::Gt
+            | Token::LtEq
+            | Token::GtEq
+            | Token::Greater
+            | Token::Less
+            | Token::Equal
+            | Token::Is
+            | Token::Of
+            | Token::In
+            | Token::LParen
+            | Token::Not
+    )
+}
+
 /// True if the current token is a *bare* identifier object of an abbreviated
 /// relation: an identifier not followed by a relational operator, qualifier, or
 /// `AND` (so OR/term-end). Used to route `a = b OR c` to the continuation parser
@@ -1489,6 +1524,23 @@ fn parse_continuation(p: &mut Parser, prev: &Condition) -> Condition {
             return parse_abbrev_comparison(p, &subject.clone());
         }
     }
+    // `NOT` in front of an abbreviation *object* is a logical negation of the
+    // implied relation, not part of the relational operator and not a test of
+    // the operand's own truth: COBOL-85 VI-89 6.15 reads
+    // `a > b OR NOT c` as `a > b OR NOT (a > c)`.
+    //
+    // The `NOT <relop>` spelling is the operator form and is handled above; this
+    // is the one where an object follows directly. Read as a plain negation the
+    // object was tested for being non-zero, which happens to give the same
+    // answer when it holds zero — so NC250A IF-TEST-122 passed and IF-TEST-123,
+    // whose operand is 12, did not.
+    if at_negated_object(p) && rightmost_comparison(prev).is_some() {
+        let span = p.peek_span();
+        p.advance();
+        let inner = parse_continuation(p, prev);
+        let sp = span.merge(inner.span());
+        return Condition::Not(Box::new(inner), sp);
+    }
     // Literal-object abbreviation: reuse the previous subject AND operator.
     //
     // Only when the literal is the whole term. `… GREATER THAN CCON-1 AND 20
@@ -1615,6 +1667,7 @@ fn parse_condition_or(p: &mut Parser) -> Condition {
             || negated_relop
             || at_literal_object(p)
             || at_bare_object(p)
+            || at_negated_object(p)
             || starts_arithmetic_object(p)
         {
             // AND still binds tighter than OR, so an abbreviated OR-term keeps

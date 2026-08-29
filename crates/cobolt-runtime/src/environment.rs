@@ -59,7 +59,8 @@ pub struct ItemSym {
     /// per entry.
     pub dims: Vec<usize>,
     /// Immediate child item names (uppercased), for `CORRESPONDING`. Empty for
-    /// an elementary item.
+    /// an elementary item. 88-level condition-names and 66-level RENAMES are
+    /// left out — COBOL-85 6.18.4 GR1 excludes both from correspondence.
     pub children: Vec<String>,
     /// Canonical storage keys of the immediate children, parallel to
     /// [`children`]. Used by `CORRESPONDING` to address the right occurrence of
@@ -136,16 +137,32 @@ pub struct CobolEnvironment {
     /// Leaf name → the canonical storage keys that share it (for resolution of
     /// `A OF B` qualified references). Only populated for duplicated names.
     by_leaf: IndexMap<String, Vec<String>>,
-    /// 88-level condition-names → their parent item key + VALUE set.
-    cond_names: IndexMap<String, CondName>,
+    /// 88-level condition-names → their parent item key + VALUE set. One name
+    /// may be declared under several groups (CCVS85 declares `EQUALS-A` under
+    /// three separate tables), so this holds **every** declaration in source
+    /// order and the reference's `OF`/`IN` chain picks between them.
+    cond_names: IndexMap<String, Vec<CondName>>,
     /// Pointer address table: `addr_of(key)` returns `index + 1` (0 = NULL).
     addr_table: Vec<String>,
     /// `SET ADDRESS OF item TO ptr` aliases: alias key → target storage key.
     addr_aliases: IndexMap<String, String>,
     /// Elementary item keys in declaration order (for 66 RENAMES ranges).
     elem_order: Vec<String>,
-    /// 66-level RENAMES items → the covered elementary keys (in order).
+    /// 66-level RENAMES items → the covered elementary keys (in order), keyed
+    /// by the item's **canonical** storage key exactly as a data item is, so a
+    /// name declared once per record (`66 RENAME-5` under both `T-RENAMES-DATA`
+    /// and `U-RENAMES-DATA`) keeps one entry per declaration.
     renames: IndexMap<String, Vec<String>>,
+    /// A 66-level item's own ancestor path (its logical record), outermost
+    /// first. `build_tree` makes a 66 a *root*, so it has no parent to take a
+    /// path from — but COBOL keeps it subordinate to the record whose items it
+    /// regroups, and `RENAME-5 OF T-RENAMES-DATA` must resolve through that.
+    /// `resolve_canonical` reads this for any candidate key that has no
+    /// [`ItemSym`] of its own.
+    renames_quals: IndexMap<String, Vec<String>>,
+    /// The record (01/77) most recently initialised — the implicit qualifier of
+    /// any 66-level RENAMES that follows it in declaration order.
+    last_record: Option<String>,
     /// Canonical storage keys of `EXTERNAL` items (01/77-level and EXTERNAL FD
     /// records), including all of their subordinate keys. These are shared
     /// run-unit-wide via the [`ExternalStore`] (spec 005); GLOBAL items are not
@@ -155,6 +172,11 @@ pub struct CobolEnvironment {
     /// while the DATA DIVISION is walked and folded into [`Self::redefine_links`]
     /// once every symbol is known.
     redefine_pairs: Vec<(String, String)>,
+    /// Every storage key declared **with** a `REDEFINES` clause. `redefine_pairs`
+    /// cannot answer this — `build_redefine_links` takes it — and the fact is
+    /// needed long after: COBOL-85 6.18.4 GR1 leaves a redefining item out of
+    /// `CORRESPONDING`, along with everything subordinate to it.
+    redefinitions: std::collections::HashSet<String>,
     /// Live `REDEFINES` overlay: a storage key that lies inside one of two
     /// overlaid descriptions maps to `(the description it belongs to, a
     /// description that shares those bytes)`. A write anywhere inside one is
@@ -162,9 +184,17 @@ pub struct CobolEnvironment {
     /// `MOVE x TO COMPUTED-N` visible when the program then reads `COMPUTED-A`
     /// or the group above them.
     redefine_links: IndexMap<String, Vec<(String, String)>>,
-    /// Guard: a redefine refresh writes through `set`, which would otherwise
-    /// bounce straight back into the description that started it.
-    syncing: bool,
+    /// Guard: the descriptions a refresh is **currently writing**. A refresh
+    /// writes through `set`, which would otherwise bounce straight back into
+    /// the description that started it.
+    ///
+    /// Per-description rather than a single flag, because overlays nest: a
+    /// write inside `REDEF12 REDEFINES REDEF10` has to reach `REDEF10`, then
+    /// `RDF3 REDEFINES RDFDATA3` inside it, then `RDF3-5-1 REDEFINES RDF3-5`
+    /// inside *that* (NC252A RDF-TEST-12). One flag stopped the chain at the
+    /// first hop; blocking only the description being written lets each further
+    /// overlay fire exactly once and still terminates.
+    syncing: std::collections::HashSet<String>,
     /// Numeric items whose PICTURE carries `P` scaling positions:
     /// `key → (trailing Ps, leading Ps)`. Those positions are not stored, so
     /// they always read as zero — see [`pic_scaling`].
@@ -224,9 +254,14 @@ pub struct CobolEnvironment {
 /// themselves. `PIC XXBXX/XX` receiving spaces reads `"     /  "`, which is
 /// what `INITIALIZE` on such an item has to leave behind (NC223A) and what
 /// `MOVE "ABCDEF" TO it` turns into `"AB CD/EF"` (NC114M).
-fn apply_alnum_edit(template: &str, src: &str) -> String {
-    let mut out = String::new();
-    let mut chars = src.chars();
+/// Works on **bytes**, not characters: `HIGH-VALUE` is `0xFF`, which is not
+/// valid UTF-8 and has no spelling one byte wide. Read through a `String` it
+/// became the three bytes of U+FFFD, so `MOVE HIGH-VALUE TO <PIC XX0XXBXXX>`
+/// filled the first source position with a replacement character and padded the
+/// rest with spaces (NC105A `MOVE-TEST-F1-69`).
+fn apply_alnum_edit(template: &str, src: &[u8]) -> Vec<u8> {
+    let mut out: Vec<u8> = Vec::new();
+    let mut chars = src.iter().copied();
     let up: Vec<char> = template.to_ascii_uppercase().chars().collect();
     let mut i = 0usize;
     while i < up.len() {
@@ -248,13 +283,16 @@ fn apply_alnum_edit(template: &str, src: &str) -> String {
         }
         for _ in 0..repeat {
             match c {
-                'X' | 'A' | '9' => out.push(chars.next().unwrap_or(' ')),
-                'B' => out.push(' '),
-                '0' => out.push('0'),
-                '/' => out.push('/'),
+                'X' | 'A' | '9' => out.push(chars.next().unwrap_or(b' ')),
+                'B' => out.push(b' '),
+                '0' => out.push(b'0'),
+                '/' => out.push(b'/'),
                 // Anything else in an alphanumeric-edited picture takes a
                 // character position of its own and is copied through.
-                other => out.push(other),
+                other => {
+                    let mut buf = [0u8; 4];
+                    out.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
+                }
             }
         }
     }
@@ -294,6 +332,12 @@ pub struct CondName {
     pub parent: String,
     /// The `VALUE` entries that make the condition true.
     pub values: Vec<ConditionValue>,
+    /// The condition-name's own ancestor path, **outermost first**: the host
+    /// item's path plus the host's own name. A condition-name is qualified by
+    /// the groups above it exactly as a data item is — including the host —
+    /// so `EQUALS-A OF TABLE-LEVEL-5 OF … OF GROUP-1-TABLE` is matched against
+    /// this path with the same subsequence rule `resolve_canonical` uses.
+    pub quals: Vec<String>,
 }
 
 /// Tally every named (non-FILLER) leaf in a declaration subtree, so the
@@ -335,7 +379,7 @@ fn is_filler_key(key: &str) -> bool {
 }
 
 /// The base item name of a (possibly subscripted) storage key: `A(2)` → `A`.
-fn base_name(key: &str) -> &str {
+pub fn base_name(key: &str) -> &str {
     match key.find('(') {
         Some(i) => &key[..i],
         None => key,
@@ -424,7 +468,7 @@ fn pic_scaling(template: &str) -> Option<(u16, u16, u32, u32)> {
 
 /// The subscripts a storage key carries: `A(2,3)` → `[2, 3]`; `A` → `[]`.
 /// The inverse of [`subscript_key`].
-fn key_indices(key: &str) -> Vec<i64> {
+pub fn key_indices(key: &str) -> Vec<i64> {
     let (Some(open), Some(close)) = (key.find('('), key.rfind(')')) else {
         return Vec::new();
     };
@@ -645,8 +689,19 @@ impl CobolEnvironment {
                 if peers.is_empty() {
                     continue;
                 }
+                // **Append**, never replace: a key inside a nested overlay
+                // belongs to more than one class, and each of them has to fire.
+                // `RDFDATA5` lies in both `RDF3 REDEFINES RDFDATA3` and
+                // `REDEF12 REDEFINES REDEF10`; keeping only the last class
+                // built left the inner overlay unreachable, so a write through
+                // the outer one never reached `RDF3-5` (NC252A RDF-TEST-12).
                 for trigger in self.subtree_keys(own) {
-                    self.redefine_links.insert(trigger, peers.clone());
+                    let slot = self.redefine_links.entry(trigger).or_default();
+                    for pair in &peers {
+                        if !slot.contains(pair) {
+                            slot.push(pair.clone());
+                        }
+                    }
                 }
             }
         }
@@ -726,24 +781,50 @@ impl CobolEnvironment {
     /// Re-render the description a write landed in into every description that
     /// shares its bytes. Guarded so the refresh does not bounce back.
     fn refresh_redefine_peers(&mut self, key: &str) {
-        if self.syncing {
-            return;
-        }
         let Some(peers) = self.redefine_links.get(base_name(key)).cloned() else {
             return;
         };
-        self.syncing = true;
         for (own, peer) in peers {
-            let bytes = self.display_string(&own).unwrap_or_default();
+            // Already in flight: `own` means this is the write coming back from
+            // the refresh that produced it, `peer` a description another
+            // refresh is in the middle of writing.
+            if self.syncing.contains(&own) || self.syncing.contains(&peer) {
+                continue;
+            }
+            self.syncing.insert(peer.clone());
+            let mut bytes = self.display_string(&own).unwrap_or_default();
+            // A **01-level** REDEFINES may describe more storage than the item
+            // it redefines, and CCVS85 tests exactly that: NC107A overlays a
+            // 46-byte `REDEF10` with a 92-byte `REDEF11` and a 120-byte
+            // `REDEF12`, then reads `RDFDATA18` at offset 106 and
+            // `RDFDATA8 (14)` at 46 — both past the redefined item's end.
+            //
+            // Bytes beyond the source's own length are not the source's to
+            // describe, so the peer keeps its own. Rendering the shorter
+            // description onto the longer one padded that tail with spaces and
+            // erased it (RDF-TEST-9, RDF-TEST-10).
+            if let Some(existing) = self.display_string(&peer) {
+                if let Some(tail) = existing.get(bytes.len()..) {
+                    bytes.push_str(tail);
+                }
+            }
             self.set_from_bytes(&peer, &bytes);
+            self.syncing.remove(&peer);
         }
-        self.syncing = false;
     }
 
     /// Store the character form `s` into `key`, reading it the way `key` is
     /// described: a group distributes it, an edited item keeps the characters,
     /// and a plain numeric reads them as its own digit positions with the
     /// implied decimal point in its declared place.
+    ///
+    /// The elementary branches write the slot directly rather than through
+    /// [`Self::set`], so the refresh that produced this write does not re-enter
+    /// through it — but they still refresh `key`'s **other** overlay classes
+    /// afterwards, or a description nested inside the one being written never
+    /// hears about it. `syncing` blocks only the description currently being
+    /// written, so that terminates. (The group and edited branches already
+    /// refresh through the writers they delegate to.)
     fn set_from_bytes(&mut self, key: &str, s: &str) {
         if self.is_group(key) {
             self.set_group(key, s);
@@ -755,6 +836,35 @@ impl CobolEnvironment {
         }
         if let Some(&(int_digits, decimals)) = self.field_caps.get(base_name(key)) {
             let width = int_digits as usize + decimals as usize;
+            // A REDEFINES overlay carries the target's **bytes**. When they
+            // spell digits the numeric item reads them as its own digit
+            // positions, which is what the filter below is for. When they do
+            // not, the characters stand as they are: filtering the letters out
+            // of `"00ABCDEFGHI  4321 "` invented the number 004321000000000000
+            // and `IS NUMERIC` then answered yes about an item full of letters
+            // (NC174A CLASS-TEST-GF-8 and CLASS-TEST-GF-10).
+            //
+            // A numeric slot holding characters is exactly what REDEFINES over
+            // an alphanumeric item produces; using it in arithmetic afterwards
+            // is undefined in COBOL-85, not ours to prevent — the same reading
+            // `set_group_bytes` already takes for a group move.
+            if !s
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == ' ' || c == '+' || c == '-')
+            {
+                let mut bytes = s.as_bytes().to_vec();
+                bytes.truncate(width);
+                bytes.resize(width, b' ');
+                self.store.insert(
+                    key.to_string(),
+                    CobolValue::String {
+                        bytes,
+                        capacity: width,
+                    },
+                );
+                self.refresh_redefine_peers(key);
+                return;
+            }
             let mut digits: String = s.chars().filter(|c| c.is_ascii_digit()).collect();
             if digits.len() < width {
                 digits.push_str(&"0".repeat(width - digits.len()));
@@ -764,6 +874,7 @@ impl CobolEnvironment {
             let signed = if s.contains('-') { -mantissa } else { mantissa };
             self.store
                 .insert(key.to_string(), CobolValue::Numeric(CobolNumeric::new(signed, decimals)));
+            self.refresh_redefine_peers(key);
             return;
         }
         self.set_str_left(key, s);
@@ -837,6 +948,14 @@ impl CobolEnvironment {
         if let Some(target) = self.addr_aliases.get(&key) {
             return target.clone();
         }
+        // A 66-level RENAMES over exactly one item *is* that item, description
+        // and all — so it is redirected for the same reason: every read keeps
+        // the renamed item's category (a numeric one stays numeric instead of
+        // arriving as its digit string) and every write lands in the renamed
+        // item's slot rather than in the RENAMES' own, which nothing reads.
+        if let Some(target) = self.renames_alias(&key) {
+            return target;
+        }
         key
     }
 
@@ -863,13 +982,21 @@ impl CobolEnvironment {
         }
         let qs: Vec<String> = quals.iter().map(|q| q.to_ascii_uppercase()).collect();
         for k in cands {
-            if let Some(sym) = self.symbols.get(k) {
-                // Qualifiers are innermost-first; the ancestor path is
-                // outermost-first, so match against the reversed path.
-                let rev: Vec<&String> = sym.quals.iter().rev().collect();
-                if is_subsequence(&qs, &rev) {
-                    return k.clone();
-                }
+            // A 66-level RENAMES has no `ItemSym` — it owns no storage — but it
+            // is qualified by its record like anything else, so its path comes
+            // from `renames_quals` instead.
+            let path = match self.symbols.get(k) {
+                Some(sym) => &sym.quals,
+                None => match self.renames_quals.get(k) {
+                    Some(p) => p,
+                    None => continue,
+                },
+            };
+            // Qualifiers are innermost-first; the ancestor path is
+            // outermost-first, so match against the reversed path.
+            let rev: Vec<&String> = path.iter().rev().collect();
+            if is_subsequence(&qs, &rev) {
+                return k.clone();
             }
         }
         cands[0].clone()
@@ -919,10 +1046,24 @@ impl CobolEnvironment {
         // elementary items; it has no storage of its own.
         if decl.level == 66 {
             if let (Some(name), Some(ren)) = (&upper, &decl.renames) {
-                let from = self.canonical_name(&ren.from, &[]);
-                let thru = ren.thru.as_ref().map(|t| self.canonical_name(t, &[]));
+                // The record this 66 belongs to. It is its own ancestor path,
+                // and it is also the context the renamed operands resolve in:
+                // `RENAMES TAG-1A THRU NAME-2` names items of *this* record,
+                // and `NAME-2` alone is declared in two of them (NC252A).
+                let path: Vec<String> = self.last_record.iter().cloned().collect();
+                let from = self.canonical_name(&ren.from, &path);
+                let thru = ren.thru.as_ref().map(|t| self.canonical_name(t, &path));
                 if let Some(covered) = self.renames_range(&from, thru.as_deref()) {
-                    self.renames.insert(name.clone(), covered);
+                    // Key it the way a data item is keyed, and make it visible
+                    // to `resolve_canonical`, so `RENAME-5 OF T-RENAMES-DATA`
+                    // reaches this declaration and not the last one parsed.
+                    let key = self.canon_key(name, &path);
+                    self.renames.insert(key.clone(), covered);
+                    self.renames_quals.insert(key.clone(), path);
+                    let slot = self.by_leaf.entry(name.clone()).or_default();
+                    if !slot.contains(&key) {
+                        slot.push(key);
+                    }
                 }
             }
             if occ.is_some() {
@@ -933,6 +1074,11 @@ impl CobolEnvironment {
 
         if is_named {
             let leaf = upper.clone().unwrap();
+            // A record description begins here; every 66 that follows belongs
+            // to it until the next one starts.
+            if quals.is_empty() {
+                self.last_record = Some(leaf.clone());
+            }
             let is_global = inherited_global || decl.is_global;
             // Canonical storage key: the leaf itself when unique, otherwise a
             // path-qualified key that disambiguates duplicated names.
@@ -943,25 +1089,40 @@ impl CobolEnvironment {
             if let Some(target) = &decl.redefines {
                 let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
                 self.redefine_pairs.push((key.clone(), tkey));
+                self.redefinitions.insert(key.clone());
             }
-            // Register any 88-level condition-names qualifying this item.
+            // Register any 88-level condition-names qualifying this item. The
+            // condition-name's qualification path is this item's path plus this
+            // item's own name — an 88 is reached through the host and every
+            // group above it.
             for c in &decl.children {
                 if c.level == 88 {
                     if let Some(cn) = &c.name {
-                        self.cond_names.insert(
-                            cn.to_ascii_uppercase(),
-                            CondName {
+                        let mut path = quals.clone();
+                        path.push(leaf.clone());
+                        self.cond_names
+                            .entry(cn.to_ascii_uppercase())
+                            .or_default()
+                            .push(CondName {
                                 parent: key.clone(),
                                 values: c.condition_values.clone(),
-                            },
-                        );
+                                quals: path,
+                            });
                     }
                 }
             }
+            // The `CORRESPONDING` list. A 66-level RENAMES is left out for the
+            // same reason an 88 is: COBOL-85 6.18.4 GR1 excludes it, and it is
+            // a regrouping of items the group already lists rather than an item
+            // of its own. Included, `66 HARRY RENAMES HARRY-A THRU HARRY-B`
+            // received the sender's `HARRY` and overwrote both (NC209A
+            // MOV-TEST-F2-5). The exclusion belongs here, on the declaration,
+            // and not on the name: a plain `HARRY` under some other group is a
+            // perfectly ordinary corresponding item (MOV-TEST-F2-4).
             let children: Vec<String> = decl
                 .children
                 .iter()
-                .filter(|c| c.level != 88)
+                .filter(|c| c.level != 88 && c.level != 66)
                 .filter_map(|c| c.name.as_ref())
                 .map(|n| n.to_ascii_uppercase())
                 .filter(|n| n != "FILLER")
@@ -1153,6 +1314,29 @@ impl CobolEnvironment {
             );
         }
 
+        // A `VALUE` on a **group** is the group's own bytes, distributed across
+        // its subordinate items exactly as a group MOVE distributes them:
+        // `01 G VALUE "$123.45". 02 E PIC $999.99.` leaves `E` holding
+        // `"$123.45"`, insertion characters and all. `insert_value` wrote the
+        // literal into the group's own slot, which nothing reads back — a
+        // group's value is synthesized from its children — so the child kept
+        // its default and NC104A's MOVE-TEST-F1-29 moved an empty item. This
+        // runs after the children loop because it needs their slots to measure
+        // each one's share.
+        if let (Some(k), Some(lit)) = (owner_key.clone(), &decl.value) {
+            if let Some(width) = self.group_width(&k) {
+                let default = CobolValue::spaces(width.max(1));
+                let filled = apply_literal(lit, &default);
+                // Take the bytes, not the display string: `VALUE HIGH-VALUES`
+                // is `0xFF`, which has no one-byte UTF-8 spelling.
+                let bytes = match &filled {
+                    CobolValue::String { bytes, .. } => bytes.clone(),
+                    other => other.as_display_string().into_bytes(),
+                };
+                self.set_group_bytes(&k, &bytes);
+            }
+        }
+
         if is_named {
             quals.pop();
         }
@@ -1241,7 +1425,14 @@ impl CobolEnvironment {
             }
             // JUSTIFIED applies only to an alphanumeric/alphabetic receiver;
             // the standard does not allow it on a numeric or edited one.
-            if decl.justified && matches!(pic.kind, PicKind::Alphanumeric) {
+            //
+            // `PICTURE A(5) JUSTIFIED RIGHT` is the alphabetic half, and it was
+            // missing: only `Alphanumeric` was matched, so the clause parsed,
+            // the item was never recorded, and every `MOVE` into it left-
+            // aligned. NC107A's JUST-TEST-03 and JUST-TEST-04 move into
+            // `AJ-00005 PICTURE A(5)` and want `"  ABC"` and the rightmost five
+            // characters of a longer sender.
+            if decl.justified && matches!(pic.kind, PicKind::Alphanumeric | PicKind::Alphabetic) {
                 self.justified.insert(upper.to_string());
             }
         }
@@ -1282,7 +1473,32 @@ impl CobolEnvironment {
 
     /// The 88-level condition-name metadata for `name`, if it is one.
     pub fn cond_name(&self, name: &str) -> Option<&CondName> {
-        self.cond_names.get(&name.to_ascii_uppercase())
+        self.cond_name_qual(name, &[])
+    }
+
+    /// Resolve a condition-name against its `OF`/`IN` qualifiers (innermost
+    /// first), the way [`resolve_canonical`](Self::resolve_canonical) resolves a
+    /// data name: the qualifiers must appear, in order, somewhere in the
+    /// condition-name's own ancestor path — intermediate levels may be skipped.
+    ///
+    /// Without this a duplicated 88 name resolved to whichever declaration came
+    /// last, so `EQUALS-A OF … OF GROUP-1-TABLE` tested `GROUP-3-TABLE`'s item
+    /// and its subscript addressed an occurrence that table does not have.
+    pub fn cond_name_qual(&self, name: &str, quals: &[String]) -> Option<&CondName> {
+        let cands = self.cond_names.get(&name.to_ascii_uppercase())?;
+        if cands.len() == 1 || quals.is_empty() {
+            return cands.first();
+        }
+        let qs: Vec<String> = quals.iter().map(|q| q.to_ascii_uppercase()).collect();
+        cands
+            .iter()
+            .find(|c| {
+                // Qualifiers are innermost-first; the stored path is
+                // outermost-first, so match against the reversed path.
+                let rev: Vec<&String> = c.quals.iter().rev().collect();
+                is_subsequence(&qs, &rev)
+            })
+            .or_else(|| cands.first())
     }
 
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────
@@ -1325,10 +1541,42 @@ impl CobolEnvironment {
         let (lo, _) = self.leaf_span(from)?;
         let (_, hi) = self.leaf_span(thru.unwrap_or(from))?;
         if hi >= lo {
-            Some(self.elem_order[lo..=hi].to_vec())
+            Some(
+                self.elem_order[lo..=hi]
+                    .iter()
+                    .flat_map(|k| self.table_element_keys(k))
+                    .collect(),
+            )
         } else {
             None
         }
+    }
+
+    /// The storage keys a covered elementary item contributes: itself, or one
+    /// key per occurrence when it is a table.
+    ///
+    /// `elem_order` holds one entry per *declaration*, so an `OCCURS` item
+    /// appears once however many occurrences it has. A RENAMES over a group
+    /// containing one read only the base slot — `RENAME-7 RENAMES ITEM-1 THRU
+    /// TABLE-2` came back as `"BOSTO"` instead of `"BOSTON MASSACHUSETTS"`
+    /// (NC252A RENAM-TEST-11).
+    fn table_element_keys(&self, key: &str) -> Vec<String> {
+        let dims = match self.symbols.get(key) {
+            Some(sym) if !sym.dims.is_empty() => sym.dims.clone(),
+            _ => return vec![key.to_string()],
+        };
+        let total: usize = dims.iter().product();
+        (0..total)
+            .map(|n| {
+                let mut rem = n;
+                let mut idx = vec![0i64; dims.len()];
+                for d in (0..dims.len()).rev() {
+                    idx[d] = (rem % dims[d]) as i64 + 1;
+                    rem /= dims[d];
+                }
+                subscript_key(key, &idx)
+            })
+            .collect()
     }
 
     /// The `[first, last]` `elem_order` index span of an item: itself if
@@ -1360,6 +1608,35 @@ impl CobolEnvironment {
     /// `true` if `name` is a 66-level RENAMES item.
     pub fn is_renames(&self, name: &str) -> bool {
         self.renames.contains_key(&name.to_ascii_uppercase())
+    }
+
+    /// The single item a 66-level RENAMES regroups, when it regroups exactly
+    /// one.
+    ///
+    /// COBOL-85 gives such an item the *description* of the item it renames —
+    /// `66 RENAME-12 RENAMES WIDGET-4` where `WIDGET-4 PIC 9(4)` is a numeric
+    /// item four digits wide, not a group. Arithmetic on it therefore has a
+    /// capacity to overflow and a slot to land in; without this the receiver
+    /// was the RENAMES' own (unread) key, so `ADD 3500 TO RENAME-12` neither
+    /// raised `ON SIZE ERROR` nor changed anything (NC252A RENAM-TEST-16).
+    pub fn renames_alias(&self, name: &str) -> Option<String> {
+        let covered = self.renames.get(&name.to_ascii_uppercase())?;
+        match covered.as_slice() {
+            [only] => Some(only.clone()),
+            _ => None,
+        }
+    }
+
+    /// `true` if the item was declared **with** a `REDEFINES` clause — a second
+    /// description of storage another item already owns.
+    ///
+    /// COBOL-85 6.18.4 GR1 leaves such an item (and everything subordinate to
+    /// it) out of `CORRESPONDING`: `04 DD-LEVEL REDEFINES DD-LEVEL-FALSE. 05
+    /// HARRY PIC X(5).` must not receive the sender's `HARRY` (NC209A
+    /// MOV-TEST-F2-6).
+    pub fn is_redefinition(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
+        self.redefinitions.contains(&key) || self.redefinitions.contains(base_name(&key))
     }
 
     // ── Group items ───────────────────────────────────────────────────────────
@@ -1516,6 +1793,47 @@ impl CobolEnvironment {
         Some(out)
     }
 
+    /// A group's record as **bytes** — [`Self::group_value`] without the UTF-8
+    /// round trip.
+    ///
+    /// `HIGH-VALUE` is the byte `0xFF`, which is not valid UTF-8, so reading a
+    /// record through a `String` replaced each such byte with U+FFFD — three
+    /// bytes where the item stores one. Every field after it then shifted by
+    /// two, and NC211A's FIG-TEST-3 read its `LOW-VALUES` item out of the
+    /// middle of the mangled `HIGH-VALUES` one that preceded it.
+    pub fn group_bytes(&self, name: &str) -> Option<Vec<u8>> {
+        let key = name.to_ascii_uppercase();
+        let sym = self.symbols.get(base_name(&key))?;
+        if !sym.is_group || sym.layout_keys.is_empty() {
+            return None;
+        }
+        let mut out = Vec::new();
+        for ck in self.occurrence_keys(sym, &key_indices(&key)) {
+            out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default());
+        }
+        Some(out)
+    }
+
+    /// One item's stored form as bytes: the raw bytes of an alphanumeric item,
+    /// and the rendered characters of anything else.
+    ///
+    /// Only an alphanumeric slot can hold a byte that is not a character, so
+    /// every other category is identical to [`Self::display_string`] and is
+    /// taken from it rather than duplicated.
+    pub fn display_bytes(&self, name: &str) -> Option<Vec<u8>> {
+        let key = name.to_ascii_uppercase();
+        if self.renames.contains_key(&key) {
+            return self.renames_value(&key).map(String::into_bytes);
+        }
+        if let Some(g) = self.group_bytes(&key) {
+            return Some(g);
+        }
+        match self.get(&key) {
+            Some(CobolValue::String { bytes, .. }) => Some(bytes.clone()),
+            _ => self.display_string(&key).map(String::into_bytes),
+        }
+    }
+
     /// The stored width of one item in bytes — its rendered, fixed-width form.
     /// For a group that is the sum of its children, by the same recursion.
     ///
@@ -1571,6 +1889,13 @@ impl CobolEnvironment {
     /// accepts a subscripted key (`GRP-1(2)`) so a group move into one
     /// occurrence of a table lands in that occurrence's own child slots.
     pub fn set_group(&mut self, name: &str, s: &str) {
+        self.set_group_bytes(name, s.as_bytes());
+    }
+
+    /// [`Self::set_group`] over raw bytes, for a record that may hold a byte
+    /// which is not a character — `HIGH-VALUE` is `0xFF` and has no UTF-8
+    /// spelling of its own width. See [`Self::group_bytes`].
+    pub fn set_group_bytes(&mut self, name: &str, bytes: &[u8]) {
         let key = name.to_ascii_uppercase();
         let Some(sym) = self.symbols.get(base_name(&key)) else {
             return;
@@ -1586,52 +1911,38 @@ impl CobolEnvironment {
             Some(sym) => self.occurrence_keys(sym, &key_indices(&key)),
             None => Vec::new(),
         };
-        let bytes = s.as_bytes();
         let mut pos = 0usize;
         for ck in child_keys {
             let width = self.item_width(&ck).max(1);
             let end = (pos + width).min(bytes.len());
-            let chunk = if pos < bytes.len() {
-                String::from_utf8_lossy(&bytes[pos..end]).into_owned()
+            // Slice, then pad on the right to the child's own width — on the
+            // bytes, so a `0xFF` lands as the one byte it is.
+            let mut padded = if pos < bytes.len() {
+                bytes[pos..end].to_vec()
             } else {
-                String::new()
+                Vec::new()
             };
-            let padded = format!("{chunk:<width$}");
+            padded.resize(width, b' ');
             if self.is_group(&ck) {
-                self.set_group(&ck, &padded);
-            } else if self.field_caps.contains_key(base_name(&ck)) {
-                // Numeric receiver: keep the digits the bytes spell out.
-                match padded.trim().parse::<i128>() {
-                    Ok(_) => {
-                        let width = padded.len();
-                        self.store
-                            .insert(ck.clone(), CobolValue::from_str(&padded, width));
-                        self.refresh_redefine_peers(&ck);
-                    }
-                    // A group move carries **bytes**, not values: the receiving
-                    // item is a group, so the standard makes the whole move
-                    // alphanumeric and each slice lands in its child exactly as
-                    // it stands, whatever that child's PICTURE says. `MOVE
-                    // SPACE TO <group of PIC 99 children>` has to leave the
-                    // group reading as spaces, and `MOVE <120 bytes of "A"> TO
-                    // <group with PIC 9(5) children>` has to leave it reading
-                    // as `A`s (NC252A RDF-TEST-11).
-                    //
-                    // Only the blank slice used to be stored and every other
-                    // non-numeric one was **dropped**, so the child kept its old
-                    // digits and the record read `AAA    0AA     0AAAA`. A
-                    // numeric item holding characters is exactly what the
-                    // program asked for; using it in arithmetic afterwards is
-                    // undefined in COBOL-85, not our problem to prevent.
-                    Err(_) => {
-                        let width = padded.len();
-                        self.store
-                            .insert(ck.clone(), CobolValue::from_str(&padded, width));
-                        self.refresh_redefine_peers(&ck);
-                    }
-                }
+                self.set_group_bytes(&ck, &padded);
             } else {
-                self.set_str(&ck, &padded);
+                // A group move carries **bytes**, not values: the sending item
+                // is a group, so the standard makes the whole move alphanumeric
+                // and each slice lands in its child exactly as it stands,
+                // whatever that child's PICTURE says. `MOVE SPACE TO <group of
+                // PIC 99 children>` has to leave the group reading as spaces,
+                // and `MOVE <120 bytes of "A"> TO <group with PIC 9(5)
+                // children>` has to leave it reading as `A`s (NC252A
+                // RDF-TEST-11). A numeric item holding characters is exactly
+                // what the program asked for; using it in arithmetic afterwards
+                // is undefined in COBOL-85, not our problem to prevent.
+                //
+                // The same holds for an **alphanumeric-edited** child, which
+                // used to be routed through `set_bytes` and had its insertion
+                // characters re-imposed: `MOVE "1 A05" TO <group whose only
+                // child is PIC XBA09>` stored `"1  0A"`, the edit re-applied to
+                // an already-edited slice (NC105A MOVE-TEST-F1-13).
+                self.set_verbatim_bytes(&ck, &padded);
             }
             pos += width;
         }
@@ -1855,6 +2166,15 @@ impl CobolEnvironment {
         if self.field_caps.contains_key(&key) || self.field_caps.contains_key(base_name(&key)) {
             return false;
         }
+        // A **group** is category alphanumeric whatever its children are, and it
+        // owns no slot of its own to answer with — so ask the declaration. A
+        // group paired with a numeric operand takes the nonnumeric comparison,
+        // in which the numeric side becomes its characters padded on the right:
+        // `PIC 9(5) VALUE 12345` against a ten-byte group holding `0000012345`
+        // is `"12345     "`, and unequal (NC250A IF--TEST-77).
+        if self.is_group(&key) {
+            return true;
+        }
         matches!(self.get(&key), Some(CobolValue::String { .. }))
     }
 
@@ -1913,6 +2233,24 @@ impl CobolEnvironment {
     pub fn is_blank_when_zero(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         self.blank_when_zero.contains(&key) || self.blank_when_zero.contains(base_name(&key))
+    }
+
+    /// `true` when `name` is a numeric DISPLAY item whose operational sign is
+    /// **overpunched** — folded into a digit position rather than occupying a
+    /// character position of its own.
+    ///
+    /// That is every signed numeric item except one declared `SIGN IS …
+    /// SEPARATE CHARACTER`. It matters to anything that reads an item's
+    /// *character positions*: `INSPECT <PIC S9(5) holding -12345> TALLYING …
+    /// FOR ALL "-"` must be 0, because no position holds a minus sign (NC216A
+    /// INS-TEST-F1-23). A numeric-**edited** item is not one of these — it
+    /// stores its edited characters, sign and all, and keeps no `field_caps`
+    /// entry.
+    pub fn sign_is_overpunched(&self, name: &str) -> bool {
+        let key = name.to_ascii_uppercase();
+        let numeric =
+            self.field_caps.contains_key(&key) || self.field_caps.contains_key(base_name(&key));
+        numeric && self.separate_sign_of(&key).is_none()
     }
 
     /// `Some(leading?)` when `key` is a `SIGN IS … SEPARATE CHARACTER` item.
@@ -2032,11 +2370,21 @@ impl CobolEnvironment {
         // characters on whatever arrives: the sender supplies only the
         // characters for the `X`/`A`/`9` positions.
         if let Some(template) = self.alnum_edited.get(base_name(&key)).cloned() {
-            let src = value.as_display_string();
+            // The sender's **bytes**, so a `0xFF` reaches its source position
+            // as the one byte it is — see [`apply_alnum_edit`].
+            let src = match &value {
+                CobolValue::String { bytes, .. } => bytes.clone(),
+                other => other.as_display_string().into_bytes(),
+            };
             let edited = apply_alnum_edit(&template, &src);
-            let width = edited.chars().count();
-            self.store
-                .insert(key.clone(), CobolValue::from_str(&edited, width));
+            let width = edited.len();
+            self.store.insert(
+                key.clone(),
+                CobolValue::String {
+                    bytes: edited,
+                    capacity: width,
+                },
+            );
             self.refresh_redefine_peers(&key);
             return;
         }
@@ -2236,6 +2584,91 @@ impl CobolEnvironment {
             cap
         };
         self.set(name, CobolValue::from_str(s, cap));
+    }
+
+    /// [`Self::set_str`] over raw bytes, for a value that may hold a byte which
+    /// is not a character. See [`Self::group_bytes`].
+    pub fn set_bytes(&mut self, name: &str, b: &[u8]) {
+        let cap = match self.get(name) {
+            Some(CobolValue::String { capacity, .. }) => *capacity,
+            _ => b.len(),
+        };
+        let cap = if self
+            .justified
+            .contains(base_name(&name.to_ascii_uppercase()))
+        {
+            b.len()
+        } else {
+            cap
+        };
+        let mut bytes = b.to_vec();
+        bytes.truncate(cap);
+        bytes.resize(cap, b' ');
+        self.set(
+            name,
+            CobolValue::String {
+                bytes,
+                capacity: cap,
+            },
+        );
+    }
+
+    /// Store `bytes` in an **elementary** item exactly as they stand, at the
+    /// item's own width — no numeric conversion, no editing.
+    ///
+    /// This is the receiving half of a move whose sender is a **group**.
+    /// COBOL-85 6.18.4 makes such a move alphanumeric-to-alphanumeric, so the
+    /// receiver's PICTURE contributes its *size* and nothing else:
+    /// `MOVE <group holding "123ABC"> TO <PIC 0XXXXX0>` leaves `"123ABC "`,
+    /// not the edited `"0123AB0"` (NC105A `MOVE-TEST-F1-20`), and
+    /// `MOVE <group holding "123ABC"> TO <PIC 9999V999>` leaves those six
+    /// characters plus a space, which the item's `PIC X(7)` REDEFINES reads
+    /// back (`MOVE-TEST-F1-17`). It is also how a group distributes bytes into
+    /// its own children, where re-editing an alphanumeric-edited child turned
+    /// `"1 A05"` into `"1  0A"` (`MOVE-TEST-F1-13`).
+    ///
+    /// `JUSTIFIED RIGHT` is **not** applied here, because this same writer
+    /// places a group's slice into a child, where the bytes are already the
+    /// child's own width and must land where they fall. A move that has a
+    /// receiver to align goes through [`Self::set_move_bytes`] instead.
+    pub fn set_verbatim_bytes(&mut self, name: &str, bytes: &[u8]) {
+        let key = self.storage_key(name.to_ascii_uppercase());
+        let width = self.item_width(&key).max(1);
+        let mut out = bytes.to_vec();
+        out.truncate(width);
+        out.resize(width, b' ');
+        self.store.insert(
+            key.clone(),
+            CobolValue::String {
+                bytes: out,
+                capacity: width,
+            },
+        );
+        self.refresh_redefine_peers(&key);
+    }
+
+    /// The receiving half of an alphanumeric move into an **elementary** item,
+    /// over raw bytes: `JUSTIFIED RIGHT` decides which end is padded and which
+    /// end is lost, then the bytes are stored as they stand.
+    ///
+    /// `MOVE <group holding "ABC"> TO <PIC A(7) JUSTIFIED RIGHT>` leaves
+    /// `"    ABC"`, and a fifteen-byte group into that same receiver keeps its
+    /// **rightmost** seven (NC107A `JUST-TEST-04`). The alignment lives here
+    /// rather than in [`Self::set_verbatim_bytes`] because that writer also
+    /// serves group distribution, where a slice is already the child's own
+    /// width and must not be re-aligned.
+    pub fn set_move_bytes(&mut self, name: &str, bytes: &[u8]) {
+        let key = self.storage_key(name.to_ascii_uppercase());
+        if !self.justified.contains(base_name(&key)) {
+            self.set_verbatim_bytes(&key, bytes);
+            return;
+        }
+        let width = self.item_width(&key).max(1);
+        let src = trim_trailing_spaces(bytes);
+        let take = src.len().min(width);
+        let mut out = vec![b' '; width];
+        out[width - take..].copy_from_slice(&src[src.len() - take..]);
+        self.set_verbatim_bytes(&key, &out);
     }
 
     /// `true` if the named data item is declared.
@@ -2469,6 +2902,34 @@ fn apply_literal(lit: &Literal, default: &CobolValue) -> CobolValue {
                 // `VALUE QUOTE` reading as spaces — `NC109M`'s `ACCEPT-D18` is
                 // `PICTURE X VALUE QUOTE` and compared equal to nothing.
                 FigurativeConstant::Quote => CobolValue::from_str(&"\"".repeat(cap), cap),
+                // `ALL literal` repeats its unit across the whole item:
+                // `PIC X(6) VALUE ALL "ABC"` is `"ABCABC"`, `PIC XXX VALUE
+                // ALL "Z"` is `"ZZZ"`. Every other figurative constant is one
+                // character and the arms above fill with it; `ALL` is the only
+                // one whose unit can be wider than a byte, so it fell through
+                // to `default` and the item was left holding spaces — NC211A's
+                // FIG-TEST-1 and FIG-TEST-2 both read that gap out of a group
+                // MOVE. `ALL` in front of a *figurative* never arrives here:
+                // the parser folds `ALL SPACES` down to `SPACES`, so `inner` is
+                // always a real literal.
+                FigurativeConstant::All(inner) => {
+                    let unit = match inner.as_ref() {
+                        Literal::String(s) => s.clone(),
+                        Literal::Integer(n) | Literal::IntegerDigits(n, _) => {
+                            inner.integer_digits().unwrap_or_else(|| n.to_string())
+                        }
+                        _ => String::new(),
+                    };
+                    match default {
+                        CobolValue::String { capacity, .. } if !unit.is_empty() => {
+                            let filled: String = unit.chars().cycle().take(*capacity).collect();
+                            CobolValue::from_str(&filled, *capacity)
+                        }
+                        // A numeric receiver has no character positions to
+                        // repeat into — it takes the literal's value once.
+                        _ => apply_literal(inner, default),
+                    }
+                }
                 _ => default.clone(),
             }
         }

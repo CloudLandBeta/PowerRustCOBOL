@@ -1104,6 +1104,30 @@ fn report_pass(members: &[Member], filter: &str) {
     let _ = std::fs::remove_dir_all(&workroot);
 }
 
+/// The CCVS85 implementor substitutions, applied to a member's source before
+/// it is compiled and run.
+///
+/// `XXXXX090` and `XXXXX091` are the suite's placeholders for the **ordinal
+/// positions, in the implementor's native character set, of the letters `A`
+/// and `D`**. NC174A and NC254A declare the same three classes twice — once
+/// with the literals `"A"` and `"D"`, once with these placeholders — and check
+/// that the two spellings agree. Left unsubstituted the ordinal classes name no
+/// character at all, so `'A' IS ORDINAL-A-ONLY` was false while its `ACTUAL-`
+/// twin passed. This is the same kind of implementor input the switch settings
+/// and the operator decks already supply, not a change to what is tested.
+///
+/// **Each replacement is padded to the placeholder's own eight characters.**
+/// These are fixed-format decks: a shorter operand drags the sequence area in
+/// columns 73-80 leftwards into the content area, where `NC1744.2` would then
+/// be read as code.
+fn substitute_implementor_names(raw: &str) -> String {
+    // ASCII puts `A` at 65 and `D` at 68, so the 1-based ordinal positions are
+    // 66 and 69 — the values `parse_special_names_class` turns back into
+    // characters with `char::from_u32(n - 1)`.
+    raw.replace("XXXXX090", "66      ")
+        .replace("XXXXX091", "69      ")
+}
+
 /// Run one program in its own directory, under both budgets.
 ///
 /// The raw report is returned alongside the score so [`fails_pass`] can read
@@ -1123,7 +1147,7 @@ fn run_one(
         );
     }
     let src = dir.join(format!("{name}.cbl"));
-    if std::fs::write(&src, raw).is_err() {
+    if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
     }
 

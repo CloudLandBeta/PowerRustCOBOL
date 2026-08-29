@@ -5744,6 +5744,26 @@ impl PropertiesPanel {
                     None,
                     0,
                 );
+                {
+                    // The COBOL PICTURE the box's contents obey. Left empty it
+                    // is derived from MaxLength, so the hint shows the picture
+                    // actually in force rather than a bare "(none)".
+                    let cur = ctrl
+                        .get_prop("Picture")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let derived = ctrl.effective_picture().unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "Picture",
+                        &cur,
+                        tr.prop_picture,
+                        &derived,
+                        action,
+                    );
+                }
                 bool_row_inline(ui, id, "Multiline", "Multiline", ctrl, action);
                 bool_row_inline(ui, id, "WordWrap", "WordWrap", ctrl, action);
                 bool_row_inline(ui, id, "ReadOnly", "ReadOnly", ctrl, action);

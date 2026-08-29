@@ -269,7 +269,10 @@ impl<'a> ResolveCtx<'a> {
             },
             // An empty target is the altered `GO TO.`; the procedure-name comes
             // from an `ALTER` at run time, so there is nothing to resolve here.
-            Stmt::GoTo { target, span } => {
+            // The qualifier names a SECTION, which `check_procedure` already
+            // knows as a procedure-name; the paragraph itself is what has to
+            // exist, so only `target` is checked.
+            Stmt::GoTo { target, span, .. } => {
                 if !target.is_empty() {
                     self.check_procedure(target, *span)
                 }

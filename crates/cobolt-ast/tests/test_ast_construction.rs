@@ -153,6 +153,8 @@ fn data_decl_elementary() {
         is_global: false,
         is_external: false,
         blank_when_zero: false,
+        justified: false,
+        sign: None,
         children: vec![],
         span: dummy_span(),
     };
@@ -183,6 +185,8 @@ fn data_decl_group() {
         is_global: false,
         is_external: false,
         blank_when_zero: false,
+        justified: false,
+        sign: None,
         children: vec![],
         span: dummy_span(),
     };
@@ -200,6 +204,8 @@ fn data_decl_group() {
         is_global: false,
         is_external: false,
         blank_when_zero: false,
+        justified: false,
+        sign: None,
         children: vec![child],
         span: dummy_span(),
     };
@@ -236,6 +242,8 @@ fn data_decl_table() {
         is_global: false,
         is_external: false,
         blank_when_zero: false,
+        justified: false,
+        sign: None,
         children: vec![],
         span: dummy_span(),
     };
@@ -341,6 +349,7 @@ fn stmt_perform_varying() {
             until: cond,
             stmts: vec![Stmt::Continue { span: dummy_span() }],
             after: vec![],
+            test_before: true,
         },
         span: dummy_span(),
     };
@@ -372,6 +381,7 @@ fn stmt_open_close() {
         lock: false,
         registered_user: None,
         span: dummy_span(),
+        extra_modes: Vec::new(),
     };
     let close = Stmt::Close {
         files: vec!["MY-FILE".into()],
@@ -430,6 +440,8 @@ fn program_construction() {
                 is_global: false,
                 is_external: false,
                 blank_when_zero: false,
+        justified: false,
+        sign: None,
                 children: vec![],
                 span: dummy_span(),
             }])],
@@ -463,6 +475,11 @@ fn program_construction() {
         end_program_name: None,
         decimal_comma: false,
         repository: vec![],
+        classes: vec![],
+        switch_names: vec![],
+        alphabets: vec![],
+        collating_sequence: None,
+        currency: '$',
         span: dummy_span(),
     };
 

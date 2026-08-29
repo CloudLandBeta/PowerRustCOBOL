@@ -467,6 +467,7 @@ impl FormHost {
                 surface_theme,
                 glass_style,
                 controls: flat,
+                special_names: form.cobol_structure.special_names.clone(),
                 state,
                 bg_hex: form.background_color.clone(),
                 bg_gradient_enabled: form.background_gradient_enabled,
@@ -574,6 +575,12 @@ pub(crate) struct FormBody {
     pub(crate) surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
     pub(crate) glass_style: cobolt_forms::model::GlassStyle,
     pub(crate) controls: Vec<cobolt_forms::Control>,
+    /// The form's `SPECIAL-NAMES` paragraph, verbatim. A control's `Picture`
+    /// takes its decimal separator and currency character from here, so the
+    /// running form reads `DECIMAL-POINT IS COMMA` exactly as the generated
+    /// program does. Carried as text rather than as the whole `Form` because
+    /// this is the only part of it the body needs.
+    pub(crate) special_names: String,
     pub(crate) state: HashMap<String, CtrlState>,
     pub(crate) bg_hex: String,
     pub(crate) bg_gradient_enabled: bool,
@@ -684,6 +691,7 @@ impl FormBody {
             state: &self.state,
             anim: &self.anim,
             hidden: None,
+            special_names: &self.special_names,
         };
         let active_tabs = cobolt_forms::containers::ActiveTabs::default();
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
@@ -1427,6 +1435,7 @@ impl FormBody {
                 state: &self.state,
                 anim: &self.anim,
                 hidden: Some(&self.footer_ids),
+                special_names: &self.special_names,
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = self.backdrop(ctx);
@@ -2333,6 +2342,7 @@ impl FormHost {
             surface_theme,
             glass_style: form.glass_style,
             controls: flat,
+            special_names: form.cobol_structure.special_names.clone(),
             state,
             bg_hex: form.background_color.clone(),
             bg_gradient_enabled: form.background_gradient_enabled,
@@ -3047,6 +3057,7 @@ impl FormHost {
                 state: &self.root.state,
                 anim: &self.root.anim,
                 hidden: Some(&self.root.footer_ids),
+                special_names: &self.root.special_names,
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
             let backdrop = self.root.backdrop(ctx);
@@ -3596,6 +3607,7 @@ mod parity {
                 state: &h.root.state,
                 anim: &h.root.anim,
                 hidden: None,
+                special_names: &h.root.special_names,
             };
             st.visible(&sw)
         };
@@ -3956,6 +3968,7 @@ mod parity {
             state: &pane.root.state,
             anim: &pane.root.anim,
             hidden: Some(&pane.root.footer_ids),
+            special_names: &pane.root.special_names,
         };
         assert!(
             !st.visible(&ctrl_of(&pane, "SIDE-1-Footer"))
@@ -4491,6 +4504,7 @@ mod parity {
             surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             glass_style: cobolt_forms::model::GlassStyle::default(),
             controls: vec![timer],
+            special_names: String::new(),
             state: HashMap::new(),
             bg_hex: String::new(),
             bg_gradient_enabled: false,

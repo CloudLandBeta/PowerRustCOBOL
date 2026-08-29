@@ -3633,6 +3633,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "HintText" => ("free text", "Placeholder shown while the box is empty."),
         "InnerPadding" => ("pixels ≥ 0", "Padding between the border and the text."),
         "MaximumLength" => ("characters ≥ 0; 0 = unlimited", "Maximum text length accepted."),
+        "Picture" => (
+            "a COBOL PICTURE template (`X(30)`, `A(20)`, `S9(4)V99`, `ZZZ,ZZ9.99-`); empty = derived from MaximumLength",
+            "The COBOL PICTURE the box's contents obey. It is both validator and mask: each keystroke is checked against what is legal at that character position (`A` letters and space, `9` digits, `X` any byte), and the box shows the edited form when it is not focused and the plain stored value when it is. The generated `-TEXT` and `-VALUE` items are declared with this same picture, so a comparison against them follows COBOL's rules by construction. The decimal separator is the form's: under DECIMAL-POINT IS COMMA a comma is the decimal point and a period is the grouping character. A sign may be typed at either end and is normalised to where the picture puts it. Left empty, the picture is `X(n)` sized from MaximumLength, or `X(256)` single-line / `X(2048)` multiline when that is 0; set explicitly, its own width is authoritative and MaximumLength no longer bounds the field.",
+        ),
         "Multiline" => (BOOL_DOMAIN, "Multi-line editing."),
         "PasswordCharacter" => ("single character or empty", "Masks input with this character when set."),
         "ReadOnly" => (BOOL_DOMAIN, "Blocks user editing (value still settable from COBOL)."),

@@ -845,20 +845,54 @@ pub struct Interpreter {
     env_name_register: String,
     /// `USE AFTER STANDARD ERROR` declarative handlers (top-level program).
     declaratives: Vec<DeclHandler>,
+    /// The paragraph space a declarative runs in: every declarative section's
+    /// paragraphs first, then the main body's.
+    ///
+    /// It is a **separate** space, swapped in only while a handler runs, for
+    /// two reasons the standard forces. Control must never *fall* from the main
+    /// body into a declarative, which appending them to the main space would
+    /// allow; and a name declared in both must resolve to the declarative copy
+    /// while a handler is running and to the body's everywhere else. The main
+    /// body follows the declaratives in the same space because a `USE`
+    /// procedure may `PERFORM` a paragraph of the non-declarative portion.
+    decl_space: ParaSpace,
     /// Re-entrancy guard so a declarative's own I/O cannot re-trigger it.
     in_declarative: bool,
     /// Logical file name → the mode it was last OPENed with (for mode-based USE).
     open_modes: HashMap<String, OpenMode>,
+    /// Files whose sequential position is past the last record, because a
+    /// `READ` raised `AT END`. The *next* sequential `READ` on one of these is
+    /// status **46** — no valid next record has been established — not another
+    /// `10`. Cleared by an `OPEN`, and by any read or `START` that establishes
+    /// a record again.
+    at_end_files: std::collections::HashSet<String>,
 }
 
 /// A runtime-ready `USE AFTER STANDARD ERROR` handler: which files / open-modes
-/// it covers and the statements to run when a matching I/O error occurs.
+/// it covers and where its section sits in the declarative paragraph space.
 #[derive(Clone)]
 struct DeclHandler {
     files: Vec<String>,
     modes: Vec<UseMode>,
     catch_all: bool,
-    stmts: Vec<Stmt>,
+    /// Inclusive `[first, last]` index range of this handler's own section in
+    /// [`Interpreter::decl_space`]. Entering the handler runs the range; COBOL
+    /// puts the procedure's implicit exit at the end of its section.
+    first: usize,
+    last: usize,
+}
+
+/// One paragraph name space: the four tables that `PERFORM`, `GO TO` and
+/// sequential flow read together.
+///
+/// The interpreter keeps the *active* space in its own flat fields; this is the
+/// off-stage copy that gets swapped in while a declarative runs.
+#[derive(Clone, Default)]
+struct ParaSpace {
+    map: IndexMap<String, Vec<Stmt>>,
+    order: Vec<String>,
+    bodies: Vec<Vec<Stmt>>,
+    sections: std::collections::HashSet<String>,
 }
 
 const MAX_PERFORM_DEPTH: usize = 512;
@@ -938,18 +972,14 @@ impl Interpreter {
 
         let (file_specs, record_to_file) = build_file_specs(&program);
 
-        // Flatten the parsed DECLARATIVES into runtime-ready handlers.
-        let declaratives: Vec<DeclHandler> = program
-            .procedure
-            .declaratives
-            .iter()
-            .map(|u| DeclHandler {
-                files: u.files.clone(),
-                modes: u.modes.clone(),
-                catch_all: u.catch_all,
-                stmts: u.stmts.clone(),
-            })
-            .collect();
+        // Build the DECLARATIVES' own paragraph space and locate each handler's
+        // section inside it.
+        let (decl_space, declaratives) = build_decl_space(
+            &program.procedure.declaratives,
+            &para_order,
+            &para_bodies,
+            &section_names,
+        );
 
         // Async I/O result channel (spec 032): workers send AsyncOpResult here;
         // COBOL-WAIT-EVENT drains it. Created per interpreter, always present.
@@ -1017,8 +1047,10 @@ impl Interpreter {
             argument_pointer: 1,
             env_name_register: String::new(),
             declaratives,
+            decl_space,
             in_declarative: false,
             open_modes: HashMap::new(),
+            at_end_files: std::collections::HashSet::new(),
         }
     }
 
@@ -2195,13 +2227,12 @@ impl Interpreter {
                 | Err(RuntimeError::ExitParagraph)
                 | Err(RuntimeError::ExitSection)
                 | Err(RuntimeError::NextSentence) => idx += 1,
-                Err(RuntimeError::GoTo { target }) => {
-                    let upper = target.to_ascii_uppercase();
-                    match self.para_order.iter().position(|n| n == &upper) {
+                Err(RuntimeError::GoTo { target, section }) => {
+                    match self.goto_index(&target, section.as_deref()) {
                         Some(pos) => idx = pos,
                         None => {
                             return Err(RuntimeError::UndefinedParagraph {
-                                name: upper,
+                                name: target.to_ascii_uppercase(),
                                 span: Span::dummy(),
                             })
                         }
@@ -2257,7 +2288,12 @@ impl Interpreter {
                 | Err(RuntimeError::ExitParagraph)
                 | Err(RuntimeError::ExitSection)
                 | Err(RuntimeError::NextSentence) => idx += 1,
-                Err(RuntimeError::GoTo { target }) => {
+                // A `{OF|IN} section` qualifier is not honoured here: this is a
+                // nested program's own paragraph space, and `section_span`
+                // reads the *outer* `self.para_order`. Resolving against the
+                // wrong space would be worse than ignoring the qualifier, and
+                // the unqualified lookup is what this path has always done.
+                Err(RuntimeError::GoTo { target, .. }) => {
                     let upper = target.to_ascii_uppercase();
                     match para_order.iter().position(|n| n == &upper) {
                         Some(pos) => idx = pos,
@@ -2587,20 +2623,29 @@ impl Interpreter {
                 whens,
                 ..
             } => self.exec_search(*all, table, varying.as_ref(), at_end, whens),
-            Stmt::GoTo { target, .. } => {
-                // An ALTER may have redirected this paragraph's GO TO.
-                let t = self
-                    .alter_map
-                    .get(&self.current_paragraph)
-                    .cloned()
-                    .unwrap_or_else(|| target.clone());
+            Stmt::GoTo {
+                target, section, ..
+            } => {
+                // An ALTER may have redirected this paragraph's GO TO. The
+                // redirection names its own target outright, so a qualifier
+                // written on the original statement no longer applies.
+                let altered = self.alter_map.get(&self.current_paragraph).cloned();
+                let qualifier = if altered.is_some() {
+                    None
+                } else {
+                    section.clone()
+                };
+                let t = altered.unwrap_or_else(|| target.clone());
                 if t.is_empty() {
                     // A bare `GO TO.` that no `ALTER` has redirected yet. The
                     // standard leaves this undefined; falling through to the
                     // next sentence is the harmless reading.
                     Ok(())
                 } else {
-                    Err(RuntimeError::GoTo { target: t })
+                    Err(RuntimeError::GoTo {
+                        target: t,
+                        section: qualifier,
+                    })
                 }
             }
             Stmt::Alter { from, to, .. } => {
@@ -2679,8 +2724,18 @@ impl Interpreter {
                 lock,
                 registered_user,
                 span,
+                extra_modes,
                 ..
-            } => self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span),
+            } => {
+                self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span)?;
+                // `OPEN INPUT f1 OUTPUT f2` — each later group opens in its own
+                // mode; the SHARING/LOCK/REGISTERED phrases apply to the whole
+                // statement.
+                for (m, fs) in extra_modes {
+                    self.exec_open(*m, fs, *lock, registered_user.as_ref(), *span)?;
+                }
+                Ok(())
+            }
             Stmt::Close { files, locked, .. } => self.exec_close(files, locked),
             Stmt::Write {
                 record,
@@ -3093,6 +3148,23 @@ impl Interpreter {
             },
             _ => None,
         };
+        // `HIGH-VALUE` fills its whole receiver exactly as `SPACE` and `ZERO`
+        // do — but `0xFF` is not a character, so it cannot ride the `all_fill`
+        // string path above, and fell through to `CobolValue::assign`, which
+        // laid down one byte and padded the rest with **spaces**. A group
+        // receiver fared worse: the value went through `as_display_string` and
+        // arrived as the three bytes of U+FFFD (NC105A MOVE-TEST-F1-67/F1-69).
+        // Under a `PROGRAM COLLATING SEQUENCE` the constant names an ordinary
+        // character instead, and that character's bytes are the fill unit.
+        let fill_bytes: Option<Vec<u8>> = match from {
+            Expr::Literal(Literal::Figurative(FigurativeConstant::HighValue), _) => {
+                Some(match crate::collation::active_high_value() {
+                    Some(ch) => ch.to_string().into_bytes(),
+                    None => vec![0xFF],
+                })
+            }
+            _ => None,
+        };
         // A numeric source moved to an alphanumeric receiver de-edits to its
         // zero-padded digit string (left-justified), per COBOL MOVE rules.
         // A subscripted or qualified reference is a data item too:
@@ -3116,6 +3188,32 @@ impl Interpreter {
                 lit.integer_digits()
             }
             _ => None,
+        };
+        // The sender's **bytes**, for a group receiver. `val` above arrived
+        // through a `String`, and `HIGH-VALUE` (the byte `0xFF`) has no UTF-8
+        // spelling one byte wide — it came back as a three-byte U+FFFD and
+        // shifted every field after it by two. Only a declared data item can
+        // hold such a byte; a literal sender has none and keeps `val`.
+        let src_bytes = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.display_bytes(&key)
+            }
+            _ => None,
+        };
+        // A **group** sending item makes the whole move alphanumeric-to-
+        // alphanumeric (COBOL-85 6.18.4): the receiver's PICTURE contributes
+        // its size and nothing else — no de-editing of the sender, no editing
+        // at the receiver, no numeric conversion. A group receiver already
+        // worked; an elementary one fell through to `env.set` and was edited or
+        // parsed as a number, so `MOVE <group holding "123ABC">` left
+        // `"0123AB0"` in a `PIC 0XXXXX0` and zero in a `PIC 9999V999`.
+        let src_is_group = match from {
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. } => {
+                let key = self.resolve_lvalue(from);
+                self.env.is_group(&key)
+            }
+            _ => false,
         };
         // The same reference, read back as a *number* when it is numeric-edited
         // — the de-editing source for a numeric receiver (see below).
@@ -3174,6 +3272,23 @@ impl Interpreter {
                     continue;
                 }
             }
+            // `HIGH-VALUE` fills this receiver to its own width — see
+            // `fill_bytes` above. An alphanumeric-**edited** receiver is filled
+            // through `set_bytes`, so its template still places the insertion
+            // characters and the fill only reaches the source positions:
+            // `PIC XX0XXBXXX` holds `FF FF '0' FF FF ' ' FF FF FF`.
+            if let Some(unit) = fill_bytes.as_deref().filter(|u| !u.is_empty()) {
+                if let Some(width) = self.env.alphanumeric_capacity(&name) {
+                    let filled: Vec<u8> = unit.iter().copied().cycle().take(width).collect();
+                    self.env.set_bytes(&name, &filled);
+                    continue;
+                }
+                if let Some(width) = self.env.group_width(&name) {
+                    let filled: Vec<u8> = unit.iter().copied().cycle().take(width).collect();
+                    self.env.set_group_bytes(&name, &filled);
+                    continue;
+                }
+            }
             // `SET 88-name TO TRUE|FALSE` arrives here as MOVE 1|0 → set the
             // host item to (a value satisfying / violating) the condition.
             if let Some(info) = self.env.cond_name(&name).cloned() {
@@ -3193,10 +3308,16 @@ impl Interpreter {
                 // A group is alphanumeric, so a numeric sender contributes its
                 // zero-padded digit string — the same rule the alphanumeric
                 // receiver below already follows.
-                let text = src_digits
-                    .clone()
-                    .unwrap_or_else(|| val.as_display_string());
-                self.env.set_group(&name, &text);
+                if let Some(d) = src_digits.clone() {
+                    self.env.set_group(&name, &d);
+                    continue;
+                }
+                // A data-item sender contributes its stored bytes; only a
+                // literal or a computed value has to go through the string.
+                match src_bytes.as_deref() {
+                    Some(b) => self.env.set_group_bytes(&name, b),
+                    None => self.env.set_group(&name, &val.as_display_string()),
+                }
                 continue;
             }
             // An OBJECT REFERENCE receiver names an *object*; its storage slot
@@ -3207,6 +3328,16 @@ impl Interpreter {
             if self.object_refs.contains_key(&name) {
                 self.assign_object_ref(&name, &val)?;
                 continue;
+            }
+            // A group sender transfers its bytes to this elementary receiver as
+            // they stand — see `src_is_group` above. This has to come before
+            // the de-editing and numeric paths below, which are exactly the
+            // conversions the standard suspends for a group sender.
+            if src_is_group {
+                if let Some(b) = src_bytes.as_deref() {
+                    self.env.set_move_bytes(&name, b);
+                    continue;
+                }
             }
             // De-editing (COBOL-85 6.18.4 GR4b): a numeric-**edited** sender
             // moved to a numeric receiver transfers the *value* its characters
@@ -3247,6 +3378,28 @@ impl Interpreter {
             .map_err(|e| RuntimeError::General {
                 message: format!("cannot move a value into {key} ({class}): {e}"),
             })
+    }
+
+    /// The value an 88-level condition-name is tested against: its host item,
+    /// read the way any other reference to that item reads.
+    ///
+    /// A **group** host is its children, not its own slot — `01 TABLE-86. 88
+    /// B86 VALUE "ABCABC". 02 DATANAME-86 PIC XXX. 02 DNAME-86.` tests the six
+    /// bytes the record actually holds. Reading the group's (unwritten) slot
+    /// made every such condition false whatever the record contained (NC250A
+    /// IF--TEST-87 and IF--TEST-88).
+    fn cond_host_value(&self, key: &str) -> CobolValue {
+        if let Some(bytes) = self.env.group_bytes(key) {
+            let n = bytes.len();
+            return CobolValue::String {
+                bytes,
+                capacity: n,
+            };
+        }
+        self.env
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| CobolValue::from_i64(0))
     }
 
     /// Set the host item of an 88-level condition-name so the condition becomes
@@ -3295,17 +3448,40 @@ impl Interpreter {
             if both_groups {
                 self.move_corresponding(&fk, &tk)?;
             } else {
-                let val = self
-                    .env
-                    .get(&fk)
-                    .cloned()
-                    .unwrap_or_else(|| CobolValue::from_i64(0));
+                // A group SENDER owns no slot either — its value is synthesized
+                // from its subordinate items — so `get` handed back nothing and
+                // the receiver was left as it was. NC208A's `MOVE-CORR-G5` is a
+                // group of `XXX` + `99` on the sending side and a plain `X(5)`
+                // on the receiving side (`MOV-TEST-F1-5`).
+                let val = match self.env.group_value(&fk) {
+                    Some(g) => CobolValue::from_str(&g, g.len()),
+                    None => self
+                        .env
+                        .get(&fk)
+                        .cloned()
+                        .unwrap_or_else(|| CobolValue::from_i64(0)),
+                };
                 let src_digits = self.env.deedited_digits(&fk);
-                match src_digits {
-                    Some(digits) if self.env.is_alphanumeric_field(&tk) => {
-                        self.env.set_str_left(&tk, &digits)
+                // One of the pair is a GROUP and the other elementary. They
+                // still correspond — COBOL-85 asks only that **at least one**
+                // be elementary — and the move into the group is an
+                // alphanumeric one across its bytes. `env.set` writes the
+                // group's own name, and a group owns no slot, so the record
+                // went somewhere nothing reads back: NC208A's
+                // `MOVE-CORR-4` (source `PIC XXX` = "XYZ", receiver a group of
+                // `999` + `XXX`) left the last six characters as spaces
+                // (`MOV-TEST-F1-4`, `-F1-5`). Same defect INSPECT and `ACCEPT`
+                // carried; the dispatch lives once, in [`Self::store_text`].
+                if self.env.is_group(&tk) {
+                    let text = src_digits.unwrap_or_else(|| val.as_display_string());
+                    self.store_text(&tk, &text);
+                } else {
+                    match src_digits {
+                        Some(digits) if self.env.is_alphanumeric_field(&tk) => {
+                            self.env.set_str_left(&tk, &digits)
+                        }
+                        _ => self.env.set(&tk, val),
                     }
-                    _ => self.env.set(&tk, val),
                 }
             }
         }
@@ -3358,19 +3534,43 @@ impl Interpreter {
     /// Matching subordinate pairs of two groups: `(from_child_key,
     /// to_child_key, both_are_groups)` for every leaf name they share.
     fn corr_pairs(&self, from_key: &str, to_key: &str) -> Vec<(String, String, bool)> {
-        let from_sym = match self.env.symbol(from_key) {
+        use crate::environment::{base_name, key_indices, subscript_key};
+        // Either operand may name **one occurrence** of a table of groups:
+        // `MOVE CORRESPONDING C-LEVEL IN A-LEVEL TO C-FLOCK (4)`. The symbol
+        // table is keyed by the base item, so a subscripted key found nothing
+        // and the whole statement moved nothing at all (NC209A MOV-TEST-F2-7,
+        // -F2-8). The operand's subscripts are carried onto each child key, so
+        // the pair addresses that occurrence's own slots — and the recursion
+        // below keeps carrying them, because it passes these keys back in.
+        let from_idx = key_indices(from_key);
+        let to_idx = key_indices(to_key);
+        let from_sym = match self.env.symbol(base_name(from_key)) {
             Some(s) => s.clone(),
             None => return Vec::new(),
         };
-        let to_sym = match self.env.symbol(to_key) {
+        let to_sym = match self.env.symbol(base_name(to_key)) {
             Some(s) => s.clone(),
             None => return Vec::new(),
         };
         let mut out = Vec::new();
         for (i, child) in from_sym.children.iter().enumerate() {
             if let Some(j) = to_sym.children.iter().position(|c| c == child) {
-                let fk = from_sym.child_keys[i].clone();
-                let tk = to_sym.child_keys[j].clone();
+                let fk = subscript_key(&from_sym.child_keys[i], &from_idx);
+                let tk = subscript_key(&to_sym.child_keys[j], &to_idx);
+                // COBOL-85 6.18.4 GR1: an item described with `REDEFINES` does
+                // not take part in `CORRESPONDING`, on either side — it is a
+                // second description of storage the group already accounts for,
+                // so pairing it moves the same bytes twice under a different
+                // name. The `HARRY` under `DD-LEVEL REDEFINES DD-LEVEL-FALSE`
+                // was receiving the sender's `HARRY` (NC209A MOV-TEST-F2-6).
+                // Excluding a group here excludes everything below it, because
+                // the recursion never descends.
+                //
+                // 66-level RENAMES is excluded by the same rule, but earlier:
+                // it never enters `ItemSym.children` at all.
+                if self.env.is_redefinition(&fk) || self.env.is_redefinition(&tk) {
+                    continue;
+                }
                 let fg = self.env.symbol(&fk).map(|s| s.is_group).unwrap_or(false);
                 let tg = self.env.symbol(&tk).map(|s| s.is_group).unwrap_or(false);
                 out.push((fk, tk, fg && tg));
@@ -4372,10 +4572,21 @@ impl Interpreter {
                 until,
                 stmts,
                 after,
-            } => self.exec_perform_varying(var, from, by, until, stmts, after, span),
+                test_before,
+            } => self.exec_perform_varying(
+                var,
+                from,
+                by,
+                until,
+                stmts,
+                after,
+                *test_before,
+                span,
+            ),
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn exec_perform_varying(
         &mut self,
         var: &Expr,
@@ -4384,6 +4595,7 @@ impl Interpreter {
         until: &Condition,
         stmts: &[Stmt],
         after: &[VaryingAfter],
+        test_before: bool,
         span: Span,
     ) -> Result<(), RuntimeError> {
         let from_val = self.eval_expr(from, span)?;
@@ -4397,6 +4609,10 @@ impl Interpreter {
             self.env.set(&aft_name, aft_from);
         }
 
+        if !test_before {
+            return self.perform_varying_test_after(var, by, until, stmts, after, span);
+        }
+
         loop {
             if self.eval_condition(until)? {
                 break;
@@ -4408,16 +4624,91 @@ impl Interpreter {
                 break;
             }
 
-            // Increment outer variable
-            let by_val = self.eval_expr(by, span)?;
-            let cur = self
-                .env
-                .get(&var_name)
-                .cloned()
-                .unwrap_or_else(|| CobolValue::from_i64(0));
-            self.env.set(&var_name, cur.add_val(&by_val));
+            // Increment outer variable. Its subscript is re-evaluated here, not
+            // reused from the initialisation: a subscripted VARYING identifier
+            // names whichever occurrence its subscript selects *now*, and the
+            // body may have moved it. NC201A PFM-TEST-F4-24 varies
+            // `PFM-F4-24-A (S1)` while the body adds 1 to `S1`, so the
+            // augmented occurrence walks the table with it — and the `UNTIL`,
+            // which is evaluated fresh, was reading a different occurrence
+            // from the one being augmented, so the loop never ended.
+            self.augment(var, by, span)?;
         }
         Ok(())
+    }
+
+    /// Add the `BY` operand to a `VARYING` identifier, resolving the identifier
+    /// (and so any subscript it carries) at this moment.
+    fn augment(&mut self, var: &Expr, by: &Expr, span: Span) -> Result<(), RuntimeError> {
+        let by_val = self.eval_expr(by, span)?;
+        let name = self.resolve_lvalue(var);
+        let cur = self
+            .env
+            .get(&name)
+            .cloned()
+            .unwrap_or_else(|| CobolValue::from_i64(0));
+        self.env.set(&name, cur.add_val(&by_val));
+        Ok(())
+    }
+
+    /// `PERFORM … WITH TEST AFTER VARYING …` (COBOL-85 6.20.4 GR10(d)2).
+    ///
+    /// Every variable is already at its `FROM` value. The body runs first and
+    /// unconditionally; only then are the conditions tested, **innermost
+    /// first**. The first one that is false has its variable augmented, every
+    /// variable inside it is reset to its `FROM` value, and the body runs
+    /// again. When the outermost condition is true the PERFORM is over.
+    ///
+    /// The difference from `TEST BEFORE` is not just the extra first pass: the
+    /// conditions are evaluated against whatever the *body* left behind.
+    /// NC201A PFM-TEST-F4-14 turns on exactly that — its body assigns both loop
+    /// variables, and under the test-before order the outer variable was
+    /// augmented past its terminating value every time round, so the loop never
+    /// ended.
+    fn perform_varying_test_after(
+        &mut self,
+        var: &Expr,
+        by: &Expr,
+        until: &Condition,
+        stmts: &[Stmt],
+        after: &[VaryingAfter],
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        // Level 0 is the outer `VARYING`; level k ≥ 1 is `after[k - 1]`.
+        loop {
+            match self.exec_loop_body(stmts) {
+                LoopStep::Continue => {}
+                LoopStep::Break => return Ok(()),
+                LoopStep::Err(e) => return Err(e),
+            }
+            let mut level = after.len();
+            loop {
+                let cond = if level == 0 {
+                    until
+                } else {
+                    &after[level - 1].until
+                };
+                if !self.eval_condition(cond)? {
+                    let (lvar, lby) = if level == 0 {
+                        (var, by)
+                    } else {
+                        (&after[level - 1].var, &after[level - 1].by)
+                    };
+                    self.augment(lvar, lby, span)?;
+                    // Every level inside the one just augmented restarts.
+                    for aft in &after[level..] {
+                        let aft_from = self.eval_expr(&aft.from, span)?;
+                        let aft_name = self.resolve_lvalue(&aft.var);
+                        self.env.set(&aft_name, aft_from);
+                    }
+                    break;
+                }
+                if level == 0 {
+                    return Ok(());
+                }
+                level -= 1;
+            }
+        }
     }
 
     /// Returns `Ok(true)` when an `EXIT PERFORM` (no CYCLE) requested the entire
@@ -4447,14 +4738,24 @@ impl Interpreter {
             if self.exec_perform_after(tail, stmts, span)? {
                 return Ok(true);
             }
-            let by_val = self.eval_expr(&head.by, span)?;
-            let cur = self
-                .env
-                .get(&var_name)
-                .cloned()
-                .unwrap_or_else(|| CobolValue::from_i64(0));
-            self.env.set(&var_name, cur.add_val(&by_val));
+            self.augment(&head.var, &head.by, span)?;
         }
+        // COBOL-85 6.20.4 GR10(d): when an `AFTER` condition becomes true its
+        // identifier is set back to the current value of its `FROM` operand,
+        // *before* the next level out is augmented. So an inner variable does
+        // not survive its own loop — after the whole PERFORM it reads its FROM
+        // value, not the one that ended it.
+        //
+        // NC201A checks exactly that and nothing else in three tests: F4-3
+        // wants `PERFORM2 = 2` where the loop left 26, and F4-4 wants
+        // `PERFORM11 = 3` and `PERFORM2 = 10` where it left 7 and 0. The
+        // outermost `VARYING` variable is *not* reset — F4-4 wants
+        // `PERFORM3 = 6`, the value that ended it.
+        //
+        // An `EXIT PERFORM` (the `Ok(true)` return above) leaves immediately
+        // and skips this, as it skips every other loop mechanic.
+        let from_val = self.eval_expr(&head.from, span)?;
+        self.env.set(&var_name, from_val);
         Ok(false)
     }
 
@@ -4466,8 +4767,11 @@ impl Interpreter {
     ) -> Result<(), RuntimeError> {
         let idx = self.eval_expr(depending, span)?.as_i64().unwrap_or(0);
         if idx >= 1 && (idx as usize) <= targets.len() {
+            // `GO TO … DEPENDING ON` takes a bare list of procedure-names; the
+            // qualified form is the single-target one.
             Err(RuntimeError::GoTo {
                 target: targets[(idx - 1) as usize].clone(),
+                section: None,
             })
         } else {
             Ok(()) // out-of-range → fall through
@@ -4668,37 +4972,45 @@ impl Interpreter {
         not_on_overflow: &[Stmt],
         span: Span,
     ) -> Result<(), RuntimeError> {
-        let mut result = String::new();
+        // Assembled as **bytes**, not text. `STRING HIGH-VALUE …` sends the
+        // byte `0xFF`, which is not valid UTF-8: through a `String` it became a
+        // three-byte U+FFFD and filled three of the receiver's five character
+        // positions instead of one (NC217A STR-TEST-GF-9).
+        let mut result: Vec<u8> = Vec::new();
         for (src_expr, delim_expr) in operands {
-            let (src, is_alpha_item) = self.string_operand(src_expr, span)?;
+            let (src, is_alpha_item) = self.string_operand_bytes(src_expr, span)?;
             if let Some(delim_e) = delim_expr {
-                let delim = self.eval_expr(delim_e, span)?.as_display_string();
-                let delim_upper = delim.trim().to_ascii_uppercase();
+                let delim_val = self.eval_expr(delim_e, span)?;
+                // SIZE and SPACE(S) are named delimiters, so they are still
+                // recognised by their spelling; anything else is matched byte
+                // for byte.
+                let delim_upper = delim_val.as_display_string().trim().to_ascii_uppercase();
+                let delim = value_bytes(&delim_val);
                 if delim_upper == "SIZE" {
-                    result.push_str(&src);
+                    result.extend_from_slice(&src);
                 } else if delim_upper == "SPACE" || delim_upper == "SPACES" {
-                    result.push_str(src.trim_end());
-                } else if let Some(pos) = src.find(delim.as_str()) {
-                    result.push_str(&src[..pos]);
+                    result.extend_from_slice(trim_trailing_spaces_bytes(&src));
+                } else if let Some(pos) = find_bytes(&src, &delim) {
+                    result.extend_from_slice(&src[..pos]);
                 } else {
-                    result.push_str(&src);
+                    result.extend_from_slice(&src);
                 }
             } else if is_alpha_item {
                 // No DELIMITED BY: a plain alphanumeric data item defaults to
                 // DELIMITED BY SPACES (drop the trailing space padding).
-                result.push_str(src.trim_end());
+                result.extend_from_slice(trim_trailing_spaces_bytes(&src));
             } else {
                 // No DELIMITED BY: literals, numeric / numeric-edited items,
                 // function results and computed values default to DELIMITED BY
                 // SIZE (the whole value is moved).
-                result.push_str(&src);
+                result.extend_from_slice(&src);
             }
         }
         let name = self.resolve_lvalue(into);
         let capacity = self
             .env
-            .display_string(&name)
-            .map(|s| s.len())
+            .display_bytes(&name)
+            .map(|b| b.len())
             .unwrap_or(usize::MAX);
 
         let overflowed = match pointer {
@@ -4708,38 +5020,42 @@ impl Interpreter {
             Some(ptr_e) => {
                 let ptr_name = self.resolve_lvalue(ptr_e);
                 let start = self.env.get_i64(&ptr_name).unwrap_or(1).max(1) as usize;
-                let mut dest: Vec<char> = {
-                    let cur = self.env.display_string(&name).unwrap_or_default();
-                    let mut v: Vec<char> = cur.chars().collect();
+                let mut dest: Vec<u8> = {
+                    let mut v = self.env.display_bytes(&name).unwrap_or_default();
                     if capacity != usize::MAX {
-                        v.resize(capacity, ' ');
+                        v.resize(capacity, b' ');
                     }
                     v
                 };
                 let mut idx = start - 1;
                 let mut placed = 0usize;
                 let mut overflow = start - 1 >= capacity && !result.is_empty();
-                for ch in result.chars() {
+                for b in result.iter().copied() {
                     if capacity != usize::MAX && idx >= capacity {
                         overflow = true;
                         break;
                     }
                     if idx < dest.len() {
-                        dest[idx] = ch;
+                        dest[idx] = b;
                     }
                     idx += 1;
                     placed += 1;
                 }
-                let new_val: String = dest.into_iter().collect();
-                self.env.set_str(&name, &new_val);
+                // A group receiver owns no store slot — its value is
+                // synthesized from its children — so `set_str` wrote a record
+                // nothing reads back and `STRING … INTO <group>` left the group
+                // exactly as it was (NC217A STR-TEST-GF-21). `store_bytes` is
+                // the one dispatch every verb with a possible group receiver
+                // uses, in its byte-accurate form.
+                self.store_bytes(&name, &dest);
                 self.env.set_i64(&ptr_name, (start + placed) as i64);
                 overflow
             }
             // ── No POINTER: replace the receiving field (left-justified,
-            // space-padded by set_str). Overflow when the text is too wide.
+            // space-padded by the store). Overflow when the text is too wide.
             None => {
                 let overflow = result.len() > capacity;
-                self.env.set_str(&name, &result);
+                self.store_bytes(&name, &result);
                 overflow
             }
         };
@@ -4970,6 +5286,26 @@ impl Interpreter {
         }
     }
 
+    /// [`Self::store_text`] over raw bytes, for a value that may hold a byte
+    /// which is not a character (`HIGH-VALUE` is `0xFF`).
+    fn store_bytes(&mut self, name: &str, b: &[u8]) {
+        if self.env.is_group(name) {
+            self.env.set_group_bytes(name, b);
+        } else {
+            self.env.set_bytes(name, b);
+        }
+    }
+
+    /// Write an INSPECT's result back, restoring the operational sign that was
+    /// taken off the item's character positions on the way in.
+    fn store_inspect_text(&mut self, name: &str, s: &str, overpunched: bool) {
+        if overpunched {
+            self.store_text(name, &format!("-{s}"));
+        } else {
+            self.store_text(name, s);
+        }
+    }
+
     fn exec_inspect(
         &mut self,
         target: &Expr,
@@ -4990,96 +5326,237 @@ impl Interpreter {
                 .unwrap_or_else(|| CobolValue::from_str("", 0))
                 .as_display_string(),
         };
+        // INSPECT reads an item's **character positions**. A signed DISPLAY
+        // item carries its sign as an overpunch on a digit, so none of those
+        // positions holds a `-` — the rendered leading minus is not one of the
+        // item's characters. It is put back on the way out so a REPLACING over
+        // the digits does not silently change the item's sign.
+        let overpunched = self.env.sign_is_overpunched(&name) && s.starts_with('-');
+        if overpunched {
+            s.remove(0);
+        }
 
         match spec {
             InspectSpec::Tallying(tallies) => {
+                // COBOL-85 6.17.3: a **series** of tallying operands shares ONE
+                // left-to-right inspection of the item. At each character
+                // position the operands are tried in the order they were
+                // written; the first that matches takes the position, and the
+                // scan resumes past the characters it consumed. Every operand
+                // used to sweep the whole item on its own, so the same
+                // characters were tallied several times over:
+                // `TALLYING t1 FOR ALL "AA" t2 FOR ALL "A"` on `"AABA"` gave
+                // `t2 = 3` where the standard gives 1 (NC216A INS-TEST-F1-27),
+                // and in INS-TEST-F3-19 a `FOR LEADING` operand counted a run
+                // whose first character an earlier operand had already taken.
+                //
+                // Each operand keeps its own BEFORE/AFTER window, computed once
+                // on the item as it stands, and is eligible only inside it.
+                let mut counters: Vec<(String, i64)> = Vec::with_capacity(tallies.len());
+                let mut ops: Vec<TallyOp> = Vec::new();
                 for tally in tallies {
                     let ctr_name = self.resolve_lvalue(&tally.counter);
                     // INSPECT TALLYING accumulates onto the counter's value.
-                    let mut count = self.env.get_i64(&ctr_name).unwrap_or(0);
+                    let start = self.env.get_i64(&ctr_name).unwrap_or(0);
+                    let ti = counters.len();
+                    counters.push((ctr_name, start));
                     for (kind, region) in &tally.for_ {
                         let (lo, hi) = self.inspect_window(&s, region, span)?;
-                        let win = &s[lo..hi];
-                        count += match kind {
-                            TallyFor::Characters => win.len() as i64,
-                            TallyFor::All(e) => {
-                                let pat = self.eval_expr(e, span)?.as_display_string();
-                                if pat.is_empty() {
-                                    0
-                                } else {
-                                    win.matches(pat.as_str()).count() as i64
-                                }
-                            }
-                            // LEADING / TRAILING count **occurrences of the
-                            // whole pattern** that run contiguously from the
-                            // start (or the end) of the region — not characters
-                            // that happen to appear in it. `FOR LEADING "AH"`
-                            // on `"AH YES AH YES …"` is 1, and the old
-                            // character test made it 2 by accepting the `A` and
-                            // the `H` separately (NC221A).
-                            TallyFor::Leading(e) => {
-                                let pat = self.eval_expr(e, span)?.as_display_string();
-                                count_run(win, &pat, true) as i64
-                            }
-                            TallyFor::Trailing(e) => {
-                                let pat = self.eval_expr(e, span)?.as_display_string();
-                                count_run(win, &pat, false) as i64
+                        let pat = match kind {
+                            TallyFor::Characters => String::new(),
+                            TallyFor::All(e) | TallyFor::Leading(e) | TallyFor::Trailing(e) => {
+                                self.eval_expr(e, span)?.as_display_string()
                             }
                         };
+                        // A TRAILING operand's run is fixed by the item as it
+                        // stands: it is the tail of the window, so its match
+                        // positions are known before the scan starts.
+                        let trail_start = match kind {
+                            TallyFor::Trailing(_) if !pat.is_empty() => {
+                                hi - count_run(&s[lo..hi], &pat, false) * pat.len()
+                            }
+                            _ => hi,
+                        };
+                        ops.push(TallyOp {
+                            ti,
+                            kind: TallyKind::of(kind),
+                            pat,
+                            lo,
+                            hi,
+                            leading_next: lo,
+                            leading_live: true,
+                            trail_start,
+                        });
                     }
-                    self.env.set_i64(&ctr_name, count);
+                }
+                let bytes = s.as_bytes();
+                let mut p = 0usize;
+                while p < bytes.len() {
+                    let mut taken = 0usize;
+                    for op in ops.iter_mut() {
+                        if p < op.lo || p >= op.hi {
+                            continue;
+                        }
+                        let pat = op.pat.as_bytes();
+                        let fits = !pat.is_empty()
+                            && p + pat.len() <= op.hi
+                            && &bytes[p..p + pat.len()] == pat;
+                        taken = match op.kind {
+                            // CHARACTERS matches whatever stands at this
+                            // position — one character, always.
+                            TallyKind::Characters => 1,
+                            TallyKind::All if fits => pat.len(),
+                            // LEADING matches only at the position its own run
+                            // has reached, starting at its window's left edge.
+                            // Once the scan moves past that point without this
+                            // operand taking it, the run is over for good.
+                            TallyKind::Leading if fits && op.leading_live && p == op.leading_next => {
+                                op.leading_next = p + pat.len();
+                                pat.len()
+                            }
+                            TallyKind::Trailing
+                                if fits
+                                    && p >= op.trail_start
+                                    && (p - op.trail_start) % pat.len() == 0 =>
+                            {
+                                pat.len()
+                            }
+                            _ => 0,
+                        };
+                        if taken > 0 {
+                            counters[op.ti].1 += 1;
+                            break;
+                        }
+                    }
+                    p += taken.max(1);
+                    for op in ops.iter_mut() {
+                        if p > op.leading_next {
+                            op.leading_live = false;
+                        }
+                    }
+                }
+                for (name, count) in counters {
+                    self.env.set_i64(&name, count);
                 }
             }
             InspectSpec::Replacing(replaces) => {
+                // COBOL-85 6.17.3: a **series** of replacing operands shares ONE
+                // left-to-right inspection, exactly as a tallying series does.
+                // At each position the operands are tried in the order written;
+                // the first that matches replaces those characters and the scan
+                // resumes past them, so no later operand can see them.
+                //
+                // Every operand used to sweep the whole item on its own, each
+                // seeing the *previous* operand's output. That made a delimiter
+                // vanish before the operand that named it ran: in NC216A
+                // INS-TEST-F3-19 `FIRST "L " BY "ZZ" AFTER INITIAL "AL"` erased
+                // the very `"L "` that `FIRST "BAD" BY "ZZZ" AFTER "L "` was
+                // anchored on, and `"BAD"` survived to the end.
+                //
+                // Each operand keeps its own BEFORE/AFTER window, computed once
+                // on the item as it stands before any replacement.
+                let mut ops: Vec<ReplOp> = Vec::with_capacity(replaces.len());
                 for rep in replaces {
                     let by = self.eval_expr(&rep.by, span)?.as_display_string();
                     let (lo, hi) = self.inspect_window(&s, &rep.region, span)?;
-                    let mut win = s[lo..hi].to_string();
-                    match &rep.what {
+                    let (kind, pat) = match &rep.what {
+                        ReplaceWhat::Characters => (ReplKind::Characters, String::new()),
                         ReplaceWhat::All(e) => {
-                            let pat = self.eval_expr(e, span)?.as_display_string();
-                            if !pat.is_empty() {
-                                win = win.replace(pat.as_str(), &by);
-                            }
+                            (ReplKind::All, self.eval_expr(e, span)?.as_display_string())
                         }
                         ReplaceWhat::First(e) => {
-                            let pat = self.eval_expr(e, span)?.as_display_string();
-                            if let Some(pos) = win.find(pat.as_str()) {
-                                win.replace_range(pos..pos + pat.len(), &by);
-                            }
+                            (ReplKind::First, self.eval_expr(e, span)?.as_display_string())
                         }
-                        // Each contiguous run at the end in question is
-                        // replaced, advancing past what was just written. The
-                        // old loops re-examined position 0 (or the tail) after
-                        // every replacement, so `BY` equal to the pattern —
-                        // which the standard allows, both operands being the
-                        // same size — never terminated.
-                        ReplaceWhat::Leading(e) => {
-                            let pat = self.eval_expr(e, span)?.as_display_string();
-                            let runs = count_run(&win, &pat, true);
-                            for k in 0..runs {
-                                let at = k * pat.len();
-                                let repl_len = by.len().min(pat.len());
-                                win.replace_range(at..at + pat.len(), &by[..repl_len]);
-                            }
+                        ReplaceWhat::Leading(e) => (
+                            ReplKind::Leading,
+                            self.eval_expr(e, span)?.as_display_string(),
+                        ),
+                        ReplaceWhat::Trailing(e) => (
+                            ReplKind::Trailing,
+                            self.eval_expr(e, span)?.as_display_string(),
+                        ),
+                    };
+                    // A TRAILING run is the tail of the window, so where it
+                    // starts is known before the scan does.
+                    let trail_start = match kind {
+                        ReplKind::Trailing if !pat.is_empty() => {
+                            hi - count_run(&s[lo..hi], &pat, false) * pat.len()
                         }
-                        ReplaceWhat::Trailing(e) => {
-                            let pat = self.eval_expr(e, span)?.as_display_string();
-                            let runs = count_run(&win, &pat, false);
-                            for k in 0..runs {
-                                let end = win.len() - k * pat.len();
-                                let repl_len = by.len().min(pat.len());
-                                win.replace_range(end - pat.len()..end, &by[..repl_len]);
-                            }
+                        _ => hi,
+                    };
+                    ops.push(ReplOp {
+                        kind,
+                        pat,
+                        by,
+                        lo,
+                        hi,
+                        leading_next: lo,
+                        leading_live: true,
+                        trail_start,
+                        spent: false,
+                    });
+                }
+                let bytes = s.as_bytes().to_vec();
+                let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+                let mut p = 0usize;
+                while p < bytes.len() {
+                    let mut taken = 0usize;
+                    for op in ops.iter_mut() {
+                        if p < op.lo || p >= op.hi || op.spent {
+                            continue;
                         }
-                        ReplaceWhat::Characters => {
-                            let fill = by.chars().next().unwrap_or(' ');
-                            win = win.chars().map(|_| fill).collect();
+                        let pat = op.pat.as_bytes();
+                        let fits = !pat.is_empty()
+                            && p + pat.len() <= op.hi
+                            && &bytes[p..p + pat.len()] == pat;
+                        taken = match op.kind {
+                            ReplKind::Characters => 1,
+                            ReplKind::All if fits => pat.len(),
+                            ReplKind::First if fits => {
+                                op.spent = true;
+                                pat.len()
+                            }
+                            ReplKind::Leading
+                                if fits && op.leading_live && p == op.leading_next =>
+                            {
+                                op.leading_next = p + pat.len();
+                                pat.len()
+                            }
+                            ReplKind::Trailing
+                                if fits
+                                    && p >= op.trail_start
+                                    && (p - op.trail_start) % pat.len() == 0 =>
+                            {
+                                pat.len()
+                            }
+                            _ => 0,
+                        };
+                        if taken > 0 {
+                            match op.kind {
+                                // `BY` for CHARACTERS is a single character,
+                                // written over each position in turn.
+                                ReplKind::Characters => {
+                                    out.push(op.by.as_bytes().first().copied().unwrap_or(b' '))
+                                }
+                                _ => out.extend_from_slice(op.by.as_bytes()),
+                            }
+                            break;
                         }
                     }
-                    s = format!("{}{}{}", &s[..lo], win, &s[hi..]);
+                    if taken == 0 {
+                        out.push(bytes[p]);
+                        p += 1;
+                    } else {
+                        p += taken;
+                    }
+                    for op in ops.iter_mut() {
+                        if p > op.leading_next {
+                            op.leading_live = false;
+                        }
+                    }
                 }
-                self.store_text(&name, &s);
+                s = String::from_utf8_lossy(&out).into_owned();
+                self.store_inspect_text(&name, &s, overpunched);
             }
             InspectSpec::Converting { from, to } => {
                 let from_s = self.eval_expr(from, span)?.as_display_string();
@@ -5087,7 +5564,7 @@ impl Interpreter {
                 for (fc, tc) in from_s.chars().zip(to_s.chars()) {
                     s = s.replace(fc, &tc.to_string());
                 }
-                self.store_text(&name, &s);
+                self.store_inspect_text(&name, &s, overpunched);
             }
             InspectSpec::ConvertingIn { from, to, region } => {
                 // The same character-for-character conversion, applied only
@@ -5100,7 +5577,7 @@ impl Interpreter {
                     window = window.replace(fc, &tc.to_string());
                 }
                 s.replace_range(lo..hi, &window);
-                self.store_text(&name, &s);
+                self.store_inspect_text(&name, &s, overpunched);
             }
             InspectSpec::TallyingReplacing(tallies, replaces) => {
                 self.exec_inspect(target, &InspectSpec::Tallying(tallies.clone()), span)?;
@@ -5130,13 +5607,24 @@ impl Interpreter {
     }
 
     /// Set a file's FILE STATUS data item (if declared) to a 2-character code.
+    ///
+    /// COBOL-85 lets the item be a two-character **group** — SQ132A declares
+    /// `01 SQ-FS1-STATUS` over two `PIC X` children — and a group is read back
+    /// from its children, not from its own slot. Writing the code to the group
+    /// key left the children holding whatever the program had seeded them with,
+    /// so `IF SQ-FS1-STATUS = "42"` compared against that seed and every status
+    /// test on such a file failed.
     fn set_file_status(&mut self, file: &str, code: &str) {
         if let Some(field) = self
             .file_specs
             .get(file)
             .and_then(|s| s.status_field.clone())
         {
-            self.env.set_str(&field, code);
+            if self.env.is_group(&field) {
+                self.env.set_group(&field, code);
+            } else {
+                self.env.set_str(&field, code);
+            }
         }
     }
 
@@ -5179,13 +5667,39 @@ impl Interpreter {
             h.catch_all
         });
         if let Some(i) = idx {
-            let stmts = self.declaratives[i].stmts.clone();
+            let (first, last) = (self.declaratives[i].first, self.declaratives[i].last);
             self.in_declarative = true;
-            let r = self.exec_stmts(&stmts);
+            let saved = self.install_decl_space();
+            let r = self.exec_para_index_range(first, last);
+            self.restore_space(saved);
             self.in_declarative = false;
             r?;
         }
         Ok(())
+    }
+
+    /// Swap the declarative paragraph space in, handing back the space it
+    /// replaced. Moves rather than clones — the re-entrancy guard on
+    /// [`Self::fire_declarative`] means no second handler can look for
+    /// `decl_space` while it is on stage.
+    fn install_decl_space(&mut self) -> ParaSpace {
+        let d = std::mem::take(&mut self.decl_space);
+        ParaSpace {
+            map: std::mem::replace(&mut self.para_map, d.map),
+            order: std::mem::replace(&mut self.para_order, d.order),
+            bodies: std::mem::replace(&mut self.para_bodies, d.bodies),
+            sections: std::mem::replace(&mut self.section_names, d.sections),
+        }
+    }
+
+    /// Put `saved` back on stage and return the declarative space to its field.
+    fn restore_space(&mut self, saved: ParaSpace) {
+        self.decl_space = ParaSpace {
+            map: std::mem::replace(&mut self.para_map, saved.map),
+            order: std::mem::replace(&mut self.para_order, saved.order),
+            bodies: std::mem::replace(&mut self.para_bodies, saved.bodies),
+            sections: std::mem::replace(&mut self.section_names, saved.sections),
+        };
     }
 
     /// `OPEN`. `_lock` is `WITH LOCK` (exclusive); advisory in the single-run-unit
@@ -5223,8 +5737,22 @@ impl Interpreter {
                 self.fire_declarative(&file, "38", false)?;
                 continue;
             }
+            // An `OPEN` of a file that is already open is status 41, and the
+            // file stays as it was: the standard makes it an unsuccessful
+            // OPEN, not a re-open. Reopening it silently truncated an OUTPUT
+            // file the program had just written and reported success
+            // (SQ139A/SQ140A OPEN OUTPUT, SQ131A OPEN I-O). The check precedes
+            // `open_modes` so a mode-qualified declarative still matches the
+            // mode the file is *actually* open in.
+            if self.open_files.contains_key(&file) {
+                self.set_file_status(&file, "41");
+                self.fire_declarative(&file, "41", false)?;
+                continue;
+            }
             // Remember the open-mode for mode-qualified USE declaratives.
             self.open_modes.insert(file.clone(), mode);
+            // A fresh OPEN positions before the first record again.
+            self.at_end_files.remove(&file);
             let Some(spec) = self.file_specs.get(&file).cloned() else {
                 tracing::warn!("OPEN: unknown file '{}'", raw);
                 continue;
@@ -5766,6 +6294,18 @@ impl Interpreter {
             None => 0,
         };
 
+        // A sequential READ once `AT END` has been reached is 46, not a second
+        // 10: the AT END left no valid next record, and reading on is a
+        // different error from reaching the end (SQ136A–SQ138A).
+        // 46 is class 4, not an AT END condition, so neither `AT END` nor
+        // `NOT AT END` runs — the statement cannot handle it and the file's
+        // USE declarative is what deals with it.
+        if !random && self.at_end_files.contains(&file) {
+            self.set_file_status(&file, "46");
+            self.fire_declarative(&file, "46", false)?;
+            return Ok(());
+        }
+
         // Fetch one record + a status code, dispatched by organization.
         let (buf, code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
@@ -5823,6 +6363,13 @@ impl Interpreter {
             if let Some(OpenFile::Indexed(engine)) = self.open_files.get_mut(&file) {
                 engine.unlock();
             }
+        }
+
+        // Latch / release the end-of-file position this READ leaves behind.
+        if code == status::EOF && !random {
+            self.at_end_files.insert(file.clone());
+        } else if code == status::OK {
+            self.at_end_files.remove(&file);
         }
 
         self.set_file_status(&file, code);
@@ -5983,6 +6530,12 @@ impl Interpreter {
             }
             None => status::NOT_OPEN_INPUT,
         };
+        // A successful START establishes a record again, so a following
+        // sequential READ is a normal read, not the 46 that a past AT END
+        // would otherwise leave standing.
+        if code == status::OK {
+            self.at_end_files.remove(&file);
+        }
         self.set_file_status(&file, code);
         // START's "record not found" status (23) is the invalid-key condition.
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
@@ -8937,10 +9490,17 @@ impl Interpreter {
                 }
                 // A group item is the concatenation of its subordinate items and
                 // is alphanumeric whatever they are, so it is read from them and
-                // never from its own slot.
-                if let Some(s) = self.env.group_value(&key) {
-                    let n = s.len();
-                    return Ok(CobolValue::from_str(&s, n));
+                // never from its own slot. Read as **bytes**: a child holding
+                // `0xFF` has no one-byte UTF-8 spelling, and through a `String`
+                // it came back as the three bytes of U+FFFD — so a group filled
+                // with `HIGH-VALUE` compared unequal to `HIGH-VALUE` and read
+                // three times its own width (NC105A MOVE-TEST-F1-67).
+                if let Some(bytes) = self.env.group_bytes(&key) {
+                    let n = bytes.len();
+                    return Ok(CobolValue::String {
+                        bytes,
+                        capacity: n,
+                    });
                 }
                 // An OBJECT REFERENCE item's slot holds the bridge HANDLE ID —
                 // an internal number. Reading the item from COBOL must yield
@@ -8969,10 +9529,24 @@ impl Interpreter {
             Expr::Qualified { name, of, .. } => {
                 let quals = collect_quals(of);
                 let key = self.env.resolve_name(name, &quals);
-                // `A OF B` may name a group just as a bare reference may.
-                if let Some(s) = self.env.group_value(&key) {
+                // `RENAME-6 IN T-RENAMES-DATA` names a 66-level item, which
+                // synthesizes its value from the items it regroups — exactly as
+                // the bare `Expr::Identifier` arm does. Without this the
+                // qualified read fell through to the storage lookup, found no
+                // slot (a RENAMES owns none) and read 0 (NC252A RENAM-TEST-10).
+                if self.env.is_renames(&key) {
+                    let s = self.env.renames_value(&key).unwrap_or_default();
                     let n = s.len();
                     return Ok(CobolValue::from_str(&s, n));
+                }
+                // `A OF B` may name a group just as a bare reference may, and is
+                // read byte-for-byte for the same reason.
+                if let Some(bytes) = self.env.group_bytes(&key) {
+                    let n = bytes.len();
+                    return Ok(CobolValue::String {
+                        bytes,
+                        capacity: n,
+                    });
                 }
                 Ok(self
                     .env
@@ -9018,10 +9592,14 @@ impl Interpreter {
                 let key = crate::environment::subscript_key(&base_name, &idx);
                 // One occurrence of a table of GROUPS has no slot of its own —
                 // it is its subordinate items' matching occurrences, exactly as
-                // an unsubscripted group is its children.
-                if let Some(g) = self.env.group_value(&key) {
-                    let n = g.len();
-                    return Ok(CobolValue::from_str(&g, n));
+                // an unsubscripted group is its children, and is read as bytes
+                // for the same reason.
+                if let Some(bytes) = self.env.group_bytes(&key) {
+                    let n = bytes.len();
+                    return Ok(CobolValue::String {
+                        bytes,
+                        capacity: n,
+                    });
                 }
                 Ok(self
                     .env
@@ -9741,6 +10319,7 @@ impl Interpreter {
                 let l = self.as_comparand(lhs, l);
                 let r = self.as_comparand(rhs, r);
                 let (l, r) = self.nonnumeric_relation(lhs, l, rhs, r);
+                let (l, r) = size_figuratives(lhs, l, rhs, r);
                 Ok(compare_values(&l, &r, *op))
             }
             Condition::Not(inner, _) => Ok(!self.eval_condition(inner)?),
@@ -9755,7 +10334,28 @@ impl Interpreter {
                 let v = self.eval_expr(expr, *span)?;
                 let s = v.as_display_string();
                 let result = match class {
-                    DataClass::Numeric => v.is_numeric() || s.trim().parse::<f64>().is_ok(),
+                    // An item whose PICTURE carries no operational sign is
+                    // NUMERIC only when **every character position holds a
+                    // digit** and no sign is present (COBOL-85 8.3.1.3). An
+                    // alphanumeric item never has an operational sign, so
+                    // `CLASS-1 PICTURE X(5)` holding `"+1234"` is not numeric
+                    // and `CLASS-1 NOT NUMERIC` is true — NC211A's
+                    // CC--TEST-GF-48 turns on exactly that.
+                    //
+                    // Reading it with `parse::<f64>` accepted the sign, and a
+                    // decimal point, an exponent, and surrounding spaces with
+                    // it. The declaration decides, as ever: a *numeric* item
+                    // holding characters (a group MOVE can leave one that way)
+                    // keeps the value-based reading below.
+                    DataClass::Numeric => {
+                        if v.is_numeric() {
+                            true
+                        } else if self.is_nonnumeric_operand(expr) {
+                            !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
+                        } else {
+                            s.trim().parse::<f64>().is_ok()
+                        }
+                    }
                     DataClass::Alphabetic => s.chars().all(|c| c.is_ascii_alphabetic() || c == ' '),
                     DataClass::AlphabeticLower => {
                         s.chars().all(|c| c.is_ascii_lowercase() || c == ' ')
@@ -9811,11 +10411,7 @@ impl Interpreter {
                 // 88-level condition-name: true when the parent (host) item holds
                 // one of the declared VALUEs (or falls within a THRU range).
                 if let Some(info) = self.env.cond_name(name).cloned() {
-                    let pv = self
-                        .env
-                        .get(&info.parent)
-                        .cloned()
-                        .unwrap_or_else(|| CobolValue::from_i64(0));
+                    let pv = self.cond_host_value(&info.parent);
                     return Ok(condition_holds(&info, &pv));
                 }
                 // Fallback (undeclared): truthy if the slot is non-zero/non-space.
@@ -9834,7 +10430,8 @@ impl Interpreter {
                 // say which occurrence of it the VALUEs are tested against —
                 // so they are applied to the host's key, not the 88's name.
                 let leaf = condition_ref_leaf(expr);
-                let Some(info) = self.env.cond_name(&leaf).cloned() else {
+                let quals = condition_ref_quals(expr);
+                let Some(info) = self.env.cond_name_qual(&leaf, &quals).cloned() else {
                     // Not a condition-name after all: the only reading left for
                     // a bare reference is "holds something other than zero".
                     let v = self.eval_expr(expr, *span)?;
@@ -9845,11 +10442,7 @@ impl Interpreter {
                     _ => Vec::new(),
                 };
                 let key = crate::environment::subscript_key(&info.parent, &idx);
-                let pv = self
-                    .env
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or_else(|| CobolValue::from_i64(0));
+                let pv = self.cond_host_value(&key);
                 Ok(condition_holds(&info, &pv))
             }
 
@@ -9968,6 +10561,31 @@ impl Interpreter {
     /// `None` when the name is not a section header. An empty section (a header
     /// immediately followed by another) yields an empty range, which the range
     /// runner treats as a no-op.
+    /// Where a `GO TO` should land in `para_order`.
+    ///
+    /// `para_order` is keyed by bare name, so an unqualified lookup hands back
+    /// the **first** definition anywhere in the program. NC208A declares
+    /// `PAR-4B` in both `QUAL-SECTION-1` and `QUAL-SECTION-2` and jumps to the
+    /// second one; without the qualifier it landed in the first and the test
+    /// read `"FAIL"` out of the paragraph it was told not to enter
+    /// (`PAR-TEST-F2-4`).
+    ///
+    /// An unknown qualifier falls back to the unqualified lookup rather than
+    /// losing the jump — the same choice `PERFORM … OF …` makes.
+    fn goto_index(&self, target: &str, section: Option<&str>) -> Option<usize> {
+        let upper = target.to_ascii_uppercase();
+        if let Some(sec) = section {
+            if let Some((first, last)) = self.section_span(&sec.to_ascii_uppercase()) {
+                if let Some(i) =
+                    (first..=last).find(|i| self.para_order.get(*i).is_some_and(|n| *n == upper))
+                {
+                    return Some(i);
+                }
+            }
+        }
+        self.para_order.iter().position(|n| *n == upper)
+    }
+
     fn section_span(&self, upper: &str) -> Option<(usize, usize)> {
         if !self.section_names.contains(upper) {
             return None;
@@ -10016,13 +10634,14 @@ impl Interpreter {
                 | Err(RuntimeError::ExitParagraph)
                 | Err(RuntimeError::ExitSection)
                 | Err(RuntimeError::NextSentence) => idx += 1,
-                Err(RuntimeError::GoTo { target }) => {
-                    let upper = target.to_ascii_uppercase();
-                    match self.para_order.iter().position(|p| p == &upper) {
+                Err(RuntimeError::GoTo { target, section }) => {
+                    match self.goto_index(&target, section.as_deref()) {
                         // Inside the range — stay in the range.
                         Some(pos) if pos >= from_pos && pos <= to_pos => idx = pos,
-                        // Outside it — let the jump escape to the caller.
-                        Some(_) | None => break Err(RuntimeError::GoTo { target }),
+                        // Outside it — let the jump escape to the caller, with
+                        // its qualifier intact so the outer loop resolves it
+                        // the same way.
+                        Some(_) | None => break Err(RuntimeError::GoTo { target, section }),
                     }
                 }
                 Err(e) => break Err(e),
@@ -10174,6 +10793,10 @@ impl Interpreter {
     /// is what drives the default `DELIMITED BY SPACES` behaviour (trailing
     /// space padding dropped) when no `DELIMITED BY` clause is written. Every
     /// other operand defaults to `DELIMITED BY SIZE`.
+    /// Superseded by [`Self::string_operand_bytes`], which `STRING` now uses so
+    /// a `HIGH-VALUE` sender keeps its single byte. Kept rather than deleted —
+    /// it is the text-shaped reading of the same rule and has no caller today.
+    #[allow(dead_code)]
     fn string_operand(&mut self, e: &Expr, span: Span) -> Result<(String, bool), RuntimeError> {
         if matches!(
             e,
@@ -10186,6 +10809,25 @@ impl Interpreter {
             }
         }
         Ok((self.eval_expr(e, span)?.as_display_string(), false))
+    }
+
+    /// [`Self::string_operand`] in bytes — see [`value_bytes`].
+    fn string_operand_bytes(
+        &mut self,
+        e: &Expr,
+        span: Span,
+    ) -> Result<(Vec<u8>, bool), RuntimeError> {
+        if matches!(
+            e,
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }
+        ) {
+            let name = self.resolve_lvalue(e);
+            if let Some(bytes) = self.env.display_bytes(&name) {
+                let is_alpha = self.env.is_alphanumeric_field(&name);
+                return Ok((bytes, is_alpha));
+            }
+        }
+        Ok((value_bytes(&self.eval_expr(e, span)?), false))
     }
 
     /// Assign `val` into the reference-modified region of a target:
@@ -10328,6 +10970,69 @@ fn build_para_map(
     (map, order, bodies, sections)
 }
 
+/// Build the paragraph space a `USE` declarative runs in, and the handler
+/// records that index into it.
+///
+/// Each declarative SECTION contributes its header — carrying the section's
+/// preamble, so a handler written without paragraphs still has a body to run —
+/// followed by its named paragraphs. Every declarative section goes in, not
+/// just the one being entered: SQ226A's EXTEND handler performs
+/// `OUTPUT-ERROR-PROCESS THRU END-DECLS`, which lives in the OUTPUT handler's
+/// section. The main body is appended last so a handler can also perform a
+/// paragraph of the non-declarative portion, while a name declared in both
+/// resolves to the declarative copy (`map` keeps the first definition).
+///
+/// A program without declaratives gets an empty space and no handlers; nothing
+/// ever swaps it in.
+fn build_decl_space(
+    decls: &[cobolt_ast::program::UseProcedure],
+    main_order: &[String],
+    main_bodies: &[Vec<Stmt>],
+    main_sections: &std::collections::HashSet<String>,
+) -> (ParaSpace, Vec<DeclHandler>) {
+    if decls.is_empty() {
+        return (ParaSpace::default(), Vec::new());
+    }
+    let mut space = ParaSpace::default();
+    let mut handlers = Vec::with_capacity(decls.len());
+
+    for u in decls {
+        let first = space.order.len();
+        let sec_key = u.section.to_ascii_uppercase();
+        space.order.push(sec_key.clone());
+        space.bodies.push(u.stmts.clone());
+        space.sections.insert(sec_key.clone());
+        space.map.entry(sec_key).or_insert_with(|| u.stmts.clone());
+        for para in &u.paras {
+            let key = para.name.to_ascii_uppercase();
+            space.order.push(key.clone());
+            space.bodies.push(para.stmts.clone());
+            space.map.entry(key).or_insert_with(|| para.stmts.clone());
+        }
+        // The section's last entry: its own header when it declares no
+        // paragraphs, so an empty handler is a one-entry range, not a reversed
+        // one.
+        let last = space.order.len() - 1;
+        handlers.push(DeclHandler {
+            files: u.files.clone(),
+            modes: u.modes.clone(),
+            catch_all: u.catch_all,
+            first,
+            last,
+        });
+    }
+
+    for (i, name) in main_order.iter().enumerate() {
+        let stmts = main_bodies.get(i).cloned().unwrap_or_default();
+        space.order.push(name.clone());
+        space.bodies.push(stmts.clone());
+        space.map.entry(name.clone()).or_insert(stmts);
+    }
+    space.sections.extend(main_sections.iter().cloned());
+
+    (space, handlers)
+}
+
 // ── Free functions ────────────────────────────────────────────────────────────
 
 /// Convert an AST literal to a runtime `CobolValue`.
@@ -10341,6 +11046,83 @@ fn build_para_map(
 ///
 /// `from_start` picks the LEADING end; otherwise the TRAILING one. An empty
 /// pattern never matches, so a bad operand counts zero rather than looping.
+/// Which of the four `INSPECT … TALLYING FOR` forms an operand is. The AST
+/// variants carry their pattern expression; by the time the scan runs the
+/// pattern is already evaluated, so only the form is left to distinguish.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TallyKind {
+    Characters,
+    All,
+    Leading,
+    Trailing,
+}
+
+impl TallyKind {
+    fn of(kind: &TallyFor) -> Self {
+        match kind {
+            TallyFor::Characters => TallyKind::Characters,
+            TallyFor::All(_) => TallyKind::All,
+            TallyFor::Leading(_) => TallyKind::Leading,
+            TallyFor::Trailing(_) => TallyKind::Trailing,
+        }
+    }
+}
+
+/// One operand of an `INSPECT … TALLYING` series, ready for the single shared
+/// left-to-right scan the standard specifies. See the `Tallying` arm of
+/// [`Interpreter::exec_inspect`].
+struct TallyOp {
+    /// Index of the counter this operand adds to — several operands may share
+    /// one (`TALLYING X FOR ALL "A" ALL "B"`).
+    ti: usize,
+    kind: TallyKind,
+    /// The evaluated pattern; empty for `CHARACTERS`.
+    pat: String,
+    /// The operand's `BEFORE`/`AFTER` window, as byte offsets: `[lo, hi)`.
+    lo: usize,
+    hi: usize,
+    /// Where this operand's `LEADING` run must match next; starts at `lo`.
+    leading_next: usize,
+    /// False once the scan has passed `leading_next` without this operand
+    /// taking it — a `LEADING` run cannot resume after a gap.
+    leading_live: bool,
+    /// First byte of this operand's `TRAILING` run, or `hi` when there is none.
+    trail_start: usize,
+}
+
+/// Which form of `INSPECT … REPLACING` operand this is.
+#[derive(Clone, Copy, PartialEq)]
+enum ReplKind {
+    Characters,
+    All,
+    Leading,
+    Trailing,
+    First,
+}
+
+/// One operand of an `INSPECT … REPLACING` series, ready for the single shared
+/// left-to-right scan the standard specifies. The twin of [`TallyOp`]; see the
+/// `Replacing` arm of [`Interpreter::exec_inspect`].
+struct ReplOp {
+    kind: ReplKind,
+    /// The evaluated pattern; empty for `CHARACTERS`.
+    pat: String,
+    /// The evaluated `BY` operand.
+    by: String,
+    /// The operand's `BEFORE`/`AFTER` window, as byte offsets: `[lo, hi)`.
+    lo: usize,
+    hi: usize,
+    /// Where this operand's `LEADING` run must match next; starts at `lo`.
+    leading_next: usize,
+    /// False once the scan has passed `leading_next` without this operand
+    /// taking it — a `LEADING` run cannot resume after a gap.
+    leading_live: bool,
+    /// First byte of this operand's `TRAILING` run, or `hi` when there is none.
+    trail_start: usize,
+    /// True once a `FIRST` operand has replaced its one occurrence.
+    spent: bool,
+}
+
 fn count_run(hay: &str, pat: &str, from_start: bool) -> usize {
     if pat.is_empty() || pat.len() > hay.len() {
         return 0;
@@ -10457,6 +11239,122 @@ fn size_all_literal(e: &Expr, v: CobolValue, width: usize) -> CobolValue {
     }
     let repeated: String = unit.chars().cycle().take(width).collect();
     CobolValue::from_str(&repeated, width)
+}
+
+/// A value's stored bytes: the raw bytes of an alphanumeric item, and the
+/// rendered characters of anything else.
+///
+/// Only an alphanumeric value can hold a byte that is not a character, so every
+/// other category is exactly its display string.
+fn value_bytes(v: &CobolValue) -> Vec<u8> {
+    match v {
+        CobolValue::String { bytes, .. } => bytes.clone(),
+        other => other.as_display_string().into_bytes(),
+    }
+}
+
+/// `s` with its trailing ASCII spaces removed — `str::trim_end` on bytes.
+fn trim_trailing_spaces_bytes(s: &[u8]) -> &[u8] {
+    let end = s.iter().rposition(|&b| b != b' ').map_or(0, |i| i + 1);
+    &s[..end]
+}
+
+/// The first position at which `needle` occurs in `haystack`, byte for byte.
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The byte width of an operand, for sizing a figurative constant against it.
+///
+/// Measured on the **bytes**, never on the display string: `HIGH-VALUE` is the
+/// byte `0xFF`, which is not valid UTF-8 and renders as a three-byte
+/// replacement character, so a three-byte item would have been sized as nine.
+fn operand_width(v: &CobolValue) -> usize {
+    match v {
+        CobolValue::String { bytes, .. } => bytes.len(),
+        other => other.as_display_string().len(),
+    }
+}
+
+/// A figurative constant in a nonnumeric relation is **repeated to the size of
+/// the other operand** — it has no length of its own.
+///
+/// `IF QT = QUOTE` with `QT PICTURE XXX` compares `"""` against `"""`. Left at
+/// one character it was compared against `"` padded on the right with spaces —
+/// `"  ` — which is not equal, and NC211A's FIG-TEST-3 failed on every one of
+/// its six comparisons. `SPACE` and `ZERO` never showed the defect because the
+/// space padding a short operand already gets happens to produce the same
+/// characters `SPACE` would have repeated, and `ZERO` compares algebraically.
+///
+/// `ALL literal` keeps its own [`size_all_literal`], which the pseudo-move path
+/// applies where a numeric operand supplies the width.
+fn size_figurative(e: &Expr, v: CobolValue, width: usize) -> CobolValue {
+    let Expr::Literal(Literal::Figurative(fc), _) = e else {
+        return v;
+    };
+    size_figurative_fc(fc, v, width)
+}
+
+/// [`size_figurative`] on the constant itself, so an 88-level `VALUE` — which
+/// is a [`Literal`] and never an [`Expr`] — is sized against its host item by
+/// the same rule (`88 B VALUE QUOTE` on a `PIC X(4)` host is four quotes, not
+/// one padded with spaces: NC250A IF--TEST-26 and IF--TEST-28).
+fn size_figurative_fc(fc: &FigurativeConstant, v: CobolValue, width: usize) -> CobolValue {
+    // `ALL literal` is repeated to the other operand's size in **both**
+    // directions — a two-character unit against a ten-character field is the
+    // unit five times over, not the unit padded with spaces (IF--TEST-4).
+    if let FigurativeConstant::All(inner) = fc {
+        let unit = literal_to_value(inner).as_display_string();
+        if unit.is_empty() || width == 0 {
+            return v;
+        }
+        let repeated: String = unit.chars().cycle().take(width).collect();
+        return CobolValue::from_str(&repeated, width);
+    }
+    if width == 0 || operand_width(&v) >= width {
+        return v;
+    }
+    match fc {
+        FigurativeConstant::Space => CobolValue::spaces(width),
+        FigurativeConstant::Quote => CobolValue::from_str(&"\"".repeat(width), width),
+        // Under a `PROGRAM COLLATING SEQUENCE` these name the ends of the
+        // program's own sequence, exactly as `literal_to_value` reads them.
+        FigurativeConstant::HighValue => crate::collation::active_high_value()
+            .map(|ch| CobolValue::from_str(&ch.to_string().repeat(width), width))
+            .unwrap_or_else(|| CobolValue::figurative_high_values(width)),
+        FigurativeConstant::LowValue => crate::collation::active_low_value()
+            .map(|ch| CobolValue::from_str(&ch.to_string().repeat(width), width))
+            .unwrap_or_else(|| CobolValue::figurative_low_values(width)),
+        // ZERO and NULL are numeric operands and compare algebraically; ALL is
+        // handled above, before the width guard.
+        FigurativeConstant::Zero | FigurativeConstant::Null | FigurativeConstant::All(_) => v,
+    }
+}
+
+/// Size whichever side of a relation is a figurative constant against the
+/// other, when that other side is nonnumeric. Two numerics compare
+/// algebraically and never need it.
+fn size_figuratives(
+    le: &Expr,
+    l: CobolValue,
+    re: &Expr,
+    r: CobolValue,
+) -> (CobolValue, CobolValue) {
+    let (lw, rw) = (operand_width(&l), operand_width(&r));
+    let l = if r.is_numeric() {
+        l
+    } else {
+        size_figurative(le, l, rw)
+    };
+    let r = if l.is_numeric() {
+        r
+    } else {
+        size_figurative(re, r, lw)
+    };
+    (l, r)
 }
 
 pub fn compare_values(l: &CobolValue, r: &CobolValue, op: CmpOp) -> bool {
@@ -10648,11 +11546,18 @@ fn screen_attrs(sc: &cobolt_ast::stmt::ScreenPhrase) -> String {
 /// `VALUE` entries — a single value or a `THRU` range.
 fn condition_holds(info: &crate::environment::CondName, pv: &CobolValue) -> bool {
     use cobolt_ast::data::ConditionValue;
+    // A figurative constant written as an 88's VALUE has no length of its own:
+    // it is repeated to the host item's size, exactly as it would be on the
+    // right of a relation.
+    let width = if pv.is_numeric() { 0 } else { operand_width(pv) };
+    let sized = |lit: &Literal| match lit {
+        Literal::Figurative(fc) => size_figurative_fc(fc, literal_to_value(lit), width),
+        _ => literal_to_value(lit),
+    };
     info.values.iter().any(|cv| match cv {
-        ConditionValue::Single(lit) => compare_values(pv, &literal_to_value(lit), CmpOp::Eq),
+        ConditionValue::Single(lit) => compare_values(pv, &sized(lit), CmpOp::Eq),
         ConditionValue::Range(lo, hi) => {
-            compare_values(pv, &literal_to_value(lo), CmpOp::Ge)
-                && compare_values(pv, &literal_to_value(hi), CmpOp::Le)
+            compare_values(pv, &sized(lo), CmpOp::Ge) && compare_values(pv, &sized(hi), CmpOp::Le)
         }
     })
 }
@@ -10666,6 +11571,18 @@ fn condition_ref_leaf(expr: &Expr) -> String {
         Expr::Qualified { name, .. } => name.to_ascii_uppercase(),
         Expr::Subscript { base, .. } => condition_ref_leaf(base),
         _ => String::new(),
+    }
+}
+
+/// The `OF`/`IN` qualifiers written on a condition-name reference, innermost
+/// first: `EQUALS-A OF LVL-5 OF GRP (13)` → `[LVL-5, GRP]`. Empty for a bare
+/// name. One 88 name may be declared under several groups, so these are what
+/// tell the declarations apart.
+fn condition_ref_quals(expr: &Expr) -> Vec<String> {
+    match expr {
+        Expr::Qualified { of, .. } => collect_quals(of),
+        Expr::Subscript { base, .. } => condition_ref_quals(base),
+        _ => Vec::new(),
     }
 }
 

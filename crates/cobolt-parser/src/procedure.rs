@@ -107,18 +107,22 @@ fn parse_declaratives(p: &mut Parser) -> Vec<UseProcedure> {
         // Expect `section-name SECTION .`
         if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Section) {
             let span = p.peek_span();
-            let _ = eat_procedure_name(p); // section name (not retained)
+            let section = eat_procedure_name(p)
+                .map(|(n, _)| n.to_ascii_uppercase())
+                .unwrap_or_default();
             p.advance(); // SECTION
             p.expect_period();
 
             let (files, modes, catch_all) = parse_use_clause(p);
-            let stmts = parse_declarative_body(p);
+            let (stmts, paras) = parse_declarative_body(p);
             procs.push(UseProcedure {
                 files,
                 modes,
                 catch_all,
                 stmts,
                 span,
+                section,
+                paras,
             });
         } else {
             // Unexpected token — recover to the next period to avoid looping.
@@ -185,11 +189,17 @@ fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
     (files, modes, catch_all)
 }
 
-/// Collect the handler statements of a declarative section (all of its
-/// paragraphs, flattened), stopping at the next section header or
-/// `END DECLARATIVES`.
-fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
-    let mut stmts = Vec::new();
+/// Collect the body of a declarative section, stopping at the next section
+/// header or `END DECLARATIVES`.
+///
+/// Returns the section's **preamble** (statements written before its first
+/// paragraph header) and its **named paragraphs**, in order. The paragraphs
+/// keep their names because a `USE` procedure performs and jumps between them:
+/// SQ132A's handler is `PERFORM DECL-FAIL` / `GO TO DECL-ABNORMAL-TERM`, and
+/// SQ226A performs a paragraph belonging to a *different* declarative section.
+fn parse_declarative_body(p: &mut Parser) -> (Vec<cobolt_ast::stmt::Stmt>, Vec<Paragraph>) {
+    let mut preamble = Vec::new();
+    let mut paras: Vec<Paragraph> = Vec::new();
     loop {
         while p.eat(&Token::Period) {}
         if p.at(&Token::Eof) {
@@ -202,11 +212,10 @@ fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
         if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Section) {
             break;
         }
-        // Named paragraph header → take its statements; otherwise collect
-        // orphan statements (parse_stmts stops at the next header on its own).
+        // Named paragraph header → keep it whole; otherwise collect orphan
+        // statements (parse_stmts stops at the next header on its own).
         if is_procedure_name(p.peek()) && matches!(p.peek_at(1), Token::Period) {
-            let para = parse_paragraph(p);
-            stmts.extend(para.stmts);
+            paras.push(parse_paragraph(p));
         } else {
             let s = parse_sentences(p, &|tok| {
                 matches!(
@@ -221,10 +230,15 @@ fn parse_declarative_body(p: &mut Parser) -> Vec<cobolt_ast::stmt::Stmt> {
             if s.is_empty() {
                 break;
             }
-            stmts.extend(s);
+            // Statements after a paragraph header belong to that paragraph;
+            // only what precedes the first one is the section's preamble.
+            match paras.last_mut() {
+                Some(last) => last.stmts.extend(s),
+                None => preamble.extend(s),
+            }
         }
     }
-    stmts
+    (preamble, paras)
 }
 
 // ── Body parser ───────────────────────────────────────────────────────────────

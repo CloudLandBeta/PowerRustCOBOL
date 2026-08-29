@@ -628,8 +628,11 @@ fn parse_pic_clause(p: &mut Parser) -> Option<PicClause> {
             // every width and digit-count rule downstream stays written once.
             // Only the formatter substitutes the real character back.
             ref t if is_currency_token(t, currency) => {
+                let positions = currency_run_len(t, currency);
                 p.advance();
-                template.push('$');
+                for _ in 0..positions {
+                    template.push('$');
+                }
             }
 
             // Collect template characters
@@ -742,17 +745,35 @@ fn pic_continues(tok: &Token, currency: char) -> bool {
 /// (`$`, `#`, `@`, `%`), or — for the permitted letters — as a one-character
 /// identifier.
 fn is_currency_token(tok: &Token, currency: char) -> bool {
-    let one = |s: &str| s.chars().eq(std::iter::once(currency));
+    currency_run_len(tok, currency) > 0
+}
+
+/// How many currency positions this token spells, or 0 if it is not one.
+///
+/// A *floating* currency string is a run of the symbol — `$$$$$` — and when the
+/// symbol is a letter the whole run arrives as **one identifier**: `CURRENCY
+/// SIGN IS "W"` with `PICTURE IS WWWWW` lexes as the single word `WWWWW`, not
+/// as five tokens. Testing for a one-character identifier therefore rejected
+/// every floating currency picture that did not use `$`, and NC107A's
+/// `CURR-TEST-1` edited `0012` where the standard wants `  W12`.
+fn currency_run_len(tok: &Token, currency: char) -> usize {
+    let run = |s: &str| {
+        if !s.is_empty() && s.chars().all(|c| c == currency) {
+            s.chars().count()
+        } else {
+            0
+        }
+    };
     match tok {
-        Token::Lt => currency == '<',
-        Token::Gt => currency == '>',
-        Token::Ampersand => currency == '&',
-        Token::Error(s) => one(s),
+        Token::Lt => usize::from(currency == '<'),
+        Token::Gt => usize::from(currency == '>'),
+        Token::Ampersand => usize::from(currency == '&'),
+        Token::Error(s) => run(s),
         // Guarded on a declared symbol: with the default `$` in force, a
         // one-character identifier in a picture is `PIC A` or `PIC S`, never a
         // currency position.
-        Token::Identifier(s) => currency != '$' && one(s),
-        _ => false,
+        Token::Identifier(s) if currency != '$' => run(s),
+        _ => 0,
     }
 }
 

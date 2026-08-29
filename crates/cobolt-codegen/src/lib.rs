@@ -64,6 +64,7 @@
 
 use cobolt_forms::code_site::{CodeSite, StructureSection};
 use cobolt_forms::model::PropValue;
+use cobolt_forms::picture::Picture;
 use cobolt_forms::{Control, ControlType, Form};
 
 pub mod data_binding;
@@ -731,12 +732,24 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
         })
         .unwrap_or_else(|| ctrl.id.clone());
 
-    out.push_str(&format!(
-        "          05 {}-TEXT       PIC X({}) VALUE '{}'.\n",
-        prefix,
-        cobol_pic_x(&caption_val, 256),
-        cobol_lit(&caption_val)
-    ));
+    // A control that carries a COBOL `Picture` declares its storage with that
+    // picture, so a comparison against the item obeys COBOL's own rules by
+    // construction rather than by a coercion at run time. Every other control
+    // keeps the caption-sized `PIC X(n)` it has always had.
+    match ctrl.effective_picture() {
+        Some(pic) => out.push_str(&format!(
+            "          05 {}-TEXT       PIC {} {}.\n",
+            prefix,
+            pic,
+            picture_value_clause(&pic, Some(&caption_val))
+        )),
+        None => out.push_str(&format!(
+            "          05 {}-TEXT       PIC X({}) VALUE '{}'.\n",
+            prefix,
+            cobol_pic_x(&caption_val, 256),
+            cobol_lit(&caption_val)
+        )),
+    }
     out.push_str(&format!(
         "          05 {}-VISIBLE    PIC 9      VALUE {}.\n",
         prefix,
@@ -753,10 +766,18 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
         ctrl.control_type,
         ControlType::TextBox | ControlType::CheckBox | ControlType::ComboBox | ControlType::ListBox
     ) {
-        out.push_str(&format!(
-            "          05 {}-VALUE      PIC X(512) VALUE SPACES.\n",
-            prefix
-        ));
+        match ctrl.effective_picture() {
+            Some(pic) => out.push_str(&format!(
+                "          05 {}-VALUE      PIC {} {}.\n",
+                prefix,
+                pic,
+                picture_value_clause(&pic, None)
+            )),
+            None => out.push_str(&format!(
+                "          05 {}-VALUE      PIC X(512) VALUE SPACES.\n",
+                prefix
+            )),
+        }
     }
 
     // Slider: numeric value + min/max/step fields
@@ -2517,6 +2538,26 @@ fn cobol_lit_value(s: &str) -> String {
 /// which previously truncated it against a hard-coded `PIC X(256)`.
 fn cobol_pic_x(s: &str, floor: usize) -> usize {
     floor.max(cobol_lit_value(s).chars().count())
+}
+
+/// The `VALUE` clause for an item declared with `pic`.
+///
+/// A **plain numeric** item takes a numeric literal — `VALUE SPACES` on one is
+/// not COBOL. A character or numeric-**edited** item takes an alphanumeric
+/// literal, so it can be seeded with the caption when there is one, truncated
+/// to what the picture actually holds.
+fn picture_value_clause(pic: &str, seed: Option<&str>) -> String {
+    let parsed = Picture::parse(pic, false);
+    if parsed.is_numeric() && !parsed.is_edited() {
+        return "VALUE 0".to_string();
+    }
+    match seed {
+        Some(s) if !s.is_empty() => {
+            let text: String = cobol_lit_value(s).chars().take(parsed.width()).collect();
+            format!("VALUE '{}'", text.replace('\'', "''"))
+        }
+        _ => "VALUE SPACES".to_string(),
+    }
 }
 
 fn indexed_control_file_name(ctrl: &Control) -> String {

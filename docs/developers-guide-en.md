@@ -1350,15 +1350,45 @@ non-visual ones are services.
 : Label, Button, TextBox, CheckBox, RadioButton, ComboBox, ListBox,
   NumericUpDown, DateTimePicker, Slider, ProgressBar, PictureBox, **Switch**,
   **Knob**, **Gauge**, **FileDropZone**.
-  A **TextBox** honours four input properties a PowerCOBOL developer will reach
+  A **TextBox** honours five input properties a PowerCOBOL developer will reach
   for straight away:
 
   | Property | What it does |
   |---|---|
+  | `Picture` | The **COBOL `PICTURE` the box's contents obey** — see below. |
   | `ReadOnly` | Shows its value, and lets you select and copy it, but takes no edit — and fires no `onChange`, because nothing changed. This is *read-only*, not *disabled*: a disabled field cannot even be selected, and your COBOL can still write to `Text`. |
   | `PasswordCharacter` | Paints the value as **the character you chose**, one per character of the value. The value itself is untouched: `Text` still holds what was typed, so your program reads the password normally. |
-  | `MaximumLength` | Typing stops at that many characters. `0` — the default — means no limit. |
+  | `MaximumLength` | Typing stops at that many characters. `0` — the default — means no limit. Ignored when `Picture` is set: the picture's own width is the limit. |
   | `ScrollBars` | `None` / `Vertical` / `Horizontal` / `Both`, on a **Multiline** box. `None` still scrolls; it simply draws no bars, so text the box cannot show never becomes unreachable. `Horizontal` and `Both` stop the text wrapping, so there is something to scroll sideways to. |
+
+  **`Picture` — the box holds what the item holds.** Set it to a COBOL picture
+  (`9(6)`, `ZZ9.99`, `A(20)`, `X(30)`, `$$,$$9.99CR`) and two things follow.
+
+  It **validates**, per character position, as you type: `PIC A(3)` takes
+  letters and spaces, `PIC 9(3)` takes digits, `PIC X(3)` takes any character.
+  That is COBOL-85's reading of `A`, `9` and `X`, not a permissive one. Entry
+  stays ordinary text — the box does **not** pre-seed the grouping characters
+  and make you walk the caret over them. You type `1234.56`; the box decides
+  whether each keystroke is allowed.
+
+  It also **masks**: a numeric-edited picture shows its edited form when the box
+  is not focused and the plain stored value when it is. `PIC ZZ9.99` holding
+  `12.34` reads `" 12.34"` at rest — one leading space, because the picture is
+  six character positions wide — and `12.34` under the caret.
+
+  The decimal separator and currency character come from the **form's
+  `SPECIAL-NAMES`**, not from the picture, so under `DECIMAL-POINT IS COMMA` the
+  comma is the decimal point and the period groups. The running form and the
+  COBOL it generates cannot disagree about that.
+
+  Most importantly, **the generated data item carries the same picture**. A box
+  with `PIC 9(6)V99` generates a `PIC 9(6)V99` item, so arithmetic and
+  comparisons against it obey COBOL's own rules — nothing is converted behind
+  your back at run time.
+
+  > **Note.** Leaving `Picture` empty means "not set", and the box behaves
+  > exactly as it always has: the effective picture is `X(n)` sized from
+  > `MaximumLength`. Forms built before this property existed are unaffected.
 
 **Containers / layout**
 : GroupBox, Panel, TabControl, Splitter, MenuBar, ToolBar, StatusBar,
@@ -3860,6 +3890,56 @@ extensions. Highlights a working COBOL programmer will rely on:
 > counts how many times `"AH"` repeats *contiguously from the start* of the
 > region — one, in `"AH YES AH YES"`, not two, and not "characters that appear
 > in the pattern".
+>
+> **A series of `TALLYING` operands shares one pass over the field, and the
+> order you write them in decides the answer.** The field is inspected once,
+> left to right; at each character position the operands are tried in the order
+> written, the first that matches claims the position, and the scan continues
+> past the characters it took. Nothing is counted twice.
+>
+> ```cobol
+>        01  SUBJ  PIC X(4)  VALUE "AABA".
+>            INSPECT SUBJ TALLYING T1 FOR ALL "AA"  T2 FOR ALL "A".
+>        *>  T1 = 1, T2 = 1   — "AA" takes positions 1-2, so only the last
+>        *>                     "A" is left for T2
+>            INSPECT SUBJ TALLYING T1 FOR ALL "A"   T2 FOR ALL "AA".
+>        *>  T1 = 3, T2 = 0   — the same statement, operands swapped
+> ```
+>
+> This catches people out with `CHARACTERS`, which counts only the positions no
+> earlier operand claimed, and with `LEADING`, whose run must start at the very
+> first position of its region: put an `ALL` operand in front of it that matches
+> there, and the `LEADING` run is over before it begins.
+>
+> **`REPLACING` works the same way, and its `BEFORE`/`AFTER` delimiters are
+> found before anything is replaced.** That is the part worth knowing: an
+> operand may be anchored on characters an earlier operand overwrites, and it
+> still finds them, because the windows were all fixed against the field as it
+> arrived.
+>
+> ```cobol
+>        01  SUBJ  PIC X(20).
+>            MOVE "CAN NOT BE ALL BAD." TO SUBJ.
+>            INSPECT SUBJ REPLACING
+>                FIRST "L "  BY "ZZ"  AFTER INITIAL "AL"
+>                FIRST "BAD" BY "ZZZ" AFTER "L "
+>                ALL   "."   BY "Z"   AFTER "AL".
+>        *>  SUBJ = "CAN NOT BE ALZZZZZZ"
+> ```
+>
+> Had each phrase been applied on its own over the whole field, the first would
+> have erased the `"L "` the second is anchored on and `"BAD"` would still be
+> there.
+>
+> ⚠️ **A signed numeric item has no minus sign to count.** `INSPECT` reads the
+> character positions an item actually occupies, and a `PIC S9(5)` holding
+> `-12345` occupies five of them, all digits — the sign travels as an overpunch
+> on a digit, not as a character of its own. So
+> `INSPECT AMT TALLYING T FOR ALL "-"` gives **zero**, and a `REPLACING` over the
+> digits leaves the sign untouched. Declare `SIGN IS LEADING SEPARATE` if you
+> want the sign to be a character position; then it is counted like any other.
+> This is standard COBOL behaviour, and it is the usual surprise when a
+> validation routine tries to spot negatives by looking for `"-"`.
 - **Tables:** `SORT` / `MERGE` (with `INPUT`/`OUTPUT PROCEDURE`, `USING`/`GIVING`,
   `RELEASE`/`RETURN`); `SEARCH` (serial) and `SEARCH ALL` (binary search over an
   `ASCENDING`/`DESCENDING KEY` table).
@@ -4058,6 +4138,107 @@ name for its first child.
 > where the first left off. To reach a later part of the field, put a `FILLER`
 > of the right width in front of it inside the same overlay.
 
+> **Note — overlays nest, and a write travels the whole chain.** A `REDEFINES`
+> may sit inside a record that is itself redefined, and inside *that* overlay
+> another one. Two bytes written through the outermost description are visible
+> through every reading of those bytes, however deep — including a condition-name
+> declared on the innermost item:
+>
+> ```cobol
+>        01  REC-10.
+>            02  PART-A.
+>                08  FILLER   PIC X(6).
+>                08  CODE-X   PIC XX99.
+>            02  PART-B REDEFINES PART-A.
+>                03  FILLER   PIC X(8).
+>                03  FLAGS    PIC 99.
+>                03  FLAG-BITS REDEFINES FLAGS.
+>                    04  FLAG-1  PIC 9.
+>                    04  FLAG-2  PIC 9.
+>                        88  SOFT  VALUE 1.
+>        01  REC-12 REDEFINES REC-10.
+>            02  FILLER       PIC X(24).
+>            02  STATUS-CODE  PIC 99.
+>
+>            MOVE 11 TO STATUS-CODE.     *> SOFT is now true
+> ```
+>
+> Each description is re-rendered once per write, so this stays a fixed cost —
+> but it *is* a cost. A very large overlay (a redefined 10×10×10 table) opts out
+> and keeps its own storage instead; see the caveat in the syntax reference.
+
+**`MOVE CORRESPONDING` pairs items by name, and only one of a pair need be
+elementary.** This is the shortcut for copying a record into a differently
+ordered one: items the two groups share by name are moved, items in only one of
+them are left alone, and matching sub-groups are walked into.
+
+```cobol
+       01  IN-REC.
+           05  CUST-NO    PIC 9(6).
+           05  CUST-NAME  PIC X(30).
+           05  FILLER     PIC X(4).
+       01  OUT-REC.
+           05  CUST-NAME  PIC X(30).
+           05  CUST-NO    PIC 9(6).
+           MOVE CORRESPONDING IN-REC TO OUT-REC.   *> reordered, by name
+```
+
+The pairing is by name, **not** by position — that is the whole point, and it is
+also the trap: rename a field on one side and it silently stops being copied.
+
+> **Note.** A pair may put a **group** opposite an elementary item; the standard
+> asks only that one of the two be elementary. The move across it is an
+> ordinary alphanumeric one, so a `PIC XXX` sending into a group of `999` + `XXX`
+> fills all six characters. Two *groups* facing each other are walked into
+> instead, pairing their children.
+
+> ⚠️ **Some items never take part.** An item described with `REDEFINES` or
+> `RENAMES` is left out of the pairing, and so is everything subordinate to it.
+> That is the standard's rule, and it is there to stop the same bytes being
+> moved twice under two names — a `66` regrouping and the items it renames are
+> the same storage. If a field mysteriously fails to copy, check whether it sits
+> under a `REDEFINES` branch.
+
+> **Note — a `66` regrouping belongs to its record, and can be qualified like
+> anything else.** A `66` sits outside the level hierarchy, which makes it look
+> free-floating, but it is subordinate to the record whose items it renames. So
+> the same `66` name may appear once per record and be told apart with
+> `OF`/`IN`, on reads and on writes:
+>
+> ```cobol
+>        01  T-DATA.
+>            02  TAG-1.
+>                03  TAG-1A     PIC XXXX.
+>                03  TAG-1B     PIC XXXXXX.
+>        66  SPAN RENAMES TAG-1A THRU TAG-1B.
+>        01  U-DATA.
+>            02  UNIT-1.
+>                03  UNIT-1A    PIC X(7).
+>                03  UNIT-1B    PIC XXXX.
+>        66  SPAN RENAMES UNIT-1A THRU UNIT-1B.
+>
+>            MOVE "CALIFORNIA" TO SPAN OF T-DATA.   *> TAG-1, not UNIT-1
+> ```
+>
+> Two more things follow from "a `66` is its covered items". A regrouping that
+> reaches over a table covers **every occurrence** of it, not just the first —
+> `66 R RENAMES ITEM-1 THRU TABLE-2` where `TABLE-2` is `PIC XXX OCCURS 5` is
+> twenty characters wide. And a regrouping of **exactly one** item takes that
+> item's whole description: `66 R RENAMES W` where `W` is `PIC 9(4)` is a
+> four-digit numeric item, so `ADD 3500 TO R` with 8000 in it raises
+> `ON SIZE ERROR` and leaves it alone, exactly as `ADD 3500 TO W` would.
+
+**One occurrence of a table is a legitimate operand.** Subscript the group and
+the pairing writes that occurrence's own fields:
+
+```cobol
+       01  A-FLOCK.
+           05  B-FLOCK OCCURS 4 TIMES.
+               10  C-FLOCK.
+                   15  CUST-NO    PIC 9(6).
+                   15  CUST-NAME  PIC X(30).
+           MOVE CORRESPONDING IN-REC TO C-FLOCK (4).   *> the 4th entry only
+
 ### Comparing a number with text
 
 `IF` compares two numbers **algebraically** — by value, sign and all. It
@@ -4243,6 +4424,72 @@ stays inside it, and the `PERFORM` still returns when the range ends:
            PERFORM OPEN-FILES THRU CLEAN-UP-SECTION.
 ```
 
+**`PERFORM … VARYING` has three rules that catch people out.** All three are
+standard COBOL, and all three matter the moment a loop is doing anything less
+ordinary than counting from 1.
+
+*`WITH TEST AFTER` runs the body before it tests anything.* Written on either
+side of the phrase, and inline or out-of-line, it turns the loop into a
+do-while: the body runs once whatever the condition says, and only then are the
+conditions tested — **innermost first**. The level whose condition comes out
+false is stepped, every level inside it restarts at its `FROM` value, and the
+body runs again. A variable is stepped only when its own test is false, so the
+test that ends the loop leaves it exactly as the body left it.
+
+```cobol
+           PERFORM COUNT-IT WITH TEST AFTER
+                   VARYING WS-I FROM 9 BY 1 UNTIL WS-I > 5.
+       *>  COUNT-IT runs once; WS-I is still 9 afterwards.
+```
+
+*An `AFTER` variable goes back to its `FROM` value when its own loop ends.*
+Only the outermost `VARYING` variable keeps the value that ended it. So after
+
+```cobol
+           PERFORM COUNT-IT
+                   VARYING WS-A FROM 2 BY 2 UNTIL WS-A > 4
+                     AFTER WS-B FROM 10 BY -5 UNTIL WS-B = 0.
+```
+
+`WS-A` is 6 and `WS-B` is **10**, not 0. Reading an inner index after the loop
+to find out where it stopped will not tell you — carry the value out in a
+variable of your own.
+
+*A subscripted `VARYING` identifier follows its subscript.* It names whichever
+occurrence the subscript selects at that moment, so a body that moves the
+subscript walks the table:
+
+```cobol
+           PERFORM STEP-IT
+                   VARYING TBL (S1) FROM 10 BY INC (S2)
+                   UNTIL TBL (S1) > 70.
+```
+
+If `STEP-IT` adds 1 to `S1`, each pass steps the *next* element. That is
+deliberate in the standard and useful — but if you meant one element, keep the
+subscript out of the body.
+
+**A paragraph name may repeat across sections — qualify it to say which.** The
+same `OF`/`IN` that disambiguates a data name disambiguates a procedure name,
+and it works on `GO TO` as well as on `PERFORM`:
+
+```cobol
+       VALIDATE SECTION.
+       WRITE-ERROR.
+           MOVE "VALIDATION" TO ERR-STAGE.
+           GO TO WRITE-ERROR IN REPORTING.
+       ...
+       REPORTING SECTION.
+       WRITE-ERROR.
+           WRITE ERR-LINE.
+```
+
+Without the qualifier the jump goes to the **first** paragraph of that name in
+the program, which is rarely the one you meant. A section named in a qualifier
+that does not exist is ignored rather than fatal — the unqualified paragraph is
+used — so a typo in the section name shows up as the wrong branch running, not
+as a diagnostic. `GO TO … DEPENDING ON` takes a plain list and no qualifier.
+
 **Qualification goes as deep as it needs to.** `OF` and `IN` are the same word,
 they may be mixed, and the standard allows up to 49 levels — enough that any
 duplicated name can be made unique by naming as many of its parents as it takes:
@@ -4399,10 +4646,31 @@ gets its own `IDENTIFICATION DIVISION` and is validated independently.
 
 ### `STRING` with smart default delimiters
 
+> **First, the standard rule this builds on: one `DELIMITED BY` covers every
+> sender written before it.** The phrase governs the whole *series*, not the
+> sender it happens to sit next to:
+>
+> ```cobol
+>            STRING WS-FIRST WS-MIDDLE WS-LAST
+>                DELIMITED BY SPACE INTO WS-FULL-NAME
+> ```
+>
+> delimits all three. Write several phrases and each governs the senders since
+> the previous one, so this splits the first pair on a space and the second on a
+> comma:
+>
+> ```cobol
+>            STRING WS-FIRST WS-LAST   DELIMITED BY SPACE
+>                   WS-CITY  WS-REGION DELIMITED BY ","
+>                INTO WS-LINE
+> ```
+>
+> Senders written after the last phrase take the whole of each.
+
 Standard COBOL makes you write `DELIMITED BY` on **every** `STRING` operand, even
 when the obvious choice is the only sensible one. RustCOBOL keeps that explicit
-form working, but when you **omit** `DELIMITED BY` it picks the right default from
-the operand's category — so the common case reads like plain text:
+form working, but when **no phrase governs an operand** it picks the right
+default from the operand's category — so the common case reads like plain text:
 
 | Operand | Default | Why |
 |---------|---------|-----|
@@ -4439,7 +4707,17 @@ Joe earns 000100000 or US$100,000.00
 
 `DELIMITED BY SPACES` here keeps any **internal** spaces (`"Joe Smith"` stays
 `"Joe Smith"`) and trims only the trailing pad. Writing an explicit
-`DELIMITED BY …` on any operand always overrides its default.
+`DELIMITED BY …` phrase always overrides the default for every sender it
+governs.
+
+**`INTO` a group item** works and distributes the result across the group's
+subordinate items, filling them left to right by their own widths — a
+`STRING … INTO` a five-byte group made of `PIC XX` and `PIC XXX` leaves the
+first two characters in one and the next three in the other.
+
+The result is built **byte by byte**, so `STRING HIGH-VALUE` contributes the
+single byte it names and occupies exactly one character position of the
+receiver.
 
 ### Searching tables: `SEARCH` and `SEARCH ALL`
 
@@ -4507,9 +4785,57 @@ takes precedence. After the declarative returns, control continues with the
 statement after the failed operation. (A declarative's own I/O does not
 re-trigger itself.)
 
-> **Note.** A declarative handler is straight-line: its statements run top to
-> bottom. `GO TO` *out of* a declarative section is not supported; keep the
-> handler self-contained (typically a `DISPLAY` plus flag setting).
+**A handler is a section, with real paragraphs.** It is entered at the top of its
+section and flows through the paragraphs to the section's end, and those
+paragraphs keep their names — so a handler can be written the way you would
+write any other procedure:
+
+```cobol
+       DECLARATIVES.
+       CUST-ERROR SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE ON CUSTOMER-FILE.
+       CLASSIFY.
+           IF CUST-STATUS = "35"
+               PERFORM REPORT-MISSING
+               GO TO CUST-ERROR-EXIT.
+           PERFORM REPORT-OTHER.
+       REPORT-MISSING.
+           DISPLAY "Customer file not found.".
+       REPORT-OTHER.
+           DISPLAY "I/O error, status " CUST-STATUS.
+       CUST-ERROR-EXIT.
+           EXIT.
+       END DECLARATIVES.
+```
+
+`PERFORM` and `GO TO` inside a handler reach that section's paragraphs, any
+*other* declarative section's paragraphs, and paragraphs of the ordinary body.
+
+> ⚠️ **Caveat — the two portions do not run into each other.** The declaratives
+> are a separate procedure area: your main body never *falls* into a handler,
+> and a handler ends at the end of its own section rather than continuing into
+> the next one. If a paragraph name is declared in both portions, a reference
+> made inside a handler resolves to the declarative's copy and one made in the
+> body resolves to the body's. Coming from PowerCOBOL or isCOBOL this is the
+> familiar rule; the point worth remembering is that it is enforced, not
+> incidental.
+
+**Some statuses only a declarative will tell you about.** Three error paths the
+sequential verbs report are easy to miss because nothing else surfaces them:
+
+| Situation | `FILE STATUS` |
+| --- | ---: |
+| `OPEN` of a file that is **already open** (the file is left as it was — it is *not* re-opened) | `41` |
+| A sequential `READ` **after** `AT END` — the end left no valid next record | `46` |
+| `CLOSE` of a file that was never opened | `42` |
+
+`46` is a class-4 status, so neither `AT END` nor `NOT AT END` runs for it: a
+declarative (or an explicit `FILE STATUS` test) is the only way to see it. A
+fresh `OPEN`, or a successful `START`, establishes a record again.
+
+> **Note.** `FILE STATUS` may name a two-character **group** item —
+> `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
+> `PIC XX`. Both receive the code.
 
 ### Rust inside COBOL — `EXEC RUST`
 
@@ -6015,6 +6341,7 @@ lines:
 
 ```cobol
        01  WS-RIGHT      PIC X(10) JUSTIFIED RIGHT.
+       01  WS-NAME       PIC A(5)  JUSTIFIED RIGHT.
        01  WS-PART-NO    PIC XXBXX/XX.
 ```
 
@@ -6022,11 +6349,122 @@ lines:
 short sender is padded **on the left** and a long one loses its **leftmost**
 characters. `MOVE "AB" TO WS-RIGHT` leaves `"        AB"`.
 
+The clause applies to an **alphabetic** (`PIC A`) receiver in exactly the same
+way. `MOVE "ABC" TO WS-NAME` leaves `"  ABC"`, and moving the fifteen
+characters `"ABCDEFGHIJKLMNO"` in leaves `"KLMNO"` — the *right* end survives,
+which is the opposite of what an unjustified item does.
+
+> ⚠️ Losing the leftmost characters is the part that surprises people. On an
+> ordinary item an oversized sender is cut on the right, so a truncated account
+> number still starts with the right digits; on a `JUSTIFIED` one it ends with
+> them instead. Size the receiver for the widest sender you expect.
+
 An **alphanumeric-edited** picture owns its insertion characters — `B` prints a
 space, `0` a zero, `/` a slash — and the sender fills only the `X`, `A` and `9`
 positions. `MOVE "AB12CD" TO WS-PART-NO` gives `"AB 12/CD"`. Moving spaces in
 leaves the insertions in place (`"   /  "`), which is what `INITIALIZE` does to
 such a field.
+
+### A group operand suspends the receiver's PICTURE
+
+This is the rule that most often explains a `MOVE` that "did nothing sensible".
+When **either** operand of a `MOVE` is a group item, the standard makes the
+whole move alphanumeric: bytes are copied from left to right, and the other
+operand's `PICTURE` decides only **how many** of them fit. No editing, no
+de-editing, no numeric conversion.
+
+```cobol
+       01  SRC-GRP.
+           05  SRC-N   PIC 999  VALUE 123.
+           05  SRC-A   PIC AAA  VALUE "ABC".
+       01  RCV-EDITED  PIC 0XXXXX0.
+       01  RCV-NUM     PIC 9999V999.
+       01  RCV-CHAR    REDEFINES RCV-NUM PIC X(7).
+           MOVE SRC-GRP TO RCV-EDITED.  *> "123ABC " — the 0s are NOT inserted
+           MOVE SRC-GRP TO RCV-NUM.     *> RCV-CHAR reads "123ABC "
+```
+
+`JUSTIFIED RIGHT` is the one thing the receiver still gets a say in, because
+that is an alignment rule for an alphanumeric move.
+
+The same rule runs one level down, when a group hands its bytes to its own
+fields: each child takes its slice **verbatim**, whatever its `PICTURE` says. A
+`PIC 99` child left holding letters is exactly what the program asked for — what
+you must not then do is arithmetic on it.
+
+> **A `VALUE` clause on a group works the same way.** It initialises the group's
+> bytes and they are spread across the children by width, so
+> `01 MONEY-GRP VALUE "$123.45". 05 MONEY-EDITED PIC $999.99.` leaves
+> `MONEY-EDITED` holding `"$123.45"` — already edited, not re-edited.
+
+### Qualifying a condition-name
+
+An `88` may be declared under more than one group — three tables can each carry
+their own `EQUALS-A` — and `OF`/`IN` tells them apart exactly as it does for a
+data name. Intermediate levels may be skipped, and the subscript belongs to the
+**host** item, choosing which occurrence its `VALUE`s are tested against:
+
+```cobol
+           IF EQUALS-M OF TABLE-LEVEL-5 OF TABLE-LEVEL-4
+                    IN TABLE-LEVEL-3 OF TABLE-LEVEL-2
+                    OF GROUP-1-TABLE (13)
+               PERFORM FOUND-IT.
+```
+
+> ⚠️ An **unqualified** reference to a condition-name declared more than once is
+> ambiguous under the standard. RustCOBOL takes the first declaration rather
+> than rejecting the program — the same thing it does with an ambiguous data
+> name — so qualify it and do not rely on which one wins.
+
+### Figurative constants take the size of what they meet
+
+A figurative constant has no width of its own. It is repeated to fill whatever
+it is written against, and that rule reaches three places worth knowing:
+
+```cobol
+       01  WS-BANNER   PIC X(6) VALUE ALL "ABC".
+       01  WS-MARKS    PIC XXX  VALUE QUOTES.
+```
+
+- **In a `VALUE` clause** it fills the item. `WS-BANNER` holds `"ABCABC"`, and
+  `ALL "XY"` in a `PIC X(9)` holds `"XYXYXYXYX"` — the last unit is cut where
+  the item ends.
+- **In a comparison** it is repeated to the *other* operand's size, so
+  `IF WS-MARKS = QUOTE` is true: three quotation marks against three.
+- **In a `MOVE`** it fills the receiver, whatever the receiver is.
+  `MOVE HIGH-VALUE TO WS-KEY` with `WS-KEY PIC X(10)` sets all ten bytes, and a
+  **group** receiver has the fill distributed across every one of its fields —
+  which is how you clear a whole record to a sentinel before a table scan.
+  An alphanumeric-**edited** receiver still places its own insertion characters,
+  so a `PIC XX0XXBXXX` keeps its `0` and its blank and fills the seven positions
+  around them.
+- **`ALL` in front of another figurative constant is redundant** and means the
+  same thing — `ALL SPACES` is `SPACES`.
+
+> **`HIGH-VALUE` and `LOW-VALUE` are bytes, not letters.** They are the highest
+> and lowest byte values in the collating sequence, and they occupy exactly one
+> character position each wherever they appear — in a record, in a group `MOVE`,
+> and as a `STRING` sender. They are the usual choice for a sentinel key in an
+> indexed file. `DISPLAY` cannot render them meaningfully, so compare against
+> the constant rather than reading them off the console.
+
+### The `NUMERIC` class test is stricter than a parse
+
+`IF WS-FIELD IS NUMERIC` asks whether **every character position holds a
+digit** — not whether the characters could be read as a number. For an item
+whose `PICTURE` carries no operational sign, all of these are **not** numeric:
+
+```text
+       "+1234"    a sign the PICTURE does not provide for
+       "1.234"    a decimal point is not a digit
+       "12 45"    a space is not a digit
+       "123  "    trailing pad from a shorter MOVE
+```
+
+That last one catches people. `MOVE "123" TO WS-X5` where `WS-X5` is `PIC X(5)`
+leaves `"123  "`, and the class test says no. If you are validating operator
+input, move it to a numeric item and test *that*, or check the field's used
+length first.
 
 ### Reading an edited field back — de-editing
 

@@ -29,6 +29,14 @@ pub mod diagnostics;
 pub mod icons;
 pub mod menu;
 pub mod model;
+// The numeric-edited PICTURE engine. It lives here, not in `cobolt-runtime`,
+// because a TextBox carrying a `Picture` has to show the *same* edited text the
+// interpreter would produce for that item — and `cobolt-runtime` depends on
+// this crate, so the shared code can only sit on this side of the edge.
+// `cobolt-runtime` re-exports it as `crate::numedit`, so its call sites are
+// unchanged and there is exactly one implementation.
+pub mod numedit;
+pub mod picture;
 pub mod theme;
 pub mod theme_pack;
 pub mod xml;

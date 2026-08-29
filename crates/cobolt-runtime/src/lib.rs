@@ -54,7 +54,10 @@ pub mod indexed_redb;
 pub mod interpreter;
 pub mod maps_bridge;
 pub mod ors_bridge;
-pub mod numedit;
+/// The numeric-edited PICTURE engine, which now lives in `cobolt-forms` so a
+/// TextBox with a `Picture` edits its display exactly as the interpreter does.
+/// Re-exported here so every `crate::numedit::…` call site is unchanged.
+pub use cobolt_forms::numedit;
 pub mod objects;
 pub mod rust_bridge;
 pub mod value;

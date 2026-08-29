@@ -3961,6 +3961,12 @@ impl Control {
                 );
                 props.insert("InnerPadding".into(), PropValue::Int(3));
                 props.insert("MaximumLength".into(), PropValue::Int(0));
+                // The COBOL PICTURE the box's contents obey. Empty means "not
+                // set": the effective picture is then derived from
+                // `MaximumLength`, so a `.cfrm` written before this property
+                // existed behaves exactly as it did. See
+                // `Control::effective_picture`.
+                props.insert("Picture".into(), PropValue::String("".into()));
                 props.insert("Multiline".into(), PropValue::Bool(false));
                 props.insert("PasswordCharacter".into(), PropValue::String("".into()));
                 props.insert("ReadOnly".into(), PropValue::Bool(false));
@@ -5152,6 +5158,33 @@ impl Control {
             Some(PropValue::Int(n)) => *n != 0,
             _ => false,
         }
+    }
+
+    /// The COBOL `PICTURE` this control's contents obey, as a template string.
+    ///
+    /// An explicit `Picture` property wins and **its own width is
+    /// authoritative** — `MaximumLength` no longer bounds the field. With none
+    /// set (including every `.cfrm` written before the property existed) the
+    /// picture is `X(n)` sized from `MaximumLength`, or from the single-line /
+    /// multiline default when that is 0.
+    ///
+    /// `None` on a control that holds no COBOL value of its own.
+    pub fn effective_picture(&self) -> Option<String> {
+        if self.control_type != ControlType::TextBox {
+            return None;
+        }
+        if let Some(PropValue::String(s)) = self.get_prop("Picture") {
+            let t = s.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+        let max_len = self.get_prop("MaximumLength").map(|v| v.as_i64()).unwrap_or(0);
+        let multiline = self
+            .get_prop("Multiline")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
+        Some(crate::picture::default_textbox_picture(max_len, multiline))
     }
 
     pub fn get_prop(&self, name: &str) -> Option<&PropValue> {
