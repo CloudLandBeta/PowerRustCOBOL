@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.63] — 2026-08-29
+
+**A sequential `REWRITE` may not change the record's key.** NIST CCVS85 Indexed
+I/O goes from **27 to 28 of 42** programs running clean; assertions 517 PASS /
+71 FAIL → **518 PASS / 70 FAIL**.
+
+In the sequential access mode a `REWRITE` replaces the record the last `READ`
+delivered, so the key it carries must still be that record's key. A different
+one raises the **INVALID KEY** condition with status **21**. It was reported as
+**92**, a logic error — a class-9 implementor code that no `INVALID KEY` phrase
+handles and that IX119A, expecting 21 or 22, could not accept.
+
+Under `RANDOM` or `DYNAMIC` access the record is addressed by the key it
+carries, so there is nothing to disagree with and the rule does not apply; a
+keyed `REWRITE` is unaffected.
+
+Corrected in all three indexed engines — the in-memory store, the PRCIDXD1
+B+tree and the redb store — since each checks the key itself.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.62] — 2026-08-29
 
 **`SELECT OPTIONAL` applies to keyed files too.** NIST CCVS85 Indexed I/O goes

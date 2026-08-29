@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.62",
+  "measured_at_version": "1.62.63",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,8 +49,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [27, 42],
-      "assertions": { "pass": 517, "fail": 71, "deleted": 1 }
+      "execution": [28, 42],
+      "assertions": { "pass": 518, "fail": 70, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -85,11 +85,10 @@
       "module": "IX",
       "priority": 1,
       "title": "The remaining single-failure programs, each a separate cause",
-      "worth": "Three programs at exactly 1 failure, the cheapest route from 27 toward 30 of 42.",
+      "worth": "Two programs at exactly 1 failure, the cheapest route from 28 toward 30 of 42.",
       "items": [
         "IX103A READ-TEST-F1-05 'KEY VS RECORD; IX-28' — the record key value after a sequential read must equal the key embedded in the record just delivered.",
-        "IX114A REA-TEST-GF-01-0 'READ. 47 EXP.' — a READ on a file not open INPUT/I-O is status 47, and the program expects its USE declarative to be entered ('SHOULD HAVE EXECUTED DECLARATIVES IX-3,1.3.4(4)').",
-        "IX119A RWR-TEST-GF-01-0 'REWRITE: 21/22 EXP.' — a REWRITE whose key does not match the record last read is 21 (sequential access) or 22."
+        "IX114A REA-TEST-GF-01-0 'READ. 47 EXP.' — a READ on a file not open INPUT/I-O is status 47, and the program expects its USE declarative to be entered ('SHOULD HAVE EXECUTED DECLARATIVES IX-3,1.3.4(4)')."
       ]
     },
     {
@@ -137,6 +136,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.63", "change": "A sequential REWRITE may not change the record key: status 21, not 92", "effect": "IX 27 -> 28 clean (IX119A); 517 -> 518 PASS." },
     { "version": "1.62.62", "change": "SELECT OPTIONAL applies to keyed files: an absent optional file opens with 05", "effect": "IX 24 -> 27 clean. IX216A, IX217A and IX218A all went clean - three programs, where only IX216A had been predicted." },
     { "version": "1.62.61", "change": "SAME RECORD AREA implemented (AST, I-O-CONTROL parsing, READ propagation)", "effect": "IX 22 -> 24 clean; IX205A and IX206A both go clean, each having been at exactly 1 failure." },
     { "version": "1.62.60", "change": "ORGANIZATION IS and the word KEY are optional words in a SELECT", "effect": "IX 19 -> 22 clean, 483 -> 512 PASS, 113 -> 81 FAIL, 81.0% -> 86.3%. Largest single gain of the session." },

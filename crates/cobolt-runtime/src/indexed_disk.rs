@@ -1286,8 +1286,10 @@ impl DiskIndexedFile {
             Ok(b) => b,
             Err(_) => return status::IO_ERROR,
         };
+        // A sequential REWRITE may not change the record's key — see the
+        // in-memory engine. Status 21, the INVALID KEY condition.
         if Self::extract(&self.primary, &old) != pkey {
-            return status::LOGIC_ERROR; // primary key may not change on REWRITE
+            return status::SEQUENCE_ERROR;
         }
         // Update alternate indexes whose value changed.
         let alts = self.alternates.clone();

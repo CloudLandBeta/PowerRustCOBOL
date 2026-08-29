@@ -1129,3 +1129,94 @@ fn optional_keyed_file_that_is_absent_opens_with_05() {
         );
     }
 }
+
+/// A sequential `REWRITE` may not change the record's key.
+///
+/// It replaces the record the last `READ` delivered, so the key it carries must
+/// still be that record's key; a different one raises the INVALID KEY condition
+/// with status **21**. It was reported as 92, a logic error, which IX119A
+/// (expecting 21 or 22) could not accept.
+///
+/// Under RANDOM or DYNAMIC access the record is addressed by the key it
+/// carries, so there is nothing to disagree with and the rule does not apply.
+#[test]
+fn sequential_rewrite_may_not_change_the_key() {
+    let path = temp_idx("rwkeychange");
+    let _ = std::fs::remove_file(&path);
+    let body = |access: &str, proc_body: &str| {
+        format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. T.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      INPUT-OUTPUT SECTION.\n\
+             \x20      FILE-CONTROL.\n\
+             \x20          SELECT F ASSIGN TO \"{path}\"\n\
+             \x20              ORGANIZATION IS INDEXED\n\
+             \x20              ACCESS MODE IS {access}\n\
+             \x20              RECORD KEY IS R-KEY\n\
+             \x20              FILE STATUS IS FS.\n\
+             \x20      DATA DIVISION.\n\
+             \x20      FILE SECTION.\n\
+             \x20      FD F.\n\
+             \x20      01 R.\n\
+             \x20         05 R-KEY  PIC X(4).\n\
+             \x20         05 R-NAME PIC X(8).\n\
+             \x20      WORKING-STORAGE SECTION.\n\
+             \x20      01 FS PIC XX.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20      MAIN.\n\
+             {proc_body}\n\
+             \x20          STOP RUN.\n",
+            path = path.display(),
+            access = access,
+            proc_body = proc_body
+        )
+    };
+
+    let out = run_capture(&body(
+        "SEQUENTIAL",
+        "           OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"TWO\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          READ F AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          MOVE \"K999\" TO R-KEY\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          DISPLAY \"CHANGED \" FS\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"EDITED\" TO R-NAME\n\
+         \x20          READ F AT END CONTINUE END-READ\n\
+         \x20          MOVE \"EDITED\" TO R-NAME\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          DISPLAY \"SAMEKEY \" FS\n\
+         \x20          CLOSE F",
+    ));
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("CHANGED 21"),
+        "a changed key on a sequential REWRITE is 21, not a logic error:\n{joined}"
+    );
+    assert!(
+        joined.contains("SAMEKEY 00"),
+        "rewriting the record just read, key unchanged, still succeeds:\n{joined}"
+    );
+
+    // DYNAMIC addresses the record by the key it carries, so a "different" key
+    // simply names a different record and the rule does not apply.
+    let out = run_capture(&body(
+        "DYNAMIC",
+        "           OPEN I-O F\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"VIA-KEY\" TO R-NAME\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          DISPLAY \"RANDOM \" FS\n\
+         \x20          CLOSE F",
+    ));
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("RANDOM 00"),
+        "a keyed REWRITE addresses its own record and is unaffected:\n{joined}"
+    );
+}

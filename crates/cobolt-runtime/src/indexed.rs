@@ -687,9 +687,14 @@ impl IndexedFile {
                 None => return status::NO_NEXT,
             },
         };
-        // The primary key may not change on REWRITE.
+        // In the sequential access mode a REWRITE replaces the record the last
+        // READ delivered, so its key must still be that record's key. A changed
+        // key is the INVALID KEY condition with status **21**, not a logic
+        // error — IX119A rewrites with a different key and expects 21 or 22.
+        // Under RANDOM or DYNAMIC access the record is addressed by the key it
+        // carries, so `target` is that key and this never fires.
         if target != pkey {
-            return status::LOGIC_ERROR;
+            return status::SEQUENCE_ERROR;
         }
         let old = match self.records.get(&pkey) {
             Some(r) => r.clone(),

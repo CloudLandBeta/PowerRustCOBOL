@@ -991,8 +991,10 @@ impl IndexedStore for RedbIndexedFile {
                 None => return status::NO_NEXT,
             },
         };
+        // A sequential REWRITE may not change the record's key — see the
+        // in-memory engine. Status 21, the INVALID KEY condition.
         if target != pkey {
-            return status::LOGIC_ERROR;
+            return status::SEQUENCE_ERROR;
         }
         let old = match self.lookup_primary(&pkey) {
             Some(r) => r,
