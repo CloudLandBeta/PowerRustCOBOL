@@ -81,9 +81,36 @@
 
   "work_queue": [
     {
-      "id": "ix301m-intermediate-subset-flagging",
+      "id": "ix-ceiling-without-rl",
+      "module": "IX",
+      "priority": 0,
+      "title": "IX cannot reach 42/42 without RELATIVE support",
+      "worth": "Decides what 'finish IX' means, so read this before planning the rest.",
+      "evidence": "IX106A declares `SELECT RL-FR1 ... RELATIVE KEY IS RL-KEY ... ORGANIZATION IS RELATIVE` and its four failures are DELETE-TEST-GF-01 ('DELETE RL RECORD') and REWRITE-TEST-GF-01/02/03 across the relative, sequential and indexed files together. There is no RELATIVE engine, so those cannot pass.",
+      "consequence": "At 1.62.71 the module stands at 38 of 42. The reachable figure without further decisions is 40: IX211A and IX215A are ordinary defects, IX106A waits on RL, and IX301M is a scoping question. GOLDEN RULE #9 sequences RL after IX, which cannot be satisfied literally — the operator may want to take RL first, or accept 40/42 as IX-complete and revisit IX106A once RL lands."
+    },
+    {
+      "id": "ix215a-generic-key-on-duplicates-alternate",
       "module": "IX",
       "priority": 1,
+      "title": "IX215A: a short generic key on a WITH DUPLICATES alternate finds the wrong record",
+      "worth": "2 failures, the last two in IX215A.",
+      "evidence": "Record 176 is rewritten so its ALTKEY2 becomes 'DCDCDCDCDC100ALTKEY2'. The test then does `START IX-FD1 KEY IS EQUAL TO R-ALTKEY2-1-2` — positions 1-2 of ALTKEY2, so the generic key is just 'DC' — and reads NEXT, expecting record 176. It computes 4. The qualified-name variant of the same test expects 190 and computes 12. Both return a small record number where a large one is expected, so the search lands on the wrong member of the duplicate set rather than failing outright.",
+      "next_probe": "Two things differ from the repro that passes: the key is only 2 characters of a much longer alternate, and that alternate carries WITH DUPLICATES, whose disk tree key is altvalue+recid. Check `generic_key_bounds` against a duplicates alternate specifically — lo/hi are klen bytes while stored keys are klen+recid, so the Eq band may admit entries whose alt value merely sorts inside it. Build the repro with a 2-of-20 character prefix on a duplicates alternate and several records sharing it."
+    },
+    {
+      "id": "ix211a-duplicate-key-walk",
+      "module": "IX",
+      "priority": 2,
+      "title": "IX211A: reading forward through duplicate keys is off by one or two",
+      "worth": "2 failures.",
+      "evidence": "'READ NEXT AT END' computes 184 against an expected 183; 'READ NEXT 4 RECS' (READ-TEST-F1-04) computes 182 against 184. Small, opposite-signed errors in a walk over duplicate keys — one record too far in one case, two short in the other.",
+      "next_probe": "Likely the same root as ix215a-generic-key-on-duplicates-alternate: the order and extent of a duplicate set. Do that one first and re-measure before diagnosing this separately."
+    },
+    {
+      "id": "ix301m-intermediate-subset-flagging",
+      "module": "IX",
+      "priority": 3,
       "title": "IX301M asks for INTERMEDIATE-subset flagging, which we do not do",
       "worth": "7 failures — the whole of IX301M, and the last flagging member in the module.",
       "evidence": "Its own header: 'THE FOLLOWING PROGRAM TESTS THE FLAGGING OF INTERMEDIATE SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED INPUT-OUTPUT.' The seven constructs it expects flagged are ORGANIZATION IS INDEXED, ACCESS MODE IS RANDOM, RECORD KEY IS, and the NOT INVALID KEY phrase on READ / REWRITE / WRITE / DELETE.",
@@ -95,8 +122,7 @@
       ],
       "operator_call": "This is a scoping decision, not a defect. Do not invent flags for features we support just to make the number move."
     },
-    { "id": "ix-remaining-four", "module": "IX", "priority": 2, "title": "The last four execution programs", "evidence": "After 1.62.71: IX106A (4), IX211A (2), IX215A (2) plus IX301M (7, a scoping question tracked separately). Eight failures across the three that actually run. Re-bucket with `fails IX` first.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
-    { "id": "ix-long-tail", "module": "IX", "priority": 3, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
+    { "id": "ix-long-tail", "module": "IX", "priority": 4, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
   "dead_ends": [
