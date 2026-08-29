@@ -523,6 +523,12 @@ impl CobolEnvironment {
         self.currency_symbol = Some(c);
     }
 
+    /// Whether `SPECIAL-NAMES. DECIMAL-POINT IS COMMA` is in force, which swaps
+    /// the roles of `.` and `,` in every numeric literal and edited PICTURE.
+    pub fn decimal_comma(&self) -> bool {
+        self.decimal_comma
+    }
+
     pub fn from_data_division_with(data: &DataDivision, decimal_comma: bool) -> Self {
         Self::from_data_division_with_origin(data, decimal_comma, '$', "")
     }

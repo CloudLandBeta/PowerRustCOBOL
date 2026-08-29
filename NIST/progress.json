@@ -62,8 +62,8 @@
       "name": "Conditional",
       "state": "in_flight",
       "compile": [45, 45],
-      "execution": [32, 45],
-      "assertions": { "pass": 776, "fail": 68, "deleted": 0 },
+      "execution": [37, 45],
+      "assertions": { "pass": 824, "fail": 19, "deleted": 0 },
       "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members."
     },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -121,12 +121,22 @@
     {
       "id": "if-flagging-members",
       "module": "IF",
-      "priority": 1,
-      "title": "IF401M / IF402M / IF403M ask for subset flagging we do not emit",
+      "priority": 99,
+      "resolved_at": "1.62.79 — 44 of 44 matched, 0 wrong. It WAS a real gap, not the IX301M scoping question: `flag_high_subset` flags constructs above the COBOL-85 high subset regardless of whether we implement them, and intrinsic functions arrived with the 1989 addendum. One rule covered all three members. Note the trap for next time: my first reading said `0 expected messages` because these members write the marker in UPPERCASE and the grep was case-sensitive.",
+      "title": "RESOLVED — IF401M / IF402M / IF403M ask for subset flagging we do not emit",
       "worth": "32 of the module's 101 failures sit in three programs.",
       "evidence": "IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5.",
       "the_question": "IF401M is the *high*-subset shape, the same as IX401M which scores 10 of 10 — so this is a real gap in `flagging::flag_high_subset`, not the intermediate-subset scoping question that ruled IX301M and RL301M out. Check each member's own header before assuming which kind it is: a member asking a high-subset implementation to flag features it does NOT support is in scope, one asking it to flag features it DOES support is not.",
       "next_probe": "Read the `Message expected` comments in each and compare against what `flag_high_subset` emits today."
+    },
+    {
+      "id": "if-numeric-intrinsic-accuracy",
+      "module": "IF",
+      "priority": 0,
+      "title": "IF's last 19 failures are all numeric-intrinsic results",
+      "worth": "Everything left in the module: 19 assertions across 8 members, and no other kind of failure remains.",
+      "evidence": "Measured at 1.62.79. ATAN 4 (IF104A), MAX 3 (IF119A), MIN 3 (IF123A), ORD-MAX 4 (IF128A), ASIN 2 (IF103A), ACOS 1 (IF101A), ORD-MIN 1 (IF129A), RANGE 1 (IF132A). Every one is a value comparison, not a status or a parse — the functions all run.",
+      "next_probe": "MAX/MIN/ORD-MAX/ORD-MIN/RANGE are one family and probably one cause: they take an argument LIST and are implemented over `as_f64()`, which loses the distinction the standard draws between comparing numeric and alphanumeric arguments (ORD-MAX returns the ORDINAL POSITION of the largest, so a wrong comparison shows up as a wrong index rather than a wrong value). ACOS/ASIN/ATAN are a separate family — check the precision the tests demand before assuming a defect; CCVS85 usually brackets a transcendental result rather than comparing it exactly."
     },
     {
       "id": "rl-remaining-failures",
@@ -230,6 +240,7 @@
   },
 
   "history": [
+    { "version": "1.62.79", "change": "NUMVAL/NUMVAL-C read the sign in either position, CR/DB, and the currency argument; intrinsic functions are flagged as above the high subset, and two detectors stop misreading a function's argument list", "effect": "IF 32 -> 37 of 45, 776 -> 824 PASS, 91.9% -> 97.7%. IF401M/402M/403M go to 44 of 44 flags matched with 0 wrong. NC, SQ, IX and RL exact; compile census 423/434 held." },
     { "version": "1.62.78", "change": "A separator comma before a sign is kept, so `FUNCTION MOD(A, -3)` is two arguments and not one subtraction; an intrinsic called short is reported rather than fatal", "effect": "IF 24 -> 32 of 45, 702 -> 776 PASS, 87.4% -> 91.9%, and the module's two crashes (IF124A, IF133A) are gone. NC, SQ, IX and RL exact; compile census 423/434 held. Applying the same exception to the SEMICOLON broke NC245A — see dead_ends." },
     { "version": "1.62.77", "change": "Three front-end fixes finish RL: `RELATIVE data-name` with KEY omitted, file status 14, and an unterminated conditional phrase reading past ELSE", "effect": "RL 24 -> 34 of 34, 354 PASS / 0 FAIL - the module is FINISHED, from a 14/35 baseline in one session. Whole-suite compile 422 -> 423 of 434 (RL210A). NC, SQ and IX exact. The ELSE fix is general and applies to every module." },
     { "version": "1.62.76", "change": "ORGANIZATION IS RELATIVE gets an engine (relative.rs, container PRCREL1 + MEMORY) and all seven verbs dispatch to it; the harness learns RL's ten chained members", "effect": "RL 14 -> 24 of 35, 196/140 -> 326 PASS / 38 FAIL (58.3% -> 89.6%), and the four timeouts are gone. IX reaches 41/41 with 574 PASS / 0 FAIL - IX106A's last four failures were the relative file it shares with the indexed ones, so IX is FINISHED. NC and SQ exact; compile census 422/434 unchanged." },

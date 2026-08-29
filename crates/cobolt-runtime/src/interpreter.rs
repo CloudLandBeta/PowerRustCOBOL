@@ -766,6 +766,66 @@ fn make_indexed_engine(
     }
 }
 
+/// The value of a `NUMVAL` / `NUMVAL-C` argument string.
+///
+/// The sign may be written at **either end**, and it does not have to touch the
+/// digits: `"   -  4929.0323"` and `"  200.0002   - "` are both well-formed
+/// COBOL-85, as is the `CR`/`DB` credit-debit suffix. Spaces may sit almost
+/// anywhere, and NUMVAL-C additionally allows a currency string and digit-group
+/// separators. Reading the argument as a plain Rust float instead — which is
+/// what this did — returned **zero** for every one of those forms, and IF125A
+/// and IF126A between them write nine of the eleven.
+///
+/// `currency` is NUMVAL-C's currency string, removed wherever it sits; it is
+/// empty for plain NUMVAL. `decimal_comma` swaps the roles of `.` and `,`.
+fn numval(arg: &str, currency: &str, decimal_comma: bool) -> f64 {
+    let mut s = arg.trim().to_string();
+    let mut negative = false;
+
+    // `CR` and `DB` are the credit-debit spelling of a trailing minus.
+    let up = s.to_ascii_uppercase();
+    if up.ends_with("CR") || up.ends_with("DB") {
+        s.truncate(s.len() - 2);
+        negative = true;
+    } else {
+        // Otherwise one sign, at either end, with any amount of space between
+        // it and the digits.
+        let t = s.trim();
+        let stripped = t
+            .strip_suffix('-')
+            .or_else(|| t.strip_prefix('-'))
+            .map(|rest| (rest, true))
+            .or_else(|| {
+                t.strip_suffix('+')
+                    .or_else(|| t.strip_prefix('+'))
+                    .map(|rest| (rest, false))
+            });
+        if let Some((rest, neg)) = stripped {
+            negative = neg;
+            s = rest.to_string();
+        }
+    }
+
+    if !currency.is_empty() {
+        s = s.replace(currency, "");
+    }
+
+    // What is left is digits, spaces, digit-group separators and at most one
+    // decimal point. Keeping only the digits and that point drops the rest.
+    let point = if decimal_comma { ',' } else { '.' };
+    let digits: String = s
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == point)
+        .map(|c| if c == point { '.' } else { c })
+        .collect();
+    let v: f64 = digits.parse().unwrap_or(0.0);
+    if negative {
+        -v
+    } else {
+        v
+    }
+}
+
 /// The two arguments of a two-argument intrinsic, or a reportable error.
 ///
 /// `FUNCTION MOD(A, -3)` was reaching the interpreter with one argument — the
@@ -10761,14 +10821,24 @@ impl Interpreter {
             }
             "NUMVAL" | "NUMVAL-C" => {
                 let s = self.eval_expr(&args[0], span)?.as_display_string();
-                let f: f64 = s
-                    .trim()
-                    .replace(',', "")
-                    .replace('$', "")
-                    .replace('£', "")
-                    .parse()
-                    .unwrap_or(0.0);
-                Ok(CobolValue::from_f64(f))
+                // NUMVAL-C's optional second argument is the currency string
+                // to ignore; with none it is the `SPECIAL-NAMES. CURRENCY
+                // SIGN`, which defaults to `$`. Plain NUMVAL takes no currency
+                // at all.
+                let currency = if name == "NUMVAL-C" {
+                    match args.get(1) {
+                        Some(e) => self
+                            .eval_expr(e, span)?
+                            .as_display_string()
+                            .trim()
+                            .to_string(),
+                        None => self.env.currency().to_string(),
+                    }
+                } else {
+                    String::new()
+                };
+                let dc = self.env.decimal_comma();
+                Ok(CobolValue::from_f64(numval(&s, &currency, dc)))
             }
             "MAX" => {
                 let vals = self.eval_args(args, span)?;

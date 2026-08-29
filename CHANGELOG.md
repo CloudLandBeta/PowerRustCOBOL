@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.79] — 2026-08-29
+
+**`NUMVAL` and `NUMVAL-C` read the forms COBOL-85 actually allows**, and
+intrinsic functions are flagged as above the high subset. **IF (Conditional)
+goes from 32 to 37 of 45 running clean**, 776 → 824 passing assertions
+(91.9 % → 97.7 %).
+
+**NUMVAL.** The argument is not a Rust float literal, and reading it as one
+returned **zero** for most of what the standard permits. The sign may sit at
+either end and does not have to touch the digits; `CR` and `DB` are the
+credit-debit spelling of a trailing minus; NUMVAL-C additionally allows a
+currency string and digit-group separators, and its optional second argument —
+the currency string to ignore — was not read at all.
+
+```cobol
+           COMPUTE WS-NUM = FUNCTION NUMVAL ("   -  4929.0323").
+           COMPUTE WS-NUM = FUNCTION NUMVAL ("   200.0002   - ").
+           COMPUTE WS-NUM = FUNCTION NUMVAL-C ("  $  90.54 -  ", "$").
+```
+
+All three used to be zero. With no second argument, NUMVAL-C now uses the
+`SPECIAL-NAMES. CURRENCY SIGN`, and `DECIMAL-POINT IS COMMA` swaps the roles of
+`.` and `,` as it does everywhere else.
+
+**Intrinsic functions are above the COBOL-85 high subset.** They arrived with
+the 1989 addendum, so a compiler validating at the high subset reports each use
+as non-conforming — whether or not it implements the function. `flag_high_subset`
+did not cover them, which is the whole of what IF401M, IF402M and IF403M ask
+for: 44 expectations across the three, now all matched.
+
+**Two false positives went with it.** A function's argument list is neither a
+subscript list nor a source of operators for an enclosing relation, so
+
+```cobol
+           IF FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1) = ...      *> not 6 subscripts
+           IF FUNCTION MEAN (5, -2, -14, 0) = ...            *> no arithmetic
+```
+
+each drew a second, wrong flag. Seven of IF402M's statements were affected and
+the scorer's greedy matching hid it — the spurious flags stood in for the
+intrinsic-function ones, so the totals looked right. Both detectors still fire
+on the genuine constructs, which is now unit-tested in both directions.
+
+**An intrinsic called with too few arguments is reported, not fatal** — the
+guard added at 1.62.78 now also covers `ANNUITY`.
+
 ## [PowerRustCOBOL 1.62.78] — 2026-08-29
 
 **A separator comma before a sign is no longer discarded**, and two programs

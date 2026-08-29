@@ -514,6 +514,18 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
 /// The PROCEDURE DIVISION half of [`flag_high_subset`], split out to keep one
 /// function from running to three screens.
 #[allow(clippy::too_many_arguments)]
+/// Whether the `(` at `i` opens an intrinsic function's argument list.
+///
+/// `FUNCTION name (` — the name is exactly one token whatever it lexes as, so
+/// the test is the token two back. Two subset detectors need it: a function's
+/// arguments are neither a subscript list nor operators of an enclosing
+/// relation, and reading them as either flagged seven of IF402M's statements a
+/// second time. The greedy scorer hid that by letting the spurious flags stand
+/// in for the intrinsic-function ones, which is why the counts looked right.
+fn opens_function_arguments(tokens: &[SpannedToken], i: usize) -> bool {
+    i >= 2 && matches!(tokens[i - 2].token, Token::Function)
+}
+
 fn subset_procedure_flags(
     tokens: &[SpannedToken],
     i: usize,
@@ -524,6 +536,21 @@ fn subset_procedure_flags(
     once: &mut Vec<&'static str>,
     emit: &mut impl FnMut(&mut Vec<Flag>, &mut Vec<&'static str>, &'static str, u32),
 ) {
+    // ── intrinsic functions ─────────────────────────────────────────────────
+    // Every `FUNCTION name (…)` reference is above the COBOL-85 high subset:
+    // intrinsic functions arrived with the 1989 addendum, not with the 1985
+    // standard, so a compiler validating at the high subset reports each use as
+    // non-conforming — whether or not it implements the function.
+    //
+    // IF401M, IF402M and IF403M are nothing but this: forty-odd paragraphs,
+    // each one statement using one intrinsic, each followed by its own
+    // `MESSAGE EXPECTED`. One flag per *sentence* is what they ask for, which
+    // is what `emit` already gives — `IF FUNCTION ACOS (1.0) = FUNCTION ACOS
+    // (1.0)` names the function twice and expects a single message.
+    if matches!(st.token, Token::Function) {
+        emit(flags, once, "intrinsic function reference", line);
+    }
+
     // ── file-verb phrases above the subset ──────────────────────────────────
     // Each is a *phrase* of `OPEN` or `CLOSE` whose word is not a keyword, so
     // the statement it belongs to is what qualifies it: `LOCK` and `REMOVAL`
@@ -670,7 +697,11 @@ fn subset_procedure_flags(
     // Operands are counted instead, less the binary operators among them: each
     // operator joins two operands into one subscript, so `(IN1 + 3)` is one and
     // `(IN1 - 1  3)` is two.
-    if matches!(st.token, Token::LParen) {
+    //
+    // **A function's argument list is not a subscript list.** `FUNCTION ORD-MAX
+    // (5, 3, 2, 8, 3, 1)` is one operand with six arguments, and counting them
+    // as subscripts flagged four of IF402M's statements twice.
+    if matches!(st.token, Token::LParen) && !opens_function_arguments(tokens, i) {
         let mut depth = 0i32;
         let (mut operands, mut operators, mut colon) = (0usize, 0usize, false);
         for t in &tokens[i..] {
@@ -699,11 +730,38 @@ fn subset_procedure_flags(
 
     // ── conditions ──────────────────────────────────────────────────────────
     if matches!(st.token, Token::If) {
-        let rest = tokens[i..]
-            .iter()
-            .take_while(|t| !matches!(t.token, Token::Period));
         let (mut arith, mut logical) = (false, false);
-        for t in rest {
+        // An operator **inside a function's argument list** belongs to the
+        // argument, not to the relation: `IF FUNCTION MEAN (5, -2, -14, 0) = …`
+        // has no arithmetic expression in it, and reading its signs as
+        // operators flagged three more of IF402M's statements twice.
+        let mut depth = 0i32;
+        let mut fn_open: Option<i32> = None;
+        for (k, t) in tokens[i..]
+            .iter()
+            .enumerate()
+            .take_while(|(_, t)| !matches!(t.token, Token::Period))
+        {
+            match t.token {
+                Token::LParen => {
+                    depth += 1;
+                    if fn_open.is_none() && opens_function_arguments(tokens, i + k) {
+                        fn_open = Some(depth);
+                    }
+                    continue;
+                }
+                Token::RParen => {
+                    if fn_open == Some(depth) {
+                        fn_open = None;
+                    }
+                    depth -= 1;
+                    continue;
+                }
+                _ => {}
+            }
+            if fn_open.is_some() {
+                continue;
+            }
             match t.token {
                 Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Power => {
                     arith = true
@@ -1433,6 +1491,62 @@ mod tests {
                 "READ … NEXT RECORD",
                 "WRITE … AT END-OF-PAGE",
             ]
+        );
+    }
+
+    /// Every intrinsic function reference is above the high subset — they came
+    /// with the 1989 addendum, not the 1985 standard — and one statement earns
+    /// one flag however many times it names a function.
+    #[test]
+    fn an_intrinsic_function_reference_is_above_the_subset() {
+        let got = subset_of(&proc(
+            "           IF FUNCTION ACOS (1.0) = FUNCTION ACOS (1.0)
+                       CONTINUE.",
+        ));
+        assert_eq!(got, vec!["intrinsic function reference"], "{got:?}");
+    }
+
+    /// A function's argument list is not a subscript list.
+    ///
+    /// `FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1)` is one operand with six
+    /// arguments. Counting them as subscripts flagged four of IF402M's
+    /// statements twice, and the greedy scorer hid it by letting the spurious
+    /// flag stand in for the intrinsic-function one.
+    #[test]
+    fn a_function_argument_list_is_not_a_subscript_list() {
+        let got = subset_of(&proc(
+            "           IF FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1) =
+                          FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1)
+                       CONTINUE.",
+        ));
+        assert_eq!(got, vec!["intrinsic function reference"], "{got:?}");
+    }
+
+    /// A sign inside a function's argument list belongs to the argument, not
+    /// to the enclosing relation.
+    #[test]
+    fn a_sign_in_a_function_argument_is_not_arithmetic_in_a_relation() {
+        let got = subset_of(&proc(
+            "           IF FUNCTION MEAN (5, -2, -14, 0) =
+                          FUNCTION MEAN (5, -2, -14, 0)
+                       CONTINUE.",
+        ));
+        assert_eq!(got, vec!["intrinsic function reference"], "{got:?}");
+    }
+
+    /// Neither exception weakens the two detectors themselves: a genuine deep
+    /// subscript list and a genuine arithmetic relation still flag.
+    #[test]
+    fn the_subscript_and_relation_detectors_still_fire() {
+        let subs = subset_of(&proc("           MOVE TBL (A, B, C, D, 1) TO WS-X."));
+        assert!(subs.contains(&"more than three subscripts"), "{subs:?}");
+
+        let arith = subset_of(&proc(
+            "           IF BOX-A + 1 IS NOT GREATER THAN BOX-B + 2 DISPLAY \"X\".",
+        ));
+        assert!(
+            arith.contains(&"arithmetic expression in a relation"),
+            "{arith:?}"
         );
     }
 
