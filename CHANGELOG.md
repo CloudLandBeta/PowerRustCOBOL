@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.80] — 2026-08-29
+
+**A quotient no longer loses its decimals to a long divisor**, and the
+argument-list intrinsics compare the way COBOL compares. **IF (Conditional)
+goes from 37 to 44 of 45 running clean**, 824 → 841 passing assertions
+(97.7 % → 99.9 %).
+
+**Division.** Giving a quotient its guard digits means shifting the dividend,
+and that shift has to fit in the working integer. A divisor with many decimals
+makes it large on its own — `1 / SQRT3`, where `SQRT3 PIC S9V9(17)`, asks for
+43 digits — and the overflow path then fell back to floating point **at the
+dividend's own scale**. The dividend is the integer `1`, so 0.577 was rounded
+into a value with no decimal places at all and came back as **1**:
+
+```cobol
+       01  SQRT3  PIC S9V9(17) VALUE 1.732050808.
+...
+           COMPUTE WS-NUM = FUNCTION ATAN(1 / SQRT3).
+```
+
+answered atan(1) — a quarter turn instead of a sixth of one. The quotient now
+drops guard digits until the shift fits, which keeps the exact integer path;
+only a genuinely enormous magnitude reaches floating point, and it does so at
+the working precision. **Nothing that fitted before changes**: the search
+starts at the precision division always used.
+
+**`MAX`, `MIN`, `ORD-MAX`, `ORD-MIN`.** All four read every argument as a
+floating-point number, which is wrong twice over:
+
+* The result of `MAX`/`MIN` is the **argument itself**. When the arguments are
+  alphanumeric the comparison is by the collating sequence and the answer is a
+  character string — `FUNCTION MAX("R", I, "I", "a")` is `"a"`. Read as floats
+  all four arguments were zero.
+* The **first** of several equal arguments wins. `ORD-MAX` and `ORD-MIN` return
+  a *position*, so ties are visible: `FUNCTION ORD-MAX(A, 5, 5, A)` is 1 when
+  `A` is the greatest, where the old code answered 4.
+
+The comparison is now `cob_ordering` — the same ordering `SORT` and every
+relation use.
+
+**A separator comma before `(` is kept**, for the same reason as one before a
+sign (1.62.78): dropping it from `FUNCTION MAX(A * B, (C + 1) / 2, 3 + 4)`
+leaves `B (C + 1)`, which is the syntax of a *subscripted reference*. The first
+two arguments merged into one and MAX returned 17.5 where the answer is 35.
+
 ## [PowerRustCOBOL 1.62.79] — 2026-08-29
 
 **`NUMVAL` and `NUMVAL-C` read the forms COBOL-85 actually allows**, and

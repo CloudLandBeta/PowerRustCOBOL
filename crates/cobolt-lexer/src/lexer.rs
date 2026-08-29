@@ -211,24 +211,33 @@ impl<'src> Lexer<'src> {
             // COMMA`) and the PICTURE editing comma (`PIC ZZ,ZZ9`, glued
             // inside the template). Both keep their token untouched.
             //
-            // **One case where a COMMA does not mean what a space means**:
-            // when the next token is a `+` or `-`. COBOL-85 tells a sign from
-            // a binary operator by the space after it — `A -3` is two operands
-            // and `A - 3` is one subtraction — and dropping the comma from
-            // `FUNCTION MOD(A, -3)` leaves `A -3`, which the parser then read
-            // as a single subtraction. The function was called with one
-            // argument and the interpreter panicked on the second (IF124A,
-            // IF133A). Every one of the suite's 74 comma-then-sign sites is a
-            // list — a function's arguments or an item's subscripts — and both
-            // parsers already eat a comma between elements, so keeping it
-            // costs nothing.
+            // **Two cases where a COMMA does not mean what a space means**,
+            // both of them a following token that would otherwise attach
+            // itself to the operand before the comma:
+            //
+            // * a `+` or `-`. COBOL-85 tells a sign from a binary operator by
+            //   the space after it — `A -3` is two operands and `A - 3` is one
+            //   subtraction — so dropping the comma from `FUNCTION MOD(A, -3)`
+            //   leaves `A -3`, read as a single subtraction. The function was
+            //   called with one argument and the interpreter panicked on the
+            //   second (IF124A, IF133A).
+            // * a `(`. Dropping the comma from
+            //   `FUNCTION MAX(A * B, (C + 1) / 2, 3 + 4)` leaves `B (C + 1)`,
+            //   which is the syntax of a *subscripted reference*: the first two
+            //   arguments merged into one and MAX returned 17.5 where the
+            //   answer is 35 (IF119A, IF123A, IF130A).
+            //
+            // Every one of the suite's comma-then-sign and comma-then-paren
+            // sites is a list — a function's arguments or an item's subscripts
+            // — and both parsers already eat a comma between elements, so
+            // keeping it costs nothing.
             //
             // The **semicolon** is excluded from that exception. It is never a
             // list separator in COBOL, only decoration, and no parser eats one:
             // NC245A writes `MOVE ELEM3( +3; +5, +10)` to prove a semicolon may
             // stand wherever a space may, and keeping it there is a parse error.
             let dropped_separator = match result {
-                Ok(RawToken::Comma) => !self.next_raw_is_sign(),
+                Ok(RawToken::Comma) => !self.next_raw_binds_leftwards(),
                 Ok(RawToken::Semicolon) => true,
                 _ => false,
             };
@@ -663,17 +672,19 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    /// Whether the token after the one being examined is a `+` or `-`.
+    /// Whether the token after the one being examined would attach itself to
+    /// the operand *before* it if the separator between them were dropped.
     ///
-    /// This is the one place a separator comma carries meaning: `A, -3` is two
-    /// operands and `A -3` — what is left once the comma is dropped — reads as
-    /// one subtraction, because COBOL-85 distinguishes a sign from a binary
-    /// operator by the space that follows it. Keeping the comma is what lets
-    /// the parser tell the two apart without teaching it the spacing rule.
-    fn next_raw_is_sign(&self) -> bool {
+    /// This is where a separator comma carries meaning. `A, -3` is two operands
+    /// but `A -3` reads as one subtraction, because COBOL-85 distinguishes a
+    /// sign from a binary operator by the space that follows it; and `B, (C+1)`
+    /// is two operands but `B (C+1)` is the syntax of a subscripted reference.
+    /// Keeping the comma is what lets the parser tell each pair apart without
+    /// teaching it either rule.
+    fn next_raw_binds_leftwards(&self) -> bool {
         matches!(
             self.raw_tokens.get(self.pos).map(|(t, _)| t),
-            Some(Ok(RawToken::Plus)) | Some(Ok(RawToken::Minus))
+            Some(Ok(RawToken::Plus)) | Some(Ok(RawToken::Minus)) | Some(Ok(RawToken::LParen))
         )
     }
 }

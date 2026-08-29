@@ -62,8 +62,8 @@
       "name": "Conditional",
       "state": "in_flight",
       "compile": [45, 45],
-      "execution": [37, 45],
-      "assertions": { "pass": 824, "fail": 19, "deleted": 0 },
+      "execution": [44, 45],
+      "assertions": { "pass": 841, "fail": 1, "deleted": 0 },
       "baselined_at": "1.62.77 — measured for the first time. 87.4% of 803 assertions. Two members CRASH the interpreter outright (IF124A, IF133A, exit 101) rather than failing, and a crash is a runtime panic, not a wrong answer — look at those first, they are the only two of their kind in the module. Three flagging members are heavily red (IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5); IF401M asking for HIGH-subset flagging is the same shape as IX401M, which scores 10/10, so it is a real gap rather than a scoping question. The rest is a long tail of 1-12 failures across 18 members."
     },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -132,11 +132,21 @@
     {
       "id": "if-numeric-intrinsic-accuracy",
       "module": "IF",
+      "priority": 99,
+      "resolved_at": "1.62.80 — 18 of the 19 closed, in three causes. The `next_probe` guess was half right: MAX/MIN/ORD-MAX/ORD-MIN WERE one family and one cause (the as_f64() comparison, plus first-of-a-tie for the ordinal pair), but ACOS/ASIN/ATAN were NOT a precision question at all — they were a division defect, `1 / SQRT3` coming out as 1 because the overflow fallback used the dividend's scale. RANGE turned out to be a third thing entirely; see if-range-05-glued-sign.",
+      "title": "RESOLVED — IF's last 19 failures are all numeric-intrinsic results",
+      "evidence": "Measured at 1.62.79. ATAN 4 (IF104A), MAX 3 (IF119A), MIN 3 (IF123A), ORD-MAX 4 (IF128A), ASIN 2 (IF103A), ACOS 1 (IF101A), ORD-MIN 1 (IF129A), RANGE 1 (IF132A). Every one is a value comparison, not a status or a parse — the functions all run."
+    },
+    {
+      "id": "if-range-05-glued-sign",
+      "module": "IF",
       "priority": 0,
-      "title": "IF's last 19 failures are all numeric-intrinsic results",
-      "worth": "Everything left in the module: 19 assertions across 8 members, and no other kind of failure remains.",
-      "evidence": "Measured at 1.62.79. ATAN 4 (IF104A), MAX 3 (IF119A), MIN 3 (IF123A), ORD-MAX 4 (IF128A), ASIN 2 (IF103A), ACOS 1 (IF101A), ORD-MIN 1 (IF129A), RANGE 1 (IF132A). Every one is a value comparison, not a status or a parse — the functions all run.",
-      "next_probe": "MAX/MIN/ORD-MAX/ORD-MIN/RANGE are one family and probably one cause: they take an argument LIST and are implemented over `as_f64()`, which loses the distinction the standard draws between comparing numeric and alphanumeric arguments (ORD-MAX returns the ORDINAL POSITION of the largest, so a wrong comparison shows up as a wrong index rather than a wrong value). ACOS/ASIN/ATAN are a separate family — check the precision the tests demand before assuming a defect; CCVS85 usually brackets a transcendental result rather than comparing it exactly."
+      "title": "IF132A F-RANGE-05: a sign glued to a literal is a sign, not an operator",
+      "worth": "The LAST failing assertion in IF. Nothing else stands between the module and 45/45.",
+      "evidence": "`COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).` — there is NO comma between the first two arguments. The test expects 25.8, which is 10.2 - (-15.6), so the suite means four arguments. We read `10.2 - 0.2` as one subtraction and get three, giving 25.6.",
+      "the_rule": "COBOL-85 tells a sign from a binary operator by the space AFTER it: a binary operator must be surrounded by spaces, so `10.2 -0.2` is two operands and `10.2 - 0.2` is one subtraction. This is the same rule that motivated the comma exception at 1.62.78, but the other half of it — there the comma made the boundary explicit, here nothing does.",
+      "why_not_done_yet": "It is the riskiest change left. Implementing it means the LEXER treats a glued `+`/`-` after an operand as a sign, which touches every arithmetic expression in every module rather than one function's arguments. A program that writes `A -3` meaning subtraction changes behaviour silently — such a program is already non-conforming, but silence is the problem. Benefit: 1 assertion.",
+      "next_probe": "If attempted: guard it on the PREVIOUS token being one that can end an operand (identifier, literal, `)`), so PICTURE templates and `BY -1` are untouched; then run all five finished modules plus the compile census before believing it. The semicolon episode (see dead_ends) is the model — a lexer change has no module boundary."
     },
     {
       "id": "rl-remaining-failures",
@@ -240,6 +250,7 @@
   },
 
   "history": [
+    { "version": "1.62.80", "change": "A quotient keeps its decimals when the divisor has many; MAX/MIN/ORD-MAX/ORD-MIN compare with cob_ordering and keep the first of a tie; a separator comma before `(` is kept", "effect": "IF 37 -> 44 of 45, 824 -> 841 PASS, 97.7% -> 99.9%. Three separate causes, not the one family the queue predicted. NC, SQ, IX and RL exact; compile census 423/434 held." },
     { "version": "1.62.79", "change": "NUMVAL/NUMVAL-C read the sign in either position, CR/DB, and the currency argument; intrinsic functions are flagged as above the high subset, and two detectors stop misreading a function's argument list", "effect": "IF 32 -> 37 of 45, 776 -> 824 PASS, 91.9% -> 97.7%. IF401M/402M/403M go to 44 of 44 flags matched with 0 wrong. NC, SQ, IX and RL exact; compile census 423/434 held." },
     { "version": "1.62.78", "change": "A separator comma before a sign is kept, so `FUNCTION MOD(A, -3)` is two arguments and not one subtraction; an intrinsic called short is reported rather than fatal", "effect": "IF 24 -> 32 of 45, 702 -> 776 PASS, 87.4% -> 91.9%, and the module's two crashes (IF124A, IF133A) are gone. NC, SQ, IX and RL exact; compile census 423/434 held. Applying the same exception to the SEMICOLON broke NC245A — see dead_ends." },
     { "version": "1.62.77", "change": "Three front-end fixes finish RL: `RELATIVE data-name` with KEY omitted, file status 14, and an unterminated conditional phrase reading past ELSE", "effect": "RL 24 -> 34 of 34, 354 PASS / 0 FAIL - the module is FINISHED, from a 14/35 baseline in one session. Whole-suite compile 422 -> 423 of 434 (RL210A). NC, SQ and IX exact. The ELSE fix is general and applies to every module." },

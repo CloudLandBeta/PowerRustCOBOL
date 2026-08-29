@@ -766,6 +766,36 @@ fn make_indexed_engine(
     }
 }
 
+/// Which argument of a list is the greatest (or the least), by position.
+///
+/// Two things the obvious `as_f64()` reading gets wrong, and both are
+/// observable:
+///
+/// * **The comparison is COBOL's own.** `cob_ordering` is what `SORT` and every
+///   relation use, so an all-alphanumeric argument list is ordered by the
+///   collating sequence. Read as floats they are all zero, and
+///   `FUNCTION MAX("R", I, "I", "a")` returned zero rather than `"a"`.
+/// * **The first of equal arguments wins.** `ORD-MAX` and `ORD-MIN` return a
+///   *position*, so ties are visible: `FUNCTION ORD-MAX(A, 5, 5, A)` is 1 when
+///   A is the greatest. Comparing strictly keeps the earliest, where Rust's
+///   `max_by` keeps the last.
+fn extreme_index(vals: &[CobolValue], want_max: bool) -> Option<usize> {
+    use std::cmp::Ordering;
+    let mut best = 0usize;
+    for i in 1..vals.len() {
+        let ord = cob_ordering(&vals[i], &vals[best]);
+        let better = if want_max {
+            ord == Ordering::Greater
+        } else {
+            ord == Ordering::Less
+        };
+        if better {
+            best = i;
+        }
+    }
+    (!vals.is_empty()).then_some(best)
+}
+
 /// The value of a `NUMVAL` / `NUMVAL-C` argument string.
 ///
 /// The sign may be written at **either end**, and it does not have to touch the
@@ -10841,20 +10871,22 @@ impl Interpreter {
                 Ok(CobolValue::from_f64(numval(&s, &currency, dc)))
             }
             "MAX" => {
+                // The result is the **argument itself**, not a number derived
+                // from it. When the arguments are alphanumeric the comparison
+                // is by the collating sequence and the answer is a character
+                // string: `FUNCTION MAX("R", I, "I", "a")` is `"a"`. Reading
+                // every argument as an `f64` made all four of them zero and
+                // returned zero (IF119A, IF123A).
                 let vals = self.eval_args(args, span)?;
-                let max = vals
-                    .iter()
-                    .map(|v| v.as_f64())
-                    .fold(f64::NEG_INFINITY, f64::max);
-                Ok(CobolValue::from_f64(max))
+                Ok(extreme_index(&vals, true)
+                    .map(|i| vals[i].clone())
+                    .unwrap_or_else(|| CobolValue::from_i64(0)))
             }
             "MIN" => {
                 let vals = self.eval_args(args, span)?;
-                let min = vals
-                    .iter()
-                    .map(|v| v.as_f64())
-                    .fold(f64::INFINITY, f64::min);
-                Ok(CobolValue::from_f64(min))
+                Ok(extreme_index(&vals, false)
+                    .map(|i| vals[i].clone())
+                    .unwrap_or_else(|| CobolValue::from_i64(0)))
             }
             "SQRT" => {
                 let v = self.eval_expr(&args[0], span)?.as_f64();
@@ -10946,19 +10978,16 @@ impl Interpreter {
                 Ok(CobolValue::from_str(&s, 1))
             }
             "ORD-MAX" | "ORD-MIN" => {
+                // The *position*, so which of several equal arguments wins is
+                // observable: `FUNCTION ORD-MAX(A, 5, 5, A)` is 1 when A is the
+                // greatest, not 4. `max_by` answers with the last of a tie,
+                // which is how IF128A and IF129A failed.
                 let vals = self.eval_args(args, span)?;
-                let cmp = |a: f64, b: f64| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal);
-                let pick = if name.eq_ignore_ascii_case("ORD-MAX") {
-                    vals.iter()
-                        .enumerate()
-                        .max_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
-                } else {
-                    vals.iter()
-                        .enumerate()
-                        .min_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
-                };
+                let want_max = name.eq_ignore_ascii_case("ORD-MAX");
                 Ok(CobolValue::from_i64(
-                    pick.map(|(i, _)| i as i64 + 1).unwrap_or(0),
+                    extreme_index(&vals, want_max)
+                        .map(|i| i as i64 + 1)
+                        .unwrap_or(0),
                 ))
             }
             // ── Statistics over the argument list ─────────────────────────────

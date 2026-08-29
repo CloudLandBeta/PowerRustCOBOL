@@ -163,22 +163,42 @@ impl CobolNumeric {
         }
         // Working fractional precision (guard digits); the receiving field
         // rescales to its own PIC on assignment.
-        let dr = self.decimals.max(other.decimals).saturating_add(9).min(31);
-        let exp = dr as i32 + other.decimals as i32 - self.decimals as i32;
-        let num = if exp >= 0 {
-            pow10(exp as u32).and_then(|p| self.mantissa.checked_mul(p))
-        } else {
-            pow10((-exp) as u32).map(|p| self.mantissa / p)
-        };
-        match num {
-            Some(n) => Some(CobolNumeric::new(n / other.mantissa, dr)),
-            // Overflowed i128 → fall back to f64 (rare, very large magnitudes).
-            None => {
-                let mut out = CobolNumeric::new(0, self.decimals);
-                out.set_f64(self.to_f64() / other.to_f64());
-                Some(out)
+        let want = self.decimals.max(other.decimals).saturating_add(9).min(31);
+        // Giving the quotient `dr` fractional digits means shifting the
+        // dividend by `dr + other.decimals - self.decimals`, and that shift has
+        // to fit beside it in an i128. A divisor with many decimals makes it
+        // large on its own: `1 / SQRT3`, with `SQRT3 PIC S9V9(17)`, asks for a
+        // shift of 43 and 10^43 does not fit.
+        //
+        // **Give up precision rather than the answer.** Dropping guard digits
+        // until the shift fits keeps the exact integer path, which is where a
+        // quotient belongs; only a genuinely enormous magnitude reaches the
+        // float fallback below. Nothing that fits today changes: the loop
+        // starts at the precision this always used.
+        let mut dr = want;
+        loop {
+            let exp = dr as i32 + other.decimals as i32 - self.decimals as i32;
+            let num = if exp >= 0 {
+                pow10(exp as u32).and_then(|p| self.mantissa.checked_mul(p))
+            } else {
+                pow10((-exp) as u32).map(|p| self.mantissa / p)
+            };
+            if let Some(n) = num {
+                return Some(CobolNumeric::new(n / other.mantissa, dr));
             }
+            if dr == 0 {
+                break;
+            }
+            dr -= 1;
         }
+        // Even an unscaled quotient overflows — fall back to f64, at the
+        // **working** precision rather than the dividend's own scale. Taking
+        // the dividend's scale meant `1 / SQRT3` was rounded into a value with
+        // no decimals at all and came out as 1, so every `FUNCTION ATAN(1 / x)`
+        // in IF104A answered atan(1) (IF101A, IF103A and IF104A between them).
+        let mut out = CobolNumeric::new(0, want.min(18));
+        out.set_f64(self.to_f64() / other.to_f64());
+        Some(out)
     }
 
     /// Number of digits in the integer part (zero → 0, so it fits any field).
@@ -647,6 +667,45 @@ mod tests {
         let mut field = CobolNumeric::new(0, 4);
         field.mantissa = q.rescaled_to(4);
         assert_eq!(field.to_string(), "3.3333");
+    }
+
+    /// A divisor with many decimals must not cost the quotient its precision.
+    ///
+    /// `1 / SQRT3` with `SQRT3 PIC S9V9(17)` asks for a shift of 43 digits,
+    /// which does not fit in an i128. The old code fell back to f64 *at the
+    /// dividend's own scale* — and the dividend is the integer 1, so 0.577 was
+    /// rounded into zero decimal places and came back as **1**. Every
+    /// `FUNCTION ATAN(1 / x)` in IF104A then answered atan(1).
+    #[test]
+    fn a_divisor_with_many_decimals_keeps_the_quotient_exact() {
+        let sqrt3 = CobolNumeric::new(173_205_080_800_000_000, 17); // 1.732050808
+        let q = CobolNumeric::integer(1).div(&sqrt3).unwrap();
+        let mut field = CobolNumeric::new(0, 9);
+        field.mantissa = q.rescaled_to(9);
+        assert_eq!(field.to_string(), "0.577350269");
+
+        // The same quotient however the dividend's own scale is written.
+        let q = CobolNumeric::new(10, 1).div(&sqrt3).unwrap(); // 1.0
+        let mut field = CobolNumeric::new(0, 9);
+        field.mantissa = q.rescaled_to(9);
+        assert_eq!(field.to_string(), "0.577350269");
+    }
+
+    /// …and the ordinary quotients are untouched: the precision loop starts at
+    /// the guard precision this always used, so anything that fitted before
+    /// still takes the same path.
+    #[test]
+    fn ordinary_quotients_are_unchanged() {
+        for (a, b, want) in [
+            (CobolNumeric::integer(1), CobolNumeric::integer(3), "0.333333333"),
+            (CobolNumeric::integer(10), CobolNumeric::integer(4), "2.500000000"),
+            (CobolNumeric::new(-1, 0), CobolNumeric::integer(8), "-0.125000000"),
+        ] {
+            let q = a.div(&b).unwrap();
+            let mut field = CobolNumeric::new(0, 9);
+            field.mantissa = q.rescaled_to(9);
+            assert_eq!(field.to_string(), want);
+        }
     }
 
     #[test]
