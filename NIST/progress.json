@@ -84,8 +84,9 @@
       "module": "IX",
       "priority": 1,
       "title": "START on an alternate key after a REWRITE",
-      "evidence": "8 failures reading `INVALID KEY ON START OF REWRITTEN RECORD`.",
-      "fix_sketch": "A REWRITE that changes an alternate key value must update that alternate's index — remove the old entry and insert the new one.",
+      "evidence": "8 failures in IX215A, all `START REDF ALT-KEY-1` / `ALT-KEY-2`, reporting COMPUTED='INVALID KEY ON START' against an expected record number (START-TEST-GF-05 expects 9, GF-06 expects 50). The START on the alternate returns 23 for a record that was rewritten.",
+      "hypothesis_disproven": "The obvious explanation — that a REWRITE fails to reindex a changed alternate — is WRONG, checked 2026-08-29. Both the in-memory engine (index_remove then index_insert) and the disk engine (alt_tree_key diff, bt_delete then bt_insert) already do it, and a minimal repro passes end to end: rewrite a record changing its alternate, START on the new value finds it, START on the old value correctly returns 23. Do not re-derive this.",
+      "next_probe": "What differs in IX215A is the shape, not the verb: its alternates are reached through REDEFINES and are declared on IX-FD1/IX-FD2, with ALT-KEY-2 carrying WITH DUPLICATES. Build the repro again with (a) an alternate key that is a REDEFINES of another item, and (b) an alternate WITH DUPLICATES, and rewrite a record that shares its duplicate alternate value with another. The duplicate case is the likelier culprit — removing one record's entry from a duplicate set is where an index goes wrong.",
       "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"]
     },
     { "id": "ix-delete-ix21", "module": "IX", "priority": 2, "title": "DELETE — IX-21 4.3.2", "evidence": "5 failures in the DELETE-TEST-GF family.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
