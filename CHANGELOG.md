@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.49] — 2026-08-29
+
+**Indexed files obey the sequential access mode's ordering rules** — NIST
+CCVS85 Indexed I/O (IX) goes from **16 to 19 of 42** on execution, assertions
+354 PASS / 424 FAIL → **358 PASS / 420 FAIL**. Three COBOL-85 rules that an
+INDEXED file declared `ACCESS MODE IS SEQUENTIAL` was not enforcing:
+
+- **`WRITE` requires ascending RECORD KEY order.** A key that is not greater
+  than the one before it is status **21** and the record is not written. A
+  rejected write does not move the sequence forward, so the next key is judged
+  against the last key actually written. Under `RANDOM` or `DYNAMIC` access any
+  order is still allowed, and a clash with an existing record remains **22**.
+- **`REWRITE` replaces the record the previous `READ` delivered**, so there has
+  to be one: with no successfully executed `READ` immediately before it, the
+  status is **43**. The `REWRITE` consumes the record, so a second one without
+  an intervening `READ` is 43 again.
+- **`DELETE` follows the same rule**, and is **43** on the same terms.
+
+`START` positions the file but delivers no record, so a `REWRITE` or `DELETE`
+after one is still 43 — as are the first such statement after `OPEN`, after a
+`WRITE`, and after an unsuccessful `READ`.
+
+This is what IX120A checks by rewriting with its `READ`s commented out and
+expecting its `USE AFTER EXCEPTION` declarative to be entered on status 43, and
+what IX109A checks by writing keys 1…50 and then 49. IX109A, IX119A and IX120A
+all now run clean.
+
+Five tests cover the rules directly, including that a rejected write leaves the
+file unchanged and that `DYNAMIC` access is unaffected.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
 ## [PowerRustCOBOL 1.62.48] — 2026-08-29
 
 **NIST CCVS85 Indexed I/O (IX) rises from 13 to 16 of 42 on execution** —

@@ -971,6 +971,28 @@ pub struct Interpreter {
     /// successful `READ`, so the absence of an entry here is what makes a
     /// `REWRITE` status **43**.
     last_read: HashMap<String, LastRead>,
+    /// Logical file names whose **last input-output statement was a
+    /// successfully executed `READ`**.
+    ///
+    /// In the sequential access mode a `REWRITE` or `DELETE` acts on the record
+    /// the previous `READ` delivered, so the standard makes it an error — status
+    /// **43** — for anything else to have come in between. `last_read` answers
+    /// the same question for a record-SEQUENTIAL file, but only because it
+    /// stores a byte offset; an INDEXED file has no offset to remember, and
+    /// this set is what carries the fact for it.
+    ///
+    /// Inserted by a successful `READ`; removed by an unsuccessful one and by
+    /// every other I-O statement on the file, including `OPEN`, `START` and the
+    /// `REWRITE`/`DELETE` that consumes it.
+    read_established: std::collections::HashSet<String>,
+    /// Logical file name → the RECORD KEY of the last record successfully
+    /// written to it, while it is open in the sequential access mode.
+    ///
+    /// Writing an INDEXED file sequentially requires ascending key order; a key
+    /// that is not greater than the one before it is status **21**, and the
+    /// record is not written. Cleared by `OPEN` and `CLOSE`, so the order is
+    /// judged within one open of the file and not across two.
+    last_write_key: HashMap<String, Vec<u8>>,
 }
 
 /// Where a sequential `READ` found the record it delivered.
@@ -1166,6 +1188,8 @@ impl Interpreter {
             open_modes: HashMap::new(),
             at_end_files: std::collections::HashSet::new(),
             last_read: HashMap::new(),
+            read_established: std::collections::HashSet::new(),
+            last_write_key: HashMap::new(),
         }
     }
 
@@ -5868,8 +5892,11 @@ impl Interpreter {
             }
             // Remember the open-mode for mode-qualified USE declaratives.
             self.open_modes.insert(file.clone(), mode);
-            // A fresh OPEN positions before the first record again.
+            // A fresh OPEN positions before the first record again, and leaves
+            // no record established for a REWRITE or DELETE to act on.
             self.at_end_files.remove(&file);
+            self.read_established.remove(&file);
+            self.last_write_key.remove(&file);
             let Some(spec) = self.file_specs.get(&file).cloned() else {
                 tracing::warn!("OPEN: unknown file '{}'", raw);
                 continue;
@@ -6042,6 +6069,9 @@ impl Interpreter {
                 self.fire_declarative(&file, code, false)?;
                 continue;
             }
+            // A closed file has no established record; the next OPEN starts over.
+            self.read_established.remove(&file);
+            self.last_write_key.remove(&file);
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
                     OpenFile::Writer { w, .. } => {
@@ -6352,8 +6382,25 @@ impl Interpreter {
         // violation: the record does not fit the file as described, so nothing
         // is written.
         let out_of_range = varying && !self.varying_len_in_range(&file, buf.len());
+        // Writing an INDEXED file in the sequential access mode requires
+        // ascending RECORD KEY order. The key this WRITE carries is compared
+        // against the one before it, and a key that is not greater is status 21
+        // with nothing written (IX109A writes 1…50 and then 49, expecting 21).
+        // Under RANDOM or DYNAMIC access any order is allowed and a clash with
+        // an existing record is the engine's 22 instead.
+        let writes_in_key_order = self.file_specs.get(&file).is_some_and(|s| {
+            s.organization == FileOrganization::Indexed && s.access == AccessMode::Sequential
+        });
+        let seq_key = writes_in_key_order
+            .then(|| self.record_key_of(&file, &buf))
+            .flatten();
+        let out_of_sequence = match (&seq_key, self.last_write_key.get(&file)) {
+            (Some(now), Some(prev)) => now.as_slice() <= prev.as_slice(),
+            _ => false,
+        };
         let code = match self.open_files.get_mut(&file) {
             _ if out_of_range => "44",
+            _ if out_of_sequence => crate::indexed::status::SEQUENCE_ERROR,
             // ── INDEXED ────────────────────────────────────────────────────
             Some(OpenFile::Indexed(engine)) => engine.write(&buf),
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
@@ -6383,11 +6430,34 @@ impl Interpreter {
                 "48"
             }
         };
+        // A WRITE is an I-O statement like any other: it displaces whatever
+        // record a previous READ had established.
+        self.read_established.remove(&file);
+        // Only a record that actually went in moves the sequence forward; a
+        // rejected one leaves the previous key standing, so the next WRITE is
+        // judged against the last one written rather than the last attempted.
+        if code == "00" || code == "02" {
+            if let Some(k) = seq_key {
+                self.last_write_key.insert(file.clone(), k);
+            }
+        }
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
         self.advance_linage(&file, advancing, at_eop, not_at_eop)?;
         Ok(())
+    }
+
+    /// The RECORD KEY bytes of a record image about to be written.
+    ///
+    /// Taken from the image rather than from the environment, so it is the key
+    /// of the record as it will be stored — the same bytes the engine will
+    /// index it under. `None` when the file declares no RECORD KEY, or the key
+    /// field is not in the record layout, or the image is too short to hold it.
+    fn record_key_of(&self, file: &str, buf: &[u8]) -> Option<Vec<u8>> {
+        let spec = self.file_specs.get(file)?;
+        let ks = spec.layout.key_spec(spec.record_key.as_deref()?, false)?;
+        buf.get(ks.offset..ks.offset + ks.len).map(<[u8]>::to_vec)
     }
 
     /// Lay one 01 record description's current bytes over the record area.
@@ -6716,6 +6786,12 @@ impl Interpreter {
                 self.last_read.remove(&file);
             }
         }
+        // The same fact, for a file with no byte offset to remember it by.
+        if code == status::OK {
+            self.read_established.insert(file.clone());
+        } else {
+            self.read_established.remove(&file);
+        }
 
         self.set_file_status(&file, code);
         // Pick the success / failure handler. Random reads branch on INVALID KEY,
@@ -6842,6 +6918,13 @@ impl Interpreter {
         let io_mode = self.open_modes.get(&file).copied() == Some(OpenMode::InputOutput);
         let last = self.last_read.get(&file).copied();
         let code = match self.open_files.get_mut(&file) {
+            // In the sequential access mode a REWRITE replaces the record the
+            // previous READ delivered, so the standard requires one: with no
+            // successfully executed READ immediately before it, the statement
+            // has no record to replace and the status is 43 (IX120A rewrites
+            // with its READs commented out and expects its USE declarative to
+            // be entered on exactly that status).
+            Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
             }
@@ -6881,6 +6964,7 @@ impl Interpreter {
         if !indexed {
             self.last_read.remove(&file);
         }
+        self.read_established.remove(&file);
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
@@ -6907,6 +6991,10 @@ impl Interpreter {
             .as_deref()
             .and_then(|k| spec.layout.field_value(&self.env, k));
         let code = match self.open_files.get_mut(&file) {
+            // Sequential DELETE removes the record the previous READ delivered,
+            // and so requires one — the same rule, and the same status 43, that
+            // governs a sequential REWRITE (IX119A).
+            Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.delete(if random { key_bytes.as_deref() } else { None })
             }
@@ -6916,6 +7004,9 @@ impl Interpreter {
             }
             None => status::NOT_OPEN_IO,
         };
+        // The record is consumed: a second DELETE with no READ between them
+        // is 43.
+        self.read_established.remove(&file);
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
@@ -6972,6 +7063,9 @@ impl Interpreter {
         if code == status::OK {
             self.at_end_files.remove(&file);
         }
+        // START only positions the file; it delivers no record. A REWRITE or
+        // DELETE after it still has nothing to act on.
+        self.read_established.remove(&file);
         self.set_file_status(&file, code);
         // START's "record not found" status (23) is the invalid-key condition.
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
