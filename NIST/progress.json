@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.59",
+  "measured_at_version": "1.62.60",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,8 +49,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [19, 42],
-      "assertions": { "pass": 483, "fail": 113, "deleted": 1 }
+      "execution": [22, 42],
+      "assertions": { "pass": 512, "fail": 81, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -138,6 +138,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.60", "change": "ORGANIZATION IS and the word KEY are optional words in a SELECT", "effect": "IX 19 -> 22 clean, 483 -> 512 PASS, 113 -> 81 FAIL, 81.0% -> 86.3%. Largest single gain of the session." },
     { "version": "1.62.59", "change": "Producer chains run in the consumer's own directory (harness)", "effect": "IX 482 -> 483 PASS. Harness figures now match a by-hand chain run exactly, isolating a real over-read." },
     { "version": "1.62.58", "change": "Deleting during a sequential scan no longer skips the next record (disk engine cursor resumes by key)", "effect": "No NIST movement - the programs that would show it stop earlier for other reasons. Real defect, proven by repro and regression test." },
     { "version": "1.62.57", "change": "X-card letter variants (XXXXP/XXXXD nnn) collapse onto one card; IX103A declares its producer", "effect": "IX103A's scan reaches 35 records instead of dying on the first READ. Assertions went 484 -> 482 PASS: two that had never executed now run and fail truthfully. A fidelity gain that shows as a score dip — see rules.gate_protects_finished_modules_absolutely." }

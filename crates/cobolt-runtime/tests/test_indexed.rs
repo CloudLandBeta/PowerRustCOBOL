@@ -884,3 +884,106 @@ fn deleting_during_a_sequential_scan_does_not_skip_the_next_record() {
         "20 written minus 5 deleted:\n{joined}"
     );
 }
+
+/// `ORGANIZATION IS` and the word `KEY` are optional words.
+///
+/// COBOL-85 writes the clauses as `[ORGANIZATION IS] INDEXED` and
+/// `RECORD [KEY] [IS] data-name`. IX103A omits both — its header says so
+/// outright: "SELECT ... INDEXED ... (WITHOUT THE OPTIONAL WORD
+/// <ORGANIZATION>)".
+///
+/// Neither omission failed the compile. The bare organization was ignored, so
+/// the file stayed SEQUENTIAL and an indexed file was opened as a stream of
+/// bytes: a scan of a 500-record file delivered **870** newline-delimited
+/// "records". Dropping `RECORD IX-FS1-KEY` left the file with no key at all.
+#[test]
+fn organization_and_record_key_accept_their_optional_words() {
+    let path = temp_idx("bareorg");
+    let _ = std::fs::remove_file(&path);
+    // Written with the full spelling…
+    let full = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC 9(4).\n\
+         \x20         05 R-PAD  PIC X(60).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 I  PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 300\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"X\" TO R-PAD\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&full);
+    assert!(
+        !out.join("\n").contains("error"),
+        "writer failed:\n{}",
+        out.join("\n")
+    );
+
+    // …and read back with every optional word omitted.
+    let bare = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              INDEXED\n\
+         \x20              RECORD    R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC 9(4).\n\
+         \x20         05 R-PAD  PIC X(60).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 N  PIC 9(6) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN INPUT F\n\
+         \x20          DISPLAY \"OPEN \" FS.\n\
+         \x20      L.\n\
+         \x20          READ F AT END GO TO E END-READ\n\
+         \x20          ADD 1 TO N\n\
+         \x20          GO TO L.\n\
+         \x20      E.\n\
+         \x20          DISPLAY \"COUNT \" N\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&bare);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("OPEN 00"),
+        "a bare INDEXED file must open as indexed:\n{joined}"
+    );
+    assert!(
+        joined.contains("COUNT 000300"),
+        "the bare spelling must read the same 300 records the full spelling \
+         wrote; treating it as a byte stream gives a wildly different count:\n{joined}"
+    );
+}

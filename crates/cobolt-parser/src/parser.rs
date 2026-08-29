@@ -1266,6 +1266,27 @@ fn is_persistence(tok: &cobolt_lexer::Token) -> bool {
 }
 
 /// Parse a single `SELECT … ASSIGN …` entry in FILE-CONTROL.
+/// The organization itself, after any optional `ORGANIZATION IS`.
+///
+/// `LINE SEQUENTIAL` is two words and must be tried before bare `SEQUENTIAL`.
+fn parse_organization(p: &mut Parser) -> Option<FileOrganization> {
+    if p.at(&Token::Line) {
+        p.advance();
+        p.eat(&Token::Sequential);
+        return Some(FileOrganization::LineSequential);
+    }
+    if p.eat(&Token::Sequential) {
+        return Some(FileOrganization::Sequential);
+    }
+    if p.eat(&Token::Relative) {
+        return Some(FileOrganization::Relative);
+    }
+    if p.eat(&Token::Indexed) {
+        return Some(FileOrganization::Indexed);
+    }
+    None
+}
+
 /// The `OF`/`IN` chain that may follow a `RECORD KEY` / `ALTERNATE RECORD KEY`
 /// data-name, returned innermost first.
 ///
@@ -1396,18 +1417,27 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     p.advance();
                 }
             }
+            // `[ORGANIZATION IS] {SEQUENTIAL | LINE SEQUENTIAL | RELATIVE |
+            // INDEXED}` — **the words `ORGANIZATION IS` are optional**, so the
+            // organization may be written bare. IX103A does exactly that and
+            // says so in its own header: "SELECT ... INDEXED ... (WITHOUT THE
+            // OPTIONAL WORD <ORGANIZATION>)".
+            //
+            // Ignoring the bare form did not fail the compile — it silently
+            // left the file SEQUENTIAL, so an indexed file was opened as a
+            // stream of bytes and a scan of 500 records delivered 870 "lines".
             Token::Organization => {
                 p.advance();
                 p.eat(&Token::Is);
-                if p.eat(&Token::Line) {
-                    p.eat(&Token::Sequential);
-                    organization = FileOrganization::LineSequential;
-                } else if p.eat(&Token::Sequential) {
-                    organization = FileOrganization::Sequential;
-                } else if p.eat(&Token::Relative) {
-                    organization = FileOrganization::Relative;
-                } else if p.eat(&Token::Indexed) {
-                    organization = FileOrganization::Indexed;
+                organization = parse_organization(p).unwrap_or(organization);
+            }
+            Token::Line | Token::Sequential | Token::Relative | Token::Indexed => {
+                match parse_organization(p) {
+                    Some(o) => organization = o,
+                    // Not an organization after all; do not spin on the token.
+                    None => {
+                        p.advance();
+                    }
                 }
             }
             Token::Access => {
@@ -1443,7 +1473,19 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
             // RECORD KEY [IS] data-name
             Token::Record => {
                 p.advance();
-                if p.eat(&Token::Key) {
+                // `RECORD [KEY] [IS] data-name`. IX103A writes it as plain
+                // `RECORD IX-FS1-KEY`, and dropping the key on the floor left
+                // the file with none: the engine then indexed the whole record
+                // and an OPEN of a file written with a real key reported the
+                // schema mismatch 39.
+                //
+                // `RECORD DELIMITER IS …` is a different clause that also
+                // opens with `RECORD`; without this guard its `DELIMITER`
+                // would be read as the key's data-name.
+                let is_delimiter = matches!(p.peek(), Token::Identifier(w)
+                    if w.eq_ignore_ascii_case("DELIMITER"));
+                if !is_delimiter {
+                    p.eat(&Token::Key);
                     p.eat(&Token::Is);
                     if p.at_identifier() {
                         record_key = p.eat_identifier().map(|(n, _)| n);

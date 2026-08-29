@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.60] — 2026-08-29
+
+**`ORGANIZATION IS` and the word `KEY` are optional words.** NIST CCVS85
+Indexed I/O jumps from **19 to 22 of 42** programs running clean, assertions
+483 PASS / 113 FAIL → **512 PASS / 81 FAIL** (81.0 % → **86.3 %**) — the
+largest single gain of this run.
+
+COBOL-85 writes the two clauses as `[ORGANIZATION IS] {SEQUENTIAL | LINE
+SEQUENTIAL | RELATIVE | INDEXED}` and `RECORD [KEY] [IS] data-name`. Both
+bracketed parts may be omitted, and IX103A omits both — its header says so
+outright: *"SELECT … INDEXED … (WITHOUT THE OPTIONAL WORD `<ORGANIZATION>`)"*.
+
+**Neither omission failed the compile, which is what made this expensive to
+find.** A bare `INDEXED` fell through the clause dispatch and was discarded, so
+the file kept the default `SEQUENTIAL` organization and an indexed file was
+opened as a plain stream of bytes: a scan of a 500-record file delivered **870**
+newline-delimited "records". A bare `RECORD data-name` was likewise dropped,
+leaving the file with no key at all, so the engine indexed the whole record and
+an `OPEN` of a file written with a real key reported the schema mismatch 39.
+
+`RECORD DELIMITER IS …` opens with the same word and is explicitly excluded, so
+its operand is not mistaken for a key.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434 —
+these programs always compiled; they simply did the wrong thing.
+
+
 ## [PowerRustCOBOL 1.62.59] — 2026-08-29
 
 **A producer chain runs in the consumer's own directory.** Test-harness
