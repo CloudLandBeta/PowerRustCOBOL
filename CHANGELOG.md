@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.52] — 2026-08-29
+
+**A `REDEFINES` item no longer takes bytes of its own in an FD record.** NIST
+CCVS85 Indexed I/O assertions go 361 PASS / 417 FAIL → **343 PASS / 133 FAIL**,
+lifting the pass rate from 46.4 % to **72.1 %**. IX215A alone falls from **297
+failures to 15**.
+
+A redefining item is another description of storage that already exists: it
+adds nothing to the record and does not push what follows it along. The record
+layout ignored `REDEFINES` altogether and gave every such item bytes of its
+own, so each one made every later field wrong by its width. IX215A's `IX-FD1`
+describes a 13-byte record key and then `IX-REDF-RECKEY REDEFINES IX-FD1-KEY`
+over it — the record grew by 13 bytes, and the two alternate keys declared
+after it indexed the wrong columns of every record in the file.
+
+The layout walk now places a redefining item at the offset of the item it
+redefines and resumes where the record already was. The target is looked up
+among the siblings already placed, so a redefinition **of a redefinition**
+resolves correctly — `IX-FD1` has one, `R-REDF-RECKEY-1-7 REDEFINES
+R-RECKEY-1-7`, itself inside an item that redefines the record key. A
+`REDEFINES` naming something not at that level is laid out where it fell, as
+before.
+
+Three tests pin the layout: that a redefinition shares its target's bytes and
+the following field is not displaced, that a redefinition of a redefinition
+resolves at its own level, and that a field's enclosing groups are recorded so
+same-named fields in different groups are told apart.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
 ## [PowerRustCOBOL 1.62.51] — 2026-08-29
 
 **Developer's Guide covers the indexed-file behaviour shipped in 1.62.49 and

@@ -50,6 +50,120 @@ pub struct RecordLayout {
     pub fields: Vec<FieldPos>,
 }
 
+/// Lay out one data description: recurse into a group's children, or take an
+/// elementary item's bytes. `OCCURS` repeats the subtree.
+fn walk(
+    d: &DataDecl,
+    sign: Option<SignClause>,
+    path: &mut Vec<String>,
+    offset: &mut usize,
+    fields: &mut Vec<FieldPos>,
+) {
+    let times = d
+        .occurs
+        .as_ref()
+        .map(|o| o.max.max(1) as usize)
+        .unwrap_or(1);
+    // `SIGN IS … SEPARATE` written on a group applies to every subordinate
+    // signed item that does not carry its own.
+    let sign = d.sign.or(sign);
+    for _ in 0..times {
+        if !d.children.is_empty() {
+            // A group name qualifies everything under it. `FILLER` groups
+            // have no name and qualify nothing.
+            let pushed = match &d.name {
+                Some(n) => {
+                    path.push(n.to_ascii_uppercase());
+                    true
+                }
+                None => false,
+            };
+            walk_siblings(&d.children, sign, path, offset, fields);
+            if pushed {
+                path.pop();
+            }
+        } else if let Some(pic) = &d.picture {
+            // `SIGN IS SEPARATE CHARACTER` gives the sign its own character
+            // position, so the item is one byte wider than its digits. The
+            // record area is measured by the environment too, and the two
+            // have to agree: SQ111A's `PIC S9(5) SIGN IS LEADING SEPARATE`
+            // made the layout 155 bytes against the environment's 156, and
+            // every field after it landed one byte out.
+            let sep = usize::from(
+                matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate),
+            );
+            let len = (pic.digits as usize + pic.decimals as usize + sep).max(1);
+            // A `FILLER` occupies its bytes like any other item — it simply
+            // has no name to read or write. Skipping it *and* its width put
+            // every following field at the wrong offset, so a record
+            // beginning `03 FILLER PIC X(120). 03 EXT-18 PIC X(18).` looked
+            // 18 bytes long with `EXT-18` at offset zero (SQ134A).
+            if let Some(name) = &d.name {
+                let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
+                fields.push(FieldPos {
+                    name: name.to_ascii_uppercase(),
+                    // Innermost group first, which is the order a COBOL
+                    // `OF`/`IN` chain is written in.
+                    quals: path.iter().rev().cloned().collect(),
+                    offset: *offset,
+                    len,
+                    numeric,
+                    decimals: pic.decimals.min(u8::MAX as u16) as u8,
+                });
+            }
+            *offset += len;
+        }
+    }
+}
+
+/// Lay out one group's children in order, giving a `REDEFINES` item the same
+/// bytes as the item it redefines instead of bytes of its own.
+///
+/// **A redefining item is another description of storage that already exists**,
+/// so it neither adds to the record nor pushes what follows it along. Laying it
+/// out as if it were a new item made every later field wrong by the redefining
+/// item's width: IX215A's `IX-FD1` describes its 13-byte record key and then
+/// `IX-REDF-RECKEY REDEFINES IX-FD1-KEY` over it, and without this the record
+/// grew by 13 bytes and the alternate keys after it indexed the wrong columns.
+///
+/// The target is looked up among the siblings already placed, so a redefinition
+/// of a redefinition works — `IX-FD1` has one, `R-REDF-RECKEY-1-7 REDEFINES
+/// R-RECKEY-1-7`. A `REDEFINES` naming something not at this level is laid out
+/// where it fell, which is what happened to every such item before.
+fn walk_siblings(
+    children: &[DataDecl],
+    sign: Option<SignClause>,
+    path: &mut Vec<String>,
+    offset: &mut usize,
+    fields: &mut Vec<FieldPos>,
+) {
+    // Sibling name → where it started and how wide it is, in declaration order.
+    let mut placed: Vec<(String, usize)> = Vec::new();
+    for c in children {
+        let target = c.redefines.as_ref().and_then(|t| {
+            let t = t.to_ascii_uppercase();
+            placed.iter().find(|(n, _)| *n == t).map(|(_, at)| *at)
+        });
+        // Where the record would continue if this item were not a redefinition.
+        let resume = *offset;
+        if let Some(at) = target {
+            *offset = at;
+        }
+        let began = *offset;
+        walk(c, sign, path, offset, fields);
+        if target.is_some() {
+            // Storage is shared, so the record continues where it already was.
+            // The `max` is defensive: the standard forbids a redefinition wider
+            // than what it redefines, and truncating the record here would be
+            // worse than honouring it.
+            *offset = resume.max(*offset);
+        }
+        if let Some(n) = &c.name {
+            placed.push((n.to_ascii_uppercase(), began));
+        }
+    }
+}
+
 /// Whether `needle` appears in `hay` in order, though not necessarily
 /// adjacently.
 ///
@@ -68,81 +182,19 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     let mut fields = Vec::new();
     let mut offset = 0usize;
 
-    fn walk(
-        d: &DataDecl,
-        sign: Option<SignClause>,
-        path: &mut Vec<String>,
-        offset: &mut usize,
-        fields: &mut Vec<FieldPos>,
-    ) {
-        let times = d
-            .occurs
-            .as_ref()
-            .map(|o| o.max.max(1) as usize)
-            .unwrap_or(1);
-        // `SIGN IS … SEPARATE` written on a group applies to every subordinate
-        // signed item that does not carry its own.
-        let sign = d.sign.or(sign);
-        for _ in 0..times {
-            if !d.children.is_empty() {
-                // A group name qualifies everything under it. `FILLER` groups
-                // have no name and qualify nothing.
-                let pushed = match &d.name {
-                    Some(n) => {
-                        path.push(n.to_ascii_uppercase());
-                        true
-                    }
-                    None => false,
-                };
-                for c in &d.children {
-                    walk(c, sign, path, offset, fields);
-                }
-                if pushed {
-                    path.pop();
-                }
-            } else if let Some(pic) = &d.picture {
-                // `SIGN IS SEPARATE CHARACTER` gives the sign its own character
-                // position, so the item is one byte wider than its digits. The
-                // record area is measured by the environment too, and the two
-                // have to agree: SQ111A's `PIC S9(5) SIGN IS LEADING SEPARATE`
-                // made the layout 155 bytes against the environment's 156, and
-                // every field after it landed one byte out.
-                let sep = usize::from(
-                    matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate),
-                );
-                let len = (pic.digits as usize + pic.decimals as usize + sep).max(1);
-                // A `FILLER` occupies its bytes like any other item — it simply
-                // has no name to read or write. Skipping it *and* its width put
-                // every following field at the wrong offset, so a record
-                // beginning `03 FILLER PIC X(120). 03 EXT-18 PIC X(18).` looked
-                // 18 bytes long with `EXT-18` at offset zero (SQ134A).
-                if let Some(name) = &d.name {
-                    let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
-                    fields.push(FieldPos {
-                        name: name.to_ascii_uppercase(),
-                        // Innermost group first, which is the order a COBOL
-                        // `OF`/`IN` chain is written in.
-                        quals: path.iter().rev().cloned().collect(),
-                        offset: *offset,
-                        len,
-                        numeric,
-                        decimals: pic.decimals.min(u8::MAX as u16) as u8,
-                    });
-                }
-                *offset += len;
-            }
-        }
-    }
-
     // The `01` itself does not qualify its subordinates — a key is written
     // `IX-FD3-KEY IN IX-FD3-RECKEY-AREA`, naming the group, not the record.
     let mut path: Vec<String> = Vec::new();
     if record.children.is_empty() {
         walk(record, record.sign, &mut path, &mut offset, &mut fields);
     } else {
-        for c in &record.children {
-            walk(c, record.sign, &mut path, &mut offset, &mut fields);
-        }
+        walk_siblings(
+            &record.children,
+            record.sign,
+            &mut path,
+            &mut offset,
+            &mut fields,
+        );
     }
     RecordLayout {
         len: offset.max(1),
@@ -355,6 +407,121 @@ mod tests {
             justified: false,
             sign: None,
         }
+    }
+
+    /// A `REDEFINES` item describes storage that already exists.
+    ///
+    /// It adds nothing to the record and does not push what follows it along.
+    /// Laying it out as a new item made every later field wrong by its width —
+    /// IX215A's `IX-FD1` redefines its 13-byte record key, and the record grew
+    /// by 13 bytes so the alternate keys after it indexed the wrong columns.
+    #[test]
+    fn a_redefines_shares_the_bytes_it_redefines() {
+        // 01 REC.
+        //    05 KEY-AREA.  10 K1 PIC X(5).  10 K2 PIC X(3).
+        //    05 REDF REDEFINES KEY-AREA.  10 R1 PIC X(8).
+        //    05 TAIL PIC X(4).
+        let mut redf = group("REDF", vec![elem("R1", pic("X(8)", PicKind::Alphanumeric, 8, 0))]);
+        redf.redefines = Some("KEY-AREA".into());
+        let rec = group(
+            "REC",
+            vec![
+                group(
+                    "KEY-AREA",
+                    vec![
+                        elem("K1", pic("X(5)", PicKind::Alphanumeric, 5, 0)),
+                        elem("K2", pic("X(3)", PicKind::Alphanumeric, 3, 0)),
+                    ],
+                ),
+                redf,
+                elem("TAIL", pic("X(4)", PicKind::Alphanumeric, 4, 0)),
+            ],
+        );
+        let layout = compute_layout(&rec);
+        assert_eq!(layout.len, 12, "8 shared bytes plus TAIL's 4, not 20");
+        assert_eq!(layout.field("K1").unwrap().offset, 0);
+        assert_eq!(layout.field("K2").unwrap().offset, 5);
+        assert_eq!(
+            layout.field("R1").unwrap().offset,
+            0,
+            "the redefinition starts where the redefined item starts"
+        );
+        assert_eq!(
+            layout.field("TAIL").unwrap().offset,
+            8,
+            "TAIL follows KEY-AREA, not the redefinition"
+        );
+    }
+
+    /// A redefinition of a redefinition resolves against its own level.
+    ///
+    /// `IX-FD1` has one — `R-REDF-RECKEY-1-7 REDEFINES R-RECKEY-1-7`, itself
+    /// inside an item that redefines the record key.
+    #[test]
+    fn a_redefines_of_a_redefines_resolves_at_its_own_level() {
+        // 01 REC.
+        //    05 OUTER.  10 A PIC X(7).  10 B REDEFINES A. 15 B1 PIC X(5). 15 B2 PIC XX.
+        //               10 C PIC X(6).
+        //    05 TAIL PIC X(2).
+        let mut b = group(
+            "B",
+            vec![
+                elem("B1", pic("X(5)", PicKind::Alphanumeric, 5, 0)),
+                elem("B2", pic("XX", PicKind::Alphanumeric, 2, 0)),
+            ],
+        );
+        b.redefines = Some("A".into());
+        let rec = group(
+            "REC",
+            vec![
+                group(
+                    "OUTER",
+                    vec![
+                        elem("A", pic("X(7)", PicKind::Alphanumeric, 7, 0)),
+                        b,
+                        elem("C", pic("X(6)", PicKind::Alphanumeric, 6, 0)),
+                    ],
+                ),
+                elem("TAIL", pic("X(2)", PicKind::Alphanumeric, 2, 0)),
+            ],
+        );
+        let layout = compute_layout(&rec);
+        assert_eq!(layout.field("A").unwrap().offset, 0);
+        assert_eq!(layout.field("B1").unwrap().offset, 0);
+        assert_eq!(layout.field("B2").unwrap().offset, 5);
+        assert_eq!(layout.field("C").unwrap().offset, 7, "C follows A, not B");
+        assert_eq!(layout.field("TAIL").unwrap().offset, 13);
+        assert_eq!(layout.len, 15);
+    }
+
+    /// A field's enclosing groups are recorded, so same-named fields in
+    /// different groups can be told apart.
+    #[test]
+    fn fields_carry_their_qualification_path() {
+        // 01 REC.  05 P.  10 K PIC X(4).   05 Q.  10 K PIC X(4).
+        let rec = group(
+            "REC",
+            vec![
+                group("P", vec![elem("K", pic("X(4)", PicKind::Alphanumeric, 4, 0))]),
+                group("Q", vec![elem("K", pic("X(4)", PicKind::Alphanumeric, 4, 0))]),
+            ],
+        );
+        let layout = compute_layout(&rec);
+        assert_eq!(
+            layout.field_qualified("K", &["P".into()]).unwrap().offset,
+            0
+        );
+        assert_eq!(
+            layout.field_qualified("K", &["Q".into()]).unwrap().offset,
+            4
+        );
+        // Unqualified still means the first of that name.
+        assert_eq!(layout.field("K").unwrap().offset, 0);
+        // A qualifier naming no group falls back rather than losing the field.
+        assert_eq!(
+            layout.field_qualified("K", &["NOPE".into()]).unwrap().offset,
+            0
+        );
     }
 
     #[test]
