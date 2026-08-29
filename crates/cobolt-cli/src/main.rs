@@ -871,12 +871,12 @@ fn resolve_indexed_engine(args: &[String]) -> IndexedEngine {
             None => {
                 eprintln!(
                     "cobolt: unknown indexed engine '{name}' \
-                     (expected: rust | rm-cobol85 | fujitsu | redb); using rust"
+                     (expected: rust | rm-cobol85 | fujitsu | redb); using redb"
                 );
-                IndexedEngine::Rust
+                IndexedEngine::Redb
             }
         },
-        None => IndexedEngine::Rust,
+        None => IndexedEngine::Redb,
     }
 }
 

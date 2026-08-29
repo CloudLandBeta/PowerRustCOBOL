@@ -110,7 +110,6 @@ pub enum ReadDir {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum IndexedEngine {
     /// The built-in, dependency-free Rust ISAM engine (KSDS-style, journaled).
-    #[default]
     Rust,
     /// RM/COBOL-85 indexed files (delegates to the Rust engine for now).
     RmCobol85,
@@ -118,6 +117,13 @@ pub enum IndexedEngine {
     Fujitsu,
     /// Crash-safe redb substrate (`STORAGE IS DISK`): O(1) OPEN, working-set RAM,
     /// ACID COMMIT/ROLLBACK. See [`crate::indexed_redb`].
+    ///
+    /// **The default since 1.62.73** (operator ruling, 2026-08-29). It keeps a
+    /// `seq` table, so duplicate alternates are retrieved in the order their
+    /// entries joined the set — which PRCIDXD1 cannot do without a container
+    /// format change, since it orders duplicates by RecordId and that is
+    /// permanently the original write order.
+    #[default]
     Redb,
 }
 
@@ -130,7 +136,10 @@ impl IndexedEngine {
             .replace(['_', ' '], "-")
             .as_str()
         {
-            "rust" | "rstcobol" | "rustcobol" | "native" | "default" => Some(Self::Rust),
+            "rust" | "rstcobol" | "rustcobol" | "native" => Some(Self::Rust),
+            // `default` names whatever the default currently is, so it moved
+            // with it rather than staying pinned to the PRCIDXD1 engine.
+            "default" => Some(Self::default()),
             "rm" | "rm-cobol" | "rm-cobol85" | "rmcobol" | "rmcobol85" => Some(Self::RmCobol85),
             "fujitsu" | "fujitsu-cobol" | "fujitsu-cobol85" | "fj" => Some(Self::Fujitsu),
             "redb" | "crash-safe" | "acid" => Some(Self::Redb),
@@ -1628,10 +1637,13 @@ mod tests {
     #[test]
     fn engine_name_parsing_and_aliases() {
         use IndexedEngine as E;
-        assert_eq!(IndexedEngine::default(), E::Rust);
+        // The default moved to redb at 1.62.73 (operator ruling): it keeps a
+        // `seq` table, so duplicate alternates are retrieved in the order
+        // their entries joined the set.
+        assert_eq!(IndexedEngine::default(), E::Redb);
         assert_eq!(E::parse("rust"), Some(E::Rust));
         assert_eq!(E::parse("RUST"), Some(E::Rust));
-        assert_eq!(E::parse("default"), Some(E::Rust));
+        assert_eq!(E::parse("default"), Some(IndexedEngine::default()));
         assert_eq!(E::parse("rm-cobol85"), Some(E::RmCobol85));
         assert_eq!(E::parse("RM_COBOL85"), Some(E::RmCobol85));
         assert_eq!(E::parse("rmcobol"), Some(E::RmCobol85));

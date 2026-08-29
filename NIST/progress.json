@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.72",
+  "measured_at_version": "1.62.73",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -53,8 +53,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [38, 41],
-      "assertions": { "pass": 566, "fail": 8, "deleted": 1 }
+      "execution": [39, 41],
+      "assertions": { "pass": 568, "fail": 6, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -192,6 +192,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.73", "change": "redb becomes the default disk engine; its record-length handling fixed to match PRCIDXD1", "effect": "IX 38 -> 39 of 41, 566 -> 568 PASS, 99.0%. IX211A clean on redb seq ordering; IX105A needed two one-word fixes (fit and decode_value truncated long records). NC and SQ exact." },
     { "version": "1.62.72", "change": "IX301M excluded from execution scoring (operator ruling): intermediate-subset flagging does not apply", "effect": "IX now scored out of 41: 38/41, 566 PASS / 8 FAIL, 98.6%. Compile census unchanged at 422/434 - the program is good COBOL and still counts there." },
     { "version": "1.62.71", "change": "Flag the Indexed constructs above the high subset (IX401M)", "effect": "IX 37 -> 38 clean, 561 -> 567 PASS, 97.6%. IX401M 5 wrong -> 0. RECORD VARYING now matches the optional IS, which is what IX401M writes." },
     { "version": "1.62.70", "change": "Opt-code T and U are mutually exclusive; the harness selects T", "effect": "IX 35 -> 37 clean, 550 -> 561 PASS, 33 -> 20 failures, 94.3% -> 96.6%. IX207A and IX208A clean; IX107A unaffected." },

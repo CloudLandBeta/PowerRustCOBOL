@@ -309,9 +309,19 @@ impl RedbIndexedFile {
 
     // ── small helpers ────────────────────────────────────────────────────────
 
+    /// Pad a short record out to the declared length, and leave a long one
+    /// alone.
+    ///
+    /// `record_len` is the FD's declared width, not a ceiling: a file whose
+    /// records vary in size stores each at its own length. Resizing to
+    /// `record_len` flat **truncated** every longer record, which is what the
+    /// disk engine avoids with the same `.max()` — IX105A writes long records
+    /// and reads them back checking the length, and reported "WRONG LENGTH OR
+    /// WRONG RECORD" four times under this engine while passing under the
+    /// other.
     fn fit(&self, rec: &[u8]) -> Bytes {
         let mut r = rec.to_vec();
-        r.resize(self.record_len, b' ');
+        r.resize(self.record_len.max(rec.len()), b' ');
         r
     }
 
@@ -323,13 +333,20 @@ impl RedbIndexedFile {
         }
     }
 
+    /// Recover a stored record, padding a short one out to the declared width
+    /// and returning a long one at its own length.
+    ///
+    /// The `.max()` is the same rule as `fit`: `record_len` is the FD's
+    /// declared width, not a ceiling. Resizing flat handed every longer record
+    /// back truncated even once it had been stored whole.
     fn decode_value(&self, stored: &[u8]) -> Bytes {
         let mut v = if self.compressing {
             compress::decompress(stored)
         } else {
             stored.to_vec()
         };
-        v.resize(self.record_len, b' ');
+        let want = self.record_len.max(v.len());
+        v.resize(want, b' ');
         v
     }
 

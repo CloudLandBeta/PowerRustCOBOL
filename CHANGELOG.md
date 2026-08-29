@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.73] — 2026-08-29
+
+**redb becomes the default indexed-file engine for `STORAGE IS DISK`**
+(operator ruling), and two record-length defects in it are fixed. NIST CCVS85
+Indexed I/O goes from **38 to 39 of 41**, assertions 566 PASS / 8 FAIL →
+**568 PASS / 6 FAIL** — **99.0 %**.
+
+The switch was made to settle duplicate-retrieval ordering. When a `REWRITE`
+changes an alternate key value the record leaves one duplicate set and joins
+another, and must take its place at the end of the new one. PRCIDXD1 orders
+duplicates by RecordId, which is permanently the original write order, so
+getting this right there would have meant a container format change. **redb
+already keeps a `seq` table for exactly this**, and IX211A goes clean on it.
+
+**Measuring the switch before making it found two defects of its own**, both a
+single word:
+
+- `fit` resized every record to the FD's declared width, **truncating** any
+  longer one. The disk engine has always used `record_len.max(rec.len())` —
+  the declared width is a floor, not a ceiling, and a file whose records vary
+  stores each at its own length.
+- `decode_value` did the same on the way back, so a record stored whole was
+  still handed back short.
+
+IX105A writes long records and reads them back checking the length; it reported
+"WRONG LENGTH OR WRONG RECORD" four times under redb and passed under PRCIDXD1.
+Both engines now agree.
+
+The `default` engine alias follows the default rather than staying pinned to
+`rust`, and `rcrun --indexed-engine rust` still selects PRCIDXD1 for anyone who
+wants it.
+
+**Nucleus and Sequential I/O are exact on the new default**: NC 95/95 with
+4 614 PASS / 0 FAIL, SQ 85/85 with 624 PASS / 0 FAIL. Whole-suite compile stays
+422 of 434; 132 runtime lib tests and 95 integration suites green.
+
+
 ## [PowerRustCOBOL 1.62.72] — 2026-08-29
 
 **IX301M is excluded from execution scoring** (operator ruling). NIST CCVS85
