@@ -463,33 +463,42 @@ impl RedbIndexedFile {
         }, None)
     }
 
-    fn primary_bound(&self, op: StartOp, key: &[u8]) -> Option<Bytes> {
+    /// `lo`/`hi` bound the keys sharing the `START` key's prefix — see
+    /// `crate::indexed::generic_key_bounds`. A generic key names only the
+    /// leftmost part of the record key, so `EQUAL` is the first entry inside
+    /// the band and `GREATER` the first past it; a full-width key collapses
+    /// both bounds onto itself and every relation is as it was.
+    fn primary_bound(&self, op: StartOp, lo: &[u8], hi: &[u8]) -> Option<Bytes> {
         with_primary!(self, t => {
             let res = match op {
-                StartOp::Eq => return t.get(key).ok().flatten().map(|_| key.to_vec()),
-                StartOp::Ge => t.range::<&[u8]>((Included(key), Unbounded)).ok()?.next(),
-                StartOp::Gt => t.range::<&[u8]>((Excluded(key), Unbounded)).ok()?.next(),
-                StartOp::Le => t.range::<&[u8]>((Unbounded, Included(key))).ok()?.next_back(),
-                StartOp::Lt => t.range::<&[u8]>((Unbounded, Excluded(key))).ok()?.next_back(),
+                StartOp::Eq => t.range::<&[u8]>((Included(lo), Included(hi))).ok()?.next(),
+                StartOp::Ge => t.range::<&[u8]>((Included(lo), Unbounded)).ok()?.next(),
+                StartOp::Gt => t.range::<&[u8]>((Excluded(hi), Unbounded)).ok()?.next(),
+                StartOp::Le => t.range::<&[u8]>((Unbounded, Included(hi))).ok()?.next_back(),
+                StartOp::Lt => t.range::<&[u8]>((Unbounded, Excluded(lo))).ok()?.next_back(),
             };
             res.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
         }, None)
     }
 
     /// The composite alt key in index `idx` matching `op` against `key`.
-    fn alt_bound_composite(&self, idx: usize, op: StartOp, key: &[u8]) -> Option<Bytes> {
-        let comp = composite(idx, key);
+    /// The composite alt key in index `idx` matching `op`, with `klo`/`khi`
+    /// bounding the alternate-key values sharing the `START` key's prefix.
+    ///
+    /// Two bands are in play: `prefix_bounds(idx)` keeps the search inside this
+    /// alternate's slice of the shared multimap, and the composite `lo`/`hi`
+    /// bound the keys sharing the prefix within it.
+    fn alt_bound_composite(&self, idx: usize, op: StartOp, klo: &[u8], khi: &[u8]) -> Option<Bytes> {
+        let clo = composite(idx, klo);
+        let chi = composite(idx, khi);
         let (lo, hi) = prefix_bounds(idx);
         with_alt!(self, mt => {
             let res = match op {
-                StartOp::Eq => {
-                    let has = mt.get(comp.as_slice()).map(|mut it| it.next().is_some()).unwrap_or(false);
-                    return if has { Some(comp.clone()) } else { None };
-                }
-                StartOp::Ge => mt.range::<&[u8]>((Included(comp.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
-                StartOp::Gt => mt.range::<&[u8]>((Excluded(comp.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
-                StartOp::Le => mt.range::<&[u8]>((Included(lo.as_slice()), Included(comp.as_slice()))).ok()?.next_back(),
-                StartOp::Lt => mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(comp.as_slice()))).ok()?.next_back(),
+                StartOp::Eq => mt.range::<&[u8]>((Included(clo.as_slice()), Included(chi.as_slice()))).ok()?.next(),
+                StartOp::Ge => mt.range::<&[u8]>((Included(clo.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
+                StartOp::Gt => mt.range::<&[u8]>((Excluded(chi.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
+                StartOp::Le => mt.range::<&[u8]>((Included(lo.as_slice()), Included(chi.as_slice()))).ok()?.next_back(),
+                StartOp::Lt => mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(clo.as_slice()))).ok()?.next_back(),
             };
             res.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
         }, None)
@@ -566,13 +575,15 @@ impl RedbIndexedFile {
     }
 
     fn find_start(&self, op: StartOp, key: &[u8]) -> Option<(Bytes, Bytes)> {
+        // A `START` key may be generic — naming only the leftmost part of the
+        // key — so it is matched on that prefix.
         if self.kor == 0 {
-            let key = pad(key, self.primary.len);
-            self.primary_bound(op, &key).map(|pk| (pk.clone(), pk))
+            let (lo, hi, _) = crate::indexed::generic_key_bounds(key, self.primary.len);
+            self.primary_bound(op, &lo, &hi).map(|pk| (pk.clone(), pk))
         } else {
             let idx = self.kor - 1;
-            let key = pad(key, self.alternates[idx].len);
-            let comp = self.alt_bound_composite(idx, op, &key)?;
+            let (lo, hi, _) = crate::indexed::generic_key_bounds(key, self.alternates[idx].len);
+            let comp = self.alt_bound_composite(idx, op, &lo, &hi)?;
             let rv = comp[2..].to_vec();
             let pk = self.alt_values(&comp).into_iter().next()?;
             Some((rv, pk))

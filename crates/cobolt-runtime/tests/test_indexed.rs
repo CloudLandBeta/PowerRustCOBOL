@@ -640,3 +640,89 @@ fn a_record_key_naming_a_group_indexes_that_group() {
         "the START must position at K003, so the READ delivers it:\n{joined}"
     );
 }
+
+/// `START … KEY IS` may name a **subordinate item** of the record key, and is
+/// then matched on that prefix — a generic key.
+///
+/// The key was space-padded to full width instead, so `EQUAL TO` on a
+/// five-character item searched for a thirteen-byte key ending in eight blanks
+/// — which no record has — and returned 23 every time. `GREATER THAN` compared
+/// against those blanks and stopped on the first record *sharing* the prefix
+/// rather than passing them all. IX214A's `START-INITIALIZE-RECORD` depends on
+/// this, and a failure there made the program delete its own tests.
+#[test]
+fn start_on_a_subordinate_item_of_the_key_matches_on_the_prefix() {
+    let path = temp_idx("generickey");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY.\n\
+         \x20            10 R-K1 PIC X(5).\n\
+         \x20            10 R-K2 PIC X(8).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"AAAAA\" TO R-K1 MOVE \"00000001\" TO R-K2\n\
+         \x20          MOVE \"ONE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"BBBBB\" TO R-K1 MOVE \"00000002\" TO R-K2\n\
+         \x20          MOVE \"TWO\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"BBBBB\" TO R-K1 MOVE \"00000003\" TO R-K2\n\
+         \x20          MOVE \"THREE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"CCCCC\" TO R-K1 MOVE \"00000004\" TO R-K2\n\
+         \x20          MOVE \"FOUR\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE SPACES TO R-KEY\n\
+         \x20          MOVE \"BBBBB\" TO R-K1\n\
+         \x20          START F KEY IS EQUAL TO R-K1\n\
+         \x20             INVALID KEY DISPLAY \"EQ BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"EQ OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"EQ ATEND\" END-READ\n\
+         \x20          DISPLAY \"EQ GOT \" R-K1 \"/\" R-K2\n\
+         \x20          MOVE SPACES TO R-KEY\n\
+         \x20          MOVE \"BBBBB\" TO R-K1\n\
+         \x20          START F KEY IS GREATER THAN R-K1\n\
+         \x20             INVALID KEY DISPLAY \"GT BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"GT OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"GT ATEND\" END-READ\n\
+         \x20          DISPLAY \"GT GOT \" R-K1 \"/\" R-K2\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("EQ OK 00"),
+        "a five-character generic key must match, not be padded with blanks:\n{joined}"
+    );
+    assert!(
+        joined.contains("EQ GOT BBBBB/00000002"),
+        "EQUAL positions on the FIRST record sharing the prefix:\n{joined}"
+    );
+    assert!(joined.contains("GT OK 00"), "{joined}");
+    assert!(
+        joined.contains("GT GOT CCCCC/00000004"),
+        "GREATER THAN must pass every record sharing the prefix, not stop on \
+         the first of them:\n{joined}"
+    );
+}

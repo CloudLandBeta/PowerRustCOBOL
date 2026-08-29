@@ -836,44 +836,14 @@ impl IndexedFile {
         } else {
             self.alternates[self.kor - 1].len
         };
-        let key = pad(key, ks_len);
+        let (lo, hi, n) = generic_key_bounds(key, ks_len);
         if self.kor == 0 {
-            match op {
-                StartOp::Eq => self.records.get(&key).map(|_| key.clone()),
-                StartOp::Ge => self.records.range(key..).next().map(|(k, _)| k.clone()),
-                StartOp::Gt => self
-                    .records
-                    .range(key.clone()..)
-                    .find(|(k, _)| **k > key)
-                    .map(|(k, _)| k.clone()),
-                StartOp::Le => self
-                    .records
-                    .range(..=key.clone())
-                    .next_back()
-                    .map(|(k, _)| k.clone()),
-                StartOp::Lt => self
-                    .records
-                    .range(..key)
-                    .next_back()
-                    .map(|(k, _)| k.clone()),
-            }
+            select_by_prefix(&self.records, op, &lo, &hi, n).cloned()
         } else {
-            let idx = self.kor - 1;
-            let map = &self.alt_index[idx];
-            let akey = match op {
-                StartOp::Eq => map.get(&key).map(|_| key.clone()),
-                StartOp::Ge => map.range(key..).next().map(|(k, _)| k.clone()),
-                StartOp::Gt => map
-                    .range(key.clone()..)
-                    .find(|(k, _)| **k > key)
-                    .map(|(k, _)| k.clone()),
-                StartOp::Le => map
-                    .range(..=key.clone())
-                    .next_back()
-                    .map(|(k, _)| k.clone()),
-                StartOp::Lt => map.range(..key).next_back().map(|(k, _)| k.clone()),
-            };
-            akey.and_then(|ak| map.get(&ak).and_then(|set| set.iter().next().cloned()))
+            let map = &self.alt_index[self.kor - 1];
+            select_by_prefix(map, op, &lo, &hi, n)
+                .and_then(|ak| map.get(ak))
+                .and_then(|set| set.iter().next().cloned())
         }
     }
 
@@ -1305,6 +1275,60 @@ fn pad(key: &[u8], len: usize) -> Bytes {
     let mut k = key.to_vec();
     k.resize(len, b' ');
     k
+}
+
+/// The comparison bounds for a `START` key, which may be **generic**.
+///
+/// COBOL-85 lets `START … KEY IS <op> data-name` name a *subordinate item* of
+/// the record key — its leftmost part — and the comparison then uses only that
+/// item's length. Such a key is shorter than the full key, and the file is
+/// searched on that **prefix**.
+///
+/// Returns the lowest and highest full-width keys sharing the prefix, plus the
+/// prefix length. Padding low with `0x00` and high with `0xFF` makes
+/// `[lo, hi]` exactly the set of keys beginning with it, so every relation
+/// reduces to an ordinary range query.
+///
+/// **Space-padding was the bug.** `START … KEY IS EQUAL TO` on a five-character
+/// item searched for a thirteen-byte key ending in eight blanks, which no
+/// record has, and returned 23 every time; `GREATER THAN` compared against
+/// those blanks and stopped on the first record *sharing* the prefix instead of
+/// passing them all. When the named item is the whole key the two bounds
+/// collapse onto it and behaviour is exactly as before.
+pub(crate) fn generic_key_bounds(key: &[u8], ks_len: usize) -> (Bytes, Bytes, usize) {
+    let n = key.len().min(ks_len);
+    let prefix = &key[..n];
+    let mut lo = prefix.to_vec();
+    lo.resize(ks_len, 0x00);
+    let mut hi = prefix.to_vec();
+    hi.resize(ks_len, 0xFF);
+    (lo, hi, n)
+}
+
+/// Pick the key a `START` positions on, comparing on the first `n` bytes.
+///
+/// `lo`/`hi` bound the keys sharing the prefix (see [`generic_key_bounds`]), so
+/// `EQUAL` is the first key inside the band, `GREATER` the first one past it,
+/// and `LESS` the last one before it — the same answers a full-width key gives,
+/// since its band is a single value.
+fn select_by_prefix<'a, V>(
+    map: &'a std::collections::BTreeMap<Bytes, V>,
+    op: StartOp,
+    lo: &Bytes,
+    hi: &Bytes,
+    n: usize,
+) -> Option<&'a Bytes> {
+    match op {
+        StartOp::Eq => map.range(lo.clone()..=hi.clone()).next().map(|(k, _)| k),
+        StartOp::Ge => map.range(lo.clone()..).next().map(|(k, _)| k),
+        // Past every key sharing the prefix, not merely past the padded value.
+        StartOp::Gt => map
+            .range(lo.clone()..)
+            .find(|(k, _)| k.len() < n || k[..n] > lo[..n])
+            .map(|(k, _)| k),
+        StartOp::Le => map.range(..=hi.clone()).next_back().map(|(k, _)| k),
+        StartOp::Lt => map.range(..lo.clone()).next_back().map(|(k, _)| k),
+    }
 }
 
 #[cfg(test)]

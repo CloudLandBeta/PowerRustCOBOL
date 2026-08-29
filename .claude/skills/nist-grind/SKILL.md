@@ -37,9 +37,18 @@ durable, it belongs in the ledger (`dead_ends`, `work_queue`, `history`) or in
    is genuinely not implemented, that is a feature gap: record it in the ledger
    (`blocked_on` or `parked`) and move to the next item. Fixing a bug in
    already-supported syntax is in scope; extending the language is not.
-6. **Never merge to `main` and never post to the forum** without an explicit
-   ask in the current conversation. Committing and pushing the working branch
-   is pre-authorised; those two are not.
+6. **Never merge to `main`** without an explicit ask in the current
+   conversation. **Never post to the forum at all** while the grind is running
+   (operator ruling, 2026-08-29) — announcements are batched and are the
+   operator's call. Committing and pushing `fixes` is pre-authorised.
+7. **Everything here is technical debt, not a feature** (operator ruling,
+   2026-08-29). Until all NIST implementation is done there are no features:
+   all of it lands on `fixes`, nothing splits into a features commit, and
+   nothing is an f=96 item. This covers **RL** too — RELATIVE is COBOL-85 that
+   should already have worked, so under GOLDEN RULE #4 it is a fix.
+8. **Never end a session with work uncommitted** (operator ruling,
+   2026-08-29). Commit and push `fixes` before stopping, subject only to the
+   São Paulo push window — inside it, commit and defer the push.
 
 ---
 
@@ -219,17 +228,17 @@ work.
 - **A harness limitation looks exactly like a runtime regression.** Two of this
   session's findings were the measurement being wrong, not the compiler. Run
   the program by hand before blaming the runtime.
-- **RL (Relative I/O) is a feature build, and it is authorised.** There is no
-  RELATIVE engine at all — the parser accepts the clause and the runtime never
-  matches it, so such a program parses and then misbehaves silently. The
-  operator ruled on 2026-08-29 to **implement it as the NIST suite expects**.
-  It is last in `module_order` on purpose: do not start it until IX is 100/100
-  on both axes, and run it through the spec pipeline (`/specify` → `/plan` →
-  `/tasks` → `/implement`) since it is a new capability rather than a
-  correction. The scope notes are in the ledger's `RL` entry.
-  **This is the one authorised exception** to "never invent capability to make
-  a test pass" — everywhere else a genuine feature gap is still recorded and
-  parked.
+- **RL (Relative I/O) has to be built, and it is authorised — as technical
+  debt.** There is no RELATIVE engine at all: the parser accepts the clause and
+  the runtime never matches it, so such a program parses and then misbehaves
+  silently. The operator ruled on 2026-08-29 to **implement it as the NIST
+  suite expects**, and to treat it as a **fix, not a feature** — it is
+  COBOL-85 that should already have worked. So it lands on `fixes` like
+  everything else and needs no spec pipeline. It is last in `module_order` on
+  purpose: do not start it until IX is 100/100 on both axes. Scope notes are in
+  the ledger's `RL` entry. **This is the one authorised exception** to "never
+  invent capability to make a test pass" — elsewhere a genuine grammar gap is
+  still recorded and parked.
 - **This project is Rust only.** Never write a shell, Python or Node script to
   inspect, count, generate or bulk-edit anything — not even as a throwaway in
   `/tmp`. Use the editing tools, or write it in Rust as a test or an example

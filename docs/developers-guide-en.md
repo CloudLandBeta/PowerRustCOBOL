@@ -5780,6 +5780,51 @@ the key of reference:
   changes for the ordinary case of one key per name.
 - The same applies to `START … KEY IS`.
 
+### Positioning on part of a key: generic `START`
+
+`START` does not have to name the whole key. It may name a **subordinate item**
+of it — the leftmost part — and the file is then positioned on that *prefix*.
+This is the generic-key form, and it is how you scan a family of related
+records without knowing the rest of the key:
+
+```cobol
+       FD  ORDER-FILE.
+       01  ORDER-RECORD.
+           05  ORDER-KEY.
+               10  ORDER-BRANCH  PIC X(5).
+               10  ORDER-SEQ     PIC X(8).
+           05  ORDER-DETAIL      PIC X(60).
+      *
+       MOVE SPACES  TO ORDER-KEY.
+       MOVE "LONDN" TO ORDER-BRANCH.
+       START ORDER-FILE KEY IS EQUAL TO ORDER-BRANCH
+           INVALID KEY DISPLAY "no orders for that branch"
+       END-START.
+       PERFORM UNTIL FINISHED
+           READ ORDER-FILE NEXT AT END EXIT PERFORM END-READ
+           IF ORDER-BRANCH NOT = "LONDN" EXIT PERFORM END-IF
+           DISPLAY ORDER-DETAIL
+       END-PERFORM.
+```
+
+**Notes.**
+
+- `EQUAL TO` positions on the **first** record whose key begins with the value,
+  not on an exact whole-key match.
+- `GREATER THAN` passes **every** record sharing the prefix and lands on the
+  first one beyond them — so the example above could jump straight to the next
+  branch with `KEY IS GREATER THAN ORDER-BRANCH`.
+- `NOT LESS THAN` behaves as `GREATER THAN OR EQUAL`, positioning on the first
+  record whose prefix reaches the value.
+- The item must start at the same character position as the key. Naming an item
+  in the middle of the key is not a generic key.
+- The same applies to an `ALTERNATE RECORD KEY`.
+- Naming the whole key is just the special case where the prefix is the entire
+  key, so ordinary `START` is unaffected.
+
+> **Note.** Only `START` reads a key generically. `READ … KEY IS` addresses one
+> record and needs the complete key value.
+
 ### Crash-safe transactions
 
 The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed

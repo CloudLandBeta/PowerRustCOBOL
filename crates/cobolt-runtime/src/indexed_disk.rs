@@ -1131,26 +1131,35 @@ impl DiskIndexedFile {
             return status::NOT_OPEN_INPUT;
         }
         let klen = self.kor_key_len();
-        let key = pad(key, klen);
         let root = self.active_root();
         let dup = self.kor != 0 && self.alternates[self.kor - 1].duplicates;
+        // A `START` key may be **generic** — a subordinate item naming only the
+        // leftmost part of the key — and is then matched on that prefix. `lo`
+        // and `hi` bound the keys sharing it, so each relation stays a single
+        // descent of the tree. A full-width key collapses both bounds onto
+        // itself and behaves exactly as before.
+        let (lo, hi, n) = crate::indexed::generic_key_bounds(key, klen);
 
         // Position helper using key prefixes (alt-with-duplicates keys carry a
         // trailing RecordId, so compare on the leading `klen` bytes).
         let matched = match op {
-            StartOp::Eq => match self.find_ge(root, &key) {
+            StartOp::Eq => match self.find_ge(root, &lo) {
                 Ok(Some((leaf, idx))) => self
                     .entry_at(leaf, idx)
                     .ok()
                     .flatten()
-                    .filter(|(k, _)| key_prefix(k, dup, klen) == key.as_slice())
+                    .filter(|(k, _)| {
+                        let p = key_prefix(k, dup, klen);
+                        p.len() >= n && p[..n] == lo[..n]
+                    })
                     .map(|_| (leaf, idx)),
                 _ => None,
             },
-            StartOp::Ge => self.find_ge(root, &key).ok().flatten(),
-            StartOp::Gt => self.first_gt(root, &key, dup, klen),
-            StartOp::Le => self.last_le(root, &key, dup, klen),
-            StartOp::Lt => self.last_lt(root, &key, dup, klen),
+            StartOp::Ge => self.find_ge(root, &lo).ok().flatten(),
+            // Past every key sharing the prefix, which is what `hi` marks.
+            StartOp::Gt => self.first_gt(root, &hi, dup, klen),
+            StartOp::Le => self.last_le(root, &hi, dup, klen),
+            StartOp::Lt => self.last_lt(root, &lo, dup, klen),
         };
         match matched {
             Some((leaf, idx)) => {

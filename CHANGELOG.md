@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.55] — 2026-08-29
+
+**`START` accepts a generic (partial) key.** NIST CCVS85 Indexed I/O assertions
+go 475 PASS / 122 FAIL → **481 PASS / 115 FAIL**, 79.6 % → **80.7 %**.
+
+COBOL-85 lets `START … KEY IS <op> data-name` name a **subordinate item** of
+the record key — its leftmost part — and the file is then positioned on that
+*prefix*. The key was space-padded to the full width instead, which broke both
+relations:
+
+- `EQUAL TO` on a five-character item searched for a thirteen-byte key ending
+  in eight blanks. No record has one, so it returned **23** every time, and the
+  `READ` after it delivered whatever record the cursor happened to be on.
+- `GREATER THAN` compared against those blanks and stopped on the first record
+  **sharing** the prefix instead of passing them all.
+
+Positioning now uses the prefix: `EQUAL` lands on the first record whose key
+begins with the value, `GREATER THAN` on the first record past every record
+sharing it, and `NOT LESS THAN` on the first whose prefix reaches it. Naming
+the whole key is the special case where the prefix is the entire key, so
+ordinary `START` is unchanged. `READ … KEY IS` is untouched — only `START`
+reads a key generically.
+
+Fixed in **all three indexed engines** — the in-memory store, the PRCIDXD1
+B+tree and the redb store — since each implements positioning itself.
+
+This is what IX214A's `START-INITIALIZE-RECORD` depends on; failing it made the
+program delete its own tests rather than report them.
+
+The Developer's Guide gains a *Positioning on part of a key* section.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
 ## [PowerRustCOBOL 1.62.54] — 2026-08-29
 
 **The NIST conformance work becomes a resumable loop instead of a per-session

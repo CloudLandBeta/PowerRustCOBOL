@@ -1,12 +1,15 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.53",
+  "measured_at_version": "1.62.55",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
 
   "rules": {
+    "everything_is_technical_debt": "OPERATOR RULING 2026-08-29 — until all NIST implementation is done, there are NO new features; everything is technical debt being paid. Consequences: all of it goes on the `fixes` branch, none of it splits into a features commit, and none of it belongs on forum f=96. This overrides the usual feature/fix classification for the duration, and it covers RL (Relative I/O) too, which is missing COBOL-85 that should already have worked rather than a capability beyond the standard.",
+    "no_forum_posts": "OPERATOR RULING 2026-08-29 — do not post to cobolforo.es at all while the grind is running. Announcements are batched and are the operator's call.",
+    "commit_and_push_before_stopping": "OPERATOR RULING 2026-08-29 — never end a session with work uncommitted. Commit and push `fixes` before stopping, subject only to the São Paulo push window (inside it, commit and defer the push).",
     "one_module_at_a_time": "GOLDEN RULE #9 — finish the current module on both axes before starting the next. Record a tempting fix in another module under `parked` and move on.",
     "two_axes_never_conflated": "Compile is the strictly weaker claim. Never quote it as if it meant the programs work.",
     "full_regression_after_every_change": "Re-run the whole-suite strict census AND the execution pass for every finished module, not just the one in flight. The runtime is shared.",
@@ -46,7 +49,7 @@
       "protected": false,
       "compile": [42, 42],
       "execution": [19, 42],
-      "assertions": { "pass": 475, "fail": 122, "deleted": 1 }
+      "assertions": { "pass": 481, "fail": 115, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -56,11 +59,11 @@
     "DB": { "name": "Debug", "state": "compile_only", "compile": [11, 15], "execution": null, "assertions": null },
     "RL": {
       "name": "Relative I/O",
-      "state": "authorised_feature_build",
+      "state": "authorised_technical_debt",
       "compile": [34, 35],
       "execution": null,
       "assertions": null,
-      "operator_ruling": "2026-08-29 — IMPLEMENT Relative file support as the NIST suite expects it. This is the one place in the queue where building a missing capability is authorised; everywhere else a genuine feature gap is still recorded and parked, not invented.",
+      "operator_ruling": "2026-08-29 — IMPLEMENT Relative file support as the NIST suite expects it, and treat it as TECHNICAL DEBT, not a feature: RELATIVE is COBOL-85 that should already have worked, so under GOLDEN RULE #4 it is a fix. It goes on the `fixes` branch like everything else, needs no features commit, and is not an f=96 item. This is the one place in the queue where building missing capability is authorised; elsewhere a genuine grammar gap is still recorded and parked, not invented.",
       "starting_point": "There is NO RELATIVE engine today. The parser accepts `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) but nothing in the runtime ever matches that variant — no dispatch, no engine, no diagnostic — so a program declaring it parses and then misbehaves silently. See the File I/O section of CLAUDE.md.",
       "scope_notes": [
         "A RELATIVE file is addressed by RELATIVE KEY, an integer record number from 1, not by a key embedded in the record.",
@@ -71,34 +74,23 @@
         "A deleted slot must stay addressable and read as not-present — a relative file is a numbered slot table, not a dense list.",
         "Reuse the storage split the INDEXED engines already have (STORAGE IS MEMORY | DISK) rather than inventing a fourth container format."
       ],
-      "sequencing": "Do NOT start RL until IX is 100/100 on both axes (GOLDEN RULE #9). It is last in module_order for that reason. Treat it as a spec-driven feature: /specify -> /plan -> /tasks -> /implement, since it is a new capability rather than a correction."
+      "sequencing": "Do NOT start RL until IX is 100/100 on both axes (GOLDEN RULE #9). It is last in module_order for that reason. It is large enough to be worth planning before coding, but as technical debt it does NOT need the feature pipeline — plan it in the ledger's work_queue and implement on `fixes`."
     }
   },
 
   "work_queue": [
     {
-      "id": "ix-generic-key-start",
-      "module": "IX",
-      "priority": 1,
-      "title": "Generic (partial) key START compares on the prefix",
-      "evidence": "`find_start` in crates/cobolt-runtime/src/indexed.rs (~line 833) opens with `let key = pad(key, ks_len);` — pad() space-fills to the full key width. COBOL-85 allows `START file KEY IS <op> data-name` where data-name is a SUBORDINATE item of the record key; the comparison then uses only that item's length. Space-padding turns `EQUAL TO` into a search for a key ending in blanks, which no record has.",
-      "fix_sketch": "Compare on the prefix of length min(key.len(), ks_len). Eq: first record whose leading bytes equal the prefix. Ge: range from the prefix low-padded (0x00). Gt: first in that range whose prefix is strictly greater. Le: last record up to the prefix high-padded (0xFF). Lt: last before the prefix low-padded. When the named item IS the whole key the lengths are equal and behaviour is unchanged, so this is additive.",
-      "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"],
-      "caveat": "THREE engines implement `start` and all need it. Leave `read_key` alone — the generic form is defined for START only.",
-      "failure_buckets": ["START EQ TO RECKEY ... SUBORDINATE D-I OF KEY", "STR {EQ,GT,NLT} ALTKY {W/DUP,W/O DUP}"]
-    },
-    {
       "id": "ix-start-alt-after-rewrite",
       "module": "IX",
-      "priority": 2,
+      "priority": 1,
       "title": "START on an alternate key after a REWRITE",
       "evidence": "8 failures reading `INVALID KEY ON START OF REWRITTEN RECORD`.",
       "fix_sketch": "A REWRITE that changes an alternate key value must update that alternate's index — remove the old entry and insert the new one.",
       "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"]
     },
-    { "id": "ix-delete-ix21", "module": "IX", "priority": 3, "title": "DELETE — IX-21 4.3.2", "evidence": "5 failures in the DELETE-TEST-GF family.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
-    { "id": "ix301m", "module": "IX", "priority": 4, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
-    { "id": "ix-long-tail", "module": "IX", "priority": 5, "title": "Remaining IX programs", "evidence": "IX108A 20, IX209A 12, IX215A 11, IX103A 9, IX210A 9, IX203A 8, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then nine members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
+    { "id": "ix-delete-ix21", "module": "IX", "priority": 2, "title": "DELETE — IX-21 4.3.2", "evidence": "5 failures in the DELETE-TEST-GF family.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
+    { "id": "ix301m", "module": "IX", "priority": 3, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
+    { "id": "ix-long-tail", "module": "IX", "priority": 4, "title": "Remaining IX programs", "evidence": "IX108A 20, IX209A 12, IX215A 11, IX103A 9, IX210A 9, IX203A 8, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then nine members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
   "dead_ends": [
@@ -127,6 +119,8 @@
     { "version": "1.62.50", "change": "Record keys told apart by their OF/IN qualifier", "effect": "IX +3 assertions" },
     { "version": "1.62.51", "change": "Developer's Guide for 1.62.49 and 1.62.50", "effect": "GOLDEN RULE #3" },
     { "version": "1.62.52", "change": "A REDEFINES item shares the bytes it redefines", "effect": "IX 417 -> 133 failures; IX215A 297 -> 15" },
-    { "version": "1.62.53", "change": "A RECORD KEY naming a group indexes that group", "effect": "IX 133 -> 122 failures; self-deleted tests 108 -> 1; assertions 72.1% -> 79.6%" }
+    { "version": "1.62.53", "change": "A RECORD KEY naming a group indexes that group", "effect": "IX 133 -> 122 failures; self-deleted tests 108 -> 1; assertions 72.1% -> 79.6%" },
+    { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
+    { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" }
   ]
 }
