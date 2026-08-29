@@ -219,9 +219,17 @@ work.
 - **A harness limitation looks exactly like a runtime regression.** Two of this
   session's findings were the measurement being wrong, not the compiler. Run
   the program by hand before blaming the runtime.
-- **RL (Relative I/O) is blocked, not merely failing.** There is no RELATIVE
-  engine at all — the parser accepts the clause and the runtime never matches
-  it. That is a feature build; do not start it without an operator decision.
+- **RL (Relative I/O) is a feature build, and it is authorised.** There is no
+  RELATIVE engine at all — the parser accepts the clause and the runtime never
+  matches it, so such a program parses and then misbehaves silently. The
+  operator ruled on 2026-08-29 to **implement it as the NIST suite expects**.
+  It is last in `module_order` on purpose: do not start it until IX is 100/100
+  on both axes, and run it through the spec pipeline (`/specify` → `/plan` →
+  `/tasks` → `/implement`) since it is a new capability rather than a
+  correction. The scope notes are in the ledger's `RL` entry.
+  **This is the one authorised exception** to "never invent capability to make
+  a test pass" — everywhere else a genuine feature gap is still recorded and
+  parked.
 - **This project is Rust only.** Never write a shell, Python or Node script to
   inspect, count, generate or bulk-edit anything — not even as a throwaway in
   `/tmp`. Use the editing tools, or write it in Rust as a test or an example

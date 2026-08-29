@@ -56,11 +56,22 @@
     "DB": { "name": "Debug", "state": "compile_only", "compile": [11, 15], "execution": null, "assertions": null },
     "RL": {
       "name": "Relative I/O",
-      "state": "blocked",
+      "state": "authorised_feature_build",
       "compile": [34, 35],
       "execution": null,
       "assertions": null,
-      "blocked_on": "There is NO RELATIVE engine. The parser accepts `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) but nothing in the runtime ever matches that variant — no dispatch, no engine, no diagnostic. A program declaring it parses and then misbehaves silently. Bringing RL to 100% is a feature build, not a fix, and needs an operator decision before any agent starts it."
+      "operator_ruling": "2026-08-29 — IMPLEMENT Relative file support as the NIST suite expects it. This is the one place in the queue where building a missing capability is authorised; everywhere else a genuine feature gap is still recorded and parked, not invented.",
+      "starting_point": "There is NO RELATIVE engine today. The parser accepts `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) but nothing in the runtime ever matches that variant — no dispatch, no engine, no diagnostic — so a program declaring it parses and then misbehaves silently. See the File I/O section of CLAUDE.md.",
+      "scope_notes": [
+        "A RELATIVE file is addressed by RELATIVE KEY, an integer record number from 1, not by a key embedded in the record.",
+        "SELECT carries `RELATIVE KEY IS data-name`; the parser must keep it as RECORD KEY is kept for INDEXED.",
+        "All three access modes: SEQUENTIAL (records in relative-number order), RANDOM (by RELATIVE KEY), DYNAMIC (both).",
+        "Verbs to dispatch on FileOrganization::Relative: OPEN, CLOSE, READ (random and NEXT/PREVIOUS), WRITE, REWRITE, DELETE, START.",
+        "File statuses the module tests: 00, 02, 10, 21, 22, 23, 24 (boundary violation on WRITE past the end), 43, 46, 47, 48, 49.",
+        "A deleted slot must stay addressable and read as not-present — a relative file is a numbered slot table, not a dense list.",
+        "Reuse the storage split the INDEXED engines already have (STORAGE IS MEMORY | DISK) rather than inventing a fourth container format."
+      ],
+      "sequencing": "Do NOT start RL until IX is 100/100 on both axes (GOLDEN RULE #9). It is last in module_order for that reason. Treat it as a spec-driven feature: /specify -> /plan -> /tasks -> /implement, since it is a new capability rather than a correction."
     }
   },
 
