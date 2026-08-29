@@ -273,8 +273,20 @@ fn bucket(msg: &str) -> String {
 /// *flagging* rather than execution, and `EXEC85` is NIST's own COBOL driver
 /// program, replaced here by a Rust harness. See
 /// `specs/nist/NIST-spec-out-of-scope-modules.md`.
+///
+/// **`SG` is Segmentation** (operator ruling, 2026-08-29). It exists to fit a
+/// program into a machine too small to hold it: `SECTION` headers carry a
+/// segment-number and the runtime overlays the independent segments over one
+/// another. RustCOBOL is 64-bit, on 64-bit systems, with more address space
+/// than any COBOL program can exhaust — so a segment-number is accepted and
+/// has **no effect at all**, and there is no behaviour for the module to
+/// measure. It is excluded rather than scored against a mechanism that will
+/// never exist.
 fn is_out_of_scope(module: &str) -> bool {
-    matches!(module, "CM" | "RW" | "OBSQ" | "OBIC" | "OBNC" | "EXEC")
+    matches!(
+        module,
+        "CM" | "RW" | "SG" | "OBSQ" | "OBIC" | "OBNC" | "EXEC"
+    )
 }
 
 /// Members whose **verdict** does not apply to this implementation, though the

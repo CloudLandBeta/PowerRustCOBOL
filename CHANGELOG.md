@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.83] — 2026-08-29
+
+**Segmentation leaves the NIST scope** (operator ruling). SG joins CM, RW, the
+`OB*` obsolete-element tests and EXEC85 as a module RustCOBOL does not measure.
+
+Segmentation exists to fit a program into a machine too small to hold it:
+`SECTION` headers carry a segment-number and the runtime overlays the
+independent segments over one another. RustCOBOL is a 64-bit solution running
+on 64-bit systems, with more address space than any COBOL program can exhaust —
+so a segment-number **compiles and has no effect at all**. There is no
+behaviour for the module to exercise, and scoring it would score a mechanism
+that will never exist.
+
+Its 13 programs still compile and are reported `N-A` rather than dropped, so
+the exclusion stays visible in the census. **The in-scope suite is 421
+programs, not 434**, and compilation conformance reads **410 of 421 (97.4 %)**
+where it read 423 of 434 (97.5 %).
+
 ## [PowerRustCOBOL 1.62.82] — 2026-08-29
 
 **A NIST harness change, with no compiler or runtime change behind it.** The

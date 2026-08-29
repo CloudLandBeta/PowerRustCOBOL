@@ -21,16 +21,18 @@
     "gate_protects_finished_modules_absolutely": "The regression gate is ABSOLUTE for finished modules (NC, SQ) and for the whole-suite compile census: those figures must match exactly or the change is reverted. For the module IN FLIGHT the score may legitimately FALL when a harness-fidelity change makes the measurement more honest — assertions that were unreachable start running and start failing. That happened at 1.62.57: IX went 484 -> 482 PASS because IX103A finally found the file IX102A writes, so its scan ran 35 records deep instead of dying on the first READ, and two assertions that had never executed began to fail truthfully. When this happens, SAY SO explicitly with the reason; never revert a fidelity gain to protect a number, and never let a fidelity loss hide behind one."
   },
 
-  "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "SG", "DB", "RL"],
+  "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "DB", "RL"],
   "current_module": "IC",
   "_current_module_note": "IF finished at 1.62.81. Next in `module_order` is IC (Inter-program communication), baselined at 1.62.81: 6 of 47 clean, 134 PASS / 129 FAIL — by far the weakest module measured so far, and the first whose subject is a whole language area (CALL / nested programs / LINKAGE) rather than a set of functions. Two members also fail to compile.",
 
   "out_of_scope": {
-    "modules": ["CM", "RW", "OBIC", "OBNC", "OBSQ", "EXEC"],
-    "why": "Declared out of RustCOBOL scope in CLAUDE.md: CM is Communication, RW is Report Writer, OB* are the obsolete-element tests, EXEC85 is the suite driver. 25 programs, excluded from every score."
+    "modules": ["CM", "RW", "SG", "OBIC", "OBNC", "OBSQ", "EXEC"],
+    "why": "CM is Communication, RW is Report Writer, OB* are the obsolete-element tests, EXEC85 is the suite driver.",
+    "sg_ruling": "2026-08-29, operator: SG (Segmentation) is excluded too. Segmentation exists to fit a program into a machine too small to hold it — SECTION headers carry a segment-number and the runtime overlays the independent segments over one another. RustCOBOL is a 64-bit solution on 64-bit systems with more address space than any COBOL program can exhaust, so a segment-number COMPILES and has no effect at all. There is no behaviour for the module to measure, and scoring it would score a mechanism that will never exist. Its 13 programs still compile; they are reported N-A rather than deleted, so the exclusion stays visible.",
+    "effect": "38 programs excluded from every score. The in-scope suite is 421, not 434."
   },
 
-  "whole_suite_compile": { "pass": 423, "total": 434, "pct": 97.5 },
+  "whole_suite_compile": { "pass": 410, "total": 421, "pct": 97.4 },
 
   "modules": {
     "NC": {
@@ -80,7 +82,7 @@
     },
     "ST": { "name": "Sort/Merge", "state": "compile_only", "compile": [38, 40], "execution": null, "assertions": null },
     "SM": { "name": "Source text manipulation", "state": "compile_only", "compile": [14, 17], "execution": null, "assertions": null },
-    "SG": { "name": "Segmentation", "state": "compile_only", "compile": [13, 13], "execution": null, "assertions": null },
+    "SG": { "name": "Segmentation", "state": "out_of_scope", "compile": [13, 13], "execution": null, "assertions": null, "why": "Operator ruling, 2026-08-29 — see out_of_scope.sg_ruling. Its 13 programs still compile; there is simply no segmentation behaviour on a 64-bit runtime for them to exercise." },
     "DB": { "name": "Debug", "state": "compile_only", "compile": [11, 15], "execution": null, "assertions": null },
     "RL": {
       "name": "Relative I/O",
@@ -139,6 +141,17 @@
       "evidence": "IF401M 14 FAIL / 0 PASS, IF402M 10/7, IF403M 8/5.",
       "the_question": "IF401M is the *high*-subset shape, the same as IX401M which scores 10 of 10 — so this is a real gap in `flagging::flag_high_subset`, not the intermediate-subset scoping question that ruled IX301M and RL301M out. Check each member's own header before assuming which kind it is: a member asking a high-subset implementation to flag features it does NOT support is in scope, one asking it to flag features it DOES support is not.",
       "next_probe": "Read the `Message expected` comments in each and compare against what `flag_high_subset` emits today."
+    },
+    {
+      "id": "ic-call-binds-by-name-not-by-reference",
+      "module": "IC",
+      "priority": 0,
+      "title": "A called program's data is the caller's, whenever the two use the same data-name",
+      "worth": "The largest IC bucket by far — roughly 30 of the 71 failures across IC101A, IC103A, IC201A and IC225A, all of them some form of 'value changed by call' or 'value not returned'.",
+      "diagnosis": "DECISIVE, from IC201A CALL-TEST-02. It calls `IC202A USING DN1, DN2, DN1, DN4` — the third argument is DN1, not DN3 — and IC202A writes through its third LINKAGE item, which it happens to call `DN3`. The caller's own unrelated `DN3` is overwritten, because `push_local_scope` skips a name the caller already has, so the two are the SAME slot. The test checks exactly that: `DN3 VALUE CHANGED BY CALL`.",
+      "where": "`CobolEnvironment::push_local_scope` (environment.rs) and the nested-program CALL arm of `exec_call` (interpreter.rs, ~line 8120). Binding today is by-name copy-in / copy-out: the parameter NAMES are set from the arguments before the call and written back after.",
+      "next_probe": "Alias, do not copy — and read the `shadowing-a-callees-names-without-aliasing-them` dead end first, which is the attempt that got this wrong. Bind the callee's parameter and everything subordinate to it to the caller's storage for the length of the call (`addr_aliases` already redirects `resolve_name` for pointers). The subordinate-item case is what broke the naive fix: a group parameter's children must resolve through the alias to the caller's children, not to fresh slots.",
+      "caveat": "BY CONTENT must NOT alias — it is a copy taken at entry with no write-back — and IC201A's CALL-TEST-03 tests that alongside ON OVERFLOW."
     },
     {
       "id": "ic-separately-compiled-subprograms",
@@ -246,6 +259,14 @@
 
   "dead_ends": [
     {
+      "id": "shadowing-a-callees-names-without-aliasing-them",
+      "tried_at_version": "1.62.83 (reverted, not landed)",
+      "what": "Make `push_local_scope` SHADOW a name the caller already has instead of skipping it, so a called program's data is its own.",
+      "why_it_failed": "IC 10 -> 5 of 25, 187 -> 138 PASS, and one member began timing out. Binding is by-name copy-in/copy-out: only the names in `PROCEDURE DIVISION USING` are copied in. Shadowing gives the callee fresh slots for EVERY name it declares — including the subordinate items of a group parameter — and those are not copied in, so a callee that reads `GRP-01`'s children saw their initial values instead of the caller's data. The old aliasing-by-collision was accidentally right for exactly that case.",
+      "the_defect_is_still_real": "IC201A CALL-TEST-02 does `CALL \"IC202A\" USING DN1, DN2, DN1, DN4` — the third argument is DN1, not DN3. IC202A writes through its third LINKAGE item, which it happens to call `DN3`, and the caller's own unrelated `DN3` is overwritten because the two are the same slot. The test checks precisely that: `DN3 VALUE CHANGED BY CALL`.",
+      "what_to_do_instead": "Alias, do not copy. Bind the callee's parameter name — and everything subordinate to it — to the CALLER's storage for the length of the call, the way `addr_aliases` already redirects `resolve_name` for pointers. Then a group parameter's children resolve through the alias to the caller's children, a name the callee declares that is NOT a parameter gets a private slot, and BY CONTENT is a copy made once at entry with no write-back. Size the subordinate-item part first: that is where this attempt broke."
+    },
+    {
       "id": "separator-exception-applied-to-the-semicolon-too",
       "tried_at_version": "1.62.78",
       "what": "Keep a separator COMMA OR SEMICOLON when the next token is a sign, so `FUNCTION MOD(A, -3)` stops reading as one subtraction.",
@@ -271,10 +292,11 @@
     "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
     "RL": { "compile": [35, 35], "execution": [34, 34], "assertions_pass": 354, "assertions_fail": 0 },
     "IF": { "compile": [45, 45], "execution": [45, 45], "assertions_pass": 841, "assertions_fail": 0 },
-    "whole_suite_compile_pass": 423
+    "whole_suite_compile_pass": 410
   },
 
   "history": [
+    { "version": "1.62.83", "change": "SG (Segmentation) declared out of scope — a segment-number compiles and has no effect on a 64-bit runtime, so there is no behaviour to measure (operator ruling)", "effect": "In-scope suite 434 -> 421; compile census 423/434 -> 410/421 (97.5% -> 97.4%). No module's own score moves. Also recorded: the IC parameter-binding diagnosis, and the dead end of the first attempt at it." },
     { "version": "1.62.82", "change": "The harness learns the `SUBRTN` control card: a caller runs with its separately compiled callees concatenated, and a callee is not scored as a test", "effect": "IC 6 -> 10 of its 25 tests, 134 -> 187 PASS / 129 -> 71 FAIL, 51.0% -> 72.5%. No compiler or runtime change. Denominator corrected from 47 to 25 (22 members are callees). Treating SUBPRG as a callee too broke SQ (85/85 -> 84/84) and was reverted within the same change." },
     { "version": "1.62.81", "change": "A sign glued to a literal is a sign, not a binary operator, when what precedes it is a numeric literal or `)`", "effect": "IF 44 -> 45 of 45, 841 PASS / 0 FAIL - the module is FINISHED, from a 24/45 baseline. NC, SQ, IX and RL exact on the first run; compile census 423/434 held. IC baselined at 6/47." },
     { "version": "1.62.80", "change": "A quotient keeps its decimals when the divisor has many; MAX/MIN/ORD-MAX/ORD-MIN compare with cob_ordering and keep the first of a tie; a separator comma before `(` is kept", "effect": "IF 37 -> 44 of 45, 824 -> 841 PASS, 97.7% -> 99.9%. Three separate causes, not the one family the queue predicted. NC, SQ, IX and RL exact; compile census 423/434 held." },
