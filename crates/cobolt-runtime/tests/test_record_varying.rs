@@ -266,3 +266,55 @@ fn record_contains_one_size_stays_fixed_length() {
     assert_eq!(out[0], "R1=AAAAAAAAAA");
     assert_eq!(out[1], "R2=BBBBBBBBBB");
 }
+
+/// A `DEPENDING ON` length outside the FD's declared `FROM … TO` range is a
+/// boundary violation — status **44**, nothing written. Clamping it into range
+/// looked protective and hid the very error the program asked to be told about
+/// (SQ212A rewrites with 15 on a `FROM 18` file and expects 44).
+#[test]
+fn a_length_outside_the_declared_range_is_44() {
+    let data = TempData::new("range");
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. VARYRANGE.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT F ASSIGN TO "{path}"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS FS.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  F
+           RECORD IS VARYING IN SIZE FROM 10 TO 30 CHARACTERS
+             DEPENDING ON REC-LEN.
+       01  REC PIC X(30).
+       WORKING-STORAGE SECTION.
+       01  FS      PIC XX.
+       01  REC-LEN PIC 999 VALUE ZERO.
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN OUTPUT F.
+           MOVE "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" TO REC.
+           MOVE 5 TO REC-LEN.
+           WRITE REC.
+           DISPLAY "TOOSHORT=" FS.
+           MOVE 40 TO REC-LEN.
+           WRITE REC.
+           DISPLAY "TOOLONG=" FS.
+           MOVE 20 TO REC-LEN.
+           WRITE REC.
+           DISPLAY "INRANGE=" FS.
+           CLOSE F.
+           STOP RUN.
+"#,
+        path = data.path()
+    );
+    let out = run_capture(&src);
+    assert_eq!(out[0], "TOOSHORT=44");
+    assert_eq!(out[1], "TOOLONG=44");
+    assert_eq!(out[2], "INRANGE=00");
+    // Only the one in-range record reached the file, behind its length prefix.
+    assert_eq!(data.len(), 4 + 20);
+}

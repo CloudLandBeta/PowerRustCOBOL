@@ -1,5 +1,70 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.45] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) goes 67 → 79 of 85 on execution**, assertions
+560 PASS / 60 FAIL → **595 PASS / 25 FAIL** (90.3 % → 96.0 %). Compile is
+unchanged at 85 of 85 for SQ and 422 of 434 for the whole suite; Nucleus stays at
+95 of 95 on both axes with 4 614 assertions and none failing.
+
+Of the six SQ members still short, three (SQ302M, SQ303M, SQ401M) are **flagging**
+tests — they carry no assertions and score the compiler's OBSOLETE /
+NON-CONFORMING diagnostics, 24 of which are not yet emitted. Those 24 make up
+most of the remaining FAIL count.
+
+Five more pieces of COBOL-85 the file verbs owed the program.
+
+### Fixed — `ON` is optional in a `USE` declarative
+
+`USE AFTER STANDARD ERROR PROCEDURE OUTPUT.` was read as a **catch-all** — the
+parser skipped everything up to `ON`, and with no `ON` present the open-mode word
+went with it. A program declaring one handler for `OUTPUT` and another for
+`INPUT` therefore ran the OUTPUT handler on an input file:
+
+```cobol
+       DECLARATIVES.
+       OUTPUT-ERRORS SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE OUTPUT.
+       ...
+       INPUT-ERRORS SECTION.
+           USE AFTER ERROR PROCEDURE ON INPUT.
+```
+
+Both spellings — with `ON` and without — now select by mode.
+
+### Fixed — `CLOSE … REEL` / `CLOSE … UNIT` does not close the file
+
+`REEL` and `UNIT` end a *volume* of a multi-volume tape, not the file. They were
+parsed and discarded, so the file was closed outright and the next `WRITE` or
+`CLOSE` failed on a file the program still believed was open. On disk there are
+no volumes, which the standard has a status for — **`07`**, successful but the
+file is not on a reel/unit medium — and the file stays open.
+
+### Fixed — only `OPEN OUTPUT` creates a file
+
+`OPEN I-O` and `OPEN EXTEND` were opened with "create if missing", so opening a
+file that was not there reported success. Both now report **`35`**, as `OPEN
+INPUT` already did.
+
+`SELECT OPTIONAL file-name` is the exception, and it is now honoured: the file
+need not be present, a missing one is created, and the `OPEN` reports **`05`** so
+the program knows. `OPEN INPUT` of a missing OPTIONAL file behaves as an empty
+file — the first `READ` raises `AT END`.
+
+### Fixed — `LINAGE-COUNTER` is one when the file is opened
+
+It was left at whatever the previous page had reached, so a program that closed
+and reopened its print file saw a stale line number. Opening the file positions
+it at line one.
+
+### Fixed — a record length outside the declared range is a boundary violation
+
+`RECORD … DEPENDING ON` values were clamped into the FD's `FROM … TO` range,
+which quietly turned a length the FD forbids into a legal one. The length is now
+used as the program set it, and one outside the range is **`44`** with nothing
+written — which is also what lets a `REWRITE` ask for a different length and be
+told no.
+
 ## [PowerRustCOBOL 1.62.44] — 2026-08-28
 
 **NIST CCVS85 Sequential I/O (SQ) goes 44 → 67 of 85 on execution**, with

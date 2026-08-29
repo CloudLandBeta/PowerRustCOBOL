@@ -163,6 +163,8 @@ struct FileSpec {
     /// The FD's `RECORD` clause, when it has one. Its only run-time
     /// consequence is whether records vary in length.
     sizing: Option<cobolt_ast::data::RecordSizing>,
+    /// `SELECT OPTIONAL` — the file need not be present when the program runs.
+    optional: bool,
     /// `LINAGE` page layout, when the FD declares one. Its presence is what
     /// makes `LINAGE-COUNTER` and the `AT END-OF-PAGE` condition meaningful.
     linage: Option<cobolt_ast::data::Linage>,
@@ -633,6 +635,7 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                         layout: fd_layout.get(&key).cloned().unwrap_or_default(),
                         record_layouts: fd_layouts.get(&key).cloned().unwrap_or_default(),
                         sizing: fd_sizing.get(&key).cloned(),
+                        optional: fc.optional,
                         linage: fd_linage.get(&key).cloned(),
                     },
                 );
@@ -2848,7 +2851,9 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            Stmt::Close { files, locked, .. } => self.exec_close(files, locked),
+            Stmt::Close {
+                files, locked, reel, ..
+            } => self.exec_close(files, locked, reel),
             Stmt::Write {
                 record,
                 from,
@@ -5871,6 +5876,9 @@ impl Interpreter {
             };
             let path = self.resolve_assign_path(&spec.assign);
             let org = spec.organization;
+            // Read before opening: OUTPUT creates the file, and `SELECT
+            // OPTIONAL` needs to know whether it was there beforehand.
+            let existed = std::path::Path::new(&path).exists();
 
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
@@ -5891,6 +5899,23 @@ impl Interpreter {
             }
 
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
+            // Only `OUTPUT` creates a file unconditionally. `INPUT`, `I-O` and
+            // `EXTEND` all need the file to be there, and its absence is status
+            // **35** — unless `SELECT OPTIONAL` said the program can run
+            // without it. `I-O` and `EXTEND` were opened with `create(true)`
+            // and so reported success on a file that did not exist (SQ130A,
+            // SQ225A).
+            if !existed
+                && !spec.optional
+                && matches!(
+                    mode,
+                    OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                )
+            {
+                self.set_file_status(&file, "35");
+                self.fire_declarative(&file, "35", false)?;
+                continue;
+            }
             let result: std::io::Result<OpenFile> = match mode {
                 OpenMode::Output => std::fs::File::create(&path).map(|f| OpenFile::Writer {
                     w: BufWriter::new(f),
@@ -5902,6 +5927,19 @@ impl Interpreter {
                     .open(&path)
                     .map(|f| OpenFile::Writer {
                         w: BufWriter::new(f),
+                        org,
+                    }),
+                // `SELECT OPTIONAL` lets INPUT open a file that is not there:
+                // it is created so the handle is real, and the first `READ`
+                // then finds it empty and raises `AT END`, which is exactly what
+                // the standard asks for.
+                OpenMode::Input if spec.optional => OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(&path)
+                    .map(|f| OpenFile::Reader {
+                        r: BufReader::new(f),
                         org,
                     }),
                 OpenMode::Input => std::fs::File::open(&path).map(|f| OpenFile::Reader {
@@ -5919,10 +5957,40 @@ impl Interpreter {
                     }),
             };
 
+            // A file that was not there and is `OPTIONAL` opens successfully,
+            // but the program is told so: status **05**, "the file was not
+            // present and was created". Without the word it is a plain 00 (or
+            // a 35 for INPUT, decided above).
+            let created_optional = spec.optional
+                && !existed
+                && matches!(
+                    mode,
+                    OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                );
+
             match result {
                 Ok(handle) => {
                     self.open_files.insert(file.clone(), handle);
-                    self.set_file_status(&file, "00");
+                    // COBOL-85 sets `LINAGE-COUNTER` to one when the file is
+                    // opened: the page is positioned at its first line. A
+                    // reopened file starts a fresh page, so this is a reset,
+                    // not a one-time initialisation (SQ201M closes the print
+                    // file and opens it again).
+                    //
+                    // The stored counter goes to **zero**, not one, because it
+                    // counts *lines written into the body* while
+                    // `LINAGE-COUNTER` names the *current line* — before the
+                    // first write those are 0 and 1. Seeding the stored counter
+                    // at one instead moves every record down a line, and the
+                    // eighth record of a `FOOTING AT 8` page then misses its own
+                    // end-of-page.
+                    if spec.linage.is_some() {
+                        self.linage_counters.insert(file.clone(), 0);
+                        self.env.set_i64("LINAGE-COUNTER", 1);
+                    }
+                    let code = if created_optional { "05" } else { "00" };
+                    self.set_file_status(&file, code);
+                    self.fire_declarative(&file, code, false)?;
                 }
                 Err(e) => {
                     tracing::warn!("OPEN '{}' ({}) failed: {}", raw, path, e);
@@ -5941,14 +6009,38 @@ impl Interpreter {
         Ok(())
     }
 
-    fn exec_close(&mut self, files: &[String], locked: &[String]) -> Result<(), RuntimeError> {
+    fn exec_close(
+        &mut self,
+        files: &[String],
+        locked: &[String],
+        reel: &[String],
+    ) -> Result<(), RuntimeError> {
         use std::io::Write as _;
         let locked: std::collections::HashSet<String> =
             locked.iter().map(|f| f.to_ascii_uppercase()).collect();
+        let reel: std::collections::HashSet<String> =
+            reel.iter().map(|f| f.to_ascii_uppercase()).collect();
         for raw in files {
             let file = raw.to_ascii_uppercase();
             if locked.contains(&file) {
                 self.locked_files.insert(file.clone());
+            }
+            // `CLOSE f REEL` / `CLOSE f UNIT` ends a volume of a multi-volume
+            // tape, not the file. On disk there are no volumes, which the
+            // standard has a status for — `07`, successful but the file is not
+            // on a reel/unit medium — and the file stays **open**: SQ124A goes
+            // on writing to it, and SQ123A's plain `CLOSE` after it must
+            // succeed rather than report 42 on a file it thinks is already
+            // closed.
+            if reel.contains(&file) {
+                let code = if self.open_files.contains_key(&file) {
+                    "07"
+                } else {
+                    "42"
+                };
+                self.set_file_status(&file, code);
+                self.fire_declarative(&file, code, false)?;
+                continue;
             }
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
@@ -6178,7 +6270,7 @@ impl Interpreter {
                 None => break,
             }
         }
-        let _ = self.exec_close(&[file.to_string()], &[]);
+        let _ = self.exec_close(&[file.to_string()], &[], &[]);
         out
     }
 
@@ -6204,7 +6296,7 @@ impl Interpreter {
                 };
             }
         }
-        self.exec_close(&[file.to_string()], &[])
+        self.exec_close(&[file.to_string()], &[], &[])
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -6256,7 +6348,12 @@ impl Interpreter {
                 .into_bytes(),
         };
 
+        // A length outside the FD's declared `FROM … TO` range is a boundary
+        // violation: the record does not fit the file as described, so nothing
+        // is written.
+        let out_of_range = varying && !self.varying_len_in_range(&file, buf.len());
         let code = match self.open_files.get_mut(&file) {
+            _ if out_of_range => "44",
             // ── INDEXED ────────────────────────────────────────────────────
             Some(OpenFile::Indexed(engine)) => engine.write(&buf),
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
@@ -6317,11 +6414,17 @@ impl Interpreter {
     /// which is the answer for every fixed-length file.
     ///
     /// `RECORD … DEPENDING ON item` makes the data item the length: the program
-    /// sets it before the `WRITE`, and that is the number written — clamped to
-    /// the declared `FROM … TO` range so a stale or unset item cannot produce a
-    /// record the FD never allowed. Without `DEPENDING ON`, the record
-    /// description the `WRITE` names gives the length, which is why an FD with
-    /// a 120-byte and a 151-byte 01 writes two different sizes.
+    /// sets it before the `WRITE`, and that is the number written. Without
+    /// `DEPENDING ON`, the record description the `WRITE` names gives the
+    /// length, which is why an FD with a 120-byte and a 151-byte 01 writes two
+    /// different sizes.
+    ///
+    /// The value is returned **as the program set it**, not clamped to the
+    /// declared range. Clamping looks protective and is not: it silently turns
+    /// a length the FD forbids into a legal one, and a program that asks for an
+    /// out-of-range length is entitled to be told (SQ212A rewrites with 15 on a
+    /// `FROM 18` file and expects `44`). [`Self::varying_len_in_range`] is the
+    /// check; the caller decides what to do about it.
     fn varying_write_len(&mut self, file: &str, record: &str) -> Option<usize> {
         let spec = self.file_specs.get(file)?;
         let sizing = spec.sizing.clone()?;
@@ -6332,10 +6435,18 @@ impl Interpreter {
         let Some(item) = &sizing.depending_on else {
             return Some(declared);
         };
-        let n = self.env.get_i64(item).unwrap_or(declared as i64).max(0) as usize;
+        Some(self.env.get_i64(item).unwrap_or(declared as i64).max(0) as usize)
+    }
+
+    /// Whether `len` is inside the FD's declared `FROM … TO` range. A file with
+    /// no bounds (`RECORD VARYING.`) accepts any length.
+    fn varying_len_in_range(&self, file: &str, len: usize) -> bool {
+        let Some(sizing) = self.file_specs.get(file).and_then(|s| s.sizing.as_ref()) else {
+            return true;
+        };
         let lo = sizing.min.unwrap_or(0) as usize;
         let hi = sizing.max.unwrap_or(u32::MAX) as usize;
-        Some(n.clamp(lo, hi))
+        len >= lo && len <= hi
     }
 
     /// Advance `LINAGE-COUNTER` for a LINAGE file and run the end-of-page

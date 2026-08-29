@@ -1270,10 +1270,12 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let span = p.peek_span();
     p.advance(); // SELECT
 
-    // Optional OPTIONAL keyword (no dedicated token).
+    // `SELECT OPTIONAL f` — the file need not exist. No dedicated token.
+    let mut optional = false;
     if let Token::Identifier(w) = p.peek() {
         if w.eq_ignore_ascii_case("OPTIONAL") {
             p.advance();
+            optional = true;
         }
     }
 
@@ -1443,5 +1445,6 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         data_compressing,
         persist,
         span,
+        optional,
     })
 }

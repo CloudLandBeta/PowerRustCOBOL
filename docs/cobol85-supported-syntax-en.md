@@ -165,22 +165,29 @@ For contrast, the same table at 1.62.23 read 65 clean of 95, 4 278 PASS /
 | in scope | 85 |
 | did not compile | 0 |
 | ran to completion | 83 |
-| **…reporting 0 failures** | **67** |
-| …reporting failures | 16 |
+| **…reporting 0 failures** | **79** |
+| …reporting failures | 4 |
 | ran but printed no report | 0 |
 | timed out (>20 s) | 0 |
 | runaway output (>2 MB) | 2 |
 | crashed or were refused by the runtime | 0 |
 
-Assertions: **560 PASS / 60 FAIL**, 90.3 % of 620 scored. At 1.62.42 the same
+Assertions: **595 PASS / 25 FAIL**, 96.0 % of 620 scored. At 1.62.42 the same
 table read **10** clean of 85, 20 crashed, 1 timed out and 215 PASS / 190 FAIL —
 the crash cluster was one defect, declarative paragraphs losing their names; at
 1.62.43 it read 44 clean and 471 PASS / 162 FAIL. Variable-length records, the
 shared record area, `FILLER` widths, `READ … INTO` and sequential `REWRITE`
-landed in 1.62.44.
-The themes still open are **`CLOSE REEL/UNIT`** (SQ124A), the three `M` members
-that score nothing (SQ302M, SQ303M, SQ401M), and two programs whose print files
-run away (SQ208M, SQ210M).
+landed in 1.62.44; mode-qualified `USE`, `CLOSE REEL/UNIT`, `SELECT OPTIONAL`,
+`LINAGE-COUNTER` at `OPEN` and out-of-range record lengths in 1.62.45.
+
+Six members are still short, and **24 of the 25 remaining FAILs belong to three
+of them**:
+
+| Member | What is left |
+|---|---|
+| SQ302M, SQ303M, SQ401M | **Flagging** — no assertions at all. They score the compiler's `OBSOLETE` / `NON-CONFORMING STANDARD` diagnostics, and 24 of the constructs they name are not yet detected (`LABEL RECORDS`, `VALUE OF`, `DATA RECORDS`, `MULTIPLE FILE TAPE`, `OPEN … REVERSED`, and the SQ high-subset list). |
+| SQ208M, SQ210M | Runaway print file — killed at the 2 MB output budget. |
+| SQ203A | Needs `XXXXD001`, a data file the CCVS85 *installation* supplies; the program never writes it, so the "file present" half of its `SELECT OPTIONAL` test cannot run here. Its "file absent" half passes. |
 
 > A `FAIL*` detail line is written **twice** on purpose — CCVS's `PRINT-DETAIL`
 > runs `IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE` — while `PASS ` is

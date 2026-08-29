@@ -96,6 +96,15 @@ pub struct FileControl {
     /// (always persistent). Default `false`: a MEMORY file is ephemeral.
     pub persist: bool,
     pub span: Span,
+    /// `SELECT OPTIONAL file-name` — the file need not be present when the
+    /// program runs. `OPEN INPUT` of a missing OPTIONAL file succeeds with
+    /// status `05` and behaves as an empty file; `OPEN I-O` / `OPEN EXTEND`
+    /// creates it, also with `05`. Without the word, a missing file is `35`.
+    ///
+    /// 🔴 A new field goes at the END — `FileControl` is bincode-serialized
+    /// field-by-field in declaration order.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 /// File organisation.

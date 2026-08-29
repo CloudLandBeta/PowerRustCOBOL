@@ -4777,7 +4777,9 @@ statement is `USE AFTER STANDARD ERROR PROCEDURE ON …`:
 
 The `USE` target can be one or more **file names** (`ON file-1 file-2`), an
 **open mode** (`ON INPUT`, `ON OUTPUT`, `ON I-O`, `ON EXTEND`), or nothing (a
-catch-all that covers every file). When a file operation (`OPEN`, `READ`,
+catch-all that covers every file). **`ON` is optional** — `USE AFTER STANDARD
+ERROR PROCEDURE OUTPUT.` means the same as `… PROCEDURE ON OUTPUT.`, and a
+program may mix the two spellings across its handlers. When a file operation (`OPEN`, `READ`,
 `WRITE`, `REWRITE`, `DELETE`, `START`, `CLOSE`) finishes with an **error**
 `FILE STATUS` (any class other than `0x`), the matching declarative runs — unless
 that same statement carried its own `AT END` / `INVALID KEY` phrase, which always
@@ -4837,6 +4839,40 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
 
+### Opening a file that may not be there: `SELECT OPTIONAL`
+
+Only `OPEN OUTPUT` creates a file. `OPEN INPUT`, `OPEN I-O` and `OPEN EXTEND`
+all expect the file to exist, and its absence is `FILE STATUS` **`35`** — which
+is usually what you want, because a missing master file is a problem worth
+stopping for.
+
+When it is *not* a problem — an optional transaction file, a log that starts
+empty on first run — say so in the `SELECT`:
+
+```cobol
+       FILE-CONTROL.
+           SELECT OPTIONAL DAILY-TRANSACTIONS
+               ASSIGN TO "trans.dat"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS TRANS-STATUS.
+```
+
+Now a missing file is created instead of refused, and the `OPEN` reports **`05`**
+so the program can tell the two cases apart — `00` means the file was already
+there, `05` means it was not. Opened `INPUT`, a file that was not there behaves
+as an empty one: the first `READ` raises `AT END`.
+
+### Ending a tape volume: `CLOSE … REEL` / `CLOSE … UNIT`
+
+`CLOSE file REEL` and `CLOSE file UNIT` end a *volume* of a multi-volume tape.
+They do **not** close the file — it stays open and the next `READ` or `WRITE`
+carries on. On disk there are no volumes, so the statement reports **`07`**:
+successful, but this file is not on a reel/unit medium.
+
+> ⚠️ `07` is a class-0 (success) status, so it does not run a `USE` declarative.
+> If you are porting a tape job, the thing to check is that your code does not
+> treat `CLOSE … REEL` as "the file is finished" — it never was.
+
 ### How long is a record? The FD `RECORD` clause
 
 Coming from PowerCOBOL or isCOBOL you will have written records of one fixed
@@ -4892,8 +4928,9 @@ length, and it works in both directions:
 ```
 
 Set it before the `WRITE`; read it after the `READ`. A length outside the
-declared `FROM … TO` range is brought back inside it rather than writing a
-record the FD never allowed.
+declared `FROM … TO` range is a boundary violation — `FILE STATUS` **`44`**, and
+nothing is written. It is not quietly rounded into range: a record the FD forbids
+is a bug worth hearing about.
 
 > **Note.** An FD whose `01` records are of **different sizes** is a
 > variable-length file whether or not it says so — the `RECORD` clause is

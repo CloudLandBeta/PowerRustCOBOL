@@ -149,7 +149,20 @@ fn parse_use_clause(p: &mut Parser) -> (Vec<String>, Vec<UseMode>, bool) {
     }
     // Skip the descriptive words (GLOBAL / AFTER / STANDARD / ERROR /
     // EXCEPTION / PROCEDURE) up to `ON` or the terminating period.
-    while !p.at(&Token::On) && !p.at(&Token::Period) && !p.at(&Token::Eof) {
+    //
+    // **`ON` is optional**, so the skip also has to stop at an open-mode word.
+    // Running past it read `USE AFTER STANDARD ERROR PROCEDURE OUTPUT.` as a
+    // catch-all, which then answered for every file in the program: SQ105A
+    // declares an OUTPUT handler and an INPUT handler, and the OUTPUT one ran
+    // at end-of-file on an input file (SQ105A, SQ137A, SQ138A).
+    while !p.at(&Token::On)
+        && !p.at(&Token::Period)
+        && !p.at(&Token::Eof)
+        && !matches!(
+            p.peek(),
+            Token::Input | Token::Output | Token::IoMode | Token::Extend
+        )
+    {
         p.advance();
     }
     p.eat(&Token::On);

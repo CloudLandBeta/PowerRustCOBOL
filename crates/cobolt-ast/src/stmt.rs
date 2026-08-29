@@ -619,6 +619,15 @@ pub enum Stmt {
         files: Vec<String>,
         locked: Vec<String>,
         span: Span,
+        /// Files closed with the `REEL` / `UNIT` phrase. On a disk file that is
+        /// not the end of the file — it ends a *volume* of a multi-volume tape,
+        /// and the file stays open — so it is a distinct outcome from a plain
+        /// `CLOSE` rather than a noise word.
+        ///
+        /// 🔴 A new field goes at the END of the variant — `Stmt` is
+        /// bincode-serialized field-by-field in declaration order.
+        #[serde(default)]
+        reel: Vec<String>,
     },
 
     /// `READ file [NEXT|PREVIOUS] [INTO target] [KEY IS k]`
