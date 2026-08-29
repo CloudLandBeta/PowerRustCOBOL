@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.59] — 2026-08-29
+
+**A producer chain runs in the consumer's own directory.** Test-harness
+fidelity; no runtime change. NIST CCVS85 Indexed I/O goes 482 PASS / 114 FAIL →
+**483 PASS / 113 FAIL**.
+
+`run_producers` recursed with each producer as the new target and derived the
+work directory from *that* name, so every generation landed somewhere
+different. IX103A inherits from IX102A, which inherits from IX101A: IX102A ran
+in a directory where IX101A had never run, processed an empty file, and left a
+short one behind. IX103A's scan then reached 35 records of 500 — while IX101A
+and IX102A both reported perfectly clean, because each did exactly what it was
+asked in the directory it was given.
+
+The chain is now flat and oldest-first, and every member of it runs in the one
+directory that belongs to the consumer. The harness's figures for IX103A now
+match a by-hand run of IX101A → IX102A → IX103A exactly.
+
+**This isolates a real runtime defect that was hidden behind the harness one.**
+IX103A reads its 500-record file sequentially and counts **502** records; a
+by-hand reader over the same file counts exactly 500. The scan over-delivers by
+two. That is now the top runtime item, recorded with three causes already ruled
+out by evidence: not the file, not the delete cursor fixed in 1.62.58, and no
+longer the chain.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.58] — 2026-08-29
 
 **Deleting during a sequential scan no longer skips the next record.** A

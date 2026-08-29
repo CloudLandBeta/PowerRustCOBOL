@@ -912,21 +912,43 @@ fn inherits_from(name: &str) -> Option<&'static str> {
 /// its report is discarded. A member that declares nothing costs nothing here.
 fn run_producers(
     rcrun: &std::path::Path,
-    workroot: &std::path::Path,
+    dir: &std::path::Path,
     members: &[Member],
     target: &str,
 ) {
-    let Some(producer) = inherits_from(target) else {
-        return;
-    };
-    // Depth first, so the oldest ancestor writes its file before the member
-    // that reads and extends it.
-    run_producers(rcrun, workroot, members, producer);
-    let Some(m) = members.iter().find(|m| m.name == producer) else {
-        eprintln!("  ! {target} declares producer {producer}, which is not in the suite");
-        return;
-    };
-    run_one_in(rcrun, &workroot.join(target), &m.name, &m.text);
+    // **Every producer runs in the consumer's own directory** — one directory
+    // for the whole chain. Deriving a directory per generation put IX102A
+    // where IX101A had never run, so it processed an empty file and left a
+    // short one: IX103A's scan reached 35 records of 500 while IX101A and
+    // IX102A both reported perfectly clean. `producer_chain` is flat and
+    // oldest-first, which makes that mistake unavailable.
+    for name in producer_chain(target) {
+        match members.iter().find(|m| m.name == name) {
+            Some(m) => {
+                run_one_in(rcrun, dir, &m.name, &m.text);
+            }
+            None => eprintln!("  ! {target} declares producer {name}, not in the suite"),
+        }
+    }
+}
+
+/// The producers `target` depends on, **oldest first**.
+///
+/// Flat rather than recursive so the caller cannot accidentally vary anything
+/// per generation. The chain is short and [`declared_producers_terminate`]
+/// pins that it ends; the guard here is a backstop against a future cycle.
+fn producer_chain(target: &str) -> Vec<&'static str> {
+    let mut chain = Vec::new();
+    let mut at = target;
+    while let Some(p) = inherits_from(at) {
+        if chain.contains(&p) {
+            break;
+        }
+        chain.push(p);
+        at = p;
+    }
+    chain.reverse();
+    chain
 }
 
 /// The data files the **installation** supplies, planted into a member's work
@@ -1327,7 +1349,7 @@ fn run_one(
     let dir = workroot.join(name);
     let _ = std::fs::remove_dir_all(&dir);
     // Whatever this member says it inherits, written into its directory first.
-    run_producers(rcrun, workroot, members, name);
+    run_producers(rcrun, &dir, members, name);
     let r = run_one_in(rcrun, &dir, name, raw);
     // Reclaim the directory — a sweep is hundreds of programs and a runaway
     // print file is measured in gigabytes.
@@ -1994,6 +2016,26 @@ mod tests {
                 assert!(seen.len() < 16, "{consumer}'s producer chain does not end");
             }
             assert!(seen.len() > 1, "{consumer} should declare a producer");
+        }
+    }
+
+    /// The producer chain is flat, oldest-first, and excludes the target.
+    ///
+    /// IX103A inherits from IX102A, which inherits from IX101A, so IX101A must
+    /// run first — and all of them in the consumer's own directory. Running a
+    /// generation anywhere else left IX102A processing an empty file.
+    #[test]
+    fn producer_chain_is_oldest_first() {
+        assert_eq!(producer_chain("IX103A"), vec!["IX101A", "IX102A"]);
+        assert_eq!(producer_chain("IX102A"), vec!["IX101A"]);
+        assert_eq!(producer_chain("IX110A"), vec!["IX109A"]);
+        assert_eq!(producer_chain("IX114A"), vec!["IX113A"]);
+        // Self-contained members bring nothing with them.
+        assert!(producer_chain("IX101A").is_empty());
+        assert!(producer_chain("NC101A").is_empty());
+        // The target itself is never in its own chain.
+        for t in ["IX103A", "IX110A", "IX202A"] {
+            assert!(!producer_chain(t).contains(&t), "{t} would run twice");
         }
     }
 
