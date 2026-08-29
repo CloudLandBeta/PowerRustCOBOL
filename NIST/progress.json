@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.57",
+  "measured_at_version": "1.62.58",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -90,7 +90,16 @@
       "next_probe": "What differs in IX215A is the shape, not the verb: its alternates are reached through REDEFINES and are declared on IX-FD1/IX-FD2, with ALT-KEY-2 carrying WITH DUPLICATES. Build the repro again with (a) an alternate key that is a REDEFINES of another item, and (b) an alternate WITH DUPLICATES, and rewrite a record that shares its duplicate alternate value with another. The duplicate case is the likelier culprit — removing one record's entry from a duplicate set is where an index goes wrong.",
       "touches": ["crates/cobolt-runtime/src/indexed.rs", "crates/cobolt-runtime/src/indexed_disk.rs", "crates/cobolt-runtime/src/indexed_redb.rs"]
     },
-    { "id": "ix-delete-ix21", "module": "IX", "priority": 2, "title": "DELETE — IX-21 4.3.2", "evidence": "5 failures in the DELETE-TEST-GF family.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
+    {
+      "id": "ix103a-short-inherited-file",
+      "module": "IX",
+      "priority": 2,
+      "title": "IX103A's delete scan stops at 35 of 501 — the inherited file is short",
+      "evidence": "DELETE-TEST-GF-01 reads IX-FS1 sequentially, deleting every 4th record, and expects 501 read attempts over 500 records. It computes 35, both before and after the 1.62.58 cursor fix, so the scan is not skipping — it is running out of records. IX103A inherits the file from IX102A (card 24), which in turn inherits from IX101A.",
+      "next_probe": "Count what IX101A and IX102A actually leave in card 24. IX101A is documented as creating 500 records; if our run writes ~34 the defect is in IX101A/IX102A's WRITE path, not in IX103A at all. Run each in a shared directory by hand and count with a small COBOL reader before touching any engine code.",
+      "ruled_out": "Not the sequential-scan cursor: that was a real bug (a scan deleting every 4th of 20 saw 16) fixed at 1.62.58 with a repro and regression test, and IX103A's 35 did not move."
+    },
+    { "id": "ix-delete-ix21", "module": "IX", "priority": 3, "title": "DELETE — IX-21 4.3.2", "evidence": "Failures in the DELETE-TEST-GF family across IX103A (6), IX108A (5), IX203A (5), IX106A (1). Likely the same root as ix103a-short-inherited-file for IX103A at least.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
     { "id": "ix301m", "module": "IX", "priority": 3, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
     { "id": "ix-long-tail", "module": "IX", "priority": 4, "title": "Remaining IX programs", "evidence": "IX108A 20, IX209A 12, IX215A 11, IX103A 9, IX210A 9, IX203A 8, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then nine members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
@@ -125,6 +134,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.58", "change": "Deleting during a sequential scan no longer skips the next record (disk engine cursor resumes by key)", "effect": "No NIST movement - the programs that would show it stop earlier for other reasons. Real defect, proven by repro and regression test." },
     { "version": "1.62.57", "change": "X-card letter variants (XXXXP/XXXXD nnn) collapse onto one card; IX103A declares its producer", "effect": "IX103A's scan reaches 35 records instead of dying on the first READ. Assertions went 484 -> 482 PASS: two that had never executed now run and fail truthfully. A fidelity gain that shows as a score dip — see rules.gate_protects_finished_modules_absolutely." }
   ]
 }

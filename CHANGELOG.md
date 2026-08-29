@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.58] — 2026-08-29
+
+**Deleting during a sequential scan no longer skips the next record.** A
+COBOL-85 conformance fix in the `STORAGE IS DISK` engine, proven by a reduced
+repro and pinned by a regression test.
+
+The disk engine's read cursor was a `(leaf page, entry index)` **slot**, and
+`DELETE` removed the entry without touching it. A B+tree leaf shifts its
+entries left on removal, so the record that was at `idx + 1` lands on `idx`
+and the next `READ` steps straight over it. A scan deleting every fourth of
+20 records saw only **16 of them**; each delete cost one unread record.
+
+The scan now resumes from the **key** it had reached, captured before the
+indexes move: whatever the delete rearranges, "the entry at or after this key"
+names the same record afterwards as it did before, which a slot index does not.
+
+Two details the measurement forced, both worth stating:
+
+- The resume compares the **whole stored key**, not its leading key-length
+  bytes. An alternate `WITH DUPLICATES` carries a trailing record id, and a
+  prefix comparison stepped past *every* record sharing the alternate value
+  instead of past the one deleted entry — six IX215A assertions stopped running
+  when this first went in.
+- It arms only for the **sequential** form, where the record deleted is the one
+  the scan just read. A keyed `DELETE` removes some other record while the
+  cursor sits elsewhere; that entry still exists and stepping from its slot
+  remains correct.
+
+The in-memory and redb engines key their cursors and were never affected.
+
+**NIST scores are unchanged** at IX 482 PASS / 114 FAIL, 19 of 42 — the
+programs that would show this gain still stop earlier for other reasons
+(IX103A's inherited file is short, which is the next thing to chase). This is a
+real defect fixed on its own evidence, not a score movement.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.57] — 2026-08-29
 
 **An X-card is identified by its number, not by the letter in position 5.**

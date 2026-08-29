@@ -115,6 +115,18 @@ pub struct DiskIndexedFile {
     kor: usize,
     cursor: Option<(u64, usize)>, // (leaf page id, entry index) in the active tree
     current: Option<u64>,         // last-read RecordId, for REWRITE/DELETE current
+    /// The key of the last-read entry, kept so a sequential scan can resume
+    /// after a `DELETE` has moved the entries under it.
+    ///
+    /// `cursor` is a **slot**, and `step_forward` goes to the next index in the
+    /// leaf. Removing an entry shifts its successors left, so the record that
+    /// was at `idx + 1` lands on `idx` and stepping forward skips it: a scan
+    /// that deletes every fourth record read 16 of 20 (IX103A, whose scan
+    /// reached 35 of 501). Resuming from the key instead is stable under any
+    /// rearrangement — "the first entry after this key" means the same thing
+    /// before and after the delete, whether or not the deleted entry was the
+    /// cursor's own.
+    resume_key: Option<Bytes>,
 
     // Header state (persisted in page 0).
     next_page_id: u64,
@@ -166,6 +178,7 @@ impl DiskIndexedFile {
             open: None,
             kor: 0,
             cursor: None,
+            resume_key: None,
             current: None,
             next_page_id: 1,
             free_list_head: 0,
@@ -884,6 +897,7 @@ impl DiskIndexedFile {
         self.open = Some(mode);
         self.kor = 0;
         self.cursor = None;
+        self.resume_key = None;
         self.current = None;
         self.undo.clear(); // a fresh transaction starts at OPEN
         status::OK
@@ -928,6 +942,7 @@ impl DiskIndexedFile {
         self.open = None;
         self.file = None;
         self.cursor = None;
+        self.resume_key = None;
         self.current = None;
         code
     }
@@ -1057,6 +1072,30 @@ impl DiskIndexedFile {
             return (None, status::NOT_OPEN_INPUT);
         }
         let root = self.active_root();
+        // A DELETE since the last read left the slot index meaningless; resume
+        // from the key the scan had reached instead.
+        if let Some(k) = self.resume_key.take() {
+            // The **whole** stored key, not its leading key-length bytes. An
+            // alternate WITH DUPLICATES carries a trailing RecordId, and
+            // comparing on the prefix would step past every record sharing the
+            // alternate value instead of past this one entry — which cost
+            // IX215A six assertions when this first went in.
+            //
+            // The entry itself is gone, so the first entry at or after its key
+            // is its successor.
+            let pos = match dir {
+                ReadDir::Next => self.find_ge(root, &k).ok().flatten(),
+                ReadDir::Previous => self
+                    .find_ge(root, &k)
+                    .ok()
+                    .flatten()
+                    .and_then(|(leaf, idx)| self.step_back(leaf, idx).unwrap_or(None)),
+            };
+            return match pos {
+                Some((leaf, idx)) => self.deliver_at(leaf, idx),
+                None => (None, status::EOF),
+            };
+        }
         let next_pos = match self.cursor {
             None => match dir {
                 ReadDir::Next => match self.leftmost_leaf(root) {
@@ -1076,6 +1115,11 @@ impl DiskIndexedFile {
         let Some((leaf, idx)) = next_pos else {
             return (None, status::EOF);
         };
+        self.deliver_at(leaf, idx)
+    }
+
+    /// Make the entry at `(leaf, idx)` the current record and return its bytes.
+    fn deliver_at(&mut self, leaf: u64, idx: usize) -> (Option<Bytes>, &'static str) {
         match self.entry_at(leaf, idx) {
             Ok(Some((_, recid))) => {
                 self.cursor = Some((leaf, idx));
@@ -1306,6 +1350,26 @@ impl DiskIndexedFile {
             Ok(b) => b,
             Err(_) => return status::IO_ERROR,
         };
+        // Pin the scan to the key it had reached — **before** the indexes move.
+        // Whatever the delete rearranges, "the first entry after this key" is
+        // the same record afterwards as it was before, which a slot index is
+        // not. Read after `index_remove` this would already be the successor
+        // that shifted into the slot, and the scan would skip it exactly as it
+        // did with the raw slot. Applies whether or not the deleted record is
+        // the cursor's own.
+        //
+        // **Only for the sequential form**, where the record being deleted is
+        // the one the scan just read (`random_key` is None, so `recid` came
+        // from `current`). A keyed DELETE removes some other record while the
+        // cursor sits elsewhere; that entry is still there and stepping from
+        // its slot is still right.
+        if random_key.is_none() && self.resume_key.is_none() {
+            if let Some((leaf, idx)) = self.cursor {
+                if let Ok(Some((k, _))) = self.entry_at(leaf, idx) {
+                    self.resume_key = Some(k);
+                }
+            }
+        }
         if self.index_remove(&rec, recid).is_err() {
             return status::IO_ERROR;
         }
@@ -1356,6 +1420,7 @@ impl DiskIndexedFile {
         self.open = saved_open;
         self.current = None;
         self.cursor = None;
+        self.resume_key = None;
         let _ = self.persist_directory();
         let _ = self.write_header();
         if let Some(f) = self.file.as_mut() {

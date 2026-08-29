@@ -796,3 +796,91 @@ fn a_redefines_of_a_key_names_the_same_key_of_reference() {
         "and it must position on the record that alternate value belongs to:\n{joined}"
     );
 }
+
+/// Deleting during a sequential scan must not skip the next record.
+///
+/// The disk engine's cursor was a `(leaf, entry index)` slot, and `DELETE`
+/// removed the entry without touching it. Its successors shift left, so the
+/// record that was at `idx + 1` lands on `idx` and the next `READ` steps over
+/// it: a scan deleting every fourth of 20 records saw only 16. IX103A does
+/// exactly this over 500 records and reached 35.
+///
+/// The in-memory and redb engines key their cursors and were never affected;
+/// this exercises the default `STORAGE IS DISK` path.
+#[test]
+fn deleting_during_a_sequential_scan_does_not_skip_the_next_record() {
+    let path = temp_idx("delscan");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS     PIC XX.\n\
+         \x20      01 I      PIC 9(4) VALUE 0.\n\
+         \x20      01 READS  PIC 9(4) VALUE 0.\n\
+         \x20      01 EVERY4 PIC 9(4) VALUE 0.\n\
+         \x20      01 DELS   PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 20\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"REC\" TO R-NAME\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F.\n\
+         \x20      SCAN.\n\
+         \x20          ADD 1 TO READS\n\
+         \x20          ADD 1 TO EVERY4\n\
+         \x20          READ F AT END GO TO DONE END-READ\n\
+         \x20          IF EVERY4 = 4\n\
+         \x20             DELETE F END-DELETE\n\
+         \x20             ADD 1 TO DELS\n\
+         \x20             MOVE 0 TO EVERY4\n\
+         \x20          END-IF\n\
+         \x20          GO TO SCAN.\n\
+         \x20      DONE.\n\
+         \x20          DISPLAY \"READS \" READS \" DELS \" DELS\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE 0 TO I.\n\
+         \x20      COUNT-LOOP.\n\
+         \x20          READ F AT END GO TO COUNTED END-READ\n\
+         \x20          ADD 1 TO I\n\
+         \x20          GO TO COUNT-LOOP.\n\
+         \x20      COUNTED.\n\
+         \x20          DISPLAY \"REMAIN \" I\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // Every one of the 20 records is delivered, then AT END: 21 iterations.
+    assert!(
+        joined.contains("READS 0021"),
+        "the scan must see all 20 records; a skip shows up as a lower count:\n{joined}"
+    );
+    // Records 4, 8, 12, 16, 20.
+    assert!(joined.contains("DELS 0005"), "{joined}");
+    assert!(
+        joined.contains("REMAIN 0015"),
+        "20 written minus 5 deleted:\n{joined}"
+    );
+}
