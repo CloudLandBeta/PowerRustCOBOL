@@ -81,6 +81,17 @@
 
   "work_queue": [
     {
+      "id": "unhandled-read-error-spins",
+      "module": "IX",
+      "priority": 5,
+      "title": "A READ that errors inside a GO TO loop spins forever",
+      "worth": "Robustness, not score. Latent since 1.62.69 and found by accident; no suite member hits it today, but the only thing that would catch it is the harness timeout.",
+      "evidence": "Written while trying to dump IX215A's data. The reader declared a schema the file does not have, so OPEN returned 39 and every following READ returned 47. The loop is the ordinary CCVS shape — `L. READ F AT END GO TO E END-READ ... GO TO L.` — and it never terminated; the command was killed after five minutes.",
+      "cause": "1.62.69 made the AT END phrase fire only for status 10, which is correct: 47 is not the AT END condition. But with no USE declarative the statement now falls through and the loop repeats the same failing READ. Before that change the phrase fired on any non-zero status and the loop exited, which was wrong for the right reason.",
+      "the_question": "COBOL-85 says an unhandled I-O error invokes the file's USE declarative, and with none declared the result is implementor-defined. Spinning is a poor choice. Terminating the run with a diagnostic, the way an unhandled runtime error already does, is defensible and would surface the real problem instead of a timeout. This is a design decision, so it is recorded rather than taken.",
+      "caveat": "Do NOT fix it by making AT END fire on other statuses again — that reintroduces the defect 1.62.69 corrected, and IX114A depends on the current behaviour."
+    },
+    {
       "id": "ix-ceiling-without-rl",
       "module": "IX",
       "priority": 0,
@@ -97,10 +108,10 @@
       "worth": "2 failures, the last two in IX215A.",
       "evidence": "Record 176 is rewritten so its ALTKEY2 becomes 'DCDCDCDCDC100ALTKEY2'. The test then does `START IX-FD1 KEY IS EQUAL TO R-ALTKEY2-1-2` — positions 1-2 of ALTKEY2, so the generic key is just 'DC' — and reads NEXT, expecting record 176. It computes 4. The qualified-name variant of the same test expects 190 and computes 12. Both return a small record number where a large one is expected, so the search lands on the wrong member of the duplicate set rather than failing outright.",
       "ruled_out": [
-        "NOT the construct in isolation. Three repros all deliver the right record: (a) a 2-of-20 character generic key on a WITH DUPLICATES alternate; (b) the same where the target's alternate value was set by a REWRITE rather than the original WRITE; (c) the same where the operand is a 2-character item inside a REDEFINES of the alternate key, at the nesting depth IX215A uses. Do not rebuild these — they are in the git history of this entry and they pass.",
+        "NOT the construct in isolation. FOUR repros all deliver the right record: (a) a 2-of-20 character generic key on a WITH DUPLICATES alternate; (b) the same where the target's alternate value was set by a REWRITE rather than the original WRITE; (c) the same where the operand is a 2-character item inside a REDEFINES of the alternate key; (d) the same with a REDEFINES nested INSIDE that REDEFINES, which is IX215A exact shape (R-ALTKEY2-1-2 lives in R-REDF-ALTKEY2-1-3 REDEFINES R-ALTKEY2-1-3, inside IX-REDF-ALTKEY2 REDEFINES IX-FD1-ALTKEY2). Do not rebuild these — they are in the git history of this entry and they pass.",
         "NOT generic_key_bounds against a duplicates alternate: repro (a) covers exactly that and is correct."
       ],
-      "next_probe": "Stop building repros and look at the DATA. IX215A carries ~500 records and its own note says 'ALTERNATE-KEY-2 CONTAINS DUPLICATE KEYS EVERY 10TH'. Record 4 may legitimately hold an ALTKEY2 that also begins 'DC' and sorts before record 176's 'DCDCDCDCDC100ALTKEY2' — in which case returning 4 is defensible on key order and the question becomes what order the suite expects *within* a duplicate set (creation order is what the engines implement; see the redb `seq` table). Extract IX215A, run its producers, and dump the ALTKEY2 of records 4, 12, 176 and 190 with a small reader before changing any engine code."
+      "next_probe": "STOP BUILDING REPROS - four have now passed, and building a fifth was the wrong call once already. Look at the DATA. IX215A carries ~500 records and its own note says 'ALTERNATE-KEY-2 CONTAINS DUPLICATE KEYS EVERY 10TH'. Record 4 may legitimately hold an ALTKEY2 that also begins 'DC' and sorts before record 176's 'DCDCDCDCDC100ALTKEY2' — in which case returning 4 is defensible on key order and the question becomes what order the suite expects *within* a duplicate set (creation order is what the engines implement; see the redb `seq` table). Extract IX215A, run it (it creates its own XXXXX024), and dump the ALTKEY2 of records 4, 12, 176 and 190. Offsets in the 240-byte record: record number at 34 (6 digits), RECORD KEY at 128 (13), ALTKEY1 at 166 (20), ALTKEY2 at 204 (20). A reader must declare BOTH alternates or OPEN returns 39 for schema mismatch - that cost an attempt, and with no matching schema every READ then returns 47 and an AT END loop spins (see unhandled-read-error-spins)."
     },
     {
       "id": "ix211a-duplicate-key-walk",
