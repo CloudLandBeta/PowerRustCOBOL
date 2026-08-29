@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.70] — 2026-08-29
+
+**CCVS85's `T` and `U` opt-codes are mutually exclusive, and the harness now
+selects `T`.** NIST CCVS85 Indexed I/O goes from **35 to 37 of 42** programs
+running clean; assertions 550 PASS / 33 FAIL → **561 PASS / 20 FAIL** (94.3 % →
+**96.6 %**). IX207A and IX208A both go clean.
+
+A CCVS85 line may carry an opt-code letter in the indicator column, and the
+installation's `*OPT` card says which are active. Most letters mark additions
+that are harmless to include, and the harness took them all. **`T` and `U` are
+different: they are alternatives**, and taking both makes a record longer than
+either reading intends.
+
+IX208A's `IX-FS2R1-F-G-240` is the clearest case. Its own name says 240
+characters; with `T` alone it is 240, with `U` alone it is 240, and with both it
+is **250** — every field after the first key displaced by five, which is why
+`START` on its alternate key ran off the end of the file and eight assertions
+failed.
+
+**`T` is the reading these programs are written for.** IX208A builds
+`WRK-IX-FS2-ALTKEY` from a `T` line plus a five-digit number, making it ten
+characters — the same shape as `IX-FS2-ALTKEY1` under `T` and not under `U`. The
+program moves one into the other before every `START`, so they have to agree.
+
+There are exactly **ten** `U` lines in the whole suite, in IX107A, IX207A and
+IX208A. No member of any other module carries one, so a finished module cannot
+be disturbed — and neither was. The letter is replaced by `*` rather than
+removed, so every column after it stays where it was.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.69] — 2026-08-29
 
 **`AT END` makes a `READ` sequential even where the access mode would not.**

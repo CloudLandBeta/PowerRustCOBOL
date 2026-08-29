@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.69",
+  "measured_at_version": "1.62.70",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,8 +49,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [35, 42],
-      "assertions": { "pass": 550, "fail": 33, "deleted": 1 }
+      "execution": [37, 42],
+      "assertions": { "pass": 561, "fail": 20, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -80,23 +80,9 @@
   },
 
   "work_queue": [
-    {
-      "id": "ix208a-start-relational-on-alternate",
-      "module": "IX",
-      "priority": 1,
-      "title": "IX208A: START with a relational operator on an alternate key ends the file",
-      "worth": "8 of IX208A's 9 failures, START-TEST-GF-08 through GF-15.",
-      "evidence": "GF-01..GF-07 pass; GF-08 is the first to use a relational operator on the ALTERNATE key. The loop is `MOVE WRK-IX-FS2-ALTKEY TO IX-FS2-ALTKEY1 / START IX-FS2 KEY IS GREATER IX-FS2-ALTKEY1 / READ IX-FS2 RECORD AT END ...`, repeated ten times with the key advancing by 3 each pass. ERROR-COUNTER computes 10 against an expected 0, so the AT END branch fires every time — the READ after the START finds nothing.",
-      "ruled_out": [
-        "Not the READ format: IX-FS2 is ACCESS MODE IS SEQUENTIAL, so the READ was already sequential. The 1.62.69 phrase rule does not touch this.",
-        "Not a missing producer: IX208A's header declares none and it creates its own files.",
-        "Not the simple case: a repro doing START ... KEY IS GREATER on an alternate of a SEQUENTIAL-access file, then two READs, walks correctly (K002 then K003)."
-      ],
-      "next_probe": "The repro differs from IX208A in that IX208A re-STARTs inside the loop, ten times, each time from a *higher* alternate value, and the file has 500-odd records rather than 3. Build the repro again with a re-START inside a loop and enough records to span several B+tree leaves. Check what WRK-IX-FS2-ALTKEY actually holds — if the value advances past the last key the AT END is correct and the defect is in how the program's expected value is computed, which would point back at a data-item bug rather than the engine."
-    },
-    { "id": "ix-delete-ix21", "module": "IX", "priority": 2, "title": "DELETE — IX-21 4.3.2", "evidence": "After 1.62.68 the remaining programs are IX208A (9), IX301M (7), IX401M (5), IX106A (4), IX207A (4), IX211A (2), IX215A (2). Re-bucket with `fails IX` before starting - the START fixes cleared most of what was here.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
-    { "id": "ix301m", "module": "IX", "priority": 3, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
-    { "id": "ix-long-tail", "module": "IX", "priority": 4, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
+    { "id": "ix-remaining-five", "module": "IX", "priority": 1, "title": "The last five programs", "evidence": "After 1.62.70: IX301M (7 FAIL, 0 PASS - nothing passes, likely one early failure poisoning the rest), IX401M (5), IX106A (4), IX211A (2), IX215A (2). Twenty failures in all. Re-bucket with `fails IX` first; the ranking has shifted after every fix.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
+    { "id": "ix301m", "module": "IX", "priority": 2, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
+    { "id": "ix-long-tail", "module": "IX", "priority": 3, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
   "dead_ends": [
@@ -129,6 +115,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.70", "change": "Opt-code T and U are mutually exclusive; the harness selects T", "effect": "IX 35 -> 37 clean, 550 -> 561 PASS, 33 -> 20 failures, 94.3% -> 96.6%. IX207A and IX208A clean; IX107A unaffected." },
     { "version": "1.62.69", "change": "AT END makes a READ sequential even under DYNAMIC access; NEXT is optional in that format", "effect": "No NIST movement - IX208A, which prompted it, uses SEQUENTIAL access. A real conformance fix, validated on its own repro: under DYNAMIC a READ ... AT END after a START now continues instead of re-reading by RECORD KEY." },
     { "version": "1.62.68", "change": "A generic START key may name a subordinate item of an ALTERNATE key", "effect": "IX 32 -> 35 clean, 528 -> 550 PASS, 58 -> 33 failures, 90.1% -> 94.3%. IX209A, IX210A, IX214A clean; IX215A 8 -> 2." },
     { "version": "1.62.67", "change": "Two numeric operands compare algebraically even when both slots hold group-MOVE characters", "effect": "IX 30 -> 32 clean (IX103A and IX203A), 60 -> 58 failures, past 90%. Touched the comparison core NC runs through; NC and SQ both exact." },

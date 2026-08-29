@@ -1321,8 +1321,48 @@ fn canonical_x_cards(raw: &str) -> String {
     out
 }
 
+/// Comment out the `U` opt-code lines, selecting the `T` alternative.
+///
+/// A CCVS85 line may carry an opt-code letter in the indicator column, and the
+/// installation's `*OPT` card says which letters are active — "THE LETTER
+/// CORRESPONDS TO A CHARACTER IN POSITION 7 OF THE SOURCE LINE". Most letters
+/// mark additions that are harmless to include. **`T` and `U` are different:
+/// they are mutually exclusive alternatives**, and taking both makes a record
+/// longer than either reading intends.
+///
+/// IX208A's `IX-FS2R1-F-G-240` is the clearest case. Its own name says 240
+/// characters; with `T` alone it is 240, with `U` alone it is 240, and with
+/// both it is **250**, every field after the first key displaced by five.
+///
+/// **`T` is the reading these programs are written for.** IX208A builds
+/// `WRK-IX-FS2-ALTKEY` from a `T` line plus a five-digit number, making it ten
+/// characters — the same shape as `IX-FS2-ALTKEY1` under `T` and not under `U`.
+/// The program moves one into the other before every `START`, so they have to
+/// agree.
+///
+/// There are exactly **ten** `U` lines in the suite, in IX107A, IX207A and
+/// IX208A. No member of any other module carries one, so this cannot disturb a
+/// finished module.
+///
+/// The letter is replaced by `*` rather than removed, so every column after it
+/// stays where it was in these fixed-format decks.
+fn select_opt_t_over_u(raw: &str) -> String {
+    raw.lines()
+        .map(|line| {
+            if line.len() > 6 && line.as_bytes()[6] == b'U' {
+                let mut s = line.to_string();
+                s.replace_range(6..7, "*");
+                s
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn substitute_implementor_names(raw: &str) -> String {
-    let raw = &canonical_x_cards(raw);
+    let raw = &select_opt_t_over_u(&canonical_x_cards(raw));
     // ASCII puts `A` at 65 and `D` at 68, so the 1-based ordinal positions are
     // 66 and 69 — the values `parse_special_names_class` turns back into
     // characters with `char::from_u32(n - 1)`.
@@ -2086,6 +2126,32 @@ mod tests {
             canonical_x_cards("     SELECT IX-FS1 ASSIGN XXXXP024   IX1024.2"),
             "     SELECT IX-FS1 ASSIGN XXXXX024   IX1024.2"
         );
+    }
+
+    /// `T` and `U` opt-code lines are alternatives; only `T` survives.
+    #[test]
+    fn opt_code_u_lines_are_commented_out() {
+        // The letter becomes `*`, and every other column stays put — these are
+        // fixed-format decks.
+        let deck = "014400U    05 FILLER             PIC X(24).                             IX1074.2";
+        let out = select_opt_t_over_u(deck);
+        assert_eq!(&out[6..7], "*", "the U line must become a comment");
+        assert_eq!(out.len(), deck.len(), "columns must not shift");
+        assert_eq!(&out[7..], &deck[7..], "only column 7 changes");
+        // `T` is the surviving alternative and is left exactly as it is.
+        let t = "014300T        10 FILLER         PIC X(24).                             IX1074.2";
+        assert_eq!(select_opt_t_over_u(t), t);
+        // Other opt letters are additions, not alternatives, and are untouched.
+        for other in [
+            "033500Y    IF RECORD-COUNT GREATER 50                            DB1014.2",
+            "005500P    SELECT RAW-DATA   ASSIGN TO                           IX1094.2",
+            "007700C    LABEL RECORDS ARE STANDARD                            SQ2034.2",
+        ] {
+            assert_eq!(select_opt_t_over_u(other), other);
+        }
+        // A `U` anywhere but the indicator column is ordinary text.
+        let word = "001000     MOVE UNIT-COUNT TO X.                                 NC1014.2";
+        assert_eq!(select_opt_t_over_u(word), word);
     }
 
     /// Only the members that need one get a data file.
