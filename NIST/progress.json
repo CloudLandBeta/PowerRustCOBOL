@@ -81,11 +81,31 @@
 
   "work_queue": [
     {
-      "id": "ix-singleton-failures",
+      "id": "two-group-moved-numerics-compare-as-text",
       "module": "IX",
       "priority": 1,
+      "title": "Two numeric items both holding group-MOVE characters compare as text",
+      "worth": "The 'KEY VS RECORD' assertion in IX103A and IX203A, which is the last failure in each — so 30 -> 32 of 42. The construct is common enough that other members may be affected without the symptom being obvious.",
+      "repro": "WORKING-STORAGE only, no files needed. Two numeric items of DIFFERENT widths, each filled by a group MOVE: `01 WK. 03 FILLER PIC X(10). 03 WK-NUM PIC 9(9). 03 FILLER PIC X(10).` filled by `MOVE SRCKEY TO WK` where SRCKEY is `PIC X(29) VALUE \"ABCDLKJXYZ000000007ZIF,.$-+CD\"`, against `E-NUM6 PIC 9(6)` inside an OCCURS element filled by `MOVE IMG6 TO ELEM (1)`. `IF WK-NUM = E-NUM6 (1)` reports NOT EQUAL although both display as 7.",
+      "narrowed": [
+        "It is NOT the subscript: a subscripted numeric filled by `MOVE 7 TO ...` compares correctly.",
+        "It is NOT the nesting: an OCCURS element with an intermediate group compares correctly.",
+        "It is NOT one group MOVE: either operand against a literal-valued numeric compares correctly.",
+        "It IS both operands at once. Both slots hold Str, so neither looks numeric, `nonnumeric_relation` does nothing, and `compare_values` compares '000000007' against '000007' as strings."
+      ],
+      "where": "`eval_condition` in crates/cobolt-runtime/src/interpreter.rs (~11026). `is_nonnumeric_operand` already decides category from the DECLARATION and is correct; the gap is that a numeric-declared item holding group-MOVE characters still evaluates to a Str, and nothing coerces it back.",
+      "fix_options": [
+        "Narrow: in `eval_condition`, when NEITHER operand is `is_nonnumeric_operand`, coerce a Str value to Numeric before comparing. Needs the item's implied scale — `ItemSym.pic` holds the raw PICTURE, so derive decimals from the part after `V`. `value::parse_decimal` does the parse. Smallest blast radius.",
+        "General: make reading a numeric-declared item always yield a value interpreted per its PICTURE, the way `RecordLayout::distribute` already does for file records. Correct in principle and fixes every consumer, not just comparisons — but it touches every read path."
+      ],
+      "caveat": "This is the comparison core that NC's 4614 assertions run through, and the existing doc comment cites NC208A MOV-TEST-F1-3 for a closely related rule. Run the FULL gate, and do not skip a scale-bearing case (`PIC 9(4)V99` holding '123456' is 1234.56, not 123456)."
+    },
+    {
+      "id": "ix-singleton-failures",
+      "module": "IX",
+      "priority": 2,
       "title": "The two single-failure programs",
-      "worth": "IX103A and IX203A each have exactly 1 failure left — the cheapest route from 30 toward 32 of 42.",
+      "worth": "IX103A and IX203A each have exactly 1 failure left, and BOTH are the same assertion — see two-group-moved-numerics-compare-as-text, which is the actual cause. This entry is kept only to record that they are one cause, not two.",
       "items": [
         "IX103A READ-TEST-F1-05 'KEY VS RECORD; IX-28' — the record key value after a sequential read must equal the key embedded in the record just delivered.",
         "IX203A READ-TEST-F1-02 — the last one left after the delete-resume fixes; run `report IX203A` for its computed value."
