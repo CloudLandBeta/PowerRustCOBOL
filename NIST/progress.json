@@ -101,10 +101,21 @@
       "consequence": "At 1.62.71 the module stands at 38 of 42. The reachable figure without further decisions is 40: IX211A and IX215A are ordinary defects, IX106A waits on RL, and IX301M is a scoping question. GOLDEN RULE #9 sequences RL after IX, which cannot be satisfied literally — the operator may want to take RL first, or accept 40/42 as IX-complete and revisit IX106A once RL lands."
     },
     {
-      "id": "ix215a-generic-key-on-duplicates-alternate",
+      "id": "rewrite-into-a-duplicate-set-keeps-a-position-it-never-had",
       "module": "IX",
       "priority": 1,
-      "title": "IX215A: a short generic key on a WITH DUPLICATES alternate finds the wrong record",
+      "title": "A REWRITE that CHANGES an alternate key must join the end of its new duplicate set",
+      "worth": "IX215A's last 2 failures, and very likely IX211A's 2 as well — its symptoms are small ordering errors in a walk over duplicate keys.",
+      "diagnosis": "DECISIVE, from the data rather than a repro. IX215A GF-08 reads record 176 and rewrites it with ALTKEY2 = 'DCDCDCDCDC100ALTKEY2'. GF-09 then reads record **4** and rewrites it with the SAME value, deliberately creating a duplicate set of two, and STARTs on the 2-character generic key 'DC' expecting record **176** — the entry created FIRST. A dump of the file confirms exactly two records carry that value, 4 and 176. We return 4.",
+      "the_rule": "Duplicates are retrieved in the order their entries entered the set. Record 176 joined in GF-08, record 4 in GF-09, so 176 comes first. We order by the record's ORIGINAL insertion sequence — record 4 was written before 176 when the file was built — which is a position record 4 never held in this set. CLAUDE.md's note that 'the record keeps its original insertion sequence across a REWRITE' is right only while the alternate VALUE is unchanged; when the value changes the record leaves one duplicate set and joins another, at the end.",
+      "where": "Disk engine (the default): `alt_tree_key(ks, rec, recid)` appends the RecordId, so ordering within one alternate value is by RecordId — permanently the original write order. Fixing it means the tiebreaker must be a per-entry sequence assigned when the entry is inserted, not the RecordId. That is a container-format consideration for PRCIDXD1, so size it before starting. The redb engine already keeps a `seq` table for this and may only need its sequence reassigned on a value-changing REWRITE; the in-memory engine uses a BTreeSet of primary keys and has the same original-order problem.",
+      "caveat": "Only a REWRITE that CHANGES the alternate value reassigns the sequence. One that leaves it alone must keep its position, which is what the existing behaviour and the disk-parity note are about."
+    },
+    {
+      "id": "ix215a-superseded",
+      "module": "IX",
+      "priority": 8,
+      "title": "SUPERSEDED — see rewrite-into-a-duplicate-set-keeps-a-position-it-never-had",
       "worth": "2 failures, the last two in IX215A.",
       "evidence": "Record 176 is rewritten so its ALTKEY2 becomes 'DCDCDCDCDC100ALTKEY2'. The test then does `START IX-FD1 KEY IS EQUAL TO R-ALTKEY2-1-2` — positions 1-2 of ALTKEY2, so the generic key is just 'DC' — and reads NEXT, expecting record 176. It computes 4. The qualified-name variant of the same test expects 190 and computes 12. Both return a small record number where a large one is expected, so the search lands on the wrong member of the duplicate set rather than failing outright.",
       "ruled_out": [
@@ -120,7 +131,7 @@
       "title": "IX211A: reading forward through duplicate keys is off by one or two",
       "worth": "2 failures.",
       "evidence": "'READ NEXT AT END' computes 184 against an expected 183; 'READ NEXT 4 RECS' (READ-TEST-F1-04) computes 182 against 184. Small, opposite-signed errors in a walk over duplicate keys — one record too far in one case, two short in the other.",
-      "next_probe": "Likely the same root as ix215a-generic-key-on-duplicates-alternate: the order and extent of a duplicate set. Do that one first and re-measure before diagnosing this separately."
+      "next_probe": "Very likely the same root as rewrite-into-a-duplicate-set-keeps-a-position-it-never-had. Do that one first and re-measure."
     },
     {
       "id": "ix301m-intermediate-subset-flagging",
