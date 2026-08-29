@@ -17,7 +17,7 @@
 //! * Key resolution — turning RECORD KEY / ALTERNATE KEY field names into the
 //!   `[offset, len)` key specs the indexed engine needs.
 
-use cobolt_ast::data::{DataDecl, PicKind};
+use cobolt_ast::data::{DataDecl, PicKind, SignClause};
 
 use crate::environment::CobolEnvironment;
 use crate::indexed::KeySpec;
@@ -27,6 +27,16 @@ use crate::value::{CobolNumeric, CobolValue};
 #[derive(Debug, Clone)]
 pub struct FieldPos {
     pub name: String,
+    /// The names of this field's enclosing groups, **innermost first**, up to
+    /// but not including the `01` record itself.
+    ///
+    /// A record may hold several fields of the same name in different groups,
+    /// and then only the group names tell them apart: IX215A's `IX-FD3`
+    /// declares its prime key and both alternates as `IX-FD3-KEY`, qualified
+    /// `IN IX-FD3-RECKEY-AREA`, `OF IX-FD3-ALTKEY1-AREA` and `IN
+    /// IX-FD3-ALTKEY2-AREA`. Without the path all three resolve to the first
+    /// one, and every key of the file indexes the same bytes.
+    pub quals: Vec<String>,
     pub offset: usize,
     pub len: usize,
     pub numeric: bool,
@@ -40,6 +50,17 @@ pub struct RecordLayout {
     pub fields: Vec<FieldPos>,
 }
 
+/// Whether `needle` appears in `hay` in order, though not necessarily
+/// adjacently.
+///
+/// COBOL qualification is by *containment*, not by immediate parentage: a
+/// chain may name any subset of the enclosing groups, as long as it names them
+/// outward in order.
+fn is_subsequence(needle: &[String], hay: &[String]) -> bool {
+    let mut it = hay.iter();
+    needle.iter().all(|n| it.any(|h| h == n))
+}
+
 /// Compute the byte layout of an FD `01` record by walking its subordinate
 /// items in declaration order (groups recurse; elementary items take
 /// `digits + decimals` bytes). OCCURS multiplies the subtree width.
@@ -47,37 +68,80 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     let mut fields = Vec::new();
     let mut offset = 0usize;
 
-    fn walk(d: &DataDecl, offset: &mut usize, fields: &mut Vec<FieldPos>) {
+    fn walk(
+        d: &DataDecl,
+        sign: Option<SignClause>,
+        path: &mut Vec<String>,
+        offset: &mut usize,
+        fields: &mut Vec<FieldPos>,
+    ) {
         let times = d
             .occurs
             .as_ref()
             .map(|o| o.max.max(1) as usize)
             .unwrap_or(1);
+        // `SIGN IS … SEPARATE` written on a group applies to every subordinate
+        // signed item that does not carry its own.
+        let sign = d.sign.or(sign);
         for _ in 0..times {
             if !d.children.is_empty() {
+                // A group name qualifies everything under it. `FILLER` groups
+                // have no name and qualify nothing.
+                let pushed = match &d.name {
+                    Some(n) => {
+                        path.push(n.to_ascii_uppercase());
+                        true
+                    }
+                    None => false,
+                };
                 for c in &d.children {
-                    walk(c, offset, fields);
+                    walk(c, sign, path, offset, fields);
                 }
-            } else if let (Some(name), Some(pic)) = (&d.name, &d.picture) {
-                let len = (pic.digits as usize + pic.decimals as usize).max(1);
-                let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
-                fields.push(FieldPos {
-                    name: name.to_ascii_uppercase(),
-                    offset: *offset,
-                    len,
-                    numeric,
-                    decimals: pic.decimals.min(u8::MAX as u16) as u8,
-                });
+                if pushed {
+                    path.pop();
+                }
+            } else if let Some(pic) = &d.picture {
+                // `SIGN IS SEPARATE CHARACTER` gives the sign its own character
+                // position, so the item is one byte wider than its digits. The
+                // record area is measured by the environment too, and the two
+                // have to agree: SQ111A's `PIC S9(5) SIGN IS LEADING SEPARATE`
+                // made the layout 155 bytes against the environment's 156, and
+                // every field after it landed one byte out.
+                let sep = usize::from(
+                    matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate),
+                );
+                let len = (pic.digits as usize + pic.decimals as usize + sep).max(1);
+                // A `FILLER` occupies its bytes like any other item — it simply
+                // has no name to read or write. Skipping it *and* its width put
+                // every following field at the wrong offset, so a record
+                // beginning `03 FILLER PIC X(120). 03 EXT-18 PIC X(18).` looked
+                // 18 bytes long with `EXT-18` at offset zero (SQ134A).
+                if let Some(name) = &d.name {
+                    let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
+                    fields.push(FieldPos {
+                        name: name.to_ascii_uppercase(),
+                        // Innermost group first, which is the order a COBOL
+                        // `OF`/`IN` chain is written in.
+                        quals: path.iter().rev().cloned().collect(),
+                        offset: *offset,
+                        len,
+                        numeric,
+                        decimals: pic.decimals.min(u8::MAX as u16) as u8,
+                    });
+                }
                 *offset += len;
             }
         }
     }
 
+    // The `01` itself does not qualify its subordinates — a key is written
+    // `IX-FD3-KEY IN IX-FD3-RECKEY-AREA`, naming the group, not the record.
+    let mut path: Vec<String> = Vec::new();
     if record.children.is_empty() {
-        walk(record, &mut offset, &mut fields);
+        walk(record, record.sign, &mut path, &mut offset, &mut fields);
     } else {
         for c in &record.children {
-            walk(c, &mut offset, &mut fields);
+            walk(c, record.sign, &mut path, &mut offset, &mut fields);
         }
     }
     RecordLayout {
@@ -88,13 +152,42 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
 
 impl RecordLayout {
     pub fn field(&self, name: &str) -> Option<&FieldPos> {
+        self.field_qualified(name, &[])
+    }
+
+    /// The field called `name` whose enclosing groups match `quals`.
+    ///
+    /// `quals` is a COBOL `OF`/`IN` chain, innermost first, and — as the
+    /// standard requires — it need only be a **subsequence** of the field's
+    /// ancestors: `B OF D` names the field even when it sits in `B` in `C` in
+    /// `D`. An empty chain matches the first field of that name, which is the
+    /// behaviour every unqualified caller had before.
+    ///
+    /// With no match on the qualifiers this falls back to the bare name, so a
+    /// qualifier naming a group that is not in the layout still finds the
+    /// field rather than silently losing the key.
+    pub fn field_qualified(&self, name: &str, quals: &[String]) -> Option<&FieldPos> {
         let n = name.to_ascii_uppercase();
-        self.fields.iter().find(|f| f.name == n)
+        let wanted: Vec<String> = quals.iter().map(|q| q.to_ascii_uppercase()).collect();
+        self.fields
+            .iter()
+            .find(|f| f.name == n && is_subsequence(&wanted, &f.quals))
+            .or_else(|| self.fields.iter().find(|f| f.name == n))
     }
 
     /// A `KeySpec` for the named key field (its slice of the record).
     pub fn key_spec(&self, name: &str, duplicates: bool) -> Option<KeySpec> {
-        self.field(name).map(|f| KeySpec {
+        self.key_spec_qualified(name, &[], duplicates)
+    }
+
+    /// A `KeySpec` for a key field named with an `OF`/`IN` qualification.
+    pub fn key_spec_qualified(
+        &self,
+        name: &str,
+        quals: &[String],
+        duplicates: bool,
+    ) -> Option<KeySpec> {
+        self.field_qualified(name, quals).map(|f| KeySpec {
             offset: f.offset,
             len: f.len,
             duplicates,
@@ -103,12 +196,37 @@ impl RecordLayout {
 
     /// The current byte value of a single (key) field.
     pub fn field_value(&self, env: &CobolEnvironment, name: &str) -> Option<Vec<u8>> {
-        self.field(name).map(|f| field_bytes(env, f))
+        self.field_value_qualified(env, name, &[])
+    }
+
+    /// The current byte value of a key field named with an `OF`/`IN`
+    /// qualification.
+    pub fn field_value_qualified(
+        &self,
+        env: &CobolEnvironment,
+        name: &str,
+        quals: &[String],
+    ) -> Option<Vec<u8>> {
+        self.field_qualified(name, quals).map(|f| field_bytes(env, f))
     }
 
     /// Build the contiguous record buffer from the current subfield values.
     pub fn materialize(&self, env: &CobolEnvironment) -> Vec<u8> {
         let mut buf = vec![b' '; self.len];
+        self.materialize_into(env, &mut buf);
+        buf
+    }
+
+    /// Lay this record's subfields over an existing buffer, leaving every byte
+    /// no named field covers as it was.
+    ///
+    /// An FD's several `01` record descriptions all describe **one** record
+    /// area, so a `WRITE` that names one of them still sends the whole area:
+    /// where the named record has `FILLER`, what another record description put
+    /// there shows through. Overlaying them in declaration order with the
+    /// written one last reproduces that, and it is why this takes a buffer
+    /// rather than making its own.
+    pub fn materialize_into(&self, env: &CobolEnvironment, buf: &mut [u8]) {
         for f in &self.fields {
             let bytes = field_bytes(env, f);
             let end = (f.offset + f.len).min(buf.len());
@@ -118,7 +236,6 @@ impl RecordLayout {
             let n = (end - f.offset).min(bytes.len());
             buf[f.offset..f.offset + n].copy_from_slice(&bytes[..n]);
         }
-        buf
     }
 
     /// Distribute a record buffer back into the subfields.
@@ -129,6 +246,7 @@ impl RecordLayout {
             }
             let end = (f.offset + f.len).min(buf.len());
             let slice = &buf[f.offset..end];
+            let key = env_key(env, f);
             if f.numeric {
                 let digits: String = slice
                     .iter()
@@ -136,19 +254,30 @@ impl RecordLayout {
                     .collect();
                 let mantissa: i128 = digits.parse().unwrap_or(0);
                 env.set(
-                    &f.name,
+                    &key,
                     CobolValue::Numeric(CobolNumeric::new(mantissa, f.decimals)),
                 );
             } else {
-                env.set_str(&f.name, &String::from_utf8_lossy(slice));
+                env.set_str(&key, &String::from_utf8_lossy(slice));
             }
         }
     }
 }
 
+/// The environment's storage key for one field of the record.
+///
+/// A name that is unique resolves to itself, so this is the bare name for
+/// almost every field. Where a record holds the same name in several groups —
+/// IX215A's `IX-FD3` has three `IX-FD3-KEY`s — the environment keys them by
+/// their path, and reading or writing the bare name would hit whichever one
+/// happened to be stored under it.
+fn env_key(env: &CobolEnvironment, f: &FieldPos) -> String {
+    env.resolve_name(&f.name, &f.quals)
+}
+
 /// The exact-`len` byte image of one field's current value.
 fn field_bytes(env: &CobolEnvironment, f: &FieldPos) -> Vec<u8> {
-    match env.get(&f.name) {
+    match env.get(&env_key(env, f)) {
         Some(CobolValue::Numeric(n)) => {
             let digits = n.mantissa.unsigned_abs().to_string();
             let mut s = if digits.len() < f.len {

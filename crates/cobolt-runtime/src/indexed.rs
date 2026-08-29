@@ -59,6 +59,10 @@ pub mod status {
     pub const OK: &str = "00";
     pub const DUP_ALT_OK: &str = "02"; // duplicate alternate key, allowed
     pub const EOF: &str = "10";
+    /// Key out of sequence. In the sequential access mode records must be
+    /// written in ascending RECORD KEY order, and a `REWRITE` may not change
+    /// the key of the record the previous `READ` delivered.
+    pub const SEQUENCE_ERROR: &str = "21";
     pub const DUP_KEY: &str = "22"; // duplicate primary/no-dup alternate on WRITE
     pub const NOT_FOUND: &str = "23"; // record not found / no current record
     pub const BOUNDARY: &str = "24"; // boundary violation

@@ -4777,7 +4777,9 @@ statement is `USE AFTER STANDARD ERROR PROCEDURE ON …`:
 
 The `USE` target can be one or more **file names** (`ON file-1 file-2`), an
 **open mode** (`ON INPUT`, `ON OUTPUT`, `ON I-O`, `ON EXTEND`), or nothing (a
-catch-all that covers every file). When a file operation (`OPEN`, `READ`,
+catch-all that covers every file). **`ON` is optional** — `USE AFTER STANDARD
+ERROR PROCEDURE OUTPUT.` means the same as `… PROCEDURE ON OUTPUT.`, and a
+program may mix the two spellings across its handlers. When a file operation (`OPEN`, `READ`,
 `WRITE`, `REWRITE`, `DELETE`, `START`, `CLOSE`) finishes with an **error**
 `FILE STATUS` (any class other than `0x`), the matching declarative runs — unless
 that same statement carried its own `AT END` / `INVALID KEY` phrase, which always
@@ -4836,6 +4838,245 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > **Note.** `FILE STATUS` may name a two-character **group** item —
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
+
+### Opening a file that may not be there: `SELECT OPTIONAL`
+
+Only `OPEN OUTPUT` creates a file. `OPEN INPUT`, `OPEN I-O` and `OPEN EXTEND`
+all expect the file to exist, and its absence is `FILE STATUS` **`35`** — which
+is usually what you want, because a missing master file is a problem worth
+stopping for.
+
+When it is *not* a problem — an optional transaction file, a log that starts
+empty on first run — say so in the `SELECT`:
+
+```cobol
+       FILE-CONTROL.
+           SELECT OPTIONAL DAILY-TRANSACTIONS
+               ASSIGN TO "trans.dat"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS TRANS-STATUS.
+```
+
+Now a missing file is created instead of refused, and the `OPEN` reports **`05`**
+so the program can tell the two cases apart — `00` means the file was already
+there, `05` means it was not. Opened `INPUT`, a file that was not there behaves
+as an empty one: the first `READ` raises `AT END`.
+
+### Ending a tape volume: `CLOSE … REEL` / `CLOSE … UNIT`
+
+`CLOSE file REEL` and `CLOSE file UNIT` end a *volume* of a multi-volume tape.
+They do **not** close the file — it stays open and the next `READ` or `WRITE`
+carries on. On disk there are no volumes, so the statement reports **`07`**:
+successful, but this file is not on a reel/unit medium.
+
+> ⚠️ `07` is a class-0 (success) status, so it does not run a `USE` declarative.
+> If you are porting a tape job, the thing to check is that your code does not
+> treat `CLOSE … REEL` as "the file is finished" — it never was.
+
+### How long is a record? The FD `RECORD` clause
+
+Coming from PowerCOBOL or isCOBOL you will have written records of one fixed
+size most of the time, and that is still the default: with no `RECORD` clause the
+`01` record description gives the length, and the file is a plain run of
+equal-sized records.
+
+The clause matters when records **vary**. It has three spellings.
+
+**Fixed** — documentation, and a check on the record description:
+
+```cobol
+       FD  LEDGER-FILE
+           RECORD CONTAINS 120 CHARACTERS.
+       01  LEDGER-RECORD PIC X(120).
+```
+
+**Variable, sized by the record you write.** Give a range, then declare a record
+description per size. Each `WRITE` sends as many characters as the record it
+names, and each `READ` gives back exactly what was written:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD CONTAINS 120 TO 151 CHARACTERS.
+       01  SHORT-RECORD.
+           02  CUST-KEY    PIC X(120).
+       01  LONG-RECORD.
+           02  CUST-KEY-2  PIC X(120).
+           02  CUST-NOTES  PIC X(31).
+       ...
+           WRITE SHORT-RECORD.     *> 120 characters
+           WRITE LONG-RECORD.      *> 151 characters
+```
+
+**Variable, sized by a data item** — `DEPENDING ON` makes an item *be* the
+length, and it works in both directions:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD IS VARYING IN SIZE FROM 120 TO 151 CHARACTERS
+             DEPENDING ON WS-RECORD-LENGTH.
+       ...
+       WORKING-STORAGE SECTION.
+       01  WS-RECORD-LENGTH PIC 999.
+       ...
+           MOVE 151 TO WS-RECORD-LENGTH.
+           WRITE LONG-RECORD.              *> writes 151 characters
+           ...
+           READ CUSTOMER-FILE
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+           DISPLAY "read " WS-RECORD-LENGTH " characters".
+```
+
+Set it before the `WRITE`; read it after the `READ`. A length outside the
+declared `FROM … TO` range is a boundary violation — `FILE STATUS` **`44`**, and
+nothing is written. It is not quietly rounded into range: a record the FD forbids
+is a bug worth hearing about.
+
+> **Note.** An FD whose `01` records are of **different sizes** is a
+> variable-length file whether or not it says so — the `RECORD` clause is
+> optional and the record descriptions are what count. If you meant fixed-length
+> records, keep the descriptions the same size (or say `RECORD CONTAINS n
+> CHARACTERS`).
+
+> ⚠️ **A variable-length file is not interchangeable with a fixed-length one.**
+> Its records carry their own lengths, because that is the only way `READ` can
+> know where each one ends. A file written through a fixed-length FD is not read
+> correctly through a variable-length FD, or the other way round — so if two
+> programs share a file, give them the same `RECORD` clause.
+
+**Every `01` under an FD describes the same storage.** They are not separate
+buffers: `SHORT-RECORD` and `LONG-RECORD` above are two readings of one record
+area, exactly as in the COBOL you already write. So a `READ` fills in both — the
+long record's `CUST-NOTES` is there after reading a long record — and a `WRITE`
+sends the whole area, including any part the record it names covers only with
+`FILLER`.
+
+**`FILLER` holds its bytes.** An unnamed item in a record description is space
+you cannot address by name, not space that disappears:
+`02 FILLER PIC X(120).` is 120 characters of the record, and a record built
+entirely from `FILLER` still carries whatever a group `MOVE` put into it.
+
+**`SIGN IS SEPARATE CHARACTER` costs a character.** `PIC S9(5)` occupies five
+positions with the sign riding on a digit; `PIC S9(5) SIGN IS LEADING SEPARATE
+CHARACTER` occupies **six**, the extra one holding a literal `+` or `-`. Count it
+when you are laying out a record by hand.
+
+### Reading straight into working storage: `READ … INTO`
+
+`READ file INTO identifier` is the `READ` followed by a group `MOVE` of the
+record to `identifier` — which is worth stating plainly, because it means the
+move follows **group-move rules** and not the receiving item's `PICTURE`:
+
+```cobol
+       01  WS-SUMMARY-AREA.
+           02  WS-ACCOUNT  PIC X(12).
+           02  WS-BALANCE  PIC X(10).
+       ...
+           READ LEDGER-FILE INTO WS-SUMMARY-AREA
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+```
+
+The record's characters are laid across the receiver's subordinate items left to
+right, each taking its own width, and the record is **cut at the receiver's total
+width** — a 120-character record into a 22-character group delivers the first 22
+characters and leaves everything declared after the group alone. A receiver
+shorter than the record is therefore normal, not an error.
+
+The receiver may be subscripted (`READ LEDGER-FILE INTO TABLE-ENTRY (WS-I)`), and
+the record area itself is left holding the record as well, so you can read it
+through the `01` too.
+
+### Updating a sequential file in place: `REWRITE`
+
+`REWRITE` replaces the record the last `READ` delivered. The file must be open
+`I-O`, and the pattern is always read-then-rewrite:
+
+```cobol
+           OPEN I-O LEDGER-FILE.
+           READ LEDGER-FILE
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+           MOVE "SETTLED" TO LEDGER-STATUS.
+           REWRITE LEDGER-RECORD.
+```
+
+The read position is not disturbed: the next `READ` still gives the record that
+*follows* the one you replaced, so a read-modify-rewrite loop walks the file
+exactly once.
+
+Three things it will refuse, each with a `FILE STATUS` worth testing for:
+
+| Situation | Status |
+| --- | --- |
+| The file is not open `I-O` | `49` |
+| No successful `READ` established a record — including after `AT END`, and a second `REWRITE` with no `READ` between | `43` |
+| The new record is not the same length as the one read | `44` |
+
+The length rule is the one that surprises people coming from indexed files.
+A sequential file has no room to grow a record in place — everything after it
+would have to move — so on a `RECORD … DEPENDING ON` file the item's value at
+`REWRITE` time must equal the length the `READ` reported. Changing it and
+rewriting is how you *ask* for a different length, and `44` is the answer.
+
+> **Note.** `REWRITE` never repositions the file, so there is no such thing as
+> rewriting "the record I read three reads ago". Keep the loop tight: read,
+> change, rewrite, read again.
+
+### Printed reports with page control: `LINAGE`
+
+If you have been counting lines by hand to decide when to print a page trailer,
+`LINAGE` does it for you. It divides the print file into a top margin, a **body**
+of so many lines, and a bottom margin, and gives you a counter and a condition:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE IS 60 LINES
+               WITH FOOTING AT 55
+               LINES AT TOP 3
+               LINES AT BOTTOM 3.
+       01  PRINT-REC PIC X(132).
+```
+
+`LINAGE-COUNTER` holds the current line of the body, counting from 1, and is set
+back to 1 whenever the file is opened. `WRITE` gains a page-overflow phrase:
+
+```cobol
+           WRITE PRINT-REC AFTER ADVANCING 1 LINE
+               AT END-OF-PAGE     PERFORM PAGE-TRAILER
+               NOT AT END-OF-PAGE ADD 1 TO WS-LINES-ON-PAGE
+           END-WRITE.
+```
+
+`AT END-OF-PAGE` (or `AT EOP`) becomes true from the **footing** line onward —
+line 55 above — which is what gives you room to print a trailer before the body
+is full. Without a `FOOTING` clause the condition waits until the body is full.
+`WRITE … AFTER ADVANCING PAGE` starts a new page and resets the counter.
+
+**Every value may be a data item instead of a number**, which is how you size a
+page at run time — from a control record, a parameter file, or the operator:
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE LINAGE-CTR
+               FOOTING FOOT-CTR
+               TOP TOP-CTR
+               BOTTOM BOTTOM-CTR.
+       ...
+       WORKING-STORAGE SECTION.
+       77  LINAGE-CTR PIC 999 VALUE 66.
+       01  FOOT-CTR   PIC 999 VALUE 60.
+       01  TOP-CTR    PIC 999 VALUE 3.
+       01  BOTTOM-CTR PIC 999 VALUE 3.
+```
+
+The page is measured from those items at each `WRITE`, so changing one between
+writes changes the page from that point on.
+
+> ⚠️ **A file with no `LINAGE` clause has no page**, so `AT END-OF-PAGE` on it
+> can never become true. A loop written as "keep writing until end of page" then
+> never ends. If a report of yours runs away, the `LINAGE` clause is the first
+> thing to check.
 
 ### Rust inside COBOL — `EXEC RUST`
 
@@ -5451,6 +5692,93 @@ matters for performance and for what survives across runs:
 > `STORAGE IS DISK`, durability lands at each `COMMIT`/`CLOSE` instead.)
 > `ROLLBACK` always undoes changes since the last `COMMIT`/`OPEN`, in RAM, for
 > both modes.
+
+### What `ACCESS MODE` changes about writing and updating
+
+`ACCESS MODE IS SEQUENTIAL` is not merely a different way of reading — it puts
+the file under ordering rules that `RANDOM` and `DYNAMIC` do not have. If you
+are coming from PowerCOBOL or isCOBOL this is familiar ground, but it is worth
+testing for explicitly, because the statuses are the only way to see it.
+
+| Statement, `ACCESS MODE IS SEQUENTIAL` | `FILE STATUS` |
+|---|---|
+| `WRITE` whose `RECORD KEY` is **not greater** than the previous one written | `21` |
+| `REWRITE` or `DELETE` with no successful `READ` immediately before it | `43` |
+| A second `REWRITE`/`DELETE` with no `READ` in between | `43` |
+| `REWRITE`/`DELETE` after a `START`, an `OPEN`, a `WRITE`, or a failed `READ` | `43` |
+
+```cobol
+       SELECT LEDGER-FILE ASSIGN TO "ledger.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS SEQUENTIAL
+           RECORD KEY IS LEDGER-ID
+           FILE STATUS IS LEDGER-STATUS.
+      *
+       OPEN OUTPUT LEDGER-FILE.
+       MOVE 100 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+       MOVE 200 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+       MOVE 150 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 21 — out of order
+       MOVE 300 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+```
+
+**Notes.**
+
+- A rejected `WRITE` stores nothing and does **not** move the sequence forward,
+  so the next key is judged against the last key actually written — `300` above
+  follows `200`, not the rejected `150`.
+- A key merely *equal* to the previous one is not greater, so it is `21` too —
+  not the duplicate-key `22` you would get under `RANDOM` or `DYNAMIC`.
+- `START` positions the file but delivers no record. It does not satisfy the
+  `REWRITE`/`DELETE` requirement; only a successful `READ` does.
+- Under `RANDOM` or `DYNAMIC` none of this applies: write in any order you
+  like, and address `REWRITE`/`DELETE` by the `RECORD KEY` value with no
+  preceding `READ`. A clash with an existing record there is `22`.
+
+> ⚠️ **Caveat.** Status `43` is class 4, not an `INVALID KEY` condition, so an
+> `INVALID KEY` phrase will not catch it. Test `FILE STATUS`, or let the file's
+> `USE AFTER STANDARD ERROR` declarative handle it.
+
+### Telling same-named keys apart with `OF` / `IN`
+
+A file may declare several keys whose data-names are identical and which are
+separated only by the group each one sits in. Qualify them exactly as you would
+anywhere else in COBOL:
+
+```cobol
+       SELECT ORDER-FILE ASSIGN TO "orders.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS DYNAMIC
+           RECORD KEY IS ORDER-KEY IN PRIME-AREA
+           ALTERNATE RECORD KEY IS ORDER-KEY OF ALT-AREA
+           FILE STATUS IS ORDER-STATUS.
+      *
+       FD  ORDER-FILE.
+       01  ORDER-RECORD.
+           05  PRIME-AREA.
+               10  ORDER-KEY   PIC X(10).
+           05  ALT-AREA.
+               10  ORDER-KEY   PIC X(10).
+           05  ORDER-DETAIL    PIC X(60).
+```
+
+The qualifier belongs to the key's identity, so use the same form when you name
+the key of reference:
+
+```cobol
+       MOVE "AX-4471" TO ORDER-KEY IN ALT-AREA.
+       READ ORDER-FILE KEY IS ORDER-KEY IN ALT-AREA
+           INVALID KEY     DISPLAY "no such order"
+           NOT INVALID KEY DISPLAY ORDER-DETAIL
+       END-READ.
+```
+
+**Notes.**
+
+- Qualification is by *containment*, not immediate parentage: `ORDER-KEY OF
+  ORDER-RECORD` names the field even when it sits one or more groups deeper.
+- An unqualified name still means the first field of that name, so nothing
+  changes for the ordinary case of one key per name.
+- The same applies to `START … KEY IS`.
 
 ### Crash-safe transactions
 

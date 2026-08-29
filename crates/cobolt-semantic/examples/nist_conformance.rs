@@ -864,6 +864,128 @@ fn operator_input(name: &str) -> Option<String> {
     Some(s)
 }
 
+/// The member that creates the data file this one reads, when the program says
+/// it inherits one.
+///
+/// Most CCVS85 programs build whatever they need and are self-contained. A few
+/// are the second half of a pair: they read a file an **earlier member** wrote,
+/// and each one says so in its own header comment. Run such a program in an
+/// empty directory and it opens a file that is not there, then correctly
+/// reports the absence as a failure — IX110A scores 2 FAIL / 2 PASS alone and
+/// **4 PASS / 0 FAIL** with its producer run first, against an unchanged
+/// runtime.
+///
+/// Every entry below is quoted from the consumer's own header. Nothing is
+/// inferred from which X-cards two programs happen to share.
+///
+/// **Blanket sharing is wrong**, and measuring it is how that was settled:
+/// giving a whole module one directory took IX from 13 to 15 clean but broke
+/// members that need a file to be *absent* — IX111A ("THIS PROGRAM USES THE
+/// FILE IX-NOP WHICH DOES NOT EXIST", expecting status 35) and IX216A (`OPEN
+/// EXTEND` on an OPTIONAL file, expecting 05) both went red against leftovers
+/// from earlier programs. A validating installation scratches files between
+/// programs except where a member declares it inherits one, which is what this
+/// table encodes.
+fn inherits_from(name: &str) -> Option<&'static str> {
+    Some(match name {
+        // "THE FILE USED AS INPUT IS THAT CREATED BY IX101."
+        "IX102A" => "IX101A",
+        // "THE ROUTINE USES THE FILE IX-FS3 WHICH HAS BEEN CREATED BY IX109."
+        "IX110A" => "IX109A",
+        // "THIS ROUTINE USES THE MASS STORAGE FILE IX-FS3 CREATED IN IX113A."
+        "IX114A" | "IX115A" | "IX116A" | "IX117A" | "IX118A" | "IX119A" | "IX120A" => "IX113A",
+        // "THE FILE USED AS INPUT IS THAT CREATED BY IX201A."
+        "IX202A" => "IX201A",
+        _ => return None,
+    })
+}
+
+/// Run the chain of producers a member declares, into that member's own
+/// directory, so it finds the file it says it inherits.
+///
+/// Follows [`inherits_from`] transitively — a producer that is itself a
+/// consumer is run first — and runs each producer for its side effects only;
+/// its report is discarded. A member that declares nothing costs nothing here.
+fn run_producers(
+    rcrun: &std::path::Path,
+    workroot: &std::path::Path,
+    members: &[Member],
+    target: &str,
+) {
+    let Some(producer) = inherits_from(target) else {
+        return;
+    };
+    // Depth first, so the oldest ancestor writes its file before the member
+    // that reads and extends it.
+    run_producers(rcrun, workroot, members, producer);
+    let Some(m) = members.iter().find(|m| m.name == producer) else {
+        eprintln!("  ! {target} declares producer {producer}, which is not in the suite");
+        return;
+    };
+    run_one_in(rcrun, &workroot.join(target), &m.name, &m.text);
+}
+
+/// The data files the **installation** supplies, planted into a member's work
+/// directory before it runs.
+///
+/// CCVS85 leaves some inputs for the installation to provide, exactly as it
+/// leaves the operator deck, the external switches and the `XXXXX053` RERUN
+/// card. `XXXXD001` is one of them: it is the *file present* half of SQ203A's
+/// `SELECT OPTIONAL` test, and **no member of the suite writes it** — all 459
+/// were checked. Without it that half cannot run at all in a fresh directory,
+/// and the program correctly reports the absence as a failure.
+///
+/// A member not listed here gets nothing, and its directory is untouched.
+fn installation_data_files(name: &str) -> &'static [(&'static str, &'static str)] {
+    match name {
+        "SQ203A" => &[("XXXXD001", SQ203A_XXXXD001)],
+        _ => &[],
+    }
+}
+
+/// `XXXXD001` — one 120-character record, for SQ203A's present optional file.
+///
+/// **The content is the suite's own, not the assertions'.** SQ203A's
+/// `READ-TEST-GF-04` creates a file of exactly this shape for `SQ-FS3` a few
+/// paragraphs further down, and every field below is set the way that
+/// paragraph sets it, against the `FILE-RECORD-INFO` skeleton the program
+/// declares. Only two fields differ, and both are forced by which file this
+/// is: `XFILE-NAME` names `SQ-FS1` rather than `SQ-FS3`, and
+/// `RECORDS-IN-FILE` says 1 rather than 750 because this file holds one
+/// record. The fields that paragraph never sets are zero or blank.
+///
+/// `SQ-FS1` is `ORGANIZATION IS SEQUENTIAL` with a single fixed 120-byte `01`,
+/// so the file is these 120 bytes and nothing else — no length prefix and no
+/// line terminator, or the `READ` would return a short or shifted record.
+const SQ203A_XXXXD001: &str = concat!(
+    "     ",  //   0  FILLER              PIC X(5)
+    "SQ-FS1", //   5  XFILE-NAME          PIC X(6)
+    "        ", // 11  FILLER              PIC X(8)
+    "R1-F-G", //  19  XRECORD-NAME        PIC X(6)
+    " ",      //  25  FILLER              PIC X(1)
+    "1",      //  26  REELUNIT-NUMBER     PIC 9(1)
+    "       ", // 27  FILLER              PIC X(7)
+    "000001", //  34  XRECORD-NUMBER      PIC 9(6)
+    "      ", //  40  FILLER              PIC X(6)
+    "00",     //  46  UPDATE-NUMBER       PIC 9(2)
+    "     ",  //  48  FILLER              PIC X(5)
+    "0000",   //  53  ODO-NUMBER          PIC 9(4)
+    "     ",  //  57  FILLER              PIC X(5)
+    "SQ203",  //  62  XPROGRAM-NAME       PIC X(5)  ("SQ203A" truncated to X(5))
+    "       ", // 67  FILLER              PIC X(7)
+    "000120", //  74  XRECORD-LENGTH      PIC 9(6)
+    "       ", // 80  FILLER              PIC X(7)
+    "RC",     //  87  CHARS-OR-RECORDS    PIC X(2)
+    " ",      //  89  FILLER              PIC X(1)
+    "0001",   //  90  XBLOCK-SIZE         PIC 9(4)
+    "      ", //  94  FILLER              PIC X(6)
+    "000001", // 100  RECORDS-IN-FILE     PIC 9(6)
+    "     ",  // 106  FILLER              PIC X(5)
+    "SQ",     // 111  XFILE-ORGANIZATION  PIC X(2)
+    "      ", // 113  FILLER              PIC X(6)
+    "S",      // 119  XLABEL-TYPE         PIC X(1)
+);
+
 /// `NC109M`'s operator deck — 11 values, in the order the program accepts them.
 ///
 /// Leading and trailing spaces are significant and are inside the quotes on
@@ -985,7 +1107,7 @@ fn run_pass(members: &[Member], filter: &str) {
             continue;
         }
 
-        let (outcome, _) = run_one(&rcrun, &workroot, &m.name, &m.text);
+        let (outcome, _) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
         outcomes.push((m.name.clone(), module, outcome));
     }
 
@@ -1022,7 +1144,7 @@ fn fails_pass(members: &[Member], filter: &str) {
         if is_out_of_scope(&module_of(&m.name)) {
             continue;
         }
-        let (outcome, report) = run_one(&rcrun, &workroot, &m.name, &m.text);
+        let (outcome, report) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
         let report = match (&outcome, report) {
             (RunOutcome::Ran(_, f, _), Some(r)) if *f > 0 => r,
             _ => continue,
@@ -1093,7 +1215,7 @@ fn report_pass(members: &[Member], filter: &str) {
     let workroot = std::env::temp_dir().join("nist-report");
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
-    let (outcome, report) = run_one(&rcrun, &workroot, &m.name, &m.text);
+    let (outcome, report) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
     println!("=== {} — {outcome:?} ===", m.name);
     if let Some(r) = report {
         // Byte chunks, not characters: see `fails_pass`.
@@ -1126,6 +1248,14 @@ fn substitute_implementor_names(raw: &str) -> String {
     // characters with `char::from_u32(n - 1)`.
     raw.replace("XXXXX090", "66      ")
         .replace("XXXXX091", "69      ")
+        // `XXXXX053` is the I-O-CONTROL **RERUN clause** card: CCVS85 leaves it
+        // for the installation to fill in, because the clause names an
+        // implementor's checkpoint file. Left as the bare word it is neither a
+        // RERUN nor anything else, so SQ302M's first `Message expected …
+        // OBSOLETE` refers to a construct that is not in the source. Filling it
+        // in is what a validating installation does, and it is the only way
+        // that expectation can be tested at all. One line in, one line out.
+        .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS")
 }
 
 /// Run one program in its own directory, under both budgets.
@@ -1135,11 +1265,32 @@ fn substitute_implementor_names(raw: &str) -> String {
 fn run_one(
     rcrun: &std::path::Path,
     workroot: &std::path::Path,
+    members: &[Member],
     name: &str,
     raw: &str,
 ) -> (RunOutcome, Option<String>) {
     let dir = workroot.join(name);
     let _ = std::fs::remove_dir_all(&dir);
+    // Whatever this member says it inherits, written into its directory first.
+    run_producers(rcrun, workroot, members, name);
+    let r = run_one_in(rcrun, &dir, name, raw);
+    // Reclaim the directory — a sweep is hundreds of programs and a runaway
+    // print file is measured in gigabytes.
+    let _ = std::fs::remove_dir_all(&dir);
+    r
+}
+
+/// Run one program in an already-chosen directory, leaving it in place.
+///
+/// Split out from [`run_one`] so a producer can be run into its consumer's
+/// directory without that directory being cleared underneath it.
+fn run_one_in(
+    rcrun: &std::path::Path,
+    dir: &std::path::Path,
+    name: &str,
+    raw: &str,
+) -> (RunOutcome, Option<String>) {
+    let dir = dir.to_path_buf();
     if std::fs::create_dir_all(&dir).is_err() {
         return (
             RunOutcome::Crash("cannot create the work directory".into()),
@@ -1149,6 +1300,18 @@ fn run_one(
     let src = dir.join(format!("{name}.cbl"));
     if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
+    }
+
+    // Whatever the installation is expected to have on disk before the program
+    // starts. Written before the run, never after, so the program sees it on
+    // its first OPEN.
+    for (fname, content) in installation_data_files(name) {
+        if std::fs::write(dir.join(fname), content).is_err() {
+            return (
+                RunOutcome::Crash(format!("cannot write the {fname} data file")),
+                None,
+            );
+        }
     }
 
     let console_path = dir.join(CCVS_CONSOLE_FILE);
@@ -1247,13 +1410,24 @@ fn run_one(
     let (result, report) = match outcome {
         Some(bad) => (bad, None),
         None => {
-            let printed = std::fs::read_to_string(&print_file).ok();
+            // Read as **bytes**, then decode lossily. A CCVS report is not
+            // guaranteed to be UTF-8: NC107A prints the figurative constants,
+            // so its report carries real `HIGH-VALUE` (0xFF) and `LOW-VALUE`
+            // (0x00) bytes. `read_to_string` rejects that whole file, and the
+            // program's 177 passing assertions were scored as "no report
+            // printed" — a runtime that faithfully writes the byte it was told
+            // to write must not look like a failure here.
+            let printed = std::fs::read(&print_file)
+                .ok()
+                .map(|b| String::from_utf8_lossy(&b).into_owned());
             match printed.as_deref().and_then(score_ccvs_report) {
                 Some((p, f, d)) => (RunOutcome::Ran(p, f, d), printed),
                 // Nothing in the print file. The member may have reported on
                 // the console instead — see [`score_console_report`].
                 None => {
-                    let console = std::fs::read_to_string(&console_path).unwrap_or_default();
+                    let console = std::fs::read(&console_path)
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .unwrap_or_default();
                     match score_console_report(name, &console) {
                         Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(console)),
                         None => (RunOutcome::NoReport, printed),
@@ -1262,9 +1436,21 @@ fn run_one(
             }
         }
     };
-    // Reclaim the directory immediately — a sweep is hundreds of programs and
-    // a runaway print file is measured in gigabytes.
-    let _ = std::fs::remove_dir_all(&dir);
+    // Reclaim this program's own artifacts immediately — a sweep is hundreds of
+    // programs and a runaway print file is measured in gigabytes — but leave
+    // the **data files** in place. They are the module's file chain, and the
+    // next member is entitled to find them: removing the directory here is what
+    // made a chained program open a file its producer had just written and
+    // score the absence as a failure. The whole workroot goes at the end of the
+    // pass.
+    for transient in [
+        src.as_path(),
+        print_file.as_path(),
+        console_path.as_path(),
+        &dir.join("rcrun-stderr.txt"),
+    ] {
+        let _ = std::fs::remove_file(transient);
+    }
     (result, report)
 }
 
@@ -1373,7 +1559,7 @@ fn is_flagging_member(text: &str) -> bool {
 /// does not list is as wrong as one that stays silent about a construct it does.
 fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
     let expectations = flagging_expectations(text);
-    let tokens = tokenize(text, SourceFormat::FixedStrict);
+    let tokens = tokenize(&substitute_implementor_names(text), SourceFormat::FixedStrict);
     // A member declares which class it is about, so only that analysis is run:
     // `DATE-COMPILED` is both an obsolete element *and* above the high subset,
     // and NC303M and NC401M each want it under their own name. Running both
@@ -1428,7 +1614,7 @@ fn score_flagging(text: &str) -> (usize, usize, Vec<String>) {
 /// Both raw lists for one member: `(line, element)` flags and `(line, class)`
 /// expectations, each in source order.
 fn flagging_detail(text: &str) -> (Vec<(u32, String)>, Vec<(u32, String)>) {
-    let tokens = tokenize(text, SourceFormat::FixedStrict);
+    let tokens = tokenize(&substitute_implementor_names(text), SourceFormat::FixedStrict);
     let expectations = flagging_expectations(text);
     let wants_subset = expectations
         .iter()
@@ -1675,4 +1861,116 @@ fn report_run(outcomes: &[(String, String, RunOutcome)]) {
          \"this program works\". The compilation score counts programs the front end\n\
          accepts, which is a strictly weaker claim."
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `XXXXD001` must be exactly one 120-character record.
+    ///
+    /// A record one byte long or short still satisfies SQ203A — the two fields
+    /// it checks sit in the first 40 bytes, so a trailing stray byte lands past
+    /// everything the program reads and the test passes over a malformed file.
+    /// Length is therefore checked here rather than inferred from a green run.
+    #[test]
+    fn sq203a_installation_record_is_one_120_byte_record() {
+        assert_eq!(
+            SQ203A_XXXXD001.len(),
+            120,
+            "SQ-FS1 is a fixed 120-byte sequential file; the record must fill it exactly"
+        );
+        assert!(
+            SQ203A_XXXXD001.is_ascii(),
+            "a multi-byte character would push every later field out of position"
+        );
+    }
+
+    /// Each named field sits where the `FILE-RECORD-INFO` skeleton puts it.
+    ///
+    /// The offsets are recomputed here from the skeleton's own PICTURE widths,
+    /// independently of the `concat!` above, so a mis-sized FILLER in the
+    /// constant shows up as a field landing in the wrong place instead of
+    /// silently shifting its neighbours.
+    #[test]
+    fn sq203a_installation_record_fields_are_where_the_skeleton_says() {
+        let r = SQ203A_XXXXD001;
+        for (off, len, want, field) in [
+            (5usize, 6usize, "SQ-FS1", "XFILE-NAME"),
+            (19, 6, "R1-F-G", "XRECORD-NAME"),
+            (26, 1, "1", "REELUNIT-NUMBER"),
+            (34, 6, "000001", "XRECORD-NUMBER"),
+            (62, 5, "SQ203", "XPROGRAM-NAME"),
+            (74, 6, "000120", "XRECORD-LENGTH"),
+            (87, 2, "RC", "CHARS-OR-RECORDS"),
+            (90, 4, "0001", "XBLOCK-SIZE"),
+            (100, 6, "000001", "RECORDS-IN-FILE"),
+            (111, 2, "SQ", "XFILE-ORGANIZATION"),
+            (119, 1, "S", "XLABEL-TYPE"),
+        ] {
+            assert_eq!(
+                &r[off..off + len],
+                want,
+                "{field} should occupy bytes {off}..{}",
+                off + len
+            );
+        }
+    }
+
+    /// The producer table is opt-in and terminates.
+    ///
+    /// A cycle would make `run_producers` recurse forever, and a self-reference
+    /// would run the member under test as its own prerequisite.
+    #[test]
+    fn declared_producers_terminate() {
+        for consumer in [
+            "IX102A", "IX110A", "IX114A", "IX115A", "IX116A", "IX117A", "IX118A", "IX119A",
+            "IX120A", "IX202A",
+        ] {
+            let mut seen = vec![consumer.to_string()];
+            let mut at = consumer;
+            while let Some(p) = inherits_from(at) {
+                assert!(
+                    !seen.iter().any(|s| s == p),
+                    "{consumer}'s producer chain cycles at {p}"
+                );
+                seen.push(p.to_string());
+                at = p;
+                assert!(seen.len() < 16, "{consumer}'s producer chain does not end");
+            }
+            assert!(seen.len() > 1, "{consumer} should declare a producer");
+        }
+    }
+
+    /// A member that builds its own file declares no producer.
+    ///
+    /// IX111A needs `IX-NOP` to be **absent** (it expects status 35), and
+    /// IX112A/IX113A create their files themselves — giving any of them a
+    /// prerequisite would plant a file the test requires not to be there.
+    #[test]
+    fn self_contained_members_declare_no_producer() {
+        for solo in [
+            "IX101A", "IX109A", "IX111A", "IX112A", "IX113A", "IX201A", "IX216A", "SQ203A",
+            "NC101A",
+        ] {
+            assert_eq!(
+                inherits_from(solo),
+                None,
+                "{solo} builds its own files and must run in a clean directory"
+            );
+        }
+    }
+
+    /// Only the members that need one get a data file.
+    #[test]
+    fn installation_data_files_are_opt_in() {
+        assert_eq!(installation_data_files("SQ203A").len(), 1);
+        assert_eq!(installation_data_files("SQ203A")[0].0, "XXXXD001");
+        for untouched in ["SQ202A", "NC101A", "IX101A"] {
+            assert!(
+                installation_data_files(untouched).is_empty(),
+                "{untouched} should get no planted files"
+            );
+        }
+    }
 }

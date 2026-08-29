@@ -208,7 +208,44 @@ pub struct FileDescription {
     /// `LINAGE-COUNTER` for it. `None` for an ordinary file.
     #[serde(default)]
     pub linage: Option<Linage>,
+    /// The FD's `RECORD` clause — how long each record of this file is.
+    /// `None` when the FD omits it, in which case the record descriptions
+    /// themselves give the (fixed) length.
+    #[serde(default)]
+    pub record_sizing: Option<RecordSizing>,
     pub span: Span,
+}
+
+/// The FD `RECORD` clause: the length of this file's records.
+///
+/// COBOL-85 spells the same idea three ways, and the difference that matters at
+/// run time is only whether the records vary:
+///
+/// * `RECORD CONTAINS n CHARACTERS` — every record is exactly `n` bytes.
+/// * `RECORD CONTAINS n TO m CHARACTERS` — variable, with the length taken from
+///   whichever record description the `WRITE` names.
+/// * `RECORD [IS] VARYING [IN SIZE] [FROM n] [TO m] [CHARACTERS]
+///   [DEPENDING ON item]` — variable, and when `DEPENDING ON` is present the
+///   data item *is* the length: the program sets it before a `WRITE` and reads
+///   it back after a `READ`.
+///
+/// A variable-length file therefore has to carry each record's length with the
+/// record, which a fixed-length one never does — see the runtime's sequential
+/// reader and writer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordSizing {
+    /// The smallest declared record length, when the clause states one.
+    #[serde(default)]
+    pub min: Option<u32>,
+    /// The largest declared record length, when the clause states one.
+    #[serde(default)]
+    pub max: Option<u32>,
+    /// True when the clause makes the file variable-length (`n TO m`, or any
+    /// `VARYING` form). `RECORD CONTAINS n CHARACTERS` leaves it false.
+    pub varying: bool,
+    /// `DEPENDING ON item` — the data item that carries the record length.
+    #[serde(default)]
+    pub depending_on: Option<String>,
 }
 
 /// The page layout of a `LINAGE` file.
@@ -229,6 +266,22 @@ pub struct Linage {
     pub top: u32,
     /// `LINES AT BOTTOM b` — blank lines after the body.
     pub bottom: u32,
+    /// Each value may be written as a **data-name** instead of an integer —
+    /// `LINAGE LINAGE-CTR FOOTING FOOT-CTR TOP TOP-CTR BOTTOM BOTTOM-CTR` — and
+    /// is then read from that item when the page is measured, so a program can
+    /// size its page at run time. A `None` means the clause stated a number,
+    /// and the matching `u32` above is it.
+    ///
+    /// 🔴 New fields go at the END — `Linage` is bincode-serialized
+    /// field-by-field in declaration order.
+    #[serde(default)]
+    pub lines_name: Option<String>,
+    #[serde(default)]
+    pub footing_name: Option<String>,
+    #[serde(default)]
+    pub top_name: Option<String>,
+    #[serde(default)]
+    pub bottom_name: Option<String>,
 }
 
 // ── Screen items ──────────────────────────────────────────────────────────────

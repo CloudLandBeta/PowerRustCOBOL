@@ -389,6 +389,9 @@ fn stmt_open_close() {
         // same run unit; a plain CLOSE locks nothing.
         locked: Vec::new(),
         span: dummy_span(),
+        // `CLOSE … REEL/UNIT` names the subset that ends a tape volume rather
+        // than the file; a plain CLOSE ends the file.
+        reel: Vec::new(),
     };
     let _ = format!("{open:?} {close:?}");
 }

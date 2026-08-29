@@ -83,6 +83,10 @@ pub struct FileControl {
     pub access: AccessMode,
     /// RECORD KEY data-item name (for INDEXED files).
     pub record_key: Option<String>,
+    /// The `OF`/`IN` chain written after `RECORD KEY IS data-name`, innermost
+    /// first. See [`AlternateKey::quals`].
+    #[serde(default)]
+    pub record_key_quals: Vec<String>,
     /// ALTERNATE RECORD KEY entries.
     pub alternate_keys: Vec<AlternateKey>,
     /// FILE STATUS data-item name.
@@ -96,6 +100,15 @@ pub struct FileControl {
     /// (always persistent). Default `false`: a MEMORY file is ephemeral.
     pub persist: bool,
     pub span: Span,
+    /// `SELECT OPTIONAL file-name` — the file need not be present when the
+    /// program runs. `OPEN INPUT` of a missing OPTIONAL file succeeds with
+    /// status `05` and behaves as an empty file; `OPEN I-O` / `OPEN EXTEND`
+    /// creates it, also with `05`. Without the word, a missing file is `35`.
+    ///
+    /// 🔴 A new field goes at the END — `FileControl` is bincode-serialized
+    /// field-by-field in declaration order.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 /// File organisation.
@@ -133,6 +146,13 @@ pub enum StorageMode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AlternateKey {
     pub field: String,
+    /// The `OF`/`IN` chain written after the key's data-name, innermost first.
+    ///
+    /// A file may declare several keys whose data-names are the same and which
+    /// are told apart only by the group each sits in, so the qualification is
+    /// part of the key's identity and not decoration.
+    #[serde(default)]
+    pub quals: Vec<String>,
     pub with_duplicates: bool,
 }
 

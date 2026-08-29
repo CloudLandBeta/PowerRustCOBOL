@@ -145,6 +145,10 @@ struct FileSpec {
     record_names: Vec<String>,
     /// RECORD KEY field name (INDEXED files).
     record_key: Option<String>,
+    /// The `OF`/`IN` chain qualifying that name, innermost first. Empty unless
+    /// the SELECT wrote one; several keys of one file may share a data-name and
+    /// be told apart only by this.
+    record_key_quals: Vec<String>,
     /// ALTERNATE RECORD KEY entries (INDEXED files).
     alternate_keys: Vec<AlternateKey>,
     /// STORAGE IS MEMORY | DISK (INDEXED files).
@@ -155,10 +159,90 @@ struct FileSpec {
     persist: bool,
     /// Byte layout of the primary FD record (subfield offsets/widths).
     layout: crate::files::RecordLayout,
+    /// Every 01 record description of the FD, in declaration order, with its own
+    /// layout. They all describe *one* record area — COBOL overlays them — so a
+    /// READ distributes the bytes through all of them, while a WRITE takes its
+    /// length from whichever one it names.
+    record_layouts: Vec<(String, crate::files::RecordLayout)>,
+    /// The FD's `RECORD` clause, when it has one. Its only run-time
+    /// consequence is whether records vary in length.
+    sizing: Option<cobolt_ast::data::RecordSizing>,
+    /// `SELECT OPTIONAL` — the file need not be present when the program runs.
+    optional: bool,
     /// `LINAGE` page layout, when the FD declares one. Its presence is what
     /// makes `LINAGE-COUNTER` and the `AT END-OF-PAGE` condition meaningful.
     linage: Option<cobolt_ast::data::Linage>,
 }
+
+impl FileSpec {
+    /// Whether this file's records vary in length, which is what decides how a
+    /// record is stored: a fixed-length file is a plain run of equal-sized
+    /// records, a variable-length one has to carry each record's length with it
+    /// (see [`VARYING_LEN_PREFIX`]).
+    ///
+    /// The FD's `RECORD` clause answers this outright when it is present. When
+    /// it is absent the record descriptions themselves do: COBOL-85 makes the
+    /// clause optional, and an FD whose 01s are of *different* sizes describes
+    /// a variable-length file whether or not it says so (SQ107A writes a
+    /// 120-byte and a 151-byte record under an FD that declares only `BLOCK
+    /// CONTAINS`).
+    fn is_varying(&self) -> bool {
+        if let Some(s) = &self.sizing {
+            return s.varying;
+        }
+        let mut lens = self.record_layouts.iter().map(|(_, l)| l.len);
+        match lens.next() {
+            Some(first) => lens.any(|l| l != first),
+            None => false,
+        }
+    }
+
+    /// The layout of the named 01 record description, falling back to the
+    /// primary one when the name is not an FD record (a `WRITE` of something
+    /// else, which the caller has already warned about).
+    fn layout_for(&self, record: &str) -> &crate::files::RecordLayout {
+        self.record_layouts
+            .iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(record))
+            .map(|(_, l)| l)
+            .unwrap_or(&self.layout)
+    }
+}
+
+/// Overwrite `len` bytes at `start` and leave the reader where it was.
+///
+/// A record-SEQUENTIAL file opened `I-O` is one handle used for both, so the
+/// rewrite has to put the read position back: the program's next `READ` must
+/// still deliver the record *after* the one just replaced. Seeking through the
+/// `BufReader` rather than the file underneath is what keeps the two in step —
+/// a seek drops the buffer, so the write below cannot be shadowed by bytes the
+/// reader had already buffered.
+fn rewrite_in_place(
+    r: &mut std::io::BufReader<std::fs::File>,
+    start: u64,
+    buf: &[u8],
+) -> std::io::Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+    let resume = r.stream_position()?;
+    r.seek(SeekFrom::Start(start))?;
+    r.get_mut().write_all(buf)?;
+    r.get_mut().flush()?;
+    r.seek(SeekFrom::Start(resume))?;
+    Ok(())
+}
+
+/// Bytes of length prefix in front of each record of a **variable-length**
+/// record-SEQUENTIAL file.
+///
+/// A fixed-length file needs no prefix — every record is the same size, so the
+/// reader knows where the next one starts. A variable-length file does: the
+/// length is part of the record's identity, and `READ` has to hand it back
+/// (through `DEPENDING ON`) exactly as `WRITE` was given it. The prefix is a
+/// big-endian `u32`, which keeps the record's own bytes at a readable offset in
+/// a hex dump and mirrors the record-descriptor word mainframe COBOL puts
+/// there. It is written and read only for files whose FD declares varying
+/// records, so no fixed-length file's bytes change.
+const VARYING_LEN_PREFIX: usize = 4;
 
 /// A currently-open file handle. The variant follows the file's ORGANIZATION,
 /// so the verbs dispatch by file type (RELATIVE will add a variant here).
@@ -488,10 +572,12 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
     let mut specs: HashMap<String, FileSpec> = HashMap::new();
     let mut record_to_file: HashMap<String, String> = HashMap::new();
 
-    // Collect each FD's 01-record names + the primary record's byte layout.
+    // Collect each FD's 01-record names + the byte layout of every one of them.
     let mut fd_records: HashMap<String, Vec<String>> = HashMap::new();
     let mut fd_layout: HashMap<String, crate::files::RecordLayout> = HashMap::new();
+    let mut fd_layouts: HashMap<String, Vec<(String, crate::files::RecordLayout)>> = HashMap::new();
     let mut fd_linage: HashMap<String, cobolt_ast::data::Linage> = HashMap::new();
+    let mut fd_sizing: HashMap<String, cobolt_ast::data::RecordSizing> = HashMap::new();
     if let Some(data) = &program.data {
         for section in &data.sections {
             if let DataSection::FileSection(fds) = section {
@@ -506,8 +592,22 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                     if let Some(first) = fd.records.first() {
                         fd_layout.insert(fkey.clone(), crate::files::compute_layout(first));
                     }
+                    fd_layouts.insert(
+                        fkey.clone(),
+                        fd.records
+                            .iter()
+                            .filter_map(|r| {
+                                r.name
+                                    .as_ref()
+                                    .map(|n| (n.to_ascii_uppercase(), crate::files::compute_layout(r)))
+                            })
+                            .collect(),
+                    );
                     if let Some(l) = fd.linage.clone() {
                         fd_linage.insert(fkey.clone(), l);
+                    }
+                    if let Some(rs) = fd.record_sizing.clone() {
+                        fd_sizing.insert(fkey.clone(), rs);
                     }
                     fd_records.insert(fkey, names);
                 }
@@ -532,11 +632,19 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                         status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
                         record_names,
                         record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
+                        record_key_quals: fc
+                            .record_key_quals
+                            .iter()
+                            .map(|s| s.to_ascii_uppercase())
+                            .collect(),
                         alternate_keys: fc.alternate_keys.clone(),
                         storage_mode: fc.storage_mode,
                         data_compressing: fc.data_compressing,
                         persist: fc.persist,
                         layout: fd_layout.get(&key).cloned().unwrap_or_default(),
+                        record_layouts: fd_layouts.get(&key).cloned().unwrap_or_default(),
+                        sizing: fd_sizing.get(&key).cloned(),
+                        optional: fc.optional,
                         linage: fd_linage.get(&key).cloned(),
                     },
                 );
@@ -577,7 +685,7 @@ fn make_indexed_engine(
     let primary = spec
         .record_key
         .as_deref()
-        .and_then(|k| layout.key_spec(k, false))
+        .and_then(|k| layout.key_spec_qualified(k, &spec.record_key_quals, false))
         .unwrap_or(KeySpec {
             offset: 0,
             len: reclen,
@@ -585,10 +693,13 @@ fn make_indexed_engine(
         });
     // Build alternate KeySpecs and their field names in lock-step (skipping any
     // alternate key field that isn't present in the FD record layout).
+    // The qualification is part of the key's identity: IX215A's IX-FD3 names
+    // all three of its keys `IX-FD3-KEY` and separates them by group alone, so
+    // resolving on the bare name gave the file three indexes over one field.
     let mut alts = Vec::new();
     let mut names: Vec<Option<String>> = vec![spec.record_key.clone()];
     for ak in &spec.alternate_keys {
-        if let Some(ks) = layout.key_spec(&ak.field, ak.with_duplicates) {
+        if let Some(ks) = layout.key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates) {
             alts.push(ks);
             names.push(Some(ak.field.clone()));
         }
@@ -866,6 +977,43 @@ pub struct Interpreter {
     /// `10`. Cleared by an `OPEN`, and by any read or `START` that establishes
     /// a record again.
     at_end_files: std::collections::HashSet<String>,
+    /// Logical file name → where the last successful sequential `READ` found
+    /// its record. A sequential `REWRITE` replaces *that* record, so it needs
+    /// the record's place in the file; and it is only legal right after a
+    /// successful `READ`, so the absence of an entry here is what makes a
+    /// `REWRITE` status **43**.
+    last_read: HashMap<String, LastRead>,
+    /// Logical file names whose **last input-output statement was a
+    /// successfully executed `READ`**.
+    ///
+    /// In the sequential access mode a `REWRITE` or `DELETE` acts on the record
+    /// the previous `READ` delivered, so the standard makes it an error — status
+    /// **43** — for anything else to have come in between. `last_read` answers
+    /// the same question for a record-SEQUENTIAL file, but only because it
+    /// stores a byte offset; an INDEXED file has no offset to remember, and
+    /// this set is what carries the fact for it.
+    ///
+    /// Inserted by a successful `READ`; removed by an unsuccessful one and by
+    /// every other I-O statement on the file, including `OPEN`, `START` and the
+    /// `REWRITE`/`DELETE` that consumes it.
+    read_established: std::collections::HashSet<String>,
+    /// Logical file name → the RECORD KEY of the last record successfully
+    /// written to it, while it is open in the sequential access mode.
+    ///
+    /// Writing an INDEXED file sequentially requires ascending key order; a key
+    /// that is not greater than the one before it is status **21**, and the
+    /// record is not written. Cleared by `OPEN` and `CLOSE`, so the order is
+    /// judged within one open of the file and not across two.
+    last_write_key: HashMap<String, Vec<u8>>,
+}
+
+/// Where a sequential `READ` found the record it delivered.
+#[derive(Debug, Clone, Copy)]
+struct LastRead {
+    /// Byte offset of the record's data — past the length prefix, if any.
+    start: u64,
+    /// The record's length in bytes.
+    len: usize,
 }
 
 /// A runtime-ready `USE AFTER STANDARD ERROR` handler: which files / open-modes
@@ -1051,6 +1199,9 @@ impl Interpreter {
             in_declarative: false,
             open_modes: HashMap::new(),
             at_end_files: std::collections::HashSet::new(),
+            last_read: HashMap::new(),
+            read_established: std::collections::HashSet::new(),
+            last_write_key: HashMap::new(),
         }
     }
 
@@ -2736,7 +2887,9 @@ impl Interpreter {
                 }
                 Ok(())
             }
-            Stmt::Close { files, locked, .. } => self.exec_close(files, locked),
+            Stmt::Close {
+                files, locked, reel, ..
+            } => self.exec_close(files, locked, reel),
             Stmt::Write {
                 record,
                 from,
@@ -5751,14 +5904,20 @@ impl Interpreter {
             }
             // Remember the open-mode for mode-qualified USE declaratives.
             self.open_modes.insert(file.clone(), mode);
-            // A fresh OPEN positions before the first record again.
+            // A fresh OPEN positions before the first record again, and leaves
+            // no record established for a REWRITE or DELETE to act on.
             self.at_end_files.remove(&file);
+            self.read_established.remove(&file);
+            self.last_write_key.remove(&file);
             let Some(spec) = self.file_specs.get(&file).cloned() else {
                 tracing::warn!("OPEN: unknown file '{}'", raw);
                 continue;
             };
             let path = self.resolve_assign_path(&spec.assign);
             let org = spec.organization;
+            // Read before opening: OUTPUT creates the file, and `SELECT
+            // OPTIONAL` needs to know whether it was there beforehand.
+            let existed = std::path::Path::new(&path).exists();
 
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
@@ -5779,6 +5938,23 @@ impl Interpreter {
             }
 
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
+            // Only `OUTPUT` creates a file unconditionally. `INPUT`, `I-O` and
+            // `EXTEND` all need the file to be there, and its absence is status
+            // **35** — unless `SELECT OPTIONAL` said the program can run
+            // without it. `I-O` and `EXTEND` were opened with `create(true)`
+            // and so reported success on a file that did not exist (SQ130A,
+            // SQ225A).
+            if !existed
+                && !spec.optional
+                && matches!(
+                    mode,
+                    OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                )
+            {
+                self.set_file_status(&file, "35");
+                self.fire_declarative(&file, "35", false)?;
+                continue;
+            }
             let result: std::io::Result<OpenFile> = match mode {
                 OpenMode::Output => std::fs::File::create(&path).map(|f| OpenFile::Writer {
                     w: BufWriter::new(f),
@@ -5790,6 +5966,19 @@ impl Interpreter {
                     .open(&path)
                     .map(|f| OpenFile::Writer {
                         w: BufWriter::new(f),
+                        org,
+                    }),
+                // `SELECT OPTIONAL` lets INPUT open a file that is not there:
+                // it is created so the handle is real, and the first `READ`
+                // then finds it empty and raises `AT END`, which is exactly what
+                // the standard asks for.
+                OpenMode::Input if spec.optional => OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(&path)
+                    .map(|f| OpenFile::Reader {
+                        r: BufReader::new(f),
                         org,
                     }),
                 OpenMode::Input => std::fs::File::open(&path).map(|f| OpenFile::Reader {
@@ -5807,10 +5996,40 @@ impl Interpreter {
                     }),
             };
 
+            // A file that was not there and is `OPTIONAL` opens successfully,
+            // but the program is told so: status **05**, "the file was not
+            // present and was created". Without the word it is a plain 00 (or
+            // a 35 for INPUT, decided above).
+            let created_optional = spec.optional
+                && !existed
+                && matches!(
+                    mode,
+                    OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                );
+
             match result {
                 Ok(handle) => {
                     self.open_files.insert(file.clone(), handle);
-                    self.set_file_status(&file, "00");
+                    // COBOL-85 sets `LINAGE-COUNTER` to one when the file is
+                    // opened: the page is positioned at its first line. A
+                    // reopened file starts a fresh page, so this is a reset,
+                    // not a one-time initialisation (SQ201M closes the print
+                    // file and opens it again).
+                    //
+                    // The stored counter goes to **zero**, not one, because it
+                    // counts *lines written into the body* while
+                    // `LINAGE-COUNTER` names the *current line* — before the
+                    // first write those are 0 and 1. Seeding the stored counter
+                    // at one instead moves every record down a line, and the
+                    // eighth record of a `FOOTING AT 8` page then misses its own
+                    // end-of-page.
+                    if spec.linage.is_some() {
+                        self.linage_counters.insert(file.clone(), 0);
+                        self.env.set_i64("LINAGE-COUNTER", 1);
+                    }
+                    let code = if created_optional { "05" } else { "00" };
+                    self.set_file_status(&file, code);
+                    self.fire_declarative(&file, code, false)?;
                 }
                 Err(e) => {
                     tracing::warn!("OPEN '{}' ({}) failed: {}", raw, path, e);
@@ -5829,15 +6048,42 @@ impl Interpreter {
         Ok(())
     }
 
-    fn exec_close(&mut self, files: &[String], locked: &[String]) -> Result<(), RuntimeError> {
+    fn exec_close(
+        &mut self,
+        files: &[String],
+        locked: &[String],
+        reel: &[String],
+    ) -> Result<(), RuntimeError> {
         use std::io::Write as _;
         let locked: std::collections::HashSet<String> =
             locked.iter().map(|f| f.to_ascii_uppercase()).collect();
+        let reel: std::collections::HashSet<String> =
+            reel.iter().map(|f| f.to_ascii_uppercase()).collect();
         for raw in files {
             let file = raw.to_ascii_uppercase();
             if locked.contains(&file) {
                 self.locked_files.insert(file.clone());
             }
+            // `CLOSE f REEL` / `CLOSE f UNIT` ends a volume of a multi-volume
+            // tape, not the file. On disk there are no volumes, which the
+            // standard has a status for — `07`, successful but the file is not
+            // on a reel/unit medium — and the file stays **open**: SQ124A goes
+            // on writing to it, and SQ123A's plain `CLOSE` after it must
+            // succeed rather than report 42 on a file it thinks is already
+            // closed.
+            if reel.contains(&file) {
+                let code = if self.open_files.contains_key(&file) {
+                    "07"
+                } else {
+                    "42"
+                };
+                self.set_file_status(&file, code);
+                self.fire_declarative(&file, code, false)?;
+                continue;
+            }
+            // A closed file has no established record; the next OPEN starts over.
+            self.read_established.remove(&file);
+            self.last_write_key.remove(&file);
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
                     OpenFile::Writer { w, .. } => {
@@ -6066,7 +6312,7 @@ impl Interpreter {
                 None => break,
             }
         }
-        let _ = self.exec_close(&[file.to_string()], &[]);
+        let _ = self.exec_close(&[file.to_string()], &[], &[]);
         out
     }
 
@@ -6092,7 +6338,7 @@ impl Interpreter {
                 };
             }
         }
-        self.exec_close(&[file.to_string()], &[])
+        self.exec_close(&[file.to_string()], &[], &[])
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -6118,9 +6364,25 @@ impl Interpreter {
             return Ok(());
         };
         // Materialize the record buffer from its subfields (works for group and
-        // elementary records alike).
-        let buf = match self.file_specs.get(&file) {
-            Some(spec) => spec.layout.materialize(&self.env),
+        // elementary records alike). A WRITE names one of the FD's 01 records,
+        // and on a variable-length file that name is what sizes the record —
+        // unless `DEPENDING ON` overrides it with a length the program set.
+        let varying = self.file_specs.get(&file).is_some_and(|s| s.is_varying());
+        let write_len = self.varying_write_len(&file, &rec_name);
+        let buf = match self.file_specs.get(&file).cloned() {
+            Some(spec) => {
+                let len = write_len.unwrap_or(spec.layout_for(&rec_name).len);
+                let mut b = vec![b' '; len];
+                // Every 01 of the FD describes the same record area; the
+                // written one goes on last so its own bytes win.
+                for (name, _) in &spec.record_layouts {
+                    if !name.eq_ignore_ascii_case(&rec_name) {
+                        self.overlay_record_area(&spec, name, &mut b);
+                    }
+                }
+                self.overlay_record_area(&spec, &rec_name, &mut b);
+                b
+            }
             None => self
                 .env
                 .get_string(&rec_name)
@@ -6128,7 +6390,29 @@ impl Interpreter {
                 .into_bytes(),
         };
 
+        // A length outside the FD's declared `FROM … TO` range is a boundary
+        // violation: the record does not fit the file as described, so nothing
+        // is written.
+        let out_of_range = varying && !self.varying_len_in_range(&file, buf.len());
+        // Writing an INDEXED file in the sequential access mode requires
+        // ascending RECORD KEY order. The key this WRITE carries is compared
+        // against the one before it, and a key that is not greater is status 21
+        // with nothing written (IX109A writes 1…50 and then 49, expecting 21).
+        // Under RANDOM or DYNAMIC access any order is allowed and a clash with
+        // an existing record is the engine's 22 instead.
+        let writes_in_key_order = self.file_specs.get(&file).is_some_and(|s| {
+            s.organization == FileOrganization::Indexed && s.access == AccessMode::Sequential
+        });
+        let seq_key = writes_in_key_order
+            .then(|| self.record_key_of(&file, &buf))
+            .flatten();
+        let out_of_sequence = match (&seq_key, self.last_write_key.get(&file)) {
+            (Some(now), Some(prev)) => now.as_slice() <= prev.as_slice(),
+            _ => false,
+        };
         let code = match self.open_files.get_mut(&file) {
+            _ if out_of_range => "44",
+            _ if out_of_sequence => crate::indexed::status::SEQUENCE_ERROR,
             // ── INDEXED ────────────────────────────────────────────────────
             Some(OpenFile::Indexed(engine)) => engine.write(&buf),
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
@@ -6138,6 +6422,11 @@ impl Interpreter {
                         let s = String::from_utf8_lossy(&buf);
                         writeln!(w, "{}", s.trim_end())
                     }
+                    // A variable-length record carries its own length, so the
+                    // reader can find where it ends.
+                    _ if varying => w
+                        .write_all(&(buf.len() as u32).to_be_bytes())
+                        .and_then(|()| w.write_all(&buf)),
                     _ => w.write_all(&buf),
                 };
                 match r {
@@ -6153,11 +6442,144 @@ impl Interpreter {
                 "48"
             }
         };
+        // A WRITE is an I-O statement like any other: it displaces whatever
+        // record a previous READ had established.
+        self.read_established.remove(&file);
+        // Only a record that actually went in moves the sequence forward; a
+        // rejected one leaves the previous key standing, so the next WRITE is
+        // judged against the last one written rather than the last attempted.
+        if code == "00" || code == "02" {
+            if let Some(k) = seq_key {
+                self.last_write_key.insert(file.clone(), k);
+            }
+        }
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
         self.advance_linage(&file, advancing, at_eop, not_at_eop)?;
         Ok(())
+    }
+
+    /// The bare data-name and `OF`/`IN` chain an expression names, without
+    /// resolving either through the environment.
+    ///
+    /// `expr_to_name` answers with a *storage key*, which is what a read or a
+    /// write needs. Choosing a file's key of reference is a different question:
+    /// the SELECT declared its keys as data-names plus qualifiers, and matching
+    /// against that declaration means comparing the same two things. IX215A
+    /// names all three keys of one file `IX-FD3-KEY`, so the qualifier is the
+    /// only thing that says which index a `READ … KEY IS` means.
+    fn expr_key_parts(&self, expr: &Expr) -> (String, Vec<String>) {
+        match expr {
+            Expr::Identifier(name, _) => (name.to_ascii_uppercase(), Vec::new()),
+            Expr::Qualified { name, of, .. } => (
+                name.to_ascii_uppercase(),
+                collect_quals(of)
+                    .iter()
+                    .map(|q| q.to_ascii_uppercase())
+                    .collect(),
+            ),
+            Expr::Subscript { base, .. } | Expr::RefMod { base, .. } => self.expr_key_parts(base),
+            _ => (String::new(), Vec::new()),
+        }
+    }
+
+    /// Which of a file's keys an expression names: 0 for the RECORD KEY, `n+1`
+    /// for the nth ALTERNATE RECORD KEY, and 0 when nothing matches.
+    ///
+    /// A key matches when the data-names are the same **and** the qualifiers
+    /// the statement wrote are consistent with the ones the SELECT wrote —
+    /// either is allowed to be the shorter chain, because both are subsequences
+    /// of the field's real ancestry.
+    fn key_of_reference(&self, spec: &FileSpec, name: &str, quals: &[String]) -> usize {
+        fn agrees(a: &[String], b: &[String]) -> bool {
+            let (short, long) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+            let mut it = long.iter();
+            short.iter().all(|s| it.any(|l| l == s))
+        }
+        if spec.record_key.as_deref() == Some(name) && agrees(quals, &spec.record_key_quals) {
+            return 0;
+        }
+        spec.alternate_keys
+            .iter()
+            .position(|ak| ak.field.eq_ignore_ascii_case(name) && agrees(quals, &ak.quals))
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    }
+
+    /// The RECORD KEY bytes of a record image about to be written.
+    ///
+    /// Taken from the image rather than from the environment, so it is the key
+    /// of the record as it will be stored — the same bytes the engine will
+    /// index it under. `None` when the file declares no RECORD KEY, or the key
+    /// field is not in the record layout, or the image is too short to hold it.
+    fn record_key_of(&self, file: &str, buf: &[u8]) -> Option<Vec<u8>> {
+        let spec = self.file_specs.get(file)?;
+        let ks = spec.layout.key_spec_qualified(
+            spec.record_key.as_deref()?,
+            &spec.record_key_quals,
+            false,
+        )?;
+        buf.get(ks.offset..ks.offset + ks.len).map(<[u8]>::to_vec)
+    }
+
+    /// Lay one 01 record description's current bytes over the record area.
+    ///
+    /// The item's own stored form comes first, because that is the only view
+    /// that includes `FILLER`: a `RecordLayout` knows the *named* fields, and a
+    /// record can be nothing but FILLER — `01 SQ-FS3R1-F-G-120. 02 FILLER PIC
+    /// X(120).` has no named field at all, so materializing it from the layout
+    /// wrote 120 spaces and every one of SQ127A's 649 records went out blank.
+    /// The layout is the fallback for a record the environment does not hold as
+    /// one item.
+    fn overlay_record_area(&self, spec: &FileSpec, record: &str, buf: &mut [u8]) {
+        match self.env.display_bytes(record) {
+            Some(bytes) => {
+                let n = bytes.len().min(buf.len());
+                buf[..n].copy_from_slice(&bytes[..n]);
+            }
+            None => spec.layout_for(record).materialize_into(&self.env, buf),
+        }
+    }
+
+    /// How many bytes this `WRITE` should put in the record, when the file's
+    /// records vary in length. `None` leaves the record at its declared width,
+    /// which is the answer for every fixed-length file.
+    ///
+    /// `RECORD … DEPENDING ON item` makes the data item the length: the program
+    /// sets it before the `WRITE`, and that is the number written. Without
+    /// `DEPENDING ON`, the record description the `WRITE` names gives the
+    /// length, which is why an FD with a 120-byte and a 151-byte 01 writes two
+    /// different sizes.
+    ///
+    /// The value is returned **as the program set it**, not clamped to the
+    /// declared range. Clamping looks protective and is not: it silently turns
+    /// a length the FD forbids into a legal one, and a program that asks for an
+    /// out-of-range length is entitled to be told (SQ212A rewrites with 15 on a
+    /// `FROM 18` file and expects `44`). [`Self::varying_len_in_range`] is the
+    /// check; the caller decides what to do about it.
+    fn varying_write_len(&mut self, file: &str, record: &str) -> Option<usize> {
+        let spec = self.file_specs.get(file)?;
+        let sizing = spec.sizing.clone()?;
+        if !sizing.varying {
+            return None;
+        }
+        let declared = spec.layout_for(record).len;
+        let Some(item) = &sizing.depending_on else {
+            return Some(declared);
+        };
+        Some(self.env.get_i64(item).unwrap_or(declared as i64).max(0) as usize)
+    }
+
+    /// Whether `len` is inside the FD's declared `FROM … TO` range. A file with
+    /// no bounds (`RECORD VARYING.`) accepts any length.
+    fn varying_len_in_range(&self, file: &str, len: usize) -> bool {
+        let Some(sizing) = self.file_specs.get(file).and_then(|s| s.sizing.as_ref()) else {
+            return true;
+        };
+        let lo = sizing.min.unwrap_or(0) as usize;
+        let hi = sizing.max.unwrap_or(u32::MAX) as usize;
+        len >= lo && len <= hi
     }
 
     /// Advance `LINAGE-COUNTER` for a LINAGE file and run the end-of-page
@@ -6187,6 +6609,12 @@ impl Interpreter {
             return Ok(());
         };
 
+        // The page geometry, with any data-name resolved now: the clause may
+        // name an item rather than state a number, and the program is free to
+        // change it between writes.
+        let body = self.linage_value(linage.lines, linage.lines_name.as_deref());
+        let footing = self.linage_value(linage.footing, linage.footing_name.as_deref());
+
         // How far this write moved down the page. `ADVANCING PAGE` is a new
         // page rather than a line count.
         let (lines, new_page) = match advancing {
@@ -6202,7 +6630,7 @@ impl Interpreter {
             *counter = 1;
         } else {
             *counter += lines;
-            if *counter > linage.lines {
+            if *counter > body {
                 // The body is full: this record begins the next page.
                 *counter = lines.max(1);
             }
@@ -6213,7 +6641,7 @@ impl Interpreter {
         // name refers to the file just written.
         self.env.set_i64("LINAGE-COUNTER", now as i64);
 
-        if now >= linage.footing {
+        if now >= footing {
             if !at_eop.is_empty() {
                 self.exec_stmts(at_eop)?;
             }
@@ -6221,6 +6649,20 @@ impl Interpreter {
             self.exec_stmts(not_at_eop)?;
         }
         Ok(())
+    }
+
+    /// One `LINAGE` value: the data item's current value when the clause named
+    /// one, otherwise the integer it stated.
+    ///
+    /// A named item that is missing or zero falls back to the literal, so a
+    /// page can never measure zero lines — that would make every write overflow
+    /// and the end-of-page condition meaningless.
+    fn linage_value(&self, literal: u32, name: Option<&str>) -> u32 {
+        let from_item = name
+            .and_then(|n| self.env.get_i64(n))
+            .filter(|n| *n > 0)
+            .map(|n| n as u32);
+        from_item.unwrap_or(literal).max(1)
     }
 
     /// The line count of an `ADVANCING` clause, or `None` for `ADVANCING PAGE`.
@@ -6277,22 +6719,22 @@ impl Interpreter {
         } else {
             ReadDir::Next
         };
-        let key_field = key
-            .map(|e| self.expr_to_name(e))
-            .or_else(|| spec.record_key.clone());
-        let key_bytes = key_field
-            .as_ref()
-            .and_then(|kf| spec.layout.field_value(&self.env, kf));
-        let kor = match &key_field {
-            Some(kf) if spec.record_key.as_deref() == Some(kf.as_str()) => 0,
-            Some(kf) => spec
-                .alternate_keys
-                .iter()
-                .position(|ak| ak.field.eq_ignore_ascii_case(kf))
-                .map(|i| i + 1)
-                .unwrap_or(0),
-            None => 0,
+        // `READ … KEY IS` names a key by data-name and, where the file needs
+        // it, by qualifier; an unqualified READ uses the RECORD KEY.
+        let (key_name, key_quals) = match key {
+            Some(e) => self.expr_key_parts(e),
+            None => (
+                spec.record_key.clone().unwrap_or_default(),
+                spec.record_key_quals.clone(),
+            ),
         };
+        let key_bytes = (!key_name.is_empty())
+            .then(|| {
+                spec.layout
+                    .field_value_qualified(&self.env, &key_name, &key_quals)
+            })
+            .flatten();
+        let kor = self.key_of_reference(&spec, &key_name, &key_quals);
 
         // A sequential READ once `AT END` has been reached is 46, not a second
         // 10: the AT END left no valid next record, and reading on is a
@@ -6307,6 +6749,9 @@ impl Interpreter {
         }
 
         // Fetch one record + a status code, dispatched by organization.
+        // A record-SEQUENTIAL read also records where it found the record, so a
+        // following `REWRITE` knows what it is replacing.
+        let mut read_at: Option<LastRead> = None;
         let (buf, code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 if random {
@@ -6337,14 +6782,36 @@ impl Interpreter {
                         }
                     }
                 }
-                // Record SEQUENTIAL: fixed-length records, no terminator — read
-                // exactly one record's worth of bytes per READ.
+                // Record SEQUENTIAL: no terminator. A fixed-length file gives
+                // one record's worth of bytes per READ; a variable-length one
+                // reads its length prefix first and then that many bytes.
                 _ => {
-                    use std::io::Read as _;
-                    let rlen = spec.layout.len.max(1);
-                    let mut bytes = vec![0u8; rlen];
-                    match r.read_exact(&mut bytes) {
-                        Ok(()) => (Some(bytes), status::OK),
+                    use std::io::{Read as _, Seek as _};
+                    // Where this record starts, so a `REWRITE` can replace it.
+                    let at = r.stream_position().unwrap_or(0);
+                    let mut read_exactly = |n: usize| -> Result<Vec<u8>, std::io::Error> {
+                        let mut bytes = vec![0u8; n];
+                        r.read_exact(&mut bytes)?;
+                        Ok(bytes)
+                    };
+                    let varying = spec.is_varying();
+                    let got = if varying {
+                        read_exactly(VARYING_LEN_PREFIX).and_then(|p| {
+                            let n = u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as usize;
+                            read_exactly(n)
+                        })
+                    } else {
+                        read_exactly(spec.layout.len.max(1))
+                    };
+                    match got {
+                        Ok(bytes) => {
+                            let start = at + if varying { VARYING_LEN_PREFIX as u64 } else { 0 };
+                            read_at = Some(LastRead {
+                                start,
+                                len: bytes.len(),
+                            });
+                            (Some(bytes), status::OK)
+                        }
                         Err(ref e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                             (None, status::EOF)
                         }
@@ -6371,6 +6838,23 @@ impl Interpreter {
         } else if code == status::OK {
             self.at_end_files.remove(&file);
         }
+        // Only a *successful* read establishes a record to REWRITE; anything
+        // else — including `AT END` — leaves the file with none, which is what
+        // makes a following `REWRITE` status 43 (SQ133A).
+        match read_at {
+            Some(at) if code == status::OK => {
+                self.last_read.insert(file.clone(), at);
+            }
+            _ => {
+                self.last_read.remove(&file);
+            }
+        }
+        // The same fact, for a file with no byte offset to remember it by.
+        if code == status::OK {
+            self.read_established.insert(file.clone());
+        } else {
+            self.read_established.remove(&file);
+        }
 
         self.set_file_status(&file, code);
         // Pick the success / failure handler. Random reads branch on INVALID KEY,
@@ -6389,12 +6873,51 @@ impl Interpreter {
         };
         if code == status::OK {
             if let Some(b) = &buf {
-                spec.layout.distribute(&mut self.env, b);
+                // Every 01 of the FD describes the same record area, so each
+                // gets its own view of the bytes just read — that is how an FD
+                // with a short and a long record description delivers the long
+                // one's extra fields. `distribute` ignores fields past the end
+                // of the buffer, so the short record's view of a long record
+                // (and vice versa) is simply the part that is there.
+                if spec.record_layouts.is_empty() {
+                    spec.layout.distribute(&mut self.env, b);
+                } else {
+                    for (name, layout) in &spec.record_layouts {
+                        // The item's own storage takes the whole image first,
+                        // which is what carries the bytes to the record's
+                        // `FILLER` positions — a `RecordLayout` only knows the
+                        // named fields, and SQ127A's record is one 120-byte
+                        // FILLER. The layout then re-imposes those named
+                        // fields, whose PICTUREs interpret their own slice.
+                        self.store_bytes(name, b);
+                        layout.distribute(&mut self.env, b);
+                    }
+                }
+                // `RECORD … DEPENDING ON item` reads back as well as writes:
+                // after a READ the item holds the length of the record read.
+                if let Some(item) = spec
+                    .sizing
+                    .as_ref()
+                    .filter(|s| s.varying)
+                    .and_then(|s| s.depending_on.clone())
+                {
+                    self.env.set_i64(&item, b.len() as i64);
+                }
                 if let Some(tgt) = into {
-                    // READ … INTO: also deliver the record image to the target.
-                    let s = String::from_utf8_lossy(b).into_owned();
-                    let tname = self.expr_to_name(tgt);
-                    self.env.set_str(&tname, &s);
+                    // `READ … INTO x` is the READ followed by a group `MOVE` of
+                    // the record to `x`, so it obeys those rules: the bytes are
+                    // distributed across the receiver's subordinate items and
+                    // cut at the receiver's own width. `set_str` did neither —
+                    // it wrote the whole 141-byte record into the slot of an
+                    // 87-character group, which nothing reads back, so the
+                    // receiver's children kept their old values (SQ108A,
+                    // SQ112A, SQ114A, SQ127A). Bytes, not a lossy string: a
+                    // record may hold a byte that is not a character. The
+                    // receiver may also be subscripted (`READ f INTO T (1)`),
+                    // which `expr_to_name` drops — `resolve_lvalue` keeps it.
+                    let b = b.clone();
+                    let tname = self.resolve_lvalue(tgt);
+                    self.store_bytes(&tname, &b);
                 }
             }
             let _ = rec_name;
@@ -6430,21 +6953,81 @@ impl Interpreter {
         let Some(spec) = self.file_specs.get(&file).cloned() else {
             return Ok(());
         };
-        let buf = spec.layout.materialize(&self.env);
         let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
+        let indexed = spec.organization == FileOrganization::Indexed;
+        // An INDEXED rewrite is addressed by key and replaces the whole record;
+        // a sequential one replaces the record the last `READ` delivered and
+        // must be the same length as it, so it needs the same record-area image
+        // a `WRITE` builds.
+        // On a variable-length file `DEPENDING ON` sizes a REWRITE exactly as it
+        // sizes a WRITE — which is how a program asks to replace a record with
+        // one of a different length, and so how it earns status 44 (SQ228A sets
+        // the item to 130 and rewrites the 120-byte record description).
+        let rewrite_len = self.varying_write_len(&file, &rec_name);
+        let buf = if indexed {
+            spec.layout.materialize(&self.env)
+        } else {
+            let mut b = vec![b' '; rewrite_len.unwrap_or(spec.layout_for(&rec_name).len)];
+            for (name, _) in &spec.record_layouts {
+                if !name.eq_ignore_ascii_case(&rec_name) {
+                    self.overlay_record_area(&spec, name, &mut b);
+                }
+            }
+            self.overlay_record_area(&spec, &rec_name, &mut b);
+            b
+        };
+        // A sequential REWRITE needs the file open I-O and a record established
+        // by the immediately preceding READ.
+        let io_mode = self.open_modes.get(&file).copied() == Some(OpenMode::InputOutput);
+        let last = self.last_read.get(&file).copied();
         let code = match self.open_files.get_mut(&file) {
+            // In the sequential access mode a REWRITE replaces the record the
+            // previous READ delivered, so the standard requires one: with no
+            // successfully executed READ immediately before it, the statement
+            // has no record to replace and the status is 43 (IX120A rewrites
+            // with its READs commented out and expects its USE declarative to
+            // be entered on exactly that status).
+            Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
             }
+            // Record SEQUENTIAL, open I-O: replace the record the last READ
+            // delivered, in place.
+            Some(OpenFile::Reader { r, org }) if *org != FileOrganization::LineSequential => {
+                if !io_mode {
+                    "49" // REWRITE on a file not open I-O
+                } else {
+                    match last {
+                        // No successful READ since the file was positioned
+                        // here — there is no record to replace (SQ133A).
+                        None => "43",
+                        // A sequential REWRITE may not change the record's
+                        // length: the record after it would have to move
+                        // (SQ134A rewrites a 120-byte record over a 138-byte
+                        // one and expects 44).
+                        Some(at) if at.len != buf.len() => "44",
+                        Some(at) => match rewrite_in_place(r, at.start, &buf) {
+                            Ok(()) => "00",
+                            Err(e) => {
+                                tracing::warn!("REWRITE failed: {e}");
+                                "30"
+                            }
+                        },
+                    }
+                }
+            }
             Some(_) => {
-                tracing::warn!(
-                    "REWRITE on a non-indexed file '{}' is not yet supported",
-                    file
-                );
-                "30"
+                tracing::warn!("REWRITE on '{}', which is not open for I-O", file);
+                "49"
             }
             None => crate::indexed::status::NOT_OPEN_IO,
         };
+        // The record is consumed either way: a second REWRITE with no READ
+        // between them is 43.
+        if !indexed {
+            self.last_read.remove(&file);
+        }
+        self.read_established.remove(&file);
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
@@ -6466,11 +7049,15 @@ impl Interpreter {
         let random = spec.access != AccessMode::Sequential; // RANDOM or DYNAMIC address by key
                                                             // RANDOM DELETE addresses the record by the current RECORD KEY value;
                                                             // sequential/dynamic DELETE removes the current (last read) record.
-        let key_bytes = spec
-            .record_key
-            .as_deref()
-            .and_then(|k| spec.layout.field_value(&self.env, k));
+        let key_bytes = spec.record_key.as_deref().and_then(|k| {
+            spec.layout
+                .field_value_qualified(&self.env, k, &spec.record_key_quals)
+        });
         let code = match self.open_files.get_mut(&file) {
+            // Sequential DELETE removes the record the previous READ delivered,
+            // and so requires one — the same rule, and the same status 43, that
+            // governs a sequential REWRITE (IX119A).
+            Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.delete(if random { key_bytes.as_deref() } else { None })
             }
@@ -6480,6 +7067,9 @@ impl Interpreter {
             }
             None => status::NOT_OPEN_IO,
         };
+        // The record is consumed: a second DELETE with no READ between them
+        // is 43.
+        self.read_established.remove(&file);
         self.set_file_status(&file, code);
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;
         self.fire_declarative(&file, code, !invalid_key.is_empty())?;
@@ -6499,23 +7089,21 @@ impl Interpreter {
         let Some(spec) = self.file_specs.get(&file).cloned() else {
             return Ok(());
         };
-        let (op, key_field) = match key {
-            Some((op, e)) => (*op, self.expr_to_name(e)),
+        let (op, key_name, key_quals) = match key {
+            Some((op, e)) => {
+                let (n, q) = self.expr_key_parts(e);
+                (*op, n, q)
+            }
             None => (
                 cobolt_ast::expr::CmpOp::Eq,
                 spec.record_key.clone().unwrap_or_default(),
+                spec.record_key_quals.clone(),
             ),
         };
-        let key_bytes = spec.layout.field_value(&self.env, &key_field);
-        let kor = if spec.record_key.as_deref() == Some(key_field.as_str()) {
-            0
-        } else {
-            spec.alternate_keys
-                .iter()
-                .position(|ak| ak.field.eq_ignore_ascii_case(&key_field))
-                .map(|i| i + 1)
-                .unwrap_or(0)
-        };
+        let key_bytes = spec
+            .layout
+            .field_value_qualified(&self.env, &key_name, &key_quals);
+        let kor = self.key_of_reference(&spec, &key_name, &key_quals);
         let code = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 engine.set_key_of_reference(kor);
@@ -6536,6 +7124,9 @@ impl Interpreter {
         if code == status::OK {
             self.at_end_files.remove(&file);
         }
+        // START only positions the file; it delivers no record. A REWRITE or
+        // DELETE after it still has nothing to act on.
+        self.read_established.remove(&file);
         self.set_file_status(&file, code);
         // START's "record not found" status (23) is the invalid-key condition.
         self.run_key_outcome(code, invalid_key, not_invalid_key)?;

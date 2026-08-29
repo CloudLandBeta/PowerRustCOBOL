@@ -1636,6 +1636,7 @@ fn parse_close(p: &mut Parser) -> Stmt {
     p.advance(); // CLOSE
     let mut files = Vec::new();
     let mut locked = Vec::new();
+    let mut reel = Vec::new();
     while p.at_identifier() {
         let (name, _) = p.eat_identifier().unwrap();
 
@@ -1647,12 +1648,13 @@ fn parse_close(p: &mut Parser) -> Stmt {
         // also stops `REEL` or `LOCK` being mistaken for the NEXT file in the
         // list, which is what the old loop did.
         //
-        // REEL / UNIT position a multi-volume tape. There is no tape here, so
-        // they parse and do nothing — that is the honest reading on disk, and
-        // it is what the supported-syntax avoid-list already records for the
-        // single-run-unit model.
+        // REEL / UNIT end a *volume* of a multi-volume tape, not the file: the
+        // file stays open and the next `WRITE` or `READ` carries on. There is no
+        // tape here, so the runtime answers `07` — "done, but this file is not
+        // on a reel/unit medium" — and leaves the file alone.
         if is_word(p.peek(), "REEL") || is_word(p.peek(), "UNIT") {
             p.advance();
+            reel.push(name.clone());
             if is_word(p.peek(), "FOR") && is_word(p.peek_at(1), "REMOVAL") {
                 p.advance();
                 p.advance();
@@ -1684,6 +1686,7 @@ fn parse_close(p: &mut Parser) -> Stmt {
         files,
         locked,
         span,
+        reel,
     }
 }
 

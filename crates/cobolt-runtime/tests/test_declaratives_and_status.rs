@@ -345,3 +345,198 @@ fn one_open_carries_several_mode_groups() {
         vec!["S1 00", "S2 00", "GOT HELLO", "W2 00"]
     );
 }
+
+/// `ON` is optional in a `USE` clause, so `USE AFTER STANDARD ERROR PROCEDURE
+/// OUTPUT.` selects the OUTPUT mode rather than becoming a catch-all. Skipping
+/// every word up to `ON` swallowed the mode when there was no `ON`, and the
+/// first declarative in the program then answered for every file (SQ105A,
+/// SQ137A, SQ138A).
+#[test]
+fn a_mode_qualified_use_without_on_still_selects_its_mode() {
+    let data = TempData::new("usemode");
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. USEMODE.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT F ASSIGN TO "{path}"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS FS.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  F.
+       01  REC PIC X(10).
+       WORKING-STORAGE SECTION.
+       01  FS PIC XX.
+       01  WHICH PIC XX VALUE "**".
+       PROCEDURE DIVISION.
+       DECLARATIVES.
+       OUT-ERRORS SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE OUTPUT.
+       OUT-PARA.
+           MOVE "O" TO WHICH.
+       IN-ERRORS SECTION.
+           USE AFTER ERROR PROCEDURE ON INPUT.
+       IN-PARA.
+           MOVE "I" TO WHICH.
+       END DECLARATIVES.
+       MAIN SECTION.
+       MAIN-PARA.
+           OPEN OUTPUT F.
+           MOVE "AAAAAAAAAA" TO REC.
+           WRITE REC.
+           CLOSE F.
+           OPEN INPUT F.
+           READ F.
+           READ F.
+           DISPLAY "WHICH=" WHICH " FS=" FS.
+           CLOSE F.
+           STOP RUN.
+"#,
+        path = data.path()
+    );
+    // The second READ hits end of file with no AT END phrase, so the INPUT
+    // declarative handles it — not the OUTPUT one declared first.
+    assert_eq!(run_capture(&src)[0], "WHICH=I  FS=10");
+}
+
+/// `CLOSE f REEL` / `CLOSE f UNIT` ends a tape volume, not the file: on disk it
+/// is status **07** and the file stays open, so the next `WRITE` and the plain
+/// `CLOSE` that follows both succeed (SQ123A, SQ124A).
+#[test]
+fn close_reel_reports_07_and_leaves_the_file_open() {
+    let data = TempData::new("reel");
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CLOSEREEL.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT F ASSIGN TO "{path}"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS FS.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  F.
+       01  REC PIC X(10).
+       WORKING-STORAGE SECTION.
+       01  FS PIC XX.
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN OUTPUT F.
+           MOVE "AAAAAAAAAA" TO REC.
+           WRITE REC.
+           CLOSE F REEL.
+           DISPLAY "REEL=" FS.
+           MOVE "BBBBBBBBBB" TO REC.
+           WRITE REC.
+           DISPLAY "WRITE=" FS.
+           CLOSE F UNIT.
+           DISPLAY "UNIT=" FS.
+           CLOSE F.
+           DISPLAY "CLOSE=" FS.
+           CLOSE F.
+           DISPLAY "AGAIN=" FS.
+           STOP RUN.
+"#,
+        path = data.path()
+    );
+    let out = run_capture(&src);
+    assert_eq!(out[0], "REEL=07");
+    assert_eq!(out[1], "WRITE=00");
+    assert_eq!(out[2], "UNIT=07");
+    assert_eq!(out[3], "CLOSE=00");
+    assert_eq!(out[4], "AGAIN=42");
+}
+
+/// Only `OPEN OUTPUT` creates a file. `I-O` and `EXTEND` were opened with
+/// "create if missing" and so reported success on a file that was not there —
+/// the standard's answer is **35**, as it already was for `INPUT` (SQ130A,
+/// SQ225A).
+#[test]
+fn opening_an_absent_file_for_io_or_extend_is_35() {
+    let data = TempData::new("absent");
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ABSENTOPEN.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT F ASSIGN TO "{path}"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS FS.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  F.
+       01  REC PIC X(10).
+       WORKING-STORAGE SECTION.
+       01  FS PIC XX.
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN I-O F.
+           DISPLAY "IO=" FS.
+           OPEN EXTEND F.
+           DISPLAY "EXTEND=" FS.
+           OPEN INPUT F.
+           DISPLAY "INPUT=" FS.
+           STOP RUN.
+"#,
+        path = data.path()
+    );
+    let out = run_capture(&src);
+    assert_eq!(out[0], "IO=35");
+    assert_eq!(out[1], "EXTEND=35");
+    assert_eq!(out[2], "INPUT=35");
+    assert!(
+        !std::path::Path::new(&data.path()).exists(),
+        "a refused OPEN must not create the file"
+    );
+}
+
+/// `SELECT OPTIONAL` is the exception: the file need not be there, a missing
+/// one is created, and the `OPEN` reports **05** so the program can tell. Read
+/// as INPUT it behaves as an empty file (SQ203A, SQ225A).
+#[test]
+fn an_optional_file_that_is_absent_opens_with_05() {
+    let data = TempData::new("optional");
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OPTOPEN.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT OPTIONAL F ASSIGN TO "{path}"
+               ORGANIZATION IS SEQUENTIAL
+               FILE STATUS IS FS.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  F.
+       01  REC PIC X(10).
+       WORKING-STORAGE SECTION.
+       01  FS PIC XX.
+       01  EOF-FLAG PIC 9 VALUE ZERO.
+       PROCEDURE DIVISION.
+       MAIN.
+           OPEN INPUT F.
+           DISPLAY "OPEN=" FS.
+           READ F AT END MOVE 1 TO EOF-FLAG END-READ.
+           DISPLAY "EOF=" EOF-FLAG.
+           CLOSE F.
+           OPEN INPUT F.
+           DISPLAY "AGAIN=" FS.
+           CLOSE F.
+           STOP RUN.
+"#,
+        path = data.path()
+    );
+    let out = run_capture(&src);
+    assert_eq!(out[0], "OPEN=05");
+    assert_eq!(out[1], "EOF=1");
+    // Second time the file is there, so it is an ordinary success.
+    assert_eq!(out[2], "AGAIN=00");
+}

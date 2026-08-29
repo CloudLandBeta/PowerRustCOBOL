@@ -1,5 +1,398 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.51] — 2026-08-29
+
+**Developer's Guide covers the indexed-file behaviour shipped in 1.62.49 and
+1.62.50** (GOLDEN RULE #3 — a developer-observable change updates the guide).
+Two new sections in *Indexed files — a first-class resource*:
+
+- **What `ACCESS MODE` changes about writing and updating.** The ordering rules
+  that `SEQUENTIAL` imposes and `RANDOM`/`DYNAMIC` do not: `WRITE` in ascending
+  `RECORD KEY` order or `21`; `REWRITE`/`DELETE` only straight after a
+  successful `READ` or `43`. With a worked example, and the three traps —
+  a rejected `WRITE` does not advance the sequence, an equal key is `21` and
+  not `22`, and `START` does not satisfy the `READ` requirement. Carries a
+  caveat that `43` is class 4, so an `INVALID KEY` phrase will not catch it.
+- **Telling same-named keys apart with `OF` / `IN`.** Declaring and using keys
+  that share a data-name and differ only by their group, including that
+  qualification is by containment rather than immediate parentage.
+
+English canonical only — GOLDEN RULE #8 stays suspended, so no translation file
+is touched.
+
+
+## [PowerRustCOBOL 1.62.50] — 2026-08-29
+
+**A file's record keys are told apart by their `OF`/`IN` qualifier.** NIST
+CCVS85 Indexed I/O assertions go 358 PASS / 420 FAIL → **361 PASS / 417 FAIL**;
+programs running clean stay at 19 of 42.
+
+COBOL lets a file declare several keys whose data-names are the same and which
+are separated only by the group each one sits in. IX215A's `IX-FD3` does
+exactly that — `RECORD KEY IS IX-FD3-KEY IN IX-FD3-RECKEY-AREA`, then two
+alternates also called `IX-FD3-KEY`, qualified into `IX-FD3-ALTKEY1-AREA` and
+`IX-FD3-ALTKEY2-AREA`. The parser dropped the qualifier and every lookup went
+by bare name, so all three keys resolved to the first field: the file carried
+three indexes over one set of bytes, and a read by an alternate looked for its
+value in the prime key's characters.
+
+The qualifier is now part of a key's identity end to end:
+
+- The parser keeps the `OF`/`IN` chain written after `RECORD KEY IS` and after
+  each `ALTERNATE RECORD KEY IS`.
+- A record's byte layout records each field's enclosing groups, so a field can
+  be found by name **and** ancestry. Matching is by containment, as the
+  standard requires — `B OF D` names the field even when it sits in `B` in `C`
+  in `D` — and an unqualified name still takes the first field of that name.
+- Reading and writing a field goes through its qualified storage key, so a
+  record holding the same name in several groups no longer routes all of them
+  to whichever one happened to be stored under the bare name.
+- `READ … KEY IS` and `START … KEY IS` pick the key of reference by data-name
+  and qualifier together, which is the only thing that distinguishes IX-FD3's
+  three keys.
+
+A key whose qualifier names no group in the layout still resolves by bare name,
+so nothing that worked before is lost.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
+## [PowerRustCOBOL 1.62.49] — 2026-08-29
+
+**Indexed files obey the sequential access mode's ordering rules** — NIST
+CCVS85 Indexed I/O (IX) goes from **16 to 19 of 42** on execution, assertions
+354 PASS / 424 FAIL → **358 PASS / 420 FAIL**. Three COBOL-85 rules that an
+INDEXED file declared `ACCESS MODE IS SEQUENTIAL` was not enforcing:
+
+- **`WRITE` requires ascending RECORD KEY order.** A key that is not greater
+  than the one before it is status **21** and the record is not written. A
+  rejected write does not move the sequence forward, so the next key is judged
+  against the last key actually written. Under `RANDOM` or `DYNAMIC` access any
+  order is still allowed, and a clash with an existing record remains **22**.
+- **`REWRITE` replaces the record the previous `READ` delivered**, so there has
+  to be one: with no successfully executed `READ` immediately before it, the
+  status is **43**. The `REWRITE` consumes the record, so a second one without
+  an intervening `READ` is 43 again.
+- **`DELETE` follows the same rule**, and is **43** on the same terms.
+
+`START` positions the file but delivers no record, so a `REWRITE` or `DELETE`
+after one is still 43 — as are the first such statement after `OPEN`, after a
+`WRITE`, and after an unsuccessful `READ`.
+
+This is what IX120A checks by rewriting with its `READ`s commented out and
+expecting its `USE AFTER EXCEPTION` declarative to be entered on status 43, and
+what IX109A checks by writing keys 1…50 and then 49. IX109A, IX119A and IX120A
+all now run clean.
+
+Five tests cover the rules directly, including that a rejected write leaves the
+file unchanged and that `DYNAMIC` access is unaffected.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+## [PowerRustCOBOL 1.62.48] — 2026-08-29
+
+**NIST CCVS85 Indexed I/O (IX) rises from 13 to 16 of 42 on execution** —
+assertions **341 PASS / 439 FAIL → 354 PASS / 424 FAIL** — with **no change to
+the runtime**. This release corrects the measurement, not the compiler.
+
+A few CCVS85 programs are the second half of a pair: they read a data file an
+earlier member wrote, and each says so in its own header comment. IX110A opens
+with *"THE ROUTINE USES THE FILE IX-FS3 WHICH HAS BEEN CREATED BY IX109"*, and
+a dozen IX members share the file `XXXXX024` that IX109A writes. The harness
+ran every program in a directory of its own, so each consumer opened a file
+that was not there and correctly reported the absence as a failure. **IX110A
+scores 2 FAIL / 2 PASS alone and 4 PASS / 0 FAIL with its producer run first,
+against an unchanged runtime.**
+
+Each such member now declares its producer, quoted from its own header, and the
+harness runs that producer — transitively — into the consumer's directory
+first. Ten members declare one: IX102A, IX110A, IX114A–IX120A and IX202A.
+
+**Blanket sharing would have been wrong, and measuring it settled that.**
+Giving a whole module one shared directory took IX to 15 but broke members that
+need a file to be *absent*: IX111A (*"THIS PROGRAM USES THE FILE IX-NOP WHICH
+DOES NOT EXIST"*, expecting status 35) and IX216A (`OPEN EXTEND` on an OPTIONAL
+file, expecting 05) both went red against leftovers. A validating installation
+scratches files between programs except where a member declares it inherits
+one, which is what the table encodes — so every other program keeps the clean
+directory it had.
+
+Two tests guard the table: that no producer chain cycles or fails to terminate,
+and that a self-contained member declares nothing — IX111A, IX112A, IX113A and
+IX216A among them, where a planted file is exactly what the test forbids.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing.
+
+## [PowerRustCOBOL 1.62.47] — 2026-08-29
+
+**NIST CCVS85 Sequential I/O (SQ) is complete — 85 of 85 on both axes**, with
+assertions at **624 PASS / 0 FAIL** (100 %), up from 623 PASS / 1 FAIL. Nucleus
+is unmoved at 95 of 95 on both axes, 4 614 assertions, none failing, and the
+whole-suite compile census is unchanged at 422 of 434.
+
+The last member, **SQ203A**, tests `SELECT OPTIONAL` with the file both present
+and absent. The present half reads `XXXXD001`, a data file the CCVS85
+*installation* supplies — no member of the suite writes it, so in a fresh
+directory that half could not run at all and the program correctly reported the
+absence as a failure.
+
+The test harness now plants the file, the same way it already supplies the
+operator decks, the external switch settings and the `XXXXX053` RERUN card.
+**The record is the suite's own, not the assertions'**: SQ203A's own
+`READ-TEST-GF-04` builds a file of exactly this shape for `SQ-FS3` a few
+paragraphs later, and every field is set the way that paragraph sets it against
+the program's `FILE-RECORD-INFO` skeleton. Only two differ, both forced by
+which file this is — `XFILE-NAME` names `SQ-FS1`, and `RECORDS-IN-FILE` says 1
+because the file holds one record.
+
+Three tests pin the record: that it is exactly one 120-byte ASCII record (a
+stray byte would land past everything SQ203A reads, passing over a malformed
+file), that each named field sits where the skeleton's PICTURE widths put it,
+and that no other member gets a planted file.
+
+*Runtime behaviour is unchanged — this release moves the measurement, not the
+compiler.*
+
+## [PowerRustCOBOL 1.62.46] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) reaches 84 of 85 on execution** — assertions
+595 PASS / 25 FAIL → **623 PASS / 1 FAIL** (99.8 %) — with every program now
+running to completion. Compile stays 85 of 85 for SQ and 422 of 434 for the
+whole suite; Nucleus stays at 95 of 95 on both axes, 4 614 assertions, none
+failing.
+
+The one member still short, **SQ203A**, needs `XXXXD001` — a data file the
+CCVS85 *installation* supplies. No member of the suite writes it, so the "file
+present" half of its `SELECT OPTIONAL` test cannot run here; the "file absent"
+half passes.
+
+### Fixed — a `LINAGE` clause may name data items, not just numbers
+
+```cobol
+       FD  PRINT-FILE
+           LINAGE LINAGE-CTR
+               FOOTING FOOT-CTR
+               TOP TOP-CTR
+               BOTTOM BOTTOM-CTR.
+```
+
+Every part of the clause may name an item instead of stating an integer, so a
+program can size its page at run time. Requiring integers made the whole clause
+fail to parse, and the file then had **no page at all**: `AT END-OF-PAGE` could
+never become true, so a report written with
+
+```cobol
+           WRITE PRINT-REC AFTER ADVANCING 1 LINE
+               AT END-OF-PAGE PERFORM PAGE-TRAILER
+           END-WRITE.
+```
+
+looping until end of page never stopped. NIST SQ208M and SQ210M each wrote
+gigabytes before the harness killed them; both now run to completion. The page
+is measured from the named items at each write, so changing one between writes
+changes the page.
+
+### Added — conformance flagging for the sequential-I/O elements
+
+`nist_conformance flag` reports the constructs COBOL-85 lists as **obsolete** or
+**above the high subset**. The sequential-I/O elements were not detected at all;
+all of them now are, with no spurious flag anywhere in the suite:
+
+* **Obsolete** — `RERUN`, `MULTIPLE FILE TAPE`, `LABEL RECORDS`, `VALUE OF`,
+  `DATA RECORDS`, `OPEN … REVERSED`.
+* **Above the high subset** — `SELECT OPTIONAL`, `RESERVE`, `PADDING
+  CHARACTER`, `RECORD DELIMITER`, `SAME AREA`, `MULTIPLE FILE TAPE`,
+  `BLOCK CONTAINS n TO m` (the fixed `BLOCK CONTAINS n` is *in* subset),
+  `RECORD VARYING`, `LINAGE`, `VALUE OF`, `CLOSE … FOR REMOVAL`,
+  `OPEN/CLOSE … WITH NO REWIND`, `CLOSE … WITH LOCK`, `OPEN … REVERSED`,
+  `OPEN EXTEND`, `READ … NEXT RECORD`, `WRITE … AT END-OF-PAGE`.
+
+None of this changes what compiles or runs: every construct listed still works
+exactly as before. Flagging only *reports* where the standard places it, and it
+stays an opt-in entry point rather than part of an ordinary build.
+
+SQ302M goes 0 → 4 of 4, SQ303M 0 → 2 of 2 and SQ401M 0 → 18 of 18; NC401M is
+unchanged at 40 of 40.
+
+## [PowerRustCOBOL 1.62.45] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) goes 67 → 79 of 85 on execution**, assertions
+560 PASS / 60 FAIL → **595 PASS / 25 FAIL** (90.3 % → 96.0 %). Compile is
+unchanged at 85 of 85 for SQ and 422 of 434 for the whole suite; Nucleus stays at
+95 of 95 on both axes with 4 614 assertions and none failing.
+
+Of the six SQ members still short, three (SQ302M, SQ303M, SQ401M) are **flagging**
+tests — they carry no assertions and score the compiler's OBSOLETE /
+NON-CONFORMING diagnostics, 24 of which are not yet emitted. Those 24 make up
+most of the remaining FAIL count.
+
+Five more pieces of COBOL-85 the file verbs owed the program.
+
+### Fixed — `ON` is optional in a `USE` declarative
+
+`USE AFTER STANDARD ERROR PROCEDURE OUTPUT.` was read as a **catch-all** — the
+parser skipped everything up to `ON`, and with no `ON` present the open-mode word
+went with it. A program declaring one handler for `OUTPUT` and another for
+`INPUT` therefore ran the OUTPUT handler on an input file:
+
+```cobol
+       DECLARATIVES.
+       OUTPUT-ERRORS SECTION.
+           USE AFTER STANDARD ERROR PROCEDURE OUTPUT.
+       ...
+       INPUT-ERRORS SECTION.
+           USE AFTER ERROR PROCEDURE ON INPUT.
+```
+
+Both spellings — with `ON` and without — now select by mode.
+
+### Fixed — `CLOSE … REEL` / `CLOSE … UNIT` does not close the file
+
+`REEL` and `UNIT` end a *volume* of a multi-volume tape, not the file. They were
+parsed and discarded, so the file was closed outright and the next `WRITE` or
+`CLOSE` failed on a file the program still believed was open. On disk there are
+no volumes, which the standard has a status for — **`07`**, successful but the
+file is not on a reel/unit medium — and the file stays open.
+
+### Fixed — only `OPEN OUTPUT` creates a file
+
+`OPEN I-O` and `OPEN EXTEND` were opened with "create if missing", so opening a
+file that was not there reported success. Both now report **`35`**, as `OPEN
+INPUT` already did.
+
+`SELECT OPTIONAL file-name` is the exception, and it is now honoured: the file
+need not be present, a missing one is created, and the `OPEN` reports **`05`** so
+the program knows. `OPEN INPUT` of a missing OPTIONAL file behaves as an empty
+file — the first `READ` raises `AT END`.
+
+### Fixed — `LINAGE-COUNTER` is one when the file is opened
+
+It was left at whatever the previous page had reached, so a program that closed
+and reopened its print file saw a stale line number. Opening the file positions
+it at line one.
+
+### Fixed — a record length outside the declared range is a boundary violation
+
+`RECORD … DEPENDING ON` values were clamped into the FD's `FROM … TO` range,
+which quietly turned a length the FD forbids into a legal one. The length is now
+used as the program set it, and one outside the range is **`44`** with nothing
+written — which is also what lets a `REWRITE` ask for a different length and be
+told no.
+
+## [PowerRustCOBOL 1.62.44] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) goes 44 → 67 of 85 on execution**, with
+assertions rising from 471 PASS / 162 FAIL to **560 PASS / 60 FAIL** (74.4 % →
+90.3 %). Compile stays at 85 of 85 for SQ and 422 of 434 for the whole suite.
+Nucleus is unchanged at 95 of 95 on both axes, 4 614 assertions with none
+failing (GOLDEN RULE #9: SQ is the module in flight, and NC's ceiling is
+re-measured after every change).
+
+Six corrections to how a record travels between a COBOL program and a
+sequential file, all of them missing COBOL-85 behaviour rather than new
+capability.
+
+### Fixed — variable-length records
+
+The FD's `RECORD` clause was skipped entirely, so every sequential file was a
+run of equal-sized records. All three spellings are now read and honoured:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD IS VARYING IN SIZE FROM 120 TO 151 CHARACTERS
+             DEPENDING ON RECORD-LENGTH.
+       01  SHORT-RECORD.
+           02  CUST-KEY   PIC X(120).
+       01  LONG-RECORD.
+           02  CUST-KEY-2 PIC X(120).
+           02  CUST-NOTES PIC X(31).
+```
+
+* `RECORD CONTAINS n CHARACTERS` — fixed length, unchanged behaviour.
+* `RECORD CONTAINS n TO m CHARACTERS` — variable; the record description the
+  `WRITE` names gives the length.
+* `RECORD [IS] VARYING [IN SIZE] [FROM n] [TO m] [DEPENDING ON item]` — the data
+  item *is* the length. Set it before a `WRITE` and it is the number of
+  characters written; after a `READ` it holds the length of the record read.
+
+An FD whose `01` records are of **different sizes** is variable-length whether
+or not it says so, which is what COBOL-85 requires and what SQ107A relies on.
+A variable-length file carries each record's length with the record; a
+fixed-length file's bytes are unchanged.
+
+### Fixed — an FD's record descriptions share one record area
+
+Each `01` under an FD describes the same storage. A `WRITE` now sends that whole
+area — where the named record has `FILLER`, what another record description put
+there shows through — and a `READ` delivers the bytes through every record
+description, so an FD with a short and a long record hands back the long one's
+extra fields.
+
+### Fixed — `FILLER` occupies its bytes in an FD record
+
+A `FILLER` was skipped along with its width, so every field after one sat at the
+wrong offset: `03 FILLER PIC X(120). 03 EXT-18 PIC X(18).` measured 18 bytes
+with `EXT-18` at offset zero. A record that is *nothing but* `FILLER` —
+`01 PRINT-LINE. 02 FILLER PIC X(120).` — was written out as 120 spaces however
+much the program had moved into it.
+
+### Fixed — `SIGN IS SEPARATE CHARACTER` widens the item in a record
+
+`PIC S9(5) SIGN IS LEADING SEPARATE CHARACTER` occupies six character positions,
+not five. The record layout counted five, so every field after it was one byte
+out of step with the record area.
+
+### Fixed — `READ … INTO` follows group-move rules
+
+`READ file INTO identifier` is the `READ` followed by a group `MOVE`, so the
+record is distributed across the receiver's subordinate items and cut at the
+receiver's own width. It was written into the group's own slot instead, which
+nothing reads back, leaving the receiver's children at their old values:
+
+```cobol
+       READ CUSTOMER-FILE INTO WS-SUMMARY-AREA
+           AT END SET END-OF-FILE TO TRUE
+       END-READ.
+```
+
+A subscripted receiver (`READ f INTO TABLE-ENTRY (1)`) now lands in the
+subscripted item rather than the first one, and the record is moved as bytes, so
+a record holding a byte that is not a character arrives intact.
+
+### Fixed — `REWRITE` on a record-sequential file
+
+`REWRITE` was implemented for indexed files only; on a sequential file it
+reported a permanent I/O error and changed nothing. It now replaces the record
+the last `READ` delivered, in place, and leaves the read position alone — so a
+read-modify-rewrite loop walks the file exactly once:
+
+```cobol
+           OPEN I-O LEDGER-FILE.
+           READ LEDGER-FILE AT END SET END-OF-FILE TO TRUE END-READ.
+           MOVE "SETTLED" TO LEDGER-STATUS.
+           REWRITE LEDGER-RECORD.
+```
+
+With the statuses the standard requires: **`49`** when the file is not open
+`I-O`, **`43`** when no successful `READ` established a record — after `AT END`,
+or on a second `REWRITE` with no `READ` between — and **`44`** when the new
+record is not the same length as the one read. On a `RECORD … DEPENDING ON`
+file the item's value *is* that length, so changing it and rewriting is how a
+program asks for a different length, and `44` is the answer.
+
+### Fixed — the NIST harness could not read a report containing raw bytes
+
+`nist_conformance run` read each program's print file as UTF-8 text. NC107A
+prints the figurative constants, so its report legitimately carries `HIGH-VALUE`
+(`0xFF`) and `LOW-VALUE` (`0x00`) bytes — the whole file was rejected and its 177
+passing assertions scored as "no report printed". Reports are now read as bytes
+and decoded lossily: a runtime that faithfully writes the byte it was told to
+write no longer looks like a failure.
+
 ## [PowerRustCOBOL 1.62.43] — 2026-08-28
 
 **NIST CCVS85 Sequential I/O (SQ) compiles completely — 85 of 85 — and goes

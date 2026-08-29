@@ -11,8 +11,8 @@
 //! items.
 
 use cobolt_ast::data::{
-    ConditionValue, DataDecl, FileDescription, Linage, OccursClause, PicClause, PicKind, ScreenItem,
-    Usage,
+    ConditionValue, DataDecl, FileDescription, Linage, OccursClause, PicClause, PicKind,
+    RecordSizing, ScreenItem, Usage,
 };
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{DataDivision, DataSection};
@@ -125,9 +125,10 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         let name = p.expect_identifier("file name");
         let mut is_global = false;
         let mut linage: Option<Linage> = None;
+        let mut record_sizing: Option<RecordSizing> = None;
         // Consume optional clauses until period. Most are recorded elsewhere or
-        // do not affect execution; LINAGE does, so it is read rather than
-        // skipped.
+        // do not affect execution; LINAGE and RECORD do, so they are read
+        // rather than skipped.
         while !p.at(&Token::Period) && !p.at(&Token::Eof) {
             if p.at(&Token::Global) {
                 is_global = true;
@@ -135,6 +136,14 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             if is_word(p.peek(), "LINAGE") {
                 linage = parse_linage_clause(p);
                 continue;
+            }
+            if p.at(&Token::Record) {
+                if let Some(rs) = parse_record_clause(p) {
+                    record_sizing = Some(rs);
+                    continue;
+                }
+                // Not a size clause after all (`RECORD IS STANDARD`, `DATA
+                // RECORD IS x`): fall through and skip the word.
             }
             p.advance();
         }
@@ -146,10 +155,96 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             is_global,
             records: build_tree(records),
             linage,
+            record_sizing,
             span,
         });
     }
     fds
+}
+
+/// Parse the FD `RECORD` size clause, positioned on `RECORD`.
+///
+/// Three shapes share the keyword, and only these are size clauses:
+///
+/// ```text
+/// RECORD CONTAINS n [TO m] CHARACTERS
+/// RECORD [IS] VARYING [IN SIZE] [FROM n] [TO m] [CHARACTERS] [DEPENDING ON item]
+/// RECORD VARYING.
+/// ```
+///
+/// `LABEL RECORD IS STANDARD` and `DATA RECORD IS x` also put `RECORD` in the
+/// FD, so the clause is claimed only when `CONTAINS` or `VARYING` follows —
+/// otherwise this returns `None` and the caller skips the word as before. That
+/// look-ahead is what keeps `DATA RECORD IS PRINT-REC` from being read as a
+/// size. The parser is left unmoved when `None` is returned.
+fn parse_record_clause(p: &mut Parser) -> Option<RecordSizing> {
+    let start = p.pos;
+    p.advance(); // RECORD
+    p.eat(&Token::Is);
+    p.eat(&Token::Are);
+
+    if p.eat(&Token::Contains) {
+        // `RECORD CONTAINS n [TO m] CHARACTERS`
+        let Some(first) = eat_required_integer(p) else {
+            p.pos = start;
+            return None;
+        };
+        let second = if p.eat(&Token::To) {
+            eat_required_integer(p)
+        } else {
+            None
+        };
+        p.eat(&Token::Characters);
+        return Some(match second {
+            Some(m) => RecordSizing {
+                min: Some(first),
+                max: Some(m),
+                varying: true,
+                depending_on: None,
+            },
+            None => RecordSizing {
+                min: Some(first),
+                max: Some(first),
+                varying: false,
+                depending_on: None,
+            },
+        });
+    }
+
+    if !p.eat(&Token::Varying) {
+        p.pos = start;
+        return None;
+    }
+
+    // `IN SIZE` is noise here; neither word carries a length. `SIZE` lexes as
+    // `Token::SizeError` — the lexer maps the bare word there because `ON SIZE
+    // ERROR` is where it usually appears, and the parser pairs the two.
+    p.eat(&Token::In);
+    p.eat(&Token::SizeError);
+    let min = if p.eat(&Token::From) {
+        eat_required_integer(p)
+    } else {
+        None
+    };
+    let max = if p.eat(&Token::To) {
+        eat_required_integer(p)
+    } else {
+        None
+    };
+    p.eat(&Token::Characters);
+    let depending_on = if p.eat(&Token::Depending) {
+        p.eat(&Token::On);
+        p.eat_identifier().map(|(n, _)| n.to_ascii_uppercase())
+    } else {
+        None
+    };
+
+    Some(RecordSizing {
+        min,
+        max,
+        varying: true,
+        depending_on,
+    })
 }
 
 /// Parse `LINAGE IS n LINES [WITH FOOTING AT f] [LINES AT TOP t]
@@ -167,23 +262,23 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
 fn parse_linage_clause(p: &mut Parser) -> Option<Linage> {
     p.advance(); // LINAGE
     p.eat(&Token::Is);
-    let lines = eat_required_integer(p)?;
+    let (lines, lines_name) = eat_linage_value(p)?;
     // `LINES` and `LINE` are lexer keywords; the rest of the clause's words are
     // not. Both spellings are noise here.
     if !p.eat(&Token::Lines) {
         p.eat(&Token::Line);
     }
 
-    let mut footing = None;
-    let mut top = 0u32;
-    let mut bottom = 0u32;
+    let mut footing: Option<(u32, Option<String>)> = None;
+    let mut top = (0u32, None);
+    let mut bottom = (0u32, None);
 
     loop {
         p.eat(&Token::With);
         if is_word(p.peek(), "FOOTING") {
             p.advance();
             if is_word(p.peek(), "AT") { p.advance(); }
-            footing = eat_required_integer(p);
+            footing = eat_linage_value(p);
             continue;
         }
         if p.at(&Token::Lines) || p.at(&Token::Line) {
@@ -192,35 +287,63 @@ fn parse_linage_clause(p: &mut Parser) -> Option<Linage> {
             if is_word(p.peek(), "AT") { p.advance(); }
             if is_word(p.peek(), "TOP") {
                 p.advance();
-                top = eat_required_integer(p).unwrap_or(0);
+                top = eat_linage_value(p).unwrap_or((0, None));
                 continue;
             }
             if is_word(p.peek(), "BOTTOM") {
                 p.advance();
-                bottom = eat_required_integer(p).unwrap_or(0);
+                bottom = eat_linage_value(p).unwrap_or((0, None));
                 continue;
             }
             continue;
         }
         if is_word(p.peek(), "TOP") {
             p.advance();
-            top = eat_required_integer(p).unwrap_or(0);
+            top = eat_linage_value(p).unwrap_or((0, None));
             continue;
         }
         if is_word(p.peek(), "BOTTOM") {
             p.advance();
-            bottom = eat_required_integer(p).unwrap_or(0);
+            bottom = eat_linage_value(p).unwrap_or((0, None));
             continue;
         }
         break;
     }
 
+    let (footing_lines, footing_name) = match footing {
+        Some(f) => f,
+        // No FOOTING: end of page is raised only when the body is full. With a
+        // data-name body size that has to stay a *name*, or the default would
+        // freeze at whatever number happened to be parsed.
+        None => (lines, lines_name.clone()),
+    };
     Some(Linage {
         lines,
-        footing: footing.unwrap_or(lines),
-        top,
-        bottom,
+        footing: footing_lines,
+        top: top.0,
+        bottom: bottom.0,
+        lines_name,
+        footing_name,
+        top_name: top.1,
+        bottom_name: bottom.1,
     })
+}
+
+/// One value of a `LINAGE` clause: an integer, or the data-name that holds it.
+///
+/// COBOL-85 lets every part of the clause name an item instead of stating a
+/// number, so a program can size its page at run time. Requiring an integer
+/// made `LINAGE LINAGE-CTR FOOTING FOOT-CTR` fail the whole clause, and the
+/// file then had no page at all — `AT END-OF-PAGE` could never become true and
+/// a report that writes until end of page wrote for ever (SQ208M, SQ210M).
+///
+/// The integer is returned alongside the name so a caller that has no
+/// environment to read still has a usable default.
+fn eat_linage_value(p: &mut Parser) -> Option<(u32, Option<String>)> {
+    if let Some(n) = eat_required_integer(p) {
+        return Some((n, None));
+    }
+    p.eat_identifier().map(|(n, _)| (0, Some(n.to_ascii_uppercase())))
 }
 
 // ── Screen section (simplified) ───────────────────────────────────────────────
