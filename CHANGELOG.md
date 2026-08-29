@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.74] — 2026-08-29
+
+**A `REWRITE` that changes an alternate key joins the end of its new duplicate
+set.** NIST CCVS85 Indexed I/O reaches **40 of 41** — assertions **570 PASS /
+4 FAIL**, **99.3 %**. The only member still failing is IX106A, which needs a
+RELATIVE engine.
+
+A record whose alternate value changes leaves one duplicate set and enters
+another. It cannot hold a position in a set it has only just joined, so it takes
+its place at the end. The engine reused the record's original insertion
+sequence, which put it wherever its *file* insertion had fallen.
+
+IX215A turns on exactly this. One test rewrites record 176 into a duplicate
+value; the next rewrites record 4 into the same one; a `START` on that value
+must then deliver **176**, whose entry joined first — even though record 4 was
+written to the file earlier. It delivered 4.
+
+One sequence is stored per record rather than per alternate, and removal
+reconstructs the multimap value from it, so when any alternate changes the
+record takes a fresh sequence and **every** one of its entries is re-pointed to
+it. The cost is that an unchanged alternate also moves to the end of its own
+set; a per-alternate sequence would avoid that, at the price of scanning the
+multimap to recover each entry's value on removal. Nothing in the suite
+observes the difference.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434;
+132 runtime lib tests and 95 integration suites green.
+
+
 ## [PowerRustCOBOL 1.62.73] — 2026-08-29
 
 **redb becomes the default indexed-file engine for `STORAGE IS DISK`**

@@ -1031,13 +1031,43 @@ impl IndexedStore for RedbIndexedFile {
                 return status::DUP_KEY;
             }
         }
-        // The record keeps its original insertion sequence across a REWRITE, so
-        // its position among duplicate alternates is preserved (disk parity).
+        // A record that keeps all its alternate values keeps its insertion
+        // sequence, and so its position among duplicates.
+        //
+        // **A record whose alternate value CHANGES leaves one duplicate set and
+        // joins another, at the end of it** — it cannot hold a position in a
+        // set it has only just entered. IX215A turns on exactly this: GF-08
+        // rewrites record 176 into a duplicate value, GF-09 rewrites record 4
+        // into the same one, and a `START` on that value must deliver 176,
+        // whose entry joined first. Reusing the original sequence delivered
+        // record 4, whose *file* insertion was earlier but whose membership of
+        // this set was not.
+        //
+        // One sequence is stored per record, not per alternate, and removal
+        // reconstructs the multimap value from it — so when any alternate
+        // changes, the record takes a fresh sequence and **every** entry is
+        // re-pointed to it. That keeps the stored sequence authoritative. The
+        // cost is that an unchanged alternate also moves to the end of its set;
+        // a per-alternate sequence would avoid that, at the price of scanning
+        // the multimap to recover each entry's own value on removal.
         let has_alts = !self.alternates.is_empty();
-        let seq = if has_alts {
+        let alt_changed = self
+            .alternates
+            .iter()
+            .enumerate()
+            .any(|(i, ks)| composite(i, &extract(ks, &old)) != composite(i, &extract(ks, &rec)));
+        let old_seq = if has_alts {
             self.seq_of(&pkey).unwrap_or(0)
         } else {
             0
+        };
+        let seq = if has_alts && alt_changed {
+            match self.alloc_seq() {
+                Ok(s) => s,
+                Err(()) => return status::IO_ERROR,
+            }
+        } else {
+            old_seq
         };
         let stored = self.encode_value(&rec);
         let w = self.wtx.as_ref().unwrap();
@@ -1048,23 +1078,39 @@ impl IndexedStore for RedbIndexedFile {
         } {
             return status::IO_ERROR;
         }
-        // Re-point alternate indexes: remove old entries, add new ones (same seq).
+        // Re-point the alternate indexes. When the sequence changed, every
+        // entry moves to it — including the ones whose value did not change,
+        // because removal reconstructs the multimap value from the record's one
+        // stored sequence and would not find them otherwise.
         if has_alts {
+            let old_val = Self::alt_value(old_seq, &pkey);
+            let new_val = Self::alt_value(seq, &pkey);
             match w.open_multimap_table(ALT) {
                 Ok(mut mt) => {
-                    let val = Self::alt_value(seq, &pkey);
                     for (i, ks) in self.alternates.iter().enumerate() {
                         let oc = composite(i, &extract(ks, &old));
                         let nc = composite(i, &extract(ks, &rec));
-                        if oc != nc {
-                            let _ = mt.remove(oc.as_slice(), val.as_slice());
-                            if mt.insert(nc.as_slice(), val.as_slice()).is_err() {
-                                return status::IO_ERROR;
-                            }
+                        if oc == nc && old_val == new_val {
+                            continue; // nothing moved
+                        }
+                        let _ = mt.remove(oc.as_slice(), old_val.as_slice());
+                        if mt.insert(nc.as_slice(), new_val.as_slice()).is_err() {
+                            return status::IO_ERROR;
                         }
                     }
                 }
                 Err(_) => return status::IO_ERROR,
+            }
+            // Keep the stored sequence authoritative for the next removal.
+            if seq != old_seq {
+                match w.open_table(SEQ) {
+                    Ok(mut t) => {
+                        if t.insert(pkey.as_slice(), seq.to_be_bytes().as_slice()).is_err() {
+                            return status::IO_ERROR;
+                        }
+                    }
+                    Err(_) => return status::IO_ERROR,
+                }
             }
         }
         if self.log_level.is_on() {

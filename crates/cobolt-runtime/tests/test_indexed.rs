@@ -1578,3 +1578,82 @@ fn at_end_makes_a_read_sequential_under_dynamic_access() {
         "INVALID KEY keeps the keyed form:\n{joined}"
     );
 }
+
+/// A `REWRITE` that changes an alternate key joins the end of its new
+/// duplicate set.
+///
+/// A record whose alternate value changes leaves one duplicate set and enters
+/// another; it cannot hold a position in a set it has only just joined.
+/// IX215A turns on exactly this — one record is rewritten into a duplicate
+/// value, then a second is rewritten into the same one, and a `START` on that
+/// value must deliver the record whose entry joined **first**. Reusing the
+/// record's original insertion sequence delivered the other, whose file
+/// insertion was earlier but whose membership of this set was not.
+#[test]
+fn a_rewrite_into_a_duplicate_set_joins_at_the_end() {
+    let path = temp_idx("dupsetjoin");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT WITH DUPLICATES\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-ALT   PIC X(6).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE 0004 TO R-KEY MOVE \"AAAAAA\" TO R-ALT\n\
+         \x20          MOVE \"EARLY\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE 0176 TO R-KEY MOVE \"BBBBBB\" TO R-ALT\n\
+         \x20          MOVE \"LATE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          MOVE 0176 TO R-KEY\n\
+         \x20          READ F INVALID KEY DISPLAY \"R176 BAD\" END-READ\n\
+         \x20          MOVE \"DCDCDC\" TO R-ALT\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          MOVE 0004 TO R-KEY\n\
+         \x20          READ F INVALID KEY DISPLAY \"R4 BAD\" END-READ\n\
+         \x20          MOVE \"DCDCDC\" TO R-ALT\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          MOVE \"DCDCDC\" TO R-ALT\n\
+         \x20          START F KEY IS EQUAL TO R-ALT\n\
+         \x20             INVALID KEY DISPLAY \"START BAD \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"FIRST \" R-KEY\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND2\" END-READ\n\
+         \x20          DISPLAY \"SECOND \" R-KEY\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // 176 joined the set first, though 4 was written to the file first.
+    assert!(
+        joined.contains("FIRST 0176"),
+        "the record that entered the duplicate set first comes first, whatever \
+         order the records were originally written in:\n{joined}"
+    );
+    assert!(
+        joined.contains("SECOND 0004"),
+        "and the one that joined later follows it:\n{joined}"
+    );
+}
