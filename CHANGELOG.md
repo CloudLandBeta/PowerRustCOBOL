@@ -1,5 +1,59 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.76] — 2026-08-29
+
+**`ORGANIZATION IS RELATIVE` runs.** Relative I/O was accepted by the parser
+and then silently ignored by the runtime — a program declaring it compiled
+cleanly and misbehaved. It now has an engine, and every file verb dispatches to
+it. **RL goes from 14 to 24 of 35 running clean**, 326 PASS / 38 FAIL (89.6 %
+of its assertions, up from 58.3 %), and the four members that used to time out
+no longer do. **IX reaches 42 of 42 compiling and 41 of 41 running clean, 574
+PASS / 0 FAIL** — IX106A's last four failures were the relative file it shares
+with the indexed ones.
+
+A relative file is a table of **numbered slots**, not a list of records. Slot
+*n* either holds a record or is empty, and an empty slot keeps its number:
+deleting record 7 does not renumber record 8. The number lives in the
+`RELATIVE KEY` item in WORKING-STORAGE rather than inside the record, which is
+why this could not be a mode of the indexed engines — those read their keys out
+of the record bytes.
+
+```cobol
+SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+    ORGANIZATION IS RELATIVE
+    ACCESS MODE IS DYNAMIC
+    RELATIVE KEY IS CUST-SLOT
+    FILE STATUS IS CUST-STATUS.
+```
+
+* **`WRITE`** — in the sequential access mode the engine assigns the next slot
+  and puts the number in the `RELATIVE KEY` item, which is how a program that
+  creates a file learns its own record numbers. Under `RANDOM` or `DYNAMIC` the
+  program sets the number first; a slot that is already occupied is status
+  **22**, and slot zero is **24**.
+* **`READ`** — random by `RELATIVE KEY`, or `NEXT` / `PREVIOUS` in slot order,
+  skipping the empty ones. A sequential read reports the slot it delivered.
+* **`START`** — positions on the first slot matching `EQUAL` / `GREATER` /
+  `NOT LESS` (and the `LESS` forms) without delivering a record, so the next
+  `READ NEXT` returns it.
+* **`REWRITE` / `DELETE`** — by number under random or dynamic access, or on
+  the record the last `READ` delivered. Without that read the status is **43**.
+  `DELETE` empties the slot and leaves the number addressable.
+
+Two containers, chosen by `STORAGE [MODE] IS MEMORY | DISK` exactly as the
+indexed engines choose theirs, and required to answer identically: a `BTreeMap`
+in RAM, or the `PRCREL1` container — a fixed header followed by equal-sized
+slots, so slot *n* is one seek away and the file needs no in-RAM directory.
+Each slot carries a presence flag and the record's own length, so a
+`RECORD IS VARYING` file stores a short record without padding it into
+ambiguity.
+
+**The harness also learned RL's chained members.** Four of RL's series are a
+creator, an updater and a verifier over one file, and the four programs that
+timed out were consumers running where their producer never had: the file was
+missing, `OPEN` returned 35, and every `READ` returned 47 inside a `GO TO`
+loop. Ten members now declare their producers, the way IX's already do.
+
 ## [PowerRustCOBOL 1.62.75] — 2026-08-29
 
 **`RELATIVE KEY IS` is parsed and carried into the runtime**, and Relative I/O

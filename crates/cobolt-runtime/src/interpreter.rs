@@ -249,7 +249,7 @@ fn rewrite_in_place(
 const VARYING_LEN_PREFIX: usize = 4;
 
 /// A currently-open file handle. The variant follows the file's ORGANIZATION,
-/// so the verbs dispatch by file type (RELATIVE will add a variant here).
+/// so the verbs dispatch by file type.
 enum OpenFile {
     /// SEQUENTIAL / LINE SEQUENTIAL, opened for output/extend.
     Writer {
@@ -264,6 +264,10 @@ enum OpenFile {
     /// INDEXED (ISAM) — a keyed engine (in-memory or on-disk) handles every
     /// verb. The concrete backend is chosen by STORAGE MODE.
     Indexed(Box<dyn crate::indexed::IndexedStore>),
+    /// RELATIVE — a numbered-slot engine. The key is a record *number* the
+    /// program keeps outside the record, which is why this cannot be an
+    /// `IndexedStore`: that trait reads its keys out of the record bytes.
+    Relative(Box<crate::relative::RelativeFile>),
 }
 
 // ── Nested program registry ───────────────────────────────────────────────────
@@ -760,6 +764,35 @@ fn make_indexed_engine(
             Box::new(e)
         }
     }
+}
+
+/// Build the numbered-slot engine behind `ORGANIZATION IS RELATIVE`.
+///
+/// The slot width is the *largest* record the FD describes, because every 01 of
+/// an FD overlays one record area and any of them may be written. A `RECORD IS
+/// VARYING` clause raises it further: the clause is what the program promised,
+/// and a short record still has to fit in a slot sized for a long one.
+fn make_relative_engine(spec: &FileSpec, path: &str) -> crate::relative::RelativeFile {
+    use cobolt_ast::program::StorageMode;
+    let widest = spec
+        .record_layouts
+        .iter()
+        .map(|(_, l)| l.len)
+        .max()
+        .unwrap_or(spec.layout.len)
+        .max(spec.layout.len);
+    let declared = spec
+        .sizing
+        .as_ref()
+        .and_then(|s| s.max)
+        .unwrap_or(0) as usize;
+    let mut e = crate::relative::RelativeFile::new(
+        path,
+        widest.max(declared).max(1),
+        spec.storage_mode == StorageMode::Memory,
+    );
+    e.set_persist(spec.persist);
+    e
 }
 
 /// Translate a COBOL relational operator (from `START`) to a key search op.
@@ -6002,6 +6035,39 @@ impl Interpreter {
                 continue;
             }
 
+            // ── RELATIVE: dispatch to the numbered-slot engine ─────────────
+            if org == FileOrganization::Relative {
+                let mut engine = make_relative_engine(&spec, &path);
+                // `SELECT OPTIONAL` reads the same here as it does for the
+                // other two organizations: a file that is not there opens
+                // anyway and the program is told so with **05**. INPUT would
+                // otherwise be refused with 35, so the container is
+                // materialised by opening it I-O and the first READ then finds
+                // it empty.
+                let optional_absent = spec.optional
+                    && !existed
+                    && matches!(
+                        mode,
+                        OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                    );
+                let open_as = if optional_absent && mode == OpenMode::Input {
+                    OpenMode::InputOutput
+                } else {
+                    mode
+                };
+                let code = engine.open(map_open_mode(open_as));
+                let code = if optional_absent && (code == "00" || code == "35") {
+                    "05"
+                } else {
+                    code
+                };
+                self.open_files
+                    .insert(file.clone(), OpenFile::Relative(Box::new(engine)));
+                self.set_file_status(&file, code);
+                self.fire_declarative(&file, code, false)?;
+                continue;
+            }
+
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             // Only `OUTPUT` creates a file unconditionally. `INPUT`, `I-O` and
             // `EXTEND` all need the file to be there, and its absence is status
@@ -6157,6 +6223,7 @@ impl Interpreter {
                     }
                     OpenFile::Reader { .. } => "00",
                     OpenFile::Indexed(engine) => engine.close(),
+                    OpenFile::Relative(engine) => engine.close(),
                 };
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
@@ -6475,11 +6542,32 @@ impl Interpreter {
             (Some(now), Some(prev)) => now.as_slice() <= prev.as_slice(),
             _ => false,
         };
+        // A RELATIVE write is addressed by record *number*. Under RANDOM or
+        // DYNAMIC access the program set it in the RELATIVE KEY item; in the
+        // sequential access mode the engine assigns the next slot and the
+        // program is told which one it got, which is the only way a sequential
+        // creator learns its own record numbers (RL101A onward).
+        let rel_spec = self
+            .file_specs
+            .get(&file)
+            .filter(|s| s.organization == FileOrganization::Relative)
+            .cloned();
+        let rel_key = rel_spec.as_ref().and_then(|s| match s.access {
+            AccessMode::Sequential => None,
+            _ => Some(self.relative_key_of(s).unwrap_or(0)),
+        });
+        let mut rel_assigned: Option<u64> = None;
         let code = match self.open_files.get_mut(&file) {
             _ if out_of_range => "44",
             _ if out_of_sequence => crate::indexed::status::SEQUENCE_ERROR,
             // ── INDEXED ────────────────────────────────────────────────────
             Some(OpenFile::Indexed(engine)) => engine.write(&buf),
+            // ── RELATIVE ───────────────────────────────────────────────────
+            Some(OpenFile::Relative(engine)) => {
+                let (code, n) = engine.write(&buf, rel_key);
+                rel_assigned = Some(n);
+                code
+            }
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             Some(OpenFile::Writer { w, org }) => {
                 let r = match org {
@@ -6510,6 +6598,14 @@ impl Interpreter {
         // A WRITE is an I-O statement like any other: it displaces whatever
         // record a previous READ had established.
         self.read_established.remove(&file);
+        // The slot a sequential RELATIVE write landed in goes back into the
+        // RELATIVE KEY item. A random write already knows its number.
+        if let (Some(spec), Some(n)) = (rel_spec.as_ref(), rel_assigned) {
+            if code == "00" && rel_key.is_none() {
+                let spec = spec.clone();
+                self.set_relative_key(&spec, n);
+            }
+        }
         // Only a record that actually went in moves the sequence forward; a
         // rejected one leaves the previous key standing, so the next WRITE is
         // judged against the last one written rather than the last attempted.
@@ -6640,6 +6736,27 @@ impl Interpreter {
             false,
         )?;
         buf.get(ks.offset..ks.offset + ks.len).map(<[u8]>::to_vec)
+    }
+
+    /// The record number a RELATIVE file is currently addressed by — the value
+    /// of the item the SELECT named in `RELATIVE KEY IS`.
+    ///
+    /// Unlike a RECORD KEY this lives *outside* the record, in WORKING-STORAGE,
+    /// so it is read from the environment and never from the record image. A
+    /// file that declares no RELATIVE KEY can only be accessed sequentially,
+    /// and then there is nothing to read.
+    fn relative_key_of(&self, spec: &FileSpec) -> Option<u64> {
+        let name = spec.relative_key.as_deref()?;
+        self.env.get_i64(name).and_then(|n| u64::try_from(n).ok())
+    }
+
+    /// Put the record number a sequential access just used back into the
+    /// RELATIVE KEY item, which is how the program learns where the record it
+    /// read (or wrote) actually sits.
+    fn set_relative_key(&mut self, spec: &FileSpec, n: u64) {
+        if let Some(name) = spec.relative_key.clone() {
+            self.env.set_i64(&name, n as i64);
+        }
     }
 
     /// Lay one 01 record description's current bytes over the record area.
@@ -6865,6 +6982,10 @@ impl Interpreter {
             })
             .flatten();
         let kor = self.key_of_reference(&spec, &key_name, &key_quals);
+        // A RELATIVE file's key is a record number kept outside the record, so
+        // it comes from the environment rather than from the record layout.
+        let rel_num = (spec.organization == FileOrganization::Relative)
+            .then(|| self.relative_key_of(&spec).unwrap_or(0));
 
         // A sequential READ once `AT END` has been reached is 46, not a second
         // 10: the AT END left no valid next record, and reading on is a
@@ -6882,6 +7003,9 @@ impl Interpreter {
         // A record-SEQUENTIAL read also records where it found the record, so a
         // following `REWRITE` knows what it is replacing.
         let mut read_at: Option<LastRead> = None;
+        // Which slot a RELATIVE read actually delivered, so the RELATIVE KEY
+        // item can be told. A sequential read is how the program discovers it.
+        let mut rel_delivered: Option<u64> = None;
         let (buf, code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 if random {
@@ -6892,6 +7016,17 @@ impl Interpreter {
                     }
                 } else {
                     engine.read_seq(read_dir)
+                }
+            }
+            Some(OpenFile::Relative(engine)) => {
+                if random {
+                    engine.read_key(rel_num.unwrap_or(0))
+                } else {
+                    let (rec, n, code) = engine.read_seq(read_dir);
+                    if code == status::OK {
+                        rel_delivered = Some(n);
+                    }
+                    (rec, code)
                 }
             }
             Some(OpenFile::Reader { r, org }) => match org {
@@ -6984,6 +7119,12 @@ impl Interpreter {
             self.read_established.insert(file.clone());
         } else {
             self.read_established.remove(&file);
+        }
+        // A sequential RELATIVE read reports the slot it delivered — the
+        // program has no other way to learn the record's number, and RL103A
+        // checks the key item after every one of them.
+        if let Some(n) = rel_delivered {
+            self.set_relative_key(&spec, n);
         }
 
         self.set_file_status(&file, code);
@@ -7138,6 +7279,10 @@ impl Interpreter {
         // by the immediately preceding READ.
         let io_mode = self.open_modes.get(&file).copied() == Some(OpenMode::InputOutput);
         let last = self.last_read.get(&file).copied();
+        // A RELATIVE rewrite under RANDOM or DYNAMIC access names its record by
+        // number, from the RELATIVE KEY item.
+        let rel_num = (spec.organization == FileOrganization::Relative)
+            .then(|| self.relative_key_of(&spec).unwrap_or(0));
         let code = match self.open_files.get_mut(&file) {
             // In the sequential access mode a REWRITE replaces the record the
             // previous READ delivered, so the standard requires one: with no
@@ -7148,6 +7293,14 @@ impl Interpreter {
             Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
+            }
+            // The same rule for a numbered slot: a sequential REWRITE replaces
+            // the record the previous READ delivered, and needs one.
+            Some(OpenFile::Relative(_)) if !random && !self.read_established.contains(&file) => {
+                "43"
+            }
+            Some(OpenFile::Relative(engine)) => {
+                engine.rewrite(&buf, if random { rel_num } else { None })
             }
             // Record SEQUENTIAL, open I-O: replace the record the last READ
             // delivered, in place.
@@ -7211,6 +7364,10 @@ impl Interpreter {
             spec.layout
                 .field_value_qualified(&self.env, k, &spec.record_key_quals)
         });
+        // A RELATIVE delete under RANDOM or DYNAMIC access names its record by
+        // number, from the RELATIVE KEY item.
+        let rel_num = (spec.organization == FileOrganization::Relative)
+            .then(|| self.relative_key_of(&spec).unwrap_or(0));
         let code = match self.open_files.get_mut(&file) {
             // Sequential DELETE removes the record the previous READ delivered,
             // and so requires one — the same rule, and the same status 43, that
@@ -7218,6 +7375,14 @@ impl Interpreter {
             Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.delete(if random { key_bytes.as_deref() } else { None })
+            }
+            Some(OpenFile::Relative(_)) if !random && !self.read_established.contains(&file) => {
+                "43"
+            }
+            // The slot is emptied, not removed: its number stays addressable,
+            // and the records after it do not move down.
+            Some(OpenFile::Relative(engine)) => {
+                engine.delete(if random { rel_num } else { None })
             }
             Some(_) => {
                 tracing::warn!("DELETE on a non-indexed file '{}' is not valid", file);
@@ -7262,6 +7427,21 @@ impl Interpreter {
             .layout
             .field_value_qualified(&self.env, &key_name, &key_quals);
         let kor = self.key_of_reference(&spec, &key_name, &key_quals);
+        // A RELATIVE `START` compares record *numbers*, and the data-name it
+        // carries is the RELATIVE KEY item — in WORKING-STORAGE, not in the
+        // record, so the record layout has nothing to say about it. With no KEY
+        // phrase at all the file's declared key is the implied one.
+        let rel_num = (spec.organization == FileOrganization::Relative).then(|| {
+            let name = if key_name.is_empty() {
+                spec.relative_key.clone().unwrap_or_default()
+            } else {
+                key_name.clone()
+            };
+            self.env
+                .get_i64(&name)
+                .and_then(|v| u64::try_from(v).ok())
+                .unwrap_or(0)
+        });
         let code = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 engine.set_key_of_reference(kor);
@@ -7269,6 +7449,9 @@ impl Interpreter {
                     Some(kb) => engine.start(map_start_op(op), kb),
                     None => status::NOT_FOUND,
                 }
+            }
+            Some(OpenFile::Relative(engine)) => {
+                engine.start(map_start_op(op), rel_num.unwrap_or(0))
             }
             Some(_) => {
                 tracing::warn!("START on a non-indexed file '{}' is not valid", file);

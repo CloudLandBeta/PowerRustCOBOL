@@ -925,6 +925,30 @@ fn inherits_from(name: &str) -> Option<&'static str> {
         // "THE FILE USED IS THAT RESULTING FROM IX202." The IX2xx series
         // mirrors IX1xx: one member creates the file, the next two process it.
         "IX203A" => "IX202A",
+        // ── RL: the same three-generation shape, four times over ───────────
+        // "THE FILE USED AS INPUT IS THAT FILE CREATED BY RL101." Each series
+        // is a creator, an updater and a verifier over one file, all four of
+        // them on card 21 (`XXXXP021` writing, `XXXXD021` reading — see
+        // `canonical_x_cards`), so the whole chain shares one directory.
+        "RL102A" => "RL101A",
+        // "THE FILE USED IS THAT RESULTING FROM RL102."
+        "RL103A" => "RL102A",
+        "RL109A" => "RL108A",
+        // "THE FILE USED IS THAT RESULTING FROM RL109A."
+        "RL110A" => "RL109A",
+        "RL202A" => "RL201A",
+        // The header says "RESULTING FROM RL102", but RL203A is the third of
+        // the RL2xx series and reads what RL202A left on card 21 — the suite
+        // copied the RL1xx comment and did not renumber it.
+        "RL203A" => "RL202A",
+        "RL207A" => "RL206A",
+        // "THE FILE USED IS THAT RESULTING FROM RL206A" — same off-by-one
+        // comment as RL203A; the producer is the updater, RL207A.
+        "RL208A" => "RL207A",
+        // "THE FILE USED AS INPUT IS THE FILE 'RL-FS1' CREATED BY RL212A AND
+        // THE OTHER FILE 'RL-FS2' WILL NOT BE PRESENT." RL212A writes card 21
+        // only, so card 22 stays absent exactly as the program requires.
+        "RL213A" => "RL212A",
         _ => return None,
     })
 }
@@ -2096,11 +2120,18 @@ mod tests {
         assert_eq!(producer_chain("IX203A"), vec!["IX201A", "IX202A"]);
         assert_eq!(producer_chain("IX110A"), vec!["IX109A"]);
         assert_eq!(producer_chain("IX114A"), vec!["IX113A"]);
+        // RL runs the same three-generation shape four times over, so the
+        // verifier of each series carries both of its ancestors.
+        assert_eq!(producer_chain("RL103A"), vec!["RL101A", "RL102A"]);
+        assert_eq!(producer_chain("RL110A"), vec!["RL108A", "RL109A"]);
+        assert_eq!(producer_chain("RL203A"), vec!["RL201A", "RL202A"]);
+        assert_eq!(producer_chain("RL208A"), vec!["RL206A", "RL207A"]);
+        assert_eq!(producer_chain("RL213A"), vec!["RL212A"]);
         // Self-contained members bring nothing with them.
         assert!(producer_chain("IX101A").is_empty());
         assert!(producer_chain("NC101A").is_empty());
         // The target itself is never in its own chain.
-        for t in ["IX103A", "IX110A", "IX202A"] {
+        for t in ["IX103A", "IX110A", "IX202A", "RL103A", "RL208A"] {
             assert!(!producer_chain(t).contains(&t), "{t} would run twice");
         }
     }
@@ -2115,6 +2146,9 @@ mod tests {
         for solo in [
             "IX101A", "IX109A", "IX111A", "IX112A", "IX113A", "IX201A", "IX216A", "SQ203A",
             "NC101A",
+            // The creator of each RL series, and RL212A whose consumer needs
+            // card 22 to stay absent.
+            "RL101A", "RL108A", "RL201A", "RL206A", "RL212A",
         ] {
             assert_eq!(
                 inherits_from(solo),

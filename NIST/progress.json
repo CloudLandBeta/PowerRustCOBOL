@@ -50,11 +50,12 @@
     },
     "IX": {
       "name": "Indexed I/O",
-      "state": "in_flight",
-      "protected": false,
+      "state": "finished",
+      "protected": true,
       "compile": [42, 42],
-      "execution": [40, 41],
-      "assertions": { "pass": 570, "fail": 4, "deleted": 1 }
+      "execution": [41, 41],
+      "assertions": { "pass": 574, "fail": 0, "deleted": 1 },
+      "finished_at": "1.62.76 — the RELATIVE engine closed IX106A's last four failures, which were the relative file it exercises alongside the sequential and indexed ones. Scored out of 41: IX301M is excluded from execution by operator ruling (see rules.ix301m_out_of_scope) and still counts in the compile census."
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -66,10 +67,11 @@
       "name": "Relative I/O",
       "state": "in_flight",
       "compile": [34, 35],
-      "execution": [14, 35],
-      "assertions": { "pass": 196, "fail": 140, "deleted": 5 },
+      "execution": [24, 35],
+      "assertions": { "pass": 326, "fail": 38, "deleted": 5 },
+      "engine_landed": "1.62.76 — `cobolt-runtime/src/relative.rs`, container PRCREL1, plus MEMORY. All seven verbs dispatch on FileOrganization::Relative. The same version taught the harness RL's ten chained members, which is what ended the four timeouts.",
       "operator_ruling": "2026-08-29 — IMPLEMENT Relative file support as the NIST suite expects it, and treat it as TECHNICAL DEBT, not a feature: RELATIVE is COBOL-85 that should already have worked, so under GOLDEN RULE #4 it is a fix. It goes on the `fixes` branch like everything else, needs no features commit, and is not an f=96 item. This is the one place in the queue where building missing capability is authorised; elsewhere a genuine grammar gap is still recorded and parked, not invented.",
-      "starting_point": "There is NO RELATIVE engine today. The parser accepts `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) but nothing in the runtime ever matches that variant — no dispatch, no engine, no diagnostic — so a program declaring it parses and then misbehaves silently. See the File I/O section of CLAUDE.md.",
+      "starting_point": "HISTORICAL, superseded by engine_landed above. Before 1.62.76 there was no RELATIVE engine at all: the parser accepted `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) and nothing in the runtime ever matched that variant — no dispatch, no engine, no diagnostic — so a program declaring it compiled cleanly and then misbehaved silently.",
       "scope_notes": [
         "A RELATIVE file is addressed by RELATIVE KEY, an integer record number from 1, not by a key embedded in the record.",
         "SELECT carries `RELATIVE KEY IS data-name`; the parser must keep it as RECORD KEY is kept for INDEXED.",
@@ -96,19 +98,20 @@
       "caveat": "Do NOT fix it by making AT END fire on other statuses again — that reintroduces the defect 1.62.69 corrected, and IX114A depends on the current behaviour."
     },
     {
-      "id": "ix-ceiling-without-rl",
-      "module": "IX",
+      "id": "rl-remaining-failures",
+      "module": "RL",
       "priority": 0,
-      "title": "IX cannot reach 42/42 without RELATIVE support",
-      "worth": "Decides what 'finish IX' means, so read this before planning the rest.",
-      "evidence": "IX106A declares `SELECT RL-FR1 ... RELATIVE KEY IS RL-KEY ... ORGANIZATION IS RELATIVE` and its four failures are DELETE-TEST-GF-01 ('DELETE RL RECORD') and REWRITE-TEST-GF-01/02/03 across the relative, sequential and indexed files together. There is no RELATIVE engine, so those cannot pass.",
-      "consequence": "At 1.62.71 the module stands at 38 of 42. The reachable figure without further decisions is 40: IX211A and IX215A are ordinary defects, IX106A waits on RL, and IX301M is a scoping question. GOLDEN RULE #9 sequences RL after IX, which cannot be satisfied literally — the operator may want to take RL first, or accept 40/42 as IX-complete and revisit IX106A once RL lands."
+      "title": "RL's 11 programs that still fail, after the engine landed",
+      "worth": "38 failing assertions and 11 of 35 programs. This is the whole of what is left in the module.",
+      "evidence": "Measured at 1.62.76, from `fails RL`. RL109A 7, RL112A 6, RL204A 6, RL301M 5, RL113A 3, RL114A 3, RL117A 3, RL110A 2, RL116A 2, RL118A 1. Buckets that recur across several members: (a) 'CREATE RL-FD2 ... INCORRECT COUNT' / 'STATUS/WRITE' in RL112A/113A/114A/117A/204A, which is one shared cause across five programs and so the first thing to look at; (b) 'DUPLICATE KEY SHOULD HAVE OCCURRED' in RL118A and 'INVALID WRITE' in RL116A, both about the status a WRITE onto an occupied slot returns; (c) RL301M, which is a flagging member and may be the same intermediate-subset scoping question as IX301M.",
+      "next_probe": "Re-run `fails RL` and bucket by message before touching anything — five programs sharing one message is a root cause, not five bugs. Start with the CREATE RL-FD2 bucket."
     },
     {
       "id": "rewrite-into-a-duplicate-set-keeps-a-position-it-never-had",
       "module": "IX",
-      "priority": 1,
-      "title": "A REWRITE that CHANGES an alternate key must join the end of its new duplicate set",
+      "priority": 99,
+      "resolved_at": "1.62.73 + 1.62.74 — redb became the default disk engine (which keeps the `seq` table this needs) and its REWRITE now reassigns the sequence when an alternate value changes. The PRCIDXD1 format change was never needed. Kept for the diagnosis, not as work.",
+      "title": "RESOLVED — A REWRITE that CHANGES an alternate key must join the end of its new duplicate set",
       "worth": "IX215A's last 2 failures, and very likely IX211A's 2 as well — its symptoms are small ordering errors in a walk over duplicate keys.",
       "diagnosis": "DECISIVE, from the data rather than a repro. IX215A GF-08 reads record 176 and rewrites it with ALTKEY2 = 'DCDCDCDCDC100ALTKEY2'. GF-09 then reads record **4** and rewrites it with the SAME value, deliberately creating a duplicate set of two, and STARTs on the 2-character generic key 'DC' expecting record **176** — the entry created FIRST. A dump of the file confirms exactly two records carry that value, 4 and 176. We return 4.",
       "the_rule": "Duplicates are retrieved in the order their entries entered the set. Record 176 joined in GF-08, record 4 in GF-09, so 176 comes first. We order by the record's ORIGINAL insertion sequence — record 4 was written before 176 when the file was built — which is a position record 4 never held in this set. CLAUDE.md's note that 'the record keeps its original insertion sequence across a REWRITE' is right only while the alternate VALUE is unchanged; when the value changes the record leaves one duplicate set and joins another, at the end.",
@@ -125,8 +128,9 @@
     {
       "id": "ix215a-superseded",
       "module": "IX",
-      "priority": 8,
-      "title": "SUPERSEDED — see rewrite-into-a-duplicate-set-keeps-a-position-it-never-had",
+      "priority": 99,
+      "resolved_at": "1.62.74 — IX215A runs clean. Kept because its `ruled_out` list is the record of four repros that all passed while the real defect was elsewhere; that is the entry's lasting value.",
+      "title": "RESOLVED — see rewrite-into-a-duplicate-set-keeps-a-position-it-never-had",
       "worth": "2 failures, the last two in IX215A.",
       "evidence": "Record 176 is rewritten so its ALTKEY2 becomes 'DCDCDCDCDC100ALTKEY2'. The test then does `START IX-FD1 KEY IS EQUAL TO R-ALTKEY2-1-2` — positions 1-2 of ALTKEY2, so the generic key is just 'DC' — and reads NEXT, expecting record 176. It computes 4. The qualified-name variant of the same test expects 190 and computes 12. Both return a small record number where a large one is expected, so the search lands on the wrong member of the duplicate set rather than failing outright.",
       "ruled_out": [
@@ -138,8 +142,9 @@
     {
       "id": "ix211a-duplicate-key-walk",
       "module": "IX",
-      "priority": 2,
-      "title": "IX211A: reading forward through duplicate keys is off by one or two",
+      "priority": 99,
+      "resolved_at": "1.62.73 — the `next_probe` was right: same root cause, and switching the default disk engine to redb fixed it without a separate change.",
+      "title": "RESOLVED — IX211A: reading forward through duplicate keys is off by one or two",
       "worth": "2 failures.",
       "evidence": "'READ NEXT AT END' computes 184 against an expected 183; 'READ NEXT 4 RECS' (READ-TEST-F1-04) computes 182 against 184. Small, opposite-signed errors in a walk over duplicate keys — one record too far in one case, two short in the other.",
       "next_probe": "Very likely the same root as rewrite-into-a-duplicate-set-keeps-a-position-it-never-had. Do that one first and re-measure."
@@ -147,8 +152,9 @@
     {
       "id": "ix301m-intermediate-subset-flagging",
       "module": "IX",
-      "priority": 3,
-      "title": "IX301M asks for INTERMEDIATE-subset flagging, which we do not do",
+      "priority": 99,
+      "resolved_at": "1.62.72 — ruled out of execution scoring (rules.ix301m_out_of_scope). Read this entry before deciding RL301M, which is the same question one module over: a flagging member asking a HIGH-subset implementation to flag features it fully supports.",
+      "title": "RULED OUT OF SCOPE — IX301M asks for INTERMEDIATE-subset flagging, which we do not do",
       "worth": "7 failures — the whole of IX301M, and the last flagging member in the module.",
       "evidence": "Its own header: 'THE FOLLOWING PROGRAM TESTS THE FLAGGING OF INTERMEDIATE SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED INPUT-OUTPUT.' The seven constructs it expects flagged are ORGANIZATION IS INDEXED, ACCESS MODE IS RANDOM, RECORD KEY IS, and the NOT INVALID KEY phrase on READ / REWRITE / WRITE / DELETE.",
       "the_question": "Those are features PowerRustCOBOL implements. A compiler validating at the HIGH subset must NOT flag them; only one validating at the minimum subset would. We have `flagging::flag_high_subset` and nothing for the intermediate boundary, which is why nothing is flagged and all seven 'fail'. Compare IX401M, which asks for high-subset flagging and now scores 10/10.",
@@ -159,7 +165,7 @@
       ],
       "operator_call": "This is a scoping decision, not a defect. Do not invent flags for features we support just to make the number move."
     },
-    { "id": "ix-long-tail", "module": "IX", "priority": 4, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
+    { "id": "ix-long-tail", "module": "IX", "priority": 99, "title": "RESOLVED — Remaining IX programs", "resolved_at": "1.62.76 — the list is empty; IX runs 41/41 with 0 failing assertions.", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
   "dead_ends": [
@@ -178,10 +184,12 @@
     "_why": "These must hold after EVERY change. If a fix breaks one, revert the commit and record a dead end — do not chase the regression forward.",
     "NC": { "compile": [95, 95], "execution": [95, 95], "assertions_pass": 4614, "assertions_fail": 0 },
     "SQ": { "compile": [85, 85], "execution": [85, 85], "assertions_pass": 624, "assertions_fail": 0 },
+    "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
     "whole_suite_compile_pass": 422
   },
 
   "history": [
+    { "version": "1.62.76", "change": "ORGANIZATION IS RELATIVE gets an engine (relative.rs, container PRCREL1 + MEMORY) and all seven verbs dispatch to it; the harness learns RL's ten chained members", "effect": "RL 14 -> 24 of 35, 196/140 -> 326 PASS / 38 FAIL (58.3% -> 89.6%), and the four timeouts are gone. IX reaches 41/41 with 574 PASS / 0 FAIL - IX106A's last four failures were the relative file it shares with the indexed ones, so IX is FINISHED. NC and SQ exact; compile census 422/434 unchanged." },
     { "version": "1.62.47", "change": "Harness supplies XXXXD001, the installation data file SQ203A reads", "effect": "SQ 84 -> 85 of 85; module finished" },
     { "version": "1.62.48", "change": "Chained members run their declared producer", "effect": "IX 13 -> 16 clean (measurement fidelity, no runtime change)" },
     { "version": "1.62.49", "change": "Sequential-access ordering rules for indexed files (21 / 43)", "effect": "IX 16 -> 19 clean" },

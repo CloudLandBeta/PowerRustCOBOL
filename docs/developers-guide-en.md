@@ -5023,6 +5023,95 @@ rewriting is how you *ask* for a different length, and `44` is the answer.
 > rewriting "the record I read three reads ago". Keep the loop tight: read,
 > change, rewrite, read again.
 
+### Addressing records by number: `ORGANIZATION IS RELATIVE`
+
+A **relative** file is a table of numbered slots, not a list of records. Slot
+*n* either holds a record or is empty, and an empty slot keeps its number:
+deleting record 7 does not renumber record 8. If you have used relative files
+in PowerCOBOL or isCOBOL the model is the familiar one, and it sits neatly
+between the two organizations either side of it — a sequential file you can
+only walk, an indexed file you address by a key inside the record, and a
+relative file you address by the record's *position*.
+
+That number lives in the `RELATIVE KEY` item, which is in WORKING-STORAGE, **not
+in the record**:
+
+```cobol
+       SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+           ORGANIZATION IS RELATIVE
+           ACCESS MODE IS DYNAMIC
+           RELATIVE KEY IS CUST-SLOT
+           FILE STATUS IS CUST-STATUS.
+```
+
+`RELATIVE KEY` is required for `RANDOM` and `DYNAMIC` access and for `START`;
+a file you only ever walk with `ACCESS MODE IS SEQUENTIAL` may omit it.
+
+**Creating a file.** In the sequential access mode you do not choose the
+numbers — each `WRITE` takes the next slot, and the engine puts the number it
+used into the `RELATIVE KEY` item. That is how a program that creates a file
+learns its own record numbers:
+
+```cobol
+           OPEN OUTPUT CUSTOMER-FILE.
+           PERFORM 1000-BUILD-ONE UNTIL NO-MORE-INPUT.
+      *    After each WRITE, CUST-SLOT holds the number just assigned.
+```
+
+**Addressing a record directly.** Under `RANDOM` or `DYNAMIC` you set the
+number first, and every verb acts on that slot:
+
+```cobol
+           MOVE 417 TO CUST-SLOT.
+           READ CUSTOMER-FILE
+               INVALID KEY DISPLAY "NO RECORD 417"
+           END-READ.
+```
+
+**Walking it.** `READ … NEXT` and `READ … PREVIOUS` visit the occupied slots in
+number order and skip the empty ones, and each read reports the slot it
+delivered in the `RELATIVE KEY` item — the only way to know *where* the record
+you just read actually sits.
+
+**Positioning without reading.** `START` moves to the first slot matching the
+comparison and delivers nothing; the following `READ NEXT` returns that record:
+
+```cobol
+           MOVE 400 TO CUST-SLOT.
+           START CUSTOMER-FILE KEY IS NOT LESS THAN CUST-SLOT
+               INVALID KEY SET NO-SUCH-RECORD TO TRUE
+           END-START.
+           READ CUSTOMER-FILE NEXT RECORD AT END ...
+```
+
+**Changing and removing.** `REWRITE` and `DELETE` name their record by number
+under random or dynamic access, or act on the record the last `READ` delivered
+in the sequential access mode. `DELETE` empties the slot; the number stays
+addressable and later records do **not** move down.
+
+The statuses worth testing for:
+
+| Situation | Status |
+| --- | --- |
+| `WRITE` onto a slot that already holds a record | `22` |
+| `WRITE`, `READ`, `REWRITE` or `DELETE` with a `RELATIVE KEY` of zero | `24` |
+| `READ`, `REWRITE`, `DELETE` or `START` on an empty slot, or one past the end | `23` |
+| `READ NEXT` / `PREVIOUS` with no further record | `10` |
+| Sequential `REWRITE` or `DELETE` with no `READ` before it | `43` |
+| The file is not open in the mode the verb needs | `47`, `48`, `49` |
+
+Storage follows the same `STORAGE [MODE] IS MEMORY | DISK` clause as indexed
+files (see §14), and the two containers are required to answer identically — a
+program must not be able to tell which one it is running on. `RECORD IS
+VARYING` works as it does elsewhere: each slot stores its record's own length,
+so a short record is not padded into ambiguity.
+
+> ⚠️ **Caveat.** Slot numbers start at **1**, never 0, and a random `WRITE`
+> beyond the current end of the file is legal — the slots it skips over become
+> part of the file and read as empty. A file whose highest slot is 10 000 with
+> three records in it is a perfectly ordinary relative file, so size your
+> numbering deliberately rather than using, say, a customer number directly.
+
 ### Printed reports with page control: `LINAGE`
 
 If you have been counting lines by hand to decide when to print a page trailer,
