@@ -377,6 +377,22 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
                 if is_word(&st.token, "PADDING") {
                     emit(&mut flags, &mut once, "PADDING CHARACTER clause", line);
                 }
+                // ── Indexed I-O above the high subset (IX401M) ──────────────
+                // `ACCESS MODE IS DYNAMIC` — the mode that allows a file to be
+                // read both ways in one open. SEQUENTIAL and RANDOM are inside
+                // the subset; DYNAMIC is not.
+                if matches!(st.token, Token::Access)
+                    && tokens[i..]
+                        .iter()
+                        .take_while(|t| !matches!(t.token, Token::Period))
+                        .any(|t| matches!(t.token, Token::Dynamic))
+                {
+                    emit(&mut flags, &mut once, "ACCESS MODE IS DYNAMIC", line);
+                }
+                // A second key on the file.
+                if is_word(&st.token, "ALTERNATE") {
+                    emit(&mut flags, &mut once, "ALTERNATE RECORD KEY clause", line);
+                }
                 if matches!(st.token, Token::Record) && is_word_opt(next, "DELIMITER") {
                     emit(&mut flags, &mut once, "RECORD DELIMITER clause", line);
                 }
@@ -452,7 +468,18 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
                 {
                     emit(&mut flags, &mut once, "BLOCK CONTAINS n TO m", line);
                 }
-                if matches!(st.token, Token::Record) && matches!(next, Some(Token::Varying)) {
+                // `RECORD [IS] VARYING [IN SIZE] …` — `IS` is optional, and
+                // IX401M writes it (`RECORD IS VARYING IN SIZE FROM 18 TO 36
+                // CHARACTERS`) where SQ401M does not. Matching only the
+                // adjacent form missed IX401M's entirely.
+                if matches!(st.token, Token::Record)
+                    && matches!(next, Some(Token::Varying))
+                    || matches!(st.token, Token::Record)
+                        && matches!(next, Some(Token::Is))
+                        && tokens
+                            .get(i + 2)
+                            .is_some_and(|t| matches!(t.token, Token::Varying))
+                {
                     emit(&mut flags, &mut once, "RECORD VARYING clause", line);
                 }
                 if is_word(&st.token, "LINAGE") {
@@ -540,6 +567,21 @@ fn subset_procedure_flags(
             .any(|t| is_word(&t.token, "NEXT"))
     {
         emit(flags, once, "READ … NEXT RECORD", line);
+    }
+    // `READ … KEY IS` and `START … KEY IS` name the key of reference, which
+    // only a file with more than one key needs (IX401M L77, L82).
+    if matches!(st.token, Token::Read | Token::Start)
+        && tokens[i..]
+            .iter()
+            .take_while(|t| !matches!(t.token, Token::Period))
+            .any(|t| matches!(t.token, Token::Key))
+    {
+        let element = if matches!(st.token, Token::Read) {
+            "READ … KEY IS"
+        } else {
+            "START … KEY IS"
+        };
+        emit(flags, once, element, line);
     }
     // `WRITE … AT END-OF-PAGE` — the page-overflow phrase, which exists only
     // for a LINAGE file.

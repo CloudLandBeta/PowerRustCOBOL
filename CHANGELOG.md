@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.71] — 2026-08-29
+
+**The compiler flags the Indexed I/O constructs that sit above the high
+subset.** NIST CCVS85 Indexed I/O goes from **37 to 38 of 42** programs running
+clean; assertions 561 PASS / 20 FAIL → **567 PASS / 14 FAIL** (96.6 % →
+**97.6 %**). IX401M goes from five wrong to none.
+
+A CCVS85 `4nn` member has no PASS/FAIL machinery: its verdict is the
+diagnostics the compiler emits. IX401M lists ten constructs it expects flagged
+as above the high subset, and five were being missed:
+
+- `ACCESS MODE IS DYNAMIC` — the mode allowing a file to be read both ways in
+  one open, where the subset has only SEQUENTIAL and RANDOM.
+- `ALTERNATE RECORD KEY` — a second key on the file.
+- `RECORD IS VARYING IN SIZE` — see below.
+- `READ … KEY IS` and `START … KEY IS` — naming the key of reference, which
+  only a file with more than one key needs.
+
+**`RECORD VARYING` was already flagged, but only when written without `IS`.**
+SQ401M writes `RECORD VARYING`, IX401M writes `RECORD IS VARYING IN SIZE FROM
+18 TO 36 CHARACTERS`, and the word between them is optional. Adding a second
+rule for the longer form emitted **two** flags on SQ401M's one clause, which
+consumed an extra expectation and pushed its last flag out of alignment — the
+existing rule now accepts the optional `IS` instead.
+
+Nucleus and Sequential I/O are unmoved on both axes and in their own flagging:
+**NC 51 flags matched / 0 wrong, SQ 24 / 0**, NC 95/95 with 4 614 PASS / 0 FAIL,
+SQ 85/85 with 624 PASS / 0 FAIL. Whole-suite compile stays 422 of 434.
+
+IX301M is left failing on purpose and recorded as a scoping question: it tests
+flagging of the **intermediate** subset, and every construct it names —
+`ORGANIZATION IS INDEXED`, `ACCESS MODE IS RANDOM`, `RECORD KEY IS`, the
+`NOT INVALID KEY` phrases — is one PowerRustCOBOL implements. A high-subset
+compiler must not flag them.
+
+
 ## [PowerRustCOBOL 1.62.70] — 2026-08-29
 
 **CCVS85's `T` and `U` opt-codes are mutually exclusive, and the harness now

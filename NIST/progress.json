@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.70",
+  "measured_at_version": "1.62.71",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -49,8 +49,8 @@
       "state": "in_flight",
       "protected": false,
       "compile": [42, 42],
-      "execution": [37, 42],
-      "assertions": { "pass": 561, "fail": 20, "deleted": 1 }
+      "execution": [38, 42],
+      "assertions": { "pass": 567, "fail": 14, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -80,8 +80,22 @@
   },
 
   "work_queue": [
-    { "id": "ix-remaining-five", "module": "IX", "priority": 1, "title": "The last five programs", "evidence": "After 1.62.70: IX301M (7 FAIL, 0 PASS - nothing passes, likely one early failure poisoning the rest), IX401M (5), IX106A (4), IX211A (2), IX215A (2). Twenty failures in all. Re-bucket with `fails IX` first; the ranking has shifted after every fix.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
-    { "id": "ix301m", "module": "IX", "priority": 2, "title": "IX301M reports 7 FAIL / 0 PASS", "evidence": "Nothing in the program passes, which usually means a single early failure poisons every later assertion. Worth its own look before the long tail.", "fix_sketch": "Unknown; run `report IX301M` first." },
+    {
+      "id": "ix301m-intermediate-subset-flagging",
+      "module": "IX",
+      "priority": 1,
+      "title": "IX301M asks for INTERMEDIATE-subset flagging, which we do not do",
+      "worth": "7 failures — the whole of IX301M, and the last flagging member in the module.",
+      "evidence": "Its own header: 'THE FOLLOWING PROGRAM TESTS THE FLAGGING OF INTERMEDIATE SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED INPUT-OUTPUT.' The seven constructs it expects flagged are ORGANIZATION IS INDEXED, ACCESS MODE IS RANDOM, RECORD KEY IS, and the NOT INVALID KEY phrase on READ / REWRITE / WRITE / DELETE.",
+      "the_question": "Those are features PowerRustCOBOL implements. A compiler validating at the HIGH subset must NOT flag them; only one validating at the minimum subset would. We have `flagging::flag_high_subset` and nothing for the intermediate boundary, which is why nothing is flagged and all seven 'fail'. Compare IX401M, which asks for high-subset flagging and now scores 10/10.",
+      "options": [
+        "Treat IX301M as out of scope for a high-subset implementation, the way CM/RW/OB* already are — the honest reading if we only ever validate at the high subset.",
+        "Add a `flag_intermediate_subset` pass and run it for members that declare themselves intermediate, so both boundaries can be scored. More faithful, and the only way IX reaches 42/42 on the current scoring.",
+        "Leave it failing and say so."
+      ],
+      "operator_call": "This is a scoping decision, not a defect. Do not invent flags for features we support just to make the number move."
+    },
+    { "id": "ix-remaining-four", "module": "IX", "priority": 2, "title": "The last four execution programs", "evidence": "After 1.62.71: IX106A (4), IX211A (2), IX215A (2) plus IX301M (7, a scoping question tracked separately). Eight failures across the three that actually run. Re-bucket with `fails IX` first.", "fix_sketch": "Unknown; diagnose from `fails IX` and the per-program report." },
     { "id": "ix-long-tail", "module": "IX", "priority": 3, "title": "Remaining IX programs", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
@@ -115,6 +129,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.71", "change": "Flag the Indexed constructs above the high subset (IX401M)", "effect": "IX 37 -> 38 clean, 561 -> 567 PASS, 97.6%. IX401M 5 wrong -> 0. RECORD VARYING now matches the optional IS, which is what IX401M writes." },
     { "version": "1.62.70", "change": "Opt-code T and U are mutually exclusive; the harness selects T", "effect": "IX 35 -> 37 clean, 550 -> 561 PASS, 33 -> 20 failures, 94.3% -> 96.6%. IX207A and IX208A clean; IX107A unaffected." },
     { "version": "1.62.69", "change": "AT END makes a READ sequential even under DYNAMIC access; NEXT is optional in that format", "effect": "No NIST movement - IX208A, which prompted it, uses SEQUENTIAL access. A real conformance fix, validated on its own repro: under DYNAMIC a READ ... AT END after a START now continues instead of re-reading by RECORD KEY." },
     { "version": "1.62.68", "change": "A generic START key may name a subordinate item of an ALTERNATE key", "effect": "IX 32 -> 35 clean, 528 -> 550 PASS, 58 -> 33 failures, 90.1% -> 94.3%. IX209A, IX210A, IX214A clean; IX215A 8 -> 2." },
