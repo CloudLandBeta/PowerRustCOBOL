@@ -864,6 +864,67 @@ fn operator_input(name: &str) -> Option<String> {
     Some(s)
 }
 
+/// The member that creates the data file this one reads, when the program says
+/// it inherits one.
+///
+/// Most CCVS85 programs build whatever they need and are self-contained. A few
+/// are the second half of a pair: they read a file an **earlier member** wrote,
+/// and each one says so in its own header comment. Run such a program in an
+/// empty directory and it opens a file that is not there, then correctly
+/// reports the absence as a failure — IX110A scores 2 FAIL / 2 PASS alone and
+/// **4 PASS / 0 FAIL** with its producer run first, against an unchanged
+/// runtime.
+///
+/// Every entry below is quoted from the consumer's own header. Nothing is
+/// inferred from which X-cards two programs happen to share.
+///
+/// **Blanket sharing is wrong**, and measuring it is how that was settled:
+/// giving a whole module one directory took IX from 13 to 15 clean but broke
+/// members that need a file to be *absent* — IX111A ("THIS PROGRAM USES THE
+/// FILE IX-NOP WHICH DOES NOT EXIST", expecting status 35) and IX216A (`OPEN
+/// EXTEND` on an OPTIONAL file, expecting 05) both went red against leftovers
+/// from earlier programs. A validating installation scratches files between
+/// programs except where a member declares it inherits one, which is what this
+/// table encodes.
+fn inherits_from(name: &str) -> Option<&'static str> {
+    Some(match name {
+        // "THE FILE USED AS INPUT IS THAT CREATED BY IX101."
+        "IX102A" => "IX101A",
+        // "THE ROUTINE USES THE FILE IX-FS3 WHICH HAS BEEN CREATED BY IX109."
+        "IX110A" => "IX109A",
+        // "THIS ROUTINE USES THE MASS STORAGE FILE IX-FS3 CREATED IN IX113A."
+        "IX114A" | "IX115A" | "IX116A" | "IX117A" | "IX118A" | "IX119A" | "IX120A" => "IX113A",
+        // "THE FILE USED AS INPUT IS THAT CREATED BY IX201A."
+        "IX202A" => "IX201A",
+        _ => return None,
+    })
+}
+
+/// Run the chain of producers a member declares, into that member's own
+/// directory, so it finds the file it says it inherits.
+///
+/// Follows [`inherits_from`] transitively — a producer that is itself a
+/// consumer is run first — and runs each producer for its side effects only;
+/// its report is discarded. A member that declares nothing costs nothing here.
+fn run_producers(
+    rcrun: &std::path::Path,
+    workroot: &std::path::Path,
+    members: &[Member],
+    target: &str,
+) {
+    let Some(producer) = inherits_from(target) else {
+        return;
+    };
+    // Depth first, so the oldest ancestor writes its file before the member
+    // that reads and extends it.
+    run_producers(rcrun, workroot, members, producer);
+    let Some(m) = members.iter().find(|m| m.name == producer) else {
+        eprintln!("  ! {target} declares producer {producer}, which is not in the suite");
+        return;
+    };
+    run_one_in(rcrun, &workroot.join(target), &m.name, &m.text);
+}
+
 /// The data files the **installation** supplies, planted into a member's work
 /// directory before it runs.
 ///
@@ -1046,7 +1107,7 @@ fn run_pass(members: &[Member], filter: &str) {
             continue;
         }
 
-        let (outcome, _) = run_one(&rcrun, &workroot, &m.name, &m.text);
+        let (outcome, _) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
         outcomes.push((m.name.clone(), module, outcome));
     }
 
@@ -1083,7 +1144,7 @@ fn fails_pass(members: &[Member], filter: &str) {
         if is_out_of_scope(&module_of(&m.name)) {
             continue;
         }
-        let (outcome, report) = run_one(&rcrun, &workroot, &m.name, &m.text);
+        let (outcome, report) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
         let report = match (&outcome, report) {
             (RunOutcome::Ran(_, f, _), Some(r)) if *f > 0 => r,
             _ => continue,
@@ -1154,7 +1215,7 @@ fn report_pass(members: &[Member], filter: &str) {
     let workroot = std::env::temp_dir().join("nist-report");
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
-    let (outcome, report) = run_one(&rcrun, &workroot, &m.name, &m.text);
+    let (outcome, report) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
     println!("=== {} — {outcome:?} ===", m.name);
     if let Some(r) = report {
         // Byte chunks, not characters: see `fails_pass`.
@@ -1204,11 +1265,32 @@ fn substitute_implementor_names(raw: &str) -> String {
 fn run_one(
     rcrun: &std::path::Path,
     workroot: &std::path::Path,
+    members: &[Member],
     name: &str,
     raw: &str,
 ) -> (RunOutcome, Option<String>) {
     let dir = workroot.join(name);
     let _ = std::fs::remove_dir_all(&dir);
+    // Whatever this member says it inherits, written into its directory first.
+    run_producers(rcrun, workroot, members, name);
+    let r = run_one_in(rcrun, &dir, name, raw);
+    // Reclaim the directory — a sweep is hundreds of programs and a runaway
+    // print file is measured in gigabytes.
+    let _ = std::fs::remove_dir_all(&dir);
+    r
+}
+
+/// Run one program in an already-chosen directory, leaving it in place.
+///
+/// Split out from [`run_one`] so a producer can be run into its consumer's
+/// directory without that directory being cleared underneath it.
+fn run_one_in(
+    rcrun: &std::path::Path,
+    dir: &std::path::Path,
+    name: &str,
+    raw: &str,
+) -> (RunOutcome, Option<String>) {
+    let dir = dir.to_path_buf();
     if std::fs::create_dir_all(&dir).is_err() {
         return (
             RunOutcome::Crash("cannot create the work directory".into()),
@@ -1354,9 +1436,21 @@ fn run_one(
             }
         }
     };
-    // Reclaim the directory immediately — a sweep is hundreds of programs and
-    // a runaway print file is measured in gigabytes.
-    let _ = std::fs::remove_dir_all(&dir);
+    // Reclaim this program's own artifacts immediately — a sweep is hundreds of
+    // programs and a runaway print file is measured in gigabytes — but leave
+    // the **data files** in place. They are the module's file chain, and the
+    // next member is entitled to find them: removing the directory here is what
+    // made a chained program open a file its producer had just written and
+    // score the absence as a failure. The whole workroot goes at the end of the
+    // pass.
+    for transient in [
+        src.as_path(),
+        print_file.as_path(),
+        console_path.as_path(),
+        &dir.join("rcrun-stderr.txt"),
+    ] {
+        let _ = std::fs::remove_file(transient);
+    }
     (result, report)
 }
 
@@ -1819,6 +1913,50 @@ mod tests {
                 want,
                 "{field} should occupy bytes {off}..{}",
                 off + len
+            );
+        }
+    }
+
+    /// The producer table is opt-in and terminates.
+    ///
+    /// A cycle would make `run_producers` recurse forever, and a self-reference
+    /// would run the member under test as its own prerequisite.
+    #[test]
+    fn declared_producers_terminate() {
+        for consumer in [
+            "IX102A", "IX110A", "IX114A", "IX115A", "IX116A", "IX117A", "IX118A", "IX119A",
+            "IX120A", "IX202A",
+        ] {
+            let mut seen = vec![consumer.to_string()];
+            let mut at = consumer;
+            while let Some(p) = inherits_from(at) {
+                assert!(
+                    !seen.iter().any(|s| s == p),
+                    "{consumer}'s producer chain cycles at {p}"
+                );
+                seen.push(p.to_string());
+                at = p;
+                assert!(seen.len() < 16, "{consumer}'s producer chain does not end");
+            }
+            assert!(seen.len() > 1, "{consumer} should declare a producer");
+        }
+    }
+
+    /// A member that builds its own file declares no producer.
+    ///
+    /// IX111A needs `IX-NOP` to be **absent** (it expects status 35), and
+    /// IX112A/IX113A create their files themselves — giving any of them a
+    /// prerequisite would plant a file the test requires not to be there.
+    #[test]
+    fn self_contained_members_declare_no_producer() {
+        for solo in [
+            "IX101A", "IX109A", "IX111A", "IX112A", "IX113A", "IX201A", "IX216A", "SQ203A",
+            "NC101A",
+        ] {
+            assert_eq!(
+                inherits_from(solo),
+                None,
+                "{solo} builds its own files and must run in a clean directory"
             );
         }
     }

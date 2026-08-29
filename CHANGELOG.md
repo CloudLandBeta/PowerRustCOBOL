@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.48] — 2026-08-29
+
+**NIST CCVS85 Indexed I/O (IX) rises from 13 to 16 of 42 on execution** —
+assertions **341 PASS / 439 FAIL → 354 PASS / 424 FAIL** — with **no change to
+the runtime**. This release corrects the measurement, not the compiler.
+
+A few CCVS85 programs are the second half of a pair: they read a data file an
+earlier member wrote, and each says so in its own header comment. IX110A opens
+with *"THE ROUTINE USES THE FILE IX-FS3 WHICH HAS BEEN CREATED BY IX109"*, and
+a dozen IX members share the file `XXXXX024` that IX109A writes. The harness
+ran every program in a directory of its own, so each consumer opened a file
+that was not there and correctly reported the absence as a failure. **IX110A
+scores 2 FAIL / 2 PASS alone and 4 PASS / 0 FAIL with its producer run first,
+against an unchanged runtime.**
+
+Each such member now declares its producer, quoted from its own header, and the
+harness runs that producer — transitively — into the consumer's directory
+first. Ten members declare one: IX102A, IX110A, IX114A–IX120A and IX202A.
+
+**Blanket sharing would have been wrong, and measuring it settled that.**
+Giving a whole module one shared directory took IX to 15 but broke members that
+need a file to be *absent*: IX111A (*"THIS PROGRAM USES THE FILE IX-NOP WHICH
+DOES NOT EXIST"*, expecting status 35) and IX216A (`OPEN EXTEND` on an OPTIONAL
+file, expecting 05) both went red against leftovers. A validating installation
+scratches files between programs except where a member declares it inherits
+one, which is what the table encodes — so every other program keeps the clean
+directory it had.
+
+Two tests guard the table: that no producer chain cycles or fails to terminate,
+and that a self-contained member declares nothing — IX111A, IX112A, IX113A and
+IX216A among them, where a planted file is exactly what the test forbids.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing.
+
 ## [PowerRustCOBOL 1.62.47] — 2026-08-29
 
 **NIST CCVS85 Sequential I/O (SQ) is complete — 85 of 85 on both axes**, with
