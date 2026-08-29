@@ -900,6 +900,9 @@ fn inherits_from(name: &str) -> Option<&'static str> {
         "IX114A" | "IX115A" | "IX116A" | "IX117A" | "IX118A" | "IX119A" | "IX120A" => "IX113A",
         // "THE FILE USED AS INPUT IS THAT CREATED BY IX201A."
         "IX202A" => "IX201A",
+        // "THE FILE USED IS THAT RESULTING FROM IX202." The IX2xx series
+        // mirrors IX1xx: one member creates the file, the next two process it.
+        "IX203A" => "IX202A",
         _ => return None,
     })
 }
@@ -2028,6 +2031,7 @@ mod tests {
     fn producer_chain_is_oldest_first() {
         assert_eq!(producer_chain("IX103A"), vec!["IX101A", "IX102A"]);
         assert_eq!(producer_chain("IX102A"), vec!["IX101A"]);
+        assert_eq!(producer_chain("IX203A"), vec!["IX201A", "IX202A"]);
         assert_eq!(producer_chain("IX110A"), vec!["IX109A"]);
         assert_eq!(producer_chain("IX114A"), vec!["IX113A"]);
         // Self-contained members bring nothing with them.

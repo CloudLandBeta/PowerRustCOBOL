@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.64",
+  "measured_at_version": "1.62.65",
   "measured_at": "2026-08-29",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -50,7 +50,7 @@
       "protected": false,
       "compile": [42, 42],
       "execution": [29, 42],
-      "assertions": { "pass": 518, "fail": 70, "deleted": 1 }
+      "assertions": { "pass": 521, "fail": 67, "deleted": 1 }
     },
     "IF": { "name": "Conditional", "state": "compile_only", "compile": [45, 45], "execution": null, "assertions": null },
     "IC": { "name": "Inter-program communication", "state": "compile_only", "compile": [45, 47], "execution": null, "assertions": null },
@@ -81,14 +81,14 @@
 
   "work_queue": [
     {
-      "id": "ix203a-read-next-always-fails",
+      "id": "ix203a-delete-family",
       "module": "IX",
       "priority": 1,
-      "title": "IX203A's READ ... NEXT RECORD never succeeds",
-      "worth": "9 failures in IX203A alone, and the same READ NEXT family appears in IX208A (9) and IX209A (9). Likely the largest remaining cluster.",
-      "evidence": "READ-TEST-F1-01 scans with `READ IX-FD1 NEXT RECORD AT END GO TO ...` and expects 501 attempts over 500 records; it computes 502, which is the loop's own safety valve (`IF WRK-CS-09V00-006 GREATER 501`) rather than an AT END. READ-TEST-F1-04 counts records whose UPDATE-NUMBER is neither 00 nor 01 and computes 502 against an expected 0 — every iteration saw a record that was never delivered. Together: the READ fails on every call and the record area is never filled.",
-      "exposed_by": "1.62.64. The AT END phrase used to run for any non-zero status, so the first failure exited the loop and hid this; F1-04 was passing only because the loop never reached the valve. Making the phrase cover status 10 alone stopped the masking.",
-      "next_probe": "Find the status that READ NEXT actually returns here — add a FILE STATUS display to an extracted copy, or reduce to a repro with IX203A's SELECT shape. IX203A is a chained member, so run its producers first. Note IX103A's F1-05 ('KEY VS RECORD') may be the same underlying defect seen from a different angle."
+      "title": "IX203A's remaining 6 failures are the DELETE family",
+      "worth": "6 in IX203A. The DELETE-TEST-GF family also carries failures in IX208A and IX106A, so a shared cause is plausible.",
+      "evidence": "After 1.62.65 gave IX203A its producer, three of its nine failures went away and READ NEXT works. What is left: DELETE-TEST-GF-01, -02, -04, -06 ('KEY MISMATCH'), -07 ('INCORRECT RECORD FOUND'), all citing IX-21 4.3.2, plus READ-TEST-F1-02.",
+      "resolved_cause": "The earlier reading — 'READ NEXT never succeeds' — was right about the symptom and wrong about the cause. It was not a runtime defect: IX203A reads a file IX202A writes and was running in an empty directory. Do not look for a READ NEXT bug.",
+      "next_probe": "Read DELETE-TEST-GF-01 and -06 in the extracted source and compare the computed record counts against what the file actually holds after IX202A. Run the producers first."
     },
     {
       "id": "ix-singleton-failures",
@@ -145,6 +145,7 @@
     { "version": "1.62.54", "change": "NIST work becomes a resumable loop: this ledger plus the nist-grind skill", "effect": "process; no runtime change" },
     { "version": "1.62.55", "change": "Generic (partial) key START matches on the prefix, in all three engines", "effect": "IX 122 -> 115 failures; assertions 79.6% -> 80.7%" },
     { "version": "1.62.56", "change": "A REDEFINES of a key names the same key of reference", "effect": "IX 115 -> 112 failures; assertions 80.7% -> 81.2%" },
+    { "version": "1.62.65", "change": "IX203A declares its producer (IX202A), completing the IX2xx chain", "effect": "IX203A 9 -> 6 failures; 518 -> 521 PASS. Clean count unchanged at 29." },
     { "version": "1.62.64", "change": "A READ phrase covers one condition: AT END is status 10 only, INVALID KEY 21-24", "effect": "IX 28 -> 29 clean (IX114A). Assertions flat at 518/70: IX203A lost one, having relied on AT END swallowing a READ that fails on every call - see ix203a-read-next-always-fails." },
     { "version": "1.62.63", "change": "A sequential REWRITE may not change the record key: status 21, not 92", "effect": "IX 27 -> 28 clean (IX119A); 517 -> 518 PASS." },
     { "version": "1.62.62", "change": "SELECT OPTIONAL applies to keyed files: an absent optional file opens with 05", "effect": "IX 24 -> 27 clean. IX216A, IX217A and IX218A all went clean - three programs, where only IX216A had been predicted." },

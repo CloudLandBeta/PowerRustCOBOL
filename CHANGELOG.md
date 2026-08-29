@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.65] — 2026-08-29
+
+**IX203A declares its producer, completing the IX2xx chain.** Test-harness
+fidelity; no runtime change. NIST CCVS85 Indexed I/O assertions go 518 PASS /
+70 FAIL → **521 PASS / 67 FAIL**, with IX203A itself falling from 9 failures to
+6. Programs running clean stay at 29 of 42.
+
+IX203A's header says *"THE FILE USED IS THAT RESULTING FROM IX202"* — the IX2xx
+series mirrors IX1xx, one member creating the file and the next two processing
+it. Only IX202A ← IX201A had been recorded, so IX203A ran in an empty directory
+and every `READ … NEXT RECORD` failed for want of a file.
+
+**This corrects a diagnosis, not just a score.** The previous release recorded
+"IX203A's READ NEXT never succeeds" as the largest remaining runtime defect,
+reasoning from a scan that counted 502 records it never received. The symptom
+was real and the cause was wrong: there was no `READ NEXT` bug, only a missing
+file. The ledger now says so explicitly, so no future session goes looking for
+one.
+
+What remains in IX203A is the `DELETE-TEST-GF` family — six failures citing
+IX-21 4.3.2, including a key mismatch and an incorrect record found.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
 ## [PowerRustCOBOL 1.62.64] — 2026-08-29
 
 **A statement's conditional phrase covers one condition, not every failure.**
