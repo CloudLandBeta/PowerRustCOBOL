@@ -11,8 +11,8 @@
 //! items.
 
 use cobolt_ast::data::{
-    ConditionValue, DataDecl, FileDescription, Linage, OccursClause, PicClause, PicKind, ScreenItem,
-    Usage,
+    ConditionValue, DataDecl, FileDescription, Linage, OccursClause, PicClause, PicKind,
+    RecordSizing, ScreenItem, Usage,
 };
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{DataDivision, DataSection};
@@ -125,9 +125,10 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
         let name = p.expect_identifier("file name");
         let mut is_global = false;
         let mut linage: Option<Linage> = None;
+        let mut record_sizing: Option<RecordSizing> = None;
         // Consume optional clauses until period. Most are recorded elsewhere or
-        // do not affect execution; LINAGE does, so it is read rather than
-        // skipped.
+        // do not affect execution; LINAGE and RECORD do, so they are read
+        // rather than skipped.
         while !p.at(&Token::Period) && !p.at(&Token::Eof) {
             if p.at(&Token::Global) {
                 is_global = true;
@@ -135,6 +136,14 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             if is_word(p.peek(), "LINAGE") {
                 linage = parse_linage_clause(p);
                 continue;
+            }
+            if p.at(&Token::Record) {
+                if let Some(rs) = parse_record_clause(p) {
+                    record_sizing = Some(rs);
+                    continue;
+                }
+                // Not a size clause after all (`RECORD IS STANDARD`, `DATA
+                // RECORD IS x`): fall through and skip the word.
             }
             p.advance();
         }
@@ -146,10 +155,96 @@ fn parse_file_section(p: &mut Parser) -> Vec<FileDescription> {
             is_global,
             records: build_tree(records),
             linage,
+            record_sizing,
             span,
         });
     }
     fds
+}
+
+/// Parse the FD `RECORD` size clause, positioned on `RECORD`.
+///
+/// Three shapes share the keyword, and only these are size clauses:
+///
+/// ```text
+/// RECORD CONTAINS n [TO m] CHARACTERS
+/// RECORD [IS] VARYING [IN SIZE] [FROM n] [TO m] [CHARACTERS] [DEPENDING ON item]
+/// RECORD VARYING.
+/// ```
+///
+/// `LABEL RECORD IS STANDARD` and `DATA RECORD IS x` also put `RECORD` in the
+/// FD, so the clause is claimed only when `CONTAINS` or `VARYING` follows —
+/// otherwise this returns `None` and the caller skips the word as before. That
+/// look-ahead is what keeps `DATA RECORD IS PRINT-REC` from being read as a
+/// size. The parser is left unmoved when `None` is returned.
+fn parse_record_clause(p: &mut Parser) -> Option<RecordSizing> {
+    let start = p.pos;
+    p.advance(); // RECORD
+    p.eat(&Token::Is);
+    p.eat(&Token::Are);
+
+    if p.eat(&Token::Contains) {
+        // `RECORD CONTAINS n [TO m] CHARACTERS`
+        let Some(first) = eat_required_integer(p) else {
+            p.pos = start;
+            return None;
+        };
+        let second = if p.eat(&Token::To) {
+            eat_required_integer(p)
+        } else {
+            None
+        };
+        p.eat(&Token::Characters);
+        return Some(match second {
+            Some(m) => RecordSizing {
+                min: Some(first),
+                max: Some(m),
+                varying: true,
+                depending_on: None,
+            },
+            None => RecordSizing {
+                min: Some(first),
+                max: Some(first),
+                varying: false,
+                depending_on: None,
+            },
+        });
+    }
+
+    if !p.eat(&Token::Varying) {
+        p.pos = start;
+        return None;
+    }
+
+    // `IN SIZE` is noise here; neither word carries a length. `SIZE` lexes as
+    // `Token::SizeError` — the lexer maps the bare word there because `ON SIZE
+    // ERROR` is where it usually appears, and the parser pairs the two.
+    p.eat(&Token::In);
+    p.eat(&Token::SizeError);
+    let min = if p.eat(&Token::From) {
+        eat_required_integer(p)
+    } else {
+        None
+    };
+    let max = if p.eat(&Token::To) {
+        eat_required_integer(p)
+    } else {
+        None
+    };
+    p.eat(&Token::Characters);
+    let depending_on = if p.eat(&Token::Depending) {
+        p.eat(&Token::On);
+        p.eat_identifier().map(|(n, _)| n.to_ascii_uppercase())
+    } else {
+        None
+    };
+
+    Some(RecordSizing {
+        min,
+        max,
+        varying: true,
+        depending_on,
+    })
 }
 
 /// Parse `LINAGE IS n LINES [WITH FOOTING AT f] [LINES AT TOP t]

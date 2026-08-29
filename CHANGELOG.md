@@ -1,5 +1,115 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.44] — 2026-08-28
+
+**NIST CCVS85 Sequential I/O (SQ) goes 44 → 67 of 85 on execution**, with
+assertions rising from 471 PASS / 162 FAIL to **560 PASS / 60 FAIL** (74.4 % →
+90.3 %). Compile stays at 85 of 85 for SQ and 422 of 434 for the whole suite.
+Nucleus is unchanged at 95 of 95 on both axes, 4 614 assertions with none
+failing (GOLDEN RULE #9: SQ is the module in flight, and NC's ceiling is
+re-measured after every change).
+
+Six corrections to how a record travels between a COBOL program and a
+sequential file, all of them missing COBOL-85 behaviour rather than new
+capability.
+
+### Fixed — variable-length records
+
+The FD's `RECORD` clause was skipped entirely, so every sequential file was a
+run of equal-sized records. All three spellings are now read and honoured:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD IS VARYING IN SIZE FROM 120 TO 151 CHARACTERS
+             DEPENDING ON RECORD-LENGTH.
+       01  SHORT-RECORD.
+           02  CUST-KEY   PIC X(120).
+       01  LONG-RECORD.
+           02  CUST-KEY-2 PIC X(120).
+           02  CUST-NOTES PIC X(31).
+```
+
+* `RECORD CONTAINS n CHARACTERS` — fixed length, unchanged behaviour.
+* `RECORD CONTAINS n TO m CHARACTERS` — variable; the record description the
+  `WRITE` names gives the length.
+* `RECORD [IS] VARYING [IN SIZE] [FROM n] [TO m] [DEPENDING ON item]` — the data
+  item *is* the length. Set it before a `WRITE` and it is the number of
+  characters written; after a `READ` it holds the length of the record read.
+
+An FD whose `01` records are of **different sizes** is variable-length whether
+or not it says so, which is what COBOL-85 requires and what SQ107A relies on.
+A variable-length file carries each record's length with the record; a
+fixed-length file's bytes are unchanged.
+
+### Fixed — an FD's record descriptions share one record area
+
+Each `01` under an FD describes the same storage. A `WRITE` now sends that whole
+area — where the named record has `FILLER`, what another record description put
+there shows through — and a `READ` delivers the bytes through every record
+description, so an FD with a short and a long record hands back the long one's
+extra fields.
+
+### Fixed — `FILLER` occupies its bytes in an FD record
+
+A `FILLER` was skipped along with its width, so every field after one sat at the
+wrong offset: `03 FILLER PIC X(120). 03 EXT-18 PIC X(18).` measured 18 bytes
+with `EXT-18` at offset zero. A record that is *nothing but* `FILLER` —
+`01 PRINT-LINE. 02 FILLER PIC X(120).` — was written out as 120 spaces however
+much the program had moved into it.
+
+### Fixed — `SIGN IS SEPARATE CHARACTER` widens the item in a record
+
+`PIC S9(5) SIGN IS LEADING SEPARATE CHARACTER` occupies six character positions,
+not five. The record layout counted five, so every field after it was one byte
+out of step with the record area.
+
+### Fixed — `READ … INTO` follows group-move rules
+
+`READ file INTO identifier` is the `READ` followed by a group `MOVE`, so the
+record is distributed across the receiver's subordinate items and cut at the
+receiver's own width. It was written into the group's own slot instead, which
+nothing reads back, leaving the receiver's children at their old values:
+
+```cobol
+       READ CUSTOMER-FILE INTO WS-SUMMARY-AREA
+           AT END SET END-OF-FILE TO TRUE
+       END-READ.
+```
+
+A subscripted receiver (`READ f INTO TABLE-ENTRY (1)`) now lands in the
+subscripted item rather than the first one, and the record is moved as bytes, so
+a record holding a byte that is not a character arrives intact.
+
+### Fixed — `REWRITE` on a record-sequential file
+
+`REWRITE` was implemented for indexed files only; on a sequential file it
+reported a permanent I/O error and changed nothing. It now replaces the record
+the last `READ` delivered, in place, and leaves the read position alone — so a
+read-modify-rewrite loop walks the file exactly once:
+
+```cobol
+           OPEN I-O LEDGER-FILE.
+           READ LEDGER-FILE AT END SET END-OF-FILE TO TRUE END-READ.
+           MOVE "SETTLED" TO LEDGER-STATUS.
+           REWRITE LEDGER-RECORD.
+```
+
+With the statuses the standard requires: **`49`** when the file is not open
+`I-O`, **`43`** when no successful `READ` established a record — after `AT END`,
+or on a second `REWRITE` with no `READ` between — and **`44`** when the new
+record is not the same length as the one read. On a `RECORD … DEPENDING ON`
+file the item's value *is* that length, so changing it and rewriting is how a
+program asks for a different length, and `44` is the answer.
+
+### Fixed — the NIST harness could not read a report containing raw bytes
+
+`nist_conformance run` read each program's print file as UTF-8 text. NC107A
+prints the figurative constants, so its report legitimately carries `HIGH-VALUE`
+(`0xFF`) and `LOW-VALUE` (`0x00`) bytes — the whole file was rejected and its 177
+passing assertions scored as "no report printed". Reports are now read as bytes
+and decoded lossily: a runtime that faithfully writes the byte it was told to
+write no longer looks like a failure.
+
 ## [PowerRustCOBOL 1.62.43] — 2026-08-28
 
 **NIST CCVS85 Sequential I/O (SQ) compiles completely — 85 of 85 — and goes

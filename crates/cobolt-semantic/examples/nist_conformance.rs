@@ -1247,13 +1247,24 @@ fn run_one(
     let (result, report) = match outcome {
         Some(bad) => (bad, None),
         None => {
-            let printed = std::fs::read_to_string(&print_file).ok();
+            // Read as **bytes**, then decode lossily. A CCVS report is not
+            // guaranteed to be UTF-8: NC107A prints the figurative constants,
+            // so its report carries real `HIGH-VALUE` (0xFF) and `LOW-VALUE`
+            // (0x00) bytes. `read_to_string` rejects that whole file, and the
+            // program's 177 passing assertions were scored as "no report
+            // printed" — a runtime that faithfully writes the byte it was told
+            // to write must not look like a failure here.
+            let printed = std::fs::read(&print_file)
+                .ok()
+                .map(|b| String::from_utf8_lossy(&b).into_owned());
             match printed.as_deref().and_then(score_ccvs_report) {
                 Some((p, f, d)) => (RunOutcome::Ran(p, f, d), printed),
                 // Nothing in the print file. The member may have reported on
                 // the console instead — see [`score_console_report`].
                 None => {
-                    let console = std::fs::read_to_string(&console_path).unwrap_or_default();
+                    let console = std::fs::read(&console_path)
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .unwrap_or_default();
                     match score_console_report(name, &console) {
                         Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(console)),
                         None => (RunOutcome::NoReport, printed),

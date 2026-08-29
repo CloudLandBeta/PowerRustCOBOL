@@ -17,7 +17,7 @@
 //! * Key resolution — turning RECORD KEY / ALTERNATE KEY field names into the
 //!   `[offset, len)` key specs the indexed engine needs.
 
-use cobolt_ast::data::{DataDecl, PicKind};
+use cobolt_ast::data::{DataDecl, PicKind, SignClause};
 
 use crate::environment::CobolEnvironment;
 use crate::indexed::KeySpec;
@@ -47,37 +47,56 @@ pub fn compute_layout(record: &DataDecl) -> RecordLayout {
     let mut fields = Vec::new();
     let mut offset = 0usize;
 
-    fn walk(d: &DataDecl, offset: &mut usize, fields: &mut Vec<FieldPos>) {
+    fn walk(d: &DataDecl, sign: Option<SignClause>, offset: &mut usize, fields: &mut Vec<FieldPos>) {
         let times = d
             .occurs
             .as_ref()
             .map(|o| o.max.max(1) as usize)
             .unwrap_or(1);
+        // `SIGN IS … SEPARATE` written on a group applies to every subordinate
+        // signed item that does not carry its own.
+        let sign = d.sign.or(sign);
         for _ in 0..times {
             if !d.children.is_empty() {
                 for c in &d.children {
-                    walk(c, offset, fields);
+                    walk(c, sign, offset, fields);
                 }
-            } else if let (Some(name), Some(pic)) = (&d.name, &d.picture) {
-                let len = (pic.digits as usize + pic.decimals as usize).max(1);
-                let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
-                fields.push(FieldPos {
-                    name: name.to_ascii_uppercase(),
-                    offset: *offset,
-                    len,
-                    numeric,
-                    decimals: pic.decimals.min(u8::MAX as u16) as u8,
-                });
+            } else if let Some(pic) = &d.picture {
+                // `SIGN IS SEPARATE CHARACTER` gives the sign its own character
+                // position, so the item is one byte wider than its digits. The
+                // record area is measured by the environment too, and the two
+                // have to agree: SQ111A's `PIC S9(5) SIGN IS LEADING SEPARATE`
+                // made the layout 155 bytes against the environment's 156, and
+                // every field after it landed one byte out.
+                let sep = usize::from(
+                    matches!(pic.kind, PicKind::Numeric) && sign.is_some_and(|s| s.separate),
+                );
+                let len = (pic.digits as usize + pic.decimals as usize + sep).max(1);
+                // A `FILLER` occupies its bytes like any other item — it simply
+                // has no name to read or write. Skipping it *and* its width put
+                // every following field at the wrong offset, so a record
+                // beginning `03 FILLER PIC X(120). 03 EXT-18 PIC X(18).` looked
+                // 18 bytes long with `EXT-18` at offset zero (SQ134A).
+                if let Some(name) = &d.name {
+                    let numeric = matches!(pic.kind, PicKind::Numeric | PicKind::NumericEdited);
+                    fields.push(FieldPos {
+                        name: name.to_ascii_uppercase(),
+                        offset: *offset,
+                        len,
+                        numeric,
+                        decimals: pic.decimals.min(u8::MAX as u16) as u8,
+                    });
+                }
                 *offset += len;
             }
         }
     }
 
     if record.children.is_empty() {
-        walk(record, &mut offset, &mut fields);
+        walk(record, record.sign, &mut offset, &mut fields);
     } else {
         for c in &record.children {
-            walk(c, &mut offset, &mut fields);
+            walk(c, record.sign, &mut offset, &mut fields);
         }
     }
     RecordLayout {
@@ -109,6 +128,20 @@ impl RecordLayout {
     /// Build the contiguous record buffer from the current subfield values.
     pub fn materialize(&self, env: &CobolEnvironment) -> Vec<u8> {
         let mut buf = vec![b' '; self.len];
+        self.materialize_into(env, &mut buf);
+        buf
+    }
+
+    /// Lay this record's subfields over an existing buffer, leaving every byte
+    /// no named field covers as it was.
+    ///
+    /// An FD's several `01` record descriptions all describe **one** record
+    /// area, so a `WRITE` that names one of them still sends the whole area:
+    /// where the named record has `FILLER`, what another record description put
+    /// there shows through. Overlaying them in declaration order with the
+    /// written one last reproduces that, and it is why this takes a buffer
+    /// rather than making its own.
+    pub fn materialize_into(&self, env: &CobolEnvironment, buf: &mut [u8]) {
         for f in &self.fields {
             let bytes = field_bytes(env, f);
             let end = (f.offset + f.len).min(buf.len());
@@ -118,7 +151,6 @@ impl RecordLayout {
             let n = (end - f.offset).min(bytes.len());
             buf[f.offset..f.offset + n].copy_from_slice(&bytes[..n]);
         }
-        buf
     }
 
     /// Distribute a record buffer back into the subfields.

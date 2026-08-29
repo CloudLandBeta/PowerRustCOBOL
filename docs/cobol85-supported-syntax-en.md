@@ -165,18 +165,22 @@ For contrast, the same table at 1.62.23 read 65 clean of 95, 4 278 PASS /
 | in scope | 85 |
 | did not compile | 0 |
 | ran to completion | 83 |
-| **…reporting 0 failures** | **44** |
-| …reporting failures | 39 |
+| **…reporting 0 failures** | **67** |
+| …reporting failures | 16 |
 | ran but printed no report | 0 |
 | timed out (>20 s) | 0 |
 | runaway output (>2 MB) | 2 |
 | crashed or were refused by the runtime | 0 |
 
-Assertions: **471 PASS / 162 FAIL**, 74.4 % of 633 scored. At 1.62.42 the same
+Assertions: **560 PASS / 60 FAIL**, 90.3 % of 620 scored. At 1.62.42 the same
 table read **10** clean of 85, 20 crashed, 1 timed out and 215 PASS / 190 FAIL —
-the crash cluster was one defect, declarative paragraphs losing their names.
-The largest remaining theme is **variable-length records** (`RECORD IS VARYING`
-/ `RECORD CONTAINS n TO m`), which the sequential reader does not yet honour.
+the crash cluster was one defect, declarative paragraphs losing their names; at
+1.62.43 it read 44 clean and 471 PASS / 162 FAIL. Variable-length records, the
+shared record area, `FILLER` widths, `READ … INTO` and sequential `REWRITE`
+landed in 1.62.44.
+The themes still open are **`CLOSE REEL/UNIT`** (SQ124A), the three `M` members
+that score nothing (SQ302M, SQ303M, SQ401M), and two programs whose print files
+run away (SQ208M, SQ210M).
 
 > A `FAIL*` detail line is written **twice** on purpose — CCVS's `PRINT-DETAIL`
 > runs `IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE` — while `PASS ` is
@@ -780,6 +784,26 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
 - ✅ `READ f [RECORD] [{NEXT|PREVIOUS}] [INTO id] [KEY IS k] [WITH [NO] LOCK]
   [AT END …][NOT AT END …][INVALID KEY …][NOT INVALID KEY …][END-READ]`.
   `WITH NO LOCK` releases the record lock the INDEXED engine takes under I‑O.
+- ✅ **`READ … INTO id` is the `READ` followed by a group `MOVE`.** The record is
+  distributed across the receiver's subordinate items by width and cut at the
+  receiver's own width, the receiver may be subscripted, and the move carries
+  bytes — a record holding a byte that is not a character arrives intact.
+- ✅ **FD `RECORD` clause — variable-length records.** All three spellings:
+  `RECORD CONTAINS n CHARACTERS` (fixed), `RECORD CONTAINS n TO m CHARACTERS`
+  (variable; the record description the `WRITE` names gives the length), and
+  `RECORD [IS] VARYING [IN SIZE] [FROM n] [TO m] [CHARACTERS] [DEPENDING ON id]`
+  (the data item *is* the length — set before a `WRITE`, set back by a `READ`,
+  and clamped to the declared range). An FD whose `01` records differ in size is
+  variable-length whether or not it says so. A variable-length file stores each
+  record's length with the record, so its bytes are **not** interchangeable with
+  a fixed-length file's; a fixed-length file is unchanged.
+- ✅ **An FD's `01` records describe one record area.** A `READ` delivers the
+  bytes through every record description; a `WRITE` sends the whole area, so what
+  another record description put where the written one has `FILLER` shows
+  through.
+- ✅ **`FILLER` occupies its bytes in an FD record**, and
+  `SIGN IS SEPARATE CHARACTER` makes a signed DISPLAY item one character wider
+  than its digit positions.
 - ✅ **A sequential `READ` after `AT END` is `46`, not a second `10`.** The
   `AT END` left no valid next record, so reading on is a different error from
   reaching the end. `46` is a class‑4 status, so neither `AT END` nor
@@ -804,6 +828,14 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   [INVALID KEY …][NOT …][END-WRITE]`.
 - ✅ `REWRITE rec [FROM id] [INVALID KEY …][END-REWRITE]`;
   `DELETE f [RECORD] [INVALID KEY …][END-DELETE]`.
+- ✅ **`REWRITE` on a record-SEQUENTIAL file** replaces the record the last
+  `READ` delivered, in place, and leaves the read position where it was — the
+  next `READ` still gives the record that follows. The statuses it owes:
+  **`49`** when the file is not open `I-O`, **`43`** when no successful `READ`
+  established a record (including after `AT END`, and on a second `REWRITE` with
+  no `READ` between), and **`44`** when the new record is not the same length as
+  the one read — on a `DEPENDING ON` file the item's value is that length, which
+  is how a program asks for a different one.
 - ✅ `START f [KEY IS {= | > | >= | < | <= | NOT … | GREATER [THAN] [OR EQUAL TO]
   | LESS [THAN] [OR EQUAL TO]} k] [INVALID KEY …][END-START]`.
 - ⚠️ Cross‑*process* file sharing is not enforced (single run unit); the

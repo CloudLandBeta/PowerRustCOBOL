@@ -4837,6 +4837,155 @@ fresh `OPEN`, or a successful `START`, establishes a record again.
 > `01 CUST-STATUS. 03 CS-1 PIC X. 03 CS-2 PIC X.` — as well as an ordinary
 > `PIC XX`. Both receive the code.
 
+### How long is a record? The FD `RECORD` clause
+
+Coming from PowerCOBOL or isCOBOL you will have written records of one fixed
+size most of the time, and that is still the default: with no `RECORD` clause the
+`01` record description gives the length, and the file is a plain run of
+equal-sized records.
+
+The clause matters when records **vary**. It has three spellings.
+
+**Fixed** — documentation, and a check on the record description:
+
+```cobol
+       FD  LEDGER-FILE
+           RECORD CONTAINS 120 CHARACTERS.
+       01  LEDGER-RECORD PIC X(120).
+```
+
+**Variable, sized by the record you write.** Give a range, then declare a record
+description per size. Each `WRITE` sends as many characters as the record it
+names, and each `READ` gives back exactly what was written:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD CONTAINS 120 TO 151 CHARACTERS.
+       01  SHORT-RECORD.
+           02  CUST-KEY    PIC X(120).
+       01  LONG-RECORD.
+           02  CUST-KEY-2  PIC X(120).
+           02  CUST-NOTES  PIC X(31).
+       ...
+           WRITE SHORT-RECORD.     *> 120 characters
+           WRITE LONG-RECORD.      *> 151 characters
+```
+
+**Variable, sized by a data item** — `DEPENDING ON` makes an item *be* the
+length, and it works in both directions:
+
+```cobol
+       FD  CUSTOMER-FILE
+           RECORD IS VARYING IN SIZE FROM 120 TO 151 CHARACTERS
+             DEPENDING ON WS-RECORD-LENGTH.
+       ...
+       WORKING-STORAGE SECTION.
+       01  WS-RECORD-LENGTH PIC 999.
+       ...
+           MOVE 151 TO WS-RECORD-LENGTH.
+           WRITE LONG-RECORD.              *> writes 151 characters
+           ...
+           READ CUSTOMER-FILE
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+           DISPLAY "read " WS-RECORD-LENGTH " characters".
+```
+
+Set it before the `WRITE`; read it after the `READ`. A length outside the
+declared `FROM … TO` range is brought back inside it rather than writing a
+record the FD never allowed.
+
+> **Note.** An FD whose `01` records are of **different sizes** is a
+> variable-length file whether or not it says so — the `RECORD` clause is
+> optional and the record descriptions are what count. If you meant fixed-length
+> records, keep the descriptions the same size (or say `RECORD CONTAINS n
+> CHARACTERS`).
+
+> ⚠️ **A variable-length file is not interchangeable with a fixed-length one.**
+> Its records carry their own lengths, because that is the only way `READ` can
+> know where each one ends. A file written through a fixed-length FD is not read
+> correctly through a variable-length FD, or the other way round — so if two
+> programs share a file, give them the same `RECORD` clause.
+
+**Every `01` under an FD describes the same storage.** They are not separate
+buffers: `SHORT-RECORD` and `LONG-RECORD` above are two readings of one record
+area, exactly as in the COBOL you already write. So a `READ` fills in both — the
+long record's `CUST-NOTES` is there after reading a long record — and a `WRITE`
+sends the whole area, including any part the record it names covers only with
+`FILLER`.
+
+**`FILLER` holds its bytes.** An unnamed item in a record description is space
+you cannot address by name, not space that disappears:
+`02 FILLER PIC X(120).` is 120 characters of the record, and a record built
+entirely from `FILLER` still carries whatever a group `MOVE` put into it.
+
+**`SIGN IS SEPARATE CHARACTER` costs a character.** `PIC S9(5)` occupies five
+positions with the sign riding on a digit; `PIC S9(5) SIGN IS LEADING SEPARATE
+CHARACTER` occupies **six**, the extra one holding a literal `+` or `-`. Count it
+when you are laying out a record by hand.
+
+### Reading straight into working storage: `READ … INTO`
+
+`READ file INTO identifier` is the `READ` followed by a group `MOVE` of the
+record to `identifier` — which is worth stating plainly, because it means the
+move follows **group-move rules** and not the receiving item's `PICTURE`:
+
+```cobol
+       01  WS-SUMMARY-AREA.
+           02  WS-ACCOUNT  PIC X(12).
+           02  WS-BALANCE  PIC X(10).
+       ...
+           READ LEDGER-FILE INTO WS-SUMMARY-AREA
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+```
+
+The record's characters are laid across the receiver's subordinate items left to
+right, each taking its own width, and the record is **cut at the receiver's total
+width** — a 120-character record into a 22-character group delivers the first 22
+characters and leaves everything declared after the group alone. A receiver
+shorter than the record is therefore normal, not an error.
+
+The receiver may be subscripted (`READ LEDGER-FILE INTO TABLE-ENTRY (WS-I)`), and
+the record area itself is left holding the record as well, so you can read it
+through the `01` too.
+
+### Updating a sequential file in place: `REWRITE`
+
+`REWRITE` replaces the record the last `READ` delivered. The file must be open
+`I-O`, and the pattern is always read-then-rewrite:
+
+```cobol
+           OPEN I-O LEDGER-FILE.
+           READ LEDGER-FILE
+               AT END SET END-OF-FILE TO TRUE
+           END-READ.
+           MOVE "SETTLED" TO LEDGER-STATUS.
+           REWRITE LEDGER-RECORD.
+```
+
+The read position is not disturbed: the next `READ` still gives the record that
+*follows* the one you replaced, so a read-modify-rewrite loop walks the file
+exactly once.
+
+Three things it will refuse, each with a `FILE STATUS` worth testing for:
+
+| Situation | Status |
+| --- | --- |
+| The file is not open `I-O` | `49` |
+| No successful `READ` established a record — including after `AT END`, and a second `REWRITE` with no `READ` between | `43` |
+| The new record is not the same length as the one read | `44` |
+
+The length rule is the one that surprises people coming from indexed files.
+A sequential file has no room to grow a record in place — everything after it
+would have to move — so on a `RECORD … DEPENDING ON` file the item's value at
+`REWRITE` time must equal the length the `READ` reported. Changing it and
+rewriting is how you *ask* for a different length, and `44` is the answer.
+
+> **Note.** `REWRITE` never repositions the file, so there is no such thing as
+> rewriting "the record I read three reads ago". Keep the loop tight: read,
+> change, rewrite, read again.
+
 ### Rust inside COBOL — `EXEC RUST`
 
 `EXEC RUST … END-EXEC` embeds **real Rust**, compiled into your program. Not a
