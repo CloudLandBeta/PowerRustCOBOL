@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.51] — 2026-08-29
+
+**Developer's Guide covers the indexed-file behaviour shipped in 1.62.49 and
+1.62.50** (GOLDEN RULE #3 — a developer-observable change updates the guide).
+Two new sections in *Indexed files — a first-class resource*:
+
+- **What `ACCESS MODE` changes about writing and updating.** The ordering rules
+  that `SEQUENTIAL` imposes and `RANDOM`/`DYNAMIC` do not: `WRITE` in ascending
+  `RECORD KEY` order or `21`; `REWRITE`/`DELETE` only straight after a
+  successful `READ` or `43`. With a worked example, and the three traps —
+  a rejected `WRITE` does not advance the sequence, an equal key is `21` and
+  not `22`, and `START` does not satisfy the `READ` requirement. Carries a
+  caveat that `43` is class 4, so an `INVALID KEY` phrase will not catch it.
+- **Telling same-named keys apart with `OF` / `IN`.** Declaring and using keys
+  that share a data-name and differ only by their group, including that
+  qualification is by containment rather than immediate parentage.
+
+English canonical only — GOLDEN RULE #8 stays suspended, so no translation file
+is touched.
+
+
 ## [PowerRustCOBOL 1.62.50] — 2026-08-29
 
 **A file's record keys are told apart by their `OF`/`IN` qualifier.** NIST

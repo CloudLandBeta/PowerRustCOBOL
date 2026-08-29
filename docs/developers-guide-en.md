@@ -5693,6 +5693,93 @@ matters for performance and for what survives across runs:
 > `ROLLBACK` always undoes changes since the last `COMMIT`/`OPEN`, in RAM, for
 > both modes.
 
+### What `ACCESS MODE` changes about writing and updating
+
+`ACCESS MODE IS SEQUENTIAL` is not merely a different way of reading — it puts
+the file under ordering rules that `RANDOM` and `DYNAMIC` do not have. If you
+are coming from PowerCOBOL or isCOBOL this is familiar ground, but it is worth
+testing for explicitly, because the statuses are the only way to see it.
+
+| Statement, `ACCESS MODE IS SEQUENTIAL` | `FILE STATUS` |
+|---|---|
+| `WRITE` whose `RECORD KEY` is **not greater** than the previous one written | `21` |
+| `REWRITE` or `DELETE` with no successful `READ` immediately before it | `43` |
+| A second `REWRITE`/`DELETE` with no `READ` in between | `43` |
+| `REWRITE`/`DELETE` after a `START`, an `OPEN`, a `WRITE`, or a failed `READ` | `43` |
+
+```cobol
+       SELECT LEDGER-FILE ASSIGN TO "ledger.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS SEQUENTIAL
+           RECORD KEY IS LEDGER-ID
+           FILE STATUS IS LEDGER-STATUS.
+      *
+       OPEN OUTPUT LEDGER-FILE.
+       MOVE 100 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+       MOVE 200 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+       MOVE 150 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 21 — out of order
+       MOVE 300 TO LEDGER-ID.  WRITE LEDGER-RECORD.   *> 00
+```
+
+**Notes.**
+
+- A rejected `WRITE` stores nothing and does **not** move the sequence forward,
+  so the next key is judged against the last key actually written — `300` above
+  follows `200`, not the rejected `150`.
+- A key merely *equal* to the previous one is not greater, so it is `21` too —
+  not the duplicate-key `22` you would get under `RANDOM` or `DYNAMIC`.
+- `START` positions the file but delivers no record. It does not satisfy the
+  `REWRITE`/`DELETE` requirement; only a successful `READ` does.
+- Under `RANDOM` or `DYNAMIC` none of this applies: write in any order you
+  like, and address `REWRITE`/`DELETE` by the `RECORD KEY` value with no
+  preceding `READ`. A clash with an existing record there is `22`.
+
+> ⚠️ **Caveat.** Status `43` is class 4, not an `INVALID KEY` condition, so an
+> `INVALID KEY` phrase will not catch it. Test `FILE STATUS`, or let the file's
+> `USE AFTER STANDARD ERROR` declarative handle it.
+
+### Telling same-named keys apart with `OF` / `IN`
+
+A file may declare several keys whose data-names are identical and which are
+separated only by the group each one sits in. Qualify them exactly as you would
+anywhere else in COBOL:
+
+```cobol
+       SELECT ORDER-FILE ASSIGN TO "orders.idx"
+           ORGANIZATION IS INDEXED
+           ACCESS MODE IS DYNAMIC
+           RECORD KEY IS ORDER-KEY IN PRIME-AREA
+           ALTERNATE RECORD KEY IS ORDER-KEY OF ALT-AREA
+           FILE STATUS IS ORDER-STATUS.
+      *
+       FD  ORDER-FILE.
+       01  ORDER-RECORD.
+           05  PRIME-AREA.
+               10  ORDER-KEY   PIC X(10).
+           05  ALT-AREA.
+               10  ORDER-KEY   PIC X(10).
+           05  ORDER-DETAIL    PIC X(60).
+```
+
+The qualifier belongs to the key's identity, so use the same form when you name
+the key of reference:
+
+```cobol
+       MOVE "AX-4471" TO ORDER-KEY IN ALT-AREA.
+       READ ORDER-FILE KEY IS ORDER-KEY IN ALT-AREA
+           INVALID KEY     DISPLAY "no such order"
+           NOT INVALID KEY DISPLAY ORDER-DETAIL
+       END-READ.
+```
+
+**Notes.**
+
+- Qualification is by *containment*, not immediate parentage: `ORDER-KEY OF
+  ORDER-RECORD` names the field even when it sits one or more groups deeper.
+- An unqualified name still means the first field of that name, so nothing
+  changes for the ordinary case of one key per name.
+- The same applies to `START … KEY IS`.
+
 ### Crash-safe transactions
 
 The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
