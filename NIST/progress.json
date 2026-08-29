@@ -75,7 +75,7 @@
       "state": "in_flight",
       "compile": [45, 47],
       "execution": [10, 25],
-      "assertions": { "pass": 187, "fail": 71, "deleted": 4 },
+      "assertions": { "pass": 194, "fail": 62, "deleted": 4 },
       "baselined_at": "1.62.81 — 6 of 47, 134 PASS / 129 FAIL. Corrected at 1.62.82 once the harness supplied each caller's callees: 10 of 25, 187 PASS / 71 FAIL, 72.5%.",
       "denominator_note": "The execution denominator is 25, not 47. Twenty-two of IC's members are `SUBRTN` callees — separately compiled subprograms with no CCVS report of their own — so running one alone could only ever fail. They are still counted on the COMPILE axis, where the module remains 45 of 47. When comparing against the 1.62.81 baseline use 6 -> 10 of 25.",
       "shape": "Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. No crashes and no timeouts: the programs run and get the answers wrong. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
@@ -145,8 +145,9 @@
     {
       "id": "ic-call-binds-by-name-not-by-reference",
       "module": "IC",
-      "priority": 0,
-      "title": "A called program's data is the caller's, whenever the two use the same data-name",
+      "priority": 99,
+      "resolved_at": "1.62.84 — a BY REFERENCE parameter is now an ALIAS onto its argument (`env.set_alias`, the same redirection `SET ADDRESS OF` uses), released when the call returns. IC 187 -> 194 PASS, 71 -> 62 FAIL. Only the parameter is aliased: a group parameter's subordinate items keep resolving by name to the caller's, which is what the dead end below got wrong.",
+      "title": "RESOLVED — A called program's data is the caller's, whenever the two use the same data-name",
       "worth": "The largest IC bucket by far — roughly 30 of the 71 failures across IC101A, IC103A, IC201A and IC225A, all of them some form of 'value changed by call' or 'value not returned'.",
       "diagnosis": "DECISIVE, from IC201A CALL-TEST-02. It calls `IC202A USING DN1, DN2, DN1, DN4` — the third argument is DN1, not DN3 — and IC202A writes through its third LINKAGE item, which it happens to call `DN3`. The caller's own unrelated `DN3` is overwritten, because `push_local_scope` skips a name the caller already has, so the two are the SAME slot. The test checks exactly that: `DN3 VALUE CHANGED BY CALL`.",
       "where": "`CobolEnvironment::push_local_scope` (environment.rs) and the nested-program CALL arm of `exec_call` (interpreter.rs, ~line 8120). Binding today is by-name copy-in / copy-out: the parameter NAMES are set from the arguments before the call and written back after.",
@@ -286,7 +287,8 @@
   "parked": [],
 
   "protected_baselines": {
-    "_why": "These must hold after EVERY change. If a fix breaks one, revert the commit and record a dead end — do not chase the regression forward.",
+    "_why": "These must hold. If a fix breaks one, revert it and record a dead end — do not chase the regression forward.",
+    "_when": "Operator ruling, 2026-08-29: checked once per MODULE, not once per change. Running every finished module after every fix caught four problems across the whole grind, which does not pay for re-measuring 7000+ assertions each time. The full gate runs when the last failing assertion of the module in flight is done, before the module is written `finished`. Per change, only the module in flight plus the compile census. EXCEPTION: a change to `cobolt-lexer` or `cobolt-parser` is gated immediately — a front-end change has no module boundary, and two of the four catches were exactly that (NC245A on a comma rule, SQ203A on a header-card rule).",
     "NC": { "compile": [95, 95], "execution": [95, 95], "assertions_pass": 4614, "assertions_fail": 0 },
     "SQ": { "compile": [85, 85], "execution": [85, 85], "assertions_pass": 624, "assertions_fail": 0 },
     "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
@@ -296,6 +298,7 @@
   },
 
   "history": [
+    { "version": "1.62.84", "change": "A BY REFERENCE parameter is an alias onto its argument, not a by-name copy; the regression gate moves to once per module (operator ruling)", "effect": "IC 187 -> 194 PASS / 71 -> 62 FAIL, 72.5% -> 75.8%; still 10 of 25 clean. NC, SQ, IX, RL and IF exact. Gate policy: full run at module completion, module-in-flight plus compile census per change, front-end changes gated immediately." },
     { "version": "1.62.83", "change": "SG (Segmentation) declared out of scope — a segment-number compiles and has no effect on a 64-bit runtime, so there is no behaviour to measure (operator ruling)", "effect": "In-scope suite 434 -> 421; compile census 423/434 -> 410/421 (97.5% -> 97.4%). No module's own score moves. Also recorded: the IC parameter-binding diagnosis, and the dead end of the first attempt at it." },
     { "version": "1.62.82", "change": "The harness learns the `SUBRTN` control card: a caller runs with its separately compiled callees concatenated, and a callee is not scored as a test", "effect": "IC 6 -> 10 of its 25 tests, 134 -> 187 PASS / 129 -> 71 FAIL, 51.0% -> 72.5%. No compiler or runtime change. Denominator corrected from 47 to 25 (22 members are callees). Treating SUBPRG as a callee too broke SQ (85/85 -> 84/84) and was reverted within the same change." },
     { "version": "1.62.81", "change": "A sign glued to a literal is a sign, not a binary operator, when what precedes it is a numeric literal or `)`", "effect": "IF 44 -> 45 of 45, 841 PASS / 0 FAIL - the module is FINISHED, from a 24/45 baseline. NC, SQ, IX and RL exact on the first run; compile census 423/434 held. IC baselined at 6/47." },

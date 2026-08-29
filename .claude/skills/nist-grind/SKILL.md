@@ -34,11 +34,14 @@ becomes the default disk engine.
 1. **One module at a time, in order** (GOLDEN RULE #9). Finish the current
    module on **both** axes before starting the next. A tempting fix in another
    module goes in `parked` and is not acted on.
-2. **The protected baselines must hold after every change.** They are in the
-   ledger under `protected_baselines`. Today: NC 95/95 on both axes with
-   4614 PASS / 0 FAIL, SQ 85/85 with 624 PASS / 0 FAIL, whole-suite compile
-   422/434. **If a change breaks one, revert that commit and record a dead
-   end.** Do not chase the regression forward.
+2. **The protected baselines must hold — checked once per MODULE** (operator
+   ruling, 2026-08-29; see step 6). They are in the ledger under
+   `protected_baselines`: NC 95/95 on both axes with 4614 PASS / 0 FAIL, SQ
+   85/85 with 624 PASS / 0 FAIL, IX 41/41 with 574/0, RL 34/34 with 354/0, IF
+   45/45 with 841/0, whole-suite compile 410/421. **If a change breaks one,
+   revert that change and record a dead end.** Do not chase the regression
+   forward. A **lexer or parser** change is still gated immediately — that is
+   where the damage has actually happened.
 3. **Never conflate the two axes.** Compile is the strictly weaker claim.
    Always report both numbers.
 4. **A deleted test is not a passing one.** `***** ****TEST DELETED****` means
@@ -140,25 +143,54 @@ a regression from either becomes untraceable.
 
 ### 6. Test, then gate
 
+**Operator ruling, 2026-08-29: the full regression runs once per MODULE, not
+once per change.** Running every finished module after every fix costs minutes
+each time and caught four problems in the whole grind — a poor trade against
+7000+ assertions of re-measurement. The gate moves to the end of the module:
+when the last failing assertion of the module in flight is done, everything
+runs before the module is called finished.
+
+**Per change — the cheap check only:**
+
 ```bash
 cargo test --release -p cobolt-runtime --no-fail-fast
 ```
 
-Read **every** `test result:` line. Never verdict a sweep from a grep for
-failures.
-
-Then the **full regression** — all of it, every time:
-
 ```bash
-./target/release/examples/nist_conformance strict    > /tmp/strict-all.txt
-./target/release/examples/nist_conformance run   NC  > /tmp/run-nc.txt
-./target/release/examples/nist_conformance run   SQ  > /tmp/run-sq.txt
-./target/release/examples/nist_conformance run   IX  > /tmp/run-ix.txt
+./target/release/examples/nist_conformance run <CURRENT-MODULE>
 ```
 
-**The gate:** every `protected_baselines` figure must match exactly, and the
-current module must have improved or held. If a baseline moved down, revert and
-record a dead end.
+```bash
+./target/release/examples/nist_conformance strict
+```
+
+Read **every** `test result:` line. Never verdict a sweep from a grep for
+failures. The census is one command and roughly ninety seconds, and it is kept
+per-change on purpose: a **lexer or parser change has no module boundary**, and
+that is where the damage has actually happened. It is how NC245A surfaced —
+the semicolon mistake made it fail to *compile*, and the census names it.
+
+**Per module — the full gate**, before writing `finished` in the ledger:
+
+```bash
+./target/release/examples/nist_conformance run NC
+./target/release/examples/nist_conformance run SQ
+./target/release/examples/nist_conformance run IX
+./target/release/examples/nist_conformance run RL
+./target/release/examples/nist_conformance run IF
+```
+
+Every `protected_baselines` figure must match exactly. If one moved down,
+**bisect the module's commits** — that is the price of the deferral, and it is
+the trade the operator chose deliberately. Revert the offending change and
+record a dead end; do not chase the regression forward.
+
+⚠️ **One exception stays per-change.** If the fix touches `cobolt-lexer` or
+`cobolt-parser`, run the full gate immediately rather than deferring it. Two of
+the grind's four caught regressions were front-end changes breaking a module
+that had nothing to do with the work in flight (NC245A on a comma rule, SQ203A
+on a header-card rule), and a front-end defect landed under ten later commits is
+a bisect instead of a revert.
 
 ### 7. Add a regression test
 

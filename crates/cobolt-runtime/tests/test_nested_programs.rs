@@ -396,3 +396,137 @@ fn nested_program_without_end_program_terminator() {
     i.run().expect("run failed");
     assert_eq!(i.env.get_i64("WS-OK").unwrap_or(0), 9);
 }
+
+// ── CALL … USING parameter binding ───────────────────────────────────────────
+
+/// **BY REFERENCE binds the caller's storage, not a copy of it** — and the
+/// parameter's own name is irrelevant to which storage that is.
+///
+/// This is IC201A's `CALL-TEST-02` in miniature. The third argument is `DN1`,
+/// the callee calls its third parameter `DN3`, and the caller has an unrelated
+/// `DN3` of its own. Binding by name wrote the caller's `DN3`, which the suite
+/// reports as "DN3 VALUE CHANGED BY CALL".
+#[test]
+fn a_parameter_binds_to_its_argument_not_to_its_own_name() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 DN1 PIC S9(4) VALUE 1.
+       01 DN2 PIC S9(4) VALUE 0.
+       01 DN3 PIC S9(4) VALUE 0.
+       01 DN4 PIC S9(4) VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "CALLEE" USING DN1, DN2, DN1, DN4.
+           STOP RUN.
+       END PROGRAM CALLER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLEE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS1 PIC S9(4) VALUE 0.
+       LINKAGE SECTION.
+       01 DN1 PIC S9(4).
+       01 DN2 PIC S9(4).
+       01 DN3 PIC S9(4).
+       01 DN4 PIC S9(4).
+       PROCEDURE DIVISION USING DN1, DN2, DN3, DN4.
+       MAIN-2.
+           MOVE DN1 TO WS1.
+           ADD 1 TO WS1.
+           MOVE WS1 TO DN3.
+           MOVE 5 TO DN4.
+           EXIT PROGRAM.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    // Parameter three is bound to the caller's DN1, so writing it writes DN1.
+    assert_eq!(i.env.get_i64("DN1").unwrap_or(-1), 2, "DN1");
+    assert_eq!(i.env.get_i64("DN2").unwrap_or(-1), 0, "DN2 was not passed");
+    // The caller's own DN3 was never an argument and must be untouched.
+    assert_eq!(i.env.get_i64("DN3").unwrap_or(-1), 0, "DN3 changed by call");
+    assert_eq!(i.env.get_i64("DN4").unwrap_or(-1), 5, "DN4");
+}
+
+/// A callee reads the **fields of a record it was handed** by name, so a group
+/// parameter's subordinate items must keep resolving to the caller's.
+///
+/// This is the case that broke the first attempt at the fix: shadowing every
+/// name the callee declares gave those children fresh slots holding their
+/// initial values.
+#[test]
+fn a_group_parameters_fields_reach_the_callers_record() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 GRP-01.
+          05 FLD-A PIC S9(4) VALUE 7.
+          05 FLD-B PIC S9(4) VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "CALLEE" USING GRP-01.
+           STOP RUN.
+       END PROGRAM CALLER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLEE.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 GRP-01.
+          05 FLD-A PIC S9(4).
+          05 FLD-B PIC S9(4).
+       PROCEDURE DIVISION USING GRP-01.
+       MAIN-2.
+           ADD 1 TO FLD-A.
+           MOVE FLD-A TO FLD-B.
+           EXIT PROGRAM.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    assert_eq!(i.env.get_i64("FLD-A").unwrap_or(-1), 8, "FLD-A");
+    assert_eq!(i.env.get_i64("FLD-B").unwrap_or(-1), 8, "FLD-B");
+}
+
+/// The alias is released when the call returns: a later write to the callee's
+/// parameter name must not reach the caller's argument.
+#[test]
+fn a_parameter_alias_does_not_outlive_its_call() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 DN1 PIC S9(4) VALUE 1.
+       01 DN9 PIC S9(4) VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "CALLEE" USING DN1.
+           MOVE 99 TO DN9.
+           STOP RUN.
+       END PROGRAM CALLER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLEE.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 DN9 PIC S9(4).
+       PROCEDURE DIVISION USING DN9.
+       MAIN-2.
+           MOVE 4 TO DN9.
+           EXIT PROGRAM.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    // Inside the call, DN9 was DN1.
+    assert_eq!(i.env.get_i64("DN1").unwrap_or(-1), 4, "DN1");
+    // After it, the caller's own DN9 is its own again.
+    assert_eq!(i.env.get_i64("DN9").unwrap_or(-1), 99, "DN9 after the call");
+}

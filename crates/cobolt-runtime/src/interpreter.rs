@@ -8169,10 +8169,30 @@ impl Interpreter {
                     .unwrap_or_else(|| local_items.clone());
                 let inserted_keys = self.env.push_local_scope(&snapshot, &local_symbols);
 
-                // Copy-in: bind each parameter to the caller argument's value
-                // (after the local scope so it overrides the persisted slot).
-                for (pk, ak, _) in &bindings {
-                    if let Some(v) = self.env.get(ak).cloned() {
+                // **BY REFERENCE binds the caller's storage, not a copy of it.**
+                // Aliasing the parameter onto the argument is what makes that
+                // true when the callee's name for it is a name the caller also
+                // uses for something else: IC201A passes `DN1` as its *third*
+                // argument, IC202A calls that parameter `DN3`, and the caller
+                // has an unrelated `DN3` of its own. Copying in by name wrote
+                // the caller's `DN3`, and the test that catches it says so —
+                // "DN3 VALUE CHANGED BY CALL".
+                //
+                // Aliasing only the parameter, and not everything the callee
+                // declares, is deliberate: a group parameter's subordinate
+                // items keep resolving by name to the caller's, which is how a
+                // callee reads the fields of a record it was handed. Shadowing
+                // them instead cut IC from 10 clean programs to 5.
+                let mut aliased: Vec<(String, Option<String>)> = Vec::new();
+                for (pk, ak, by_ref) in &bindings {
+                    if *by_ref {
+                        if pk != ak {
+                            aliased.push((pk.clone(), self.env.alias_target(pk)));
+                            self.env.set_alias(pk, ak);
+                        }
+                    } else if let Some(v) = self.env.get(ak).cloned() {
+                        // BY CONTENT / BY VALUE: a copy taken at entry, with no
+                        // write-back.
                         self.env.set(pk, v);
                     }
                 }
@@ -8194,10 +8214,26 @@ impl Interpreter {
                 self.para_bodies = saved_bodies;
                 self.section_names = saved_secs;
 
-                // Copy-out: BY REFERENCE arguments receive the parameter's final
-                // value (BY CONTENT / BY VALUE are not written back).
+                // Release the parameter aliases, restoring whatever they
+                // displaced — this program may itself have been called from one
+                // that aliased the same name.
+                let alias_keys: std::collections::HashSet<&String> =
+                    aliased.iter().map(|(pk, _)| pk).collect();
+                for (pk, prev) in aliased.iter().rev() {
+                    match prev {
+                        Some(t) => self.env.set_alias(pk, t),
+                        None => self.env.clear_alias(pk),
+                    }
+                }
+
+                // Copy-out, for the BY REFERENCE parameters that were **not**
+                // aliased — the ones whose name is the argument's own name, so
+                // parameter and argument are already one slot and this is a
+                // no-op that keeps the two paths symmetrical. An aliased
+                // parameter needs nothing: every write went straight to the
+                // caller's storage as it happened.
                 for (pk, ak, by_ref) in &bindings {
-                    if *by_ref {
+                    if *by_ref && !alias_keys.contains(pk) {
                         if let Some(v) = self.env.get(pk).cloned() {
                             self.env.set(ak, v);
                         }

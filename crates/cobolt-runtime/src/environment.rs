@@ -1547,6 +1547,17 @@ impl CobolEnvironment {
         self.addr_aliases.shift_remove(&alias.to_ascii_uppercase());
     }
 
+    /// What `alias` currently redirects to, if anything.
+    ///
+    /// A `CALL … USING` binds its BY REFERENCE parameters the same way, and has
+    /// to put back whatever was there when the call returns — a program may be
+    /// called from inside another that aliased the same name.
+    pub fn alias_target(&self, alias: &str) -> Option<String> {
+        self.addr_aliases
+            .get(&alias.to_ascii_uppercase())
+            .cloned()
+    }
+
     // ── 66-level RENAMES ────────────────────────────────────────────────────────
 
     /// The covered elementary keys for `RENAMES from [THRU thru]` — the slice of

@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.84] — 2026-08-29
+
+**`CALL … USING` binds the caller's storage, not a copy of it.** A `BY
+REFERENCE` parameter is now an alias onto its argument, so which storage a
+parameter names is decided by the *argument*, not by what the called program
+happens to call it.
+
+Binding by name meant a callee's parameter was whatever the caller had under
+that name:
+
+```cobol
+           CALL "IC202A" USING DN1, DN2, DN1, DN4.
+```
+
+The third argument is `DN1`. `IC202A` calls its third parameter `DN3` and writes
+through it — and the caller's own unrelated `DN3` was overwritten, because the
+two were the same slot. The CCVS85 report says so in as many words: *"DN3 VALUE
+CHANGED BY CALL"*.
+
+Only the parameter is aliased, deliberately. A group parameter's **subordinate
+items** keep resolving by name to the caller's, which is how a called program
+reads the fields of a record it was handed; giving those their own slots
+instead cut IC from 10 clean programs to 5. `BY CONTENT` is unchanged — a copy
+taken at entry, with no write-back — and the alias is released when the call
+returns, so a program called from inside another that aliased the same name
+gets its own binding back.
+
+**IC (Inter-program Communication) goes from 187 to 194 passing assertions**
+(72.5 % → 75.8 %), 71 → 62 failures.
+
+**The NIST regression gate moves to once per module** (operator ruling). Running
+every finished module after every change caught four problems across the whole
+grind, which does not pay for re-measuring 7000+ assertions each time. The full
+gate now runs when the last failing assertion of a module is done, before it is
+called finished; per change, only the module in flight and the compile census.
+A **lexer or parser** change is still gated immediately — a front-end change has
+no module boundary, and two of the four catches were exactly that.
+
 ## [PowerRustCOBOL 1.62.83] — 2026-08-29
 
 **Segmentation leaves the NIST scope** (operator ruling). SG joins CM, RW, the
