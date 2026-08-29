@@ -266,10 +266,16 @@ fn is_out_of_scope(module: &str) -> bool {
 /// expectations are unreachable by design rather than by defect. Only a
 /// minimum-subset validation would satisfy them.
 ///
+/// `RL301M` is the same program one module over — "tests the flagging of
+/// intermediate subset features that are used in relative input-output" — and
+/// its six expectations are `ORGANIZATION IS RELATIVE`, `ACCESS MODE IS
+/// RANDOM`, `RELATIVE KEY IS` and the `NOT INVALID KEY` phrases. Same reading,
+/// same ruling.
+///
 /// Operator ruling, 2026-08-29. Compare `IX401M`, which asks for *high*-subset
 /// flagging and scores 10 of 10.
 fn verdict_does_not_apply(name: &str) -> bool {
-    matches!(name, "IX301M")
+    matches!(name, "IX301M" | "RL301M")
 }
 
 fn module_of(name: &str) -> String {

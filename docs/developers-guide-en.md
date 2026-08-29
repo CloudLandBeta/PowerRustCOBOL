@@ -5045,7 +5045,9 @@ in the record**:
 ```
 
 `RELATIVE KEY` is required for `RANDOM` and `DYNAMIC` access and for `START`;
-a file you only ever walk with `ACCESS MODE IS SEQUENTIAL` may omit it.
+a file you only ever walk with `ACCESS MODE IS SEQUENTIAL` may omit it. Both
+`KEY` and `IS` are optional, so `RELATIVE KEY RK` and plain `RELATIVE RK` name
+the same item — useful to know when reading older source.
 
 **Creating a file.** In the sequential access mode you do not choose the
 numbers — each `WRITE` takes the next slot, and the engine puts the number it
@@ -5097,8 +5099,23 @@ The statuses worth testing for:
 | `WRITE`, `READ`, `REWRITE` or `DELETE` with a `RELATIVE KEY` of zero | `24` |
 | `READ`, `REWRITE`, `DELETE` or `START` on an empty slot, or one past the end | `23` |
 | `READ NEXT` / `PREVIOUS` with no further record | `10` |
+| A sequential `READ` whose record number will not fit the `RELATIVE KEY` item | `14` |
 | Sequential `REWRITE` or `DELETE` with no `READ` before it | `43` |
 | The file is not open in the mode the verb needs | `47`, `48`, `49` |
+
+**Size the key item for the whole file.** Status `14` is the one on that list
+that catches people out, because it is caused by a *declaration* rather than by
+anything the program does. The width of the `RELATIVE KEY` PICTURE decides how
+large a record number can be reported, so a `PIC 99` key over a 500-record file
+walks happily to record 99 and then cannot say where it is:
+
+```cobol
+       01  CUST-SLOT PIC 99.      *> reads 1-99, then status 14
+```
+
+`14` is an at-end class condition like `10`, so the `AT END` phrase is what
+handles it — which means a loop that only checks `AT END` will stop early and
+look, from the outside, as though the file simply ended.
 
 Storage follows the same `STORAGE [MODE] IS MEMORY | DISK` clause as indexed
 files (see §14), and the two containers are required to answer identically — a

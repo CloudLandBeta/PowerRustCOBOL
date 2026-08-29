@@ -766,6 +766,38 @@ fn make_indexed_engine(
     }
 }
 
+/// The integer digit positions a PICTURE describes — the `9`s to the left of
+/// any `V`, with `9(n)` counting as *n* of them.
+///
+/// Only the integer side matters to the caller: a RELATIVE KEY is a whole
+/// record number, so what decides whether a number fits is how many digits the
+/// item has before the decimal point.
+fn pic_integer_digits(pic: &str) -> u32 {
+    let up = pic.to_ascii_uppercase();
+    let b = up.as_bytes();
+    let (mut total, mut i) = (0u32, 0usize);
+    while i < b.len() {
+        match b[i] {
+            // Everything from the implied decimal point on is fractional.
+            b'V' => break,
+            b'9' => {
+                i += 1;
+                // A parenthesised repeat count multiplies the position before it.
+                match (b.get(i), up[i..].find(')')) {
+                    (Some(b'('), Some(off)) => {
+                        let end = i + off;
+                        total += up[i + 1..end].trim().parse::<u32>().unwrap_or(1);
+                        i = end + 1;
+                    }
+                    _ => total += 1,
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    total
+}
+
 /// Build the numbered-slot engine behind `ORGANIZATION IS RELATIVE`.
 ///
 /// The slot width is the *largest* record the FD describes, because every 01 of
@@ -6750,6 +6782,22 @@ impl Interpreter {
         self.env.get_i64(name).and_then(|n| u64::try_from(n).ok())
     }
 
+    /// How many integer digit positions the RELATIVE KEY item can hold.
+    ///
+    /// The width of that PICTURE is part of the file's *behaviour*, not just
+    /// its storage: COBOL-85 gives a sequential READ whose record number will
+    /// not fit the item its own status, **14**. RL117A declares
+    /// `RL-FD3-KEY PIC 99` over a 500-record file and expects the hundredth
+    /// read to report exactly that. `None` when the file has no relative key,
+    /// or the item's PICTURE is not recorded — then there is nothing to check
+    /// against and the read is left alone.
+    fn relative_key_digits(&self, spec: &FileSpec) -> Option<u32> {
+        let name = spec.relative_key.as_deref()?;
+        let pic = self.env.symbol(name).map(|s| s.pic.clone())?;
+        let d = pic_integer_digits(&pic);
+        (d > 0).then_some(d)
+    }
+
     /// Put the record number a sequential access just used back into the
     /// RELATIVE KEY item, which is how the program learns where the record it
     /// read (or wrote) actually sits.
@@ -7006,7 +7054,7 @@ impl Interpreter {
         // Which slot a RELATIVE read actually delivered, so the RELATIVE KEY
         // item can be told. A sequential read is how the program discovers it.
         let mut rel_delivered: Option<u64> = None;
-        let (buf, code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
+        let (mut buf, mut code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 if random {
                     engine.set_key_of_reference(kor);
@@ -7090,6 +7138,23 @@ impl Interpreter {
             _ => (None, status::NOT_OPEN_INPUT),
         };
 
+        // **Status 14** — a sequential READ of a relative file whose record
+        // number has more significant digits than the RELATIVE KEY item can
+        // hold. The program asked to be told where each record sits and the
+        // item it supplied cannot say, so the read is unsuccessful: no record
+        // is delivered, the key item is left alone, and — 14 being an at-end
+        // class condition like 10 — the `AT END` phrase is what handles it.
+        if let Some(n) = rel_delivered {
+            if self
+                .relative_key_digits(&spec)
+                .is_some_and(|d| n.to_string().len() as u32 > d)
+            {
+                rel_delivered = None;
+                buf = None;
+                code = "14";
+            }
+        }
+
         // `READ … WITH NO LOCK` releases the lock the engine takes under I-O.
         if lock == Some(false) {
             if let Some(OpenFile::Indexed(engine)) = self.open_files.get_mut(&file) {
@@ -7098,7 +7163,9 @@ impl Interpreter {
         }
 
         // Latch / release the end-of-file position this READ leaves behind.
-        if code == status::EOF && !random {
+        // 14 latches with 10: both are at-end class conditions that leave the
+        // file with no valid next record, so reading on again is 46.
+        if (code == status::EOF || code == "14") && !random {
             self.at_end_files.insert(file.clone());
         } else if code == status::OK {
             self.at_end_files.remove(&file);
@@ -7155,7 +7222,9 @@ impl Interpreter {
         let phrase_condition_arose = if random {
             matches!(code, "21" | "22" | "23" | "24")
         } else {
-            code == status::EOF
+            // 10 and 14 are the two at-end class conditions a sequential READ
+            // can raise, and `AT END` covers both.
+            code == status::EOF || code == "14"
         };
         if code == status::OK {
             if let Some(b) = &buf {

@@ -96,6 +96,38 @@ pub(crate) fn parse_sentences(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> 
     parse_stmt_list(p, stop, false)
 }
 
+/// Words that close a construct the body being parsed may be *nested inside*.
+///
+/// COBOL-85 ends an imperative statement list at the first word that cannot
+/// continue it, and each of these can only belong to an enclosing statement.
+/// They matter because a conditional phrase is usually written without its own
+/// scope terminator. RL210A has
+///
+/// ```text
+///     IF      XRECORD-NUMBER (1) < 201
+///             WRITE  RL-VS1R1-F-G-120
+///             INVALID KEY GO TO REL-FAIL-001
+///     ELSE
+///             ...
+/// ```
+///
+/// and with no `END-WRITE` the `INVALID KEY` list read straight through `ELSE`,
+/// so the program did not parse at all. A phrase's own stop set cannot know
+/// what the phrase is nested in, so the rule belongs here — once, for every
+/// scoped body — rather than being repeated in each verb's closure and
+/// forgotten in the next one.
+fn closes_enclosing_scope(tok: &Token) -> bool {
+    matches!(
+        tok,
+        Token::Else
+            | Token::EndIf
+            | Token::When
+            | Token::EndEvaluate
+            | Token::EndPerform
+            | Token::EndSearch
+    )
+}
+
 /// Parse all statements until `stop(peek)` returns true or EOF.
 /// Periods between sentences are consumed and ignored.
 /// Paragraph/section headers are detected and break the loop without consuming.
@@ -110,6 +142,11 @@ fn parse_stmt_list(
         // enclosing sentence list sees the boundary. A sentence list (a
         // paragraph) reads straight through it.
         if p.at(&Token::Period) && (scoped || stop(&Token::Period)) {
+            break;
+        }
+        // The same for a word that closes an enclosing construct: a scoped body
+        // may not read past it, whatever its own stop set says.
+        if scoped && closes_enclosing_scope(p.peek()) {
             break;
         }
         // Consume optional sentence-terminating periods, remembering whether one

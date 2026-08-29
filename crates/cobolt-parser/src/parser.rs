@@ -1486,14 +1486,24 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                 p.eat(&Token::Is);
                 organization = parse_organization(p).unwrap_or(organization);
             }
-            // `RELATIVE KEY [IS] data-name` names the integer record number a
+            // `RELATIVE [KEY] [IS] data-name` names the integer record number a
             // RELATIVE file is addressed by. The word also introduces the bare
-            // organization clause, so `KEY` after it is what tells the two
-            // apart — without this the key was consumed as an organization and
-            // silently dropped.
-            Token::Relative if matches!(p.peek_at(1), Token::Key) => {
+            // organization clause, so what follows it is what tells the two
+            // apart: an organization clause is complete on its own and can only
+            // be followed by another clause keyword or the period, so a
+            // data-name after `RELATIVE` can only be the key.
+            //
+            // **`KEY` is written both ways in practice.** Ten CCVS85 members
+            // spell the clause `RELATIVE RL-FD2-KEY` with no `KEY` at all,
+            // fourteen times over. Read as an organization the key was consumed
+            // and silently dropped, the file had no record number, and every
+            // random WRITE came back 24 — seven of RL's programs failed on it.
+            Token::Relative
+                if matches!(p.peek_at(1), Token::Key)
+                    || matches!(p.peek_at(1), Token::Identifier(_)) =>
+            {
                 p.advance(); // RELATIVE
-                p.advance(); // KEY
+                p.eat(&Token::Key);
                 p.eat(&Token::Is);
                 if p.at_identifier() {
                     relative_key = p.eat_identifier().map(|(n, _)| n);

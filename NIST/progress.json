@@ -22,14 +22,15 @@
   },
 
   "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "SG", "DB", "RL"],
-  "current_module": "RL",
+  "current_module": "IF",
+  "_current_module_note": "RL finished at 1.62.77. RL was taken out of order by operator ruling (rules.start_rl_now); the queue now returns to `module_order`, whose first unfinished entry is IF (Conditional). It has never been measured on the execution axis — baseline it before planning anything.",
 
   "out_of_scope": {
     "modules": ["CM", "RW", "OBIC", "OBNC", "OBSQ", "EXEC"],
     "why": "Declared out of RustCOBOL scope in CLAUDE.md: CM is Communication, RW is Report Writer, OB* are the obsolete-element tests, EXEC85 is the suite driver. 25 programs, excluded from every score."
   },
 
-  "whole_suite_compile": { "pass": 422, "total": 434, "pct": 97.2 },
+  "whole_suite_compile": { "pass": 423, "total": 434, "pct": 97.5 },
 
   "modules": {
     "NC": {
@@ -65,11 +66,14 @@
     "DB": { "name": "Debug", "state": "compile_only", "compile": [11, 15], "execution": null, "assertions": null },
     "RL": {
       "name": "Relative I/O",
-      "state": "in_flight",
-      "compile": [34, 35],
-      "execution": [24, 35],
-      "assertions": { "pass": 326, "fail": 38, "deleted": 5 },
+      "state": "finished",
+      "protected": true,
+      "compile": [35, 35],
+      "execution": [34, 34],
+      "assertions": { "pass": 354, "fail": 0, "deleted": 5 },
+      "finished_at": "1.62.77 — from a 14/35 baseline in one session. Scored out of 34: RL301M is excluded from execution by the same ruling as IX301M (rules.ix301m_out_of_scope) and still counts in the compile census, where it passes.",
       "engine_landed": "1.62.76 — `cobolt-runtime/src/relative.rs`, container PRCREL1, plus MEMORY. All seven verbs dispatch on FileOrganization::Relative. The same version taught the harness RL's ten chained members, which is what ended the four timeouts.",
+      "what_actually_closed_it": "The engine was the smaller half. Three front-end fixes at 1.62.77 took RL from 24 to 34: (1) `RELATIVE data-name` with the word KEY omitted was read as a bare organization clause and the key silently dropped, so every random WRITE returned 24 — eight programs, one clause; (2) file status 14, a sequential READ whose record number needs more digits than the RELATIVE KEY item holds — the PICTURE's width is part of the file's behaviour; (3) an unterminated conditional phrase (`WRITE ... INVALID KEY GO TO X` with no END-WRITE) read past the enclosing ELSE, so RL210A did not parse at all. The last one is general, not relative-specific, and raised the whole-suite compile census to 423.",
       "operator_ruling": "2026-08-29 — IMPLEMENT Relative file support as the NIST suite expects it, and treat it as TECHNICAL DEBT, not a feature: RELATIVE is COBOL-85 that should already have worked, so under GOLDEN RULE #4 it is a fix. It goes on the `fixes` branch like everything else, needs no features commit, and is not an f=96 item. This is the one place in the queue where building missing capability is authorised; elsewhere a genuine grammar gap is still recorded and parked, not invented.",
       "starting_point": "HISTORICAL, superseded by engine_landed above. Before 1.62.76 there was no RELATIVE engine at all: the parser accepted `ORGANIZATION IS RELATIVE` (FileOrganization::Relative) and nothing in the runtime ever matched that variant — no dispatch, no engine, no diagnostic — so a program declaring it compiled cleanly and then misbehaved silently.",
       "scope_notes": [
@@ -100,8 +104,9 @@
     {
       "id": "rl-remaining-failures",
       "module": "RL",
-      "priority": 0,
-      "title": "RL's 11 programs that still fail, after the engine landed",
+      "priority": 99,
+      "resolved_at": "1.62.77 — all of it. The bucketing advice below was right: the five programs sharing the 'CREATE RL-FD2' message shared one cause (the `RELATIVE data-name` clause), and it closed eight programs at once. RL117A's lone failure was file status 14; RL301M was ruled out of scope.",
+      "title": "RESOLVED — RL's 11 programs that still fail, after the engine landed",
       "worth": "38 failing assertions and 11 of 35 programs. This is the whole of what is left in the module.",
       "evidence": "Measured at 1.62.76, from `fails RL`. RL109A 7, RL112A 6, RL204A 6, RL301M 5, RL113A 3, RL114A 3, RL117A 3, RL110A 2, RL116A 2, RL118A 1. Buckets that recur across several members: (a) 'CREATE RL-FD2 ... INCORRECT COUNT' / 'STATUS/WRITE' in RL112A/113A/114A/117A/204A, which is one shared cause across five programs and so the first thing to look at; (b) 'DUPLICATE KEY SHOULD HAVE OCCURRED' in RL118A and 'INVALID WRITE' in RL116A, both about the status a WRITE onto an occupied slot returns; (c) RL301M, which is a flagging member and may be the same intermediate-subset scoping question as IX301M.",
       "next_probe": "Re-run `fails RL` and bucket by message before touching anything — five programs sharing one message is a root cause, not five bugs. Start with the CREATE RL-FD2 bucket."
@@ -185,10 +190,12 @@
     "NC": { "compile": [95, 95], "execution": [95, 95], "assertions_pass": 4614, "assertions_fail": 0 },
     "SQ": { "compile": [85, 85], "execution": [85, 85], "assertions_pass": 624, "assertions_fail": 0 },
     "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
-    "whole_suite_compile_pass": 422
+    "RL": { "compile": [35, 35], "execution": [34, 34], "assertions_pass": 354, "assertions_fail": 0 },
+    "whole_suite_compile_pass": 423
   },
 
   "history": [
+    { "version": "1.62.77", "change": "Three front-end fixes finish RL: `RELATIVE data-name` with KEY omitted, file status 14, and an unterminated conditional phrase reading past ELSE", "effect": "RL 24 -> 34 of 34, 354 PASS / 0 FAIL - the module is FINISHED, from a 14/35 baseline in one session. Whole-suite compile 422 -> 423 of 434 (RL210A). NC, SQ and IX exact. The ELSE fix is general and applies to every module." },
     { "version": "1.62.76", "change": "ORGANIZATION IS RELATIVE gets an engine (relative.rs, container PRCREL1 + MEMORY) and all seven verbs dispatch to it; the harness learns RL's ten chained members", "effect": "RL 14 -> 24 of 35, 196/140 -> 326 PASS / 38 FAIL (58.3% -> 89.6%), and the four timeouts are gone. IX reaches 41/41 with 574 PASS / 0 FAIL - IX106A's last four failures were the relative file it shares with the indexed ones, so IX is FINISHED. NC and SQ exact; compile census 422/434 unchanged." },
     { "version": "1.62.47", "change": "Harness supplies XXXXD001, the installation data file SQ203A reads", "effect": "SQ 84 -> 85 of 85; module finished" },
     { "version": "1.62.48", "change": "Chained members run their declared producer", "effect": "IX 13 -> 16 clean (measurement fidelity, no runtime change)" },

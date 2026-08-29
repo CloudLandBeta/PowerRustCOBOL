@@ -1,5 +1,61 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.77] — 2026-08-29
+
+**Relative I/O is finished: 35 of 35 compiling, 34 of 34 running clean, 354
+PASS / 0 FAIL.** Three fixes, none of them in the engine itself.
+
+**`RELATIVE data-name` names the record number, with or without the word
+`KEY`.** The clause is written `RELATIVE KEY IS RK`, `RELATIVE KEY RK` and
+plain `RELATIVE RK`, and only the first two were understood. The third was read
+as a bare organization clause, so the key was consumed and silently dropped —
+the file then had no record number at all and every random `WRITE` came back
+**24**, a boundary violation on slot zero. What tells the two apart is simply
+what follows: an organization clause is complete on its own, so a data-name
+after `RELATIVE` can only be the key. This closed eight programs at once.
+
+**File status `14` — a relative record number too large for its key item.** The
+width of the `RELATIVE KEY` item's PICTURE is part of the file's behaviour, not
+just its storage:
+
+```cobol
+       SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+           ORGANIZATION IS RELATIVE
+           ACCESS MODE IS SEQUENTIAL
+           RELATIVE KEY IS CUST-SLOT.
+...
+       01  CUST-SLOT PIC 99.
+```
+
+Reading that file sequentially works up to record 99 and then cannot report
+where it is. COBOL-85 has a status for exactly that, and it is an at-end class
+condition like `10`, so the `AT END` phrase is what handles it.
+
+**An unterminated conditional phrase now stops at the enclosing `ELSE`.** A
+phrase written without its scope terminator —
+
+```cobol
+           IF  WS-N < 201
+                   WRITE REC-A
+                   INVALID KEY GO TO BAD
+           ELSE
+                   WRITE REC-B
+                   INVALID KEY GO TO BAD.
+```
+
+— read straight through `ELSE`, and the program did not parse at all. A
+phrase's own stop set cannot know what the phrase is nested in, so the rule is
+now applied once for every scoped body: `ELSE`, `END-IF`, `WHEN`,
+`END-EVALUATE`, `END-PERFORM` and `END-SEARCH` close a construct the body may
+be nested inside, and no imperative list may read past one. **Whole-suite
+compile conformance 422 → 423 of 434.**
+
+`RL301M` is excluded from execution scoring, the same ruling `IX301M` already
+carries: it asks a high-subset implementation to flag `ORGANIZATION IS
+RELATIVE`, `ACCESS MODE IS RANDOM`, `RELATIVE KEY IS` and the `NOT INVALID KEY`
+phrases as non-conforming, and those are all features PowerRustCOBOL supports.
+It still counts in the compile census, where it passes.
+
 ## [PowerRustCOBOL 1.62.76] — 2026-08-29
 
 **`ORGANIZATION IS RELATIVE` runs.** Relative I/O was accepted by the parser
