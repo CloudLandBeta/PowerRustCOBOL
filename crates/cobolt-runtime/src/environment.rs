@@ -2067,6 +2067,27 @@ impl CobolEnvironment {
         true
     }
 
+    /// Mirror one name's descriptive entries onto another key — used when a
+    /// record-view field moves onto an activation key, so its declared numeric
+    /// capacity and edit shape travel with it. Without this a view's
+    /// `PIC 9(6)` compared as text ("000001" against "1     ").
+    pub fn mirror_descriptive(&mut self, from: &str, to: &str) {
+        let f = base_name(&from.to_ascii_uppercase()).to_string();
+        let t = base_name(&to.to_ascii_uppercase()).to_string();
+        if let Some(v) = self.field_caps.get(&f).copied() {
+            self.field_caps.entry(t.clone()).or_insert(v);
+        }
+        if let Some(v) = self.edited_templates.get(&f).cloned() {
+            self.edited_templates.entry(t.clone()).or_insert(v);
+        }
+        if let Some(v) = self.alnum_edited.get(&f).cloned() {
+            self.alnum_edited.entry(t.clone()).or_insert(v);
+        }
+        if self.blank_when_zero.contains(&f) {
+            self.blank_when_zero.insert(t);
+        }
+    }
+
     /// Take back a template a matching [`Self::lend_edit_template`] lent.
     pub fn return_edit_template(&mut self, arg: &str) {
         let base = base_name(&arg.to_ascii_uppercase()).to_string();

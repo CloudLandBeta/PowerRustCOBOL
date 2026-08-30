@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.106] — 2026-08-30
+
+### Fixed — a record view survives colliding names, and its groups are readable
+
+Two completions of the 1.62.102 record view, both surfaced by CCVS85 **IC112A**
+LINK-TEST-08 and found with a per-record probe:
+
+The view's fields are the callee's **private window** over the argument's
+bytes — they pair with nothing by design — so a field whose name collides with
+something the caller declares now takes an activation key and a divert, exactly
+as private data does, with its declared capacities mirrored onto the view key.
+The old inserted-only guard starved the view whenever the callee's field names
+met the caller's CCVS boilerplate (`XRECORD-NUMBER` against the
+`FILE-RECORD-INFO` tree): 649 of 649 records "in error".
+
+And a view's named **groups** join it for reading: IC113A checks
+`REELUNIT-NUMBER-GROUP`, a two-byte group over `/0`, and a view that diverts
+only elementary leaves sent that name to the caller's same-named table. Groups
+are diverted and sliced in; the copy-out still patches from the elementary
+leaves.
+
+Inter-program communication (IC), execution: **307 PASS / 2 FAIL → 308 PASS /
+1 FAIL**, clean programs **23 → 24 of 25** — 99.7%. IC112A runs clean. One
+member remains: IC225A. Whole-suite compile **412 / 421**; 104 runtime suites,
+0 failed.
+
 ## [PowerRustCOBOL 1.62.105] — 2026-08-30
 
 ### Fixed — an edited LINKAGE parameter edits

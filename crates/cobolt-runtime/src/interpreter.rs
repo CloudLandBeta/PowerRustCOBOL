@@ -322,7 +322,7 @@ struct NestedProgram {
     /// pairing can bind those: the caller has no item covering the callee's
     /// `XRECORD-NUMBER` at offset 34. The layout is what lets the CALL slice
     /// the caller's bytes in and patch them back out.
-    linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>))>,
+    linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>, Vec<(String, usize, usize)>))>,
     /// Names this program declares in its OWN WORKING-STORAGE or
     /// LOCAL-STORAGE, excluding `GLOBAL` — the storage that is private to an
     /// activation even when the caller spells a name the same way.
@@ -462,7 +462,11 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         .as_ref()
         .map(CobolEnvironment::cond_name_entries)
         .unwrap_or_default();
-    let linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>))> = {
+    // (total, elementary fields, named groups) — the groups matter to the
+    // record view: IC113A checks `REELUNIT-NUMBER-GROUP`, a two-byte group,
+    // and a view that diverts only leaves sends that name to whatever the
+    // caller declared under it.
+    let linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>, Vec<(String, usize, usize)>))> = {
         use cobolt_ast::program::DataSection;
         let mut out = Vec::new();
         if let Some(data) = &prog.data {
@@ -480,8 +484,13 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
                             .filter(|f| !f.is_group)
                             .map(|f| (f.name.to_ascii_uppercase(), f.offset, f.len))
                             .collect();
+                        let groups: Vec<(String, usize, usize)> = layout
+                            .groups
+                            .iter()
+                            .map(|f| (f.name.to_ascii_uppercase(), f.offset, f.len))
+                            .collect();
                         if layout.len > 0 && !fields.is_empty() {
-                            out.push((name.to_ascii_uppercase(), (layout.len, fields)));
+                            out.push((name.to_ascii_uppercase(), (layout.len, fields, groups)));
                         }
                     }
                 }
@@ -8677,20 +8686,52 @@ impl Interpreter {
                     // aliases exist this path stays off, so every binding that
                     // already worked is untouched.
                     if *by_ref && pairs.len() == 1 {
-                        if let Some((total, fields)) = linkage_layouts
+                        if let Some((total, fields, groups)) = linkage_layouts
                             .iter()
                             .find(|(n, _)| n == pk)
                             .map(|(_, l)| l)
                         {
                             if let Some(bytes) = self.env.display_bytes(ak) {
                                 if bytes.len() == *total {
+                                    // A view's fields are the callee's private
+                                    // window over the argument's bytes — they
+                                    // pair with nothing by design, so they take
+                                    // activation keys and diverts exactly as
+                                    // private data does. Restricting to
+                                    // freshly-inserted names starved the view
+                                    // whenever a field name collided with the
+                                    // caller's CCVS boilerplate (IC113A's
+                                    // XRECORD-NUMBER against IC112A's
+                                    // FILE-RECORD-INFO tree, 649 of 649 records
+                                    // in error).
                                     let mine: Vec<(String, usize, usize)> = fields
                                         .iter()
-                                        .filter(|(n, _, _)| inserted_keys.contains(n))
-                                        .cloned()
+                                        .map(|(n, off, len)| {
+                                            let vk = if inserted_keys.contains(n) {
+                                                n.clone()
+                                            } else {
+                                                let q = activation_key(&prog_name, n);
+                                                aliased
+                                                    .push((n.clone(), self.env.alias_target(n)));
+                                                self.env.set_alias(n, &q);
+                                                self.env.mirror_descriptive(n, &q);
+                                                q
+                                            };
+                                            (vk, *off, *len)
+                                        })
                                         .collect();
                                     for (n, off, len) in &mine {
                                         self.env.set_bytes(n, &bytes[*off..*off + *len]);
+                                    }
+                                    // Named GROUPS join the view for reading —
+                                    // diverted and sliced in — but stay out of
+                                    // the copy-out, which patches from the
+                                    // elementary leaves.
+                                    for (n, off, len) in groups {
+                                        let q = activation_key(&prog_name, n);
+                                        aliased.push((n.clone(), self.env.alias_target(n)));
+                                        self.env.set_alias(n, &q);
+                                        self.env.set_bytes(&q, &bytes[*off..*off + *len]);
                                     }
                                     if !mine.is_empty() {
                                         record_views.push((ak.clone(), *total, mine));
