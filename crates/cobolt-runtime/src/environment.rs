@@ -3269,13 +3269,31 @@ impl CobolEnvironment {
             let upper = key.to_ascii_uppercase();
             if !self.store.contains_key(&upper) {
                 self.store.insert(upper.clone(), val.clone());
-                if let Some((_, sym)) = symbols
-                    .iter()
-                    .find(|(sym_key, _)| sym_key.eq_ignore_ascii_case(&upper))
-                {
-                    self.symbols.insert(upper.clone(), sym.clone());
-                }
                 inserted.push(upper);
+            }
+        }
+        // **Symbols are carried on their own, not as a side effect of values.**
+        // A group and a table's base name own no storage slot, so tying symbol
+        // insertion to store keys silently dropped exactly the metadata every
+        // structured walk needs — the `dims`, `layout_keys` and PICTUREs of a
+        // nested program's tables and groups. Rendering IC115A's
+        // FILE-RECORD-INFO template inside the subprogram then packed its
+        // fields 17 bytes short: the group walk could not see the table's own
+        // shape, and CCVS85 IC114A's 649-record file carried its label column
+        // in the wrong place on every record (LINK-TEST-12).
+        //
+        // A name the environment already describes is left alone, exactly as a
+        // value is; [`pop_local_scope`] removes exactly what was added here.
+        for (key, sym) in symbols {
+            let upper = key.to_ascii_uppercase();
+            if !self.symbols.contains_key(&upper) {
+                self.symbols.insert(upper.clone(), sym.clone());
+                if !self.store.contains_key(&upper) {
+                    // Track symbol-only names too, so the pop is exact. The
+                    // store guard in `pop_local_scope` tolerates keys with no
+                    // value.
+                    inserted.push(upper);
+                }
             }
         }
         inserted

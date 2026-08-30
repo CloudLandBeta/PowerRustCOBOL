@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.103] — 2026-08-30
+
+### Fixed — a nested program's own files did not exist
+
+`build_file_specs` walked the outer program only, so a `SELECT`/`FD` declared
+inside a subprogram was never registered: `OPEN`, `READ` and `WRITE` on it hit
+`unknown file` and silently did nothing. CCVS85 **IC115A** creates, verifies
+and re-reads a 649-record file entirely from inside a subprogram; a 40-line
+repro showed `READ: unknown file`.
+
+Registration now recurses through the nested programs, **outermost first** — a
+name the run unit already knows is left alone. That policy is load-bearing for
+the one file every CCVS85 program declares: each subprogram's PRINT-FILE keeps
+resolving to the outer program's report file, exactly as FILE STATUS falls
+through. The read cursor persists across activations, and the regression test
+pins all three behaviours: registration, cursor persistence, and AT END.
+
+### Fixed — symbols travelled only where values did
+
+`push_local_scope` inserted a nested program's symbol only when a store key of
+the same name existed. A group and a table's base name own no storage slot, so
+exactly the metadata every structured walk needs — `dims`, `layout_keys`,
+PICTUREs — never arrived. Symbols are now carried on their own, first-wins,
+removed exactly on pop.
+
+Inter-program communication (IC), execution: **302 → 303 PASS / 8 FAIL** (an
+IC114A file test); every one of the eight remaining failing programs is at
+exactly one failure. IC114A's own LINK-TEST-12 stays red with a byte-level
+diagnosis recorded in the ledger: the subprogram's boilerplate field names are
+the caller's record field names, and the written records interleave the two
+programs' fields — the activation-scope collision at the symbol level. Seven of
+the eight remaining failures now sit in that bucket. Whole-suite compile
+**412 / 421**; runtime suites 0 failed; all prior repros re-verified; 15 probe
+tests green.
+
 ## [PowerRustCOBOL 1.62.102] — 2026-08-30
 
 ### Fixed — a record passed BY REFERENCE is a view over its bytes

@@ -703,3 +703,98 @@ fn an_all_filler_record_argument_is_a_view_over_its_bytes() {
          nothing else — FILLER positions keep what the caller had"
     );
 }
+
+/// A nested program's own SELECT/FD is a real file, and its read cursor
+/// persists across activations.
+///
+/// `build_file_specs` walked the outer program only, so a file declared inside
+/// a subprogram hit `READ: unknown file` and every I/O statement on it
+/// silently did nothing. CCVS85 **IC115A** creates, verifies and re-reads the
+/// 649-record SQ-FS3 entirely from inside a subprogram (IC114A LINK-TEST-10
+/// through -12). Registration is outermost-first: the one name every CCVS85
+/// program declares — PRINT-FILE — must keep resolving to the outer program's
+/// file, exactly as FILE STATUS falls through.
+#[test]
+fn a_nested_programs_own_file_reads_across_calls() {
+    let dir = std::env::temp_dir().join("prc_fcur_test");
+    let _ = std::fs::create_dir_all(&dir);
+    let data = dir.join("fcur-data.dat");
+    let _ = std::fs::remove_file(&data);
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  LNK.
+           02  CALL-FLAG PIC 9.
+           02  EOF-FLAG  PIC 9.
+       01  REC-VIEW PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 1 TO CALL-FLAG
+           CALL "FSUB" USING LNK REC-VIEW
+           MOVE 2 TO CALL-FLAG
+           MOVE 0 TO EOF-FLAG
+           CALL "FSUB" USING LNK REC-VIEW
+           DISPLAY "R1=[" REC-VIEW "]"
+           CALL "FSUB" USING LNK REC-VIEW
+           DISPLAY "R2=[" REC-VIEW "]"
+           CALL "FSUB" USING LNK REC-VIEW
+           CALL "FSUB" USING LNK REC-VIEW
+           DISPLAY "E=" EOF-FLAG
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FSUB.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TFILE ASSIGN TO "{data}"
+           ORGANIZATION IS LINE SEQUENTIAL.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  TFILE.
+       01  TREC PIC X(10).
+       LINKAGE SECTION.
+       01  LNK.
+           02  CALL-FLAG PIC 9.
+           02  EOF-FLAG  PIC 9.
+       01  REC-VIEW PIC X(10).
+       PROCEDURE DIVISION USING LNK REC-VIEW.
+       S-MAIN.
+           IF CALL-FLAG = 1
+               OPEN OUTPUT TFILE
+               MOVE "AAAAAAAAAA" TO TREC WRITE TREC
+               MOVE "BBBBBBBBBB" TO TREC WRITE TREC
+               MOVE "CCCCCCCCCC" TO TREC WRITE TREC
+               CLOSE TFILE
+               OPEN INPUT TFILE
+           ELSE
+               READ TFILE
+                   AT END MOVE 1 TO EOF-FLAG
+                   NOT AT END MOVE TREC TO REC-VIEW
+               END-READ
+           END-IF
+           EXIT PROGRAM.
+       END PROGRAM FSUB.
+       END PROGRAM FMAIN.
+"#,
+        data = data.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&data);
+    assert!(
+        out.iter().any(|l| l == "R1=[AAAAAAAAAA]"),
+        "the first per-call READ must return record 1; got {out:?} — \
+         'unknown file' means the nested program's SELECT was never registered"
+    );
+    assert!(
+        out.iter().any(|l| l == "R2=[BBBBBBBBBB]"),
+        "the cursor must persist across activations; got {out:?}"
+    );
+    assert!(
+        out.iter().any(|l| l == "E=1"),
+        "the fourth READ is past the data and must signal AT END; got {out:?}"
+    );
+}

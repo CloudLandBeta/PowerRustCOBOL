@@ -699,10 +699,32 @@ fn build_same_area_peers(program: &Program) -> HashMap<String, Vec<String>> {
 /// Build the file registry from the program's FILE-CONTROL (SELECT) entries and
 /// FILE SECTION (FD) records: `(logical name → spec, record name → file name)`.
 fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<String, String>) {
-    use cobolt_ast::program::DataSection;
-
     let mut specs: HashMap<String, FileSpec> = HashMap::new();
     let mut record_to_file: HashMap<String, String> = HashMap::new();
+    collect_file_specs(program, &mut specs, &mut record_to_file);
+    (specs, record_to_file)
+}
+
+/// Register `program`'s files, then every nested program's, **outermost
+/// first** — an already-known name is left alone.
+///
+/// A nested program's own SELECT/FD was previously never read at all — this
+/// walked the outer program only — so `OPEN`/`READ`/`WRITE` on a file declared
+/// inside a subprogram hit `unknown file` and silently did nothing. CCVS85
+/// **IC115A** creates and reads the 649-record SQ-FS3 entirely from inside a
+/// subprogram (IC114A LINK-TEST-12), and a 40-line repro showed `READ: unknown
+/// file`.
+///
+/// First-wins matters for the one name every CCVS85 program declares:
+/// PRINT-FILE. Each subprogram's report I/O must keep resolving to the outer
+/// program's file, exactly as its FILE STATUS already resolves through
+/// `NestedProgram::file_status` with a fall-through.
+fn collect_file_specs(
+    program: &Program,
+    specs: &mut HashMap<String, FileSpec>,
+    record_to_file: &mut HashMap<String, String>,
+) {
+    use cobolt_ast::program::DataSection;
 
     // Collect each FD's 01-record names + the byte layout of every one of them.
     let mut fd_records: HashMap<String, Vec<String>> = HashMap::new();
@@ -751,9 +773,14 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
         if let Some(io) = &env.input_output {
             for fc in &io.file_controls {
                 let key = fc.name.to_ascii_uppercase();
+                if specs.contains_key(&key) {
+                    continue;
+                }
                 let record_names = fd_records.get(&key).cloned().unwrap_or_default();
                 for rn in &record_names {
-                    record_to_file.insert(rn.clone(), key.clone());
+                    record_to_file
+                        .entry(rn.clone())
+                        .or_insert_with(|| key.clone());
                 }
                 specs.insert(
                     key.clone(),
@@ -785,7 +812,9 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
         }
     }
 
-    (specs, record_to_file)
+    for child in &program.nested_programs {
+        collect_file_specs(child, specs, record_to_file);
+    }
 }
 
 /// Map the AST open mode onto the indexed engine's.
