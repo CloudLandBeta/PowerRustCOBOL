@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.103",
+  "measured_at_version": "1.62.104",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -74,8 +74,8 @@
       "name": "Inter-program communication",
       "state": "in_flight",
       "compile": [47, 47],
-      "execution": [17, 25],
-      "assertions": { "pass": 303, "fail": 8, "deleted": 4 },
+      "execution": [21, 25],
+      "assertions": { "pass": 305, "fail": 4, "deleted": 4 },
       "_denominator_note": "Scored assertions moved 311 -> 310 at 1.62.99, and 313 -> 311 before that. Not a fidelity loss either time: a CCVS FAIL prints one line more than a PASS does, so a member that stops failing also stops emitting that line. IC106A went 3 FAIL / 13 PASS -> 0 / 15, which is exactly 16 scored lines becoming 15.",
       "_compile_figure_corrected": "Measured 47/47 at 1.62.94. The ledger had carried [45, 47] from the 1.62.81 baseline, when two members did not compile; the census has reported 47/47 for some time. Never carry a compile figure forward by hand — `strict` prints it per module.",
       "_stale_ranking_warning": "The `remaining_buckets` list below was written at 1.62.90 and is LONG STALE. As measured at 1.62.99 the module has NINE failures across EIGHT programs and no bucket larger than IC235A's two — see `remaining_at_1_62_99`. Re-bucket with `fails IC` before choosing the next item.",
@@ -133,7 +133,9 @@
     {
       "id": "build-the-activation-scope-primitive",
       "module": "IC",
-      "priority": 1,
+      "priority": 99,
+      "RESOLVED_at_1_62_104": "BUILT, by the design this entry sketched. IC 303 -> 305 PASS / 8 -> 4 FAIL, clean 17 -> 21 of 25; IC101A, IC114A, IC203A, IC226A, IC227A all clean, three for the first time ever. Mechanism: registration-time qualification (PROG + U+0004 + name, symbols/conds/redefines rewritten through one map), per-activation divert aliases that win BEFORE canonicalization (gated on the separator so SET ADDRESS is untouched), and descriptive state installed once under qualified keys — the reverted wholesale carry became safe exactly because qualified keys cannot collide. Exclusions, each measured: GLOBAL, EXTERNAL (IC226A), OBJECT REFERENCE (EXEC RUST reads raw names, handles seeded at startup). FOUR iterations of the gate found each of those; the full sweep, all repros, all four acceptance tests and every protected module are exact.",
+      "what_remains_after_it": "FOUR failures. IC103A and IC235A CALL-TEST-06 .06 (edited LINKAGE item): templates now EXIST under qualified keys, but the edit must be applied under the PRE-alias name before the write follows the alias — the recorded second half. IC112A LINK-TEST-08: re-measure first, the record-view guard may now admit the leaves since boilerplate names divert. IC225A CALL-TEST-02-03-1: undiagnosed beyond the suite's own DATA-NAME USED TWICE label.",
       "title": "A called program's activation needs a real scope — five of IC's nine remaining failures hang on it",
       "what_blocks_on_it_FINAL_1_62_103": "ALL EIGHT. IC227A EXT-REC-TEST-01 completed the set, traced statement by statement: IC227A-1's SUBPROGRAM-FUNCTION-01 does save-swap-restore through its own WS `01 EXTERNAL-RECORD-WORK`, and the caller declares the IDENTICAL 01 with identical children — so the callee's step 1 (record -> work) overwrites the CALLER's argument with the record's stars before step 2 reads it, and the record gets stars back. COMPUTED = \"******************\" matches. IC114A LINK-TEST-12 likewise: byte-diff shows the two programs' fields interleaved from offset 58 because the callee's boilerplate names are the caller's record names. THE QUEUE HOLDS NOTHING ELSE: every one of IC's eight remaining failures is this one primitive, each with its own measured proof.",
       "what_blocks_on_it_UPDATED_1_62_102": "SIX of eight now. IC112A LINK-TEST-08 joined with proof: RECORDS-IN-ERROR = 649, every record failing IC113A's checks, because the callee's XRECORD-NUMBER / XFILE-NAME / XLABEL-TYPE all collide with the caller's CCVS boilerplate table FILE-RECORD-INFO-P1-120 — they are never inserted and resolve to the caller's storage. The record-as-view mechanism (1.62.102) is in place and starved by exactly this; once private names exist, the view's inserted-only guard admits them and LINK-TEST-08 should follow. IC114A LINK-TEST-12 is LIKELY the same family (unverified).",
@@ -502,6 +504,7 @@
   },
 
   "history": [
+    { "version": "1.62.104", "change": "THE ACTIVATION-SCOPE PRIMITIVE: private names qualify at registration, divert per activation before canonicalization, descriptive state installs once under collision-proof keys", "effect": "IC 303 -> 305 PASS / 8 -> 4 FAIL, clean 17 -> 21 of 25. IC101A, IC114A, IC203A, IC226A, IC227A clean — three never clean before. Four gate iterations found the boundary: GLOBAL/EXTERNAL/OBJECT REFERENCE excluded as run-unit bindings, divert-first resolution for duplicated leaf names, and the descriptive carry that two earlier attempts proved unsafe at raw keys landing safely at qualified ones. Two test expectations updated for field-form rendering (values were already correct)." },
     { "version": "1.62.103", "change": "Nested programs' files are registered (outermost-first), and symbols travel independently of values", "effect": "IC 302 -> 303 PASS / 8 FAIL. A subprogram's SELECT/FD hit 'unknown file' and silently no-opped — IC115A creates and reads a 649-record file entirely from inside one. IC114A LINK-TEST-12 stays red WITH BYTE-LEVEL PROOF: diffing the outer-created against the nested-created file shows the two programs' fields INTERLEAVED from offset 58, because the callee's boilerplate names (XFILE-NAME, XRECORD-NUMBER...) are the caller's record-tree names — the activation-scope collision at the SYMBOL level. Seven of eight remaining failures now in that bucket; IC227A is the last open single." },
     { "version": "1.62.102", "change": "A record argument is a VIEW: bytes sliced into the callee's leaves at entry, named leaves patched back at exit; synthetic FILLER keys excluded from pairing", "effect": "CCVS flat at IC 302 PASS / 8 FAIL. The view fixes the all-FILLER-record case (IC112A's shape) and the filler-zip fix removes a real corruption bug — a name aliased onto a FILLER slot wiped the record at the FILLER's width. IC112A itself moves to the blocked bucket WITH PROOF: RECORDS-IN-ERROR = 649 because IC113A's leaf names collide with the CCVS boilerplate FILE-RECORD-INFO table, so the view's inserted-only guard is starved. Six of eight remaining failures now blocked on activation scope." },
     { "version": "1.62.101", "change": "A subscripted CALL argument binds that occurrence — the subscript is evaluated at binding time and rides as the alias target", "effect": "IC 301 -> 302 PASS / 9 -> 8 FAIL. IC235A 2 -> 1, keeping only the blocked .06. expr_to_name drops subscripts, so USING SUBSCRIPTED-DATA (4) bound the bare table name, and a write there is the WHOLE TABLE since 1.62.99 — the value landed in occurrence 1. Five of the eight remaining failures are activation-scope-blocked; the open singles are IC112A, IC114A, IC227A." },

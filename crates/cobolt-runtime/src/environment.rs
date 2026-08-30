@@ -998,6 +998,23 @@ impl CobolEnvironment {
     /// resolves to itself; a duplicated name is matched against the candidates'
     /// ancestor paths (an ambiguous reference picks the first declaration).
     pub fn resolve_name(&self, leaf: &str, quals: &[String]) -> String {
+        // An ACTIVATION DIVERT wins before canonicalization. While a called
+        // program runs, only its own statements execute, so a bare leaf that
+        // carries a divert alias is that program's own item — whatever
+        // qualifiers rode along, and whatever same-named item the caller
+        // declared. Canonicalizing first sent CCVS85 IC115A's
+        // `XRECORD-NUMBER (1)` to the CALLER's path-qualified key (the name is
+        // duplicated across the two programs), the divert never fired, and the
+        // create loop wrote records until it was killed. Only diverts take
+        // this early path — their targets carry the activation separator that
+        // no SET ADDRESS target can contain — so pointer aliasing is
+        // untouched.
+        let leaf_up = leaf.to_ascii_uppercase();
+        if let Some(t) = self.addr_aliases.get(&leaf_up) {
+            if t.contains('\u{4}') {
+                return t.clone();
+            }
+        }
         let key = self.resolve_canonical(leaf, quals);
         // A `SET ADDRESS OF item TO ptr` aliases `item` onto another item's
         // storage — redirect here so every interpreter reference follows it.
@@ -1952,6 +1969,52 @@ impl CobolEnvironment {
                     .map(|(ak, _, _)| (pk.clone(), ak.clone()))
             })
             .collect()
+    }
+
+    /// This environment's numeric capacities, edit templates and BLANK WHEN
+    /// ZERO set — what its items ARE — for installing under another
+    /// environment's activation-qualified keys.
+    pub fn descriptive_entries(
+        &self,
+    ) -> (Vec<(String, (u8, u8))>, Vec<(String, String)>, Vec<String>) {
+        (
+            self.field_caps.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            self.edited_templates
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            self.blank_when_zero.iter().cloned().collect(),
+        )
+    }
+
+    /// Install a called program's descriptive state under its OWN keys.
+    ///
+    /// The wholesale carry was tried at raw keys and reverted — a description
+    /// merged into the shared maps was visible to sibling programs, and the
+    /// isolation tests said so. Under activation-qualified keys the collision
+    /// cannot exist: every entry's key carries its program's name. So this is
+    /// installed ONCE, at construction, and never unwound — without it a
+    /// private `PIC 9(6)` had no capacity and `IF X (1) EQUAL TO 649` ran as
+    /// an alphanumeric comparison of `"000649"` against `"649   "`, which is
+    /// how CCVS85 IC115A's create loop wrote thirty megabytes before it was
+    /// killed.
+    pub fn install_descriptive(
+        &mut self,
+        caps: &[(String, (u8, u8))],
+        templates: &[(String, String)],
+        bwz: &[String],
+    ) {
+        for (k, v) in caps {
+            self.field_caps.entry(k.clone()).or_insert(*v);
+        }
+        for (k, v) in templates {
+            self.edited_templates
+                .entry(k.clone())
+                .or_insert_with(|| v.clone());
+        }
+        for k in bwz {
+            self.blank_when_zero.insert(k.clone());
+        }
     }
 
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────

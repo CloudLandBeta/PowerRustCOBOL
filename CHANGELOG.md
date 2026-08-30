@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.104] — 2026-08-30
+
+### Fixed — a called program's own data is its own: the activation scope
+
+Every one of IC's eight remaining failures had reduced, each with its own
+measured proof, to one missing primitive: a nested program's private
+WORKING-STORAGE was merged into a single shared environment, so a callee's
+`77 DN2` call counter WAS the caller's `DN2`, a callee's save-into-work-area
+destroyed the caller's argument before reading it, and a callee's numeric item
+compared as text because its declared capacity belonged to somebody else's name.
+
+The primitive, built from three reverted attempts' constraints:
+
+- **Registration-time qualification.** Everything a program privately declares
+  (WS/LS; not GLOBAL, not EXTERNAL, not OBJECT REFERENCE — each of those is a
+  run-unit-shared binding) moves onto program-qualified keys, `PROG` + `\u{4}`
+  + name, with symbols' internal key lists, condition-name hosts and REDEFINES
+  classes rewritten through the same map. The shared environment cannot collide
+  them with anyone, by construction.
+- **Per-activation diverts.** At CALL, an alias `name → qualified` rides the
+  existing `resolve_name` path and the existing save/restore vec. It wins
+  BEFORE canonicalization: while an activation runs, only its own statements
+  execute, so a bare leaf carrying a divert is that program's own item whatever
+  same-named tree the caller declared. Only diverts take the early path — their
+  targets carry the separator no `SET ADDRESS` target can contain.
+- **Descriptive state under qualified keys, installed once.** The wholesale
+  carry was reverted at raw keys because siblings could see it; qualified keys
+  cannot collide, so capacities, edit templates and BLANK WHEN ZERO now install
+  at construction and never unwind. Without them a private `PIC 9(6)` had no
+  capacity and `IF X (1) EQUAL TO 649` compared `"000649"` to `"649   "` — the
+  create loop wrote thirty megabytes before it was killed.
+
+Inter-program communication (IC), execution: **303 PASS / 8 FAIL → 305 PASS /
+4 FAIL**, clean programs **17 → 21 of 25**. IC101A, IC114A, IC203A, IC226A and
+IC227A all run clean — three of them for the first time ever. All four
+acceptance tests pass, including the guard that a group parameter's fields
+still reach the caller. Two test expectations were updated where values were
+correct and only rendering changed: a nested program's `PIC 9(4)` now displays
+`0001` exactly as an outer program's always has, because the item finally has
+its capacity. Whole-suite compile **412 / 421**; NC 95/95 (4614), SQ 85/85
+(624), IX 41/41 (574), RL 34/34 (354), IF 45/45 (841) all exact; runtime
+suites 0 failed.
+
 ## [PowerRustCOBOL 1.62.103] — 2026-08-30
 
 ### Fixed — a nested program's own files did not exist

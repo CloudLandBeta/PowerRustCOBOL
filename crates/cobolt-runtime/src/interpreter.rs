@@ -323,6 +323,21 @@ struct NestedProgram {
     /// `XRECORD-NUMBER` at offset 34. The layout is what lets the CALL slice
     /// the caller's bytes in and patch them back out.
     linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>))>,
+    /// Names this program declares in its OWN WORKING-STORAGE or
+    /// LOCAL-STORAGE, excluding `GLOBAL` — the storage that is private to an
+    /// activation even when the caller spells a name the same way.
+    ///
+    /// Everything these names describe was rewritten at registration onto
+    /// program-qualified keys (see `activation_key`), so the shared
+    /// environment cannot collide them with anyone; at CALL a divert alias
+    /// `name -> qualified` makes the callee's own references find them, and
+    /// the caller's storage never learns they existed.
+    local_private: Vec<String>,
+    /// Numeric capacities, edit templates and BLANK WHEN ZERO for this
+    /// program's PRIVATE items, keyed by their activation-qualified keys —
+    /// installed once at construction, where no sibling can see them because
+    /// no sibling's keys can collide.
+    local_descriptive: (Vec<(String, (u8, u8))>, Vec<(String, String)>, Vec<String>),
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
@@ -352,6 +367,60 @@ struct BindingRuntimeState {
     row_key: String,
     pending_value: String,
     last_status: String,
+}
+
+/// The storage key a called program's PRIVATE item lives under for the length
+/// of an activation: `PROGRAM-ID` + `\u{4}` + the item's own key. The
+/// separator cannot occur in a COBOL name — the same trick the synthetic
+/// FILLER keys play with `\u{2}` — so no program can collide with it.
+fn activation_key(prog: &str, name: &str) -> String {
+    format!("{prog}\u{4}{name}")
+}
+
+/// Rewrite `key` onto its activation-qualified form when its BASE name is
+/// private, keeping any subscript or synthetic-FILLER suffix exactly as it
+/// stands: `DN2` → `IC205A\u{4}DN2`, `ITM(2)` → `Q(ITM)(2)`,
+/// `GRP\u{2}0` → `Q(GRP)\u{2}0`.
+fn requalify(key: &str, prog: &str, private: &std::collections::HashSet<String>) -> String {
+    let split = key.find(|c| c == '(' || c == '\u{2}');
+    let (base, rest) = match split {
+        Some(i) => key.split_at(i),
+        None => (key, ""),
+    };
+    if private.contains(base) {
+        format!("{}{rest}", activation_key(prog, base))
+    } else {
+        key.to_string()
+    }
+}
+
+/// Collect the names a program declares as its own private storage: its
+/// WORKING-STORAGE and LOCAL-STORAGE, excluding `GLOBAL` items (sharing them
+/// is what GLOBAL means), 88s and 66s (they own no storage) and FILLER.
+fn collect_private_names(decl: &cobolt_ast::data::DataDecl, out: &mut std::collections::HashSet<String>) {
+    // `GLOBAL` and `EXTERNAL` both mean SHARED — one down the containment
+    // tree, the other across the run unit (CCVS85 IC226A checks exactly that
+    // an EXTERNAL item's value comes back). An OBJECT REFERENCE is excluded
+    // with them: its handle is seeded once at startup by the Rust bridge and
+    // the EXEC RUST context reaches it by name, so it is a run-unit binding,
+    // not activation data.
+    if decl.is_global
+        || decl.is_external
+        || matches!(decl.usage, cobolt_ast::data::Usage::ObjectReference)
+    {
+        return;
+    }
+    if decl.level != 88 && decl.level != 66 {
+        if let Some(name) = &decl.name {
+            let upper = name.to_ascii_uppercase();
+            if upper != "FILLER" {
+                out.insert(upper);
+            }
+        }
+    }
+    for child in &decl.children {
+        collect_private_names(child, out);
+    }
 }
 
 /// Recursively register a `Program` and all of its `nested_programs` into
@@ -441,6 +510,71 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
 
     let key = prog.identification.program_id.to_ascii_uppercase();
     let using = prog.procedure.using.clone();
+
+    // ── The activation scope, established at registration ────────────────
+    // Everything the program PRIVATELY declares moves onto program-qualified
+    // keys here, once, so the shared environment cannot collide it with any
+    // other program's names. Symbols carry their internal key lists through
+    // the same rewrite, which is what keeps group walks, occurrence
+    // expansion, REDEFINES classes and condition-name hosts coherent.
+    let private: std::collections::HashSet<String> = {
+        use cobolt_ast::program::DataSection;
+        let mut out = std::collections::HashSet::new();
+        if let Some(data) = &prog.data {
+            for section in &data.sections {
+                if let DataSection::WorkingStorage(items) | DataSection::LocalStorage(items) =
+                    section
+                {
+                    for decl in items {
+                        collect_private_names(decl, &mut out);
+                    }
+                }
+            }
+        }
+        out
+    };
+    let rq = |k: &str| requalify(k, &key, &private);
+    let local_items: Vec<(String, CobolValue)> = local_items
+        .into_iter()
+        .map(|(k, v)| (rq(&k), v))
+        .collect();
+    let local_symbols: Vec<(String, crate::environment::ItemSym)> = local_symbols
+        .into_iter()
+        .map(|(k, mut sym)| {
+            sym.child_keys = sym.child_keys.iter().map(|c| rq(c)).collect();
+            sym.layout_keys = sym.layout_keys.iter().map(|c| rq(c)).collect();
+            (rq(&k), sym)
+        })
+        .collect();
+    let local_cond_names: Vec<(String, crate::environment::CondName)> = local_cond_names
+        .into_iter()
+        .map(|(n, mut c)| {
+            c.parent = rq(&c.parent);
+            (n, c)
+        })
+        .collect();
+    let local_redefine_links: Vec<(String, Vec<(String, String)>)> = local_redefine_links
+        .into_iter()
+        .map(|(t, pairs)| {
+            (
+                rq(&t),
+                pairs.into_iter().map(|(a, b)| (rq(&a), rq(&b))).collect(),
+            )
+        })
+        .collect();
+    let local_descriptive: (Vec<(String, (u8, u8))>, Vec<(String, String)>, Vec<String>) = {
+        let (caps, templates, bwz) = local_env
+            .as_ref()
+            .map(CobolEnvironment::descriptive_entries)
+            .unwrap_or_default();
+        (
+            caps.into_iter().map(|(k, v)| (rq(&k), v)).collect(),
+            templates.into_iter().map(|(k, v)| (rq(&k), v)).collect(),
+            bwz.into_iter().map(|k| rq(&k)).collect(),
+        )
+    };
+    let mut local_private: Vec<String> = private.into_iter().collect();
+    local_private.sort();
     registry.insert(
         key,
         NestedProgram {
@@ -453,6 +587,8 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             local_cond_names,
             local_redefine_links,
             linkage_layouts,
+            local_private,
+            local_descriptive,
             using,
             file_status,
         },
@@ -557,16 +693,32 @@ fn seed_nested_object_refs(
         repo.extend(repository_map(nested));
 
         let handles = create_object_refs(nested, &repo, bridge, refs);
-        if let Some(np) = registry.get_mut(&nested.identification.program_id.to_ascii_uppercase()) {
+        let prog_id = nested.identification.program_id.to_ascii_uppercase();
+        if let Some(np) = registry.get_mut(&prog_id) {
             for (key, id) in handles {
+                // The program's private items moved onto activation-qualified
+                // keys at registration; the object handle and its `refs` type
+                // entry have to live under the same key, or the handler's
+                // reference resolves to a slot the bridge never heard of.
+                let upper = key.to_ascii_uppercase();
+                let qkey = if np.local_private.contains(&upper) {
+                    activation_key(&prog_id, &upper)
+                } else {
+                    upper
+                };
+                if qkey != key {
+                    if let Some(t) = refs.remove(&key) {
+                        refs.insert(qkey.clone(), t);
+                    }
+                }
                 let handle = CobolValue::from_i64(id);
                 match np
                     .local_items
                     .iter_mut()
-                    .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&qkey))
                 {
                     Some((_, slot)) => *slot = handle,
-                    None => np.local_items.push((key, handle)),
+                    None => np.local_items.push((qkey, handle)),
                 }
             }
         }
@@ -1463,6 +1615,13 @@ impl Interpreter {
         let mut nested_registry: HashMap<String, NestedProgram> = HashMap::new();
         for nested in &program.nested_programs {
             register_nested(nested, &mut nested_registry);
+        }
+        // Every registered program's descriptive state, installed once —
+        // activation-qualified keys cannot collide across programs, so there
+        // is nothing to scope and nothing to unwind.
+        for np in nested_registry.values() {
+            let (caps, templates, bwz) = &np.local_descriptive;
+            env.install_descriptive(caps, templates, bwz);
         }
         // A nested program — every RAD event handler is one — declares its own
         // `OBJECT REFERENCE` items; they need objects too, seeded into the
@@ -8317,6 +8476,7 @@ impl Interpreter {
                     local_cond_names,
                     local_redefine_links,
                     linkage_layouts,
+                    local_private,
                     params,
                     callee_file_status,
                 ) = {
@@ -8331,6 +8491,7 @@ impl Interpreter {
                         np.local_cond_names.clone(),
                         np.local_redefine_links.clone(),
                         np.linkage_layouts.clone(),
+                        np.local_private.clone(),
                         np.using.clone(),
                         np.file_status.clone(),
                     )
@@ -8538,6 +8699,17 @@ impl Interpreter {
                 // from the caller's bytes: the refresh is write-driven and the
                 // caller's write happened before this call existed.
                 self.env.prime_redefine_classes(&inserted_redefs);
+
+                // Divert the callee's own names onto its activation keys —
+                // installed after the parameter aliases, and into the same
+                // save/restore vec, so nesting unwinds exactly. From here to
+                // the restore, only this program's statements execute, so the
+                // divert cannot capture anyone else's references.
+                for name in &local_private {
+                    aliased.push((name.clone(), self.env.alias_target(name)));
+                    self.env
+                        .set_alias(name, &activation_key(&prog_name, name));
+                }
 
                 // Run the nested program's paragraphs in declaration order,
                 // with ITS procedures installed as the ones `PERFORM` and

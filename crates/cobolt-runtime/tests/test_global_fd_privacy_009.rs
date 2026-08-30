@@ -129,9 +129,13 @@ fn procedure_local_global_item_is_not_shared_with_sibling() {
        END PROGRAM OUTER.
 "#;
     let out = run_capture(src);
+    // "0000", not "0": since the activation-scope primitive carries a nested
+    // program's numeric capacities, PROC-B's `PIC 9(4)` renders in its field
+    // form exactly as an outer program's would. The isolation claim is
+    // unchanged — the value is PROC-B's own 0, never PROC-A's 7.
     assert_eq!(
         out,
-        vec!["0"],
+        vec!["0000"],
         "PROC-A's local GLOBAL item must NOT be visible to sibling PROC-B (R9)"
     );
 }
