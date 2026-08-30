@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.108] — 2026-08-30
+
+### Harness — ST's eight producer chains, and reportless-by-design members
+
+Two measurement fixes, no runtime change. The Sort/Merge module is built as
+eight creator → sorter → verifier chains, written in the suite's own member
+headers (`*HEADER,COBOL,ST101A,SUBPRG,ST102A`); the fifteen `inherits_from`
+entries now mirror them, so every member runs after its producer in the same
+directory. And a member that never names the X-55 printer card **cannot**
+report: ST102A is seventy-eight lines — SELECTs, an SD, one SORT, STOP RUN —
+and is verified by the next program in its chain. Exit 0 with no report is
+exactly what such a member looks like when it works, and it now scores that
+way.
+
+Sort/Merge (ST), execution: **157 PASS / 99 FAIL → 588 PASS / 44 FAIL**, clean
+programs **13 → 19 of 40** — hundreds of previously unreachable assertions now
+run, a measurement-fidelity gain in the sense the ledger's gate rule records.
+Still open: three sorters that reference the printer yet print nothing, one
+new 20-second timeout (ST127A), and the two `COLLATING SEQUENCE` compile
+failures. All six protected modules re-verified exact under the changed
+harness, IC's 309/0 among them for the first time; whole-suite compile
+**412 / 421**.
+
 ## [PowerRustCOBOL 1.62.107] — 2026-08-30
 
 ### IC (Inter-program communication) is FINISHED — 25/25, 309 PASS / 0 FAIL

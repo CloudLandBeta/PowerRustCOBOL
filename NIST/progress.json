@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.107",
+  "measured_at_version": "1.62.108",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -96,8 +96,8 @@
       "name": "Sort/Merge",
       "state": "in_flight",
       "compile": [38, 40],
-      "execution": [13, 40],
-      "assertions": { "pass": 157, "fail": 99, "deleted": 0 },
+      "execution": [19, 40],
+      "assertions": { "pass": 588, "fail": 44, "deleted": 0 },
       "baselined_at": "1.62.107 — 13 of 40 clean, 157 PASS / 99 FAIL (61.3%), DELETED 0. FOUR MEMBERS PRINT NO CCVS REPORT AT ALL (ST102A, ST110A, ST113M, ST116A) — read that bucket first; a missing report usually means a crash or a file the harness must plant. Two members do not compile (ST139A/ST140A: `SEQUENCE MY-FAVORITE-ALPHABET`, a COLLATING SEQUENCE alphabet-name in SORT — visible in the census)."
     },
     "SM": {
@@ -514,6 +514,7 @@
   },
 
   "history": [
+    { "version": "1.62.108", "change": "HARNESS: ST's eight producer chains wired from the suite's own SUBPRG headers, and a member that never names X-55 scores by exit status", "effect": "ST 157 -> 588 PASS / 99 -> 44 FAIL, 13 -> 19 of 40 clean — a fidelity gain; the chains let hundreds of unreachable assertions run. Open next: ST110A/ST113M/ST123A still print no report DESPITE naming the printer (crash or mid-run stop — diagnose by hand), ST127A times out, ST139A/ST140A do not compile (COLLATING SEQUENCE alphabet-name). All six protected modules re-verified exact under the changed harness." },
     { "version": "1.62.107", "change": "IC FINISHED 25/25, 309/0 — an elementary BY CONTENT parameter is a private copy on an activation key. ST in flight.", "effect": "The last member, IC225A, passed DN1 both CONTENT and REFERENCE in one CALL; the content restore clobbered the reference write. A private copy has no restore. Module-closing gate exact in full. IC entered at 134/129 (6 of 25) and closes at 309/0 in 26 versions. ST baselined: 157/99, 13 of 40 clean, four members printing no CCVS report at all." },
     { "version": "1.62.106", "change": "A record view's colliding fields take activation keys with mirrored capacities, and its named groups join the view for reading", "effect": "IC 307 -> 308 PASS / 2 -> 1 FAIL, clean 23 -> 24 of 25 (99.7%). IC112A clean. The probe method again: everything was right except U=[ 0000000000] where /0 belonged — the group name resolved to the caller's table because only leaves diverted. ONE member remains: IC225A CALL-TEST-02-03-1, DATA-NAME USED TWICE, .01 INCORRECT VALUE RETURNED." },
     { "version": "1.62.105", "change": "An edited LINKAGE parameter LENDS its template to the argument for the binding; insertion characters count in pic widths; the alnum template map travels", "effect": "IC 305 -> 307 PASS / 4 -> 2 FAIL, clean 21 -> 23 of 25, 99.4% of assertions. IC103A and IC235A clean. TWO remain: IC112A (boilerplate-name collision inside the record view — LINKAGE names do not divert, so the callee's XRECORD-NUMBER still resolves to the caller's FRI child; needs either LINKAGE-nonparameter privacy or view-level keys) and IC225A (undiagnosed beyond DATA-NAME USED TWICE). The lend's negative half is load-bearing: after the call the caller's X(6) must be plain again." },

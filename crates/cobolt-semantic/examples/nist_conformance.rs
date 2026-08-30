@@ -994,6 +994,25 @@ fn inherits_from(name: &str) -> Option<&'static str> {
         // THE OTHER FILE 'RL-FS2' WILL NOT BE PRESENT." RL212A writes card 21
         // only, so card 22 stays absent exactly as the program requires.
         "RL213A" => "RL212A",
+        // ── ST: eight creator → sorter → verifier chains, straight off the
+        // member headers (`*HEADER,COBOL,ST101A,SUBPRG,ST102A`). The creator
+        // writes the population file, the sorter SORTs it USING/GIVING with no
+        // report of its own, and the verifier reads the sorted output.
+        "ST102A" => "ST101A",
+        "ST103A" => "ST102A",
+        "ST105A" => "ST104A",
+        "ST107A" => "ST106A",
+        "ST110A" => "ST109A",
+        "ST111A" => "ST110A",
+        "ST113M" => "ST112M",
+        "ST114M" => "ST113M",
+        "ST116A" => "ST115A",
+        "ST117A" => "ST116A",
+        "ST120A" => "ST119A",
+        "ST121A" => "ST120A",
+        "ST123A" => "ST122A",
+        "ST124A" => "ST123A",
+        "ST126A" => "ST125A",
         // ── SM: a COPY writes the file, the next program reads it back ─────
         // The Source Text Manipulation module proves a copybook by *using* it:
         // one program builds a file through `COPY`-supplied declarations and
@@ -1587,6 +1606,10 @@ fn run_one_in(
     if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
     }
+    // Whether this member can report at all: the CCVS report goes to the
+    // X-55 printer card, and a member that never names it has nothing to
+    // print with. See the NoReport decision below.
+    let text_names_printer = raw.contains("XXXXX055");
 
     // The suite's copybooks, beside the source, because that is where `rcrun`
     // looks for them (`expand_copy` in cobolt-cli resolves a `COPY` against the
@@ -1728,6 +1751,15 @@ fn run_one_in(
                         .unwrap_or_default();
                     match score_console_report(name, &console) {
                         Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(console)),
+                        // A member that never names the printer card CANNOT
+                        // report — ST's sorters (`ST102A` is 78 lines: SELECTs,
+                        // an SD, one SORT, STOP RUN) do their work silently and
+                        // are verified by the next program in their chain.
+                        // Exit 0 with no report is exactly what such a member
+                        // looks like when it works.
+                        None if !text_names_printer => {
+                            (RunOutcome::Ran(0, 0, 0), None)
+                        }
                         None => (RunOutcome::NoReport, printed),
                     }
                 }
