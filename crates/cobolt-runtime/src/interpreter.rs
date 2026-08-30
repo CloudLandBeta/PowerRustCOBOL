@@ -6924,6 +6924,15 @@ impl Interpreter {
             .get(&fkey)
             .map(|s| s.layout.len.max(1))
             .unwrap_or(1);
+        // A variable-length file carries a length prefix before every record —
+        // the same contract the ordinary READ honours. SORT's bulk reader used
+        // a fixed-size read, which sheared every record of CCVS85 ST110A's
+        // 50-to-100-byte SORTIN off its neighbours and fed the sorter garbage
+        // (the chain verifiers all reported premature EOF on its output).
+        let varying = self
+            .file_specs
+            .get(&fkey)
+            .is_some_and(|s| s.is_varying());
         let mut out = Vec::new();
         loop {
             let rec = match self.open_files.get_mut(&fkey) {
@@ -6937,6 +6946,21 @@ impl Interpreter {
                                     line.pop();
                                 }
                                 Some(line.into_bytes())
+                            }
+                            Err(_) => None,
+                        }
+                    }
+                    _ if varying => {
+                        let mut p = [0u8; VARYING_LEN_PREFIX];
+                        match r.read_exact(&mut p) {
+                            Ok(()) => {
+                                let n =
+                                    u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as usize;
+                                let mut bytes = vec![0u8; n];
+                                match r.read_exact(&mut bytes) {
+                                    Ok(()) => Some(bytes),
+                                    Err(_) => None,
+                                }
                             }
                             Err(_) => None,
                         }
@@ -6971,6 +6995,13 @@ impl Interpreter {
             None,
             Span::dummy(),
         )?;
+        // Mirror the ordinary WRITE's contract: a varying file gets each
+        // record's length prefix, so the verifier that READs the GIVING file
+        // finds records where it expects them (ST110A's chain).
+        let varying = self
+            .file_specs
+            .get(&fkey)
+            .is_some_and(|s| s.is_varying());
         for b in recs {
             if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
                 let _ = match org {
@@ -6978,6 +7009,9 @@ impl Interpreter {
                         let s = String::from_utf8_lossy(b);
                         writeln!(w, "{}", s.trim_end())
                     }
+                    _ if varying => w
+                        .write_all(&(b.len() as u32).to_be_bytes())
+                        .and_then(|()| w.write_all(b)),
                     _ => w.write_all(b),
                 };
             }

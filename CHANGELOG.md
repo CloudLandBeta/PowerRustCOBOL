@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.110] — 2026-08-30
+
+### Fixed — SORT honours the variable-length record contract
+
+`SORT … USING/GIVING` read its input with a fixed-size bulk reader and wrote
+its output raw, while every other READ and WRITE of a varying file speaks the
+length-prefix contract. On CCVS85 **ST110A**'s 50-to-100-byte records the
+reader sheared each record off its neighbours and fed the sorter garbage, and
+the chain verifiers reported premature EOF on the GIVING file. Both sides of
+the sort now check `is_varying()` and use the prefix.
+
+Sort/Merge (ST), execution: **588 PASS / 44 FAIL → 601 PASS / 44 FAIL**, clean
+programs **22 → 24 of 40** — the ST109A and ST112M chains cleared. ST137A's
+failures moved 1 → 3 as previously unreachable assertions began to run.
+Whole-suite compile **412 / 421**; 104 runtime suites, 0 failed.
+
 ## [PowerRustCOBOL 1.62.109] — 2026-08-30
 
 ### Harness — reporting is driving PRINT-DETAIL, not naming the printer
