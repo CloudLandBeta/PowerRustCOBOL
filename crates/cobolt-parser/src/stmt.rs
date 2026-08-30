@@ -3092,33 +3092,44 @@ fn parse_call(p: &mut Parser) -> Stmt {
     let program = parse_expr(p);
 
     // USING [BY {REFERENCE|CONTENT|VALUE}] args…
+    //
+    // **The phrase governs every operand that follows it**, until another one
+    // appears — it is not repeated per argument. IC225A writes
+    //
+    //     CALL "IC225A-1" USING BY REFERENCE DN1, DN2,
+    //                              CONTENT   DN3, DN4
+    //
+    // which passes two operands each way. Read per-operand, only the first
+    // after each phrase got its mode and the rest fell back to BY REFERENCE —
+    // so `DN4` was written straight back to the caller, which is what the test
+    // checks ("VALUE OF DN4 HAS BEEN CHANGED"). `BY` itself is optional, and
+    // the suite writes the phrase both ways.
     let mut using = Vec::new();
     if p.eat(&Token::Using) {
+        let (reference, content, value) = (0u8, 1u8, 2u8);
+        let mut mode = reference;
         loop {
-            // BY comes first, then the mode keyword (all optional)
             p.eat(&Token::By);
-            let by_ref = p.eat(&Token::Reference);
-            let by_val = !by_ref && p.eat(&Token::Value);
-            let by_cont = !by_ref && !by_val && {
-                let is_content = matches!(ident_upper(p).as_deref(), Some("CONTENT"));
-                if is_content {
-                    p.advance();
-                }
-                is_content
-            };
+            if p.eat(&Token::Reference) {
+                mode = reference;
+            } else if p.eat(&Token::Value) {
+                mode = value;
+            } else if matches!(ident_upper(p).as_deref(), Some("CONTENT")) {
+                p.advance();
+                mode = content;
+            }
 
             if !is_expr_start(p) {
                 break;
             }
             let arg = parse_expr(p);
-            let call_arg = if by_val {
+            using.push(if mode == value {
                 CallArg::ByValue(arg)
-            } else if by_cont {
+            } else if mode == content {
                 CallArg::ByContent(arg)
             } else {
                 CallArg::ByReference(arg)
-            };
-            using.push(call_arg);
+            });
         }
     }
 

@@ -8184,46 +8184,52 @@ impl Interpreter {
                 // callee reads the fields of a record it was handed. Shadowing
                 // them instead cut IC from 10 clean programs to 5.
                 let mut aliased: Vec<(String, Option<String>)> = Vec::new();
+                // **BY CONTENT is the same binding, put back afterwards.** The
+                // callee is handed the value, may do as it likes with it, and
+                // the caller's data is as it was when the call returns. In a
+                // single run unit that is indistinguishable from a private
+                // copy, and it reuses the aliasing that already makes a group
+                // parameter's fields reachable — copying by name did not, so a
+                // BY CONTENT parameter whose name the caller also used wrote
+                // straight through to the caller (IC225A's `VALUE OF DN4 HAS
+                // BEEN CHANGED`).
+                let mut restore_after: Vec<(String, Option<CobolValue>)> = Vec::new();
                 for (pk, ak, by_ref) in &bindings {
-                    if *by_ref {
-                        if pk != ak {
-                            aliased.push((pk.clone(), self.env.alias_target(pk)));
-                            self.env.set_alias(pk, ak);
+                    // The parameter, followed by everything subordinate to it.
+                    // A **group** parameter is handed over whole and the callee
+                    // reads its *fields* — under its own names for them, which
+                    // need not be the caller's. IC204A declares `SUB-TABLE-1`
+                    // over `SUB-DN2 / SUB-DN3 / SUB-DN4` while its caller
+                    // passes `TABLE-1` over `DN2 / DN3 / DN4`. The two describe
+                    // the same bytes, so the subordinate items are paired by
+                    // **position** — there is nothing else to pair them by.
+                    // Without it the callee wrote its own LINKAGE slots and the
+                    // caller saw nothing (IC203A's thirteen `DN2 INCORRECT`).
+                    let pairs: Vec<(String, String)> = {
+                        let p = self
+                            .env
+                            .symbol(pk)
+                            .map(|s| s.layout_keys.clone())
+                            .unwrap_or_default();
+                        let a = self
+                            .env
+                            .symbol(ak)
+                            .map(|s| s.layout_keys.clone())
+                            .unwrap_or_default();
+                        std::iter::once((pk.clone(), ak.clone()))
+                            .chain(p.into_iter().zip(a))
+                            .collect()
+                    };
+                    if !*by_ref {
+                        for (_, a_sub) in &pairs {
+                            restore_after.push((a_sub.clone(), self.env.get(a_sub).cloned()));
                         }
-                        // A **group** parameter is handed over whole, and the
-                        // callee reads its *fields* — under its own names for
-                        // them, which need not be the caller's. IC204A declares
-                        // `SUB-TABLE-1` over `SUB-DN2 / SUB-DN3 / SUB-DN4`
-                        // while its caller passes `TABLE-1` over `DN2 / DN3 /
-                        // DN4`. The two describe the same bytes, so the
-                        // subordinate items are paired by **position** — there
-                        // is nothing else to pair them by — and aliased in
-                        // lock-step. Without it the callee wrote its own
-                        // LINKAGE slots and the caller saw nothing (IC203A's
-                        // thirteen `DN2 INCORRECT` / `DN4 INCORRECT`).
-                        let pairs: Vec<(String, String)> = {
-                            let p = self
-                                .env
-                                .symbol(pk)
-                                .map(|s| s.layout_keys.clone())
-                                .unwrap_or_default();
-                            let a = self
-                                .env
-                                .symbol(ak)
-                                .map(|s| s.layout_keys.clone())
-                                .unwrap_or_default();
-                            p.into_iter().zip(a).collect()
-                        };
-                        for (p_sub, a_sub) in pairs {
-                            if p_sub != a_sub {
-                                aliased.push((p_sub.clone(), self.env.alias_target(&p_sub)));
-                                self.env.set_alias(&p_sub, &a_sub);
-                            }
+                    }
+                    for (p_sub, a_sub) in pairs {
+                        if p_sub != a_sub {
+                            aliased.push((p_sub.clone(), self.env.alias_target(&p_sub)));
+                            self.env.set_alias(&p_sub, &a_sub);
                         }
-                    } else if let Some(v) = self.env.get(ak).cloned() {
-                        // BY CONTENT / BY VALUE: a copy taken at entry, with no
-                        // write-back.
-                        self.env.set(pk, v);
                     }
                 }
 
@@ -8243,6 +8249,17 @@ impl Interpreter {
                 self.para_order = saved_order;
                 self.para_bodies = saved_bodies;
                 self.section_names = saved_secs;
+
+                // Put back what a BY CONTENT argument held before the call.
+                // Innermost first, so an argument bound twice unwinds in order.
+                // A key with nothing to restore is one the caller never had —
+                // which cannot happen for an argument it named, so there is
+                // nothing to put back.
+                for (key, prev) in restore_after.iter().rev() {
+                    if let Some(v) = prev {
+                        self.env.set(key, v.clone());
+                    }
+                }
 
                 // Release the parameter aliases, restoring whatever they
                 // displaced — this program may itself have been called from one

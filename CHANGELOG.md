@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.86] — 2026-08-29
+
+**`BY CONTENT` hands over the value, not the storage** — and the `BY` phrase
+governs every operand that follows it, not just the next one.
+
+Two defects, one visible symptom. `BY CONTENT` copied the argument into the
+parameter *by name*, so when the parameter's name was one the caller also used,
+the copy landed in the caller's own storage and every write went straight
+through. And the phrase was read per operand:
+
+```cobol
+           CALL "IC225A-1" USING BY REFERENCE DN1, DN2,
+                                    CONTENT   DN3, DN4
+           END-CALL.
+```
+
+passes two operands each way; read per-operand, only `DN3` was `BY CONTENT` and
+`DN4` fell back to `BY REFERENCE`. The suite checks exactly that — *"VALUE OF
+DN4 HAS BEEN CHANGED"*.
+
+`BY CONTENT` now binds like `BY REFERENCE` and the caller's storage — the
+argument and each of its fields — is put back when the call returns. In a
+single run unit that is indistinguishable from a private copy, and it inherits
+the aliasing that already makes a group parameter's fields reachable.
+
+**IC (Inter-program Communication) goes from 206 to 212 passing assertions**
+(80.5 % → 82.8 %), 50 → 44 failures.
+
 ## [PowerRustCOBOL 1.62.85] — 2026-08-29
 
 **A group parameter's fields are paired with the argument's by position.** The

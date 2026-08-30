@@ -452,6 +452,61 @@ fn a_parameter_binds_to_its_argument_not_to_its_own_name() {
     assert_eq!(i.env.get_i64("DN4").unwrap_or(-1), 5, "DN4");
 }
 
+/// **BY CONTENT hands over the value, not the storage.** Whatever the callee
+/// does with it, the caller's data is as it was when the call returns.
+///
+/// IC225A writes `CALL … USING BY REFERENCE DN1, DN2, CONTENT DN3, DN4` and
+/// then checks that DN3 and DN4 came back untouched. Copying the argument in by
+/// name did not give that: when the parameter's name was one the caller also
+/// used, the copy landed in the caller's own storage and every write went
+/// straight through ("VALUE OF DN4 HAS BEEN CHANGED").
+#[test]
+fn by_content_leaves_the_callers_argument_as_it_was() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLER.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 DN1 PIC S9(4) VALUE 1.
+       01 DN3 PIC S9(4) VALUE 3.
+       01 GRP.
+          05 GA PIC S9(4) VALUE 10.
+          05 GB PIC S9(4) VALUE 20.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "CALLEE" USING BY REFERENCE DN1
+                               BY CONTENT DN3, GRP.
+           STOP RUN.
+       END PROGRAM CALLER.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CALLEE.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01 DN1 PIC S9(4).
+       01 DN3 PIC S9(4).
+       01 GRP.
+          05 GA PIC S9(4).
+          05 GB PIC S9(4).
+       PROCEDURE DIVISION USING DN1, DN3, GRP.
+       MAIN-2.
+           MOVE 9 TO DN1.
+           MOVE 9 TO DN3.
+           MOVE 9 TO GA.
+           MOVE 9 TO GB.
+           EXIT PROGRAM.
+    "#;
+
+    let mut i = interp(src);
+    i.run().expect("run failed");
+    // BY REFERENCE: the write reached the caller.
+    assert_eq!(i.env.get_i64("DN1").unwrap_or(-1), 9, "DN1 by reference");
+    // BY CONTENT: elementary and group alike are as they were.
+    assert_eq!(i.env.get_i64("DN3").unwrap_or(-1), 3, "DN3 by content");
+    assert_eq!(i.env.get_i64("GA").unwrap_or(-1), 10, "GA by content");
+    assert_eq!(i.env.get_i64("GB").unwrap_or(-1), 20, "GB by content");
+}
+
 /// A group parameter's fields are paired with the argument's **by position**,
 /// because the two programs need not use the same names for them.
 ///
