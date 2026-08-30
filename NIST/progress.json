@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.99",
+  "measured_at_version": "1.62.100",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -489,6 +489,7 @@
   },
 
   "history": [
+    { "version": "1.62.100", "change": "The parameter side of a group binding walks the CALLEE's own symbols, and a table argument's occurrences become alias targets", "effect": "CCVS flat at IC 301 PASS / 9 FAIL — and the flatness is PROVEN, not assumed. IC203A CNCL-TEST-05's COMPUTED went empty -> XY: the binding is fixed (both programs name their record TABLE-2, so the pairing had read the caller's tree for both sides and TV-1/TV-2 bound to nothing), and the member stays red on the DN2 name collision — an instrumented chain shows the counter at exactly 3 and 1 with both IFs misdeciding, because the callee's private 77 DN2 COMP is really the caller's PIC XXX child and the comparison runs alphanumeric. IC203A moves to the activation-scope-blocked bucket with IC101A and IC225A, with proof." },
     {
       "version": "1.62.99",
       "change": "An unsubscripted table reference is the group of its own occurrences — a `CALL … USING` alias onto a table base name could not be written through",

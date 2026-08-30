@@ -491,3 +491,67 @@ fn a_group_subordinate_reads_a_table_argument_whole() {
          group alias must not cost the per-occurrence binding"
     );
 }
+
+/// The parameter side of a group binding is walked over the **callee's own
+/// symbols** — the shared environment may hold the caller's description under
+/// the very same name.
+///
+/// CCVS85 **IC203A** / **IC205A** CNCL-TEST-05. Both programs call their
+/// record `TABLE-2`: the caller's is `02 DN6 PIC X OCCURS 2` and the callee's
+/// is `02 TV-1 PIC X. 02 TV-2 PIC X.` Because the names collide,
+/// `push_local_scope` never installs the callee's 01, and a pairing walked
+/// through the shared environment read the CALLER's tree for both sides — so
+/// `TV-1` and `TV-2` never bound to anything, and IC205A's `MOVE "B" TO TV-2`
+/// wrote a private slot nothing reads (`COMPUTED=` empty in the CCVS report).
+///
+/// The argument side may contain a fixed table: its occurrences are expanded
+/// as alias TARGETS (`TV-2 -> DN6(2)`), which is the consultable direction —
+/// an alias KEY is only ever looked up by base name.
+const SAME_NAME_DIFFERENT_TREES: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  DN6 PICTURE X OCCURS 2 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE SPACE TO TABLE-2
+           CALL "CSUB" USING TABLE-2
+           DISPLAY "T2=[" TABLE-2 "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  TABLE-2.
+           02  TV-1 PIC X.
+           02  TV-2 PIC X.
+       PROCEDURE DIVISION USING TABLE-2.
+       S-MAIN.
+           MOVE "A" TO TV-1
+           MOVE "B" TO TV-2
+           EXIT PROGRAM.
+       END PROGRAM CSUB.
+       END PROGRAM CMAIN.
+"#;
+
+#[test]
+fn a_colliding_record_name_still_binds_the_callees_children() {
+    let out = run_capture(SAME_NAME_DIFFERENT_TREES);
+    let t2 = out
+        .iter()
+        .find_map(|l| {
+            l.strip_prefix("T2=[")
+                .and_then(|r| r.strip_suffix(']'))
+                .map(str::to_owned)
+        })
+        .expect("the caller displays T2=[…]");
+    assert_eq!(
+        t2, "AB",
+        "TV-1 and TV-2 describe the caller's two bytes, so both writes must \
+         arrive; blank means the callee's children were paired off the \
+         caller's tree and bound to nothing"
+    );
+}

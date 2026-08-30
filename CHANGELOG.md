@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.100] — 2026-08-30
+
+### Fixed — a colliding record name left a group parameter's children unbound
+
+CCVS85 **IC203A** and **IC205A** both call their record `TABLE-2`. The caller's
+is `02 DN6 PIC X OCCURS 2`; the callee's is `02 TV-1 PIC X. 02 TV-2 PIC X.`
+Because the names collide, `push_local_scope` never installs the callee's 01 —
+the caller's wins, correctly — but the group-parameter pairing then walked the
+shared environment's symbol for BOTH sides and read the caller's tree twice.
+The callee's `TV-1` and `TV-2` never bound to anything: IC205A's `MOVE "B" TO
+TV-2` wrote a private slot nothing reads, and CNCL-TEST-05 reported `COMPUTED=`
+empty.
+
+Two changes, one mechanism. The **parameter** side of the pairing is now walked
+over the callee's own symbol table (`register_nested` already carries it), with
+widths read from the PICTURE alone. The **argument** side expands a fixed
+table's occurrences as alias *targets* — `TV-2 -> DN6(2)` — which is the
+consultable direction: an alias KEY is only ever looked up by base name
+(`a_subscripted_alias_key_is_never_consulted`), but a target is stored and
+followed verbatim. An OCCURS DEPENDING ON table still refuses; its extent at
+binding time is not its extent for the whole call.
+
+**The CCVS score is unchanged at 301 PASS / 9 FAIL, and the reason is recorded
+with proof.** The binding fix moved CNCL-TEST-05's `COMPUTED=` from empty to
+`XY` — the writes now arrive — but the member stays red on a second, separate
+defect: an instrumented run of the faithful chain shows the IC206A call counter
+reaching exactly 3, and exactly 1 after `CANCEL`, yet both `IF DN2` tests
+misdecide. IC205A's private `77 DN2 COMP` is really the caller's `PIC XXX`
+child (the name-collision defect measured at 1.62.98's shadowing dead end), so
+a numeric comparison runs as alphanumeric — `"  3"` against `"3  "`. IC203A is
+therefore moved to the activation-scope-blocked bucket alongside IC101A and
+IC225A. Comparison semantics were deliberately left alone: bending them to
+paper over a scoping defect is the word-heuristic path this project refuses.
+
+Whole-suite compile **412 / 421**; runtime suites 0 failed; NC/SQ/IX/RL/IF
+untouched by this path (the binding loop only runs for nested-program calls,
+and the per-change checks cover it) — full gate at the module boundary per the
+operator ruling.
+
 ## [PowerRustCOBOL 1.62.99] — 2026-08-30
 
 ### Fixed — a `CALL … USING` alias onto a table wrote to a slot nothing reads

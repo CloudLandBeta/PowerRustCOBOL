@@ -1818,6 +1818,142 @@ impl CobolEnvironment {
         Some(pairs)
     }
 
+    /// The **parameter** side of a group binding, walked over the CALLEE's own
+    /// symbol table rather than this environment's.
+    ///
+    /// The shared environment can hold the CALLER's description under the same
+    /// name: CCVS85 IC203A and IC205A both call their record `TABLE-2`, so
+    /// `push_local_scope` skips the callee's 01 (the name exists) and any walk
+    /// through `self.symbols` reads the caller's tree for BOTH sides of the
+    /// pairing. The callee's children then never bind at all — IC205A's `MOVE
+    /// "B" TO TV-2` wrote a private slot nothing reads (CNCL-TEST-05,
+    /// `COMPUTED=` empty against `CORRECT = AB`).
+    ///
+    /// Widths come from the PICTURE alone, which dodges the missing
+    /// `field_caps` transfer deliberately: a `PIC 99` reads as 2 without
+    /// consulting state the callee never got to install. A table anywhere on
+    /// this side refuses the walk — a per-occurrence alias KEY is never
+    /// consulted (`a_subscripted_alias_key_is_never_consulted`) — and so does
+    /// anything `pic_char_width` cannot read (edited pictures, missing
+    /// symbols, synthetic FILLER slots, which carry no `ItemSym`).
+    pub fn param_leaf_spans_from(
+        symbols: &[(String, ItemSym)],
+        key: &str,
+    ) -> Option<Vec<(String, usize, usize)>> {
+        fn lookup<'a>(symbols: &'a [(String, ItemSym)], k: &str) -> Option<&'a ItemSym> {
+            symbols
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(k))
+                .map(|(_, s)| s)
+        }
+        fn walk(
+            symbols: &[(String, ItemSym)],
+            key: &str,
+            off: &mut usize,
+            out: &mut Vec<(String, usize, usize)>,
+        ) -> Option<()> {
+            let sym = lookup(symbols, base_name(key))?;
+            if !sym.dims.is_empty() {
+                return None;
+            }
+            if sym.is_group && !sym.layout_keys.is_empty() {
+                for child in &sym.layout_keys {
+                    walk(symbols, child, off, out)?;
+                }
+                return Some(());
+            }
+            let w = pic_char_width(&sym.pic)?;
+            if w == 0 {
+                return None;
+            }
+            out.push((key.to_ascii_uppercase(), *off, w));
+            *off += w;
+            Some(())
+        }
+        let mut out = Vec::new();
+        let mut off = 0usize;
+        walk(symbols, &key.to_ascii_uppercase(), &mut off, &mut out)?;
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// The **argument** side of a group binding: every elementary occurrence,
+    /// in storage order, as `(key, offset, width)`.
+    ///
+    /// Unlike [`flat_leaf_spans`](Self::flat_leaf_spans), a fixed-extent table
+    /// leaf does not refuse the walk — it contributes one span per occurrence,
+    /// as a SUBSCRIPTED key. That is safe on this side and only this side:
+    /// these keys become alias *targets*, which are stored and followed
+    /// verbatim, where an alias KEY is only ever consulted by base name. An
+    /// OCCURS DEPENDING ON table still refuses — its extent at binding time is
+    /// not its extent for the whole call.
+    pub fn arg_leaf_spans(&self, key: &str) -> Option<Vec<(String, usize, usize)>> {
+        let mut out = Vec::new();
+        let mut off = 0usize;
+        self.arg_walk(&key.to_ascii_uppercase(), &mut off, &mut out)?;
+        (!out.is_empty()).then_some(out)
+    }
+
+    fn arg_walk(
+        &self,
+        key: &str,
+        off: &mut usize,
+        out: &mut Vec<(String, usize, usize)>,
+    ) -> Option<()> {
+        let sym = self.symbols.get(base_name(key))?;
+        if sym.is_group && !sym.layout_keys.is_empty() && sym.dims.is_empty() {
+            for child in &sym.layout_keys.clone() {
+                self.arg_walk(child, off, out)?;
+            }
+            return Some(());
+        }
+        if sym.dims.is_empty() {
+            let w = self.declared_width(key)?;
+            if w == 0 {
+                return None;
+            }
+            out.push((key.to_string(), *off, w));
+            *off += w;
+            return Some(());
+        }
+        if self.odo_count(key).is_some() {
+            return None;
+        }
+        let w = self.declared_width(key)?;
+        if w == 0 {
+            return None;
+        }
+        for ck in self.expand_occurrences(key, &[]) {
+            out.push((ck, *off, w));
+            *off += w;
+        }
+        Some(())
+    }
+
+    /// Pair pre-computed parameter spans with an argument's leaves by the bytes
+    /// each covers. `None` unless the totals agree and every parameter leaf is
+    /// covered by exactly one argument leaf — a partial mapping would leave the
+    /// rest bound to nothing, worse than the pairing it replaces.
+    pub fn pair_param_spans_to_arg(
+        &self,
+        param: &[(String, usize, usize)],
+        arg: &str,
+    ) -> Option<Vec<(String, String)>> {
+        let a = self.arg_leaf_spans(arg)?;
+        let p_width: usize = param.iter().map(|(_, _, w)| w).sum();
+        let a_width: usize = a.iter().map(|(_, _, w)| w).sum();
+        if p_width != a_width {
+            return None;
+        }
+        param
+            .iter()
+            .map(|(pk, po, pw)| {
+                a.iter()
+                    .find(|(_, ao, aw)| ao == po && aw == pw)
+                    .map(|(ak, _, _)| (pk.clone(), ak.clone()))
+            })
+            .collect()
+    }
+
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────
 
     /// A stable non-zero address id for the storage key `key` (0 is reserved

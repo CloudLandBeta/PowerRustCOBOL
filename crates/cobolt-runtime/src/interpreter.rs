@@ -8349,7 +8349,17 @@ impl Interpreter {
                     // leaf would end up bound to nothing (the reverted 1.62.90
                     // attempt, IC203A 1 -> 7).
                     let pairs: Vec<(String, String)> = {
-                        let subordinates = self.env.leaf_pairs_by_offset(pk, ak).unwrap_or_else(|| {
+                        // The parameter side is walked over the CALLEE's own
+                        // symbols first: the shared env may hold the CALLER's
+                        // description under the very same name (IC203A and
+                        // IC205A both call their record TABLE-2), and then an
+                        // env-based walk reads the caller's tree for both
+                        // sides and the callee's children never bind.
+                        let from_callee = CobolEnvironment::param_leaf_spans_from(&local_symbols, pk)
+                            .and_then(|p| self.env.pair_param_spans_to_arg(&p, ak));
+                        let subordinates = from_callee
+                            .or_else(|| self.env.leaf_pairs_by_offset(pk, ak))
+                            .unwrap_or_else(|| {
                             let p = self
                                 .env
                                 .symbol(pk)
