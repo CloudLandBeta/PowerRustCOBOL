@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.105] — 2026-08-30
+
+### Fixed — an edited LINKAGE parameter edits
+
+`MOVE "ABCD" TO EDITED-FIELD`, where `EDITED-FIELD PIC XXBX0X` is a LINKAGE
+description of the caller's plain `ALPHA-EDITED PIC X(6)`, stored the four
+characters raw. The write follows the parameter alias to the caller's key and
+asked for THAT key's edit template — which rightly does not exist, since
+outside the call the item is a plain X(6). The edit belongs to the description
+written **through**, not the one written to.
+
+The parameter now **lends** its template to the argument for exactly the length
+of the binding, and takes it back at exit. Sound because only the activation's
+statements execute while it is lent; the regression test's second half writes
+the same slot after the call and requires it unedited — a leaked template would
+fail precisely there.
+
+Three parts had to align, each found by measurement: `pic_char_width` accepts
+the alphanumeric-insertion characters `B`, `0` and `/` (each occupies a stored
+position — that is what makes `XXBX0X` six wide), so the offset pairing can lay
+the callee's differently-shaped tree over the caller's bytes at all; and the
+alphanumeric-edit templates live in their own map, separate from the numeric
+ones, which the construction-time descriptive install and the lend now both
+carry.
+
+Inter-program communication (IC), execution: **305 PASS / 4 FAIL → 307 PASS /
+2 FAIL**, clean programs **21 → 23 of 25** — 99.4% of the module's scored
+assertions. IC103A and IC235A run clean. Whole-suite compile **412 / 421**; NC
+95/95 (4614), SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354), IF 45/45 (841)
+all exact; 104 runtime suites, 0 failed.
+
 ## [PowerRustCOBOL 1.62.104] — 2026-08-30
 
 ### Fixed — a called program's own data is its own: the activation scope

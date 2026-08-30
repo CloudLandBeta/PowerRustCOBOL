@@ -405,7 +405,10 @@ fn pic_char_width(pic: &str) -> Option<usize> {
     let mut i = 0usize;
     while i < chars.len() {
         let per = match chars[i] {
-            '9' | 'X' | 'A' => 1usize,
+            // Alphanumeric-edit insertion characters occupy a stored
+            // position each — that is the whole point of `PIC XXBX0X` being
+            // six positions wide. Numeric-edit symbols still refuse below.
+            '9' | 'X' | 'A' | 'B' | '0' | '/' => 1usize,
             'S' | 'V' => 0,
             _ => return None,
         };
@@ -1974,9 +1977,15 @@ impl CobolEnvironment {
     /// This environment's numeric capacities, edit templates and BLANK WHEN
     /// ZERO set — what its items ARE — for installing under another
     /// environment's activation-qualified keys.
+    #[allow(clippy::type_complexity)]
     pub fn descriptive_entries(
         &self,
-    ) -> (Vec<(String, (u8, u8))>, Vec<(String, String)>, Vec<String>) {
+    ) -> (
+        Vec<(String, (u8, u8))>,
+        Vec<(String, String)>,
+        Vec<String>,
+        Vec<(String, String)>,
+    ) {
         (
             self.field_caps.iter().map(|(k, v)| (k.clone(), *v)).collect(),
             self.edited_templates
@@ -1984,6 +1993,12 @@ impl CobolEnvironment {
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect(),
             self.blank_when_zero.iter().cloned().collect(),
+            // Alphanumeric-edit templates are a SEPARATE map from the numeric
+            // ones, and forgetting that cost an hour: `PIC XXBX0X` lives here.
+            self.alnum_edited
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         )
     }
 
@@ -2003,7 +2018,11 @@ impl CobolEnvironment {
         caps: &[(String, (u8, u8))],
         templates: &[(String, String)],
         bwz: &[String],
+        alnum: &[(String, String)],
     ) {
+        for (k, v) in alnum {
+            self.alnum_edited.entry(k.clone()).or_insert_with(|| v.clone());
+        }
         for (k, v) in caps {
             self.field_caps.entry(k.clone()).or_insert(*v);
         }
@@ -2015,6 +2034,44 @@ impl CobolEnvironment {
         for k in bwz {
             self.blank_when_zero.insert(k.clone());
         }
+    }
+
+    /// Lend the PARAMETER's edit template to the ARGUMENT for the length of a
+    /// binding. Returns true when a template was actually lent.
+    ///
+    /// The edit belongs to the description written THROUGH: IC104A declares
+    /// `EDITED-FIELD PIC XXBX0X` over its caller's plain `ALPHA-EDITED PIC
+    /// X(6)`, and `MOVE "ABCD" TO EDITED-FIELD` must store `AB C0D`. The write
+    /// follows the alias to the caller's key and asked for THAT key's template
+    /// — which does not exist, correctly, outside the call. Lending it is
+    /// sound because only the activation's statements execute while it is
+    /// lent, and [`Self::return_edit_template`] takes back exactly what was
+    /// lent (CCVS85 IC103A / IC235A CALL-TEST-06-06).
+    pub fn lend_edit_template(&mut self, param: &str, arg: &str) -> bool {
+        let from = base_name(&param.to_ascii_uppercase()).to_string();
+        let to = base_name(&arg.to_ascii_uppercase()).to_string();
+        if let Some(t) = self.alnum_edited.get(&from).cloned() {
+            if !self.alnum_edited.contains_key(&to) {
+                self.alnum_edited.insert(to, t);
+                return true;
+            }
+            return false;
+        }
+        if self.edited_templates.contains_key(&to) {
+            return false;
+        }
+        let Some(t) = self.edited_templates.get(&from).cloned() else {
+            return false;
+        };
+        self.edited_templates.insert(to, t);
+        true
+    }
+
+    /// Take back a template a matching [`Self::lend_edit_template`] lent.
+    pub fn return_edit_template(&mut self, arg: &str) {
+        let base = base_name(&arg.to_ascii_uppercase()).to_string();
+        self.alnum_edited.shift_remove(&base);
+        self.edited_templates.shift_remove(&base);
     }
 
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────

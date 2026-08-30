@@ -337,7 +337,13 @@ struct NestedProgram {
     /// program's PRIVATE items, keyed by their activation-qualified keys —
     /// installed once at construction, where no sibling can see them because
     /// no sibling's keys can collide.
-    local_descriptive: (Vec<(String, (u8, u8))>, Vec<(String, String)>, Vec<String>),
+    #[allow(clippy::type_complexity)]
+    local_descriptive: (
+        Vec<(String, (u8, u8))>,
+        Vec<(String, String)>,
+        Vec<String>,
+        Vec<(String, String)>,
+    ),
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
@@ -562,15 +568,19 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             )
         })
         .collect();
-    let local_descriptive: (Vec<(String, (u8, u8))>, Vec<(String, String)>, Vec<String>) = {
-        let (caps, templates, bwz) = local_env
+    let local_descriptive = {
+        let (caps, templates, bwz, alnum) = local_env
             .as_ref()
             .map(CobolEnvironment::descriptive_entries)
             .unwrap_or_default();
         (
-            caps.into_iter().map(|(k, v)| (rq(&k), v)).collect(),
-            templates.into_iter().map(|(k, v)| (rq(&k), v)).collect(),
-            bwz.into_iter().map(|k| rq(&k)).collect(),
+            caps.into_iter().map(|(k, v)| (rq(&k), v)).collect::<Vec<_>>(),
+            templates
+                .into_iter()
+                .map(|(k, v)| (rq(&k), v))
+                .collect::<Vec<_>>(),
+            bwz.into_iter().map(|k| rq(&k)).collect::<Vec<_>>(),
+            alnum.into_iter().map(|(k, v)| (rq(&k), v)).collect::<Vec<_>>(),
         )
     };
     let mut local_private: Vec<String> = private.into_iter().collect();
@@ -1620,8 +1630,8 @@ impl Interpreter {
         // activation-qualified keys cannot collide across programs, so there
         // is nothing to scope and nothing to unwind.
         for np in nested_registry.values() {
-            let (caps, templates, bwz) = &np.local_descriptive;
-            env.install_descriptive(caps, templates, bwz);
+            let (caps, templates, bwz, alnum) = &np.local_descriptive;
+            env.install_descriptive(caps, templates, bwz, alnum);
         }
         // A nested program — every RAD event handler is one — declares its own
         // `OBJECT REFERENCE` items; they need objects too, seeded into the
@@ -8584,6 +8594,8 @@ impl Interpreter {
                 // callee leaves to patch back at exit).
                 let mut record_views: Vec<(String, usize, Vec<(String, usize, usize)>)> =
                     Vec::new();
+                // Arguments wearing a parameter's edit template for the call.
+                let mut lent_templates: Vec<String> = Vec::new();
                 for (pk, ak, by_ref) in &bindings {
                     // The parameter, followed by everything subordinate to it.
                     // A **group** parameter is handed over whole and the callee
@@ -8691,6 +8703,12 @@ impl Interpreter {
                         if p_sub != a_sub {
                             aliased.push((p_sub.clone(), self.env.alias_target(&p_sub)));
                             self.env.set_alias(&p_sub, &a_sub);
+                            // An edited parameter lends its template to the
+                            // argument: the edit belongs to the description
+                            // written THROUGH (IC103A/IC235A CALL-TEST-06-06).
+                            if self.env.lend_edit_template(&p_sub, &a_sub) {
+                                lent_templates.push(a_sub.clone());
+                            }
                         }
                     }
                 }
@@ -8733,6 +8751,12 @@ impl Interpreter {
                 self.para_order = saved_order;
                 self.para_bodies = saved_bodies;
                 self.section_names = saved_secs;
+
+                // Take back the lent edit templates before anything reads the
+                // arguments as the caller declared them.
+                for a in &lent_templates {
+                    self.env.return_edit_template(a);
+                }
 
                 // Patch a record-view's leaves back into the argument's bytes:
                 // current bytes first, then each named leaf rendered over its

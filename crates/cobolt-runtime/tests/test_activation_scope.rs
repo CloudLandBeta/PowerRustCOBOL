@@ -291,3 +291,67 @@ fn a_group_parameters_fields_still_reach_the_caller() {
     );
     assert_eq!(field(&out, "G"), "AAAXYZ");
 }
+
+/// An edited LINKAGE parameter **edits**: the template belongs to the
+/// description written through, and rides the binding onto the caller's slot
+/// for exactly the length of the call.
+///
+/// CCVS85 **IC103A/IC235A** CALL-TEST-06-06. IC104A declares `EDITED-FIELD
+/// PIC XXBX0X` over its caller's plain `ALPHA-EDITED PIC X(6)` — inside a
+/// group whose trees differ in shape, so this also rides on the offset
+/// pairing. `MOVE "ABCD" TO EDITED-FIELD` must store `AB C0D` where the
+/// caller reads it. The alias sends the write to the caller's key, whose own
+/// description correctly has no template — outside the call it is a plain
+/// X(6) — so the parameter LENDS its template to the argument for the
+/// activation, and takes it back at exit: the second assertion writes the
+/// same slot after the call and must stay unedited.
+const EDITED_THROUGH_THE_BINDING: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. EMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  GROUP-02.
+           02  NUM-ITEM     PIC S99.
+           02  ALPHA-EDITED PIC X(6).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 12 TO NUM-ITEM
+           MOVE SPACE TO ALPHA-EDITED
+           CALL "ESUB" USING GROUP-02
+           DISPLAY "EDITED=[" ALPHA-EDITED "]"
+           MOVE "WXYZ" TO ALPHA-EDITED
+           DISPLAY "AFTER=[" ALPHA-EDITED "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. ESUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  GRP-02.
+           02  GRP-03.
+               03  NUM-ITEM2     PIC S99.
+               03  EDITED-FIELD  PIC XXBX0X.
+       PROCEDURE DIVISION USING GRP-02.
+       S-MAIN.
+           MOVE "ABCD" TO EDITED-FIELD
+           EXIT PROGRAM.
+       END PROGRAM ESUB.
+       END PROGRAM EMAIN.
+"#;
+
+#[test]
+fn an_edited_linkage_parameter_edits_through_the_binding() {
+    let out = run_capture(EDITED_THROUGH_THE_BINDING);
+    assert_eq!(
+        field(&out, "EDITED"),
+        "AB C0D",
+        "the parameter's PIC XXBX0X places its insertions before the write \
+         crosses the alias"
+    );
+    assert_eq!(
+        field(&out, "AFTER"),
+        "WXYZ  ",
+        "after the call the caller's item is a plain X(6) again — a template \
+         left behind would edit the caller's own writes"
+    );
+}
