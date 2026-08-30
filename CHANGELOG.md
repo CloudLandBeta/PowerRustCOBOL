@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.93] — 2026-08-30
+
+### Fixed — a successful `CALL` ran its own overflow handler
+
+`ON` is optional before a `CALL`'s `OVERFLOW` and `EXCEPTION` phrases. Written
+without it, the phrase was not recognised: `USING` collects operands for as long
+as the next token can begin one, a bare `OVERFLOW` is just a word, so the
+argument list swallowed it and everything after became ordinary statements
+following the `CALL`. A call that **succeeded** then ran the handler written for
+the case where it fails.
+
+`ON OVERFLOW` never had the problem — `Token::On` cannot begin an expression, so
+the argument list stopped by itself. That is why this survived: the spelling
+everyone writes is the safe one.
+
+CCVS85 **IC201A** writes both in one paragraph, CALL-TEST-03-01 with the `ON`
+and -03-02 without, and reported `OVERFLOW SHOULD NOT OCCUR` for the second.
+Neither word can be a data-name — both are reserved — so stopping the argument
+list on them costs nothing.
+
+**IC goes 231 → 292 assertions passing, 25 → 21 failing.** The scored total rises
+256 → 313: sixty assertions that previously could not be reached now run, because
+a program that jumped into its own failure branch never got to them.
+
+**The whole-suite compile census rises 410 → 412 of 421** (97.4% → 97.9%). Two
+programs that never parsed now do — the same argument list was consuming the
+phrase keyword and leaving the rest of the statement unreadable.
+
+Every protected baseline re-measured exact: NC 95/95 with 4614 PASS / 0 FAIL,
+SQ 85/85 with 624/0, IX 41/41 with 574/0, RL 34/34 with 354/0, IF 45/45 with
+841/0. A parser change is gated immediately rather than at module completion,
+and this is why.
+
 ## [PowerRustCOBOL 1.62.92] — 2026-08-30
 
 ### Known defect recorded — `REDEFINES` inside a nested program does nothing

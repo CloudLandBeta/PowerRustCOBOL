@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.89",
+  "measured_at_version": "1.62.93",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -32,7 +32,7 @@
     "effect": "38 programs excluded from every score. The in-scope suite is 421, not 434."
   },
 
-  "whole_suite_compile": { "pass": 410, "total": 421, "pct": 97.4 },
+  "whole_suite_compile": { "pass": 412, "total": 421, "pct": 97.9 },
 
   "modules": {
     "NC": {
@@ -75,7 +75,8 @@
       "state": "in_flight",
       "compile": [45, 47],
       "execution": [11, 25],
-      "assertions": { "pass": 231, "fail": 25, "deleted": 4 },
+      "assertions": { "pass": 292, "fail": 21, "deleted": 4 },
+      "_stale_ranking_warning": "The bucket list below was written at 1.62.90 and is STALE. 1.62.93 changed the shape of the module: sixty previously-unreachable assertions began running and IC201A left the failing list. Re-bucket with `fails IC` before choosing the next item.",
       "remaining_buckets": "At 1.62.90, TWELVE programs still report failures, ranked: IC235A 5 and IC103A 4 (CALL USING a series of differently-categorised parameters — the same shape twice, and now the largest bucket by a distance), IC106A 3 (REDEFINES in the LINKAGE SECTION), IC201A 3 (ON OVERFLOW), IC207A 2 (condition-name over a LINKAGE table), IC225A 2 (nested CALL), then IC101A / IC112A / IC114A / IC203A / IC227A / IC237A at one each. Two members also do not compile (IC224A: `unexpected token in statement: EndCall`).",
       "next_up": "IC235A + IC103A, 9 failures between them and explicitly the same shape — `CALL USING` a series of differently-categorised parameters (NUMERIC DISPLAY, ALPHABETIC, SIGNED NUMERIC, ALPHANUMERIC EDITED). One diagnosis should close both, which is what makes it the next item rather than the two 3s.",
       "_bucket_list_drifted": "The list written at 1.62.86 named twelve programs and omitted IC401M entirely, which was the SECOND largest bucket at 9 failures — the counts only reconcile with it included. Re-measure with `run IC` rather than trusting a prose note; that is how it was caught at 1.62.89.",
@@ -404,10 +405,11 @@
     "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
     "RL": { "compile": [35, 35], "execution": [34, 34], "assertions_pass": 354, "assertions_fail": 0 },
     "IF": { "compile": [45, 45], "execution": [45, 45], "assertions_pass": 841, "assertions_fail": 0 },
-    "whole_suite_compile_pass": 410
+    "whole_suite_compile_pass": 412
   },
 
   "history": [
+    { "version": "1.62.93", "change": "`ON` is optional before a CALL's OVERFLOW/EXCEPTION phrase — the USING list was swallowing the bare keyword, so a successful call ran its own failure handler", "effect": "IC 231 -> 292 PASS / 25 -> 21 FAIL, and the scored total rose 256 -> 313 as sixty unreachable assertions began running. Compile census 410 -> 412 of 421 (97.4% -> 97.9%) — two programs that never parsed now do. PARSER change, so the full gate ran immediately: NC, SQ, IX, RL and IF all exact. Found by instrumenting the member instead of reading it, after three readings had been wrong." },
     { "version": "1.62.90", "change": "The inter-program facility is flagged as above the high subset: INITIAL, COMMON, GLOBAL, EXTERNAL, USE GLOBAL, CANCEL, BY REFERENCE, BY CONTENT and a contained source program", "effect": "IC401M 2 -> 11 of 11 matched, 0 wrong. Suite-wide flagging wrong 34 -> 25 with no other member moved (NC401M's 40 included). IC 222 -> 231 PASS / 34 -> 25 FAIL, 86.7% -> 90.2%, 10 -> 11 of 25 clean. NC re-measured exact; compile census 410/421. Blast radius is only the flagging members — `flag_high_subset` is reached solely by the harness's scorer, never by compilation or execution." },
     { "version": "1.62.89", "change": "A file's FILE STATUS item belongs to the program that performed the I/O, and is resolved through the alias layer so a LINKAGE status item reaches the caller's storage", "effect": "IC227A 11 FAIL -> 1, 8 of 23 tests executing successfully -> 18. IC 212 -> 222 PASS / 44 -> 34 FAIL, 82.8% -> 86.7%; clean count unchanged at 10 of 25 because IC227A's last failure is a separate cause. Runtime suite 99 binaries green, compile census exact at 410/421. Two stacked defects — fixing only the first moved the five `.02` assertions and not one of the five `.01`s." },
     { "version": "1.62.86", "change": "BY CONTENT hands over the value and the caller's storage is put back on return; the BY phrase governs every operand that follows it, not just the next one", "effect": "IC 206 -> 212 PASS / 50 -> 44 FAIL, 80.5% -> 82.8%. PARSER change, so the full gate ran: NC, SQ, IX, RL, IF all exact and the census held at 410/421." },

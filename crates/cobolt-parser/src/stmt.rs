@@ -3119,6 +3119,21 @@ fn parse_call(p: &mut Parser) -> Stmt {
                 mode = content;
             }
 
+            // `ON` is optional before `OVERFLOW` / `EXCEPTION`, and without it
+            // the phrase's keyword is just a word — which `is_expr_start`
+            // accepts, so the argument list swallowed it and the phrase became
+            // unconditional statements after the CALL. A *successful* call then
+            // ran its own overflow handler.
+            //
+            // `ON OVERFLOW` never had the problem: `Token::On` is not an
+            // expression start, so the list stopped on its own. CCVS85 IC201A
+            // writes both spellings in one paragraph — CALL-TEST-03-01 with the
+            // `ON`, -03-02 without it — and only the second failed.
+            //
+            // Neither word can be a data-name: both are reserved.
+            if matches!(p.peek(), Token::Exception) || is_word(p.peek(), "OVERFLOW") {
+                break;
+            }
             if !is_expr_start(p) {
                 break;
             }
