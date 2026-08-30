@@ -8669,6 +8669,31 @@ impl Interpreter {
                             .chain(subordinates)
                             .collect()
                     };
+                    // **An elementary BY CONTENT parameter is a private copy.**
+                    // The alias-and-restore treatment breaks the moment the
+                    // same argument ALSO travels by reference: CCVS85 IC225A's
+                    // CALL-TEST-02-03 passes DN1 once CONTENT and once
+                    // REFERENCE, the callee's ADD reaches the caller through
+                    // the reference — and the content restore then put the old
+                    // value back. A copy on an activation key needs no restore,
+                    // so the reference write survives, and a write through the
+                    // CONTENT parameter reaches only the copy, which is the
+                    // clause's whole meaning. Groups keep the old treatment:
+                    // their subordinates resolve to the caller's storage by
+                    // design, and a group copy would strand them.
+                    let elem = |i: &Interpreter, k: &str| {
+                        i.env.symbol(k).map_or(true, |s| s.layout_keys.is_empty())
+                    };
+                    if !*by_ref && elem(self, pk) && elem(self, ak) {
+                        let q = activation_key(&prog_name, pk);
+                        if let Some(v) = self.env.get(ak).cloned() {
+                            self.env.set(&q, v);
+                        }
+                        self.env.mirror_descriptive(ak, &q);
+                        aliased.push((pk.clone(), self.env.alias_target(pk)));
+                        self.env.set_alias(pk, &q);
+                        continue;
+                    }
                     if !*by_ref {
                         for (_, a_sub) in &pairs {
                             restore_after.push((a_sub.clone(), self.env.get(a_sub).cloned()));

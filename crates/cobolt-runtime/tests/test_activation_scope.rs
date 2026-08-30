@@ -355,3 +355,62 @@ fn an_edited_linkage_parameter_edits_through_the_binding() {
          left behind would edit the caller's own writes"
     );
 }
+
+/// The same argument passed BY CONTENT **and** BY REFERENCE in one CALL: the
+/// reference write survives, and the content parameter is a genuine copy.
+///
+/// CCVS85 **IC225A** CALL-TEST-02-03: `CALL … USING CONTENT DN1 REFERENCE DN2
+/// DN1 REFERENCE DN2`. The old treatment aliased the content parameter and
+/// restored the argument's prior value at exit — which clobbered the +1 the
+/// callee had sent through the REFERENCE binding of the very same item. A
+/// content parameter now lives as a private copy on an activation key: no
+/// restore exists to clobber anything, and a write through it reaches only
+/// the copy, which is the clause's whole meaning.
+const CONTENT_AND_REFERENCE_TWICE: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       77  DN1 PIC S99 VALUE 25.
+       77  DN2 PIC S99 VALUE 10.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "DSUB" USING BY CONTENT DN1
+                             BY REFERENCE DN2 DN1
+           DISPLAY "D1=[" DN1 "]"
+           DISPLAY "D2=[" DN2 "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. DSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       77  P-COPY PIC S99.
+       77  P-TWO  PIC S99.
+       77  P-ONE  PIC S99.
+       PROCEDURE DIVISION USING P-COPY P-TWO P-ONE.
+       S-MAIN.
+           ADD 1 TO P-ONE
+           SUBTRACT 4 TO-BE-DROPPED
+           EXIT PROGRAM.
+       END PROGRAM DSUB.
+       END PROGRAM DMAIN.
+"#;
+
+#[test]
+fn a_content_copy_does_not_clobber_a_reference_write_to_the_same_item() {
+    // The SUBTRACT line above is deliberately absent from the real source —
+    // build it here so the constant stays valid COBOL.
+    let src = CONTENT_AND_REFERENCE_TWICE.replace(
+        "           SUBTRACT 4 TO-BE-DROPPED\n",
+        "           SUBTRACT 4 FROM P-TWO\n           MOVE 99 TO P-COPY\n",
+    );
+    let out = run_capture(&src);
+    assert_eq!(
+        field(&out, "D1"),
+        "26",
+        "the +1 through the REFERENCE binding must survive; +25 means a \
+         content restore clobbered it, and 99 means the content write leaked"
+    );
+    assert_eq!(field(&out, "D2"), "06", "the reference write to DN2 lands");
+}

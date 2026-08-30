@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.106",
+  "measured_at_version": "1.62.107",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -22,7 +22,7 @@
   },
 
   "module_order": ["NC", "SQ", "IX", "IF", "IC", "ST", "SM", "DB", "RL"],
-  "current_module": "IC",
+  "current_module": "ST",
   "_current_module_note": "IF finished at 1.62.81. Next in `module_order` is IC (Inter-program communication), baselined at 1.62.81: 6 of 47 clean, 134 PASS / 129 FAIL — by far the weakest module measured so far, and the first whose subject is a whole language area (CALL / nested programs / LINKAGE) rather than a set of functions. Two members also fail to compile.",
 
   "out_of_scope": {
@@ -72,10 +72,12 @@
     },
     "IC": {
       "name": "Inter-program communication",
-      "state": "in_flight",
+      "state": "finished",
+      "protected": true,
+      "finished_at": "1.62.107 — module-closing gate run in full and exact",
       "compile": [47, 47],
-      "execution": [24, 25],
-      "assertions": { "pass": 308, "fail": 1, "deleted": 4 },
+      "execution": [25, 25],
+      "assertions": { "pass": 309, "fail": 0, "deleted": 4 },
       "_denominator_note": "Scored assertions moved 311 -> 310 at 1.62.99, and 313 -> 311 before that. Not a fidelity loss either time: a CCVS FAIL prints one line more than a PASS does, so a member that stops failing also stops emitting that line. IC106A went 3 FAIL / 13 PASS -> 0 / 15, which is exactly 16 scored lines becoming 15.",
       "_compile_figure_corrected": "Measured 47/47 at 1.62.94. The ledger had carried [45, 47] from the 1.62.81 baseline, when two members did not compile; the census has reported 47/47 for some time. Never carry a compile figure forward by hand — `strict` prints it per module.",
       "_stale_ranking_warning": "The `remaining_buckets` list below was written at 1.62.90 and is LONG STALE. As measured at 1.62.99 the module has NINE failures across EIGHT programs and no bucket larger than IC235A's two — see `remaining_at_1_62_99`. Re-bucket with `fails IC` before choosing the next item.",
@@ -90,7 +92,14 @@
       "denominator_note": "The execution denominator is 25, not 47. Twenty-two of IC's members are `SUBRTN` callees — separately compiled subprograms with no CCVS report of their own — so running one alone could only ever fail. They are still counted on the COMPILE axis, where the module remains 45 of 47. When comparing against the 1.62.81 baseline use 6 -> 10 of 25.",
       "shape": "Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. No crashes and no timeouts: the programs run and get the answers wrong. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
     },
-    "ST": { "name": "Sort/Merge", "state": "compile_only", "compile": [38, 40], "execution": null, "assertions": null },
+    "ST": {
+      "name": "Sort/Merge",
+      "state": "in_flight",
+      "compile": [38, 40],
+      "execution": [13, 40],
+      "assertions": { "pass": 157, "fail": 99, "deleted": 0 },
+      "baselined_at": "1.62.107 — 13 of 40 clean, 157 PASS / 99 FAIL (61.3%), DELETED 0. FOUR MEMBERS PRINT NO CCVS REPORT AT ALL (ST102A, ST110A, ST113M, ST116A) — read that bucket first; a missing report usually means a crash or a file the harness must plant. Two members do not compile (ST139A/ST140A: `SEQUENCE MY-FAVORITE-ALPHABET`, a COLLATING SEQUENCE alphabet-name in SORT — visible in the census)."
+    },
     "SM": {
       "name": "Source text manipulation",
       "state": "baselined",
@@ -500,10 +509,12 @@
     "IX": { "compile": [42, 42], "execution": [41, 41], "assertions_pass": 574, "assertions_fail": 0 },
     "RL": { "compile": [35, 35], "execution": [34, 34], "assertions_pass": 354, "assertions_fail": 0 },
     "IF": { "compile": [45, 45], "execution": [45, 45], "assertions_pass": 841, "assertions_fail": 0 },
+    "IC": { "compile": [47, 47], "execution": [25, 25], "assertions_pass": 309, "assertions_fail": 0 },
     "whole_suite_compile_pass": 412
   },
 
   "history": [
+    { "version": "1.62.107", "change": "IC FINISHED 25/25, 309/0 — an elementary BY CONTENT parameter is a private copy on an activation key. ST in flight.", "effect": "The last member, IC225A, passed DN1 both CONTENT and REFERENCE in one CALL; the content restore clobbered the reference write. A private copy has no restore. Module-closing gate exact in full. IC entered at 134/129 (6 of 25) and closes at 309/0 in 26 versions. ST baselined: 157/99, 13 of 40 clean, four members printing no CCVS report at all." },
     { "version": "1.62.106", "change": "A record view's colliding fields take activation keys with mirrored capacities, and its named groups join the view for reading", "effect": "IC 307 -> 308 PASS / 2 -> 1 FAIL, clean 23 -> 24 of 25 (99.7%). IC112A clean. The probe method again: everything was right except U=[ 0000000000] where /0 belonged — the group name resolved to the caller's table because only leaves diverted. ONE member remains: IC225A CALL-TEST-02-03-1, DATA-NAME USED TWICE, .01 INCORRECT VALUE RETURNED." },
     { "version": "1.62.105", "change": "An edited LINKAGE parameter LENDS its template to the argument for the binding; insertion characters count in pic widths; the alnum template map travels", "effect": "IC 305 -> 307 PASS / 4 -> 2 FAIL, clean 21 -> 23 of 25, 99.4% of assertions. IC103A and IC235A clean. TWO remain: IC112A (boilerplate-name collision inside the record view — LINKAGE names do not divert, so the callee's XRECORD-NUMBER still resolves to the caller's FRI child; needs either LINKAGE-nonparameter privacy or view-level keys) and IC225A (undiagnosed beyond DATA-NAME USED TWICE). The lend's negative half is load-bearing: after the call the caller's X(6) must be plain again." },
     { "version": "1.62.104", "change": "THE ACTIVATION-SCOPE PRIMITIVE: private names qualify at registration, divert per activation before canonicalization, descriptive state installs once under collision-proof keys", "effect": "IC 303 -> 305 PASS / 8 -> 4 FAIL, clean 17 -> 21 of 25. IC101A, IC114A, IC203A, IC226A, IC227A clean — three never clean before. Four gate iterations found the boundary: GLOBAL/EXTERNAL/OBJECT REFERENCE excluded as run-unit bindings, divert-first resolution for duplicated leaf names, and the descriptive carry that two earlier attempts proved unsafe at raw keys landing safely at qualified ones. Two test expectations updated for field-form rendering (values were already correct)." },

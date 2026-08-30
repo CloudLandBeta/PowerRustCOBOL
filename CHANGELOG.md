@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.107] — 2026-08-30
+
+### IC (Inter-program communication) is FINISHED — 25/25, 309 PASS / 0 FAIL
+
+The final member fell to the activation-scope primitive's last application: an
+**elementary BY CONTENT parameter is a private copy**. The old alias-and-restore
+treatment broke the moment the same argument also travelled by reference —
+CCVS85 **IC225A** CALL-TEST-02-03 passes `DN1` once CONTENT and once REFERENCE
+in one CALL, the callee's ADD reaches the caller through the reference, and the
+content restore then put the old value back. A copy on an activation key has no
+restore to clobber anything, and a write through the content parameter reaches
+only the copy — the clause's whole meaning. Groups keep the alias treatment;
+their subordinates resolve to the caller's storage by design.
+
+**The module-closing gate, in full:** IC **25 of 25** programs run clean, 309
+of 309 scored assertions PASS (DELETED 4, tracked all module). NC 95/95 (4614
+assertions), SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354), IF 45/45 (841) —
+all exact; whole-suite compile 412/421; 104 runtime suites, 0 failed; all six
+activation-scope tests green, including both load-bearing negatives.
+
+IC entered the ledger at 1.62.81 as the weakest module ever baselined: 6 of 25
+clean, 134 PASS / 129 FAIL. Twenty-six versions later it is the sixth finished
+module and joins the protected baselines. **ST (Sort-Merge) is now in flight**,
+baselined at 157 PASS / 99 FAIL, 13 of 40 clean, with four members producing
+no CCVS report at all — the first bucket to read.
+
 ## [PowerRustCOBOL 1.62.106] — 2026-08-30
 
 ### Fixed — a record view survives colliding names, and its groups are readable
