@@ -334,6 +334,15 @@
 
   "dead_ends": [
     {
+      "id": "adopting-a-nested-programs-redefine-state",
+      "tried_at_version": "1.62.92 (reverted, not landed)",
+      "what": "Carry a nested program's REDEFINES overlays on `NestedProgram` — `redefine_state()` off the environment its DATA DIVISION is already analysed into — then `adopt_redefine_state` on the shared env at `push_local_scope` and `drop_redefine_state` at pop, removing only what that call newly introduced.",
+      "why_it_failed": "IC 231 -> 228 PASS / 25 -> 28 FAIL, and IC106A — the member it was written for — went 3 -> 6 failures. Reverted whole under the gate.",
+      "and_this_is_the_part_worth_reading": "BOTH acceptance tests PASSED. `a_nested_programs_own_redefines_shares_its_storage` and `a_callee_writing_through_a_linkage_redefines_reaches_the_caller` were written as the criterion, the fix satisfied both, and the module still got worse. The redefinition genuinely started working and something ELSE broke because of it. The tests are necessary and NOT sufficient, and their `#[ignore]` text now says so.",
+      "the_likely_mechanism": "Every CCVS member carries a boilerplate report area full of redefinitions — `COMPUTED-N REDEFINES COMPUTED-A`, `COMPUTED-0V18`, `COMPUTED-4V14`, `CM-18V0`, `CORRECT-N` and more, all over the same twenty bytes. Those live in the nested programs too. Inert, they were harmless; live, every write to one refreshes the others across a shared area, and the small-class REFRESH path re-renders one description and distributes it across another on EVERY write anywhere inside either. That is the CCVS report's own formatting fields, so a member can start mis-printing its results without any test logic changing.",
+      "what_to_do_instead": "Do not adopt a nested program's overlays wholesale. Two directions, neither tried: (1) adopt only the overlays that involve a BOUND PARAMETER, leaving a nested program's private redefinitions alone — that is enough for IC106A's LINK-TEST-06, which is about a redefinition of LINKAGE, and touches none of the report boilerplate; (2) find out first whether the report regression is the refresh path or the alias path by adopting one and not the other, since they have different costs and different failure modes. Measure IC106A's report text directly, not just its score — if the failures changed shape rather than merely growing, the boilerplate theory is confirmed."
+    },
+    {
       "id": "pairing-linkage-leaves-by-byte-offset",
       "tried_at_version": "1.62.90 (reverted, not landed)",
       "what": "Replace the positional pairing of a group parameter's subordinates with a pairing by BYTE OFFSET: flatten both the parameter and the argument to their elementary items as `(key, offset, width)` via a new `CobolEnvironment::leaf_layout`, then alias each callee leaf to the caller leaf covering exactly the same bytes.",
