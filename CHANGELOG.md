@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.97] — 2026-08-30
+
+### Fixed — a group parameter's fields are paired by byte offset, not tree position
+
+COBOL-85 gives a LINKAGE item a **view over the caller's storage**: the callee
+lays its own description over the caller's bytes, and neither the names nor the
+shape of the tree has to match. The subordinate items of a group parameter were
+paired with the argument's by position in the declaration tree, so a callee that
+described the same bytes with a different tree bound only its first field.
+
+CCVS85 **IC103A** states the case in its own header — "THE ITEM DESCRIPTIONS ARE
+DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE NUMBER OF CHARACTERS
+IS IDENTICAL". Ten bytes are two top-level children in the caller and three in
+the callee. Reduced to a repro, the callee's `NUM-DISPLAY PIC 99` received the
+caller's whole five-byte `GROUP-LEV2` (`"42XYZ"`) and its `A-FIELD` received
+nothing at all.
+
+Where **both** descriptions are flat and agree on total width, leaves are now
+paired by the bytes each covers. Anything else keeps the positional pairing, and
+that restriction is the point rather than a shortcut: an alias is only ever
+looked up by base name — `resolve_name` resolves the unsubscripted leaf and the
+subscript is applied afterwards — so an entry written `DN6(1) -> TV-1` is never
+consulted by anything. A per-occurrence offset mapping binds strictly *less*
+than the pairing it replaces, which is exactly the reverted 1.62.90 attempt that
+took IC203A from 1 failure to 7. That property is now pinned by a test.
+
+### Fixed — a layout walk measured rendered values instead of declared PICTUREs
+
+The mapping above landed and moved nothing, because it never fired. The two
+descriptions disagreed on their total width — 9 against 10 — since `item_width`
+measures whatever is in the slot and an unwritten LINKAGE `PIC 99` renders as
+`0`, reporting width 1. Layout now reads the declared PICTURE.
+
+The kept probe `no_leaf_reports_a_zero_width` was written to catch this class
+and passed throughout: it asserted no leaf reported *zero* width, and this width
+was *wrong*, not zero.
+
+Underneath sits a wider defect, recorded in the ledger rather than fixed here: a
+nested program's `field_caps` never reach the shared environment, because
+`push_local_scope` carries `store` and `symbols` and nothing else. `field_caps`
+is what numeric truncation consults, so every numeric LINKAGE item in a nested
+program is currently missing its declared capacity.
+
+Inter-program communication (IC), execution: **295 PASS / 18 FAIL → 299 PASS /
+12 FAIL**. IC103A 4 failures → 1, IC235A 5 → 2. The two that remain in each are
+`CALL-TEST-06 .06` (ALPHANUMERIC EDITED) and `.08` (SUBSCRIPTED LINKAGE DATA
+ITEM) — precisely the two shapes the walk refuses, an edited PICTURE and a
+table. Clean programs unchanged at 16 of 25; the scored denominator moved 313 →
+311 as those programs stopped emitting the extra lines a failure produces.
+Whole-suite compile **412 / 421**; NC 95/95 (4614), SQ 85/85 (624), IX 41/41
+(574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
 ## [PowerRustCOBOL 1.62.96] — 2026-08-30
 
 ### Fixed — reading through a `REDEFINES` of a LINKAGE item saw an empty slot

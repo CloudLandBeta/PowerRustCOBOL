@@ -8333,19 +8333,34 @@ impl Interpreter {
                     // **position** — there is nothing else to pair them by.
                     // Without it the callee wrote its own LINKAGE slots and the
                     // caller saw nothing (IC203A's thirteen `DN2 INCORRECT`).
+                    //
+                    // **Position is the wrong axis when the two trees differ.**
+                    // IC103A's own header says so — "THE ITEM DESCRIPTIONS ARE
+                    // DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT
+                    // THE NUMBER OF CHARACTERS IS IDENTICAL" — so where both
+                    // descriptions are flat and cover the same bytes, the
+                    // leaves are paired by OFFSET instead. A description
+                    // containing a table is left on the positional pairing:
+                    // an alias is only ever looked up by base name, so a
+                    // per-occurrence entry would never be consulted and the
+                    // leaf would end up bound to nothing (the reverted 1.62.90
+                    // attempt, IC203A 1 -> 7).
                     let pairs: Vec<(String, String)> = {
-                        let p = self
-                            .env
-                            .symbol(pk)
-                            .map(|s| s.layout_keys.clone())
-                            .unwrap_or_default();
-                        let a = self
-                            .env
-                            .symbol(ak)
-                            .map(|s| s.layout_keys.clone())
-                            .unwrap_or_default();
+                        let subordinates = self.env.leaf_pairs_by_offset(pk, ak).unwrap_or_else(|| {
+                            let p = self
+                                .env
+                                .symbol(pk)
+                                .map(|s| s.layout_keys.clone())
+                                .unwrap_or_default();
+                            let a = self
+                                .env
+                                .symbol(ak)
+                                .map(|s| s.layout_keys.clone())
+                                .unwrap_or_default();
+                            p.into_iter().zip(a).collect()
+                        });
                         std::iter::once((pk.clone(), ak.clone()))
-                            .chain(p.into_iter().zip(a))
+                            .chain(subordinates)
                             .collect()
                     };
                     if !*by_ref {

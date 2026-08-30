@@ -392,6 +392,40 @@ pub fn base_name(key: &str) -> &str {
     }
 }
 
+/// The number of character positions a PICTURE describes.
+///
+/// Deliberately narrow: only `9`, `X` and `A`, with `S` and `V` contributing
+/// nothing because neither occupies a storage position, and `(n)` repeats.
+/// Anything else — an edited picture, `P` scaling, a usage this does not model
+/// — returns `None` so the caller falls back rather than laying out a group
+/// against a width that was guessed.
+fn pic_char_width(pic: &str) -> Option<usize> {
+    let chars: Vec<char> = pic.to_ascii_uppercase().chars().collect();
+    let mut total = 0usize;
+    let mut i = 0usize;
+    while i < chars.len() {
+        let per = match chars[i] {
+            '9' | 'X' | 'A' => 1usize,
+            'S' | 'V' => 0,
+            _ => return None,
+        };
+        i += 1;
+        let mut repeat = 1usize;
+        if i < chars.len() && chars[i] == '(' {
+            let close = i + chars[i..].iter().position(|&c| c == ')')?;
+            repeat = chars[i + 1..close]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .parse()
+                .ok()?;
+            i = close + 1;
+        }
+        total += per * repeat;
+    }
+    (total > 0).then_some(total)
+}
+
 /// Largest description, in expanded storage slots, that a live `REDEFINES`
 /// overlay will keep in step on every write. See `build_redefine_links`.
 const REDEFINE_SYNC_BUDGET: usize = 256;
@@ -1653,6 +1687,132 @@ impl CobolEnvironment {
                 }
             }
         }
+    }
+
+    /// An item's width in characters **as declared**, independent of whatever
+    /// its slot currently holds.
+    ///
+    /// `None` for anything whose declared width cannot be read off directly —
+    /// notably an edited item, whose stored width comes from expanding its PIC
+    /// template. Refusing is deliberate: a wrong width here silently shifts
+    /// every offset after it, and the caller falls back to a pairing that is at
+    /// worst no worse than before.
+    fn declared_width(&self, key: &str) -> Option<usize> {
+        let key = key.to_ascii_uppercase();
+        let base = base_name(&key);
+        if self.edited_templates.contains_key(base) {
+            return None;
+        }
+        if let Some(&(int_digits, decimals)) = self.field_caps.get(base) {
+            return Some(int_digits as usize + decimals as usize);
+        }
+        if let Some(cap) = self.alphanumeric_capacity(&key) {
+            return Some(cap);
+        }
+        // Last resort: read the width off the declared PICTURE itself.
+        //
+        // A nested program's numeric capacities never reach this environment —
+        // `push_local_scope` carries `store` and `symbols` and nothing else, so
+        // a callee's `PIC 99` has a `pic` string but no `field_caps` entry. The
+        // symbol still knows what it was declared as, and for layout that is
+        // all this needs. (The missing `field_caps` transfer is a separate and
+        // wider defect: it is what numeric truncation reads.)
+        pic_char_width(&self.symbols.get(base)?.pic)
+    }
+
+    /// Every elementary item under `key`, in declaration order, as
+    /// `(storage key, byte offset within the group, width)`.
+    ///
+    /// `None` when the description contains an `OCCURS` **anywhere**, and that
+    /// refusal is the point. A LINKAGE parameter is a view over the caller's
+    /// bytes, so binding it means matching the two descriptions by offset — but
+    /// an alias is only ever looked up by BASE NAME (`resolve_name` resolves
+    /// the unsubscripted leaf and the subscript is applied afterwards), so an
+    /// entry written `DN6(1) -> TV-1` is never consulted by anything. A
+    /// per-occurrence offset mapping therefore binds strictly *less* than the
+    /// positional pairing it would replace, which is exactly the reverted
+    /// 1.62.90 attempt that took CCVS85 IC203A from 1 failure to 7.
+    ///
+    /// So: flat descriptions get the offset mapping, and anything with a table
+    /// in it keeps the existing behaviour rather than being mis-bound. Proven
+    /// by `a_subscripted_alias_key_is_never_consulted`.
+    pub fn flat_leaf_spans(&self, key: &str) -> Option<Vec<(String, usize, usize)>> {
+        let mut out = Vec::new();
+        let mut offset = 0usize;
+        self.flat_walk(&key.to_ascii_uppercase(), &mut offset, &mut out)?;
+        if out.is_empty() {
+            return None;
+        }
+        Some(out)
+    }
+
+    fn flat_walk(
+        &self,
+        key: &str,
+        offset: &mut usize,
+        out: &mut Vec<(String, usize, usize)>,
+    ) -> Option<()> {
+        let sym = self.symbols.get(base_name(key))?;
+        // A table anywhere in the description disqualifies the whole walk.
+        if !sym.dims.is_empty() {
+            return None;
+        }
+        if sym.is_group && !sym.layout_keys.is_empty() {
+            for child in &sym.layout_keys {
+                self.flat_walk(child, offset, out)?;
+            }
+            return Some(());
+        }
+        // **The DECLARED width, never the rendered one.** `item_width` measures
+        // the value currently in the slot, and a LINKAGE item has never been
+        // written when the binding is computed: an unwritten `PIC 99` renders
+        // as `0` and reports width 1, which shifts every offset after it and
+        // makes the two descriptions disagree on their total. That is what made
+        // this mapping silently inert — CCVS85 IC103A's callee measured 9 bytes
+        // against its caller's 10 and the match was refused.
+        //
+        // The existing probe `no_leaf_reports_a_zero_width` did not catch it,
+        // because the width was WRONG rather than zero.
+        let width = self.declared_width(key)?;
+        if width == 0 {
+            return None;
+        }
+        out.push((key.to_string(), *offset, width));
+        *offset += width;
+        Some(())
+    }
+
+    /// Pair a group parameter's elementary items with the argument's **by the
+    /// bytes each covers**, rather than by position in the declaration tree.
+    ///
+    /// COBOL-85 gives a LINKAGE item a view over the caller's storage: the
+    /// callee lays its own description over the caller's bytes and neither the
+    /// names nor the shape of the tree has to match. CCVS85 **IC103A** says so
+    /// in its own header — "THE ITEM DESCRIPTIONS ARE DIFFERENT IN THE
+    /// SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE NUMBER OF CHARACTERS IS
+    /// IDENTICAL" — and describes ten bytes as three top-level children where
+    /// its caller uses two. Position and offset agree only for the first child,
+    /// which is exactly the assertion that passed.
+    ///
+    /// `None` unless BOTH descriptions are flat, they agree on total width, and
+    /// every callee leaf is covered by exactly one caller leaf. Anything less
+    /// keeps the positional pairing: a partial offset mapping is worse than a
+    /// wrong-but-whole one, because the leaves it fails to place are left bound
+    /// to nothing at all.
+    pub fn leaf_pairs_by_offset(&self, param: &str, arg: &str) -> Option<Vec<(String, String)>> {
+        let p = self.flat_leaf_spans(param)?;
+        let a = self.flat_leaf_spans(arg)?;
+        let p_width: usize = p.iter().map(|(_, _, w)| w).sum();
+        let a_width: usize = a.iter().map(|(_, _, w)| w).sum();
+        if p_width != a_width {
+            return None;
+        }
+        let mut pairs = Vec::with_capacity(p.len());
+        for (pk, poff, pw) in &p {
+            let (ak, _, _) = a.iter().find(|(_, aoff, aw)| aoff == poff && aw == pw)?;
+            pairs.push((pk.clone(), ak.clone()));
+        }
+        Some(pairs)
     }
 
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────

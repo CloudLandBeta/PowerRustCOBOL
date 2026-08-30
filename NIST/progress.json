@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.96",
+  "measured_at_version": "1.62.97",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -75,7 +75,8 @@
       "state": "in_flight",
       "compile": [47, 47],
       "execution": [16, 25],
-      "assertions": { "pass": 295, "fail": 18, "deleted": 4 },
+      "assertions": { "pass": 299, "fail": 12, "deleted": 4 },
+      "_denominator_note": "Scored assertions moved 313 -> 311 at 1.62.97. Not a fidelity loss: IC103A and IC235A each stopped emitting one line, because a CCVS FAIL prints more than a PASS does. Their remaining failures are named and account for the rest exactly.",
       "_compile_figure_corrected": "Measured 47/47 at 1.62.94. The ledger had carried [45, 47] from the 1.62.81 baseline, when two members did not compile; the census has reported 47/47 for some time. Never carry a compile figure forward by hand — `strict` prints it per module.",
       "_stale_ranking_warning": "The bucket list below was written at 1.62.90 and is STALE. 1.62.93 changed the shape of the module: sixty previously-unreachable assertions began running and IC201A left the failing list. Re-bucket with `fails IC` before choosing the next item.",
       "remaining_buckets": "At 1.62.90, TWELVE programs still report failures, ranked: IC235A 5 and IC103A 4 (CALL USING a series of differently-categorised parameters — the same shape twice, and now the largest bucket by a distance), IC106A 3 (REDEFINES in the LINKAGE SECTION), IC201A 3 (ON OVERFLOW), IC207A 2 (condition-name over a LINKAGE table), IC225A 2 (nested CALL), then IC101A / IC112A / IC114A / IC203A / IC227A / IC237A at one each. Two members also do not compile (IC224A: `unexpected token in statement: EndCall`).",
@@ -179,7 +180,9 @@
     {
       "id": "group-parameter-is-a-view-over-bytes-not-a-tree-of-names",
       "module": "IC",
-      "priority": 1,
+      "priority": 3,
+      "MOSTLY_RESOLVED_at_1_62_97": "IC103A 4 -> 1 failure and IC235A 5 -> 2, by pairing leaves on BYTE OFFSET where both descriptions are flat and agree on total width, and keeping the positional pairing everywhere else. The restriction is load-bearing, not a shortcut — see the pairing-linkage-leaves-by-byte-offset dead end and the test a_subscripted_alias_key_is_never_consulted. WHAT REMAINS is one assertion in each: CALL-TEST-06 .06 (ALPHANUMERIC EDITED, refused because an edited item's stored width comes from expanding its PIC template, which `declared_width` will not guess) and .08 (SUBSCRIPTED LINKAGE DATA ITEM, refused because it is a table). Both need `declared_width` extended, or the shared-buffer model.",
+      "THE_BUG_THAT_HID_IT": "The mapping was implemented, landed, and moved NOTHING — it never fired. `item_width` measures the value in the slot, and a LINKAGE item has never been written when the binding is computed, so an unwritten `PIC 99` rendered as `0` and reported width 1: the callee measured 9 bytes against the caller's 10 and the match was refused. Layout now uses the DECLARED PICTURE. Worth remembering as a method point: the fix looked inert and the instinct was to doubt the mapping, but instrumenting the refusal found it in three steps.",
       "title": "A group parameter's subordinates are paired BY POSITION, but LINKAGE is a view over the caller's BYTES",
       "worth": "9 failures — IC235A 5 and IC103A 4, the module's largest remaining bucket, and the suite says outright they are the same shape.",
       "diagnosis": "DECISIVE, from reading IC103A and IC104A side by side. IC103A's own section header states the case: 'THE ITEM DESCRIPTIONS ARE DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE NUMBER OF CHARACTERS IS IDENTICAL.' IC104A's header says the same from its side. The two programs describe the SAME BYTES with a DIFFERENT TREE.",
@@ -369,6 +372,19 @@
     { "id": "ix-long-tail", "module": "IX", "priority": 99, "title": "RESOLVED — Remaining IX programs", "resolved_at": "1.62.76 — the list is empty; IX runs 41/41 with 0 failing assertions.", "evidence": "After 1.62.60, by size: IX208A 9, IX209A 9, IX203A 8, IX215A 8, IX301M 7, IX210A 5, IX214A 5, IX218A 5, IX401M 5, IX106A 4, IX207A 4, then six members at 1-2 failures.", "fix_sketch": "Re-bucket with `fails IX` after each landed fix; the ranking shifts a lot." }
   ],
 
+  "work_queue_addendum_1_62_97": [
+    {
+      "id": "a-nested-programs-field-caps-never-arrive",
+      "module": "IC",
+      "priority": 2,
+      "title": "A nested program's numeric capacities are left behind by push_local_scope",
+      "found_at": "1.62.97, while fixing the group-parameter pairing",
+      "what": "`push_local_scope` carries `store` and `symbols` and NOTHING ELSE. A callee's `PIC 99` therefore arrives with a `pic` string on its ItemSym but no `field_caps` entry — `self.field_caps.get(\"NUM-DISPLAY\")` is None inside the call. Confirmed by instrumenting the binding.",
+      "why_it_matters_beyond_layout": "`field_caps` is `(int_digits, decimals)` and is what numeric truncation and scaling read (environment.rs ~856, ~2339, ~2366). So EVERY numeric item declared in a nested program's LINKAGE or WORKING-STORAGE is currently missing its declared capacity for the duration of the call. The layout walk at 1.62.97 worked around it by reading the PICTURE directly; nothing else does.",
+      "this_is_the_SIXTH_instance": "Same shape as FILE STATUS (1.62.89), the LINKAGE condition-name (1.62.94), the REDEFINES refresh (1.62.95), the REDEFINES prime (1.62.96): a nested program's metadata does not travel with its data. Four of those were fixed by carrying one more map across the call. STRONG CANDIDATE for the general fix the ledger keeps deferring — rather than a seventh patch, make `push_local_scope` carry the callee's whole descriptive state and unwind it symmetrically.",
+      "acceptance": "A test that a numeric LINKAGE item in a nested program truncates to its declared PICTURE. Write the repro FIRST — the defect is proven to exist by instrumentation but has not yet been shown to produce a wrong answer, and it may be masked elsewhere."
+    }
+  ],
   "dead_ends": [
     {
       "id": "adopting-a-nested-programs-redefine-state",
@@ -433,6 +449,7 @@
   },
 
   "history": [
+    { "version": "1.62.97", "change": "A group parameter's leaves are paired by BYTE OFFSET where both descriptions are flat; layout reads the declared PICTURE instead of the rendered value", "effect": "IC 295 -> 299 PASS / 18 -> 12 FAIL. IC103A 4 -> 1, IC235A 5 -> 2; what remains in each is CALL-TEST-06 .06 (ALPHANUMERIC EDITED) and .08 (SUBSCRIPTED LINKAGE), the two shapes the walk deliberately refuses. The offset mapping fired only after the width bug was found: an unwritten LINKAGE `PIC 99` rendered as `0` and reported width 1, so the two descriptions disagreed 9 vs 10 and the match was refused." },
     { "version": "1.62.96", "change": "An adopted REDEFINES class is primed from the parameter alias at CALL entry, so a LINKAGE redefinition can be READ", "effect": "IC 294 -> 295 PASS / 19 -> 18 FAIL, clean 15 -> 16 of 25; IC237A runs clean. The refresh is write-driven and the caller's write precedes the alias, so nothing had ever populated the redefining description. FIFTH instance of the 'two resolution paths that do not compose' shape — see the open question about one general fix." },
     { "version": "1.62.95", "change": "A nested program's REDEFINES classes are adopted for the call, and the refresh follows the parameter alias", "effect": "CCVS scores FLAT — IC stays 294 PASS / 19 FAIL and IC106A keeps its 3 failures. What it buys is a product defect: a REDEFINES in any nested program was inert, and every RAD form event handler is a nested program. It also EXPLAINS AND RETIRES the dead end adopting-a-nested-programs-redefine-state: the 1.62.92 regression was the refresh writing raw keys, not the report boilerplate. Fourth instance of the 'two resolution paths that do not compose' shape." },
     { "version": "1.62.94", "change": "A nested program's 88-levels are registered on call, and a condition-name's host follows the parameter alias", "effect": "IC 292 -> 294 PASS / 21 -> 19 FAIL, clean 12 -> 15 of 25, DELETED 4. Third instance of the 'two resolution paths that do not compose' shape, and the third fixed. Also corrected a defect in the acceptance test itself, which had made the 1.62.93 revert rationale unsound — see the work_queue entry." },
