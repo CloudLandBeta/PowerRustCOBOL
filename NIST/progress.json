@@ -125,6 +125,17 @@
 
   "work_queue": [
     {
+      "id": "a-redefines-in-linkage-is-never-bound",
+      "module": "IC",
+      "priority": 2,
+      "title": "A REDEFINES item in the callee's LINKAGE SECTION is excluded from the pairing, so it binds to nothing",
+      "worth": "IC106A's 3 failures (LINK-TEST-06 .01/.02/.03), and probably relevant to the 9-failure LINKAGE bucket as a second instance of the same class.",
+      "evidence": "Measured at 1.62.91. All three read BLANK where X, Y and Z are expected — `COMPUTED=` is empty, not wrong. IC106A's own comment says what it is checking: 'THIS TEST VERIFIES THAT DATA WAS MOVED TO A REDEFINED ITEM IN THE LINKAGE SECTION OF IC107.' The caller then reads `DN2 (8)`, `DN2 (9)`, `DN2 (10)`. Empty rather than stale means the storage was never bound at all.",
+      "cause": "`layout_keys` is built with `.filter(|(_, c)| c.level != 88 && c.level != 66 && c.redefines.is_none())` (environment.rs ~1161). Excluding REDEFINES is CORRECT for its original purpose — a redefinition is a second description of storage its target already owns, and counting it made a group twice as wide (the comment there says so). But the CALL path reuses `layout_keys` as the list of things to bind, and a redefinition of a bound parameter is exactly something that must resolve to the caller's storage.",
+      "the_shape_to_check_first": "`storage_key` applies `redefine_aliases` and `resolve_name` applies `addr_aliases`; they are two different resolution paths and it is not established that a REDEFINES in a callee resolves through BOTH — first to its redefinition target, then through that target's parameter alias to the caller. That is the same class of defect as the FILE STATUS one fixed at 1.62.89, where `set_str` keyed by `storage_key` and so followed REDEFINES but not parameter aliases. Check the composition before adding anything to the pairing: this may need no new binding at all, only the two redirections applied in order.",
+      "next_probe": "Extract IC107A and read what it declares over the caller's DN2 table, then write a probe in the style of `test_linkage_layout_probe.rs`: bind a group parameter, have the callee write through a LINKAGE REDEFINES of it, and assert the caller sees it. That test is the fix's acceptance criterion either way."
+    },
+    {
       "id": "group-parameter-is-a-view-over-bytes-not-a-tree-of-names",
       "module": "IC",
       "priority": 1,
