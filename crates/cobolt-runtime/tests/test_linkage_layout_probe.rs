@@ -415,3 +415,79 @@ fn an_occurs_description_is_left_on_the_positional_pairing() {
         "a description with OCCURS must refuse the flat walk"
     );
 }
+
+/// A group parameter aliased onto the argument's **table** reads and writes the
+/// table's occurrences, not a phantom unsubscripted slot.
+///
+/// CCVS85 **IC106A** / **IC107A** LINK-TEST-06. The caller passes
+/// `01 TABLE-2. 02 DN2 PIC X OCCURS 10.` and the callee describes the same ten
+/// bytes as `02 GROUP-21. 06 DN2 OCCURS 10.`, so pairing aliases
+/// `GROUP-21 -> DN2` — a ten-byte group onto an OCCURS base name, whose bare
+/// key owns no storage: every reader addresses `DN2 (n)`. Before 1.62.99 an
+/// access through that alias landed on the bare key and vanished; now an
+/// unsubscripted table reference is the group of its own occurrences
+/// (`table_extent_keys`), so the alias works.
+///
+/// The failing signature was sharp, and worth keeping on record: `DN2 (3)`
+/// read correctly while `GROUP-21` came back blank — occurrences resolved by
+/// name, only group-level access was broken. That is why the test's own label,
+/// "REDEFINED ITEM IN LINKAGE SEC", misled: removing the REDEFINES entirely
+/// still failed. This test pins the no-REDEFINES half — a direct group READ
+/// through the binding, and a per-occurrence write back to the caller — which
+/// the faithful-shape test in `test_linkage_redefines.rs` does not touch.
+const GROUP_PARAM_OVER_A_TABLE: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  DN2 PICTURE X OCCURS 10 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "0123456789" TO TABLE-2
+           CALL "TSUB" USING TABLE-2
+           DISPLAY "AFTER=[" TABLE-2 "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  GROUP-2.
+           02  GROUP-21.
+               06  DN2 PIC X OCCURS 10 TIMES.
+       PROCEDURE DIVISION USING GROUP-2.
+       S-MAIN.
+           DISPLAY "G21=[" GROUP-21 "]"
+           MOVE "Q" TO DN2 (8)
+           EXIT PROGRAM.
+       END PROGRAM TSUB.
+       END PROGRAM TMAIN.
+"#;
+
+#[test]
+fn a_group_subordinate_reads_a_table_argument_whole() {
+    let out = run_capture(GROUP_PARAM_OVER_A_TABLE);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("expected {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(
+        field("G21"),
+        "0123456789",
+        "GROUP-21 describes the caller's ten-byte table, so reading it whole \
+         must gather the occurrences; blank means the alias short-circuited the \
+         group walk onto the table's unsubscripted slot"
+    );
+    assert_eq!(
+        field("AFTER"),
+        "0123456Q89",
+        "writing one occurrence must still reach the caller — dropping the \
+         group alias must not cost the per-occurrence binding"
+    );
+}
