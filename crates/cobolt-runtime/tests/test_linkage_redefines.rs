@@ -311,3 +311,68 @@ fn a_filler_in_a_nested_programs_linkage_still_occupies_its_bytes() {
          nested program's snapshot and reported width 0"
     );
 }
+
+/// IC106A's LINK-TEST-06, **faithfully**: the caller's parameter is a table and
+/// the callee describes it as a group with a `REDEFINES` laid over it.
+///
+/// This is the shape the reductions above kept missing. The caller declares
+/// `01 TABLE-2. 02 DN2 PIC X OCCURS 10.` — one subordinate, a table — while
+/// IC107A's LINKAGE declares `01 GROUP-2. 02 GROUP-21. 06 DN2 PIC X OCCURS 10.
+/// 02 GROUP-2-1 REDEFINES GROUP-21.` — a *group* where the caller has a table.
+/// Pairing the two by position therefore aliases `GROUP-21` onto the bare
+/// `DN2`, and a table's base name is not a slot: every reader addresses
+/// `DN2(n)`. The overlay's ten bytes landed on a key nothing reads and the
+/// caller saw its last three positions blank.
+const REDEFINES_OVER_A_LINKAGE_TABLE: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TBMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  DN2 PIC X OCCURS 10 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE SPACE TO TABLE-2
+           CALL "TBSUB" USING TABLE-2
+           DISPLAY "T=[" DN2 (8) DN2 (9) DN2 (10) "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TBSUB.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       77  AL-CON PIC XXX VALUE "XYZ".
+       LINKAGE SECTION.
+       01  GROUP-2.
+           02  GROUP-21.
+               06  DN2 PIC X OCCURS 10 TIMES.
+           02  GROUP-2-1 REDEFINES GROUP-21.
+               03  FILLER  PIC X(7).
+               03  DN3     PIC XXX.
+       PROCEDURE DIVISION USING GROUP-2.
+       S-MAIN.
+           MOVE AL-CON TO DN3
+           EXIT PROGRAM.
+       END PROGRAM TBSUB.
+       END PROGRAM TBMAIN.
+"#;
+
+#[test]
+fn a_redefines_over_a_linkage_table_reaches_the_callers_occurrences() {
+    let out = run_capture(REDEFINES_OVER_A_LINKAGE_TABLE);
+    let t = out
+        .iter()
+        .find_map(|l| {
+            l.strip_prefix("T=[")
+                .and_then(|r| r.strip_suffix(']'))
+                .map(str::to_owned)
+        })
+        .expect("the caller displays T=[…]");
+    assert_eq!(
+        t, "XYZ",
+        "the callee wrote \"XYZ\" through a REDEFINES of the group it lays over \
+         the caller's table, so occurrences 8, 9 and 10 must carry it; \
+         \"   \" means the alias landed on the table's unsubscripted base name, \
+         which nothing reads"
+    );
+}

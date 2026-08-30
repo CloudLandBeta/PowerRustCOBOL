@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.99] — 2026-08-30
+
+### Fixed — a `CALL … USING` alias onto a table wrote to a slot nothing reads
+
+A table's occurrences are separate storage slots in the runtime, and its base
+name owns none of them: every reader addresses `DN2 (n)`. That is invisible to
+a program, which must subscript a table item anyway — but a `CALL … USING`
+alias can land on the bare name, and then the write went nowhere.
+
+CCVS85 **IC106A** passes `01 TABLE-2. 02 DN2 PIC X OCCURS 10.` to **IC107A**,
+which describes those same ten bytes as a **group** with an overlay:
+
+```text
+01  GROUP-2.
+    02    GROUP-21.
+        06 DN2 PIC X OCCURS 10 TIMES.
+    02     GROUP-2-1 REDEFINES GROUP-21.
+        03  FILLER  PICTURE X(7).
+        03  DN3     PICTURE XXX.
+```
+
+`MOVE AL-CON TO DN3` has to overlay the table's last three positions. The
+parameter binding pairs the callee's `GROUP-21` with the caller's `DN2`, so the
+`REDEFINES` refresh asked to store ten bytes into `DN2` — the base name — and
+`set_group_bytes` refused it as elementary. `DN2 (8)`, `(9)` and `(10)` came
+back blank against the expected `X`, `Y` and `Z`.
+
+An unsubscripted reference to a table is now the group of its own occurrences,
+for reading (`group_value`, `group_bytes`), writing (`set_group_bytes`,
+`set_from_bytes`) and measuring (`item_width`). The new
+`CobolEnvironment::table_extent_keys` recognises exactly that case and nothing
+else: a fully subscripted key still names one occurrence, and a group still
+reads and writes through its own `layout_keys`. `occurrence_keys`' per-child
+expansion moved into `expand_occurrences` so both walks share one definition of
+what an occurrence is, `OCCURS … DEPENDING ON` included.
+
+Regression test: `a_redefines_over_a_linkage_table_reaches_the_callers_occurrences`
+in `crates/cobolt-runtime/tests/test_linkage_redefines.rs`.
+
+**NIST CCVS85 — Inter-program communication (IC):** execution 16 → **17 of 25**
+programs clean, 299 → **301** assertions PASS and 12 → **9** FAIL. Compile
+conformance unchanged at 47/47 for the module and **412 / 421** for the
+whole in-scope suite.
+
 ## [PowerRustCOBOL 1.62.98] — 2026-08-30
 
 ### Fixed — a nested program's `FILLER` items did not exist

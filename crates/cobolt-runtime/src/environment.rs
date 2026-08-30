@@ -879,7 +879,10 @@ impl CobolEnvironment {
     /// written, so that terminates. (The group and edited branches already
     /// refresh through the writers they delegate to.)
     fn set_from_bytes(&mut self, key: &str, s: &str) {
-        if self.is_group(key) {
+        // `is_group` is answered by base name, so it cannot tell one occurrence
+        // of a table from the table itself; `table_extent_keys` can, and only
+        // the unsubscripted form is a group of occurrences.
+        if self.is_group(key) || self.table_extent_keys(key).is_some() {
             self.set_group(key, s);
             return;
         }
@@ -2050,6 +2053,20 @@ impl CobolEnvironment {
     fn occurrence_keys(&self, sym: &ItemSym, prefix: &[i64]) -> Vec<String> {
         let mut out = Vec::new();
         for ck in &sym.layout_keys {
+            out.extend(self.expand_occurrences(ck, prefix));
+        }
+        out
+    }
+
+    /// The storage keys one subordinate item contributes to its group's layout,
+    /// given the subscript `prefix` the group itself was referenced with.
+    ///
+    /// An item that opens no dimension of its own contributes exactly one key;
+    /// a table contributes one per occurrence of the dimensions the prefix
+    /// leaves open, in row-major order.
+    fn expand_occurrences(&self, ck: &str, prefix: &[i64]) -> Vec<String> {
+        let mut out = Vec::new();
+        {
             // A synthetic FILLER slot has no symbol entry; it shares its
             // parent's dimensions and so takes the prefix unchanged.
             let dims: &[usize] = match self.symbols.get(ck) {
@@ -2058,7 +2075,7 @@ impl CobolEnvironment {
             };
             if dims.is_empty() {
                 out.push(subscript_key(ck, prefix));
-                continue;
+                return out;
             }
             // An `OCCURS … DEPENDING ON` table contributes only the occurrences
             // that are **active now**, not its declared maximum: the enclosing
@@ -2096,6 +2113,36 @@ impl CobolEnvironment {
         out
     }
 
+    /// Every occurrence of an **elementary table** addressed by a key that does
+    /// not subscript it all the way down — `DN2` for `02 DN2 PIC X OCCURS 10`,
+    /// or `A (2)` for a two-dimensional `A`. `None` for anything else,
+    /// including a fully subscripted reference to one occurrence and any group,
+    /// which already reads and writes through its `layout_keys`.
+    ///
+    /// A table's occurrences are separate slots here; in COBOL they are one
+    /// contiguous area and the base name denotes the whole of it. No program
+    /// can ask for that directly — a table item must be subscripted — but a
+    /// `CALL … USING` alias can: CCVS85 IC107A describes its caller's
+    /// `02 DN2 PIC X OCCURS 10` as a **group** `GROUP-21`, lays a `REDEFINES`
+    /// over that group and writes through the overlay. The parameter alias
+    /// binds `GROUP-21` to the bare `DN2`, so the refresh has to spread its ten
+    /// bytes across the ten occurrences. Without this the write landed on the
+    /// unsubscripted key, which nothing ever reads, and IC106A's LINK-TEST-06
+    /// saw its last three table positions come back blank.
+    fn table_extent_keys(&self, key: &str) -> Option<Vec<String>> {
+        let upper = key.to_ascii_uppercase();
+        let base = base_name(&upper);
+        let sym = self.symbols.get(base)?;
+        if sym.is_group || !sym.layout_keys.is_empty() {
+            return None;
+        }
+        let prefix = key_indices(&upper);
+        if prefix.len() >= sym.dims.len() {
+            return None;
+        }
+        Some(self.expand_occurrences(base, &prefix))
+    }
+
     /// The synthesized value of a group: its subordinate items' display strings
     /// concatenated in declaration order. `None` when `name` is not a group.
     ///
@@ -2105,6 +2152,13 @@ impl CobolEnvironment {
     /// flattened record.
     pub fn group_value(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_uppercase();
+        if let Some(keys) = self.table_extent_keys(&key) {
+            let mut out = String::new();
+            for ck in keys {
+                out.push_str(&self.display_string(&ck).unwrap_or_default());
+            }
+            return Some(out);
+        }
         let sym = self.symbols.get(base_name(&key))?;
         // `layout_keys` empty ⇒ no subordinate data items ⇒ elementary, whatever
         // `is_group` says (88-level condition-names count as children there).
@@ -2128,6 +2182,13 @@ impl CobolEnvironment {
     /// middle of the mangled `HIGH-VALUES` one that preceded it.
     pub fn group_bytes(&self, name: &str) -> Option<Vec<u8>> {
         let key = name.to_ascii_uppercase();
+        if let Some(keys) = self.table_extent_keys(&key) {
+            let mut out = Vec::new();
+            for ck in keys {
+                out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default());
+            }
+            return Some(out);
+        }
         let sym = self.symbols.get(base_name(&key))?;
         if !sym.is_group || sym.layout_keys.is_empty() {
             return None;
@@ -2166,6 +2227,9 @@ impl CobolEnvironment {
     /// concatenation: building the string of a large table just to take its
     /// length allocated the whole record on every child of every group move.
     fn item_width(&self, key: &str) -> usize {
+        if let Some(keys) = self.table_extent_keys(key) {
+            return keys.iter().map(|k| self.item_width(k)).sum();
+        }
         if let Some(sym) = self.symbols.get(base_name(&key.to_ascii_uppercase())) {
             if sym.is_group && !sym.layout_keys.is_empty() {
                 return self
@@ -2222,19 +2286,28 @@ impl CobolEnvironment {
     /// spelling of its own width. See [`Self::group_bytes`].
     pub fn set_group_bytes(&mut self, name: &str, bytes: &[u8]) {
         let key = name.to_ascii_uppercase();
-        let Some(sym) = self.symbols.get(base_name(&key)) else {
-            return;
-        };
-        if !sym.is_group || sym.layout_keys.is_empty() {
-            return; // elementary (see `is_group` on 88-level children)
+        // A bare table name is a group of its own occurrences here — see
+        // [`table_extent_keys`](Self::table_extent_keys).
+        let extent = self.table_extent_keys(&key).is_some();
+        if !extent {
+            let Some(sym) = self.symbols.get(base_name(&key)) else {
+                return;
+            };
+            if !sym.is_group || sym.layout_keys.is_empty() {
+                return; // elementary (see `is_group` on 88-level children)
+            }
         }
         // Everything from here measures a **receiving** group, which takes each
         // ODO table's declared maximum rather than its current length. The
         // symbol is looked up again because raising the flag needs `self`.
         self.odo_receiving += 1;
-        let child_keys = match self.symbols.get(base_name(&key)) {
-            Some(sym) => self.occurrence_keys(sym, &key_indices(&key)),
-            None => Vec::new(),
+        let child_keys = if extent {
+            self.table_extent_keys(&key).unwrap_or_default()
+        } else {
+            match self.symbols.get(base_name(&key)) {
+                Some(sym) => self.occurrence_keys(sym, &key_indices(&key)),
+                None => Vec::new(),
+            }
         };
         let mut pos = 0usize;
         for ck in child_keys {
