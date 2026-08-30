@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.113] — 2026-08-30
+
+### Harness — ST301M joins the intermediate-subset-flagging exclusion
+
+"The following program tests the flagging of intermediate subset features that
+are used in sort-merge functions" — ST301M's own header. Its expectations are
+the `SD`, `SAME SORT-MERGE AREA`, `MERGE` and `SORT … GIVING` this
+implementation runs every day, and a compiler validating at the high subset
+must not flag features it supports. The same operator ruling that took IX301M
+and RL301M out of scope covers it; Sort/Merge is scored out of **39**.
+
+Sort/Merge (ST): **28 of 39 clean, 682 PASS / 87 FAIL** of 769 scored
+assertions. Whole-suite compile **412 / 421** unchanged.
+
 ## [PowerRustCOBOL 1.62.112] — 2026-08-30
 
 ### Fixed — a signed DISPLAY field keeps its sign in the record image
