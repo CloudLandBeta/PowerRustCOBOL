@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.109] — 2026-08-30
+
+### Harness — reporting is driving PRINT-DETAIL, not naming the printer
+
+ST110A declares `PRINT-FILE` on the X-55 card and never opens it, so the
+1.62.108 predicate — "names the printer card" — still called three working
+sorters failures. The true signal is the CCVS machinery itself: every member
+that reports drives it through `PRINT-DETAIL`, and a sorter has none to drive.
+
+Sort/Merge (ST), execution: **19 → 22 of 40 clean** (assertions unchanged at
+588 / 44). What remains is real: five chain verifiers each at exactly one
+failure, ST103A at four, ST127A's timeout, two larger members (ST131A 6,
+ST133A 15), and the two `COLLATING SEQUENCE` compile failures.
+
 ## [PowerRustCOBOL 1.62.108] — 2026-08-30
 
 ### Harness — ST's eight producer chains, and reportless-by-design members

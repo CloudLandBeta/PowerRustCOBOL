@@ -1606,10 +1606,12 @@ fn run_one_in(
     if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
     }
-    // Whether this member can report at all: the CCVS report goes to the
-    // X-55 printer card, and a member that never names it has nothing to
-    // print with. See the NoReport decision below.
-    let text_names_printer = raw.contains("XXXXX055");
+    // Whether this member REPORTS at all. Naming the X-55 printer card is
+    // not the signal — ST110A declares PRINT-FILE and never opens it — but
+    // every member that reports drives the CCVS machinery through its
+    // PRINT-DETAIL paragraph, and the sorters have no CCVS machinery to
+    // drive. See the NoReport decision below.
+    let text_names_printer = raw.contains("PRINT-DETAIL");
 
     // The suite's copybooks, beside the source, because that is where `rcrun`
     // looks for them (`expand_copy` in cobolt-cli resolves a `COPY` against the
