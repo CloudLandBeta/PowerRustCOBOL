@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.100",
+  "measured_at_version": "1.62.101",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -75,7 +75,7 @@
       "state": "in_flight",
       "compile": [47, 47],
       "execution": [17, 25],
-      "assertions": { "pass": 301, "fail": 9, "deleted": 4 },
+      "assertions": { "pass": 302, "fail": 8, "deleted": 4 },
       "_denominator_note": "Scored assertions moved 311 -> 310 at 1.62.99, and 313 -> 311 before that. Not a fidelity loss either time: a CCVS FAIL prints one line more than a PASS does, so a member that stops failing also stops emitting that line. IC106A went 3 FAIL / 13 PASS -> 0 / 15, which is exactly 16 scored lines becoming 15.",
       "_compile_figure_corrected": "Measured 47/47 at 1.62.94. The ledger had carried [45, 47] from the 1.62.81 baseline, when two members did not compile; the census has reported 47/47 for some time. Never carry a compile figure forward by hand — `strict` prints it per module.",
       "_stale_ranking_warning": "The `remaining_buckets` list below was written at 1.62.90 and is LONG STALE. As measured at 1.62.99 the module has NINE failures across EIGHT programs and no bucket larger than IC235A's two — see `remaining_at_1_62_99`. Re-bucket with `fails IC` before choosing the next item.",
@@ -500,6 +500,7 @@
   },
 
   "history": [
+    { "version": "1.62.101", "change": "A subscripted CALL argument binds that occurrence — the subscript is evaluated at binding time and rides as the alias target", "effect": "IC 301 -> 302 PASS / 9 -> 8 FAIL. IC235A 2 -> 1, keeping only the blocked .06. expr_to_name drops subscripts, so USING SUBSCRIPTED-DATA (4) bound the bare table name, and a write there is the WHOLE TABLE since 1.62.99 — the value landed in occurrence 1. Five of the eight remaining failures are activation-scope-blocked; the open singles are IC112A, IC114A, IC227A." },
     { "version": "1.62.100", "change": "The parameter side of a group binding walks the CALLEE's own symbols, and a table argument's occurrences become alias targets", "effect": "CCVS flat at IC 301 PASS / 9 FAIL — and the flatness is PROVEN, not assumed. IC203A CNCL-TEST-05's COMPUTED went empty -> XY: the binding is fixed (both programs name their record TABLE-2, so the pairing had read the caller's tree for both sides and TV-1/TV-2 bound to nothing), and the member stays red on the DN2 name collision — an instrumented chain shows the counter at exactly 3 and 1 with both IFs misdeciding, because the callee's private 77 DN2 COMP is really the caller's PIC XXX child and the comparison runs alphanumeric. IC203A moves to the activation-scope-blocked bucket with IC101A and IC225A, with proof." },
     {
       "version": "1.62.99",

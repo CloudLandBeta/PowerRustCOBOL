@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.101] — 2026-08-30
+
+### Fixed — a subscripted `CALL` argument bound the whole table
+
+`CALL … USING SUBSCRIPTED-DATA (4)` bound the parameter to the bare table name:
+`expr_to_name` drops a subscript, and a write to a bare table name is the whole
+table since 1.62.99 — so the callee's value landed in occurrence 1 while CCVS85
+**IC235A** CALL-TEST-06-08 reads occurrence 4.
+
+The subscript is now evaluated at binding time, exactly as BY REFERENCE fixes
+the argument's identity at the CALL, and the subscripted key rides as the alias
+*target* — targets are followed verbatim; only alias KEYS are base-name
+lookups. The regression test asserts both halves: occurrence 4 receives the
+callee's write, and occurrence 1 stays untouched — the second assertion is what
+separates the fix from the whole-table accident that made `S1=[1A]`.
+
+Inter-program communication (IC), execution: **301 PASS / 9 FAIL → 302 PASS /
+8 FAIL**, clean programs 17 of 25; IC235A 2 → 1, keeping only its
+activation-scope-blocked `.06`. Whole-suite compile **412 / 421**; runtime
+suites 0 failed; 13 probe tests green.
+
 ## [PowerRustCOBOL 1.62.100] — 2026-08-30
 
 ### Fixed — a colliding record name left a group parameter's children unbound

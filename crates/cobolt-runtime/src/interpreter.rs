@@ -8272,7 +8272,30 @@ impl Interpreter {
                     .zip(using.iter())
                     .map(|(p, a)| {
                         let pk = p.to_ascii_uppercase();
-                        let ak = self.expr_to_name(call_arg_expr(a)).to_ascii_uppercase();
+                        // **A subscripted argument keeps its subscript.**
+                        // `expr_to_name` drops it, so `CALL … USING
+                        // SUBSCRIPTED-DATA (4)` bound the parameter to the bare
+                        // table name — and a write there is the whole table
+                        // since 1.62.99, so the callee's value landed in
+                        // occurrence 1 while CCVS85 IC235A's CALL-TEST-06-08
+                        // reads occurrence 4. The subscript is evaluated NOW,
+                        // at binding time, exactly as BY REFERENCE fixes the
+                        // argument's identity at the CALL. A subscripted key is
+                        // valid as an alias TARGET — targets are followed
+                        // verbatim; only alias KEYS are base-name lookups.
+                        let arg = call_arg_expr(a);
+                        let ak = match arg {
+                            Expr::Subscript {
+                                base,
+                                indices,
+                                span,
+                            } => {
+                                let resolved = self.expr_to_name(base).to_ascii_uppercase();
+                                let idx = self.eval_indices(indices, *span);
+                                crate::environment::subscript_key(&resolved, &idx)
+                            }
+                            _ => self.expr_to_name(arg).to_ascii_uppercase(),
+                        };
                         let by_ref = matches!(a, CallArg::ByReference(_));
                         (pk, ak, by_ref)
                     })

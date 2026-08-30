@@ -555,3 +555,68 @@ fn a_colliding_record_name_still_binds_the_callees_children() {
          caller's tree and bound to nothing"
     );
 }
+
+/// A **subscripted argument** binds the parameter to that one occurrence.
+///
+/// CCVS85 **IC235A** CALL-TEST-06-08: `CALL "IC235A-1" USING …
+/// SUBSCRIPTED-DATA (4)`, where the callee's parameter is the SAME name,
+/// unsubscripted, `01 SUBSCRIPTED-DATA PIC XX`. `expr_to_name` dropped the
+/// subscript, so the parameter bound to the bare table name — and a write
+/// there is the whole table since 1.62.99, so the callee's `MOVE "1A"` landed
+/// in occurrence 1 while the caller reads occurrence 4.
+///
+/// The subscript is evaluated at binding time, as BY REFERENCE fixes the
+/// argument's identity at the CALL; the subscripted key rides as the alias
+/// TARGET, which is followed verbatim (only alias KEYS are base-name lookups).
+const SUBSCRIPTED_ARGUMENT: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  FILLER.
+           03  SUBSCRIPTED-DATA OCCURS 10 PIC XX.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 99 TO SUBSCRIPTED-DATA (4)
+           CALL "SSUB" USING SUBSCRIPTED-DATA (4)
+           DISPLAY "S4=[" SUBSCRIPTED-DATA (4) "]"
+           DISPLAY "S1=[" SUBSCRIPTED-DATA (1) "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  SUBSCRIPTED-DATA PIC XX.
+       PROCEDURE DIVISION USING SUBSCRIPTED-DATA.
+       S-MAIN.
+           MOVE "1A" TO SUBSCRIPTED-DATA
+           EXIT PROGRAM.
+       END PROGRAM SSUB.
+       END PROGRAM SMAIN.
+"#;
+
+#[test]
+fn a_subscripted_argument_binds_that_occurrence() {
+    let out = run_capture(SUBSCRIPTED_ARGUMENT);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("expected {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(
+        field("S4"),
+        "1A",
+        "the callee was handed occurrence 4, so its write must land there"
+    );
+    assert_eq!(
+        field("S1"),
+        "  ",
+        "occurrence 1 was never passed and must stay untouched — \"1A\" here \
+         means the binding fell back to the bare table name"
+    );
+}
