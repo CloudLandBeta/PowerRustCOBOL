@@ -125,14 +125,14 @@
 
   "work_queue": [
     {
-      "id": "ic201a-callee-is-not-supplied-harness-gap",
+      "id": "extract-does-not-concatenate-callees-the-run-does",
       "module": "IC",
-      "priority": 1,
-      "title": "IC201A's failures are a HARNESS gap, not a runtime defect — its callee is never concatenated",
-      "worth": "IC201A's 3 failures, and the same shape is likely under IC225A's 2 ('OVERFLOW SHOULD NOT OCCUR'). Possibly more: this was found by accident and the general question was not swept.",
-      "evidence": "`extract IC201A` yields ONE program — a single PROGRAM-ID, IC201A. It calls IC202A eleven times and the run log says `CALL to unknown program 'IC202A'` eleven times. So every call resolves to nothing and the ON OVERFLOW branch fires, which is CORRECT behaviour for an unresolved CALL. The member's own comment says what it expects: 'THIS IS A SYNTACTICAL CHECK ONLY, THE ON OVERFLOW CONDITION SHOULD NEVER OCCUR.'",
-      "why_this_matters_more_than_three_assertions": "The runtime is right and the measurement is wrong. 1.62.82 taught the harness the `SUBRTN` control card and callers began running with their callees concatenated — that took IC from 6 to 10 clean. IC201A did not get its callee, so either its header declares IC202A by some other card, or the member is not covered by the rule that was added. Until that is settled, an unknown share of IC's remaining 25 failures may be measurement rather than defect, and chasing them in the runtime would be inventing bugs that do not exist. See the ledger's own `harness-limits-look-like-runtime-regressions` lesson, and 1.62.82's note that SUBPRG and SUBRTN are NOT synonyms.",
-      "next_probe": "FIRST sweep the module rather than fixing this one member: run every IC member and grep the logs for `CALL to unknown program`, which names every caller whose callee is missing. That single pass separates the harness gaps from the real defects and re-ranks everything left in this module. Then read IC201A's control card in the raw suite source to see how it declares IC202A, and compare with a member whose callee IS supplied (IC101A/IC102A worked at 1.62.82).",
+      "priority": 3,
+      "title": "WITHDRAWN AND CORRECTED — `extract` is not what the harness runs, and diagnosing from it invents defects",
+      "the_mistake": "At 1.62.93 this entry claimed IC201A's three failures were a harness gap because its callee was never concatenated. THAT WAS WRONG, and it was wrong in a way worth keeping: `extract IC201A` yields one program, running that by hand produced eleven `CALL to unknown program 'IC202A'` warnings, and the conclusion followed. But the harness does NOT run what `extract` emits — `with_subprograms` (nist_conformance.rs ~1535) appends every member whose `subprogram_of` names the caller, and only the RUN path uses it.",
+      "how_it_was_caught": "Arithmetic, not luck. `run IC` scores IC201A at 3 FAIL / 9 PASS. If IC202A were genuinely absent, all eleven calls would take the ON OVERFLOW branch and far more than three assertions would fail. The same check kills it elsewhere: IC103A's CALL-TEST-06 `.01` PASSES, and it can only pass if IC104A actually wrote `IC104` into the caller's field.",
+      "the_lesson": "When running a member by hand to diagnose it, RECONSTRUCT WHAT THE HARNESS RUNS — the member plus its `subprogram_of` members concatenated — or the diagnosis is against a different program from the one being scored. `extract` is a convenience for reading source, not a faithful reproduction of a run. Everything the earlier iteration concluded about IC201A stands withdrawn; its three ON OVERFLOW failures are still unexplained and are NOT a missing callee.",
+      "still_worth_doing": "The sweep the withdrawn entry proposed is still a good idea, but for the opposite reason: run each member THE WAY THE HARNESS DOES and look for `CALL to unknown program`, to find any caller whose callee genuinely is not declared. Header counts off `extract` cannot answer that question — IC103A, IC106A and IC201A all show one header and all of them do get their callees at run time.",
       "caveat": "Do NOT widen the SUBRTN rule by guessing. Treating SUBPRG as a callee at 1.62.82 broke SQ (85/85 -> 84/84) and was reverted inside the same change; the two cards mean different things and the difference is load-bearing."
     },
     {
