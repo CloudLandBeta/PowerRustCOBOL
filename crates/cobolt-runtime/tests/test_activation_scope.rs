@@ -414,3 +414,81 @@ fn a_content_copy_does_not_clobber_a_reference_write_to_the_same_item() {
     );
     assert_eq!(field(&out, "D2"), "06", "the reference write to DN2 lands");
 }
+
+/// A signed DISPLAY key survives the record image: rendered with a trailing
+/// overpunch and read back with its sign, so `ON ASCENDING` orders −5432
+/// before −14 before +418.
+///
+/// CCVS85 **ST127A**: `field_bytes` rendered `mantissa.unsigned_abs()` and
+/// `distribute` mapped every non-digit to `'0'` and parsed unsigned, so keys
+/// sorted as if positive and eighty of its assertions failed
+/// (`COMPUTED= 000005432` against `CORRECT = -000005432`).
+#[test]
+fn a_signed_sort_key_keeps_its_sign_through_the_record() {
+    let dir = std::env::temp_dir().join("prc_ssort_test");
+    let _ = std::fs::create_dir_all(&dir);
+    let out_p = dir.join("ssort-out.tmp");
+    let work_p = dir.join("ssort-work.tmp");
+    let _ = std::fs::remove_file(&out_p);
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SSORT.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SFILE ASSIGN TO "{work}".
+           SELECT OUTF  ASSIGN TO "{out}".
+       DATA DIVISION.
+       FILE SECTION.
+       SD  SFILE.
+       01  S-REC.
+           02  S-KEY PIC S9(4).
+           02  S-TAG PIC X(6).
+       FD  OUTF.
+       01  O-REC.
+           02  O-KEY PIC S9(4).
+           02  O-TAG PIC X(6).
+       PROCEDURE DIVISION.
+       MAIN SECTION.
+       M1.
+           SORT SFILE ON ASCENDING KEY S-KEY
+               INPUT PROCEDURE FEED THRU FEED-X
+               GIVING OUTF.
+           OPEN INPUT OUTF.
+           PERFORM SHOW 4 TIMES.
+           CLOSE OUTF.
+           STOP RUN.
+       SHOW.
+           READ OUTF AT END NEXT SENTENCE END-READ.
+           DISPLAY "K=[" O-KEY "] T=[" O-TAG "]".
+       FEED SECTION.
+       F1.
+           MOVE +0501 TO S-KEY MOVE "AAAAAA" TO S-TAG RELEASE S-REC.
+           MOVE -5432 TO S-KEY MOVE "BBBBBB" TO S-TAG RELEASE S-REC.
+           MOVE -0014 TO S-KEY MOVE "CCCCCC" TO S-TAG RELEASE S-REC.
+           MOVE +0418 TO S-KEY MOVE "DDDDDD" TO S-TAG RELEASE S-REC.
+       FEED-X SECTION.
+       FX. EXIT.
+"#,
+        work = work_p.display(),
+        out = out_p.display()
+    );
+    let outp = run_capture(&src);
+    let _ = std::fs::remove_file(&out_p);
+    let tags: Vec<&str> = outp
+        .iter()
+        .filter_map(|l| {
+            l.split("T=[").nth(1).and_then(|r| r.strip_suffix(']'))
+        })
+        .collect();
+    assert_eq!(
+        tags,
+        vec!["BBBBBB", "CCCCCC", "DDDDDD", "AAAAAA"],
+        "-5432, -14, 418, 501 is the signed ascending order; got {outp:?}"
+    );
+    assert!(
+        outp.iter().any(|l| l.contains("K=[-5432]") || l.contains("K=[543")),
+        "the sign travels back through the record: {outp:?}"
+    );
+}

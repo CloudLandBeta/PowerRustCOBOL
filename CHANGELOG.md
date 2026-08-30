@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.112] — 2026-08-30
+
+### Fixed — a signed DISPLAY field keeps its sign in the record image
+
+`field_bytes` rendered a signed numeric with `unsigned_abs()` and `distribute`
+mapped every non-digit byte to `'0'` before parsing unsigned, so a record
+round-trip erased signs entirely: CCVS85 **ST127A**'s eight-key sort ordered
+−5432 after +501, and eighty of its assertions failed with
+`COMPUTED= 000005432` against `CORRECT = -000005432`.
+
+A signed picture (`S9…`, sign not SEPARATE) now renders its trailing digit as
+the standard overpunch — `{`/A–I for +0…+9, `}`/J–R for −0…−9 — and
+`distribute` reads the same convention back, honouring a leading `-` from
+separate-sign writers too. The layout walk records signedness per field.
+
+Sort/Merge (ST), execution: **660 PASS / 127 FAIL → 683 PASS / 92 FAIL**, clean
+programs **26 → 28 of 40**. Record images are shared ground, so the full
+protected gate ran: NC 95/95 (4614/0), SQ 85/85 (624/0), IX 41/41 (574/0), RL
+34/34 (354/0), IF 45/45 (841/0), IC 25/25 (309/0), compile **412/421**, 104
+runtime suites at 0 failed.
+
 ## [PowerRustCOBOL 1.62.111] — 2026-08-30
 
 ### Fixed — `INPUT/OUTPUT PROCEDURE a THRU b` performs the range
