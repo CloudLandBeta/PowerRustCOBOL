@@ -1613,6 +1613,34 @@ impl CobolEnvironment {
         added
     }
 
+    /// Populate a freshly adopted `REDEFINES` class from the storage a
+    /// parameter alias points at.
+    ///
+    /// The refresh is **write-driven**: it re-renders a description into its
+    /// peers when something writes to it. For a LINKAGE class that is too late.
+    /// The caller filled the argument *before* the CALL, so by the time the
+    /// class exists and the alias points at the caller's bytes, the write that
+    /// would have propagated them has already happened and the redefining
+    /// description is still an untouched slot. CCVS85 **IC237A-1** declares
+    /// `01 L-A PIC 9.` / `01 L-A1 REDEFINES L-A PIC 9.` in its LINKAGE SECTION
+    /// and does `MOVE L-A1 TO L-C`: `L-A` read 1 and `L-A1` read 0.
+    ///
+    /// So prime once, at entry, from whichever member of the class actually
+    /// resolves through an alias. A class with no aliased member is left alone
+    /// — it is the callee's own storage and has nothing to inherit.
+    ///
+    /// Must be called AFTER the parameter aliases are installed.
+    pub fn prime_redefine_classes(&mut self, added: &[(String, (String, String))]) {
+        let mut seen: Vec<String> = Vec::new();
+        for (trigger, _) in added {
+            if seen.contains(trigger) || !self.addr_aliases.contains_key(trigger) {
+                continue;
+            }
+            seen.push(trigger.clone());
+            self.refresh_redefine_peers(trigger);
+        }
+    }
+
     /// Remove exactly the classes a matching
     /// [`adopt_redefine_links`](Self::adopt_redefine_links) added, dropping a
     /// trigger whose list this empties.

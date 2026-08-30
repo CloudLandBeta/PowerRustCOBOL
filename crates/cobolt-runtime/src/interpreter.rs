@@ -8361,6 +8361,11 @@ impl Interpreter {
                     }
                 }
 
+                // With the aliases installed, seed any adopted REDEFINES class
+                // from the caller's bytes: the refresh is write-driven and the
+                // caller's write happened before this call existed.
+                self.env.prime_redefine_classes(&inserted_redefs);
+
                 // Run the nested program's paragraphs in declaration order,
                 // with ITS procedures installed as the ones `PERFORM` and
                 // `GO TO` resolve against. Procedure names are strictly

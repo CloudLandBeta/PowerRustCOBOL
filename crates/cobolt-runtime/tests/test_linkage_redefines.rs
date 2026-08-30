@@ -161,3 +161,78 @@ fn a_callee_writing_through_a_linkage_redefines_reaches_the_caller() {
          storage of its own"
     );
 }
+
+/// Reading *through* a `REDEFINES` of a LINKAGE item must see the caller's
+/// bytes, not the redefining item's own untouched slot.
+///
+/// CCVS85 **IC237A** / **IC237A-1**, reduced. The subprogram declares
+/// `01 L-A PIC 9.` and `01 L-A1 REDEFINES L-A PIC 9.` in its LINKAGE SECTION
+/// and does `MOVE L-A1 TO L-C`; the caller then checks `WS-C = WS-A`.
+///
+/// The redefinition refresh is **write-driven**, and the caller's write
+/// happened before the CALL installed the parameter alias — so nothing had ever
+/// populated the redefining description and `L-A` read 1 while `L-A1` read 0.
+const READ_THROUGH_A_LINKAGE_REDEFINES: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RRMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-A PIC 9 VALUE 1.
+       01  WS-C PIC 9 VALUE 5.
+       PROCEDURE DIVISION.
+       MAIN.
+           CALL "RRSUB" USING WS-A WS-C
+           DISPLAY "C=[" WS-C "]"
+           DISPLAY "A=[" WS-A "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RRSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  L-A                PIC 9.
+       01  L-A1 REDEFINES L-A PIC 9.
+       01  L-C                PIC 9.
+       PROCEDURE DIVISION USING L-A L-C.
+       S-MAIN.
+           MOVE L-A1 TO L-C
+           EXIT PROGRAM.
+       END PROGRAM RRSUB.
+       END PROGRAM RRMAIN.
+"#;
+
+fn bracketed(out: &[String], name: &str) -> String {
+    out.iter()
+        .find_map(|l| {
+            l.strip_prefix(&format!("{name}=["))
+                .and_then(|r| r.strip_suffix(']'))
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| panic!("the program displays {name}=[…]; got {out:?}"))
+}
+
+#[test]
+fn reading_through_a_linkage_redefines_sees_the_callers_data() {
+    let out = run_capture(READ_THROUGH_A_LINKAGE_REDEFINES);
+    assert_eq!(
+        bracketed(&out, "C"),
+        "1",
+        "L-A1 redefines L-A, which is bound to WS-A holding 1, so MOVE L-A1 TO \
+         L-C must carry 1 back into WS-C; 0 means the redefining description \
+         was never populated from the caller's bytes"
+    );
+}
+
+/// Pairs with the test above. Priming a redefinition from the caller's storage
+/// must not write *back* into it: the subprogram never assigns to `L-A`, so the
+/// caller's `WS-A` has to come through the call untouched. A prime that
+/// resolved the wrong side of the alias would corrupt the source it read.
+#[test]
+fn priming_a_linkage_redefines_does_not_write_back_to_the_caller() {
+    let out = run_capture(READ_THROUGH_A_LINKAGE_REDEFINES);
+    assert_eq!(
+        bracketed(&out, "A"),
+        "1",
+        "nothing in RRSUB assigns to L-A, so WS-A must be unchanged"
+    );
+}

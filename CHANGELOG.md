@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.96] — 2026-08-30
+
+### Fixed — reading through a `REDEFINES` of a LINKAGE item saw an empty slot
+
+A subprogram that reads a redefinition of one of its parameters got the
+redefining item's own untouched storage rather than the caller's bytes.
+
+The redefinition refresh is **write-driven**: it re-renders a description into
+the others sharing its area when something writes to it. For a LINKAGE class
+that is too late. The caller fills the argument *before* the CALL, so by the
+time the class exists and the parameter alias points at the caller's storage,
+the write that would have propagated those bytes has already happened — and the
+redefining description was never populated at all.
+
+Adopted classes are now primed once at entry, from whichever member actually
+resolves through a parameter alias. A class with no aliased member is left
+alone: it is the callee's own storage and has nothing to inherit.
+
+CCVS85 **IC237A-1** declares `01 L-A PIC 9.` and `01 L-A1 REDEFINES L-A PIC 9.`
+in its LINKAGE SECTION and does `MOVE L-A1 TO L-C`; the caller then checks
+`WS-C = WS-A`. Reduced to 25 lines, `L-A` read 1 while `L-A1` read 0.
+
+This is the fifth appearance of one root shape — two resolution paths, each
+correct alone, that do not compose — after FILE STATUS (1.62.89), the LINKAGE
+condition-name (1.62.94) and the REDEFINES refresh (1.62.95). The ledger now
+carries it as a candidate for a single general fix rather than a sixth patch.
+
+Inter-program communication (IC), execution: **294 PASS / 19 FAIL → 295 PASS /
+18 FAIL**, clean programs **15 → 16 of 25**; IC237A runs clean. Whole-suite
+compile unchanged at **412 / 421**; NC 95/95 (4614 assertions), SQ 85/85 (624),
+IX 41/41 (574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
 ## [PowerRustCOBOL 1.62.95] — 2026-08-30
 
 ### Fixed — a `REDEFINES` inside a nested program was inert

@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.95",
+  "measured_at_version": "1.62.96",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -74,8 +74,8 @@
       "name": "Inter-program communication",
       "state": "in_flight",
       "compile": [47, 47],
-      "execution": [15, 25],
-      "assertions": { "pass": 294, "fail": 19, "deleted": 4 },
+      "execution": [16, 25],
+      "assertions": { "pass": 295, "fail": 18, "deleted": 4 },
       "_compile_figure_corrected": "Measured 47/47 at 1.62.94. The ledger had carried [45, 47] from the 1.62.81 baseline, when two members did not compile; the census has reported 47/47 for some time. Never carry a compile figure forward by hand — `strict` prints it per module.",
       "_stale_ranking_warning": "The bucket list below was written at 1.62.90 and is STALE. 1.62.93 changed the shape of the module: sixty previously-unreachable assertions began running and IC201A left the failing list. Re-bucket with `fails IC` before choosing the next item.",
       "remaining_buckets": "At 1.62.90, TWELVE programs still report failures, ranked: IC235A 5 and IC103A 4 (CALL USING a series of differently-categorised parameters — the same shape twice, and now the largest bucket by a distance), IC106A 3 (REDEFINES in the LINKAGE SECTION), IC201A 3 (ON OVERFLOW), IC207A 2 (condition-name over a LINKAGE table), IC225A 2 (nested CALL), then IC101A / IC112A / IC114A / IC203A / IC227A / IC237A at one each. Two members also do not compile (IC224A: `unexpected token in statement: EndCall`).",
@@ -433,6 +433,7 @@
   },
 
   "history": [
+    { "version": "1.62.96", "change": "An adopted REDEFINES class is primed from the parameter alias at CALL entry, so a LINKAGE redefinition can be READ", "effect": "IC 294 -> 295 PASS / 19 -> 18 FAIL, clean 15 -> 16 of 25; IC237A runs clean. The refresh is write-driven and the caller's write precedes the alias, so nothing had ever populated the redefining description. FIFTH instance of the 'two resolution paths that do not compose' shape — see the open question about one general fix." },
     { "version": "1.62.95", "change": "A nested program's REDEFINES classes are adopted for the call, and the refresh follows the parameter alias", "effect": "CCVS scores FLAT — IC stays 294 PASS / 19 FAIL and IC106A keeps its 3 failures. What it buys is a product defect: a REDEFINES in any nested program was inert, and every RAD form event handler is a nested program. It also EXPLAINS AND RETIRES the dead end adopting-a-nested-programs-redefine-state: the 1.62.92 regression was the refresh writing raw keys, not the report boilerplate. Fourth instance of the 'two resolution paths that do not compose' shape." },
     { "version": "1.62.94", "change": "A nested program's 88-levels are registered on call, and a condition-name's host follows the parameter alias", "effect": "IC 292 -> 294 PASS / 21 -> 19 FAIL, clean 12 -> 15 of 25, DELETED 4. Third instance of the 'two resolution paths that do not compose' shape, and the third fixed. Also corrected a defect in the acceptance test itself, which had made the 1.62.93 revert rationale unsound — see the work_queue entry." },
     { "version": "1.62.93", "change": "`ON` is optional before a CALL's OVERFLOW/EXCEPTION phrase — the USING list was swallowing the bare keyword, so a successful call ran its own failure handler", "effect": "IC 231 -> 292 PASS / 25 -> 21 FAIL, and the scored total rose 256 -> 313 as sixty unreachable assertions began running. Compile census 410 -> 412 of 421 (97.4% -> 97.9%) — two programs that never parsed now do. PARSER change, so the full gate ran immediately: NC, SQ, IX, RL and IF all exact. Found by instrumenting the member instead of reading it, after three readings had been wrong." },
