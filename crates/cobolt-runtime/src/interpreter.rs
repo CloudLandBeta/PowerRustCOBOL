@@ -311,6 +311,18 @@ struct NestedProgram {
     /// That reaches past the suite — every RAD form event handler is a nested
     /// program (CCVS85 IC106A LINK-TEST-06).
     local_redefine_links: Vec<(String, Vec<(String, String)>)>,
+    /// Byte layout of each LINKAGE **01 group** this program declares, from
+    /// `compute_layout` — total width plus every NAMED elementary leaf as
+    /// `(uppercase name, offset, width)`, with FILLERs advancing the offset
+    /// but contributing no entry.
+    ///
+    /// This is the record-as-view case: CCVS85 IC112A passes its FD's
+    /// `01 SQ-FS3R1-F-G-120. 02 FILLER PIC X(120).` — an ALL-FILLER record —
+    /// and IC113A lays a fully named 120-byte tree over it. No item-to-item
+    /// pairing can bind those: the caller has no item covering the callee's
+    /// `XRECORD-NUMBER` at offset 34. The layout is what lets the CALL slice
+    /// the caller's bytes in and patch them back out.
+    linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>))>,
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
@@ -375,6 +387,33 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         .as_ref()
         .map(CobolEnvironment::cond_name_entries)
         .unwrap_or_default();
+    let linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>))> = {
+        use cobolt_ast::program::DataSection;
+        let mut out = Vec::new();
+        if let Some(data) = &prog.data {
+            for section in &data.sections {
+                if let DataSection::Linkage(items) = section {
+                    for decl in items {
+                        if decl.children.is_empty() {
+                            continue;
+                        }
+                        let Some(name) = &decl.name else { continue };
+                        let layout = crate::files::compute_layout(decl);
+                        let fields: Vec<(String, usize, usize)> = layout
+                            .fields
+                            .iter()
+                            .filter(|f| !f.is_group)
+                            .map(|f| (f.name.to_ascii_uppercase(), f.offset, f.len))
+                            .collect();
+                        if layout.len > 0 && !fields.is_empty() {
+                            out.push((name.to_ascii_uppercase(), (layout.len, fields)));
+                        }
+                    }
+                }
+            }
+        }
+        out
+    };
     let local_redefine_links: Vec<(String, Vec<(String, String)>)> = local_env
         .as_ref()
         .map(CobolEnvironment::redefine_link_entries)
@@ -413,6 +452,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             local_symbols,
             local_cond_names,
             local_redefine_links,
+            linkage_layouts,
             using,
             file_status,
         },
@@ -8247,6 +8287,7 @@ impl Interpreter {
                     local_symbols,
                     local_cond_names,
                     local_redefine_links,
+                    linkage_layouts,
                     params,
                     callee_file_status,
                 ) = {
@@ -8260,6 +8301,7 @@ impl Interpreter {
                         np.local_symbols.clone(),
                         np.local_cond_names.clone(),
                         np.local_redefine_links.clone(),
+                        np.linkage_layouts.clone(),
                         np.using.clone(),
                         np.file_status.clone(),
                     )
@@ -8348,6 +8390,10 @@ impl Interpreter {
                 // straight through to the caller (IC225A's `VALUE OF DN4 HAS
                 // BEEN CHANGED`).
                 let mut restore_after: Vec<(String, Option<CobolValue>)> = Vec::new();
+                // Record-as-view parameters: (argument key, total width, the
+                // callee leaves to patch back at exit).
+                let mut record_views: Vec<(String, usize, Vec<(String, usize, usize)>)> =
+                    Vec::new();
                 for (pk, ak, by_ref) in &bindings {
                     // The parameter, followed by everything subordinate to it.
                     // A **group** parameter is handed over whole and the callee
@@ -8371,6 +8417,17 @@ impl Interpreter {
                     // per-occurrence entry would never be consulted and the
                     // leaf would end up bound to nothing (the reverted 1.62.90
                     // attempt, IC203A 1 -> 7).
+                    // A synthetic FILLER key never belongs in a pairing: no
+                    // program can reference one (`\u{2}` cannot appear in a
+                    // COBOL name), so a callee name aliased onto a caller's
+                    // FILLER slot writes that slot at the FILLER's own width —
+                    // `MOVE "BYE" TO HEAD` through such an alias wiped a
+                    // 20-byte record to "BYE" + spaces. Filtering both sides
+                    // also lets the record-as-view path below recognise an
+                    // all-FILLER argument for what it is: nothing to pair.
+                    let unfilled = |keys: Vec<String>| -> Vec<String> {
+                        keys.into_iter().filter(|k| !k.contains('\u{2}')).collect()
+                    };
                     let pairs: Vec<(String, String)> = {
                         // The parameter side is walked over the CALLEE's own
                         // symbols first: the shared env may hold the CALLER's
@@ -8383,16 +8440,18 @@ impl Interpreter {
                         let subordinates = from_callee
                             .or_else(|| self.env.leaf_pairs_by_offset(pk, ak))
                             .unwrap_or_else(|| {
-                            let p = self
-                                .env
-                                .symbol(pk)
-                                .map(|s| s.layout_keys.clone())
-                                .unwrap_or_default();
-                            let a = self
-                                .env
-                                .symbol(ak)
-                                .map(|s| s.layout_keys.clone())
-                                .unwrap_or_default();
+                            let p = unfilled(
+                                self.env
+                                    .symbol(pk)
+                                    .map(|s| s.layout_keys.clone())
+                                    .unwrap_or_default(),
+                            );
+                            let a = unfilled(
+                                self.env
+                                    .symbol(ak)
+                                    .map(|s| s.layout_keys.clone())
+                                    .unwrap_or_default(),
+                            );
                             p.into_iter().zip(a).collect()
                         });
                         std::iter::once((pk.clone(), ak.clone()))
@@ -8402,6 +8461,40 @@ impl Interpreter {
                     if !*by_ref {
                         for (_, a_sub) in &pairs {
                             restore_after.push((a_sub.clone(), self.env.get(a_sub).cloned()));
+                        }
+                    }
+                    // **A record used as a view.** When the pairing bound
+                    // nothing below the 01 itself, the callee's leaves have no
+                    // path to the caller's bytes — the caller may have nothing
+                    // there but one big FILLER (CCVS85 IC112A LINK-TEST-08).
+                    // If the callee's declared byte layout for this parameter
+                    // matches the argument's width, slice the argument's bytes
+                    // into the leaves now and patch them back at exit. Only
+                    // slots THIS call inserted are touched, so no other
+                    // program's storage can be written; and where child
+                    // aliases exist this path stays off, so every binding that
+                    // already worked is untouched.
+                    if *by_ref && pairs.len() == 1 {
+                        if let Some((total, fields)) = linkage_layouts
+                            .iter()
+                            .find(|(n, _)| n == pk)
+                            .map(|(_, l)| l)
+                        {
+                            if let Some(bytes) = self.env.display_bytes(ak) {
+                                if bytes.len() == *total {
+                                    let mine: Vec<(String, usize, usize)> = fields
+                                        .iter()
+                                        .filter(|(n, _, _)| inserted_keys.contains(n))
+                                        .cloned()
+                                        .collect();
+                                    for (n, off, len) in &mine {
+                                        self.env.set_bytes(n, &bytes[*off..*off + *len]);
+                                    }
+                                    if !mine.is_empty() {
+                                        record_views.push((ak.clone(), *total, mine));
+                                    }
+                                }
+                            }
                         }
                     }
                     for (p_sub, a_sub) in pairs {
@@ -8439,6 +8532,32 @@ impl Interpreter {
                 self.para_order = saved_order;
                 self.para_bodies = saved_bodies;
                 self.section_names = saved_secs;
+
+                // Patch a record-view's leaves back into the argument's bytes:
+                // current bytes first, then each named leaf rendered over its
+                // own slice, so FILLER positions keep what the caller had.
+                for (ak, total, fields) in &record_views {
+                    if let Some(mut bytes) = self.env.display_bytes(ak) {
+                        if bytes.len() == *total {
+                            for (n, off, len) in fields {
+                                if let Some(fb) = self.env.display_bytes(n) {
+                                    if fb.len() == *len {
+                                        bytes[*off..*off + *len].copy_from_slice(&fb);
+                                    }
+                                }
+                            }
+                            // A group owns no slot of its own — its bytes are
+                            // its children's — so the patched record has to go
+                            // back through the group writer. `set_bytes` on a
+                            // group key stored to an orphan slot nothing reads.
+                            if self.env.group_width(ak).is_some() {
+                                self.env.set_group_bytes(ak, &bytes);
+                            } else {
+                                self.env.set_bytes(ak, &bytes);
+                            }
+                        }
+                    }
+                }
 
                 // Put back what a BY CONTENT argument held before the call.
                 // Innermost first, so an argument bound twice unwinds in order.

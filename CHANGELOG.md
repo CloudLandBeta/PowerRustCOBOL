@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.102] — 2026-08-30
+
+### Fixed — a record passed BY REFERENCE is a view over its bytes
+
+A caller can pass a record the callee describes with a completely different
+tree — including the extreme where the caller has no items in it at all. CCVS85
+**IC112A** passes its FD's `01 SQ-FS3R1-F-G-120. 02 FILLER PIC X(120).` and
+IC113A lays a fully named 120-byte tree over it, checking `XRECORD-NUMBER` at
+offset 34. No item-to-item pairing can bind those: there is nothing on the
+caller's side to alias.
+
+When a group parameter's pairing binds nothing below the 01 itself, the
+argument's bytes are now sliced into the callee's leaves at entry and the named
+leaves are patched back over the argument's bytes at exit, FILLER positions
+keeping what the caller had. The offsets come from `compute_layout`, the same
+walk FD records already trust. Three guards make the path purely additive: it
+fires only when zero children paired, writes only slots this call inserted, and
+requires the declared and actual widths to agree byte for byte.
+
+### Fixed — a callee's name could be aliased onto a FILLER slot
+
+The positional pairing zipped raw layout keys, and those include synthetic
+FILLER slots. A callee's first leaf paired onto a caller's FILLER was a
+corruption bug: `MOVE "BYE" TO HEAD` through that alias wrote the FILLER slot
+at the FILLER's own width and wiped a 20-byte record to `"BYE"` + spaces. No
+program can reference a synthetic FILLER key — its separator cannot appear in a
+COBOL name — so such an alias can only ever misfire. Both sides of the pairing
+now exclude them.
+
+**The CCVS score did not move — IC stays 302 PASS / 8 FAIL — and IC112A's
+diagnosis is the finding.** With the view in place, its failure is `RECORDS-IN-
+ERROR = 649`: every record fails the callee's checks, because IC113A's leaf
+names (`XRECORD-NUMBER`, `XFILE-NAME`, `XLABEL-TYPE`) all collide with the
+caller's CCVS boilerplate table `FILE-RECORD-INFO-P1-120`. They are never
+inserted, the inserted-only guard rightly refuses to write them, and the
+callee's reads resolve to the caller's boilerplate instead of its own record.
+One key, two meanings: IC112A joins the activation-scope-blocked bucket, which
+now holds six of the eight remaining failures. Whole-suite compile **412 /
+421**; runtime suites 0 failed; every prior repro re-verified.
+
 ## [PowerRustCOBOL 1.62.101] — 2026-08-30
 
 ### Fixed — a subscripted `CALL` argument bound the whole table

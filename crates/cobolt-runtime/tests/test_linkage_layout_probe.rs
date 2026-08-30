@@ -620,3 +620,86 @@ fn a_subscripted_argument_binds_that_occurrence() {
          means the binding fell back to the bare table name"
     );
 }
+
+/// A record passed BY REFERENCE is a **view**: the callee's leaves read the
+/// caller's bytes even when the caller has no items there at all.
+///
+/// CCVS85 **IC112A** LINK-TEST-08 passes its FD's record — declared
+/// `01 SQ-FS3R1-F-G-120. 02 FILLER PIC X(120).`, an ALL-FILLER record — and
+/// IC113A lays a fully named 120-byte tree over it, checking `XRECORD-NUMBER`
+/// at offset 34. No item-to-item pairing can bind those: the caller has no
+/// item covering any of the callee's leaves. The argument's bytes are sliced
+/// into the callee's leaves at entry, and the named leaves are patched back
+/// over the argument's bytes at exit — FILLER positions keeping what the
+/// caller had, which the OUT assertion checks byte for byte.
+///
+/// Two defects fell together here. The positional zip also paired the callee's
+/// first leaf onto the caller's synthetic FILLER slot, and a `MOVE "BYE" TO
+/// HEAD` through that alias wiped the whole 20-byte record to `"BYE"` +
+/// spaces; synthetic FILLER keys are now excluded from pairing on both sides —
+/// no program can reference one, so such an alias can only ever misfire.
+const RECORD_AS_VIEW: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  REC.
+           02  FILLER PIC X(20).
+       01  SHOW PIC X(20).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "HELLO12345WORLD67890" TO REC
+           CALL "RSUB" USING REC
+           MOVE REC TO SHOW
+           DISPLAY "OUT=[" SHOW "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  VIEWREC.
+           02  HEAD PIC X(5).
+           02  FILLER PIC X(5).
+           02  BODY PIC X(5).
+           02  TAIL PIC X(5).
+       PROCEDURE DIVISION USING VIEWREC.
+       S-MAIN.
+           DISPLAY "HEAD=[" HEAD "]"
+           DISPLAY "BODY=[" BODY "]"
+           MOVE "BYE" TO HEAD
+           EXIT PROGRAM.
+       END PROGRAM RSUB.
+       END PROGRAM RMAIN.
+"#;
+
+#[test]
+fn an_all_filler_record_argument_is_a_view_over_its_bytes() {
+    let out = run_capture(RECORD_AS_VIEW);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("expected {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(
+        field("HEAD"),
+        "HELLO",
+        "the callee's first five bytes are the record's first five; the whole \
+         record here means HEAD was aliased onto the caller's FILLER slot"
+    );
+    assert_eq!(
+        field("BODY"),
+        "WORLD",
+        "BODY sits past a five-byte FILLER, so the slice must honour the offset"
+    );
+    assert_eq!(
+        field("OUT"),
+        "BYE  12345WORLD67890",
+        "the write to HEAD must reach the caller's first five bytes and \
+         nothing else — FILLER positions keep what the caller had"
+    );
+}
