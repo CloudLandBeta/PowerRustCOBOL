@@ -360,9 +360,12 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             &prog.identification.program_id,
         )
     });
+    // `all_entries`, not `iter`: the latter hides unnamed FILLERs, and a
+    // FILLER occupies bytes. Without them every item after one in a nested
+    // program's description sits at the wrong offset.
     let local_items: Vec<(String, CobolValue)> = local_env
         .as_ref()
-        .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .map(CobolEnvironment::all_entries)
         .unwrap_or_default();
     let local_symbols: Vec<(String, crate::environment::ItemSym)> = local_env
         .as_ref()

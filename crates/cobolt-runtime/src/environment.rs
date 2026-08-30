@@ -3020,6 +3020,25 @@ impl CobolEnvironment {
         self.store.iter().filter(|(k, _)| !is_filler_key(k))
     }
 
+    /// Every stored item **including unnamed FILLERs**, for copying a program's
+    /// storage rather than showing it.
+    ///
+    /// [`iter`](Self::iter) hides FILLER keys, which is right for a debugger
+    /// view and wrong for a snapshot: a FILLER occupies bytes, so a description
+    /// copied without one lays every item after it at the wrong offset. CCVS85
+    /// **IC107** declares `02 GROUP-2-1 REDEFINES GROUP-21.` with `03 FILLER
+    /// PIC X(7).` then `03 DN3 PICTURE XXX.` in its LINKAGE SECTION, and a
+    /// nested program's items reach the shared environment through
+    /// `push_local_scope` from this snapshot — so the seven-byte FILLER was
+    /// absent, reported width 0, and `MOVE … TO DN3` landed at the front of the
+    /// table instead of over its last three bytes (LINK-TEST-06).
+    pub fn all_entries(&self) -> Vec<(String, CobolValue)> {
+        self.store
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
     // ── Nested-program scope management ──────────────────────────────────────
 
     /// Push a set of local data items into this environment for the duration

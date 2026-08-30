@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.98] — 2026-08-30
+
+### Fixed — a nested program's `FILLER` items did not exist
+
+A nested program's storage is snapshotted into the shared environment when it is
+called. That snapshot came from `CobolEnvironment::iter()`, which deliberately
+hides unnamed `FILLER` keys — right for showing storage, wrong for copying it.
+A `FILLER` occupies bytes, so every item declared after one in a nested program
+sat at the wrong offset.
+
+CCVS85 **IC107** declares, in its LINKAGE SECTION:
+
+```text
+01  GROUP-2.
+    02    GROUP-21.
+        06 DN2 PIC X OCCURS 10 TIMES.
+    02     GROUP-2-1 REDEFINES GROUP-21.
+        03  FILLER  PICTURE X(7).
+        03  DN3     PICTURE XXX.
+```
+
+`MOVE … TO DN3` must overlay the table's last three bytes. The seven-byte
+`FILLER` was absent from the environment entirely — no value, no symbol — so it
+reported width 0 and the write landed at the front: `0ABC456789` where
+`0123456ABC` was required.
+
+`all_entries()` supplies the unfiltered snapshot; `iter()` is unchanged for the
+callers that want a readable view.
+
+**The CCVS score did not move, and that is the honest result.** Inter-program
+communication (IC) stays at **299 PASS / 12 FAIL**, 16 of 25 clean, and IC106A
+keeps its 3 failures — LINK-TEST-06 has a
+further cause this does not reach. What this buys is the defect above, which
+reaches past the suite: a `FILLER` is ordinary COBOL and every RAD form event
+handler is a nested program. Whole-suite compile **412 / 421**; NC 95/95 (4614),
+SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
 ## [PowerRustCOBOL 1.62.97] — 2026-08-30
 
 ### Fixed — a group parameter's fields are paired by byte offset, not tree position

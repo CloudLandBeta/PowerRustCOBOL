@@ -236,3 +236,78 @@ fn priming_a_linkage_redefines_does_not_write_back_to_the_caller() {
         "nothing in RRSUB assigns to L-A, so WS-A must be unchanged"
     );
 }
+
+/// An unnamed `FILLER` in a nested program's LINKAGE occupies bytes, so every
+/// item after it must sit at the right offset.
+///
+/// CCVS85 **IC107** LINK-TEST-06, reduced. It declares
+///
+/// ```text
+/// 01  GROUP-2.
+///     02    GROUP-21.
+///         06 DN2 PIC X OCCURS 10 TIMES.
+///     02     GROUP-2-1 REDEFINES GROUP-21.
+///         03  FILLER  PICTURE X(7).
+///         03  DN3     PICTURE XXX.
+/// ```
+///
+/// and writes `DN3`, which must land over the table's last three bytes. A
+/// nested program's items reach the shared environment through
+/// `push_local_scope`, whose snapshot came from `iter()` — and `iter()` hides
+/// FILLER keys, because it exists for showing storage rather than copying it.
+/// The seven-byte FILLER was therefore absent, reported width 0, and the write
+/// landed at the front of the table: `0ABC456789` instead of `0123456ABC`.
+///
+/// The same description in WORKING-STORAGE was always correct, which is what
+/// localised this to the nested-program path.
+const FILLER_IN_A_LINKAGE_REDEFINES: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  GROUP-2.
+           02  GROUP-21.
+               06  DN2 PIC X OCCURS 10 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "0123456789" TO GROUP-21
+           CALL "RSUB" USING GROUP-2
+           DISPLAY "G21=[" GROUP-21 "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  GRP-2.
+           02  GROUP-21X.
+               06  DN2X PIC X OCCURS 10 TIMES.
+           02  GROUP-2-1 REDEFINES GROUP-21X.
+               03  FILLER  PIC X(7).
+               03  DN3     PIC XXX.
+       PROCEDURE DIVISION USING GRP-2.
+       S-MAIN.
+           MOVE "ABC" TO DN3
+           EXIT PROGRAM.
+       END PROGRAM RSUB.
+       END PROGRAM RMAIN.
+"#;
+
+#[test]
+fn a_filler_in_a_nested_programs_linkage_still_occupies_its_bytes() {
+    let out = run_capture(FILLER_IN_A_LINKAGE_REDEFINES);
+    let g21 = out
+        .iter()
+        .find_map(|l| {
+            l.strip_prefix("G21=[")
+                .and_then(|r| r.strip_suffix(']'))
+                .map(str::to_owned)
+        })
+        .expect("the caller displays G21=[…]");
+    assert_eq!(
+        g21, "0123456ABC",
+        "DN3 follows a seven-byte FILLER, so \"ABC\" must overlay the table's \
+         last three bytes; \"0ABC456789\" means the FILLER was missing from the \
+         nested program's snapshot and reported width 0"
+    );
+}
