@@ -303,6 +303,14 @@ struct NestedProgram {
     /// "the slot holds something non-zero" — false for an unwritten LINKAGE
     /// item however the caller had filled it (CCVS85 IC207A LINK-TEST-03).
     local_cond_names: Vec<(String, crate::environment::CondName)>,
+    /// The `REDEFINES` refresh classes this program declares.
+    ///
+    /// `push_local_scope` inserts a nested program's items into `store` and
+    /// `symbols` and does nothing else, so its redefining item was simply an
+    /// independent slot: two descriptions of one area that did not share it.
+    /// That reaches past the suite — every RAD form event handler is a nested
+    /// program (CCVS85 IC106A LINK-TEST-06).
+    local_redefine_links: Vec<(String, Vec<(String, String)>)>,
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
@@ -364,6 +372,10 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         .as_ref()
         .map(CobolEnvironment::cond_name_entries)
         .unwrap_or_default();
+    let local_redefine_links: Vec<(String, Vec<(String, String)>)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::redefine_link_entries)
+        .unwrap_or_default();
 
     // This program's own `FILE STATUS IS` bindings. `build_file_specs` only
     // ever reads the outermost program, so without this a subprogram's I/O
@@ -397,6 +409,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             local_items,
             local_symbols,
             local_cond_names,
+            local_redefine_links,
             using,
             file_status,
         },
@@ -8230,6 +8243,7 @@ impl Interpreter {
                     local_items,
                     local_symbols,
                     local_cond_names,
+                    local_redefine_links,
                     params,
                     callee_file_status,
                 ) = {
@@ -8242,6 +8256,7 @@ impl Interpreter {
                         np.local_items.clone(),
                         np.local_symbols.clone(),
                         np.local_cond_names.clone(),
+                        np.local_redefine_links.clone(),
                         np.using.clone(),
                         np.file_status.clone(),
                     )
@@ -8278,6 +8293,9 @@ impl Interpreter {
                 // …and this program's own condition-names, which travel with
                 // its data items and were previously left behind entirely.
                 let inserted_conds = self.env.install_cond_names(&local_cond_names);
+                // …and its REDEFINES classes, so a redefinition it declares
+                // actually shares the storage it redefines.
+                let inserted_redefs = self.env.adopt_redefine_links(&local_redefine_links);
 
                 // **BY REFERENCE binds the caller's storage, not a copy of it.**
                 // Aliasing the parameter onto the argument is what makes that
@@ -8416,6 +8434,7 @@ impl Interpreter {
                 // regardless of outcome (their state lives in `program_locals`).
                 self.env.pop_local_scope(&inserted_keys);
                 self.env.remove_cond_names(&inserted_conds);
+                self.env.drop_redefine_links(&inserted_redefs);
 
                 match result {
                     Ok(()) | Err(RuntimeError::GoBack) => {} // GOBACK = normal return

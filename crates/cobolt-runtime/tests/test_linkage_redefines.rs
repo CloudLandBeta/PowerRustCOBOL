@@ -127,12 +127,6 @@ const REDEFINES_IN_A_NESTED_PROGRAM: &str = r#"
 /// alongside the LINKAGE case, and if it does the cause is one thing rather
 /// than two.
 #[test]
-#[ignore = "KNOWN DEFECT, not a flake: push_local_scope never builds a nested \
-            program's redefinition classes. Ledger: \
-            a-redefines-in-a-nested-program-is-inert. A fix that makes THIS \
-            pass is not sufficient — see the dead end \
-            adopting-a-nested-programs-redefine-state, where exactly that took \
-            IC106A from 3 failures to 6."]
 fn a_nested_programs_own_redefines_shares_its_storage() {
     let out = run_capture(REDEFINES_IN_A_NESTED_PROGRAM);
     let whole = out
@@ -154,10 +148,6 @@ fn a_nested_programs_own_redefines_shares_its_storage() {
 /// nothing, so the write went to a slot no one reads. A result of `...` would
 /// mean something different — bound, but not written through.
 #[test]
-#[ignore = "KNOWN DEFECT, not a flake: same cause as the test above. Both pass \
-            under the reverted attempt recorded as \
-            adopting-a-nested-programs-redefine-state, which still made IC106A \
-            worse — these two are necessary for a fix, not sufficient."]
 fn a_callee_writing_through_a_linkage_redefines_reaches_the_caller() {
     let out = run_capture(REDEFINES_IN_LINKAGE);
     let slot = out

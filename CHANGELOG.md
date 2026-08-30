@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.95] — 2026-08-30
+
+### Fixed — a `REDEFINES` inside a nested program was inert
+
+Two descriptions of one storage area did not share it. `push_local_scope`
+inserts a nested program's items into the store and the symbol table and does
+nothing else: the redefinition machinery — the equivalence classes and the
+refresh that keeps them in step — is built when an environment is analysed from
+a DATA DIVISION, and a nested program's items arrive by a path that never built
+any of it. Its redefining item was simply an independent slot.
+
+**This reaches past the conformance suite.** Every RAD form event handler is a
+nested program, so a developer writing `REDEFINES` in a handler's
+WORKING-STORAGE got two unrelated slots and silently wrong data.
+
+`register_nested` now carries the program's refresh classes and the CALL adopts
+them for its duration, merging with the same *append, never replace, never
+duplicate* rule the original build uses. The dedup is what makes it safe for
+CCVS85's boilerplate report area: `COMPUTED-N REDEFINES COMPUTED-A` and its
+neighbours are declared in the outer program **and** in every nested one under
+the same names, so the pairs are identical and adopting them is a no-op rather
+than a second live overlay over the same twenty bytes. `pop_local_scope` removes
+exactly what was added — a leak here would corrupt an unrelated program's
+storage on a later call.
+
+### Fixed — the `REDEFINES` refresh wrote through raw keys
+
+`refresh_redefine_peers` re-renders one description of an area into the others
+on every write. It did so by raw key, and a class member can be a LINKAGE item
+whose storage is the **caller's** — so the refresh read and wrote the callee's
+own untouched slot instead. Both sides now follow the parameter alias.
+
+This is why the first fix could not land alone. Adopting the classes without it
+took CCVS85 **IC106A** from 3 failures to 6: its LINK-TEST-06 still failed and
+three unrelated assertions — INDEX IN LINKAGE SECTION, INDEX DATA ITEM SET IN
+SUBPROG, TABLES DEFINED IN LINKAGE SEC — broke, because IC107 redefines a
+`GROUP-21` holding an indexed `DN2 PIC X OCCURS 10` in its LINKAGE SECTION. With
+the alias followed, the regression disappears entirely.
+
+It is the same composition failure as the FILE STATUS defect (1.62.89) and the
+LINKAGE condition-name (1.62.94): two resolution paths, each correct alone, that
+do not compose. Fourth instance, and now recorded in the ledger as a candidate
+for one general fix rather than a fifth patch.
+
+**Scores are unchanged and that is the honest result.** Inter-program
+communication (IC) stays at **294 PASS / 19 FAIL**, 15 of 25 clean; IC106A keeps
+its 3 failures, whose cause is separate and still open. What this change buys is
+the product defect above, covered by two repros — one with no LINKAGE and no
+parameter at all, so the cause is proven to be the nested program rather than
+the binding. Whole-suite compile **412 / 421**; NC 95/95 (4614 assertions), SQ
+85/85 (624), IX 41/41 (574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
 ## [PowerRustCOBOL 1.62.94] — 2026-08-30
 
 ### Fixed — an 88-level over a LINKAGE item tested the callee's own slot

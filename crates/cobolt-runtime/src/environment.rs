@@ -804,6 +804,13 @@ impl CobolEnvironment {
                 continue;
             }
             self.syncing.insert(peer.clone());
+            // A class member may be a LINKAGE item, whose storage is the
+            // CALLER's: `CALL … USING` aliases it, and a raw key reads and
+            // writes the callee's own untouched slot instead. The refresh has
+            // to follow that alias on both sides or it re-renders the wrong
+            // bytes into the wrong place.
+            let own = self.addr_aliases.get(&own).cloned().unwrap_or(own);
+            let peer = self.addr_aliases.get(&peer).cloned().unwrap_or(peer);
             let mut bytes = self.display_string(&own).unwrap_or_default();
             // A **01-level** REDEFINES may describe more storage than the item
             // it redefines, and CCVS85 tests exactly that: NC107A overlays a
@@ -1554,6 +1561,69 @@ impl CobolEnvironment {
     pub fn remove_cond_names(&mut self, names: &[String]) {
         for name in names {
             self.cond_names.shift_remove(name);
+        }
+    }
+
+    /// This environment's `REDEFINES` refresh classes, ready to be adopted by
+    /// another environment for the duration of a nested-program call.
+    ///
+    /// Only the **refresh** half of the redefinition machinery is exposed.
+    /// `redefine_aliases` — the layout-identical, over-budget half — is
+    /// deliberately left out: adopting both at once was tried at 1.62.92 and
+    /// took IC106A from 3 failures to 6 while passing its own acceptance tests,
+    /// so the two are separated and measured one at a time.
+    pub fn redefine_link_entries(&self) -> Vec<(String, Vec<(String, String)>)> {
+        self.redefine_links
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    /// Establish a called program's `REDEFINES` classes for the duration of the
+    /// call, so its two descriptions of one area actually share it.
+    ///
+    /// Merges with the same **append, never replace, and never duplicate** rule
+    /// `build_redefine_links` uses, and for the same reason: a key can belong to
+    /// more than one class and each has to fire. The dedup is what makes this
+    /// safe for CCVS85's boilerplate report area — `COMPUTED-N REDEFINES
+    /// COMPUTED-A` and its neighbours are declared in the outer program *and*
+    /// in every nested one, under the same names, so the pairs are identical
+    /// and adopting them is a no-op rather than a second live overlay over the
+    /// same twenty bytes.
+    ///
+    /// Returns exactly what was added, so [`drop_redefine_links`] can take back
+    /// that and nothing else. A leak here is worse than the defect it fixes: it
+    /// would corrupt an unrelated program's storage on a later call.
+    ///
+    /// [`drop_redefine_links`]: Self::drop_redefine_links
+    pub fn adopt_redefine_links(
+        &mut self,
+        entries: &[(String, Vec<(String, String)>)],
+    ) -> Vec<(String, (String, String))> {
+        let mut added = Vec::new();
+        for (trigger, peers) in entries {
+            let slot = self.redefine_links.entry(trigger.clone()).or_default();
+            for pair in peers {
+                if !slot.contains(pair) {
+                    slot.push(pair.clone());
+                    added.push((trigger.clone(), pair.clone()));
+                }
+            }
+        }
+        added
+    }
+
+    /// Remove exactly the classes a matching
+    /// [`adopt_redefine_links`](Self::adopt_redefine_links) added, dropping a
+    /// trigger whose list this empties.
+    pub fn drop_redefine_links(&mut self, added: &[(String, (String, String))]) {
+        for (trigger, pair) in added {
+            if let Some(slot) = self.redefine_links.get_mut(trigger) {
+                slot.retain(|p| p != pair);
+                if slot.is_empty() {
+                    self.redefine_links.shift_remove(trigger);
+                }
+            }
         }
     }
 
