@@ -131,6 +131,17 @@
 
   "work_queue": [
     {
+      "id": "build-the-activation-scope-primitive",
+      "module": "IC",
+      "priority": 1,
+      "title": "A called program's activation needs a real scope — five of IC's nine remaining failures hang on it",
+      "what_blocks_on_it": "IC101A CALL-TEST-05 (callee's private 77 DN2 counter IS the caller's variable), IC225A CALL-TEST-02-03-1 (the suite names it DATA-NAME USED TWICE), IC203A CNCL-TEST-05 (counter provably reaches 3 and 1, both IFs misdecide because the callee's COMP item is really the caller's PIC XXX child, so the comparison runs alphanumeric), IC103A and IC235A CALL-TEST-06 .06 (an edited LINKAGE item needs the callee's template consulted under the PRE-alias name).",
+      "the_design_constraints_all_measured": "Three attempts were reverted and each pinned one constraint. (1) shadowing-a-callees-names-without-aliasing-them and shadowing-only-the-callees-private-working-storage: ONE STORAGE KEY CANNOT BE TWO THINGS — the caller's DN2 is simultaneously the argument (aliased) and a collision (private), so any save/restore of one shared key is arithmetic on a contradiction. (2) carrying-a-callees-descriptive-state-wholesale: descriptions merged into the shared maps are visible to SIBLING programs — the isolation tests name it. (3) an-edited-linkage-item-cannot-edit-through-an-alias: the edit belongs to the description written THROUGH, so template lookup must happen before the alias is followed.",
+      "the_shape_that_already_works": "NestedProgram::file_status (1.62.89) is the proven pattern: the callee's state rides on the ACTIVATION and is swapped around the call, never merged into the shared environment. Generalise it: give a called program's PRIVATE items (own WS/LS, non-GLOBAL, non-parameter) distinct storage keys for the activation — qualified by program-id, e.g. `IC205A\u{3}DN2` with a separator no COBOL name can contain, exactly as filler keys already use \u{2} — and resolve the callee's references through an activation-local name map FIRST, falling through to the shared env for parameters, GLOBALs and everything outward. Descriptive state (field_caps, edited_templates, blank_when_zero, cond_names) keys by the same qualified names, so none of it can collide with a sibling's.",
+      "acceptance": "The three parked repros, all already written as COBOL in the dead ends: (a) IC101A's shape — callee counter reaches 5 while the caller's same-named variable is untouched; (b) IC203A's chain — T2=[AB] with the counter collision present; (c) the edited item — MOVE \"ABCD\" TO <PIC XXBX0X in LINKAGE> arriving as AB C0D. Plus the paired negatives: a group parameter's subordinates still resolve to the CALLER's storage (the 1.62.83 lesson), and the two nested-scope isolation tests that killed attempt (2) stay green. Then the full gate, and expect IC101A, IC225A, IC203A clean and IC103A/IC235A each down one.",
+      "sizing_honestly": "This is the largest single change of the module — it touches resolve_name, push/pop_local_scope, the CALL binding, CANCEL/program_locals, and the descriptive maps. Do it at the START of a session, not the tail of one; every workaround has been measured and reverted, so the alternatives are exhausted by evidence."
+    },
+    {
       "id": "a-table-base-name-is-not-a-slot",
       "module": "IC",
       "priority": 99,
