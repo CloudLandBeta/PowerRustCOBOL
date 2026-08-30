@@ -397,6 +397,8 @@
     },
     {
       "id": "an-edited-linkage-item-cannot-edit-through-an-alias",
+      "NARROWED_1_62_97_plus": "ALPHANUMERIC EDITING ITSELF IS FINE. A ten-line program with no CALL at all gives `MOVE \"ABCD\" TO <PIC XXBX0X>` = `AB C0D` and `MOVE \"ABCDEF\" TO <PIC XXBXX/XX>` = `AB CD/EF`, both correct. So this is not a missing feature and must not be recorded as one — it is exclusively the LINKAGE/alias case.",
+      "IT_IS_BLOCKED_not_merely_open": "Fixing it needs BOTH halves, and neither works alone. (1) The callee's `edited_templates` must reach the environment — that is the reverted `carrying-a-callees-descriptive-state-wholesale` attempt, which needs re-scoping first. (2) The template must be looked up under the PRE-ALIAS name, because the write resolves `EDITED-FIELD` to the caller's `ALPHA-EDITED` and asks for THAT key's template. Carrying the map alone was measured and did NOT fix the repro, which is what proves half (2) is needed. DO NOT re-attempt until the descriptive-state scoping is solved; it is a dependency, not an independent item.",
       "tried_at_version": "1.62.98 attempt (diagnosis only, no fix landed)",
       "what": "IC103A and IC235A each have one failure left, CALL-TEST-06-06 ALPHANUMERIC EDITED. IC104A declares `EDITED-FIELD PIC XXBX0X` in its LINKAGE SECTION over its caller's `ALPHA-EDITED PIC X(6)`, moves `\"ABCD\"` into it, and the caller must then read `\"AB C0D\"`.",
       "the_finding": "A 27-line repro gives `ABCD  ` — the edit does not happen at all. Carrying the callee's `edited_templates` across the call did NOT fix it, which rules out the obvious cause and is the useful part of this entry.",
