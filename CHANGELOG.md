@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.90] — 2026-08-30
+
+### Fixed — the inter-program facility is flagged as above the high subset
+
+A COBOL-85 compiler validating at the high subset must say so when a program
+uses something above it. The whole nested-source and separately-compiled
+facility is above that line — a program containing another, the clauses that let
+data and procedures cross the boundary, and the phrases that say how an argument
+is passed — and none of it was flagged.
+
+CCVS85 **IC401M** declares eleven such constructs in seventy-four lines and
+matched two: `END PROGRAM`, which another member had already motivated. The nine
+now added are `IS INITIAL` and `IS COMMON` on PROGRAM-ID, the `GLOBAL` and
+`EXTERNAL` data clauses, `USE GLOBAL`, `CANCEL`, the `BY REFERENCE` and
+`BY CONTENT` phrases, and a contained source program.
+
+**IC401M: 11 of 11 matched, 0 wrong.** Across every flagging member in the suite
+the wrong-count falls 34 → 25, and no other member moved — the thirteen that
+already scored perfectly still do, NC401M's forty included.
+
+Two things were worth the care they took. `USE GLOBAL` and the `GLOBAL` data
+clause share a keyword and are separate messages, so they are told apart by what
+precedes the word. And `INITIAL`, `COMMON` and `CONTENT` are not keywords at
+all: the lexer has no mapping for any of them, so they arrive as ordinary words
+— `Token::Content_` exists but nothing produces it, and matching on it flagged
+nothing at all. Each is pinned to the word before it so a data item happening to
+be called `CONTENT` is not mistaken for the phrase.
+
+The first version of the contained-program rule flagged `VALUE OF ID IS "X"` in
+a file description, because `ID` abbreviates `IDENTIFICATION` and lexes to the
+same token. Requiring `DIVISION` to follow is what separates them; the existing
+`fd_clauses_above_the_subset` test caught it before it left the crate.
+
+IC goes 222 → 231 assertions passing, 34 → 25 failing, 86.7% → 90.2%, and 10 →
+**11 of 25** programs clean. NC re-measured exact at 95/95 and 4614 PASS / 0
+FAIL; the compile census held at 410/421. `flag_high_subset` is reached only by
+the conformance harness's scorer — never by compilation or execution — so the
+whole blast radius is the flagging members, and all twenty-four were measured.
+
 ## [PowerRustCOBOL 1.62.89] — 2026-08-30
 
 ### Fixed — a subprogram's file status was reported into the caller's storage
