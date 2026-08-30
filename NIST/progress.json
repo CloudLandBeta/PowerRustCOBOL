@@ -126,6 +126,19 @@
 
   "work_queue": [
     {
+      "id": "a-condition-name-over-a-linkage-item-reads-the-wrong-storage",
+      "module": "IC",
+      "priority": 1,
+      "title": "An 88-level over a LINKAGE item tests the callee's own slot, not the caller's data",
+      "worth": "IC207A's 2 failures, and it is the THIRD instance of one root shape (see below) — fixing it may be a one-line change with precedent.",
+      "minimal_repro": "30 lines, verified at 1.62.93. Caller has `01 TBL. 02 ITM PIC X OCCURS 3.` and MOVEs \"A\",\"B\",\"A\" into the three occurrences. Callee declares the same table in LINKAGE with `88 L-IS-A VALUE \"A\"` on the item and does `IF L-IS-A (1) MOVE \"ONE\" TO L-OUT`. Correct output is `ONE`; we produce SPACES. The condition is false although the caller's data satisfies it.",
+      "ruled_out_first": "Subscripted condition-names are NOT the problem. The same 88 over a WORKING-STORAGE table evaluates correctly for every occurrence — `IS-A(1)` true, `(2)` false, `(3)` true. The reading that blamed the subscript was wrong and the repro killed it in one command; only LINKAGE fails.",
+      "cause": "`Interpreter::cond_host_value` (interpreter.rs ~3811) reads the host with `env.group_bytes(key)` and `env.get(key)` — RAW keys. Neither goes through `resolve_name`, which is what follows the `addr_aliases` that bind a parameter to the caller's storage. So the 88 tests the callee's own empty slot.",
+      "the_recurring_shape": "This is the THIRD time in IC: `set_file_status` wrote through `set_str`, which keys by `storage_key` and follows REDEFINES but not parameter aliases (fixed 1.62.89); a REDEFINES in a nested program is never established at all (open); and now a condition-name's host is read raw. Every one is two resolution paths that do not compose. Worth asking whether the general answer is to funnel every host/target read through `resolve_name` rather than patching each site — but measure that as its own change, because the last two attempts in this area were both reverted.",
+      "fix_sketch": "Resolve the host key before reading it. The subtlety is subscripts: for `L-IS-A (1)` the key handed to `cond_host_value` already carries the occurrence, while `resolve_name(leaf, quals)` wants a bare leaf. `storage_key` solves the same problem by substituting the base and keeping the tail — `format!(\"{target}{}\", &key[base.len()..])` — so do that with the alias target, or add a small `resolve_key` that does it for both alias maps.",
+      "acceptance": "The 30-line repro prints `ONE`, IC207A loses its 2 failures, and the full gate is clean. This touches name resolution, so run every protected module even though it is not a front-end change."
+    },
+    {
       "id": "extract-does-not-concatenate-callees-the-run-does",
       "module": "IC",
       "priority": 3,
