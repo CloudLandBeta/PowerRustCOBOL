@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.92] — 2026-08-30
+
+### Known defect recorded — `REDEFINES` inside a nested program does nothing
+
+No fix yet; two repros and an accurate description of a defect that turns out to
+be wider than the conformance failure that found it.
+
+Chasing CCVS85 IC106A's three `REDEFINES`-in-LINKAGE failures produced a
+narrower explanation first — that the CALL pairing skips redefinitions, which is
+true — and then a second repro that has **no LINKAGE, no parameter and no CALL
+pairing at all**: a nested program redefines its own WORKING-STORAGE, writes the
+parts and reads the whole. It fails identically. So the cause is not about how
+parameters are bound.
+
+`push_local_scope` inserts a nested program's items into the store and the
+symbol table and does nothing else. The redefinition machinery — the equivalence
+classes, the aliases for over-budget layout-identical members, the refresh that
+keeps small classes in step — is built when the environment is constructed from
+the **outer** program's DATA DIVISION. A nested program's items arrive by a path
+that builds none of it, so its redefining item is an independent slot and the
+two descriptions never share storage.
+
+⚠️ **This reaches past the test suite.** Every RAD form event handler is a
+nested program, so `REDEFINES` in a handler's WORKING-STORAGE silently gives two
+unrelated fields rather than two views of one. Treat it as a product defect that
+NIST happened to find.
+
+Both repros live in `test_linkage_redefines.rs`, marked `#[ignore]` with the
+reason so the suite stays green — run them with `--ignored`. They are written as
+the fix's acceptance criterion: removing the attributes is what says it is done.
+
 ## [PowerRustCOBOL 1.62.91] — 2026-08-30
 
 ### Added — probes pinning what a group's storage guarantees
