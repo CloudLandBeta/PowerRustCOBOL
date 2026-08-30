@@ -994,6 +994,20 @@ fn inherits_from(name: &str) -> Option<&'static str> {
         // THE OTHER FILE 'RL-FS2' WILL NOT BE PRESENT." RL212A writes card 21
         // only, so card 22 stays absent exactly as the program requires.
         "RL213A" => "RL212A",
+        // ── SM: a COPY writes the file, the next program reads it back ─────
+        // The Source Text Manipulation module proves a copybook by *using* it:
+        // one program builds a file through `COPY`-supplied declarations and
+        // the next checks the records that came out. The file is card 1 —
+        // `XXXXP001` writing, `XXXXD001` reading (see `canonical_x_cards`).
+        //
+        // "PROGRAM SM102A TESTS THE OUTPUT FILE PRODUCED BY SM101A"
+        "SM102A" => "SM101A",
+        // "PROGRAM SM104A READS AND CHECKS THE FILE PRODUCED BY SM103A TO
+        // VERIFY THE PROPER EXECUTION OF THE 'COPY' STATEMENTS IN THAT
+        // PROGRAM."
+        "SM104A" => "SM103A",
+        // "PROGRAM SM202A READS THE FILE PRODUCED BY SM201A"
+        "SM202A" => "SM201A",
         _ => return None,
     })
 }
@@ -1187,6 +1201,11 @@ fn run_pass(members: &[Member], filter: &str) {
     let workroot = std::env::temp_dir().join("nist-exec-scoring");
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
+
+    // Build the copybook library once, here, so `plant_copy_library` has
+    // something to mirror. The compile pass builds its own; the execution pass
+    // must not depend on that one having run.
+    let _ = copy_library_dir(members);
 
     // A separately compiled subprogram is not a test. It carries no CCVS
     // report — it does work for its caller and returns — so running it alone
@@ -1527,6 +1546,26 @@ fn with_subprograms(members: &[Member], name: &str, raw: &str) -> String {
     out
 }
 
+/// Copy the suite's copybook library into a member's work directory.
+///
+/// The library is built once per run by [`copy_library_dir`] and cached in the
+/// temp directory; this only mirrors it, so a member that uses no `COPY` pays a
+/// directory scan and nothing else. Failures are silent on purpose — a member
+/// with no `COPY` directive is unaffected either way, and one that needs a
+/// copybook will report the missing text itself, which is a clearer diagnosis
+/// than a harness error about a file the program may never have wanted.
+fn plant_copy_library(dir: &std::path::Path) {
+    let lib = std::env::temp_dir().join("nist-copy-library");
+    let Ok(entries) = std::fs::read_dir(&lib) else {
+        return;
+    };
+    for e in entries.flatten() {
+        if e.path().is_file() {
+            let _ = std::fs::copy(e.path(), dir.join(e.file_name()));
+        }
+    }
+}
+
 /// Run one program in an already-chosen directory, leaving it in place.
 ///
 /// Split out from [`run_one`] so a producer can be run into its consumer's
@@ -1548,6 +1587,18 @@ fn run_one_in(
     if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
     }
+
+    // The suite's copybooks, beside the source, because that is where `rcrun`
+    // looks for them (`expand_copy` in cobolt-cli resolves a `COPY` against the
+    // source file's own directory).
+    //
+    // The **compile** pass has expanded copybooks since the harness gained the
+    // library; the execution pass never did, and nothing said so. SM101A builds
+    // its output file out of `COPY`-supplied record declarations, so without
+    // them it expanded to nothing, wrote a zero-byte file, and SM102A read it
+    // and reported `EOF PREMATURELY FOUND` — a failure that looks like a
+    // runtime defect and is a missing input.
+    plant_copy_library(&dir);
 
     // Whatever the installation is expected to have on disk before the program
     // starts. Written before the run, never after, so the program sees it on
@@ -2228,7 +2279,7 @@ mod tests {
     fn declared_producers_terminate() {
         for consumer in [
             "IX102A", "IX110A", "IX114A", "IX115A", "IX116A", "IX117A", "IX118A", "IX119A",
-            "IX120A", "IX202A",
+            "IX120A", "IX202A", "SM102A", "SM104A", "SM202A",
         ] {
             let mut seen = vec![consumer.to_string()];
             let mut at = consumer;
@@ -2264,6 +2315,10 @@ mod tests {
         assert_eq!(producer_chain("RL203A"), vec!["RL201A", "RL202A"]);
         assert_eq!(producer_chain("RL208A"), vec!["RL206A", "RL207A"]);
         assert_eq!(producer_chain("RL213A"), vec!["RL212A"]);
+        // SM pairs a builder with a checker, three times, one generation deep.
+        assert_eq!(producer_chain("SM102A"), vec!["SM101A"]);
+        assert_eq!(producer_chain("SM104A"), vec!["SM103A"]);
+        assert_eq!(producer_chain("SM202A"), vec!["SM201A"]);
         // Self-contained members bring nothing with them.
         assert!(producer_chain("IX101A").is_empty());
         assert!(producer_chain("NC101A").is_empty());
@@ -2286,6 +2341,16 @@ mod tests {
             // The creator of each RL series, and RL212A whose consumer needs
             // card 22 to stay absent.
             "RL101A", "RL108A", "RL201A", "RL206A", "RL212A",
+            // The three SM builders.
+            "SM101A", "SM103A", "SM201A",
+            // ST102A and ST120A read card 1 and ST101A writes it, but **no ST
+            // member declares a producer** — their headers list only X-55,
+            // X-82 and X-83. Chaining on the shared card alone is the
+            // inference this table exists to refuse, and here it would also be
+            // unsafe: ST102A has no PRINT-FILE at all, so a producer's report
+            // would be left in `XXXXX055` and read as ST102A's own. Its
+            // verdict belongs to ST103A, which checks the sorted output.
+            "ST102A", "ST103A", "ST120A",
         ] {
             assert_eq!(
                 inherits_from(solo),
