@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.93",
+  "measured_at_version": "1.62.94",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -73,9 +73,10 @@
     "IC": {
       "name": "Inter-program communication",
       "state": "in_flight",
-      "compile": [45, 47],
-      "execution": [11, 25],
-      "assertions": { "pass": 292, "fail": 21, "deleted": 4 },
+      "compile": [47, 47],
+      "execution": [15, 25],
+      "assertions": { "pass": 294, "fail": 19, "deleted": 4 },
+      "_compile_figure_corrected": "Measured 47/47 at 1.62.94. The ledger had carried [45, 47] from the 1.62.81 baseline, when two members did not compile; the census has reported 47/47 for some time. Never carry a compile figure forward by hand — `strict` prints it per module.",
       "_stale_ranking_warning": "The bucket list below was written at 1.62.90 and is STALE. 1.62.93 changed the shape of the module: sixty previously-unreachable assertions began running and IC201A left the failing list. Re-bucket with `fails IC` before choosing the next item.",
       "remaining_buckets": "At 1.62.90, TWELVE programs still report failures, ranked: IC235A 5 and IC103A 4 (CALL USING a series of differently-categorised parameters — the same shape twice, and now the largest bucket by a distance), IC106A 3 (REDEFINES in the LINKAGE SECTION), IC201A 3 (ON OVERFLOW), IC207A 2 (condition-name over a LINKAGE table), IC225A 2 (nested CALL), then IC101A / IC112A / IC114A / IC203A / IC227A / IC237A at one each. Two members also do not compile (IC224A: `unexpected token in statement: EndCall`).",
       "next_up": "IC235A + IC103A, 9 failures between them and explicitly the same shape — `CALL USING` a series of differently-categorised parameters (NUMERIC DISPLAY, ALPHABETIC, SIGNED NUMERIC, ALPHANUMERIC EDITED). One diagnosis should close both, which is what makes it the next item rather than the two 3s.",
@@ -128,8 +129,11 @@
     {
       "id": "a-condition-name-over-a-linkage-item-reads-the-wrong-storage",
       "module": "IC",
-      "priority": 1,
-      "title": "An 88-level over a LINKAGE item tests the callee's own slot, not the caller's data",
+      "priority": 99,
+      "title": "RESOLVED — An 88-level over a LINKAGE item tests the callee's own slot, not the caller's data",
+      "resolved_at": "1.62.94 — IC 292 -> 294 PASS / 21 -> 19 FAIL, clean 12 -> 15 of 25. Both faults fixed together, because the first hid the second: (1) `register_nested` harvests `cond_name_entries()` from the DATA DIVISION analysis it already performs (it was building that environment TWICE and taking the condition-names from neither), and the CALL installs them with `install_cond_names` / `remove_cond_names`, which skip any name the environment already knows — so it can only supply a resolution where there was none, never change one that worked; (2) new `Interpreter::cond_host_key` follows the parameter alias while keeping the subscript a subscript, so `L-ITM(2)` under `L-ITM -> ITM` is `ITM(2)`, one occurrence. Full gate exact: NC 4614/0, SQ 624/0, IX 574/0, RL 354/0, IF 841/0, compile 412/421.",
+      "the_named_suspect_was_wrong": "This entry predicted `group_bytes` would answer a subscripted key with the whole table. It does not and cannot here: it returns None unless `symbols[base_name(key)]` is a GROUP, and `ITM` is elementary with OCCURS. Reading the one function settled it before any code was written, exactly as the entry suggested — but the answer was the opposite of the guess. The real second fault was that nothing followed the alias at all.",
+      "the_paired_test_was_itself_broken": "READ THIS BEFORE TRUSTING A PAIRED TEST. The negative test stripped the `MISS=[` prefix and left the closing bracket on the value, so `trim().is_empty()` was never true: it failed identically whether the answer was right or wrong. This entry previously recorded the 1.62.93 attempt as reverted BECAUSE that test caught a wrong answer. It could not have caught anything, so that rationale does not hold and whether the attempt was really wrong is no longer knowable from the test. The lesson is not 'write a negative test' — it is that a test which has never once been observed to PASS is not yet evidence. Both tests are now un-ignored and green, and the fix was verified independently by running the repro through rcrun: C1=TRUE, C2=FALSE.",
       "worth": "IC207A's 2 failures, and it is the THIRD instance of one root shape (see below) — fixing it may be a one-line change with precedent.",
       "minimal_repro": "30 lines, verified at 1.62.93. Caller has `01 TBL. 02 ITM PIC X OCCURS 3.` and MOVEs \"A\",\"B\",\"A\" into the three occurrences. Callee declares the same table in LINKAGE with `88 L-IS-A VALUE \"A\"` on the item and does `IF L-IS-A (1) MOVE \"ONE\" TO L-OUT`. Correct output is `ONE`; we produce SPACES. The condition is false although the caller's data satisfies it.",
       "ruled_out_first": "Subscripted condition-names are NOT the problem. The same 88 over a WORKING-STORAGE table evaluates correctly for every occurrence — `IS-A(1)` true, `(2)` false, `(3)` true. The reading that blamed the subscript was wrong and the repro killed it in one command; only LINKAGE fails.",
@@ -424,6 +428,7 @@
   },
 
   "history": [
+    { "version": "1.62.94", "change": "A nested program's 88-levels are registered on call, and a condition-name's host follows the parameter alias", "effect": "IC 292 -> 294 PASS / 21 -> 19 FAIL, clean 12 -> 15 of 25, DELETED 4. Third instance of the 'two resolution paths that do not compose' shape, and the third fixed. Also corrected a defect in the acceptance test itself, which had made the 1.62.93 revert rationale unsound — see the work_queue entry." },
     { "version": "1.62.93", "change": "`ON` is optional before a CALL's OVERFLOW/EXCEPTION phrase — the USING list was swallowing the bare keyword, so a successful call ran its own failure handler", "effect": "IC 231 -> 292 PASS / 25 -> 21 FAIL, and the scored total rose 256 -> 313 as sixty unreachable assertions began running. Compile census 410 -> 412 of 421 (97.4% -> 97.9%) — two programs that never parsed now do. PARSER change, so the full gate ran immediately: NC, SQ, IX, RL and IF all exact. Found by instrumenting the member instead of reading it, after three readings had been wrong." },
     { "version": "1.62.90", "change": "The inter-program facility is flagged as above the high subset: INITIAL, COMMON, GLOBAL, EXTERNAL, USE GLOBAL, CANCEL, BY REFERENCE, BY CONTENT and a contained source program", "effect": "IC401M 2 -> 11 of 11 matched, 0 wrong. Suite-wide flagging wrong 34 -> 25 with no other member moved (NC401M's 40 included). IC 222 -> 231 PASS / 34 -> 25 FAIL, 86.7% -> 90.2%, 10 -> 11 of 25 clean. NC re-measured exact; compile census 410/421. Blast radius is only the flagging members — `flag_high_subset` is reached solely by the harness's scorer, never by compilation or execution." },
     { "version": "1.62.89", "change": "A file's FILE STATUS item belongs to the program that performed the I/O, and is resolved through the alias layer so a LINKAGE status item reaches the caller's storage", "effect": "IC227A 11 FAIL -> 1, 8 of 23 tests executing successfully -> 18. IC 212 -> 222 PASS / 44 -> 34 FAIL, 82.8% -> 86.7%; clean count unchanged at 10 of 25 because IC227A's last failure is a separate cause. Runtime suite 99 binaries green, compile census exact at 410/421. Two stacked defects — fixing only the first moved the five `.02` assertions and not one of the five `.01`s." },

@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.94] — 2026-08-30
+
+### Fixed — an 88-level over a LINKAGE item tested the callee's own slot
+
+A condition-name declared in a subprogram's LINKAGE SECTION was always false,
+whatever the caller had put in the storage it names. Two independent faults, and
+the first hid the second.
+
+A nested program's 88-levels were **never registered**. `cond_names` is built
+when an environment is analysed from a DATA DIVISION, and a nested program's
+items reach the shared environment through `push_local_scope`, which carried
+values and symbols and nothing else. `IF 88-name` then found no condition-name
+at all and fell back to "the slot holds something non-zero" — false for a
+LINKAGE item the callee has not written. `register_nested` now harvests the
+condition-names from the analysis it already performs, and the CALL installs
+them for the duration of the call. A name the environment already knows is left
+alone, exactly as an existing data item is: this can only supply a resolution
+where there was none, never change one that already worked.
+
+Once registered, the host was still read by **raw key**. A LINKAGE host *is* the
+caller's storage — `CALL … USING` aliases the parameter onto the argument — and
+only an alias-following lookup reaches it. The subscript survives the
+substitution and stays a subscript, so `L-ITM(2)` under the alias `L-ITM → ITM`
+is `ITM(2)`, one occurrence, never the whole table.
+
+This is the same composition failure as the FILE STATUS defect fixed at 1.62.89:
+two resolution paths, each correct alone, that do not compose.
+
+CCVS85 **IC207A** LINK-TEST-03 says what it checks — "THIS TEST VERIFIES THAT
+THE CONDITION NAMES DEFINED IN THE LINKAGE SECTION OF THE SUBPROGRAM WERE
+PROCESSED CORRECTLY".
+
+Inter-program communication (IC), execution: **292 PASS / 21 FAIL → 294 PASS /
+19 FAIL**, clean programs **12 → 15 of 25**, DELETED 4. Whole-suite compile
+unchanged at **412 / 421**; NC 95/95 (4614 assertions), SQ 85/85 (624), IX 41/41
+(574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
+### Fixed — the paired acceptance test could not fail correctly
+
+`test_linkage_condition_name.rs` extracted a displayed value by stripping the
+`MISS=[` prefix and left the closing bracket on it, so `trim().is_empty()` was
+never true and the negative test failed identically whether the answer was right
+or wrong. It is recorded in the NIST ledger as having caught a wrong answer in a
+reverted 1.62.93 attempt; it could not have. Both delimiters now come off, and
+the fix above is verified against observed behaviour instead.
+
 ## [PowerRustCOBOL 1.62.93] — 2026-08-30
 
 ### Fixed — a successful `CALL` ran its own overflow handler

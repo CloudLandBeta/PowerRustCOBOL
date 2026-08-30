@@ -1515,6 +1515,48 @@ impl CobolEnvironment {
             .or_else(|| cands.first())
     }
 
+    /// Every condition-name this environment knows, as `(name, metadata)`.
+    ///
+    /// A nested program's 88-levels live in the environment its own DATA
+    /// DIVISION is analysed into, and that environment is discarded — only its
+    /// values and symbols were carried across to the shared one. So `IF
+    /// 88-name` inside a subprogram found nothing and fell back to "the slot
+    /// holds something non-zero", which is false for a LINKAGE item the callee
+    /// has not written, whatever the caller put there (CCVS85 IC207A).
+    pub fn cond_name_entries(&self) -> Vec<(String, CondName)> {
+        self.cond_names
+            .iter()
+            .flat_map(|(n, cands)| cands.iter().map(move |c| (n.clone(), c.clone())))
+            .collect()
+    }
+
+    /// Add a called program's condition-names for the duration of the call.
+    ///
+    /// A name the environment **already** knows is left alone, exactly as
+    /// [`push_local_scope`](Self::push_local_scope) leaves an existing item
+    /// alone: this can only supply a resolution where there was none, never
+    /// change one that already worked. Returns the names actually added, for
+    /// [`remove_cond_names`](Self::remove_cond_names) to take back out.
+    pub fn install_cond_names(&mut self, entries: &[(String, CondName)]) -> Vec<String> {
+        let mut added = Vec::new();
+        for (name, info) in entries {
+            let key = name.to_ascii_uppercase();
+            if !self.cond_names.contains_key(&key) {
+                self.cond_names.insert(key.clone(), vec![info.clone()]);
+                added.push(key);
+            }
+        }
+        added
+    }
+
+    /// Remove exactly the condition-names a matching
+    /// [`install_cond_names`](Self::install_cond_names) added.
+    pub fn remove_cond_names(&mut self, names: &[String]) {
+        for name in names {
+            self.cond_names.shift_remove(name);
+        }
+    }
+
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────
 
     /// A stable non-zero address id for the storage key `key` (0 is reserved

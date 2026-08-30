@@ -294,6 +294,15 @@ struct NestedProgram {
     local_items: Vec<(String, CobolValue)>,
     /// Symbol metadata for the local items above, used by debugger snapshots.
     local_symbols: Vec<(String, crate::environment::ItemSym)>,
+    /// The 88-level condition-names this program declares, `(name, metadata)`.
+    ///
+    /// `cond_names` is built when an environment is analysed from a DATA
+    /// DIVISION, and a nested program's items reach the shared environment
+    /// through `push_local_scope`, which carries values and symbols only. So a
+    /// subprogram's own 88 resolved to nothing and `IF 88-name` fell back to
+    /// "the slot holds something non-zero" — false for an unwritten LINKAGE
+    /// item however the caller had filled it (CCVS85 IC207A LINK-TEST-03).
+    local_cond_names: Vec<(String, crate::environment::CondName)>,
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
@@ -332,31 +341,29 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
 
     // Collect this program's own local data items (everything in its DATA
     // DIVISION — they will be added to the env as a scope overlay on call).
-    let local_items: Vec<(String, CobolValue)> = if let Some(data) = &prog.data {
-        let local_env = CobolEnvironment::from_data_division_with_origin(
-            data,
-            prog.decimal_comma,
-            prog.currency,
-            &prog.identification.program_id,
-        );
-        local_env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let local_symbols: Vec<(String, crate::environment::ItemSym)> = if let Some(data) = &prog.data {
+    // One analysis of this program's DATA DIVISION, three things taken from
+    // it. It used to be built twice — once for the values and once for the
+    // symbols — and the condition-names were taken from neither.
+    let local_env = prog.data.as_ref().map(|data| {
         CobolEnvironment::from_data_division_with_origin(
             data,
             prog.decimal_comma,
             prog.currency,
             &prog.identification.program_id,
         )
-        .symbol_entries()
-    } else {
-        Vec::new()
-    };
+    });
+    let local_items: Vec<(String, CobolValue)> = local_env
+        .as_ref()
+        .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+    let local_symbols: Vec<(String, crate::environment::ItemSym)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::symbol_entries)
+        .unwrap_or_default();
+    let local_cond_names: Vec<(String, crate::environment::CondName)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::cond_name_entries)
+        .unwrap_or_default();
 
     // This program's own `FILE STATUS IS` bindings. `build_file_specs` only
     // ever reads the outermost program, so without this a subprogram's I/O
@@ -389,6 +396,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             section_names,
             local_items,
             local_symbols,
+            local_cond_names,
             using,
             file_status,
         },
@@ -3809,6 +3817,7 @@ impl Interpreter {
     /// made every such condition false whatever the record contained (NC250A
     /// IF--TEST-87 and IF--TEST-88).
     fn cond_host_value(&self, key: &str) -> CobolValue {
+        let key = &self.cond_host_key(key);
         if let Some(bytes) = self.env.group_bytes(key) {
             let n = bytes.len();
             return CobolValue::String {
@@ -3820,6 +3829,29 @@ impl Interpreter {
             .get(key)
             .cloned()
             .unwrap_or_else(|| CobolValue::from_i64(0))
+    }
+
+    /// Where a condition-name's host item actually lives.
+    ///
+    /// A LINKAGE host **is** the caller's storage: `CALL … USING` aliases the
+    /// parameter onto the argument, and only an alias-following lookup reaches
+    /// it. Reading the raw key found the callee's own untouched slot instead,
+    /// so the condition was false whatever the caller had put there.
+    ///
+    /// The subscript survives the substitution and stays a subscript. It
+    /// belongs to the host item — it says *which occurrence* the VALUEs are
+    /// tested against — so `L-ITM(2)` under the alias `L-ITM → ITM` is
+    /// `ITM(2)`, one occurrence, and never the whole table.
+    ///
+    /// An unaliased key is returned as it came, so an ordinary
+    /// WORKING-STORAGE condition-name resolves exactly as it did before.
+    fn cond_host_key(&self, key: &str) -> String {
+        use crate::environment::{base_name, key_indices, subscript_key};
+        let upper = key.to_ascii_uppercase();
+        match self.env.alias_target(base_name(&upper)) {
+            Some(target) => subscript_key(&target, &key_indices(&upper)),
+            None => upper,
+        }
     }
 
     /// Set the host item of an 88-level condition-name so the condition becomes
@@ -8197,6 +8229,7 @@ impl Interpreter {
                     sec_names,
                     local_items,
                     local_symbols,
+                    local_cond_names,
                     params,
                     callee_file_status,
                 ) = {
@@ -8208,6 +8241,7 @@ impl Interpreter {
                         np.section_names.clone(),
                         np.local_items.clone(),
                         np.local_symbols.clone(),
+                        np.local_cond_names.clone(),
                         np.using.clone(),
                         np.file_status.clone(),
                     )
@@ -8241,6 +8275,9 @@ impl Interpreter {
                     .cloned()
                     .unwrap_or_else(|| local_items.clone());
                 let inserted_keys = self.env.push_local_scope(&snapshot, &local_symbols);
+                // …and this program's own condition-names, which travel with
+                // its data items and were previously left behind entirely.
+                let inserted_conds = self.env.install_cond_names(&local_cond_names);
 
                 // **BY REFERENCE binds the caller's storage, not a copy of it.**
                 // Aliasing the parameter onto the argument is what makes that
@@ -8378,6 +8415,7 @@ impl Interpreter {
                 // Remove the nested program's local items from the shared env
                 // regardless of outcome (their state lives in `program_locals`).
                 self.env.pop_local_scope(&inserted_keys);
+                self.env.remove_cond_names(&inserted_conds);
 
                 match result {
                     Ok(()) | Err(RuntimeError::GoBack) => {} // GOBACK = normal return

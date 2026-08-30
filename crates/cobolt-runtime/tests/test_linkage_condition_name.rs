@@ -12,7 +12,7 @@
 //!
 //! Two things were wrong, and the first hid the second:
 //!
-//! 1. A nested program's 88-levels were never registered. `cond_names` is built
+//! Both are fixed. 1. A nested program's 88-levels were never registered. `cond_names` is built
 //!    when an environment is constructed from a DATA DIVISION, and a nested
 //!    program's items reach the shared environment through `push_local_scope`,
 //!    which carried values and symbols and nothing else. `IF 88-name` then
@@ -47,6 +47,21 @@ fn run_capture(src: &str) -> Vec<String> {
     let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
     interp.run().expect("run failed");
     display_rx.try_iter().map(|s| s.trim().to_owned()).collect()
+}
+
+/// The text between the brackets of a `DISPLAY "NAME=[" ITEM "]"` line.
+///
+/// Both delimiters have to come off. Stripping only the `NAME=[` prefix left
+/// the closing bracket on the value, so `trim().is_empty()` was false for an
+/// untouched item and the negative test below could not pass however the
+/// condition evaluated — it failed identically whether the answer was right or
+/// wrong, which is worth remembering before trusting a paired test.
+fn field(out: &[String], name: &str) -> Option<String> {
+    out.iter().find_map(|l| {
+        l.strip_prefix(&format!("{name}=["))
+            .and_then(|r| r.strip_suffix(']'))
+            .map(str::to_owned)
+    })
 }
 
 /// The caller fills a table; the callee declares the same table in LINKAGE with
@@ -91,13 +106,9 @@ const LINKAGE_88: &str = r#"
 
 /// Occurrence 1 holds `"A"`, so the condition is TRUE and the caller sees it.
 #[test]
-#[ignore = "KNOWN DEFECT: a nested program's 88-levels are never registered (cond_names is built only from the outer DATA DIVISION) AND the host is read by raw key. Ledger: a-condition-name-over-a-linkage-item-reads-the-wrong-storage."]
 fn a_linkage_condition_name_sees_the_callers_data() {
     let out = run_capture(LINKAGE_88);
-    let hit = out
-        .iter()
-        .find_map(|l| l.strip_prefix("HIT=["))
-        .expect("the program displays HIT=");
+    let hit = field(&out, "HIT").expect("the program displays HIT=");
     assert!(
         hit.starts_with("YES"),
         "ITM(1) holds \"A\", so L-IS-A(1) is true; got {hit:?} — the 88 tested \
@@ -109,13 +120,9 @@ fn a_linkage_condition_name_sees_the_callers_data() {
 /// 88s must not make them true by default — a fix that reported *everything*
 /// as satisfied would pass the test above and fail this one.
 #[test]
-#[ignore = "PAIRS WITH THE TEST ABOVE — a fix must pass BOTH. The 1.62.93 attempt passed the positive one and failed this, reporting every occurrence as satisfied. Ledger: same entry."]
 fn a_linkage_condition_name_is_still_false_when_it_should_be() {
     let out = run_capture(LINKAGE_88);
-    let miss = out
-        .iter()
-        .find_map(|l| l.strip_prefix("MISS=["))
-        .expect("the program displays MISS=");
+    let miss = field(&out, "MISS").expect("the program displays MISS=");
     assert!(
         miss.trim().is_empty(),
         "ITM(2) holds \"B\", so L-IS-A(2) is false and nothing should have \
