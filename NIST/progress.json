@@ -140,7 +140,8 @@
         "Do the offset mapping now and record the unaligned case as a known deviation. It is a strict improvement over position, it is measurable against the suite today, and the buffer model can replace it later without the callers changing."
       ],
       "recommendation": "Take the third. The offset mapping is the smaller half of the correct answer and is not thrown away by it — `files.rs` already owns the buffer machinery if the full model is wanted later, so this does not paint into a corner. Measure IC235A separately after landing it: it is 5 failures and only ASSUMED to be the same shape.",
-      "next_probe": "Read `files.rs` `compute_layout` first — it already walks a record description into (offset, len) per item and is the obvious thing to reuse rather than write a second offset walker in `environment.rs`."
+      "attempted_1_62_90": "The offset mapping WAS tried and reverted — see the `pairing-linkage-leaves-by-byte-offset` dead end. It moved IC103A 4 -> 3 and IC235A 5 -> 4, so the direction is right, and it took IC203A from 1 -> 7, so the mapping is not. Read that entry before trying again: the two suspects are `item_width`'s `unwrap_or(0)` silently zeroing a leaf it cannot render (which shifts every offset after it) and the per-occurrence expansion of an OCCURS item. VERIFY THE OFFSETS BEFORE TRUSTING THEM — dump `leaf_layout` for both sides and check the widths sum to the group width.",
+      "next_probe": "Read `files.rs` `compute_layout` first — it already walks a record description into (offset, len) per item and is the obvious thing to reuse rather than write a second offset walker in `environment.rs`. That advice stands and was NOT followed at 1.62.90: a second walker was written against `item_width` instead, and `item_width` is where the suspicion now falls."
     },
     {
       "id": "file-status-item-is-per-program-not-per-file",
@@ -317,6 +318,15 @@
   ],
 
   "dead_ends": [
+    {
+      "id": "pairing-linkage-leaves-by-byte-offset",
+      "tried_at_version": "1.62.90 (reverted, not landed)",
+      "what": "Replace the positional pairing of a group parameter's subordinates with a pairing by BYTE OFFSET: flatten both the parameter and the argument to their elementary items as `(key, offset, width)` via a new `CobolEnvironment::leaf_layout`, then alias each callee leaf to the caller leaf covering exactly the same bytes.",
+      "why_it_failed": "IC 231 -> 226 PASS / 25 -> 29 FAIL. It did what it was aimed at — IC103A 4 -> 3 and IC235A 5 -> 4 — and broke IC203A far worse than it helped: 1 -> 7 FAIL. Net loss, so it was reverted whole under the gate rather than chased.",
+      "the_diagnosis_is_still_right": "Do not discard the analysis in `group-parameter-is-a-view-over-bytes-not-a-tree-of-names`. The two members' own headers say the descriptions differ in shape and agree in size, the offsets line up and the tree positions do not, and the pass/fail split (.01 and .04 pass, .02/.03/.05/.06 fail) matches that and nothing else. Position IS the wrong axis. The MAPPING built on top of it is what was wrong.",
+      "where_to_look_first": "IC203A is a TABLE case — IC204A declares `SUB-TABLE-1` over `SUB-DN2 / SUB-DN3 / SUB-DN4` against the caller's `TABLE-1` over `DN2 / DN3 / DN4` — and it was positional pairing that took it from 13 failures to 1 at 1.62.85. Two candidates, in order: (1) `item_width` ends `self.display_string(key).map(|d| d.len()).unwrap_or(0)`, so ANY leaf it cannot render contributes width 0 and every offset after it shifts, silently mis-aliasing the rest of the group — that is exactly the shape of a fix that helps two members and wrecks a third; (2) `occurrence_keys` expansion means a leaf walk over an OCCURS item emits one entry per occurrence, so a table's leaves may not correspond the way a flat group's do.",
+      "what_to_do_instead": "Verify the offsets before trusting them. Dump `leaf_layout` for IC203A's `TABLE-1` and IC204A's `SUB-TABLE-1` side by side and check the widths sum to the group width; if a leaf reports 0 the offset walk is the bug, not the pairing. Consider falling back to the positional pairing whenever the two leaf lists do not have equal total width — that keeps every member the old rule already satisfies and only changes the ones it cannot express."
+    },
     {
       "id": "shadowing-a-callees-names-without-aliasing-them",
       "tried_at_version": "1.62.83 (reverted, not landed)",
