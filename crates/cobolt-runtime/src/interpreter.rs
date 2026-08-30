@@ -3545,8 +3545,8 @@ impl Interpreter {
                 keys,
                 using,
                 giving,
-                input_proc.as_deref(),
-                output_proc.as_deref(),
+                input_proc.as_ref(),
+                output_proc.as_ref(),
                 *span,
             ),
             Stmt::Merge {
@@ -3562,7 +3562,7 @@ impl Interpreter {
                 using,
                 giving,
                 None,
-                output_proc.as_deref(),
+                output_proc.as_ref(),
                 *span,
             ),
             Stmt::Release { record, from, .. } => self.exec_release(record, from.as_ref()),
@@ -6831,17 +6831,28 @@ impl Interpreter {
         keys: &[cobolt_ast::stmt::SortKey],
         using: &[String],
         giving: &[String],
-        input_proc: Option<&str>,
-        output_proc: Option<&str>,
+        input_proc: Option<&(String, Option<String>)>,
+        output_proc: Option<&(String, Option<String>)>,
         span: Span,
     ) -> Result<(), RuntimeError> {
+        // `INPUT PROCEDURE a THRU b` is a RANGE — CCVS85 ST106A's RELEASE
+        // loop needs every section of it, and performing only the first
+        // released nothing.
+        let as_target = |(name, thru): &(String, Option<String>)| match thru {
+            Some(t) => PerformTarget::Thru {
+                from: name.clone(),
+                to: t.clone(),
+                span,
+            },
+            None => PerformTarget::Section(name.clone(), span),
+        };
         let fkey = file.to_ascii_uppercase();
         self.sort_buffers.insert(fkey.clone(), Vec::new());
         self.sort_cursors.insert(fkey.clone(), 0);
 
         // ── Phase 1: collect records ──────────────────────────────────────
         if let Some(ip) = input_proc {
-            self.exec_perform(&PerformTarget::Section(ip.to_string(), span), span)?;
+            self.exec_perform(&as_target(ip), span)?;
         } else {
             for uf in using {
                 let recs = self.read_all_records(uf);
@@ -6858,7 +6869,7 @@ impl Interpreter {
         // ── Phase 3: deliver records ──────────────────────────────────────
         if let Some(op) = output_proc {
             self.sort_cursors.insert(fkey.clone(), 0);
-            self.exec_perform(&PerformTarget::Section(op.to_string(), span), span)?;
+            self.exec_perform(&as_target(op), span)?;
         } else {
             let recs = self.sort_buffers.get(&fkey).cloned().unwrap_or_default();
             for gf in giving {

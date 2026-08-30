@@ -2916,11 +2916,13 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("INPUT PROCEDURE name");
-        if p.at(&Token::Through) {
+        let thru = if p.at(&Token::Through) {
             p.advance();
-            p.eat_identifier();
-        }
-        Some(name)
+            p.eat_identifier().map(|(n, _)| n)
+        } else {
+            None
+        };
+        Some((name, thru))
     } else if p.eat(&Token::Using) {
         using = parse_file_name_list(p);
         None
@@ -2935,11 +2937,13 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
-        if p.at(&Token::Through) {
+        let thru = if p.at(&Token::Through) {
             p.advance();
-            p.eat_identifier();
-        }
-        Some(name)
+            p.eat_identifier().map(|(n, _)| n)
+        } else {
+            None
+        };
+        Some((name, thru))
     } else if p.eat(&Token::Giving) {
         giving = parse_file_name_list(p);
         None
@@ -3015,11 +3019,13 @@ fn parse_merge(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
-        if p.at(&Token::Through) {
+        let thru = if p.at(&Token::Through) {
             p.advance();
-            p.eat_identifier();
-        }
-        Some(name)
+            p.eat_identifier().map(|(n, _)| n)
+        } else {
+            None
+        };
+        Some((name, thru))
     } else if p.eat(&Token::Giving) {
         giving = parse_file_name_list(p);
         None

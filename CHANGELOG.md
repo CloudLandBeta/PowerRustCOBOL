@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.111] — 2026-08-30
+
+### Fixed — `INPUT/OUTPUT PROCEDURE a THRU b` performs the range
+
+The parser read the `THRU` end of a SORT/MERGE procedure and threw it away, so
+the interpreter performed only the first section of the range. CCVS85
+**ST106A** writes `INPUT PROCEDURE INPROC THRU INPROC-EXIT`, and its RELEASE
+loop — spanning the range — released nothing: the GIVING file came out empty
+and every verifier downstream reported premature EOF. The AST now carries the
+pair, and `exec_sort` performs a `THRU` range exactly as `PERFORM a THRU b`
+does.
+
+Sort/Merge (ST), execution: **601 PASS / 44 FAIL → 660 PASS / 127 FAIL**, clean
+programs **24 → 26 of 40**. The FAIL growth is the honest kind: ST127A stopped
+timing out and its output procedure now runs 101 assertions (80 currently
+failing), and ST119A's input range opened 25 more. Parser change, so the full
+gate ran immediately: NC 95/95 (4614/0), SQ 85/85 (624/0), IX 41/41 (574/0), RL
+34/34 (354/0), IF 45/45 (841/0), IC 25/25 (309/0), compile **412/421**, 104
+runtime suites and the parser suite at 0 failed.
+
 ## [PowerRustCOBOL 1.62.110] — 2026-08-30
 
 ### Fixed — SORT honours the variable-length record contract

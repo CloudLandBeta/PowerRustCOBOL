@@ -752,8 +752,12 @@ pub enum Stmt {
         using: Vec<String>,
         /// Output files (`GIVING`) — mutually exclusive with `output_proc`.
         giving: Vec<String>,
-        input_proc: Option<String>,
-        output_proc: Option<String>,
+        /// `INPUT PROCEDURE a [THRU b]` — the RELEASE loop may span a RANGE
+        /// of sections, and CCVS85 ST106A writes exactly that
+        /// (`INPUT PROCEDURE INPROC THRU INPROC-EXIT`). Dropping the THRU end
+        /// performed one section of the range and released nothing.
+        input_proc: Option<(String, Option<String>)>,
+        output_proc: Option<(String, Option<String>)>,
         span: Span,
     },
 
@@ -763,7 +767,7 @@ pub enum Stmt {
         keys: Vec<SortKey>,
         using: Vec<String>,
         giving: Vec<String>,
-        output_proc: Option<String>,
+        output_proc: Option<(String, Option<String>)>,
         span: Span,
     },
 
