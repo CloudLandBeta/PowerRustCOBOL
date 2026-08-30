@@ -122,6 +122,29 @@
 
   "work_queue": [
     {
+      "id": "file-status-item-is-per-program-not-per-file",
+      "module": "IC",
+      "priority": 1,
+      "title": "A file's FILE STATUS item is resolved from the OUTER program, so a subprogram reports into the caller's storage",
+      "worth": "10 of IC227A's 11 failures — the module's largest bucket, and one cause. Every failure is the same swapped pair.",
+      "diagnosis": "DECISIVE, from running IC227A by hand and reading both SELECTs. The two programs share an EXTERNAL file and each names its OWN status item: IC227A has `FILE STATUS IS EXTERNAL-FILE-FS` in WORKING-STORAGE, IC227A-1 has `FILE STATUS IS LINKAGE-FS` in its LINKAGE SECTION (the caller's third argument, `F-S-PARAM`). The FILE is shared, which is right; the STATUS ITEM is a property of each program's own SELECT and is not.",
+      "the_evidence": "Every failing assertion is the same pair. `.01` checks the subprogram returned `00` through F-S-PARAM and computes `**` (never written). `.02` checks the main program's EXTERNAL-FILE-FS is still the sentinel `<>` and computes `00` (wrongly updated). The status went to the wrong program's item, in both directions, for WRITE / CLOSE / OPEN / READ / EOF alike — EXT-FILE-TEST-02, -04, -05, -07, -08.",
+      "where": "`build_file_specs(&program)` at interpreter.rs:1337 runs ONCE on the outer program and does not walk `nested_programs`, so `file_specs[\"EXTERNAL-FILE\"].status_field` is permanently the outer program's item. `set_file_status` (interpreter.rs:5988) reads that one field for every operation from every program. There is no current-program tracking in the interpreter at all — `NestedProgram` (interpreter.rs:283) carries paragraphs, local items and `using`, but nothing from its ENVIRONMENT DIVISION.",
+      "fix_sketch": "Give `NestedProgram` a `file_status: HashMap<String, String>` built in `register_nested` from that program's own `environment.input_output.file_controls`; push it on the nested-CALL path and pop it on return; have `set_file_status` consult the active override before falling back to `file_specs`. Keep `file_specs` otherwise untouched — the file's identity, organization, keys and open state are genuinely shared, and only the SELECT's status binding is per-program.",
+      "caveat": "Do NOT make the whole FileSpec per-program. The EXTERNAL file's open state and position must stay shared or EXT-FILE-TEST-06/-09, which currently PASS, will break. Only the status item moves.",
+      "next_probe": "Check whether other SELECT clauses have the same per-program property before generalising — this fix should stay narrow until a test demands otherwise."
+    },
+    {
+      "id": "ic401m-flagging-member-missing-from-the-bucket-list",
+      "module": "IC",
+      "priority": 2,
+      "title": "IC401M fails 9 of 11 and is absent from the ledger's own bucket list",
+      "worth": "9 failures — the SECOND largest bucket in IC, and it was not recorded.",
+      "evidence": "Measured at 1.62.88: `IC401M  IC  9 FAIL, 2 PASS`. The `remaining_buckets` note written at 1.62.86 lists twelve programs and does not mention it; the twelve plus IC401M is thirteen, and the failure counts sum to the recorded 44.",
+      "the_shape": "A flagging member, the same family as IF401M/IF402M/IF403M (closed at 1.62.79) and IX401M (10/10). Those were a real gap in `flagging::flag_high_subset`, not the intermediate-subset scoping question that ruled IX301M and RL301M out of scope — read each member's own header before assuming which kind it is.",
+      "next_probe": "Read the `Message expected` comments in IC401M and compare against what `flag_high_subset` emits for inter-program constructs. Note the trap recorded at 1.62.79: these members write the marker in UPPERCASE and a case-sensitive grep reports `0 expected messages`."
+    },
+    {
       "id": "unhandled-read-error-spins",
       "module": "IX",
       "priority": 5,
