@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.88] — 2026-08-29
+
+**NIST CCVS85 Source Text Manipulation (SM) is baselined: 0 → 4 of 17**, with
+assertions going 8 PASS / 15 FAIL to **25 PASS / 9 FAIL** (34.8 % → 73.5 %).
+
+Nothing in the compiler or runtime changed — both fixes are in the conformance
+harness, which was measuring the module unfairly. Every finished module is
+unmoved: NC 95/95 with 4 614 assertions, SQ 85/85 with 624, IX 41/41 with 574,
+IF 45/45 with 841, RL 34/34 with 354, all at zero failures, and the whole-suite
+compile census unchanged at 410 of 421.
+
+### Fixed — the execution pass never supplied the suite's copybooks
+
+The **compile** pass has expanded `COPY` against the CCVS85 copybook library
+since the harness gained it. The **execution** pass never did. `rcrun` resolves
+a copybook against the source file's own directory, so the library is now
+mirrored there before each program runs.
+
+The Source Text Manipulation module is *about* `COPY`, and it proves a copybook
+by using one: SM101A builds a data file out of `COPY`-supplied record
+declarations, and SM102A reads the records back. Without the library SM101A
+expanded to nothing, wrote a zero-byte file, and SM102A reported `EOF
+PREMATURELY FOUND` — a missing input that reads exactly like a runtime defect.
+
+### Fixed — SM's builder/checker pairs declare their producers
+
+Three SM members read a file an earlier member wrote and say so in their own
+header, so they join the chained-member table: SM102A ← SM101A, SM104A ←
+SM103A, SM202A ← SM201A. Each entry is quoted from the consumer's header
+("PROGRAM SM102A TESTS THE OUTPUT FILE PRODUCED BY SM101A"), never inferred
+from an X-card two programs happen to share.
+
+ST102A and ST120A read the same card that ST101A writes, and are deliberately
+**not** chained: no ST member declares a producer, and ST102A has no
+`PRINT-FILE` at all, so a producer's report would be left behind and scored as
+ST102A's own. That is pinned as a negative test with the reason.
+
 ## [PowerRustCOBOL 1.62.87] — 2026-08-29
 
 ### Fixed — a console program no longer builds a TLS stack it never uses
