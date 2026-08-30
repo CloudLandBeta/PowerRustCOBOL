@@ -125,6 +125,24 @@
 
   "work_queue": [
     {
+      "id": "group-parameter-is-a-view-over-bytes-not-a-tree-of-names",
+      "module": "IC",
+      "priority": 1,
+      "title": "A group parameter's subordinates are paired BY POSITION, but LINKAGE is a view over the caller's BYTES",
+      "worth": "9 failures — IC235A 5 and IC103A 4, the module's largest remaining bucket, and the suite says outright they are the same shape.",
+      "diagnosis": "DECISIVE, from reading IC103A and IC104A side by side. IC103A's own section header states the case: 'THE ITEM DESCRIPTIONS ARE DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE NUMBER OF CHARACTERS IS IDENTICAL.' IC104A's header says the same from its side. The two programs describe the SAME BYTES with a DIFFERENT TREE.",
+      "the_data": "GROUP-01 (10 chars) in the caller is `02 ALPHA-NUM-FIELD X(5)` then `02 GROUP-LEV2` containing `03 NUMER-FIELD 99` and `03 ALPHA-FIELD A(3)` — two top-level children. GRP-01 in the callee is `02 AN-FIELD X(5)`, `02 NUM-DISPLAY 99`, `02 GRP-LEVEL` containing `03 A-FIELD A(3)` — THREE top-level children. By byte offset the leaves align exactly: (0,5), (5,2), (7,3). By tree position they do not. GROUP-02 (8 chars) is the mirror: caller has `02 NUM-ITEM S99` + `02 ALPHA-EDITED X(6)`, callee has one `02 GRP-03` holding both.",
+      "why_the_pass_fail_split_proves_it": "CALL-TEST-06 .01 passes (ALPHA-NUM-FIELD/AN-FIELD, both the FIRST child, so position and offset agree) and .04 passes (ELEM-77/ELEM-01, an elementary 77-level passed directly, no tree at all). .02, .03, .05 and .06 fail — every one of them a subordinate whose POSITION differs from its OFFSET. Nothing else in the module has that signature.",
+      "where": "The positional pairing landed at 1.62.85 ('a group parameter's subordinate items are paired with the argument's BY POSITION and aliased in lock-step'). That was a real improvement over by-name — it freed the two programs from having to agree on names — but position is the wrong axis. COBOL-85 gives LINKAGE a view over the caller's storage: the callee's description lays ITS OWN items over the caller's bytes, and neither the names nor the shape of the tree has to match.",
+      "options": [
+        "BY OFFSET (smaller): for each LEAF of the callee's parameter compute (offset, length) within the group, find the caller's leaf covering exactly those bytes, and alias to it. Closes IC103A and IC235A — every leaf aligns in both. Fails when the two descriptions split the same bytes differently (`PIC X(4)` against two `PIC XX`), which the standard permits and this pair does not exercise.",
+        "SHARED BUFFER (correct): the group parameter is one byte buffer both programs view through their own descriptions, the way `RecordLayout::materialize`/`distribute` already does for an FD record. Handles every case including unaligned splits. Larger: it changes how a group parameter is stored, not just how it is bound.",
+        "Do the offset mapping now and record the unaligned case as a known deviation. It is a strict improvement over position, it is measurable against the suite today, and the buffer model can replace it later without the callers changing."
+      ],
+      "recommendation": "Take the third. The offset mapping is the smaller half of the correct answer and is not thrown away by it — `files.rs` already owns the buffer machinery if the full model is wanted later, so this does not paint into a corner. Measure IC235A separately after landing it: it is 5 failures and only ASSUMED to be the same shape.",
+      "next_probe": "Read `files.rs` `compute_layout` first — it already walks a record description into (offset, len) per item and is the obvious thing to reuse rather than write a second offset walker in `environment.rs`."
+    },
+    {
       "id": "file-status-item-is-per-program-not-per-file",
       "module": "IC",
       "priority": 99,
