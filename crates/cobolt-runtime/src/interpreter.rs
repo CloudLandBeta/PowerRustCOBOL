@@ -297,6 +297,21 @@ struct NestedProgram {
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
+    /// This program's own `FILE STATUS IS` bindings, file name → status item,
+    /// both uppercase.
+    ///
+    /// A file can be shared between programs — that is what `IS EXTERNAL` on an
+    /// FD means, and its open state and position genuinely are one thing. The
+    /// **status item is not**: it is named by each program's own `SELECT`, out
+    /// of that program's own storage. IC227A declares `FILE STATUS IS
+    /// EXTERNAL-FILE-FS` in WORKING-STORAGE while IC227A-1 declares `FILE
+    /// STATUS IS LINKAGE-FS` in its LINKAGE SECTION, and an operation performed
+    /// by one must report into that one's item.
+    ///
+    /// Held here because `build_file_specs` reads the outer program only, so
+    /// without this every program in a run unit reported into the outermost
+    /// one's storage.
+    file_status: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -343,6 +358,26 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
         Vec::new()
     };
 
+    // This program's own `FILE STATUS IS` bindings. `build_file_specs` only
+    // ever reads the outermost program, so without this a subprogram's I/O
+    // reported into the outer program's storage — see `NestedProgram::
+    // file_status`.
+    let file_status: HashMap<String, String> = prog
+        .environment
+        .as_ref()
+        .and_then(|env| env.input_output.as_ref())
+        .map(|io| {
+            io.file_controls
+                .iter()
+                .filter_map(|fc| {
+                    fc.file_status
+                        .as_ref()
+                        .map(|s| (fc.name.to_ascii_uppercase(), s.to_ascii_uppercase()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     let key = prog.identification.program_id.to_ascii_uppercase();
     let using = prog.procedure.using.clone();
     registry.insert(
@@ -355,6 +390,7 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             local_items,
             local_symbols,
             using,
+            file_status,
         },
     );
 
@@ -1132,6 +1168,18 @@ pub struct Interpreter {
     // ── File I/O ──────────────────────────────────────────────────────────────
     /// Logical file name → static SELECT/FD description.
     file_specs: HashMap<String, FileSpec>,
+    /// The `FILE STATUS` bindings of the nested program currently running, if
+    /// any — file name → status item, both uppercase.
+    ///
+    /// Empty while the outermost program runs, when `file_specs` already holds
+    /// the right answer. Swapped in around a nested `CALL` and swapped back
+    /// after, so nesting unwinds in order.
+    ///
+    /// A miss falls back to `file_specs`, which is what a nested program
+    /// referencing a `GLOBAL` file it did not itself `SELECT` needs: the status
+    /// item is then the containing program's, because that is the SELECT the
+    /// binding came from.
+    active_file_status: HashMap<String, String>,
     /// FD record (01) name → owning logical file name.
     record_to_file: HashMap<String, String>,
     /// Logical file name → currently-open handle.
@@ -1396,6 +1444,7 @@ impl Interpreter {
             debug_stepping: false,
             current_paragraph: String::new(),
             file_specs,
+            active_file_status: HashMap::new(),
             record_to_file,
             open_files: HashMap::new(),
             locked_files: std::collections::HashSet::new(),
@@ -5985,12 +6034,34 @@ impl Interpreter {
     /// key left the children holding whatever the program had seeded them with,
     /// so `IF SQ-FS1-STATUS = "42"` compared against that seed and every status
     /// test on such a file failed.
+    /// Record `code` in the status item of whichever program is running.
+    ///
+    /// The running program's own `SELECT` decides where that is. A file may be
+    /// shared — `IS EXTERNAL` on an FD makes its open state and position one
+    /// thing across the run unit — but each program names its own status item
+    /// out of its own storage, and an operation reports into the item belonging
+    /// to the program that performed it. IC227A and IC227A-1 share a file and
+    /// call their status items `EXTERNAL-FILE-FS` and `LINKAGE-FS`; before this
+    /// looked at the running program, every operation wrote the outer one.
     fn set_file_status(&mut self, file: &str, code: &str) {
         if let Some(field) = self
-            .file_specs
+            .active_file_status
             .get(file)
-            .and_then(|s| s.status_field.clone())
+            .cloned()
+            .or_else(|| {
+                self.file_specs
+                    .get(file)
+                    .and_then(|s| s.status_field.clone())
+            })
         {
+            // Through `resolve_name`, not the raw name: a status item can be a
+            // LINKAGE item, and then it IS the caller's storage rather than a
+            // slot of its own. `set_str` keys by `storage_key`, which follows
+            // REDEFINES but not the parameter aliases `resolve_name` owns — so
+            // writing the raw name filled a LINKAGE slot nobody reads and the
+            // caller's argument never moved. IC227A-1 declares `FILE STATUS IS
+            // LINKAGE-FS`, which is its caller's third argument.
+            let field = self.env.resolve_name(&field, &[]);
             if self.env.is_group(&field) {
                 self.env.set_group(&field, code);
             } else {
@@ -8127,6 +8198,7 @@ impl Interpreter {
                     local_items,
                     local_symbols,
                     params,
+                    callee_file_status,
                 ) = {
                     let np = &self.nested_registry[&prog_name];
                     (
@@ -8137,6 +8209,7 @@ impl Interpreter {
                         np.local_items.clone(),
                         np.local_symbols.clone(),
                         np.using.clone(),
+                        np.file_status.clone(),
                     )
                 };
 
@@ -8244,7 +8317,13 @@ impl Interpreter {
                 let saved_bodies =
                     std::mem::replace(&mut self.para_bodies, para_bodies.clone());
                 let saved_secs = std::mem::replace(&mut self.section_names, sec_names);
+                // …and so is the file's status item: an I/O statement in this
+                // program reports into the item ITS OWN `SELECT` names, not the
+                // caller's, even when the file itself is shared (`IS EXTERNAL`).
+                let saved_file_status =
+                    std::mem::replace(&mut self.active_file_status, callee_file_status);
                 let result = self.run_para_sequence(&para_bodies, &para_order);
+                self.active_file_status = saved_file_status;
                 self.para_map = saved_map;
                 self.para_order = saved_order;
                 self.para_bodies = saved_bodies;

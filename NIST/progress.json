@@ -1,8 +1,8 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.75",
-  "measured_at": "2026-08-29",
+  "measured_at_version": "1.62.89",
+  "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
 
@@ -75,8 +75,10 @@
       "state": "in_flight",
       "compile": [45, 47],
       "execution": [10, 25],
-      "assertions": { "pass": 212, "fail": 44, "deleted": 4 },
-      "remaining_buckets": "At 1.62.86, twelve programs still report failures: IC227A 7 (EXTERNAL files shared between programs), IC103A 4 and IC235A 5 (CALL USING a series of differently-categorised parameters — the same shape twice), IC106A 3 (REDEFINES in the LINKAGE SECTION), IC201A 3 (ON OVERFLOW), IC225A (nested CALL), IC207A 2 (condition-name over a LINKAGE table), then IC101A / IC112A / IC114A / IC203A / IC237A at one each. Two members also do not compile (IC224A: `unexpected token in statement: EndCall`).",
+      "assertions": { "pass": 222, "fail": 34, "deleted": 4 },
+      "remaining_buckets": "At 1.62.89, THIRTEEN programs still report failures, ranked: IC401M 9 (flagging — see its own queue entry, and note it was missing from the 1.62.86 list below), IC235A 5 and IC103A 4 (CALL USING a series of differently-categorised parameters — the same shape twice), IC106A 3 (REDEFINES in the LINKAGE SECTION), IC201A 3 (ON OVERFLOW), IC207A 2 (condition-name over a LINKAGE table), IC225A 2 (nested CALL), then IC101A / IC112A / IC114A / IC203A / IC227A / IC237A at one each. Two members also do not compile (IC224A: `unexpected token in statement: EndCall`).",
+      "_bucket_list_drifted": "The list written at 1.62.86 named twelve programs and omitted IC401M entirely, which was the SECOND largest bucket at 9 failures — the counts only reconcile with it included. Re-measure with `run IC` rather than trusting a prose note; that is how it was caught at 1.62.89.",
+      "ic227a_note": "1.62.89 took it from 11 failures to 1. The survivor is EXT-REC-TEST-01, `SUBPROGRAM DID NOT WRITE TO RECORD AREA` — the EXTERNAL FD's shared RECORD AREA, which is a different question from the status item and is not yet diagnosed.",
       "baselined_at": "1.62.81 — 6 of 47, 134 PASS / 129 FAIL. Corrected at 1.62.82 once the harness supplied each caller's callees: 10 of 25, 187 PASS / 71 FAIL, 72.5%.",
       "denominator_note": "The execution denominator is 25, not 47. Twenty-two of IC's members are `SUBRTN` callees — separately compiled subprograms with no CCVS report of their own — so running one alone could only ever fail. They are still counted on the COMPILE axis, where the module remains 45 of 47. When comparing against the 1.62.81 baseline use 6 -> 10 of 25.",
       "shape": "Unlike NC/SQ/IX/RL/IF this module's subject is a whole language area — CALL, nested programs, LINKAGE, INITIAL, EXTERNAL — so expect fewer, larger causes rather than a long tail. No crashes and no timeouts: the programs run and get the answers wrong. Two members do not compile (IC224A: `unexpected token in statement: EndCall`)."
@@ -124,8 +126,9 @@
     {
       "id": "file-status-item-is-per-program-not-per-file",
       "module": "IC",
-      "priority": 1,
-      "title": "A file's FILE STATUS item is resolved from the OUTER program, so a subprogram reports into the caller's storage",
+      "priority": 99,
+      "resolved_at": "1.62.89 — IC227A 11 failures -> 1, and 8 of its 23 tests executing successfully -> 18. IC 212 -> 222 PASS / 44 -> 34 FAIL, 82.8% -> 86.7%. It was TWO defects stacked, and the second was invisible until the first was fixed: (1) `NestedProgram` now carries its own FILE STATUS bindings, swapped in around the call, with a miss falling back to `file_specs` for the GLOBAL-file case; (2) `set_file_status` resolved the name through `resolve_name` instead of writing a raw key — a status item can be a LINKAGE item, and `set_str` keys by `storage_key`, which follows REDEFINES but NOT the parameter aliases. Fixing only (1) moved the five `.02` assertions and left all five `.01`s exactly as they were.",
+      "title": "RESOLVED — A file's FILE STATUS item is resolved from the OUTER program, so a subprogram reports into the caller's storage",
       "worth": "10 of IC227A's 11 failures — the module's largest bucket, and one cause. Every failure is the same swapped pair.",
       "diagnosis": "DECISIVE, from running IC227A by hand and reading both SELECTs. The two programs share an EXTERNAL file and each names its OWN status item: IC227A has `FILE STATUS IS EXTERNAL-FILE-FS` in WORKING-STORAGE, IC227A-1 has `FILE STATUS IS LINKAGE-FS` in its LINKAGE SECTION (the caller's third argument, `F-S-PARAM`). The FILE is shared, which is right; the STATUS ITEM is a property of each program's own SELECT and is not.",
       "the_evidence": "Every failing assertion is the same pair. `.01` checks the subprogram returned `00` through F-S-PARAM and computes `**` (never written). `.02` checks the main program's EXTERNAL-FILE-FS is still the sentinel `<>` and computes `00` (wrongly updated). The status went to the wrong program's item, in both directions, for WRITE / CLOSE / OPEN / READ / EOF alike — EXT-FILE-TEST-02, -04, -05, -07, -08.",
@@ -332,6 +335,7 @@
   },
 
   "history": [
+    { "version": "1.62.89", "change": "A file's FILE STATUS item belongs to the program that performed the I/O, and is resolved through the alias layer so a LINKAGE status item reaches the caller's storage", "effect": "IC227A 11 FAIL -> 1, 8 of 23 tests executing successfully -> 18. IC 212 -> 222 PASS / 44 -> 34 FAIL, 82.8% -> 86.7%; clean count unchanged at 10 of 25 because IC227A's last failure is a separate cause. Runtime suite 99 binaries green, compile census exact at 410/421. Two stacked defects — fixing only the first moved the five `.02` assertions and not one of the five `.01`s." },
     { "version": "1.62.86", "change": "BY CONTENT hands over the value and the caller's storage is put back on return; the BY phrase governs every operand that follows it, not just the next one", "effect": "IC 206 -> 212 PASS / 50 -> 44 FAIL, 80.5% -> 82.8%. PARSER change, so the full gate ran: NC, SQ, IX, RL, IF all exact and the census held at 410/421." },
     { "version": "1.62.85", "change": "A group parameter's subordinate items are paired with the argument's BY POSITION and aliased in lock-step — the two programs need not use the same names", "effect": "IC 194 -> 206 PASS / 62 -> 50 FAIL, 75.8% -> 80.5%. IC203A alone went from 13 failures to 1. Compile census unchanged. Still 10 of 25 clean." },
     { "version": "1.62.84", "change": "A BY REFERENCE parameter is an alias onto its argument, not a by-name copy; the regression gate moves to once per module (operator ruling)", "effect": "IC 187 -> 194 PASS / 71 -> 62 FAIL, 72.5% -> 75.8%; still 10 of 25 clean. NC, SQ, IX, RL and IF exact. Gate policy: full run at module completion, module-in-flight plus compile census per change, front-end changes gated immediately." },

@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.89] — 2026-08-30
+
+### Fixed — a subprogram's file status was reported into the caller's storage
+
+A file can be shared between programs — that is what `IS EXTERNAL` on an FD
+means, and its open state and position genuinely are one thing across the run
+unit. **Its `FILE STATUS` item is not.** That item is named by each program's
+own `SELECT`, out of that program's own storage, and an operation reports into
+the item belonging to the program that performed it.
+
+Two defects sat on top of each other, and CCVS85 **IC227A** failed ten
+assertions across five statements — WRITE, CLOSE, OPEN, READ and EOF — as the
+same swapped pair each time.
+
+`build_file_specs` reads the outermost program only and never walks
+`nested_programs`, so a file's status item was permanently the outer program's.
+Every operation, by either program, reported into the caller's item: IC227A
+seeds its own with the sentinel `<>`, does no I/O of its own, and found it
+overwritten — `MAIN PROGRAM FILE STATUS UPDATED`. A `NestedProgram` now carries
+its own bindings, swapped in around the call and out after, so nesting unwinds
+in order. A file the running program did **not** itself `SELECT` still falls
+back, which is what a nested program referencing a `GLOBAL` file needs.
+
+With that fixed the status went to the right *name* and still not to the right
+*storage*. `set_file_status` wrote through `set_str`, which keys by
+`storage_key` — that follows REDEFINES but not the parameter aliases
+`resolve_name` owns. A status item can be a LINKAGE item, and then it **is** the
+caller's storage rather than a slot of its own: IC227A-1 declares `FILE STATUS
+IS LINKAGE-FS`, its caller's third argument. The write filled a slot nobody
+reads and the argument never moved — `UNEXPECTED FILE STATUS VALUE RETURNED`.
+It resolves the name the way every other statement does.
+
+**IC227A: 11 failures → 1**, and 8 of its 23 tests executing successfully → 18.
+The module goes 212 → 222 assertions passing, 44 → 34 failing, 82.8% → 86.7%.
+The clean-program count stays 10 of 25: IC227A's last failure is a different
+cause, the EXTERNAL *record area* rather than the status item.
+
+Runtime suite 99 binaries green; the whole-suite compile census held exactly at
+410/421. The full protected-baseline gate runs at module completion, per the
+2026-08-29 ruling — this change is in the runtime, not the front end.
+
 ## [PowerRustCOBOL 1.62.88] — 2026-08-29
 
 **NIST CCVS85 Source Text Manipulation (SM) is baselined: 0 → 4 of 17**, with
