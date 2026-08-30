@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.91] — 2026-08-30
+
+### Added — probes pinning what a group's storage guarantees
+
+No behaviour change. Five tests in `test_linkage_layout_probe.rs` assert the
+storage properties that binding a LINKAGE parameter by byte offset depends on,
+because an attempt at that binding failed for reasons reading the code did not
+settle and guessing twice would have been worse than measuring once.
+
+For the shape CCVS85 IC203A and IC205A disagree about — two bytes declared as
+`02 DN6 PIC X OCCURS 2 TIMES` on one side and as `02 TV-1 PIC X` plus
+`02 TV-2 PIC X` on the other — they establish that both descriptions report the
+same width, that no item reports a width of zero (the unsubscripted name of an
+OCCURS item included), that each occurrence is addressable and holds its own
+byte, and that **writing an occurrence surfaces in the group**, which is the
+direction a called program writes in.
+
+All five hold. That is worth recording as tests rather than as a note: they were
+the two leading explanations for the failure, both are now excluded, and the
+next person to touch this would otherwise re-derive them.
+
 ## [PowerRustCOBOL 1.62.90] — 2026-08-30
 
 ### Fixed — the inter-program facility is flagged as above the high subset
