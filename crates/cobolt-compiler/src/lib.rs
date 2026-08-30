@@ -1276,9 +1276,26 @@ fn build_core(
         .iter()
         .fold(runtime_features::RuntimeFeatures::default(), |acc, u| {
             acc.union(runtime_features::scan_program(u.program))
-        });
+        })
+        // …plus what the designed forms need. A RestClient or Maps control is
+        // reached by method call on a control id, which no reading of the AST
+        // can tell from any other method call — the `.cfrm` is where a
+        // control's type is actually stated.
+        .union(runtime_features::scan_forms(
+            form_formats
+                .as_ref()
+                .map(|(parsed, _)| parsed.iter().map(|(_, _, f)| f).collect::<Vec<_>>())
+                .unwrap_or_default()
+                .into_iter(),
+        ));
     if !features.sql {
         log("   no SQL verb reached — building without the SQLite/PostgreSQL/MySQL drivers (no C toolchain needed)");
+    }
+    if !features.http {
+        log("   no HTTP verb reached — building without the REST client (no platform TLS needed)");
+    }
+    if !features.maps {
+        log("   no Maps control — building without the Google Maps client");
     }
 
     let blocks = exec_rust::generate_all(&units, has_forms);

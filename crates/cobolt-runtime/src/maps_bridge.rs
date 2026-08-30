@@ -26,6 +26,7 @@
 /// Run one Maps data verb synchronously (blocking the calling — background
 /// — thread only). `args` are the verb's own parameters, already
 /// COBOL-value-to-string converted by the caller.
+#[cfg(feature = "maps")]
 pub fn run(api_key: &str, verb: &str, args: &[String]) -> Result<String, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -34,6 +35,22 @@ pub fn run(api_key: &str, verb: &str, args: &[String]) -> Result<String, String>
     runtime.block_on(run_async(api_key, verb, args))
 }
 
+/// The Maps data verbs were left out of the build.
+///
+/// `google_maps` is `reqwest` + `tokio` — a large async stack that a program
+/// with no Maps control never touches. The message travels back through the
+/// same `Err` the API's own failures use.
+#[cfg(not(feature = "maps"))]
+pub fn run(_api_key: &str, verb: &str, _args: &[String]) -> Result<String, String> {
+    Err(format!(
+        "the Maps bridge is not linked into this program, so `{verb}` cannot \
+         run: the build found no Maps control and no CALL that reaches one, and \
+         left the Google Maps client out. Add a Maps control to a form, or CALL \
+         the verb by its literal name somewhere the build can see it"
+    ))
+}
+
+#[cfg(feature = "maps")]
 async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String, String> {
     let client = google_maps::Client::try_new(api_key)
         .map_err(|e| format!("Maps client: {e}"))?;
@@ -221,6 +238,7 @@ async fn run_async(api_key: &str, verb: &str, args: &[String]) -> Result<String,
 ///
 /// Falls back to the overview line when a response carries no steps at all: a
 /// coarse route still beats no route.
+#[cfg(feature = "maps")]
 fn road_polyline(route: &google_maps::directions::response::route::Route) -> String {
     let points = join_steps(
         route
@@ -240,6 +258,7 @@ fn road_polyline(route: &google_maps::directions::response::route::Route) -> Str
 /// Split out from [`road_polyline`] so the joining rule can be tested: the rest
 /// of that function needs a live `Directions` response, and a rule only
 /// exercised by a credentialed network call is a rule nothing checks.
+#[cfg(feature = "maps")]
 fn join_steps<'a>(steps: impl Iterator<Item = &'a str>) -> Vec<cobolt_forms::map_geometry::LatLng> {
     let mut points: Vec<cobolt_forms::map_geometry::LatLng> = Vec::new();
     for step in steps {
@@ -268,7 +287,7 @@ fn join_steps<'a>(steps: impl Iterator<Item = &'a str>) -> Vec<cobolt_forms::map
 /// overflow whatever the developer declared and truncate silently.
 const GEOMETRY_BUDGET: usize = 4_000;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "maps"))]
 mod tests {
     use super::*;
     use cobolt_forms::map_geometry::{decode_polyline, encode_polyline, LatLng};

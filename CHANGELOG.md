@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.87] — 2026-08-29
+
+### Fixed — a console program no longer builds a TLS stack it never uses
+
+The companion to 1.62.9, one platform down. That change stopped every
+application compiling SQLite; this one stops a console program linking the
+network.
+
+`ureq` and `native-tls` were unconditional dependencies of `cobolt-runtime`, and
+`native-tls` on **Linux** is OpenSSL — so building any application there needed
+`libssl-dev` and a C compiler for `openssl-sys`, whether or not the program had
+ever heard of HTTP. `google_maps` was unconditional too: `reqwest` plus `tokio`,
+the largest single dependency the runtime carries, compiled into programs with
+no Maps control anywhere.
+
+Both are now features, on by default, and the generated manifest turns them off
+for a program that provably reaches neither. `openssl-sys` and `tokio` leave the
+dependency graph outright — verified with `cargo tree --target
+x86_64-unknown-linux-gnu`, since on macOS `native-tls` uses Security.framework
+and the problem is invisible.
+
+**Maps is decided by the form, not the COBOL.** `MAPS-1::Geocode` is a method
+call on a control id, and nothing in the AST distinguishes it from any other
+method call — `GET` on a RestClient reads exactly like `GET` on anything else.
+So the `.cfrm` is what gets read: a project with a Maps or WebSearch control
+links the client, one without it does not. That is the change that saves the
+most, because an ordinary form application has no Maps control at all.
+
+**HTTP is linked for every form application on purpose**, without inspecting
+anything. `cobolt-forms`'s `render` feature fetches OSM basemap tiles with its
+own `ureq`, so a form application links the platform TLS stack whatever this
+decides — there is nothing to win by being clever and a working program to lose.
+Console programs are the ones that can actually shed OpenSSL, they own no
+controls, and their HTTP arrives as a `CALL` the build can read.
+
+A `CALL` whose target is a data item rather than a literal now links **all
+three** bridges rather than just SQL: the name is only known at run time, so it
+could be any verb. The earlier version conceded that for SQL and quietly assumed
+it about the others.
+
+Off-builds report through each bridge's existing failure channel — HTTP through
+`(body, status 0)`, exactly where a refused connection lands, Maps through the
+`Err` its own API failures use — and each message names the build decision and
+how to reverse it, rather than reading as an ordinary network fault.
+
+⚠️ Every optional bridge is now separable, and none of them changes what a
+default build of this workspace links: `rcrun`, the IDE and every test keep the
+full surface.
+
 ## [PowerRustCOBOL 1.62.86] — 2026-08-29
 
 **`BY CONTENT` hands over the value, not the storage** — and the `BY` phrase

@@ -55,23 +55,50 @@ const SQL_CALLS: &[&str] = &[
 /// Rust paths a block would name to reach the SQL runtime directly.
 const SQL_RUST_PATHS: &[&str] = &["db_runtime", "DbRegistry", "rusqlite", "postgres", "mysql"];
 
+/// The REST client's CALL surface (spec Phase 10).
+const HTTP_CALLS: &[&str] = &[
+    "COBOL-HTTP-GET",
+    "COBOL-HTTP-POST",
+    "COBOL-HTTP-PUT",
+    "COBOL-HTTP-DELETE",
+    "COBOL-HTTP-SET-HEADER",
+    "COBOL-HTTP-CLEAR-HEADERS",
+];
+
+/// Rust paths a block would name to reach the HTTP runtime directly.
+const HTTP_RUST_PATHS: &[&str] = &["http_runtime", "HttpClient", "ureq", "native_tls"];
+
+/// Rust paths a block would name to reach the Maps runtime directly.
+const MAPS_RUST_PATHS: &[&str] = &["maps_bridge", "google_maps"];
+
 /// What a program needs linked, unioned across every program in the build.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RuntimeFeatures {
-    /// SQLite / PostgreSQL / MySQL. The only one that costs a C toolchain.
+    /// SQLite / PostgreSQL / MySQL. Costs a C toolchain everywhere.
     pub sql: bool,
+    /// The REST client. Costs OpenSSL development files on Linux.
+    pub http: bool,
+    /// The Google Maps data verbs. Pure Rust, but the largest dependency the
+    /// runtime carries.
+    pub maps: bool,
 }
 
 impl RuntimeFeatures {
     /// Everything on — the answer whenever the build cannot read the program.
     pub fn all() -> Self {
-        Self { sql: true }
+        Self {
+            sql: true,
+            http: true,
+            maps: true,
+        }
     }
 
     /// Fold in another program's needs.
     pub fn union(self, other: Self) -> Self {
         Self {
             sql: self.sql || other.sql,
+            http: self.http || other.http,
+            maps: self.maps || other.maps,
         }
     }
 
@@ -85,8 +112,58 @@ impl RuntimeFeatures {
         if self.sql {
             names.push("\"sql\"");
         }
+        if self.http {
+            names.push("\"http\"");
+        }
+        if self.maps {
+            names.push("\"maps\"");
+        }
         names.join(", ")
     }
+}
+
+/// What the project's **forms** need, which no COBOL statement reveals.
+///
+/// The REST, Maps and WebSearch controls are reached by *method invocation* on
+/// a control id (`MAPS-1::Geocode`), and the AST cannot tell one method call
+/// from another — `GET` on a RestClient looks exactly like `GET` on anything
+/// else. The designed form says what a control actually is, so that is what
+/// gets read.
+///
+/// **HTTP is linked for any form application at all**, deliberately, and not
+/// because a RestClient might be hiding: `cobolt-forms`'s `render` feature
+/// fetches OSM basemap tiles with its own `ureq`, so a form application links
+/// the platform TLS stack whatever this says. There is nothing to win by being
+/// clever and a working program to lose. Console programs — the ones that can
+/// actually shed OpenSSL — own no controls, and their HTTP shows up as a `CALL`.
+pub fn scan_forms<'a>(forms: impl IntoIterator<Item = &'a cobolt_forms::Form>) -> RuntimeFeatures {
+    let mut found = RuntimeFeatures::default();
+    for form in forms {
+        // Any form → HTTP. See above.
+        found.http = true;
+        for ctrl in flatten(&form.controls) {
+            if matches!(
+                ctrl.control_type,
+                cobolt_forms::ControlType::Maps | cobolt_forms::ControlType::WebSearch
+            ) {
+                found.maps = true;
+            }
+        }
+    }
+    found
+}
+
+/// Every control in the tree, containers included.
+fn flatten(controls: &[cobolt_forms::Control]) -> Vec<&cobolt_forms::Control> {
+    let mut out = Vec::new();
+    fn rec<'a>(list: &'a [cobolt_forms::Control], out: &mut Vec<&'a cobolt_forms::Control>) {
+        for c in list {
+            out.push(c);
+            rec(&c.children, out);
+        }
+    }
+    rec(controls, &mut out);
+    out
 }
 
 /// Read one program — and its nested programs — for what it needs.
@@ -100,29 +177,39 @@ pub fn scan_program(program: &Program) -> RuntimeFeatures {
                     if SQL_CALLS.contains(&upper.as_str()) {
                         found.sql = true;
                     }
+                    if HTTP_CALLS.contains(&upper.as_str()) {
+                        found.http = true;
+                    }
                 }
                 // The verb is computed at run time. Nothing in the source says
-                // what it will be, so the build cannot rule SQL out.
-                None => found.sql = true,
+                // what it will be, so the build can rule nothing out.
+                None => found = found.union(RuntimeFeatures::all()),
             },
-            Stmt::ExecRust { source, .. } => {
-                if SQL_RUST_PATHS.iter().any(|p| source.contains(p)) {
-                    found.sql = true;
-                }
-            }
+            Stmt::ExecRust { source, .. } => found = found.union(scan_rust(source)),
             _ => {}
         }
     });
     // An item-level block is Rust at module scope; it can name the runtime too.
     for item in &program.rust_items {
-        if SQL_RUST_PATHS.iter().any(|p| item.source.contains(p)) {
-            found.sql = true;
-        }
+        found = found.union(scan_rust(&item.source));
     }
     for nested in &program.nested_programs {
         found = found.union(scan_program(nested));
     }
     found
+}
+
+/// What a block's Rust source reaches into, by the module names it mentions.
+///
+/// A block calls Rust APIs directly, so a bridge it names has to be linked or
+/// the generated crate will not compile — a build failure against the
+/// developer's own line, for a decision they never made.
+fn scan_rust(source: &str) -> RuntimeFeatures {
+    RuntimeFeatures {
+        sql: SQL_RUST_PATHS.iter().any(|p| source.contains(p)),
+        http: HTTP_RUST_PATHS.iter().any(|p| source.contains(p)),
+        maps: MAPS_RUST_PATHS.iter().any(|p| source.contains(p)),
+    }
 }
 
 /// The literal text of a `CALL` target, or `None` when it is computed.
@@ -179,13 +266,40 @@ mod tests {
         )
     }
 
-    /// The whole point: a program that never touches SQL is built without it,
-    /// and therefore without a C toolchain.
+    /// The whole point: a console program that touches none of the bridges is
+    /// built without any of them — no C toolchain for SQLite, no platform TLS.
     #[test]
-    fn a_plain_program_needs_no_sql() {
+    fn a_plain_program_needs_nothing() {
         let f = scan(&prog("    DISPLAY \"hello\".\n    STOP RUN."));
         assert!(!f.sql, "nothing here reaches a database");
+        assert!(!f.http, "…nor the network");
+        assert!(!f.maps, "…nor Maps");
         assert_eq!(f.as_toml_features(), "");
+    }
+
+    #[test]
+    fn a_literal_http_call_links_the_client() {
+        for verb in HTTP_CALLS {
+            let f = scan(&prog(&format!(
+                "    CALL \"{verb}\" USING WS-VERB.\n    STOP RUN."
+            )));
+            assert!(f.http, "{verb} should link the REST client");
+            assert!(!f.sql, "{verb} has nothing to do with databases");
+        }
+    }
+
+    /// Each bridge is asked for by name, so a program using two links two.
+    #[test]
+    fn the_feature_list_names_exactly_what_is_reached() {
+        let f = scan(&prog(
+            "    CALL \"COBOL-OPEN-DB\" USING WS-VERB, WS-H, WS-S.\n\
+             \x20   CALL \"COBOL-HTTP-GET\" USING WS-VERB, WS-VERB, WS-H.\n    STOP RUN.",
+        ));
+        assert_eq!(
+            f.as_toml_features(),
+            "\"sql\", \"http\"",
+            "Maps was never mentioned and must not be linked"
+        );
     }
 
     #[test]
@@ -211,15 +325,18 @@ mod tests {
     /// A verb assembled at run time cannot be read, so the build must not
     /// guess that it is harmless — this is the case that would otherwise fail
     /// only once built, having worked all along under Run Form.
+    ///
+    /// It could be *any* verb, so it links **everything**, not just SQL.
     #[test]
-    fn a_computed_call_target_keeps_sql() {
+    fn a_computed_call_target_links_everything() {
         let f = scan(&prog(
             "    MOVE \"COBOL-OPEN-DB\" TO WS-VERB.\n\
              \x20   CALL WS-VERB USING WS-VERB, WS-H, WS-S.\n    STOP RUN.",
         ));
-        assert!(
-            f.sql,
-            "a CALL through a data item could be any verb — link it"
+        assert_eq!(
+            f,
+            RuntimeFeatures::all(),
+            "a CALL through a data item could be any verb — link all of them"
         );
     }
 
@@ -264,10 +381,76 @@ mod tests {
     #[test]
     fn union_and_all_behave() {
         let none = RuntimeFeatures::default();
-        let sql = RuntimeFeatures { sql: true };
+        let sql = RuntimeFeatures {
+            sql: true,
+            ..Default::default()
+        };
         assert!(!none.union(none).sql);
         assert!(none.union(sql).sql);
-        assert!(RuntimeFeatures::all().sql);
+        assert!(!none.union(sql).http, "union must not invent a feature");
+        let all = RuntimeFeatures::all();
+        assert!(all.sql && all.http && all.maps);
+        assert_eq!(all.as_toml_features(), "\"sql\", \"http\", \"maps\"");
+    }
+
+    /// A Maps control is reached by method call on a control id, which the AST
+    /// cannot distinguish from any other method call — so the DESIGN is read.
+    #[test]
+    fn a_maps_control_links_the_maps_client() {
+        let with_maps = form_with(cobolt_forms::ControlType::Maps);
+        let f = scan_forms([&with_maps]);
+        assert!(f.maps, "the form owns a Maps control");
+        assert!(f.http, "any form links TLS through the basemap fetcher anyway");
+        assert!(!f.sql, "a Maps control says nothing about databases");
+    }
+
+    /// A form application WITHOUT a Maps control sheds the Google Maps client —
+    /// this is the case that saves the most, since `google_maps` is `reqwest`
+    /// plus `tokio`.
+    #[test]
+    fn an_ordinary_form_does_not_link_maps() {
+        let plain = form_with(cobolt_forms::ControlType::Button);
+        let f = scan_forms([&plain]);
+        assert!(!f.maps, "no Maps control, no Maps client");
+        assert!(f.http, "…but TLS is linked regardless, by cobolt-forms");
+    }
+
+    /// A WebSearch control rides the same client.
+    #[test]
+    fn a_websearch_control_links_maps_too() {
+        let ws = form_with(cobolt_forms::ControlType::WebSearch);
+        assert!(scan_forms([&ws]).maps);
+    }
+
+    /// No forms at all — the console case, and the only one that can shed TLS.
+    #[test]
+    fn no_forms_asks_for_nothing() {
+        assert_eq!(scan_forms(std::iter::empty()), RuntimeFeatures::default());
+    }
+
+    /// A Maps control nested inside a container is still a Maps control.
+    #[test]
+    fn a_control_inside_a_container_is_found() {
+        let mut panel = control("PANEL-1", cobolt_forms::ControlType::GroupBox);
+        panel
+            .children
+            .push(control("MAPS-1", cobolt_forms::ControlType::Maps));
+        let mut form = cobolt_forms::Form::new("F", "F", 800, 600);
+        form.controls = vec![panel];
+        assert!(
+            scan_forms([&form]).maps,
+            "the tree is walked, not just its top level"
+        );
+    }
+
+    fn control(id: &str, kind: cobolt_forms::ControlType) -> cobolt_forms::Control {
+        cobolt_forms::Control::new(id, kind, 0, 0)
+    }
+
+    fn form_with(kind: cobolt_forms::ControlType) -> cobolt_forms::Form {
+        let mut form = cobolt_forms::Form::new("F", "F", 800, 600);
+        form.controls = vec![control("C-1", kind)];
+        form
     }
 
     /// The manifest must both cut the defaults and state what it wants. Naming
@@ -292,8 +475,26 @@ mod tests {
 
         let full = crate::base_dependency_block(dir, false, RuntimeFeatures::all());
         assert!(
-            full.contains("features = [\"sql\"]"),
-            "a program that uses SQL asks for it:\n{full}"
+            full.contains("features = [\"sql\", \"http\", \"maps\"]"),
+            "a program that reaches everything asks for everything:\n{full}"
+        );
+
+        // One bridge on, the others off — the list is not all-or-nothing.
+        let sql_only = crate::base_dependency_block(
+            dir,
+            false,
+            RuntimeFeatures {
+                sql: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            sql_only.contains("features = [\"sql\"]"),
+            "SQL alone asks for SQL alone:\n{sql_only}"
+        );
+        assert!(
+            !sql_only.contains("\"http\"") && !sql_only.contains("\"maps\""),
+            "…and drags nothing else in:\n{sql_only}"
         );
 
         // A form application reaches the runtime through the form host too, and

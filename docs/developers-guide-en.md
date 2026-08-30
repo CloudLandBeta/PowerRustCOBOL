@@ -6563,8 +6563,18 @@ flowchart LR
 > drivers. You do not have to declare anything; the point is only that a plain
 > program no longer pays for a database it never opens.
 >
-> ⚠️ On **Linux**, `COBOL-HTTP-*` and the Maps control still reach OpenSSL, so a
-> program using those needs the system TLS development package regardless.
+> The same applies to the network. `COBOL-HTTP-*` reaches the operating
+> system's TLS stack, which on **Linux** is OpenSSL — another C library, and
+> another development package to install. A console program that calls no HTTP
+> verb is built without it. The Maps client is separate again, and is linked
+> when a form in your project actually carries a **Maps** or **WebSearch**
+> control; a project without one does not pay for it.
+>
+> ⚠️ A **form** application always links TLS, whatever its COBOL does: the map
+> basemap is fetched over HTTPS by the Form Designer's own renderer, so the
+> stack is there regardless. On Linux, that means a form application still wants
+> the system TLS development package. It is the **console** programs that build
+> with nothing but Rust.
 - **`dist/`** is reserved for a future "bundle everything needed to run on a
   machine without PowerRustCOBOL" feature (binary + assets + any libraries +
   launcher). For now, ship `bin/` and the copied assets.
