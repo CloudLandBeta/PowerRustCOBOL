@@ -179,3 +179,40 @@ fn writing_an_occurrence_surfaces_in_the_group() {
          the program that owns the table"
     );
 }
+
+/// **An alias is only ever looked up by BASE NAME**, so an alias entry written
+/// against one occurrence is never consulted by anything.
+///
+/// This is the property that settles the `pairing-linkage-leaves-by-byte-offset`
+/// dead end. `resolve_name` resolves the *unsubscripted* leaf and consults
+/// `addr_aliases` with that; the subscript is appended by the caller
+/// afterwards. So `DN6(1) -> TV-1` sits in the map and nothing reads it, and a
+/// per-occurrence offset mapping binds strictly LESS than the positional
+/// pairing it replaced — which is exactly the IC203A 1 -> 7 that was measured
+/// and reverted at 1.62.90.
+///
+/// The consequence for the design: IC203A's shape (`02 DN6 PIC X OCCURS 2`
+/// against `02 TV-1 PIC X` + `02 TV-2 PIC X`) cannot be expressed as an
+/// item-to-item alias at all, so it needs the shared-buffer model rather than
+/// a better offset walk.
+#[test]
+fn a_subscripted_alias_key_is_never_consulted() {
+    let mut env = cobolt_runtime::CobolEnvironment::new();
+    env.set_alias("DN6(1)", "TV-1");
+
+    // Exactly what the interpreter does for a reference `DN6 (1)`: resolve the
+    // leaf, then apply the subscript to whatever came back.
+    let resolved = env.resolve_name("DN6", &[]);
+    let key = cobolt_runtime::environment::subscript_key(&resolved, &[1]);
+
+    assert_eq!(
+        key, "DN6(1)",
+        "the per-occurrence alias was consulted after all — if this ever fails, \
+         the offset mapping in the ledger becomes viable and the dead end \
+         pairing-linkage-leaves-by-byte-offset should be re-read"
+    );
+    assert_eq!(
+        resolved, "DN6",
+        "resolve_name must not have found an alias keyed by a subscripted name"
+    );
+}
