@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.121] — 2026-08-31
+
+### Pseudo-text matches by text words
+
+`COPY … REPLACING ==a== BY ==b==` (and `REPLACE`) matched pseudo-text
+with a verbatim string compare, but the operand and the copybook wrap
+their lines differently, so a multi-word operand could never match.
+Matching is now by whitespace-normalized text-word sequences,
+case-insensitive, with trailing separators detached as words of their
+own (`…X(115)` matches the copybook's glued `X(115).`).
+
+SM (Source text manipulation): 9 → 10 of 17 clean (SM201A), 271 → 281
+PASS / 10 FAIL; SM208A compiles — whole-suite compile 414 → 415 of 421
+(98.6%). Full gate: NC, SQ, IX, RL, IF, IC, ST all exact.
+
 ## [PowerRustCOBOL 1.62.120] — 2026-08-31
 
 ### SM — the copybooks speak the same cards as the members

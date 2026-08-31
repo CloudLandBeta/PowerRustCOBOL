@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.120",
+ "measured_at_version": "1.62.121",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -45,9 +45,9 @@
   "effect": "38 programs excluded from every score. The in-scope suite is 421, not 434."
  },
  "whole_suite_compile": {
-  "pass": 414,
+  "pass": 415,
   "in_scope": 421,
-  "note": "98.3% at 1.62.119; ST139A/ST140A joined with the COLLATING SEQUENCE clause"
+  "note": "98.6% at 1.62.121; SM208A joined via text-word pseudo-text matching"
  },
  "modules": {
   "NC": {
@@ -182,16 +182,16 @@
    "name": "Source text manipulation",
    "state": "in_flight",
    "compile": [
-    14,
+    15,
     17
    ],
    "execution": [
-    9,
+    10,
     17
    ],
    "assertions": {
-    "pass": 271,
-    "fail": 9,
+    "pass": 281,
+    "fail": 10,
     "deleted": 0
    },
    "baselined_at": "1.62.88 \u2014 measured for the first time while answering a question about the XXXXD001 data card. Before this run it was 0 of 17 with 8 PASS / 15 FAIL; two harness-fidelity fixes took it to 4 of 17 and 25 PASS / 9 FAIL (73.5%) with no runtime change at all.",
@@ -733,7 +733,7 @@
    "assertions_pass": 309,
    "assertions_fail": 0
   },
-  "whole_suite_compile_pass": 414,
+  "whole_suite_compile_pass": 415,
   "ST": {
    "compile": [
     40,
@@ -751,6 +751,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.121",
+   "change": "Pseudo-text REPLACING matches by TEXT WORDS \u2014 SM201A clean, SM208A compiles: SM 9/17 271/10 -> 10/17 281/10, compile 414 -> 415/421",
+   "effect": "apply_pairs did a verbatim str::replace for a multi-word operand, but the operand and the copybook wrap lines differently, so ==\u2026== text could never match (SM201A COPY-TEST-11 silently kept TST-FLD-1). replace_token_seq compares whitespace-normalized word sequences case-insensitively, with trailing separators (. , ;) detached as their own text words \u2014 the operand \u2026X(115) must match the copybook\u2019s glued X(115). \u2014 and serves COPY REPLACING and the REPLACE statement alike. Regression: copybook.rs pseudo_text_matches_by_text_words_across_line_breaks. FULL GATE (lexer change): NC/SQ/IX/RL/IF/IC/ST all exact; lexer suite 0 failures. Remaining SM: SM204A 4, SM207A 1, SM301M 1, SM401M 2, SM208A 2 (10 assertions) + SM202A/SM206A compile."
+  },
   {
    "version": "1.62.120",
    "change": "SM: two harness-fidelity repairs \u2014 copybook X-cards canonicalize, and the execution pass expands COPY before judging compilability. 4/17 -> 9/17, 32 PASS / 9 FAIL -> 271 / 9",

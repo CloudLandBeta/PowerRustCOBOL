@@ -421,10 +421,94 @@ fn apply_pairs(text: &str, pairs: &[(String, String)]) -> String {
         if is_single_word(from) {
             out = replace_word(&out, from, to);
         } else {
-            out = out.replace(from.as_str(), to);
+            // A multi-word operand is pseudo-text, and pseudo-text matches by
+            // TEXT WORDS, not by bytes: the operand and the copybook wrap
+            // their lines differently, so a verbatim `str::replace` can never
+            // find `==02 TST-FLD-1  PICTURE 9(5). 02 FILLER\n PICTURE
+            // X(115)==` inside K101A (CCVS85 SM201A COPY-TEST-11 — the
+            // replacement silently never applied and TXT-FLD-1 stayed
+            // undeclared). Compare whitespace-normalized word sequences,
+            // case-insensitively; fall back to the verbatim replace only if
+            // no sequence matched.
+            let (replaced, n) = replace_token_seq(&out, from, to);
+            out = if n > 0 {
+                replaced
+            } else {
+                out.replace(from.as_str(), to)
+            };
         }
     }
     out
+}
+
+/// The text-word positions of `s`: whitespace-split, with a trailing
+/// separator (`.`, `,`, `;`) detached as a word of its own — a separator
+/// period is its own text word, so the operand `…X(115)` must match the
+/// copybook's `…X(115).` up to but not including the period.
+fn seq_words(s: &str) -> Vec<(usize, usize)> {
+    let b = s.as_bytes();
+    let mut words = Vec::new();
+    let mut i = 0usize;
+    while i < b.len() {
+        if b[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < b.len() && !b[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let end = i;
+        // Detach trailing separators, innermost last: `9(5).` → `9(5)` `.`
+        let mut cut = end;
+        while cut > start + 1 && matches!(b[cut - 1], b'.' | b',' | b';') {
+            cut -= 1;
+        }
+        if cut < end {
+            words.push((start, cut));
+            for k in cut..end {
+                words.push((k, k + 1));
+            }
+        } else {
+            words.push((start, end));
+        }
+    }
+    words
+}
+
+/// Replace every occurrence of the text-word sequence `from` (compared
+/// case-insensitively word by word, whitespace- and line-break-insensitive)
+/// with `to`, returning the new text and how many sequences were replaced.
+fn replace_token_seq(text: &str, from: &str, to: &str) -> (String, usize) {
+    let fpos = seq_words(from);
+    if fpos.is_empty() {
+        return (text.to_string(), 0);
+    }
+    let fwords: Vec<&str> = fpos.iter().map(|&(s, e)| &from[s..e]).collect();
+    let words = seq_words(text);
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0usize;
+    let mut n = 0usize;
+    let mut w = 0usize;
+    while w + fwords.len() <= words.len() {
+        let matched = fwords.iter().enumerate().all(|(k, fw)| {
+            let (s, e) = words[w + k];
+            text[s..e].eq_ignore_ascii_case(fw)
+        });
+        if matched {
+            let (s, _) = words[w];
+            let (_, e) = words[w + fwords.len() - 1];
+            out.push_str(&text[copied..s]);
+            out.push_str(to);
+            copied = e;
+            n += 1;
+            w += fwords.len();
+        } else {
+            w += 1;
+        }
+    }
+    out.push_str(&text[copied..]);
+    (out, n)
 }
 
 fn is_single_word(s: &str) -> bool {
@@ -584,6 +668,44 @@ mod tests {
         assert!(
             r.text.contains("REALLY-COPIED"),
             "a stray quote hid the COPY on the next line:\n{}",
+            r.text
+        );
+    }
+
+    /// CCVS85 **SM201A** COPY-TEST-11: pseudo-text matches by TEXT WORDS —
+    /// whitespace- and line-break-insensitive, with a separator period as a
+    /// word of its own. The operand wraps its lines differently from the
+    /// copybook and stops before the copybook's final glued period, so a
+    /// verbatim string replace never matched and the substitution silently
+    /// did not happen.
+    #[test]
+    fn pseudo_text_matches_by_text_words_across_line_breaks() {
+        let d = tmp();
+        write(
+            &d,
+            "K101A",
+            "            .
+    02 TST-FLD-1 PICTURE 9(5).
+    02 FILLER    PICTURE X(115).
+",
+        );
+        let src = "01 TEXT-TEST-1 COPY K101A
+            REPLACING ==02 TST-FLD-1  PICTURE 9(5). 02 FILLER
+                      PICTURE X(115)==
+            BY        ==02 FILLER PICTURE X(115).  02 TXT-FLD-1
+                      PIC 9(5)==.
+";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(
+            r.text.contains("TXT-FLD-1"),
+            "the pseudo-text replacement did not apply:
+{}",
+            r.text
+        );
+        assert!(
+            !r.text.contains("TST-FLD-1"),
+            "the matched text words were left behind:
+{}",
             r.text
         );
     }
