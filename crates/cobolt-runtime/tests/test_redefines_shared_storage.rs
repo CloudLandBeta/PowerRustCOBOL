@@ -186,3 +186,28 @@ fn search_varying_a_foreign_index_still_uses_the_tables_own() {
     ));
     assert_eq!(out, vec!["FOUND"]);
 }
+
+/// CCVS85 **SM208A** REP-TEST-3: a **top-level** `01 FILLER REDEFINES x.`
+/// The synthetic-slot machinery keyed unnamed redefinitions under their
+/// parent, and a level-01 FILLER has none — the redefinition was dropped
+/// whole, and its children read spaces however the redefined item was
+/// filled.
+#[test]
+fn a_top_level_filler_redefines_shares_the_storage() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RDEF01.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 W PIC X(10).
+       01 FILLER REDEFINES W.
+         03 W1 PIC X.
+         03 W2 PIC X(9).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "YABCDEFGHI" TO W.
+           DISPLAY W1 "/" W2.
+           STOP RUN.
+    "#;
+    assert_eq!(run(src), vec!["Y/ABCDEFGHI"]);
+}

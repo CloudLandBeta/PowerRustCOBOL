@@ -1148,6 +1148,57 @@ impl CobolEnvironment {
             return;
         }
 
+        // `01 FILLER REDEFINES x.` — a TOP-LEVEL unnamed redefinition. The
+        // children-loop branch below handles the same shape one level down
+        // (ACCEPT-TEST-14's `02 FILLER REDEFINES …`), but it keys the
+        // synthetic slot under its parent, and a level-01 FILLER has none —
+        // so the redefinition was dropped whole and its children read spaces
+        // however the redefined item was filled. CCVS85 SM208A reads its
+        // 322-byte REPLACE result back through exactly this shape
+        // (`01 FILLER REDEFINES WRK-XN-00322.`). Same treatment, keyed under
+        // the empty parent with a unique index.
+        if !is_named
+            && quals.is_empty()
+            && decl.redefines.is_some()
+            && has_storage_children(decl)
+        {
+            if let Some(target) = &decl.redefines {
+                let fk = filler_key("", self.symbols.len());
+                let overlay_keys: Vec<String> = decl
+                    .children
+                    .iter()
+                    .filter(|g| g.level != 88 && g.level != 66 && g.redefines.is_none())
+                    .filter_map(|g| g.name.as_ref())
+                    .filter(|n| !n.eq_ignore_ascii_case("FILLER"))
+                    .map(|n| self.canon_key(&n.to_ascii_uppercase(), quals))
+                    .collect();
+                if !overlay_keys.is_empty() {
+                    self.symbols.insert(
+                        fk.clone(),
+                        ItemSym {
+                            dims: dims.clone(),
+                            children: Vec::new(),
+                            child_keys: Vec::new(),
+                            layout_keys: overlay_keys,
+                            quals: quals.clone(),
+                            is_group: true,
+                            index_names: Vec::new(),
+                            occurs: 0,
+                            keys: Vec::new(),
+                            scope: Some(scope),
+                            is_global: inherited_global || decl.is_global,
+                            pic: String::new(),
+                            pic_decimals: 0,
+                            origin: origin.to_owned(),
+                            depending_on: None,
+                        },
+                    );
+                    let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
+                    self.redefine_pairs.push((fk, tkey));
+                }
+            }
+        }
+
         if is_named {
             let leaf = upper.clone().unwrap();
             // A record description begins here; every 66 that follows belongs

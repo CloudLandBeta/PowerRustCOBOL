@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.124] — 2026-08-31
+
+### A top-level `01 FILLER REDEFINES` shares its storage
+
+An unnamed redefinition was wired into the overlay machinery only when
+it had a parent to key its synthetic slot under — a level-01 FILLER
+has none, so the whole redefinition was silently dropped and its
+children read spaces regardless of what the redefined item held.
+CCVS85 SM208A reads its 322-byte REPLACE result back through exactly
+this shape.
+
+SM (Source text manipulation): assertions 286 PASS / 5 FAIL → 286 / 4.
+Full gate: NC, SQ, IX, RL, IF, IC, ST all exact; runtime sweep clean.
+
 ## [PowerRustCOBOL 1.62.123] — 2026-08-31
 
 ### COPY reads from the library it names

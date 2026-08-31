@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.123",
+ "measured_at_version": "1.62.124",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -191,7 +191,7 @@
    ],
    "assertions": {
     "pass": 286,
-    "fail": 5,
+    "fail": 4,
     "deleted": 0
    },
    "baselined_at": "1.62.88 \u2014 measured for the first time while answering a question about the XXXXD001 data card. Before this run it was 0 of 17 with 8 PASS / 15 FAIL; two harness-fidelity fixes took it to 4 of 17 and 25 PASS / 9 FAIL (73.5%) with no runtime change at all.",
@@ -751,6 +751,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.124",
+   "change": "A top-level 01 FILLER REDEFINES registers its overlay \u2014 SM208A REP-TEST-3 clean: SM 286/5 -> 286/4",
+   "effect": "The synthetic-slot branch for unnamed redefinitions keyed them under their PARENT (ACCEPT-TEST-14\u2019s 02-level shape) and a level-01 FILLER has none, so the redefinition was dropped whole and its children read spaces. SM208A reads its 322-byte REPLACE result back through exactly this shape. init_decl_h now registers the same synthetic slot keyed under the empty parent. Along the way: the REPLACE of 160 continuation-spanning quote characters by \"Y\" was proven CORRECT in the expander (COBOLT_DUMP_EXPANSION added to rcrun, kept \u2014 env-gated). Regression: test_redefines_shared_storage.rs a_top_level_filler_redefines_shares_the_storage. Gate: full runtime sweep clean (one hang of the KNOWN flaky env::set_var test under load \u2014 passes alone instantly, pre-existing), NC/SQ/IX/RL/IF/IC/ST all exact. Remaining SM: SM208A REP-TEST-8, SM301M 1, SM401M 2, compile SM202A/SM206A."
+  },
   {
    "version": "1.62.123",
    "change": "COPY honours its OF/IN library qualifier \u2014 SM207A clean: SM 11/17 285/6 -> 12/17 286/5",
