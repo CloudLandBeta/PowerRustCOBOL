@@ -700,6 +700,13 @@ pub struct Tr {
     /// Placeholders in order: records done, records total.
     pub kb_indexing: &'static str,
     /// Placeholder: project-relative path of the auto-assigned main form (037 R3).
+    /// Form Designer strip: this `Embedded` form is wider (or taller) than the
+    /// ContentPane the project's main form will give it, so part of it will
+    /// scroll out of sight at run time with no scrollbar to say so.
+    /// `{0}` = the form's designed size, `{1}` = the pane's, `{2}` = the overflow.
+    pub warn_embedded_wider_than_pane: &'static str,
+    /// Hover detail for the strip above — what to do about it.
+    pub warn_embedded_wider_than_pane_hint: &'static str,
     pub status_main_form_assigned: &'static str,
     /// Placeholders in order: kept holder path, count of forms unmarked (037 R3).
     pub status_main_form_trimmed: &'static str,
@@ -2009,6 +2016,8 @@ const EN: Tr = Tr {
     stats_peak_context:        "Peak context (largest single call): ≈{} tokens",
     stats_rag_efficiency:      "RAG efficiency: {}% ({} input tokens saved)",
     kb_indexing:               "Indexing Knowledge Base ({} of {} records)",
+    warn_embedded_wider_than_pane: "This Embedded form is {0}; the main form's ContentPane is {1} — {2} will scroll out of view.",
+    warn_embedded_wider_than_pane_hint: "The form keeps its designed size and scrolls, but the pane's scrollbars are not visible. Narrow this form, or widen the main form, so it fits the pane.",
     status_main_form_assigned: "Main form: {} (auto-assigned — a project always has exactly one)",
     status_main_form_trimmed:  "Main form: {} kept; {} other form(s) unmarked (only one main form per project)",
     status_main_form_now:      "Main form is now {} (was {})",
@@ -3191,6 +3200,8 @@ const ES: Tr = Tr {
     stats_peak_context:        "Contexto máximo (mayor llamada individual): ≈{} tokens",
     stats_rag_efficiency:      "Eficiencia RAG: {}% ({} tokens de entrada ahorrados)",
     kb_indexing:               "Indexando la Base de Conocimiento ({} de {} registros)",
+    warn_embedded_wider_than_pane: "Este formulario Embedded mide {0}; el ContentPane del formulario principal mide {1}: {2} quedará fuera de la vista.",
+    warn_embedded_wider_than_pane_hint: "El formulario conserva su tamaño diseñado y se desplaza, pero las barras de desplazamiento del panel no se ven. Reduzca este formulario, o amplíe el formulario principal, para que quepa en el panel.",
     status_main_form_assigned: "Formulario principal: {} (asignado automáticamente — el proyecto siempre tiene exactamente uno)",
     status_main_form_trimmed:  "Formulario principal: {} conservado; {} otro(s) formulario(s) desmarcado(s) (solo un formulario principal por proyecto)",
     status_main_form_now:      "El formulario principal ahora es {} (antes {})",
@@ -4373,6 +4384,8 @@ const PT: Tr = Tr {
     stats_peak_context:        "Contexto máximo (maior chamada individual): ≈{} tokens",
     stats_rag_efficiency:      "Eficiência RAG: {}% ({} tokens de entrada economizados)",
     kb_indexing:               "Indexando a Base de Conhecimento ({} de {} registros)",
+    warn_embedded_wider_than_pane: "Este formulário Embedded mede {0}; o ContentPane do formulário principal mede {1} — {2} ficará fora da área visível.",
+    warn_embedded_wider_than_pane_hint: "O formulário mantém o tamanho projetado e rola, mas as barras de rolagem do painel não aparecem. Reduza este formulário, ou amplie o formulário principal, para que caiba no painel.",
     status_main_form_assigned: "Formulário principal: {} (atribuído automaticamente — o projeto sempre tem exatamente um)",
     status_main_form_trimmed:  "Formulário principal: {} mantido; {} outro(s) formulário(s) desmarcado(s) (apenas um formulário principal por projeto)",
     status_main_form_now:      "O formulário principal agora é {} (antes {})",
@@ -5554,6 +5567,8 @@ const JA: Tr = Tr {
     stats_peak_context:        "最大コンテキスト（最大の単一呼び出し）: ≈{} トークン",
     stats_rag_efficiency:      "RAG 効率: {}%（入力トークン {} 節約）",
     kb_indexing:               "ナレッジベースを索引中（{} / {} 件）",
+    warn_embedded_wider_than_pane: "この Embedded フォームは {0} ですが、メインフォームの ContentPane は {1} です。{2} が表示範囲外になります。",
+    warn_embedded_wider_than_pane_hint: "フォームは設計サイズのままスクロールしますが、ペインのスクロールバーは表示されません。このフォームを小さくするか、メインフォームを大きくして、ペインに収めてください。",
     status_main_form_assigned: "メインフォーム: {}（自動割り当て — プロジェクトには常にちょうど1つ）",
     status_main_form_trimmed:  "メインフォーム: {} を維持。他の {} 件のフォームのマークを解除（プロジェクトのメインフォームは1つのみ）",
     status_main_form_now:      "メインフォームは {} になりました（以前は {}）",
@@ -6742,6 +6757,8 @@ const ZH: Tr = Tr {
     stats_peak_context: "峰值上下文（最大单次调用）：约 {} 个令牌",
     stats_rag_efficiency: "RAG 效率：{}%（节省 {} 个输入令牌）",
     kb_indexing: "正在索引知识库（{} / {} 条记录）",
+    warn_embedded_wider_than_pane: "此 Embedded 窗体为 {0}，而主窗体的 ContentPane 为 {1} —— 有 {2} 将滚动到视野之外。",
+    warn_embedded_wider_than_pane_hint: "窗体保持设计尺寸并可滚动，但窗格的滚动条不可见。请缩小此窗体，或加宽主窗体，使其适应窗格。",
     status_main_form_assigned: "主窗体：{}（自动指定 — 项目始终恰好有一个主窗体）",
     status_main_form_trimmed: "主窗体：保留 {}；已取消另外 {} 个窗体的标记（每个项目只能有一个主窗体）",
     status_main_form_now: "主窗体现在是 {}（之前是 {}）",
@@ -7925,6 +7942,8 @@ const FR: Tr = Tr {
     stats_peak_context:        "Contexte maximal (plus grand appel individuel) : ≈{} jetons",
     stats_rag_efficiency:      "Efficacité RAG : {}% ({} jetons d'entrée économisés)",
     kb_indexing:               "Indexation de la Base de Connaissances ({} sur {} enregistrements)",
+    warn_embedded_wider_than_pane: "Ce formulaire Embedded fait {0} ; le ContentPane du formulaire principal fait {1} — {2} défilera hors de vue.",
+    warn_embedded_wider_than_pane_hint: "Le formulaire conserve sa taille conçue et défile, mais les barres de défilement du panneau ne sont pas visibles. Réduisez ce formulaire, ou élargissez le formulaire principal, pour qu'il tienne dans le panneau.",
     status_main_form_assigned: "Formulaire principal : {} (assigné automatiquement — le projet en a toujours exactement un)",
     status_main_form_trimmed:  "Formulaire principal : {} conservé ; {} autre(s) formulaire(s) démarqué(s) (un seul formulaire principal par projet)",
     status_main_form_now:      "Le formulaire principal est désormais {} (auparavant {})",

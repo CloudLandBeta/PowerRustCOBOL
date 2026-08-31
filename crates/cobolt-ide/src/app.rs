@@ -627,6 +627,17 @@ pub struct CoboltApp {
     /// first in the list.
     main_form_prev: Vec<Option<String>>,
 
+    /// The ContentPane the project's main form gives a form loaded into it,
+    /// with the `.cfrm` mtime it was read at.
+    ///
+    /// The Form Designer warns when an `Embedded` form is designed larger than
+    /// this, because at run time the surplus scrolls out of sight behind
+    /// scrollbars that reserve no gutter — the operator reads that as controls
+    /// vanishing (2026-08-31). Cached because the answer needs the main form
+    /// off disk and the question is asked every frame; the mtime is the whole
+    /// invalidation rule, so resizing the shell refreshes it by itself.
+    shell_pane_cache: Option<(PathBuf, std::time::SystemTime, egui::Vec2)>,
+
     /// Whether the Help → About window is open.
     about_open: bool,
     /// Whether the Help → Platform SDK Location window is open. The SDK is the
@@ -1495,6 +1506,7 @@ impl CoboltApp {
             welcome_quote_index: 0,
             welcome_quote_start_time: 0.0,
             main_form_prev: Vec::new(),
+            shell_pane_cache: None,
             about_open: false,
             sdk_modal_open: false,
             ai_setup_modal: false,
@@ -4573,6 +4585,38 @@ impl CoboltApp {
     }
 
     // ── Designer actions ──────────────────────────────────────────────────────
+
+    /// The ContentPane the project's main form will give a form loaded into it,
+    /// or `None` when the project has no readable main form to measure.
+    ///
+    /// The rule itself lives in [`cobolt_forms::sidebar::form_content_pane`],
+    /// shared with the running shell, so the designer cannot measure against a
+    /// pane that never exists. Re-read whenever that `.cfrm` changes on disk.
+    fn shell_content_pane(&mut self) -> Option<egui::Vec2> {
+        let proj = self.cobolt_project.as_ref()?;
+        let id = proj.forms.main_form.trim().to_ascii_uppercase();
+        if id.is_empty() {
+            return None;
+        }
+        let dir = self.project_path.as_ref()?.parent()?.to_path_buf();
+        let rel = proj.files.forms.iter().find(|rel| {
+            std::path::Path::new(rel)
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_ascii_uppercase() == id)
+                .unwrap_or(false)
+        })?;
+        let abs = dir.join(rel);
+        let mtime = std::fs::metadata(&abs).and_then(|m| m.modified()).ok()?;
+        if let Some((cached, at, pane)) = &self.shell_pane_cache {
+            if *cached == abs && *at == mtime {
+                return Some(*pane);
+            }
+        }
+        let form = cobolt_forms::load_form(&abs).ok()?;
+        let pane = cobolt_forms::sidebar::form_content_pane(&form);
+        self.shell_pane_cache = Some((abs, mtime, pane));
+        Some(pane)
+    }
 
     fn load_form_from_path(&mut self, path: PathBuf) {
         if self.designers.iter().any(|(p, _)| p == &path) {
@@ -13112,7 +13156,9 @@ pub(crate) fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str 
         // A Switch reports its state as `Checked`, like the other two toggles.
         // It fell through to "Caption", so every toggle the operator made in the
         // preview was discarded on the way back and the switch never moved.
-        CT::CheckBox | CT::RadioButton | CT::Switch => "Checked",
+        // A radio is SELECTED, a check box and a switch are CHECKED.
+        CT::RadioButton => cobolt_forms::model::SELECTED_PROP,
+        CT::CheckBox | CT::Switch => cobolt_forms::model::CHECKED_PROP,
         CT::TabControl => "SelectedTab",
         CT::ComboBox | CT::ListBox | CT::Slider | CT::ProgressBar | CT::NumericUpDown => "Value",
         _ => "Caption",
@@ -13129,7 +13175,11 @@ pub(crate) fn preview_value_key(ct: &cobolt_forms::ControlType) -> &'static str 
 /// toggled however well it was drawn. `PreviewState::live` writes the stored
 /// value into `Checked` either way, so taking the engine's spelling is enough.
 pub(crate) fn preview_accepts_update(expected: &str, key: &str) -> bool {
-    key == expected || (expected == "Checked" && key == "Value")
+    key == expected
+        || (matches!(expected, "Checked" | "Selected") && key == "Value")
+        // Either spelling of a toggle's state satisfies the other, so a
+        // pre-rename handler writing `Checked` to a radio still updates it.
+        || (matches!(expected, "Checked" | "Selected") && matches!(key, "Checked" | "Selected"))
 }
 
 /// A control may report more than one value — a ListBox writes its active row,
@@ -15670,6 +15720,61 @@ impl CoboltApp {
             }
         }
 
+        // ── Pane-overflow warning (design time) ──────────────────────────────
+        // An `Embedded` form is loaded into the main form's ContentPane, and it
+        // keeps its designed size there: the pane does not stretch to hold it
+        // and the form is never scaled down to fit. What does not fit scrolls,
+        // behind floating scrollbars that reserve no gutter — so on screen it
+        // simply is not there, which is how three RadioButtons and half a Label
+        // "vanished" from a 1320-wide form in a 1288-wide pane (operator,
+        // 2026-08-31). Nothing about that behaviour changed; the developer is
+        // told about it here instead, while the size is still theirs to choose.
+        // A Standalone form owns its window and has no pane to overflow.
+        let overflow = {
+            let form = &self.designers[idx].1.form;
+            // `Both` counts too: it is the pane path that can crop a form, and
+            // a `Both` form takes it (`allows_embedded`).
+            let embedded = form.form_format.allows_embedded();
+            let designed = egui::vec2(form.width as f32, form.height as f32);
+            embedded
+                .then(|| self.shell_content_pane())
+                .flatten()
+                .map(|pane| (designed, pane, cobolt_forms::sidebar::occupant_overflow(designed, pane)))
+                .filter(|(_, _, over)| over.x > 0.5 || over.y > 0.5)
+        };
+        if let Some((designed, pane, over)) = overflow {
+            let size = |v: egui::Vec2| format!("{:.0}x{:.0}", v.x, v.y);
+            // Only the axes that actually overflow, so the sentence never
+            // claims a form is too tall when it is merely too wide.
+            let surplus = match (over.x > 0.5, over.y > 0.5) {
+                (true, true) => format!("{:.0}px x {:.0}px", over.x, over.y),
+                (true, false) => format!("{:.0}px", over.x),
+                _ => format!("{:.0}px", over.y),
+            };
+            let text = tr
+                .warn_embedded_wider_than_pane
+                .replacen("{0}", &size(designed), 1)
+                .replacen("{1}", &size(pane), 1)
+                .replacen("{2}", &surplus, 1);
+            // Hardcoded amber-on-dark: a warning must stay legible on all 32
+            // themes, and `ui.visuals()` renders it invisible on the glass ones.
+            const WARN_BG: egui::Color32 = egui::Color32::from_rgb(0x4A, 0x39, 0x0C);
+            const WARN_FG: egui::Color32 = egui::Color32::from_rgb(0xFF, 0xD4, 0x66);
+            egui::Panel::top(format!("dwarn_{idx}"))
+                .exact_size(26.0)
+                .frame(egui::Frame::NONE.fill(WARN_BG))
+                .show_separator_line(false)
+                .show(panel_ui, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("⚠").color(WARN_FG).size(13.0));
+                        ui.add_space(6.0);
+                        ui.label(egui::RichText::new(&text).color(WARN_FG).size(12.0))
+                            .on_hover_text(tr.warn_embedded_wider_than_pane_hint);
+                    });
+                });
+        }
+
         // ── Canvas (centre) ───────────────────────────────────────────────────
         // 007 — resolve the form's theme (per-form override ?? project default ??
         // Liquid Glass) and hand the designer its asset pack for this frame.
@@ -16918,22 +17023,30 @@ mod preview_alpha_tests {
 
     /// Clicking a toggle in the preview has to survive the trip back into the
     /// preview's value map. The engine reports a CheckBox/RadioButton click as
-    /// `Value` and a Switch's as `Checked`, while the map keys all three by
-    /// `Checked` — so the exact-key rule dropped two of the three on the floor.
+    /// `Value` and a Switch's as `Checked`, while the map keys each control by
+    /// one name — so the exact-key rule dropped two of the three on the floor.
+    ///
+    /// The three no longer share ONE key: a radio is `Selected`, a check box
+    /// and a switch are `Checked`. What must still hold is that every spelling
+    /// the engine (or a pre-rename handler) uses reaches the map anyway, which
+    /// is `preview_accepts_update`'s whole job.
     #[test]
     fn a_toggle_click_reaches_the_preview_value_map() {
-        for ct in [
-            ControlType::CheckBox,
-            ControlType::RadioButton,
-            ControlType::Switch,
+        for (ct, key) in [
+            (ControlType::CheckBox, "Checked"),
+            (ControlType::RadioButton, "Selected"),
+            (ControlType::Switch, "Checked"),
         ] {
             let expected = preview_value_key(&ct);
-            assert_eq!(expected, "Checked");
+            assert_eq!(expected, key, "{ct:?} is keyed by its own state property");
             assert!(
                 preview_accepts_update(expected, "Value"),
                 "{ct:?}: the engine's own spelling must be accepted"
             );
+            // Either spelling satisfies the other, so a handler written before
+            // the rename still moves a radio.
             assert!(preview_accepts_update(expected, "Checked"), "{ct:?}");
+            assert!(preview_accepts_update(expected, "Selected"), "{ct:?}");
             assert!(
                 !preview_accepts_update(expected, "Caption"),
                 "{ct:?}: unrelated keys still do not belong in a one-value map"

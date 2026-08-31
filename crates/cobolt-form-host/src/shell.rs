@@ -574,10 +574,15 @@ impl Shell {
             gradient_start_hex: mp.gradient_start_color.clone(),
             gradient_end_hex: mp.gradient_end_color.clone(),
             gradient_direction: mp.gradient_direction.clone(),
-            // The image is resolved to a texture by the hosting glue; the
-            // shell paints colour + gradient. (Same contract as the engine:
-            // "the engine has no texture cache".)
-            image: None,
+            // The engine has no texture cache, so the CALLER resolves the
+            // path — and for the rail that caller is this function. It used to
+            // hardcode `None` and defer to "the hosting glue", which never did
+            // it: `MenuPaneImage` and its five-mode `MenuPaneImageMode` were
+            // offered in the properties panel and persisted in the `.cfrm`,
+            // and no surface ever painted a single pixel of them (operator's
+            // background-mode audit, 2026-08-31).
+            image: cobolt_forms::paint::cached_image_texture(ui.ctx(), &mp.image)
+                .map(|t| (t.id(), t.size_vec2())),
             image_mode: mp.image_mode,
             use_theme_background: false,
             window_size: None,
@@ -1519,6 +1524,12 @@ pub fn shell_width_for_pane(current: f32, open_w: f32, collapsed_w: f32, opening
 /// it smaller — this only bounds what a rail toggle does on its own.
 pub const MIN_SHELL_WIDTH: f32 = 480.0;
 
+/// The ContentPane rule, and how far an occupant overflows it, both live in
+/// [`cobolt_forms::sidebar`] — the crate every surface shares. The Form
+/// Designer needs the same answer at design time, and the IDE takes no
+/// runtime dependency on this crate.
+pub use cobolt_forms::sidebar::{content_pane_size, occupant_overflow};
+
 /// The size a shell window opens at, for a form designed `form_w` x `form_h`.
 ///
 /// The form's designed width already spans the rail's column AND the content
@@ -2056,6 +2067,215 @@ mod tests {
     /// surface those panels were added to. So the assertion is against the
     /// shell's own `content_rect` — one number, from the shell's bookkeeping,
     /// not a hand-computed guess at where the rail ends.
+    /// A ContentPane occupant keeps its DESIGNED size, so a pane narrower than
+    /// the form pushes the right-hand controls out of view — silently.
+    ///
+    /// This is the mechanism behind "the RadioButtons are missing and Label-2
+    /// loses its face" (operator, 2026-08-31, PowerDemo3's `datagrid-form`: an
+    /// `Embedded` form 1320 wide). The controls are painted, at the right
+    /// place, in the right colours — the shapes and their fills are identical
+    /// to the designer's, and the radios' captions are opaque white with an
+    /// opaque green selected dot. They are simply drawn past the pane's right
+    /// edge, and `child_frame` styles the occupant's scroll area with
+    /// `ScrollStyle::floating()`, which reserves no gutter: nothing on screen
+    /// says the form continues to the right.
+    ///
+    /// The old lead — that the vanishing set was distinguished by `y`, and
+    /// later by `x >= 568` — was a coincidence of this form's layout. The real
+    /// discriminator is a control's RIGHT EDGE against the pane's, which is
+    /// why Label-1 (ends at 488) survives every width Label-2 (ends at 1272)
+    /// does not.
+    ///
+    /// What this test locks down:
+    ///
+    /// - a pane WIDER than the form holds every control — placement itself is
+    ///   correct, and no future change may start clipping there;
+    /// - each control sits at the pane origin plus its designed offset, at its
+    ///   designed size — the form neither reflows nor scales to fit;
+    /// - narrowing the pane drops controls right-to-left, at the widths
+    ///   measured here.
+    ///
+    /// The third assertion is a CHARACTERIZATION of the defect, not an
+    /// endorsement of it: whichever remedy the operator picks (visible
+    /// scrollbars, scale-to-fit, a design-time warning) must rewrite it.
+    /// ⚠️ Clipping the form or shrinking it is not on that list — a window may
+    /// never resize itself, and the designed size is a floor, not a ceiling.
+    #[test]
+    fn an_occupant_wider_than_the_pane_loses_its_right_hand_controls() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        // The operator's form, reduced to what decides the outcome: the
+        // designed width and the four controls whose right edges straddle it.
+        const FORM_W: i32 = 1320;
+        const DESIGNED: &[(&str, i32, i32)] = &[
+            // id, x, w  — right edge = x + w
+            ("Label-1", 32, 456),        // ends at  488
+            ("RadioButton-1", 568, 120), // ends at  688
+            ("RadioButton-2", 696, 120), // ends at  816
+            ("RadioButton-3", 824, 136), // ends at  960
+            ("Label-2", 568, 704),       // ends at 1272
+        ];
+
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            let mut f = cobolt_forms::Form::new(up.as_str(), up.as_str(), FORM_W as u32, 720);
+            f.form_format = cobolt_forms::model::FormFormat::Embedded;
+            for (cid, x, w) in DESIGNED {
+                let ty = if cid.starts_with("Radio") {
+                    cobolt_forms::ControlType::RadioButton
+                } else {
+                    cobolt_forms::ControlType::Label
+                };
+                let mut c = cobolt_forms::Control::new(*cid, ty, *x, 16);
+                c.rect = cobolt_forms::model::Rect::new(*x, 16, *w, 45);
+                f.controls.push(c);
+            }
+            Ok((f, program()))
+        });
+
+        let form = cobolt_forms::Form::new("SHELL-FORM", "Shell", 1584, 936);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+        host.ensure_occupant("DATAGRID-FORM").expect("builds");
+        host.show_occupant(Some("DATAGRID-FORM"));
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        // One window width in, one report out: the pane it produced and where
+        // each control landed. Two frames — the first lays the shell out, the
+        // second renders the occupant into it.
+        let mut measure = |shell: &mut Shell,
+                           host: &mut crate::FormHost,
+                           width: f32|
+         -> (Rect, HashMap<String, Rect>) {
+            for _ in 0..2 {
+                let mut full = ctx.run_ui(raw(Vec2::new(width, 936.0)), |root_ui| {
+                    shell.show_with_host(root_ui, |_ui| {}, host);
+                });
+                full.textures_delta.clear();
+            }
+            (
+                host.last_occupant_rect().expect("an occupant owns the pane"),
+                host.last_control_rects().clone(),
+            )
+        };
+
+        // ── 1. A pane WIDER than the form: everything is inside it. ──────────
+        let (pane, rects) = measure(&mut shell, &mut host, 1584.0);
+        assert!(
+            pane.width() > FORM_W as f32,
+            "the premise of this case: pane {:.0} must exceed the form's {FORM_W}",
+            pane.width()
+        );
+        for (id, ..) in DESIGNED {
+            let r = rects
+                .get(*id)
+                .unwrap_or_else(|| panic!("{id} was never rendered at all"));
+            assert!(
+                pane.contains_rect(*r),
+                "{id} at {r:?} must lie inside the pane {pane:?} when the pane \
+                 is the wider of the two — placement is not the defect"
+            );
+        }
+
+        // ── 2. …at the pane origin plus the designed offset, designed size. ──
+        for (id, x, w) in DESIGNED {
+            let r = rects[*id];
+            assert!(
+                (r.min.x - (pane.min.x + *x as f32)).abs() < 0.5,
+                "{id} must sit at the pane's left edge + its designed x \
+                 ({:.0} + {x}), not at {:.0}: the form does not reflow",
+                pane.min.x,
+                r.min.x
+            );
+            assert!(
+                (r.width() - *w as f32).abs() < 0.5,
+                "{id} keeps its designed width {w}, not {:.0}: the form does \
+                 not scale to fit either",
+                r.width()
+            );
+        }
+
+        // ── 3. Narrowing the pane drops controls right-to-left, unannounced. ─
+        // Window width -> the ids that no longer fit. The rail takes
+        // MENU_PANE_OPEN_WIDTH off the left, so a control is lost once
+        // `window - rail` falls below its designed right edge.
+        for (width, expected_lost) in [
+            (1400.0_f32, vec!["Label-2"]),
+            (1000.0, vec!["Label-2", "RadioButton-2", "RadioButton-3"]),
+            (
+                900.0,
+                vec!["Label-2", "RadioButton-1", "RadioButton-2", "RadioButton-3"],
+            ),
+        ] {
+            let (pane, rects) = measure(&mut shell, &mut host, width);
+            let mut lost: Vec<&str> = DESIGNED
+                .iter()
+                .filter(|(id, ..)| !pane.contains_rect(rects[*id]))
+                .map(|(id, ..)| *id)
+                .collect();
+            lost.sort_unstable();
+            let mut want = expected_lost.clone();
+            want.sort_unstable();
+            assert_eq!(
+                lost, want,
+                "at a {width:.0}-wide window the pane is {:.0} wide, and these \
+                 controls fall outside it with no scrollbar to say so",
+                pane.width()
+            );
+            println!(
+                "  window {:.0} -> pane {:.0} wide: {} of {} controls off-pane {:?}",
+                width,
+                pane.width(),
+                lost.len(),
+                DESIGNED.len(),
+                lost
+            );
+        }
+    }
+
     #[test]
     fn a_loaded_form_is_placed_in_the_content_pane_not_the_window() {
         use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};

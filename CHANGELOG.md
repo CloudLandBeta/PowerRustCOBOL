@@ -1,5 +1,218 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.133] — 2026-08-31
+
+### The Form Designer warns when an Embedded form is wider than its ContentPane
+
+An `Embedded` form is loaded into the main form's ContentPane, and it keeps its
+designed size there: the pane does not stretch to hold it, and the form is
+never scaled down to fit. Whatever does not fit scrolls — behind the occupant's
+floating scrollbars, which reserve no gutter. On screen the surplus is simply
+not there and nothing says it exists, which is how three RadioButtons and the
+right-hand half of a Label "disappeared" from `PowerDemo3`'s 1320-wide
+`datagrid-form` (operator, 2026-08-31).
+
+**They were never missing.** The engine paints them correctly on both surfaces:
+the designer's `render_faces` and the run form's `render_form(Interactive)`
+emit the same shapes with the same fills, down to the radios' opaque white
+captions and the selected radio's opaque green dot, and the live-state merge
+(`CtrlState::from_control` → `merge_props`) is lossless across all 275
+properties of that form. They are drawn past the pane's right edge.
+
+The measured mechanism: a control is lost when its **right edge** exceeds the
+pane's — not at some fixed `x`, which is why `Label-1` (ends at 488) survives
+every width `Label-2` (ends at 1272) does not. That shell is 1584x936 with a
+rail the developer drew 296 wide, so its pane is 1288x908 and the 1320-wide
+form overflows by 32 points at the shell's own designed size, and by more as
+the window narrows.
+
+Run-time behaviour is unchanged, by operator ruling: the designed size is a
+floor, not a ceiling, and a window may never resize itself. The developer is
+told at design time instead, while the size is still theirs to choose — an
+amber strip above the designer canvas naming the form's size, the pane's size
+and the surplus, with a hover hint on what to do about it.
+
+- `cobolt-forms::sidebar` — `content_pane_size`, `occupant_overflow` and
+  `form_content_pane` are the ONE place that arithmetic lives; the running
+  shell and the Form Designer both read the pane from there, so they cannot
+  disagree about a rectangle the developer does not see until run time. The
+  rail is the SideMenu **as the developer drew it**, never the host's fixed
+  220 default (049 R38) — measuring against 220 calls this very form a
+  comfortable fit and says nothing at all.
+- `cobolt-form-host::shell` re-exports the pair rather than keeping a second
+  copy; the IDE takes no runtime dependency on the form host.
+- `cobolt-ide` — `CoboltApp::shell_content_pane` resolves the main form from
+  `cobolt.toml`'s designation and caches the answer against that `.cfrm`'s
+  mtime, so resizing the shell refreshes it by itself.
+- i18n — `warn_embedded_wider_than_pane` and its hint, in all six languages.
+
+Tests: `a_shell_form_reports_the_pane_it_will_give_an_occupant`
+(`cobolt-forms`) pins the rule against this project's own numbers, including
+the 220-default trap and the no-SideMenu case;
+`an_occupant_wider_than_the_pane_loses_its_right_hand_controls`
+(`cobolt-form-host`) renders a real pane occupant headlessly and pins both
+halves — every control inside a pane wider than the form, at its designed
+offset and size, and then the right-to-left loss as the window narrows.
+`FormHost::last_control_rects()` records where the engine actually put each
+control, because "painted off-surface" and "never painted" are otherwise the
+same observation.
+
+## [PowerRustCOBOL 1.62.132] — 2026-08-31
+
+### Background-image modes are evaluated against the surface, not the window
+
+An `Embedded` form loaded into the shell's ContentPane had its background
+laid out against the whole application window — a rectangle wider than the
+pane by the MenuPane rail and taller by the breadcrumb band. Every mode is
+computed from that rectangle, so:
+
+- **Fit** letterboxed against the window and put its bars *outside* the
+  visible pane, leaving an edge-to-edge crop that is indistinguishable from
+  Stretch — the operator's report, "fit/stretched seems to be the same";
+- **Fill** and **Center** centred on the window's midpoint, not the pane's,
+  so the picture sat off-centre and slid as the window resized while the
+  pane did not move with it.
+
+`FormBody::backdrop` no longer reads `ctx.content_rect()` itself: it takes
+an explicit `extent` from the caller, and `child_frame` passes the extent of
+the `Ui` it was handed. For a child WINDOW that is the viewport, exactly as
+before; for the ContentPane occupant it is the pane. The root form's own
+Pane path was already correct (049 R13) — only the occupant was not.
+
+Tests: `the_backdrop_extent_is_the_surface_not_the_window`
+(`cobolt-form-host`) pins the plumbing;
+`modes_laid_out_against_the_window_break_inside_the_pane`
+(`test_backdrop_image_modes.rs`) pins the geometry with the reported form's
+own numbers — 1320x720 form, 1920x1200 image — against Fit's own contract:
+the whole image visible, centred on the surface.
+
+### Tile works on a DataGrid background too
+
+`GridBackgroundImageMode` runs through `image_dest`, whose `Tile` arm still
+returns the area — the same `_ => area` arm `Stretch` takes. A grid asked to
+tile its background therefore drew one stretched copy, the defect just fixed
+for the form backdrop, still live on this surface.
+
+`load_image_texture` loads every image with `TextureOptions::LINEAR_REPEAT`,
+so the fix is a UV past 1.0 on the quad that was already being drawn: one
+shape, and the rounded-corner clipping is untouched. `image_dest`'s doc now
+states outright that TILE has no single-quad answer and that a caller
+offering it must repeat the image itself.
+
+### The MenuPane's background image is actually painted
+
+`MenuPaneImage` and its five-mode `MenuPaneImageMode` are offered in the
+properties panel and persisted in the `.cfrm`, and no surface ever drew a
+pixel of them: `shell.rs::paint_menu_background` hardcoded `image: None` and
+deferred to "the hosting glue", which never resolved it. It now resolves the
+path through `cached_image_texture`, like every other surface.
+
+### 171 new icons: every control, and the vocabulary of the craft
+
+The catalogue goes from **939 to 1110** icons across 37 categories. Nothing
+was removed and no name collides with one already there.
+
+- **PowerRustCOBOL Controls (43)** — one icon per control, named
+  `control-<kebab of the ControlType>`. The IDE drew these for its own
+  toolbox in ad-hoc painter calls; they are re-authored here as catalogue
+  shape data, so they scale, style and export like every other icon — and
+  so a developer can put a control's icon in the app they are *building*,
+  which the toolbox drawings could never do. `every_control_type_has_an_icon`
+  derives the name from `ControlType::ALL`, so control number 43 fails the
+  suite until it has one.
+- **Computer Science (79)** — data structures, compilation, concurrency,
+  networking, security, data modelling, version control and the theory a
+  developer draws on a whiteboard.
+- **User Interface (49)** — interface patterns, interaction and layout.
+
+Every one is pure vector shape data on the same 24-unit grid, single 1.5-unit
+stroke, fills only as accents. Suite: 1110 names unique and drawable, 5045
+shapes verified on the grid, 4440 paints across four styles without a panic.
+
+### Fixed: a stale preview key left by the `Selected` rename
+
+`a_toggle_click_reaches_the_preview_value_map` still asserted that all three
+toggles key by `Checked`. Since 1.62.131 a RadioButton keys by `Selected` —
+deliberately. The test now asserts each control's own key and, more to its
+actual point, that either spelling still reaches the map.
+
+## [PowerRustCOBOL 1.62.131] — 2026-08-31
+
+### A RadioButton is `Selected`; `Checked` belongs to the CheckBox
+
+The property grid offered a RadioButton a `Checked` property. That is the
+CheckBox's word — a radio is *selected* (operator, 2026-08-31). A
+RadioButton now seeds **`Selected`**; CheckBox and Switch keep `Checked`
+and are untouched.
+
+The rename is invisible to work that already exists, because every path
+that can name the property passes one of three gates:
+
+- **On load** — `xml.rs::migrate_radio_checked_to_selected` renames a
+  legacy `Checked` key to `Selected`, value preserved, and drops the old
+  key so nothing downstream can read a stale copy. The file upgrades
+  itself the next time it is saved.
+- **In memory** — `Control::set_prop` canonicalises either spelling to the
+  control's own name. Without this the seeded `Selected: false` shadowed a
+  `Checked: true` a caller had just written and the radio stayed dark; the
+  engine's own radio-group test caught exactly that.
+- **At run time** — `Interpreter::canonical_prop_name` resolves
+  `Checked`↔`Selected` from the object's class inside `obj_get`/`obj_set`,
+  the single gate every property read and write already passed through, so
+  a handler written before the rename keeps working. `ISSELECTED` and
+  `SETSELECTED` join `ISCHECKED`/`SETCHECKED` as method spellings.
+
+`model::toggle_state_of` is the one reader (canonical first, legacy
+fallback) and `paint.rs`, `render.rs` and `render::radio_is_on` all use it.
+The IDE's preview key and data-binding target follow the same rule. The
+compiler's KB tables document both names and `assets/knowledge/chunked.data`
+was regenerated (1346 records).
+
+New: `crates/cobolt-forms/tests/test_radio_selected_property.rs`.
+Suite: `cargo test -p cobolt-forms --features render` — 644 + 19 pass, 0 fail.
+
+### Embedded forms say what they are, with diagnostics on
+
+`launch_preamble` covered the ROOT form only, so a form loaded into the
+shell's ContentPane — which is what every `Embedded` form is — went through
+the whole build with nothing reported about it. When an embedded form
+renders differently from the designer, the first question is whether its
+controls even reached the host, and that question had no answer.
+`diagnostics::embedded_preamble` now lists each control's id, type,
+designed rect and `visible`/`enabled` flags.
+
+## [PowerRustCOBOL 1.62.130] — 2026-08-31
+
+### A tiled form background is tiled again, not stretched
+
+`BgImageMode::Tile` never had an implementation. `image_dest` handled
+`Fill`, `Fit` and `Center` and let **Tile fall through to the same
+`_ => area` arm STRETCH takes**, so a form whose background was set to
+Tile painted one stretched copy of the image — the mode did nothing at
+all, and every other mode looked like Stretch beside it (operator,
+2026-08-31).
+
+The backdrop now paints a grid of quads at the image's own size,
+anchored at the backdrop's origin. epaint samples clamp-to-edge, so a
+UV past 1.0 smears the last row of texels rather than wrapping — there
+is no repeat mode to ask for, and the grid has to be drawn. The tile
+count is capped at 4096 so a 1x1-pixel image on a maximized window
+cannot ask for millions of quads and freeze the frame.
+
+The corner-notch mask follows the grid. It repaints the backdrop over a
+rounded container's arc by mapping texture coordinates from ONE
+destination rect, so on a tiled background it now snaps to whichever
+tile that corner actually sits on (`BackdropPaint::image_tile` carries
+the step). Handing it the first tile would have stretched the whole
+image across a corner three tiles over.
+
+`Fit`, `Fill` and `Center` are untouched and now have geometry tests of
+their own, so the tiling branch cannot quietly move them.
+
+New: `crates/cobolt-forms/tests/test_backdrop_image_modes.rs`.
+Suite: `cargo test -p cobolt-forms --features render` — 644 + 13 pass,
+0 fail.
+
 ## [PowerRustCOBOL 1.62.129] — 2026-08-31
 
 ### The NIST CCVS85 grind closes at 100 %

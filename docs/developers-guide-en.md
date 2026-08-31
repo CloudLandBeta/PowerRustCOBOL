@@ -1250,6 +1250,44 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 > backdrop at the form's size, so the designed extent stays visible while you
 > edit. Window entrance effects animate this same picture, background
 > included.
+>
+> **The background follows the SURFACE, which is not always the window.** A
+> form loaded into a shell's ContentPane occupies part of the window, not all
+> of it — narrower by the sidebar rail, shorter by the breadcrumb band. Its
+> background is laid out against **that pane**, so *Fit* letterboxes inside the
+> pane and *Center* centres on the pane's middle. Before 1.62.132 the pane's
+> occupant was laid out against the whole window instead: the letterbox bars
+> fell outside the visible area and every mode looked like *Stretch*.
+
+### Background image modes
+
+A form's **Image path** takes a picture; **Mode** decides how it meets the
+surface. All five keep the picture's own pixels — they differ only in how it
+is scaled and placed.
+
+| Mode | What it does | Distorts? | Crops? | Leaves margins? |
+|---|---|---|---|---|
+| **Stretch** | Pulls the image to the surface exactly | **Yes** | No | No |
+| **Fill** | Scales it up until it covers, keeping the shape | No | Yes | No |
+| **Fit** | Scales it until it all fits, keeping the shape | No | No | **Yes** |
+| **Center** | Draws it at its own size, in the middle | No | If bigger | If smaller |
+| **Tile** | Repeats it at its own size, like wallpaper | No | Edge only | No |
+
+> **Note — Fit, Fill and Stretch coincide when the shapes match.** If the
+> image's proportions are already the surface's proportions, all three produce
+> exactly the same picture, and nothing is wrong. A 1600×1000 image on a
+> 1600×1000 form has nothing to letterbox and nothing to crop. Try a
+> deliberately tall or wide image if you want to *see* the three behave
+> differently.
+
+> ⚠️ **Caveat — Center does not scale.** A picture much larger than the form
+> shows only its middle, and a small one floats in the background colour. That
+> is the mode working: pick *Fit* or *Fill* if you want it sized to the form.
+
+> **Tile really tiles.** Before 1.62.130 *Tile* drew one stretched copy — it
+> shared a code path with *Stretch* and the mode did nothing. It now repeats
+> the image at its native size from the surface's top-left corner. A DataGrid's
+> own **Grid background image mode** gained the same fix in 1.62.132.
 
 > **Room past the form's edge — controls that arrive when the window grows.**
 > The size you design is a *floor*, not a ceiling. Drop a control beyond the
@@ -1995,7 +2033,7 @@ designer canvas, the preview, Run Form and the compiled binary.
 > itself. Writing `CollapsedNodes` from COBOL folds a tree to any shape without
 > touching `Items`.
 >
-> **And it has icons** — from the platform's own catalogue, the same 660+ icons
+> **And it has icons** — from the platform's own catalogue, the same 1100+ icons
 > menus and toolbars draw from. A node names its own after a **TAB** in its
 > `Items` line, the way Markers and Routes name theirs:
 >
@@ -2792,8 +2830,8 @@ as a YAML file alongside the `.cfrm`.
 reorder items up to 3 levels deep. Each item has:
 
 - **Label** — the text shown in the menu.
-- **Icon** — an optional icon from the built-in catalogue: **930+ pure-vector
-  icons in 34 categories** — documents, editing, navigation, communication,
+- **Icon** — an optional icon from the built-in catalogue: **1110 pure-vector
+  icons in 37 categories** — documents, editing, navigation, communication,
   media, commerce, payroll, receivables, payments, stock control,
   transportation, logistics, financial, company **departments**, transaction
   kinds (buy, sell, return, chargeback, …), civilian **vehicles**,
@@ -2804,7 +2842,9 @@ reorder items up to 3 levels deep. Each item has:
   (marquee, select all/none/invert, lasso, move), **design** tools (paint
   bucket, fill, palette, rotate, flip, fit to window, thumbnails) and
   **application** objects (window, form, application, bundle, component, find
-  and replace, spelling, speech, sleep, quit, globe, local) and **national
+  and replace, spelling, speech, sleep, quit, globe, local), the three sets
+  added in 1.62.132 — **PowerRustCOBOL controls**, **computer science** and
+  **user interface**, described just below — and **national
   flags** (`flag-br`, `flag-jp`, `flag-gb`, … — every UN member state, plus the
   Holy See, Palestine and Kosovo). Icons are drawn as
   resolution-independent line work — the same icon is crisp in a 16 px menu
@@ -2819,6 +2859,41 @@ reorder items up to 3 levels deep. Each item has:
   > flags that differ only in colour look the same here. `flag-it` and `flag-ie`
   > are both three vertical bands. Use them where the country is already named in
   > the row beside them, not as the only way to tell one country from another.
+
+  > **An icon for every control (1.62.132).** Building a demo, a palette or a
+  > help page *about* the controls used to mean having no picture of them: the
+  > toolbox's own drawings live in the IDE and were never available to your
+  > application. There is now one catalogue icon per control, named
+  > `control-` followed by the control's type in lower case with dashes —
+  > `control-button`, `control-data-grid`, `control-date-time-picker`,
+  > `control-side-menu`, `control-file-drop-zone`. Every control has one,
+  > including `control-custom` for a plugin-provided control. Type `control`
+  > into the picker's **Find** box to see the whole set.
+  >
+  > **And the words you argue in.** Two more sets landed with them, for the
+  > diagrams and admin screens every real application grows:
+  >
+  > - **Computer Science (79)** — `array`, `stack-structure`,
+  >   `queue-structure`, `linked-list`, `hash-table`, `binary-tree`,
+  >   `graph-nodes`, `compiler`, `parser`, `recursion`, `thread`, `mutex`,
+  >   `deadlock`, `breakpoint`, `async`, `callback`, `event-loop`, `socket`,
+  >   `packet`, `firewall`, `load-balancer`, `microservice`, `webhook`,
+  >   `encryption`, `key-pair`, `two-factor`, `schema`, `primary-key`,
+  >   `foreign-key`, `join-tables`, `replication`, `sharding`, `query`,
+  >   `git-branch`, `git-merge`, `pull-request`, `diff`, `ci-cd`, `sorting`,
+  >   `binary-search`, `state-machine`, `neural-network`, and more.
+  > - **User Interface (49)** — `modal`, `dialog`, `tooltip`, `popover`,
+  >   `dropdown`, `accordion`, `breadcrumb`, `pagination`, `stepper`,
+  >   `wizard`, `carousel`, `drawer`, `toast`, `chip`, `skeleton`,
+  >   `scrollbar`, `search-field`, `empty-state`, `wireframe`, `responsive`,
+  >   `dark-mode`, `light-mode`, `accessibility`, `keyboard-shortcut`,
+  >   `cursor-pointer`, `drag-drop`, `click`, `swipe`, `z-index`,
+  >   `flex-layout`, `grid-layout`, `padding`, `margin`, `border-radius`,
+  >   `drop-shadow`, `opacity`, `gradient`, `ruler`, `viewport`, `snap-grid`,
+  >   and more.
+  >
+  > No existing icon was removed or renamed to make room: **names are a stable
+  > API**, and a name you already wrote in a `.menu.yaml` still resolves.
 - **Moving items.** Besides *Move Up*/*Move Down*, the **Indent** button makes
   the selected item a child of the item above it, and **Outdent** promotes it
   back beside its parent — together they move an item between any sections and
@@ -2942,6 +3017,25 @@ abbreviations). A few you will use constantly:
 > one is 140 points wide instead of 120 — enough to hold its own caption at the
 > seeded font. Forms you have already saved keep the width they were given;
 > nothing moves under you.
+
+> **A radio is `Selected`; a check box is `Checked` (1.62.131).** The property
+> grid used to offer a RadioButton a `Checked` property — the CheckBox's word.
+> A RadioButton now carries **`Selected`**; CheckBox and Switch keep
+> **`Checked`** and did not change.
+>
+> ```cobol
+> SET RADIO-CREDIT::SELECTED TO 1
+> IF RADIO-CREDIT::SELECTED = 1
+>     PERFORM CHARGE-THE-CARD
+> END-IF
+> ```
+>
+> **Nothing you already wrote breaks.** The two spellings resolve to each
+> other at run time, so a handler that says `RADIO-CREDIT::CHECKED` keeps
+> working, and `ISCHECKED` / `SETCHECKED` still answer beside `ISSELECTED` /
+> `SETSELECTED`. A form saved before the rename is upgraded when it loads: the
+> old key is renamed, its value preserved. Prefer `Selected` in new code — it
+> is what the property grid shows and what generated code writes.
 
 > **A CheckBox has two surfaces, and each has its own properties.** Coming from
 > PowerCOBOL or isCOBOL you will expect one background and one border; here the
@@ -7518,6 +7612,53 @@ pane region — the menu and breadcrumb stay opaque.
 > ⚠️ **Caveat.** The same `Both` form therefore shows its background
 > differently embedded (pane-sized, fixed) and standalone (window rules,
 > spec 037). This is by design; design backgrounds accordingly.
+
+### Sizing an Embedded form to the ContentPane
+
+An Embedded form keeps the size you designed. The pane does **not** stretch to
+hold it and the form is **not** scaled down to fit — so if the form is larger
+than the pane, the surplus scrolls, and the scrollbars over a pane occupant are
+the thin floating kind that reserve no gutter. Nothing on screen announces that
+the form continues past the edge, so controls out there read as *missing*
+rather than as *off-screen*.
+
+Work out the pane before you design the form:
+
+```text
+ContentPane width  = main form width  − SideMenu width
+ContentPane height = main form height − BreadcrumbHeight
+```
+
+Both numbers come from the **main form**: the rail is the SideMenu control as
+you drew it (not a fixed default), and the band is that same control's
+`BreadcrumbHeight` property. A main form 1584x936 with a 296-wide SideMenu and
+the default 28-point breadcrumb gives a pane of **1288x908** — so an Embedded
+form designed 1320 wide has 32 points that can never be on screen, and the gap
+grows as the operator makes the window smaller.
+
+Which controls disappear is decided by each control's **right edge**, not by
+where it starts: a control at x=32 that is 456 wide (right edge 488) survives a
+much narrower pane than one at x=568 that is 704 wide (right edge 1272).
+
+The Form Designer warns you about this while the size is still yours to
+choose — an amber strip above the canvas naming the form's size, the pane's
+size and the surplus:
+
+> ⚠️ This Embedded form is 1320x720; the main form's ContentPane is 1288x908 —
+> 32px will scroll out of view.
+
+The remedy is to narrow the Embedded form, or to widen the main form (or its
+pane, by drawing a narrower SideMenu). The strip clears itself the moment the
+form fits.
+
+> **Note.** The warning appears for Embedded forms only. A Standalone form owns
+> its window and has no pane to overflow, and `Both` forms are measured the
+> same way as Embedded ones because that is the path where they can be cropped.
+
+> ⚠️ **Caveat.** The strip compares against the main form's **designed** size.
+> An operator who drags the running window narrower than that loses more, and
+> one who maximises it gets the surplus back. Design for the designed size and
+> treat anything past the pane edge as optional.
 
 ### The navigation chain
 

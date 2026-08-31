@@ -9745,10 +9745,38 @@ impl Interpreter {
 
     /// Set a control property and notify the UI thread (auto-registers the
     /// object so the change is never silently dropped).
+    /// Resolve a toggle control's state property to the ONE name that object
+    /// actually carries.
+    ///
+    /// A RadioButton's state is `Selected` and a CheckBox's is `Checked`
+    /// (2026-08-31). Every handler written before that rename says `Checked`
+    /// on a radio, and those programs must keep working — so the name is
+    /// resolved against the object's own class here, at the single gate every
+    /// property read and write passes through. Without it a legacy write would
+    /// add a SECOND key beside the seeded one and the renderer, which reads the
+    /// canonical name first, would keep painting the stale value.
+    fn canonical_prop_name(&self, obj: &str, prop: &str) -> String {
+        use cobolt_forms::model::{CHECKED_PROP, SELECTED_PROP};
+        if !prop.eq_ignore_ascii_case(CHECKED_PROP) && !prop.eq_ignore_ascii_case(SELECTED_PROP) {
+            return prop.to_owned();
+        }
+        match self.objects.get(obj).map(|o| o.class.as_str()) {
+            Some(c) if c.eq_ignore_ascii_case("RadioButton") => SELECTED_PROP.to_owned(),
+            Some(c) if c.eq_ignore_ascii_case("CheckBox") || c.eq_ignore_ascii_case("Switch") => {
+                CHECKED_PROP.to_owned()
+            }
+            // An unregistered or generic object keeps whatever it was given —
+            // guessing a class from a property name is how a Label would end up
+            // with a state it never had.
+            _ => prop.to_owned(),
+        }
+    }
+
     fn obj_set(&mut self, obj: &str, prop: &str, val: String) {
         if !self.objects.contains(obj) {
             self.objects.register(obj, "Control");
         }
+        let prop = &self.canonical_prop_name(obj, prop);
         let val = self.canonical_prop_value(obj, prop, val);
         self.objects.set_property(obj, prop, val.clone());
         if let Some(tx) = &self.state_tx {
@@ -9811,8 +9839,9 @@ impl Interpreter {
 
     /// Read a control property as a string (`""` when unset).
     fn obj_get(&self, obj: &str, prop: &str) -> String {
+        let prop = self.canonical_prop_name(obj, prop);
         self.objects
-            .get_property(obj, prop)
+            .get_property(obj, &prop)
             .map(|v| v.to_string())
             .unwrap_or_default()
     }
@@ -10629,8 +10658,10 @@ impl Interpreter {
                 none
             }
             // ── Checkbox / radio ──
-            "ISCHECKED" => val(b01(&self.obj_get(obj, "Checked"))),
-            "SETCHECKED" => {
+            // `Checked` here is the REQUEST; `canonical_prop_name` maps it to
+            // the object's own spelling (`Selected` on a radio).
+            "ISCHECKED" | "ISSELECTED" => val(b01(&self.obj_get(obj, "Checked"))),
+            "SETCHECKED" | "SETSELECTED" => {
                 let v = b01(&arg(0));
                 self.obj_set(obj, "Checked", v);
                 none

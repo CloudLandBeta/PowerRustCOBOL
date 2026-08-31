@@ -343,7 +343,8 @@ pub fn default_member_property(form: &Form, member_id: &str) -> String {
         .find_control(member_id)
         .map(|control| &control.control_type)
     {
-        Some(ControlType::CheckBox) | Some(ControlType::RadioButton) => "Checked",
+        Some(ControlType::RadioButton) => cobolt_forms::model::SELECTED_PROP,
+        Some(ControlType::CheckBox) => cobolt_forms::model::CHECKED_PROP,
         Some(ControlType::Label) | Some(ControlType::Button) | Some(ControlType::GroupBox) => {
             "Caption"
         }

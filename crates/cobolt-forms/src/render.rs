@@ -382,7 +382,19 @@ pub struct BackdropPaint {
     /// True when the theme pack's art replaced the form's own image.
     pub themed: bool,
     /// The form's background image and the rect it was drawn into.
+    ///
+    /// Under [`BgImageMode::Tile`] the image is drawn many times, so this is
+    /// the FIRST tile — the one that fixes the grid's phase at `rect.min`.
+    /// `image_tile` is what says the rest of the grid exists.
     pub image: Option<(egui::TextureId, Rect)>,
+    /// The tile size when the backdrop is TILED, `None` for every other mode.
+    ///
+    /// The corner-notch mask repaints the backdrop over a rounded container's
+    /// arc, and it maps texture coordinates from ONE destination rect. On a
+    /// tiled background that rect is whichever tile the notch falls in, so the
+    /// mask needs the grid's step to find it — without this it stretched the
+    /// whole image across a corner that the backdrop had tiled.
+    pub image_tile: Option<Vec2>,
     /// Image alpha derived from the form's transparency.
     pub image_alpha: u8,
 }
@@ -413,6 +425,7 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
             gradient: None,
             themed: false,
             image: None,
+            image_tile: None,
             image_alpha: 0,
         };
     }
@@ -444,13 +457,39 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
         backdrop.use_theme_background,
         alpha_mul,
     );
+    let mut image_tile = None;
     let image = backdrop.image.filter(|_| !themed).map(|(tex, tsize)| {
-        let dest = image_dest(rect, tsize, backdrop.image_mode);
         let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        painter
-            .with_clip_rect(rect)
-            .image(tex, dest, uv, Color32::from_white_alpha(image_alpha));
-        (tex, dest)
+        let tint = Color32::from_white_alpha(image_alpha);
+        let clipped = painter.with_clip_rect(rect);
+        if matches!(backdrop.image_mode, BgImageMode::Tile) {
+            // TILE repeats the image at its own size across the area. It used
+            // to fall through to the `_ => area` arm of `image_dest` — the same
+            // arm STRETCH takes — so a tiled background was one stretched copy
+            // and the mode did nothing at all (operator, 2026-08-31).
+            //
+            // Drawn as an explicit grid of quads rather than one quad with a
+            // UV past 1.0. Wrapping WOULD work — `load_image_texture` asks for
+            // `TextureOptions::LINEAR_REPEAT` — but only for a texture that
+            // caller loaded; `Backdrop::image` is handed in already resolved,
+            // by hosts that need not have chosen that wrap mode. The grid
+            // tiles correctly whatever the texture's wrap mode is.
+            for (i, j) in tile_grid(rect, tsize) {
+                let dest = Rect::from_min_size(
+                    rect.min + Vec2::new(tsize.x * i as f32, tsize.y * j as f32),
+                    tsize,
+                );
+                clipped.image(tex, dest, uv, tint);
+            }
+            image_tile = Some(tsize);
+            // The first tile: it fixes the grid's phase, which is what the
+            // notch mask needs to find the tile under any given corner.
+            (tex, Rect::from_min_size(rect.min, tsize))
+        } else {
+            let dest = image_dest(rect, tsize, backdrop.image_mode);
+            clipped.image(tex, dest, uv, tint);
+            (tex, dest)
+        }
     });
 
     BackdropPaint {
@@ -458,8 +497,41 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
         gradient,
         themed,
         image,
+        image_tile,
         image_alpha,
     }
+}
+
+/// The tile of a `step`-spaced grid (phased by `first`) that contains `p`.
+fn tile_under(first: Rect, step: Vec2, p: egui::Pos2) -> Rect {
+    let (sx, sy) = (step.x.max(1.0), step.y.max(1.0));
+    let i = ((p.x - first.min.x) / sx).floor();
+    let j = ((p.y - first.min.y) / sy).floor();
+    Rect::from_min_size(first.min + Vec2::new(i * sx, j * sy), step)
+}
+
+/// The `(column, row)` indices of every tile needed to cover `area` with a
+/// `tsize` image anchored at `area.min`.
+///
+/// Capped, because the count is driven by two numbers the developer controls
+/// independently: a 1x1-pixel image on a maximized window would otherwise ask
+/// for millions of quads and hang the frame. Past the cap the background is
+/// simply not covered to the far edge — a visible limit beats a frozen window.
+fn tile_grid(area: Rect, tsize: Vec2) -> Vec<(u32, u32)> {
+    const MAX_TILES: u32 = 4096;
+    let (tw, th) = (tsize.x.max(1.0), tsize.y.max(1.0));
+    let cols = (area.width() / tw).ceil().max(1.0).min(MAX_TILES as f32) as u32;
+    let rows = (area.height() / th).ceil().max(1.0).min(MAX_TILES as f32) as u32;
+    let mut out = Vec::new();
+    for j in 0..rows {
+        for i in 0..cols {
+            if out.len() as u32 >= MAX_TILES {
+                return out;
+            }
+            out.push((i, j));
+        }
+    }
+    out
 }
 
 /// Resolve the form background colour, applying the shared rule used on every
@@ -735,6 +807,8 @@ fn mask_container_notches(
     controls: &[Control],
     out: &RenderOutput,
     image: Option<(egui::TextureId, Rect)>,
+    // The backdrop's tile step when it is TILED — see `BackdropPaint::image_tile`.
+    image_tile: Option<Vec2>,
     img_alpha: u8,
     bg: Color32,
     gradient: Option<(Rect, Color32, Color32, &str)>,
@@ -781,13 +855,23 @@ fn mask_container_notches(
             screen,
             alphas.get(&live.id).copied().unwrap_or(1.0),
         );
+        // On a TILED backdrop the mask must repaint the tile this corner
+        // actually sits on, not the first one: the mask maps UV from a single
+        // destination rect, so handing it tile (0,0) for a notch three tiles
+        // over would stretch the whole image across that corner.
+        let notch_image = match (image, image_tile) {
+            (Some((tex, first)), Some(step)) => {
+                Some((tex, tile_under(first, step, screen.center())))
+            }
+            (img, _) => img,
+        };
         crate::paint::draw_container_notch_mask(
             painter,
             screen,
             rounding,
             bg,
             gradient,
-            image,
+            notch_image,
             img_alpha,
             (!stack.is_empty()).then_some(&stack),
         );
@@ -1640,6 +1724,7 @@ pub fn render_form_with_chrome(
     let backdrop_gradient = painted.gradient;
     let backdrop_img_alpha = painted.image_alpha;
     let backdrop_img = painted.image;
+    let backdrop_img_tile = painted.image_tile;
     // The notch mask is drawn *after* children. If the form background is
     // translucent, repainting `bg` would darken the corner wedges; skipping it
     // would leave rectangular child bleed visible. Use the effective one-pass
@@ -1941,6 +2026,7 @@ pub fn render_form_with_chrome(
         controls,
         &out,
         backdrop_img,
+        backdrop_img_tile,
         backdrop_img_alpha,
         notch_bg,
         backdrop_gradient.map(|(start, end)| {
@@ -2409,7 +2495,14 @@ pub fn render_faces(
     out
 }
 
-/// Scale `tsize` into `area` per `mode` (Fill/Fit centred, Center, Stretch, Tile).
+/// Scale `tsize` into `area` per `mode`, as ONE destination quad.
+///
+/// Fill / Fit are centred, Center is native size, Stretch is the whole area.
+/// TILE has no single-quad answer, so it returns the area too — a caller that
+/// offers Tile must repeat the image itself (a grid of quads, as
+/// [`paint_backdrop`] does, or a UV past 1.0 on a REPEAT-wrapped texture, as
+/// the DataGrid background does). Returning `area` and stopping there is what
+/// made Tile a synonym for Stretch on both surfaces.
 fn image_dest(area: Rect, tsize: Vec2, mode: BgImageMode) -> Rect {
     match mode {
         BgImageMode::Fill | BgImageMode::Fit => {
@@ -3182,7 +3275,7 @@ fn radio_group_key(ctrl: &Control) -> String {
 fn radio_is_on(ctrl: &Control) -> bool {
     let value = sv(ctrl, "Value");
     if value.is_empty() {
-        matches!(sv(ctrl, "Checked").as_str(), "1" | "true")
+        crate::model::toggle_state_of(ctrl)
     } else {
         matches!(value.as_str(), "1" | "true")
     }
@@ -3706,13 +3799,18 @@ fn render_interactive(
             }
         }
         CT::RadioButton => {
+            // A radio's designed state is `Selected` (legacy: `Checked`); the
+            // live one is `Value`, which the click writes and the host echoes.
             let selected = matches!(sv(ctrl, "Value").as_str(), "1" | "true")
-                || (sv(ctrl, "Value").is_empty()
-                    && matches!(sv(ctrl, "Checked").as_str(), "1" | "true"));
+                || (sv(ctrl, "Value").is_empty() && crate::model::toggle_state_of(ctrl));
             let mut drawn = ctrl.clone();
-            drawn
-                .properties
-                .insert("Checked".to_owned(), crate::PropValue::Bool(selected));
+            drawn.properties.insert(
+                crate::model::SELECTED_PROP.to_owned(),
+                crate::PropValue::Bool(selected),
+            );
+            // The legacy key must not survive alongside the canonical one, or
+            // `toggle_state_of` would read a stale `Checked` on the next frame.
+            drawn.properties.shift_remove(crate::model::CHECKED_PROP);
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
@@ -5793,7 +5891,26 @@ fn render_interactive(
                 };
                 if let Some(tex) = tex {
                     let mode = BgImageMode::from_str(&sv(ctrl, "GridBackgroundImageMode"));
-                    let dest = image_dest(screen, tex.size_vec2(), mode);
+                    let tsize = tex.size_vec2();
+                    let dest = image_dest(screen, tsize, mode);
+                    // TILE repeats the image at its own size across the grid.
+                    // `image_dest` maps it onto the same `_ => area` arm
+                    // STRETCH takes, so a tiled grid background was ONE
+                    // stretched copy — the very defect fixed for the form
+                    // backdrop, still live here (operator, 2026-08-31).
+                    //
+                    // `load_image_texture` loads every image with
+                    // `TextureOptions::LINEAR_REPEAT`, so a UV past 1.0 wraps:
+                    // one quad still covers the grid and the rounded-corner
+                    // clipping below is left exactly as it was.
+                    let uv_span = if matches!(mode, BgImageMode::Tile) {
+                        egui::vec2(
+                            screen.width() / tsize.x.max(1.0),
+                            screen.height() / tsize.y.max(1.0),
+                        )
+                    } else {
+                        egui::vec2(1.0, 1.0)
+                    };
                     // Clip the background image to the grid's rounded silhouette so it
                     // doesn't square off past the corner arcs (spec 027 corner bleed).
                     let visible = dest.intersect(screen);
@@ -5802,12 +5919,12 @@ fn render_interactive(
                         let dh = dest.height().max(1.0);
                         let uv = Rect::from_min_max(
                             pos2(
-                                (visible.min.x - dest.min.x) / dw,
-                                (visible.min.y - dest.min.y) / dh,
+                                (visible.min.x - dest.min.x) / dw * uv_span.x,
+                                (visible.min.y - dest.min.y) / dh * uv_span.y,
                             ),
                             pos2(
-                                (visible.max.x - dest.min.x) / dw,
-                                (visible.max.y - dest.min.y) / dh,
+                                (visible.max.x - dest.min.x) / dw * uv_span.x,
+                                (visible.max.y - dest.min.y) / dh * uv_span.y,
                             ),
                         );
                         // Round only the corners where the image actually reaches a

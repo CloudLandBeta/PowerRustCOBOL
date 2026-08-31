@@ -496,6 +496,7 @@ impl FormHost {
                 parked_timer_clocks: HashMap::new(),
                 toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
                 action_notice: None,
+                last_control_rects: HashMap::new(),
             },
             children: Vec::new(),
             occupants: HashMap::new(),
@@ -632,6 +633,16 @@ pub(crate) struct FormBody {
     /// empty-clipboard paste used to go only to stderr — to the operator that
     /// read as "the button does nothing" (2026-08-23).
     pub(crate) action_notice: Option<(String, bool, f64)>,
+    /// Where the last rendered frame actually PUT each control, in screen
+    /// coordinates — the engine's own `RenderOutput::control_rects`, kept.
+    ///
+    /// A control that is painted but lands outside the surface it was drawn
+    /// into is indistinguishable, from the outside, from a control that was
+    /// never painted at all: both are simply not on screen. Recording the
+    /// rects is what tells those two apart without a debugger, and it is what
+    /// the ContentPane placement test asserts against (operator, 2026-08-31:
+    /// radios missing from an embedded form).
+    pub(crate) last_control_rects: HashMap<String, egui::Rect>,
 }
 
 impl FormBody {
@@ -1263,7 +1274,18 @@ impl FormBody {
     /// by the static face the window effects animate — so an entrance reveals
     /// the form WITH its gradient / background image instead of jumping to it
     /// when the animation ends.
-    pub(crate) fn backdrop(&self, ctx: &egui::Context) -> cobolt_forms::render::Backdrop {
+    ///
+    /// `extent` is the size of the SURFACE this backdrop is laid out against —
+    /// the window for a form that owns one, the PANE for a form loaded into a
+    /// ContentPane. It is not always `ctx.content_rect()`: an occupant is
+    /// drawn into a sub-rect of the shell window, and laying its backdrop out
+    /// against the whole window made every aspect-preserving mode wrong (see
+    /// `window_size` below).
+    pub(crate) fn backdrop(
+        &self,
+        ctx: &egui::Context,
+        extent: egui::Vec2,
+    ) -> cobolt_forms::render::Backdrop {
         // Background image texture (cached in egui memory by path).
         let image = if self.bg_image.trim().is_empty() {
             None
@@ -1292,11 +1314,22 @@ impl FormBody {
             image,
             image_mode: self.bg_mode,
             use_theme_background: self.use_theme_background,
-            // The gradient / background image follows the WINDOW: it stretches
-            // over the whole thing when the user maximizes or drags it bigger,
-            // and stays form-sized when the window is dragged smaller. The
+            // The gradient / background image follows the SURFACE: it
+            // stretches over the whole thing when the user maximizes or drags
+            // it bigger, and stays form-sized when the surface is smaller. The
             // controls keep their designed size either way.
-            window_size: Some(ctx.content_rect().size()),
+            //
+            // The surface is NOT always the window. A form loaded into the
+            // shell's ContentPane occupies a sub-rect of it — narrower by the
+            // MenuPane rail, shorter by the breadcrumb band — and this used to
+            // read `ctx.content_rect()` regardless. Every mode is evaluated
+            // against this extent, so Fit letterboxed against the WINDOW and
+            // put its bars outside the pane, Fill and Center centred on the
+            // window's midpoint rather than the pane's: an embedded form
+            // showed the same edge-to-edge crop under Fit, Fill and Stretch
+            // alike, and the picture slid as the window resized (operator,
+            // 2026-08-31: "fit/stretched seems to be the same").
+            window_size: Some(extent),
             // A window form paints its OWN backdrop, so `bg` already answers
             // "what is behind" for the corner-notch mask. The one case it does
             // not — a see-through window, where the desktop is behind — has no
@@ -1377,6 +1410,11 @@ impl FormBody {
         // Context.
         let ctx = panel_ui.ctx().clone();
         let ctx = &ctx;
+        // The surface this body is drawn into, taken BEFORE the Ui is handed
+        // to the CentralPanel. For a child window it is the viewport; for the
+        // ContentPane occupant it is the pane rect the shell carved out. The
+        // backdrop is laid out against this — see `FormBody::backdrop`.
+        let panel_extent = panel_ui.max_rect().size();
         // Theme state for the unified painter — this viewport's own context.
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
@@ -1438,7 +1476,10 @@ impl FormBody {
                 special_names: &self.special_names,
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
-            let backdrop = self.backdrop(ctx);
+            // The surface is the Ui handed to us, never the window: for a
+            // child WINDOW that is the viewport (unchanged), for the
+            // ContentPane occupant it is the pane.
+            let backdrop = self.backdrop(ctx, panel_extent);
             let mut out = cobolt_forms::render::RenderOutput::default();
             egui::CentralPanel::default()
                 .frame(egui::Frame::NONE.fill(bg_fill))
@@ -1467,6 +1508,9 @@ impl FormBody {
                 });
             out
         };
+        // Where the engine actually put every control this frame — see
+        // `FormBody::last_control_rects`.
+        self.last_control_rects = output.control_rects.clone();
 
         let mut platform_acted = false;
         if armed && !blocked {
@@ -2117,6 +2161,19 @@ impl FormHost {
         self.last_occupant_rect
     }
 
+    /// Where the last frame put each control of the form that currently owns
+    /// the pane — the active occupant, or the root form when none does.
+    ///
+    /// Screen coordinates, straight from the render engine. "The control is
+    /// missing" and "the control was drawn off the visible surface" look the
+    /// same to an operator; this is what tells them apart.
+    pub fn last_control_rects(&self) -> &HashMap<String, egui::Rect> {
+        match self.active_occupant.as_ref().and_then(|k| self.occupants.get(k)) {
+            Some(occ) => &occ.body.last_control_rects,
+            None => &self.root.last_control_rects,
+        }
+    }
+
     /// Test-only: mark the root's lifecycle pair as already fired, the state
     /// every real run reaches after its warm-up.
     #[cfg(test)]
@@ -2269,6 +2326,13 @@ impl FormHost {
         for c in &flat {
             state.insert(c.id.clone(), CtrlState::from_control(c));
         }
+        // With diagnostics on, say what this EMBEDDED form is before its
+        // interpreter starts — the root form has had this since 049 R27 and a
+        // pane occupant had nothing at all.
+        if crate::diagnostics::frame_diagnostics_enabled() {
+            crate::diagnostics::embedded_preamble(handle, &form, &flat);
+        }
+
         let (maps_key, search_key) = crate::seeding::resolve_api_keys();
         let seed = crate::seeding::build_object_seed(
             &form,
@@ -2371,6 +2435,7 @@ impl FormHost {
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             action_notice: None,
+            last_control_rects: HashMap::new(),
         };
         Ok((body, form))
     }
@@ -2473,7 +2538,7 @@ impl FormHost {
                 egui::Id::new("window_fx"),
             ));
         let bg = cobolt_forms::render::backdrop_color(&self.root.bg_hex, self.root.transparency);
-        let backdrop = self.root.backdrop(root_ui.ctx());
+        let backdrop = self.root.backdrop(root_ui.ctx(), rect.size());
         let controls = &self.root.controls;
         let time = self.root.start.elapsed().as_secs_f64();
         cobolt_forms::window_fx::paint_window_fx(
@@ -3060,7 +3125,7 @@ impl FormHost {
                 special_names: &self.root.special_names,
             };
             let active_tabs = cobolt_forms::containers::ActiveTabs::default();
-            let backdrop = self.root.backdrop(ctx);
+            let backdrop = self.root.backdrop(ctx, ctx.content_rect().size());
             let pane_chrome = self.pane_chrome.take();
             let mut out = cobolt_forms::render::RenderOutput::default();
             // On a see-through window the panel must NOT fill: the engine
@@ -3172,6 +3237,9 @@ impl FormHost {
         self.last_pane_backdrop_rect = pane_backdrop_rect;
         self.last_pane_backdrop_fill = pane_backdrop_fill;
         self.last_content_scroll = content_scroll;
+        // Where the engine actually put every control this frame — see
+        // `FormBody::last_control_rects`.
+        self.root.last_control_rects = output.control_rects.clone();
 
         // ── Animation triggers from this frame's interaction ─────────────────
         // Pointer triggers come from the rendered rects: the engine only emits
@@ -3692,6 +3760,56 @@ mod parity {
             )),
             ..Default::default()
         }
+    }
+
+    /// The backdrop is laid out against the SURFACE the body is drawn into,
+    /// not against the window.
+    ///
+    /// `backdrop` used to read `ctx.content_rect()` itself, so a form loaded
+    /// into the shell's ContentPane had its gradient and background image
+    /// sized and centred on the whole window — a rectangle wider than the pane
+    /// by the MenuPane rail and taller by the breadcrumb band. Fit letterboxed
+    /// outside the visible pane, Center centred on the window's midpoint, and
+    /// the picture slid whenever the window resized while the pane did not
+    /// move with it (operator, 2026-08-31).
+    ///
+    /// `window_size` IS the extent the engine evaluates every mode against
+    /// (`render::backdrop_size`), so asserting it here is asserting the modes.
+    #[test]
+    fn the_backdrop_extent_is_the_surface_not_the_window() {
+        let (host, _pipes) = host_with_surface("", "", false, Surface::Pane);
+        let ctx = egui::Context::default();
+        let mut warm = ctx.run_ui(raw(), |_| {});
+        warm.textures_delta.clear();
+        let window = ctx.content_rect().size();
+
+        // A window form: the surface IS the window, and nothing changes.
+        let as_window = host.root.backdrop(&ctx, window);
+        assert_eq!(
+            as_window.window_size,
+            Some(window),
+            "a form that owns its window is laid out against the window"
+        );
+
+        // The ContentPane occupant: the shell hands it the pane, and that is
+        // what must reach the engine — never `ctx.content_rect()`.
+        let pane = egui::vec2(window.x - 200.0, window.y - 48.0);
+        let as_pane = host.root.backdrop(&ctx, pane);
+        assert_eq!(
+            as_pane.window_size,
+            Some(pane),
+            "an occupant is laid out against the PANE it is drawn into"
+        );
+        assert_ne!(
+            as_pane.window_size, as_window.window_size,
+            "the two must not collapse back together — that was the defect"
+        );
+
+        println!(
+            "  backdrop extent — window {:.0}x{:.0} · pane {:.0}x{:.0}: each mode \
+             is evaluated against its own surface",
+            window.x, window.y, pane.x, pane.y
+        );
     }
 
     /// 049 — in a pane the SideMenu is painted by the shell as the MenuPane,
@@ -4533,6 +4651,7 @@ mod parity {
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             action_notice: None,
+            last_control_rects: HashMap::new(),
         }
     }
 

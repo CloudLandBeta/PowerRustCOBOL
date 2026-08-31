@@ -34,6 +34,70 @@
 //! and `SelectedFgColor` properties carry the application's theme, so a rail
 //! restyles with the app instead of being locked to one palette.
 
+/// The ContentPane a shell of designed size `shell` leaves for a form loaded
+/// into it: the rail's open column off the left, the breadcrumb band off the
+/// top.
+///
+/// The inverse of the shell's own window sizing, and the one place that arithmetic
+/// lives, because two very different surfaces need the same answer:
+///
+/// - the **running shell**, which carves the pane out of the real window; and
+/// - the **Form Designer**, which must tell the developer at design time that
+///   an `Embedded` form is wider than the pane it will be loaded into.
+///
+/// A form wider than this keeps its designed size and scrolls — the designed
+/// size is a floor, not a ceiling, and a window may never resize itself — but
+/// the occupant's scroll area uses floating scrollbars that reserve no gutter,
+/// so the overflow is invisible and reads as "the controls disappeared"
+/// (operator, 2026-08-31). Warning at design time is the remedy chosen for
+/// that; nothing about run-time behaviour changed.
+///
+/// `rail_open_w` is the rail as the developer DREW it (a SideMenu control's
+/// width), not the host's fixed default — 049 R38 — and `crumb_h` is
+/// the breadcrumb frame's height. Never negative: a shell too small for its
+/// own chrome yields a zero-sized pane rather than an inverted one.
+pub fn content_pane_size(shell: Vec2, rail_open_w: f32, crumb_h: f32) -> Vec2 {
+    Vec2::new(
+        (shell.x - rail_open_w).max(0.0),
+        (shell.y - crumb_h).max(0.0),
+    )
+}
+
+/// How far an occupant of designed size `form` overflows `pane`: `(right,
+/// bottom)` in points, each `0` when that axis fits.
+///
+/// See [`content_pane_size`] for why this is shared rather than recomputed.
+pub fn occupant_overflow(form: Vec2, pane: Vec2) -> Vec2 {
+    Vec2::new((form.x - pane.x).max(0.0), (form.y - pane.y).max(0.0))
+}
+
+/// [`content_pane_size`] for a whole designed form: finds its SideMenu, reads
+/// the rail width and breadcrumb height off it, and applies the rule.
+///
+/// The rail is the SideMenu **as the developer drew it** and the band is that
+/// rail's own `BreadcrumbHeight` (049 R38). A shell with no SideMenu has
+/// neither, so the whole window is the pane. Both the running shell and the
+/// Form Designer answer through here, so they cannot disagree about a pane
+/// the developer does not see until run time.
+pub fn form_content_pane(form: &crate::model::Form) -> Vec2 {
+    let shell = Vec2::new(form.width as f32, form.height as f32);
+    let Some(side) = form
+        .controls
+        .iter()
+        .find(|c| matches!(c.control_type, crate::model::ControlType::SideMenu))
+    else {
+        // No rail, no breadcrumb: the window IS the pane.
+        return shell;
+    };
+    let rail = if side.rect.w > 0 {
+        side.rect.w as f32
+    } else {
+        0.0
+    };
+    content_pane_size(shell, rail, crate::breadcrumb::height_of(side))
+}
+
+
 use crate::menu::{BadgeStyle, MenuItem, MenuItemType};
 use crate::model::Control;
 use egui::{Color32, FontId, Pos2, Rect, Stroke, Vec2};
@@ -1264,6 +1328,61 @@ fn paint_footer(_painter: &egui::Painter, _rect: Rect, _state: &SidebarState<'_>
 
 #[cfg(test)]
 mod tests {
+
+    /// The ContentPane rule, against the project that produced the report.
+    ///
+    /// PowerDemo3's shell is 1584x936 with a rail the developer drew 296 wide
+    /// and the default 28-point breadcrumb, so the pane is 1288x908 — while
+    /// `datagrid-form` is designed 1320x720. Thirty-two points of it can never
+    /// be on screen, even at the shell's own designed size, and the Form
+    /// Designer now says so instead of leaving the developer to discover three
+    /// missing RadioButtons at run time (operator, 2026-08-31).
+    #[test]
+    fn a_shell_form_reports_the_pane_it_will_give_an_occupant() {
+        use crate::model::{ControlType, Form, PropValue, Rect as MRect};
+
+        let mut shell = Form::new("SIDEBAR-FORM", "Main Menu", 1584, 936);
+        let mut rail = crate::model::Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+        rail.rect = MRect::new(0, 0, 296, 936);
+        shell.controls.push(rail);
+
+        let pane = form_content_pane(&shell);
+        assert_eq!(pane, Vec2::new(1288.0, 908.0));
+
+        let occupant = Vec2::new(1320.0, 720.0);
+        assert_eq!(
+            occupant_overflow(occupant, pane),
+            Vec2::new(32.0, 0.0),
+            "32 points too wide, and nothing too tall"
+        );
+        assert_eq!(
+            occupant_overflow(Vec2::new(1280.0, 700.0), pane),
+            Vec2::ZERO,
+            "a form that fits must raise nothing — the warning may not cry wolf"
+        );
+
+        // The rail is the one the DEVELOPER drew. Measuring against the host's
+        // fixed 220 default would report a comfortable fit and say nothing.
+        assert_eq!(
+            occupant_overflow(occupant, content_pane_size(Vec2::new(1584.0, 936.0), 220.0, 28.0)),
+            Vec2::ZERO,
+            "the trap this guards against"
+        );
+
+        // A taller breadcrumb takes its extra out of the pane, not the window.
+        let mut tall = shell.clone();
+        tall.controls[0].set_prop("BreadcrumbHeight", PropValue::Int(64));
+        assert_eq!(form_content_pane(&tall), Vec2::new(1288.0, 872.0));
+
+        // A shell with no SideMenu has neither rail nor band: it is all pane.
+        let bare = Form::new("PLAIN", "Plain", 800, 600);
+        assert_eq!(form_content_pane(&bare), Vec2::new(800.0, 600.0));
+
+        // …and a shell smaller than its own chrome yields an empty pane, never
+        // an inverted one.
+        assert_eq!(content_pane_size(Vec2::new(100.0, 10.0), 296.0, 28.0), Vec2::ZERO);
+    }
+
     use super::*;
     use crate::menu::MenuItem;
 

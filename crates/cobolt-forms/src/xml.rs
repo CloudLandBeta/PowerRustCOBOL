@@ -1165,7 +1165,41 @@ fn parse_control<R: std::io::BufRead>(
         }
     }
 
+    migrate_radio_checked_to_selected(&mut ctrl);
     Ok(ctrl)
+}
+
+/// A RadioButton written before 2026-08-31 stores its state under `Checked`.
+/// Rename it to `Selected` on the way in, so exactly one spelling reaches
+/// everything downstream and the file upgrades itself the next time it is
+/// saved — the same silent-upgrade discipline every other `.cfrm` field
+/// change has followed.
+///
+/// A file that already carries `Selected` wins outright: if both are present
+/// (hand-edited, or half-migrated), the canonical one is kept and the legacy
+/// key dropped rather than merged, because two names for one state is the
+/// condition this rename exists to end.
+fn migrate_radio_checked_to_selected(ctrl: &mut Control) {
+    if ctrl.control_type != ControlType::RadioButton {
+        return;
+    }
+    let legacy = ctrl
+        .properties
+        .keys()
+        .find(|k| k.eq_ignore_ascii_case(crate::model::CHECKED_PROP))
+        .cloned();
+    let Some(legacy) = legacy else { return };
+    let has_canonical = ctrl
+        .properties
+        .keys()
+        .any(|k| k.eq_ignore_ascii_case(crate::model::SELECTED_PROP));
+    let value = ctrl.properties.shift_remove(&legacy);
+    if has_canonical {
+        return;
+    }
+    if let Some(value) = value {
+        ctrl.set_prop(crate::model::SELECTED_PROP, value);
+    }
 }
 
 /// Translate the legacy `Opacity` property into `Transparency` as it is read.

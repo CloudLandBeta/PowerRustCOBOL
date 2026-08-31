@@ -65,6 +65,51 @@ pub fn launch_preamble(form: &cobolt_forms::Form, control_ids: &[&str]) {
     );
 }
 
+/// The same preamble for a form loaded into the shell's **ContentPane** (049).
+///
+/// `launch_preamble` covers the ROOT form only, so a pane occupant — which is
+/// what an `Embedded` form always is — went through the whole build with
+/// nothing said about it. When an embedded form renders differently from the
+/// way it looks in the designer, the first question is whether its controls
+/// even reached the host, and that question had no answer short of a debugger
+/// (operator, 2026-08-31: radios missing from an embedded form).
+///
+/// Per control: its id, type, designed rect and `visible` flag — enough to
+/// tell "the control never arrived" from "it arrived and something hid it"
+/// from "it arrived, is visible, and is being drawn somewhere unexpected".
+pub fn embedded_preamble(
+    handle: &str,
+    form: &cobolt_forms::Form,
+    controls: &[cobolt_forms::Control],
+) {
+    eprintln!(
+        "[prc] EMBEDDED form '{}' handle={} {}x{} format={} background={:?}          bg-image={:?} bg-mode={} controls={}",
+        form.name,
+        handle,
+        form.width,
+        form.height,
+        form.form_format.as_str(),
+        form.background_color,
+        form.background_image,
+        form.bg_image_mode.as_str(),
+        controls.len(),
+    );
+    for c in controls {
+        eprintln!(
+            "[prc]   {} {} rect=({},{},{}x{}) visible={} enabled={} parent={:?}",
+            c.id,
+            c.control_type.as_str(),
+            c.rect.x,
+            c.rect.y,
+            c.rect.w,
+            c.rect.h,
+            c.visible,
+            c.enabled,
+            c.parent,
+        );
+    }
+}
+
 /// One live-trace line per state update: which designed control the write
 /// landed on, or `NO SUCH CONTROL` with the ids that do exist. A miss means
 /// the update is stored under a key nothing renders — the difference between

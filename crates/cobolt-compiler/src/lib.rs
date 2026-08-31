@@ -3678,7 +3678,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "BorderWidth" => ("pixels ≥ 0", "Border line thickness."),
 
         // ── Check / radio ──
-        "Checked" => (BOOL_DOMAIN, "Checked state."),
+        "Checked" => (
+            BOOL_DOMAIN,
+            "Checked state of a CheckBox or a Switch. A **RadioButton** uses `Selected` instead — a radio is selected, not checked. `Checked` is still accepted on a radio so programs written before the rename keep working, and it resolves to `Selected` on the way in.",
+        ),
+        "Selected" => (
+            BOOL_DOMAIN,
+            "Selected state of a **RadioButton** — the radio's own name for what a CheckBox calls `Checked`. Only one RadioButton in a `GroupName` is selected at a time: selecting one clears its siblings and each cleared button raises `onUncheck`. Forms saved before this name existed store `Checked`, and are migrated to `Selected` when they load.",
+        ),
         "GroupName" => ("free text", "RadioButtons sharing a GroupName are mutually exclusive."),
         "CheckAlignment" => ("`Left` | `Right`", "Side of the caption the check/radio glyph sits on."),
         "CheckColor" => (COLOR_DOMAIN, "Color of the check/radio mark — the tick itself, drawn inside the box."),

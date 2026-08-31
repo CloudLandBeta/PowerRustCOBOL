@@ -4891,10 +4891,9 @@ fn draw_control_body(
     // the control's own `CheckColor` — the property that already colours a
     // CheckBox's tick, and a radio's dot is that tick.
     if matches!(ctrl.control_type, CT::RadioButton) {
-        let checked = ctrl
-            .get_prop("Checked")
-            .map(|v| v.as_bool())
-            .unwrap_or(false);
+        // `Selected` since 2026-08-31, falling back to the legacy `Checked` so
+        // a form saved before the rename still lights its radio up.
+        let checked = crate::model::toggle_state_of(ctrl);
         let (d, pad, gap) = toggle_indicator_metrics(rect, ctrl);
         let c = Pos2::new(rect.left() + pad + d * 0.5, rect.center().y);
         let (fill, rim, rim_w) = radio_indicator_colors(painter.ctx(), ctrl, checked);

@@ -959,6 +959,117 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "local",
         ],
     ),
+    // Every control the RAD toolbox offers, one icon each, named
+    // `control-<kebab of the ControlType>`. The IDE drew these for its own
+    // toolbox in ad-hoc painter calls; recreated here on the 24-unit grid so a
+    // developer can put a control's own icon on a menu item, a toolbar button
+    // or a tree node in the app they are building (operator, 2026-08-31: "I
+    // was creating examples for each control and I realized we do not have
+    // icons to represent PowerRustCOBOL own controls"). The prefix keeps them
+    // clear of the generic names — `form`, `window`, `table`, `toggle-on` —
+    // that already mean something else in this catalogue.
+    (
+        "PowerRustCOBOL Controls",
+        &[
+            "control-button",
+            "control-text-box",
+            "control-label",
+            "control-check-box",
+            "control-radio-button",
+            "control-list-box",
+            "control-combo-box",
+            "control-group-box",
+            "control-panel",
+            "control-tab-control",
+            "control-data-grid",
+            "control-picture-box",
+            "control-progress-bar",
+            "control-menu-bar",
+            "control-tool-bar",
+            "control-status-bar",
+            "control-line",
+            "control-date-time-picker",
+            "control-numeric-up-down",
+            "control-tree-view",
+            "control-splitter",
+            "control-timer",
+            "control-shape",
+            "control-animator",
+            "control-agent-object",
+            "control-rest-client",
+            "control-sql-database",
+            "control-indexed-file",
+            "control-slider",
+            "control-bar-chart",
+            "control-line-chart",
+            "control-pie-chart",
+            "control-area-chart",
+            "control-scatter-chart",
+            "control-donut-chart",
+            "control-knob",
+            "control-gauge",
+            "control-switch",
+            "control-file-drop-zone",
+            "control-maps",
+            "control-web-search",
+            "control-side-menu",
+            "control-custom",
+        ],
+    ),
+    // The vocabulary of the craft: data structures, compilation, concurrency,
+    // networking, security, data modelling, version control and the handful of
+    // theory ideas a developer actually draws on a whiteboard. Requested
+    // alongside the control set (operator, 2026-08-31); names avoid every
+    // generic already here — `code`, `database`, `network`, `api`, `terminal`,
+    // `bug`, `server` and `container` (which is a SHIPPING container, in
+    // Logistics) all keep their existing meanings.
+    (
+        "Computer Science",
+        &[
+            "array", "matrix", "stack-structure", "queue-structure",
+            "linked-list", "hash-table", "binary-tree", "graph-nodes", "venn",
+            "ring-buffer",
+            "algorithm", "compiler", "interpreter", "parser", "syntax-tree",
+            "bytecode", "variable", "constant", "recursion", "iteration",
+            "conditional", "boolean", "regex", "flowchart",
+            "thread", "process", "mutex", "deadlock", "garbage-collection",
+            "stack-trace", "breakpoint", "kernel", "virtual-machine", "sandbox",
+            "async", "callback", "event-loop", "scheduler",
+            "socket", "protocol", "packet", "load-balancer", "proxy",
+            "firewall", "microservice", "websocket", "webhook",
+            "encryption", "hash-function", "checksum", "key-pair", "two-factor",
+            "schema", "primary-key", "foreign-key", "join-tables", "migration",
+            "replication", "sharding", "query",
+            "git-branch", "git-merge", "git-commit", "pull-request",
+            "repository", "diff", "patch", "ci-cd", "container-image",
+            "orchestration",
+            "complexity", "sorting", "binary-search", "state-machine",
+            "truth-table", "bitwise", "binary-number", "hexadecimal",
+            "neural-network",
+        ],
+    ),
+    // Interface patterns, interaction and layout — the words a designer and a
+    // developer use to each other. Requested alongside the control set
+    // (operator, 2026-08-31). Deliberately NOT included, because the
+    // catalogue already answers them: `loading` (a spinner), `user-circle`
+    // (an avatar), `magnifier`, `upload`, `zoom-in` / `zoom-out`, `undo` /
+    // `redo` and the whole `align-*` family.
+    (
+        "User Interface",
+        &[
+            "modal", "dialog", "tooltip", "popover", "dropdown", "accordion",
+            "breadcrumb", "pagination", "stepper", "wizard", "carousel",
+            "drawer", "toast", "chip", "skeleton", "scrollbar", "search-field",
+            "file-upload", "empty-state",
+            "wireframe", "mockup", "responsive", "dark-mode", "light-mode",
+            "accessibility", "screen-reader", "keyboard-shortcut",
+            "cursor-pointer", "cursor-text", "drag-drop", "click",
+            "double-click", "long-press", "swipe", "focus-ring",
+            "z-index", "flex-layout", "grid-layout", "padding", "margin",
+            "border-radius", "drop-shadow", "opacity", "gradient", "guides",
+            "ruler", "artboard", "viewport", "snap-grid",
+        ],
+    ),
     // National flags, `flag-<ISO 3166-1 alpha-2>`: every UN member state, plus
     // the Holy See, Palestine and Kosovo. These are LINE drawings on a
     // monochrome grid, so flags that differ only in colour share a drawing —
@@ -1188,6 +1299,9 @@ pub(crate) fn icon_shapes(name: &str) -> Option<Vec<IconShape>> {
         .or_else(|| vehicles_military_shapes(name))
         .or_else(|| devices_cloud_shapes(name))
         .or_else(|| forms_tools_shapes(name))
+        .or_else(|| control_shapes(name))
+        .or_else(|| computer_science_shapes(name))
+        .or_else(|| user_interface_shapes(name))
         .or_else(|| flag_shapes(name))
 }
 
@@ -6822,6 +6936,1585 @@ fn forms_tools_shapes(name: &str) -> Option<Vec<IconShape>> {
     })
 }
 
+/// The RAD toolbox's own control icons, recreated on the 24-unit grid.
+///
+/// The IDE draws these in `panels/toolbox.rs::paint_control_icon` with ad-hoc
+/// painter calls sized off the button; that code stays where it is (it is the
+/// toolbox's own chrome). These are the same motifs re-authored as catalogue
+/// shape data, so they scale, style and export like every other icon here —
+/// and so a developer can put a control's icon in the app they are BUILDING,
+/// which is what the toolbox drawings could never do.
+///
+/// One rule per control: whatever the toolbox uses to tell it apart at 26 px
+/// is what is kept. Where a control's motif would collide with a generic name
+/// already in the catalogue (`toggle-on` for Switch, `table` for DataGrid,
+/// `map-pin` for Maps), the drawing is pulled towards the CONTROL — a frame, a
+/// caption, a designed widget — rather than the bare concept.
+#[rustfmt::skip]
+fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
+    Some(match name {
+        // ── Common input ───────────────────────────────────────────────────
+        "control-button" => vec![
+            rr(2.5, 6.5, 19.0, 11.0, 2.2),
+            p(&[(8.5, 12.0), (15.5, 12.0)]),
+        ],
+        // The caret between its serifs — a text FIELD, not a line of text.
+        "control-text-box" => vec![
+            rr(2.5, 7.0, 19.0, 10.0, 1.2),
+            p(&[(6.4, 9.4), (6.4, 14.6)]),
+            p(&[(5.5, 9.4), (7.3, 9.4)]),
+            p(&[(5.5, 14.6), (7.3, 14.6)]),
+        ],
+        // A DRAWN "A" over its baseline — never a font glyph (fonts vary,
+        // drawings do not), the same rule `doc-pdf`'s "P" follows.
+        "control-label" => vec![
+            p(&[(7.0, 18.0), (12.0, 5.5), (17.0, 18.0)]),
+            p(&[(9.0, 14.0), (15.0, 14.0)]),
+            p(&[(4.5, 21.0), (19.5, 21.0)]),
+        ],
+        "control-check-box" => vec![
+            rr(2.5, 7.8, 8.4, 8.4, 1.2),
+            p(&[(4.4, 12.0), (6.3, 14.4), (9.4, 9.6)]),
+            p(&[(13.0, 12.0), (20.5, 12.0)]),
+        ],
+        "control-radio-button" => vec![
+            c(6.9, 12.0, 4.3),
+            d(6.9, 12.0, 1.9),
+            p(&[(13.0, 12.0), (20.5, 12.0)]),
+        ],
+        // A list with its first row SELECTED — the fill is what separates it
+        // from `list-view`, which is a view mode, not a control.
+        "control-list-box" => vec![
+            rr(3.0, 3.6, 18.0, 16.8, 1.2),
+            rrf(4.2, 4.8, 15.6, 2.6, 0.6),
+            p(&[(3.0, 12.0), (21.0, 12.0)]),
+            p(&[(3.0, 16.2), (21.0, 16.2)]),
+        ],
+        "control-combo-box" => vec![
+            rr(2.5, 7.0, 19.0, 10.0, 1.2),
+            p(&[(16.3, 7.0), (16.3, 17.0)]),
+            p(&[(17.6, 10.8), (18.9, 13.2), (20.2, 10.8)]),
+            p(&[(5.0, 12.0), (13.5, 12.0)]),
+        ],
+        // The caption BREAKS the frame — that gap is the whole glyph.
+        "control-group-box" => vec![
+            p(&[(6.5, 4.4), (11.5, 4.4)]),
+            p(&[(3.0, 6.0), (5.2, 6.0)]),
+            p(&[(12.8, 6.0), (21.0, 6.0)]),
+            p(&[(3.0, 6.0), (3.0, 20.0)]),
+            p(&[(21.0, 6.0), (21.0, 20.0)]),
+            p(&[(3.0, 20.0), (21.0, 20.0)]),
+        ],
+        // Two stacked frames: a surface with depth, not a bordered group.
+        "control-panel" => vec![
+            rr(6.0, 6.5, 15.5, 14.0, 1.2),
+            rr(2.5, 3.5, 15.5, 14.0, 1.2),
+        ],
+        "control-tab-control" => vec![
+            rr(2.5, 8.0, 19.0, 12.0, 1.5),
+            p(&[(3.0, 8.0), (3.0, 3.6), (10.0, 3.6), (10.0, 8.0)]),
+            p(&[(11.3, 8.0), (11.3, 5.4), (17.6, 5.4), (17.6, 8.0)]),
+        ],
+        // A grid WITH a filled header band — `table` has neither the band nor
+        // the row rules.
+        "control-data-grid" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.0),
+            rrf(3.6, 5.1, 16.8, 2.4, 0.5),
+            p(&[(2.5, 8.6), (21.5, 8.6)]),
+            p(&[(8.8, 8.6), (8.8, 20.0)]),
+            p(&[(15.2, 8.6), (15.2, 20.0)]),
+            p(&[(2.5, 12.4), (21.5, 12.4)]),
+            p(&[(2.5, 16.2), (21.5, 16.2)]),
+        ],
+        "control-picture-box" => vec![
+            rr(2.5, 4.5, 19.0, 15.0, 1.0),
+            c(8.0, 9.2, 1.8),
+            p(&[(3.2, 19.0), (9.2, 12.6), (13.6, 19.0)]),
+            p(&[(11.6, 19.0), (16.4, 13.8), (20.8, 19.0)]),
+        ],
+        "control-progress-bar" => vec![
+            rr(2.5, 9.0, 19.0, 6.0, 3.0),
+            rrf(3.7, 10.2, 10.4, 3.6, 1.8),
+        ],
+        // ── Bars and menus: the STRIP inside a window frame ─────────────────
+        "control-menu-bar" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            p(&[(2.5, 9.2), (21.5, 9.2)]),
+            p(&[(5.0, 6.6), (8.2, 6.6)]),
+            p(&[(10.4, 6.6), (13.6, 6.6)]),
+            p(&[(15.8, 6.6), (19.0, 6.6)]),
+        ],
+        "control-tool-bar" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            p(&[(2.5, 10.6), (21.5, 10.6)]),
+            rrf(4.6, 6.0, 3.0, 3.0, 0.6),
+            rrf(8.8, 6.0, 3.0, 3.0, 0.6),
+            rrf(13.0, 6.0, 3.0, 3.0, 0.6),
+            rrf(17.2, 6.0, 3.0, 3.0, 0.6),
+        ],
+        "control-status-bar" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            p(&[(2.5, 15.4), (21.5, 15.4)]),
+            p(&[(9.0, 15.4), (9.0, 20.0)]),
+            p(&[(15.0, 15.4), (15.0, 20.0)]),
+        ],
+        // A tall rail of rows — deliberately the mirror of the menu bar.
+        "control-side-menu" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            p(&[(9.0, 4.0), (9.0, 20.0)]),
+            p(&[(4.2, 8.0), (7.4, 8.0)]),
+            p(&[(4.2, 12.0), (7.4, 12.0)]),
+            p(&[(4.2, 16.0), (7.4, 16.0)]),
+        ],
+        // ── Layout ─────────────────────────────────────────────────────────
+        // Endpoint handles say "a designed Line", not a rule or a divider.
+        "control-line" => vec![
+            p(&[(5.0, 19.0), (19.0, 5.0)]),
+            d(5.0, 19.0, 1.7),
+            d(19.0, 5.0, 1.7),
+        ],
+        "control-shape" => vec![
+            pc(&[(12.0, 3.5), (20.0, 12.0), (12.0, 20.5), (4.0, 12.0)]),
+        ],
+        // Two panes and the grip between them.
+        "control-splitter" => vec![
+            rr(2.5, 4.5, 8.4, 15.0, 1.0),
+            rr(13.1, 4.5, 8.4, 15.0, 1.0),
+            d(12.0, 9.0, 1.1),
+            d(12.0, 12.0, 1.1),
+            d(12.0, 15.0, 1.1),
+        ],
+        // ── Pickers and steppers ───────────────────────────────────────────
+        "control-date-time-picker" => vec![
+            rr(3.0, 5.5, 18.0, 15.0, 1.2),
+            p(&[(3.0, 10.0), (21.0, 10.0)]),
+            p(&[(8.0, 3.5), (8.0, 7.2)]),
+            p(&[(16.0, 3.5), (16.0, 7.2)]),
+            d(7.6, 13.6, 1.1), d(12.0, 13.6, 1.1), d(16.4, 13.6, 1.1),
+            d(7.6, 17.4, 1.1), d(12.0, 17.4, 1.1),
+        ],
+        "control-numeric-up-down" => vec![
+            rr(2.5, 7.0, 19.0, 10.0, 1.2),
+            p(&[(16.3, 7.0), (16.3, 17.0)]),
+            p(&[(16.3, 12.0), (21.5, 12.0)]),
+            p(&[(17.7, 10.4), (18.9, 9.2), (20.1, 10.4)]),
+            p(&[(17.7, 13.6), (18.9, 14.8), (20.1, 13.6)]),
+            p(&[(5.0, 12.0), (10.0, 12.0)]),
+        ],
+        "control-tree-view" => vec![
+            d(5.2, 5.2, 1.8),
+            p(&[(5.2, 7.0), (5.2, 18.4)]),
+            p(&[(5.2, 10.6), (10.8, 10.6)]),
+            d(12.4, 10.6, 1.6),
+            p(&[(5.2, 18.4), (10.8, 18.4)]),
+            d(12.4, 18.4, 1.6),
+            p(&[(12.4, 12.2), (12.4, 14.5), (17.4, 14.5)]),
+            d(18.8, 14.5, 1.4),
+        ],
+        "control-slider" => vec![
+            p(&[(3.0, 11.0), (21.0, 11.0)]),
+            c(14.0, 11.0, 3.0),
+            d(14.0, 11.0, 1.3),
+            p(&[(3.0, 15.5), (3.0, 17.5)]),
+            p(&[(7.5, 15.5), (7.5, 17.5)]),
+            p(&[(12.0, 15.5), (12.0, 17.5)]),
+            p(&[(16.5, 15.5), (16.5, 17.5)]),
+            p(&[(21.0, 15.5), (21.0, 17.5)]),
+        ],
+        // A full dial with its pointer, open at the bottom where a knob's
+        // travel stops — `chart-gauge` is a half circle, this is not.
+        "control-knob" => vec![
+            c(12.0, 12.0, 7.0),
+            p(&[(13.8, 10.2), (17.0, 7.0)]),
+            d(12.0, 12.0, 1.4),
+            p(&[(4.9, 19.1), (3.2, 20.8)]),
+            p(&[(19.1, 19.1), (20.8, 20.8)]),
+        ],
+        "control-gauge" => vec![
+            a(12.0, 15.0, 8.0, 180.0, 360.0),
+            p(&[(12.0, 15.0), (17.0, 10.4)]),
+            d(12.0, 15.0, 1.5),
+            p(&[(4.0, 15.0), (4.0, 17.5)]),
+            p(&[(20.0, 15.0), (20.0, 17.5)]),
+        ],
+        // A pill with the thumb to the RIGHT and a frame around it: the
+        // designed control, where bare `toggle-on` is the state.
+        "control-switch" => vec![
+            rr(2.5, 8.0, 19.0, 8.0, 4.0),
+            d(17.0, 12.0, 2.4),
+            p(&[(6.0, 12.0), (9.5, 12.0)]),
+        ],
+        // ── Media and graphics ─────────────────────────────────────────────
+        "control-animator" => vec![
+            rr(2.5, 6.0, 19.0, 12.0, 1.5),
+            p(&[(7.0, 6.0), (7.0, 8.2)]),
+            p(&[(12.0, 6.0), (12.0, 8.2)]),
+            p(&[(17.0, 6.0), (17.0, 8.2)]),
+            p(&[(7.0, 18.0), (7.0, 15.8)]),
+            p(&[(12.0, 18.0), (12.0, 15.8)]),
+            p(&[(17.0, 18.0), (17.0, 15.8)]),
+            pf(&[(10.4, 9.4), (10.4, 14.6), (15.0, 12.0)]),
+        ],
+        // The map VIEWPORT with a pin in it — `map-pin` is the pin alone.
+        "control-maps" => vec![
+            rr(2.5, 4.5, 19.0, 15.0, 1.5),
+            pathc(vec![
+                L(12.0, 7.0),
+                B(14.4, 7.0, 16.0, 8.8, 16.0, 10.9),
+                B(16.0, 13.3, 13.2, 15.3, 12.0, 16.8),
+                B(10.8, 15.3, 8.0, 13.3, 8.0, 10.9),
+                B(8.0, 8.8, 9.6, 7.0, 12.0, 7.0),
+            ]),
+            d(12.0, 10.8, 1.4),
+        ],
+        // ── Non-visual ─────────────────────────────────────────────────────
+        // A stopwatch: crown and stem say "a Timer you start", not a clock.
+        "control-timer" => vec![
+            c(12.0, 13.8, 7.0),
+            p(&[(12.0, 13.8), (12.0, 9.4)]),
+            p(&[(12.0, 13.8), (15.6, 13.8)]),
+            d(12.0, 13.8, 1.2),
+            p(&[(9.8, 3.6), (14.2, 3.6)]),
+            p(&[(12.0, 3.6), (12.0, 6.8)]),
+        ],
+        // A robot head with its antenna — the agent, not a person.
+        "control-agent-object" => vec![
+            rr(4.5, 8.6, 15.0, 11.0, 3.0),
+            c(9.0, 12.6, 1.4),
+            c(15.0, 12.6, 1.4),
+            p(&[(9.2, 16.4), (14.8, 16.4)]),
+            p(&[(12.0, 8.6), (12.0, 5.6)]),
+            d(12.0, 4.2, 1.4),
+        ],
+        // A globe with its endpoints marked — the calls it makes, where the
+        // catalogue's `globe` is the world itself.
+        "control-rest-client" => vec![
+            c(12.0, 12.0, 7.0),
+            p(&[(5.0, 12.0), (19.0, 12.0)]),
+            a(12.0, 12.0, 3.6, 270.0, 450.0),
+            a(12.0, 12.0, 3.6, 90.0, 270.0),
+            d(12.0, 5.0, 1.3), d(19.0, 12.0, 1.3),
+            d(12.0, 19.0, 1.3), d(5.0, 12.0, 1.3),
+        ],
+        // The cylinder, plus the query caret that makes it SQL.
+        "control-sql-database" => vec![
+            pathc(vec![
+                L(3.5, 6.5),
+                Q(3.5, 4.2, 11.0, 4.2), Q(18.5, 4.2, 18.5, 6.5),
+                Q(18.5, 8.8, 11.0, 8.8), Q(3.5, 8.8, 3.5, 6.5),
+            ]),
+            p(&[(3.5, 6.5), (3.5, 15.5)]),
+            p(&[(18.5, 6.5), (18.5, 11.0)]),
+            path(vec![L(3.5, 15.5), Q(3.5, 17.8, 11.0, 17.8)]),
+            path(vec![L(3.5, 11.0), Q(3.5, 13.3, 11.0, 13.3), Q(18.5, 13.3, 18.5, 11.0)]),
+            p(&[(14.0, 17.0), (16.6, 19.4), (14.0, 21.8)]),
+            p(&[(18.0, 21.8), (21.5, 21.8)]),
+        ],
+        // A record page with its key: the INDEXED file, keyed access.
+        "control-indexed-file" => vec![
+            pathc(vec![
+                L(4.5, 2.8), L(13.0, 2.8), L(17.5, 7.3), L(17.5, 17.0), L(4.5, 17.0),
+            ]),
+            p(&[(13.0, 2.8), (13.0, 7.3), (17.5, 7.3)]),
+            p(&[(7.0, 10.5), (14.5, 10.5)]),
+            p(&[(7.0, 13.5), (12.0, 13.5)]),
+            c(8.4, 19.6, 2.6),
+            p(&[(10.9, 19.6), (20.5, 19.6)]),
+            p(&[(18.2, 19.6), (18.2, 22.0)]),
+            p(&[(20.5, 19.6), (20.5, 21.6)]),
+        ],
+        // Dashed frame, arrow, tray — the universal drop target.
+        "control-file-drop-zone" => {
+            let mut v = Vec::new();
+            // A dashed border, authored as eight short strokes.
+            for (x0, x1) in [(2.5, 7.0), (9.5, 14.5), (17.0, 21.5)] {
+                v.push(p(&[(x0, 3.5), (x1, 3.5)]));
+                v.push(p(&[(x0, 20.5), (x1, 20.5)]));
+            }
+            for (y0, y1) in [(3.5, 7.5), (10.0, 14.0), (16.5, 20.5)] {
+                v.push(p(&[(2.5, y0), (2.5, y1)]));
+                v.push(p(&[(21.5, y0), (21.5, y1)]));
+            }
+            v.push(p(&[(12.0, 7.0), (12.0, 13.5)]));
+            v.push(p(&[(9.2, 10.7), (12.0, 13.5), (14.8, 10.7)]));
+            v.push(p(&[(7.0, 16.8), (17.0, 16.8)]));
+            v
+        }
+        // A lens over a page of results — a SEARCH of the web, not a lens.
+        "control-web-search" => vec![
+            rr(2.5, 4.5, 19.0, 15.0, 1.5),
+            p(&[(2.5, 8.4), (21.5, 8.4)]),
+            c(10.4, 13.4, 3.6),
+            p(&[(13.0, 16.0), (16.6, 19.6)]),
+            p(&[(5.6, 6.4), (9.0, 6.4)]),
+        ],
+        // A plugin-provided control: the catalogue frame with a socket cut out
+        // of it, the shape a third party fills in.
+        "control-custom" => vec![
+            path(vec![
+                L(9.5, 3.5), L(3.5, 3.5), L(3.5, 9.0),
+            ]),
+            pathc(vec![
+                L(3.5, 9.0),
+                Q(6.6, 9.0, 6.6, 12.0), Q(6.6, 15.0, 3.5, 15.0),
+                L(3.5, 20.5), L(20.5, 20.5), L(20.5, 3.5), L(9.5, 3.5),
+            ]),
+            d(14.5, 12.0, 1.5),
+        ],
+        // ── Charts ─────────────────────────────────────────────────────────
+        "control-bar-chart" => vec![
+            p(&[(3.0, 4.0), (3.0, 19.5), (21.0, 19.5)]),
+            rrf(5.4, 14.0, 3.0, 5.5, 0.4),
+            rrf(9.6, 10.0, 3.0, 9.5, 0.4),
+            rrf(13.8, 12.2, 3.0, 7.3, 0.4),
+            rrf(18.0, 6.8, 3.0, 12.7, 0.4),
+        ],
+        "control-line-chart" => vec![
+            p(&[(3.0, 4.0), (3.0, 19.5), (21.0, 19.5)]),
+            p(&[(5.0, 15.0), (9.5, 10.5), (13.5, 13.5), (19.5, 6.5)]),
+            d(5.0, 15.0, 1.3), d(9.5, 10.5, 1.3),
+            d(13.5, 13.5, 1.3), d(19.5, 6.5, 1.3),
+        ],
+        "control-pie-chart" => vec![
+            c(12.0, 12.0, 8.0),
+            p(&[(12.0, 12.0), (20.0, 12.0)]),
+            p(&[(12.0, 12.0), (9.3, 4.5)]),
+            p(&[(12.0, 12.0), (5.2, 15.9)]),
+        ],
+        "control-donut-chart" => vec![
+            c(12.0, 12.0, 8.0),
+            c(12.0, 12.0, 3.6),
+            p(&[(15.6, 12.0), (20.0, 12.0)]),
+            p(&[(10.8, 8.6), (9.3, 4.5)]),
+            p(&[(9.1, 13.8), (5.2, 15.9)]),
+        ],
+        "control-area-chart" => vec![
+            p(&[(3.0, 4.0), (3.0, 19.5), (21.0, 19.5)]),
+            pf(&[(5.0, 19.5), (5.0, 15.0), (9.5, 10.5), (13.5, 13.5), (19.5, 7.5), (19.5, 19.5)]),
+            p(&[(5.0, 15.0), (9.5, 10.5), (13.5, 13.5), (19.5, 7.5)]),
+        ],
+        "control-scatter-chart" => vec![
+            p(&[(3.0, 4.0), (3.0, 19.5), (21.0, 19.5)]),
+            c(7.0, 14.5, 1.5),
+            c(11.0, 8.5, 1.5),
+            c(13.5, 15.5, 1.5),
+            c(17.5, 10.0, 1.5),
+            c(19.5, 15.0, 1.5),
+        ],
+
+        _ => return None,
+    })
+}
+
+/// Computer-science concepts.
+///
+/// Each one is drawn as the thing a developer would sketch to explain it, not
+/// as a letterform: a stack is plates with a push arrow, a mutex is the lock
+/// ON the shared line, recursion is the box that contains itself. Anything
+/// that would need a label to be understood is drawn differently until it does
+/// not.
+#[rustfmt::skip]
+fn computer_science_shapes(name: &str) -> Option<Vec<IconShape>> {
+    Some(match name {
+        // ── Data structures ────────────────────────────────────────────────
+        "array" => vec![
+            rr(2.0, 8.5, 20.0, 7.0, 1.0),
+            p(&[(7.0, 8.5), (7.0, 15.5)]),
+            p(&[(12.0, 8.5), (12.0, 15.5)]),
+            p(&[(17.0, 8.5), (17.0, 15.5)]),
+        ],
+        // Brackets are what make a grid of dots a MATRIX.
+        "matrix" => vec![
+            p(&[(6.0, 4.0), (3.5, 4.0), (3.5, 20.0), (6.0, 20.0)]),
+            p(&[(18.0, 4.0), (20.5, 4.0), (20.5, 20.0), (18.0, 20.0)]),
+            d(8.5, 8.0, 1.2), d(12.0, 8.0, 1.2), d(15.5, 8.0, 1.2),
+            d(8.5, 12.0, 1.2), d(12.0, 12.0, 1.2), d(15.5, 12.0, 1.2),
+            d(8.5, 16.0, 1.2), d(12.0, 16.0, 1.2), d(15.5, 16.0, 1.2),
+        ],
+        // Plates, and the arrow that only ever reaches the top one.
+        "stack-structure" => vec![
+            rr(5.0, 11.5, 14.0, 3.4, 0.6),
+            rr(5.0, 15.4, 14.0, 3.4, 0.6),
+            p(&[(12.0, 2.5), (12.0, 9.0)]),
+            p(&[(9.4, 6.4), (12.0, 9.0), (14.6, 6.4)]),
+        ],
+        // In one end, out the other — that is the whole difference.
+        "queue-structure" => vec![
+            rr(6.0, 8.5, 12.0, 7.0, 0.8),
+            p(&[(10.0, 8.5), (10.0, 15.5)]),
+            p(&[(14.0, 8.5), (14.0, 15.5)]),
+            p(&[(1.5, 12.0), (5.0, 12.0)]),
+            p(&[(3.4, 10.1), (5.3, 12.0), (3.4, 13.9)]),
+            p(&[(19.0, 12.0), (22.5, 12.0)]),
+            p(&[(20.6, 10.1), (22.5, 12.0), (20.6, 13.9)]),
+        ],
+        "linked-list" => vec![
+            rr(2.0, 9.0, 7.0, 6.0, 0.8),
+            rr(15.0, 9.0, 7.0, 6.0, 0.8),
+            p(&[(9.0, 12.0), (14.0, 12.0)]),
+            p(&[(12.2, 10.2), (14.2, 12.0), (12.2, 13.8)]),
+            d(6.6, 12.0, 1.2),
+            d(19.6, 12.0, 1.2),
+        ],
+        // A key dropping into one of the buckets.
+        "hash-table" => vec![
+            p(&[(4.0, 3.0), (20.0, 3.0)]),
+            p(&[(12.0, 3.0), (12.0, 8.5)]),
+            p(&[(9.8, 6.3), (12.0, 8.5), (14.2, 6.3)]),
+            rr(2.5, 10.5, 19.0, 10.0, 0.8),
+            p(&[(9.0, 10.5), (9.0, 20.5)]),
+            p(&[(15.0, 10.5), (15.0, 20.5)]),
+            d(12.0, 15.5, 1.6),
+        ],
+        "binary-tree" => vec![
+            d(12.0, 4.5, 1.8),
+            d(6.0, 12.0, 1.6),
+            d(18.0, 12.0, 1.6),
+            d(3.0, 19.5, 1.4),
+            d(9.0, 19.5, 1.4),
+            p(&[(10.8, 6.0), (7.2, 10.6)]),
+            p(&[(13.2, 6.0), (16.8, 10.6)]),
+            p(&[(5.0, 13.4), (3.7, 18.2)]),
+            p(&[(7.0, 13.4), (8.3, 18.2)]),
+        ],
+        // A cycle, not a hierarchy: every node reaches two others.
+        "graph-nodes" => vec![
+            c(12.0, 4.8, 2.2),
+            c(4.5, 17.5, 2.2),
+            c(19.5, 17.5, 2.2),
+            c(12.0, 12.0, 2.2),
+            p(&[(10.6, 6.5), (5.7, 15.6)]),
+            p(&[(13.4, 6.5), (18.3, 15.6)]),
+            p(&[(6.7, 17.5), (17.3, 17.5)]),
+            p(&[(12.0, 7.0), (12.0, 9.8)]),
+        ],
+        "venn" => vec![
+            c(8.8, 12.0, 6.4),
+            c(15.2, 12.0, 6.4),
+        ],
+        // Fixed cells around a ring, with the write head moving on.
+        "ring-buffer" => vec![
+            c(12.0, 12.0, 7.5),
+            c(12.0, 12.0, 3.6),
+            p(&[(12.0, 4.5), (12.0, 8.4)]),
+            p(&[(18.5, 15.8), (15.1, 13.8)]),
+            p(&[(5.5, 15.8), (8.9, 13.8)]),
+            pf(&[(19.4, 6.4), (15.6, 6.9), (17.6, 10.1)]),
+        ],
+
+        // ── Language and compilation ───────────────────────────────────────
+        // Ordered steps, and the machine that runs them.
+        "algorithm" => vec![
+            p(&[(3.0, 5.5), (13.0, 5.5)]),
+            p(&[(3.0, 10.0), (13.0, 10.0)]),
+            p(&[(3.0, 14.5), (10.0, 14.5)]),
+            d(1.2, 5.5, 1.0), d(1.2, 10.0, 1.0), d(1.2, 14.5, 1.0),
+            c(16.5, 17.0, 3.4),
+            p(&[(16.5, 12.4), (16.5, 13.6)]),
+            p(&[(16.5, 20.4), (16.5, 21.6)]),
+            p(&[(11.9, 17.0), (13.1, 17.0)]),
+            p(&[(19.9, 17.0), (21.1, 17.0)]),
+        ],
+        // Source in, machine code out.
+        "compiler" => vec![
+            rr(1.5, 5.0, 7.5, 14.0, 1.0),
+            p(&[(3.2, 8.5), (7.3, 8.5)]),
+            p(&[(3.2, 12.0), (7.3, 12.0)]),
+            p(&[(3.2, 15.5), (5.8, 15.5)]),
+            p(&[(10.0, 12.0), (14.5, 12.0)]),
+            p(&[(12.6, 10.1), (14.5, 12.0), (12.6, 13.9)]),
+            rr(15.5, 5.0, 7.0, 14.0, 1.0),
+            p(&[(17.2, 9.0), (20.8, 9.0)]),
+            p(&[(17.2, 12.0), (20.8, 12.0)]),
+            p(&[(17.2, 15.0), (19.0, 15.0)]),
+        ],
+        // The same source, executed a line at a time — the caret IS the point.
+        "interpreter" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            p(&[(6.0, 8.0), (17.5, 8.0)]),
+            p(&[(9.5, 12.0), (17.5, 12.0)]),
+            p(&[(9.5, 16.0), (14.5, 16.0)]),
+            pf(&[(5.4, 10.2), (5.4, 13.8), (8.2, 12.0)]),
+        ],
+        // A flat line of tokens fanning out into structure.
+        "parser" => vec![
+            p(&[(3.0, 5.0), (21.0, 5.0)]),
+            p(&[(8.0, 3.4), (8.0, 6.6)]),
+            p(&[(13.0, 3.4), (13.0, 6.6)]),
+            p(&[(12.0, 8.0), (12.0, 10.5)]),
+            p(&[(5.5, 15.0), (5.5, 12.5), (18.5, 12.5), (18.5, 15.0)]),
+            p(&[(12.0, 12.5), (12.0, 15.0)]),
+            d(5.5, 17.0, 1.6), d(12.0, 17.0, 1.6), d(18.5, 17.0, 1.6),
+        ],
+        // The tree the parser produced: an operator over its operands.
+        "syntax-tree" => vec![
+            c(12.0, 5.0, 2.6),
+            p(&[(10.6, 5.0), (13.4, 5.0)]),
+            p(&[(12.0, 3.6), (12.0, 6.4)]),
+            c(5.5, 15.5, 2.6),
+            c(18.5, 15.5, 2.6),
+            p(&[(10.3, 6.9), (7.0, 13.4)]),
+            p(&[(13.7, 6.9), (17.0, 13.4)]),
+            p(&[(5.5, 18.1), (5.5, 21.0)]),
+            p(&[(18.5, 18.1), (18.5, 21.0)]),
+        ],
+        // Compiled instructions in a chip — code that is no longer text.
+        "bytecode" => vec![
+            rr(5.5, 5.5, 13.0, 13.0, 1.2),
+            p(&[(8.5, 9.5), (10.5, 12.0), (8.5, 14.5)]),
+            p(&[(12.0, 14.5), (15.5, 14.5)]),
+            p(&[(9.0, 2.5), (9.0, 5.5)]),
+            p(&[(15.0, 2.5), (15.0, 5.5)]),
+            p(&[(9.0, 18.5), (9.0, 21.5)]),
+            p(&[(15.0, 18.5), (15.0, 21.5)]),
+            p(&[(2.5, 9.0), (5.5, 9.0)]),
+            p(&[(2.5, 15.0), (5.5, 15.0)]),
+            p(&[(18.5, 9.0), (21.5, 9.0)]),
+            p(&[(18.5, 15.0), (21.5, 15.0)]),
+        ],
+        // A named box whose contents can change: the tag, and the swap.
+        "variable" => vec![
+            rr(3.0, 8.0, 18.0, 9.0, 1.2),
+            p(&[(7.0, 8.0), (7.0, 17.0)]),
+            d(5.0, 12.5, 1.2),
+            p(&[(10.5, 12.5), (17.5, 12.5)]),
+            p(&[(15.6, 10.6), (17.5, 12.5), (15.6, 14.4)]),
+            p(&[(10.5, 12.5), (10.5, 12.5)]),
+        ],
+        // The same box, locked.
+        "constant" => vec![
+            rr(3.0, 10.5, 18.0, 8.5, 1.2),
+            p(&[(7.5, 13.5), (16.5, 13.5)]),
+            p(&[(7.5, 16.0), (16.5, 16.0)]),
+            a(12.0, 10.5, 3.6, 180.0, 360.0),
+        ],
+        // A box that contains itself.
+        "recursion" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            rr(7.0, 8.0, 10.5, 8.0, 1.0),
+            rr(10.2, 10.8, 4.1, 2.6, 0.5),
+        ],
+        // A step, and the arrow that brings you back to it.
+        "iteration" => vec![
+            rr(7.5, 8.5, 9.0, 7.0, 1.0),
+            path(vec![L(7.5, 6.0), Q(2.0, 6.0, 2.0, 12.0), Q(2.0, 18.0, 7.5, 18.0)]),
+            p(&[(16.5, 6.0), (18.5, 6.0)]),
+            path(vec![L(18.5, 6.0), Q(22.0, 6.0, 22.0, 12.0), Q(22.0, 18.0, 18.5, 18.0)]),
+            p(&[(18.5, 18.0), (16.5, 18.0)]),
+            p(&[(9.6, 16.1), (7.5, 18.0), (9.6, 19.9)]),
+        ],
+        // One question, two ways out.
+        "conditional" => vec![
+            pc(&[(12.0, 3.0), (19.0, 9.5), (12.0, 16.0), (5.0, 9.5)]),
+            p(&[(19.0, 9.5), (21.5, 9.5), (21.5, 20.0)]),
+            p(&[(5.0, 9.5), (2.5, 9.5), (2.5, 20.0)]),
+            p(&[(20.1, 18.0), (21.5, 20.0), (22.9, 18.0)]),
+            p(&[(1.1, 18.0), (2.5, 20.0), (3.9, 18.0)]),
+        ],
+        // Two states and nothing in between.
+        "boolean" => vec![
+            rr(2.0, 7.5, 20.0, 9.0, 4.5),
+            p(&[(7.0, 9.5), (7.0, 14.5)]),
+            c(16.0, 12.0, 2.6),
+        ],
+        // The characters that make a pattern a pattern.
+        "regex" => vec![
+            p(&[(6.0, 4.5), (3.0, 4.5), (3.0, 19.5), (6.0, 19.5)]),
+            p(&[(18.0, 4.5), (21.0, 4.5), (21.0, 19.5), (18.0, 19.5)]),
+            d(8.5, 14.5, 1.3),
+            p(&[(14.5, 8.0), (14.5, 15.0)]),
+            p(&[(11.6, 9.8), (17.4, 13.2)]),
+            p(&[(17.4, 9.8), (11.6, 13.2)]),
+        ],
+        "flowchart" => vec![
+            rr(6.5, 2.5, 11.0, 4.5, 2.25),
+            p(&[(12.0, 7.0), (12.0, 9.5)]),
+            pc(&[(12.0, 9.5), (17.5, 13.5), (12.0, 17.5), (6.5, 13.5)]),
+            p(&[(12.0, 17.5), (12.0, 19.5)]),
+            rr(6.5, 19.5, 11.0, 2.5, 0.5),
+            p(&[(17.5, 13.5), (21.0, 13.5)]),
+        ],
+
+        // ── Runtime and concurrency ────────────────────────────────────────
+        // Threads of execution: several, running side by side, from one start.
+        "thread" => vec![
+            d(3.5, 12.0, 1.6),
+            path(vec![L(5.2, 12.0), Q(9.0, 12.0, 11.0, 6.5), Q(13.0, 1.5, 21.0, 5.0)]),
+            path(vec![L(5.2, 12.0), Q(11.0, 12.0, 15.0, 12.0), Q(19.0, 12.0, 21.0, 12.0)]),
+            path(vec![L(5.2, 12.0), Q(9.0, 12.0, 11.0, 17.5), Q(13.0, 22.5, 21.0, 19.0)]),
+        ],
+        // A running program: its own window, its own work.
+        "process" => vec![
+            rr(2.5, 4.0, 19.0, 16.0, 1.2),
+            p(&[(2.5, 8.0), (21.5, 8.0)]),
+            d(5.2, 6.0, 0.8), d(7.6, 6.0, 0.8),
+            c(12.0, 14.2, 3.0),
+            p(&[(12.0, 9.8), (12.0, 11.2)]),
+            p(&[(12.0, 17.2), (12.0, 18.6)]),
+            p(&[(7.6, 14.2), (9.0, 14.2)]),
+            p(&[(15.0, 14.2), (16.4, 14.2)]),
+        ],
+        // The lock on the shared line — one holder at a time.
+        "mutex" => vec![
+            p(&[(2.0, 6.0), (22.0, 6.0)]),
+            p(&[(2.0, 18.0), (22.0, 18.0)]),
+            rr(7.5, 11.0, 9.0, 6.0, 1.0),
+            a(12.0, 11.0, 2.8, 180.0, 360.0),
+            d(12.0, 14.0, 1.1),
+        ],
+        // Each holds what the other is waiting for.
+        "deadlock" => vec![
+            rr(2.5, 3.0, 8.0, 8.0, 1.0),
+            rr(13.5, 13.0, 8.0, 8.0, 1.0),
+            path(vec![L(10.5, 5.5), Q(17.5, 5.5, 17.5, 12.0)]),
+            p(&[(15.9, 10.4), (17.5, 12.4), (19.1, 10.4)]),
+            path(vec![L(13.5, 18.5), Q(6.5, 18.5, 6.5, 12.0)]),
+            p(&[(4.9, 13.6), (6.5, 11.6), (8.1, 13.6)]),
+        ],
+        "garbage-collection" => vec![
+            p(&[(3.5, 7.0), (20.5, 7.0)]),
+            p(&[(9.5, 7.0), (9.5, 4.5), (14.5, 4.5), (14.5, 7.0)]),
+            path(vec![L(5.5, 7.0), L(6.8, 20.5), L(17.2, 20.5), L(18.5, 7.0)]),
+            p(&[(9.6, 11.0), (12.0, 11.0)]),
+            path(vec![L(12.0, 11.0), Q(15.5, 11.0, 15.5, 15.0)]),
+            p(&[(10.9, 9.6), (9.3, 11.0), (10.9, 12.4)]),
+            p(&[(14.1, 13.8), (15.5, 15.4), (16.9, 13.8)]),
+        ],
+        // Stacked frames, innermost on top, and what went wrong.
+        "stack-trace" => vec![
+            rr(2.5, 4.0, 13.0, 4.0, 0.6),
+            rr(2.5, 9.5, 13.0, 4.0, 0.6),
+            rr(2.5, 15.0, 13.0, 4.0, 0.6),
+            p(&[(19.0, 6.5), (19.0, 12.5)]),
+            d(19.0, 15.5, 1.3),
+        ],
+        // The gutter dot that stops the program on this line.
+        "breakpoint" => vec![
+            d(5.5, 12.0, 3.2),
+            p(&[(11.0, 7.0), (21.0, 7.0)]),
+            p(&[(11.0, 12.0), (21.0, 12.0)]),
+            p(&[(11.0, 17.0), (17.5, 17.0)]),
+        ],
+        // The core, at the centre of everything the machine does.
+        "kernel" => vec![
+            rr(5.5, 5.5, 13.0, 13.0, 1.2),
+            c(12.0, 12.0, 3.4),
+            d(12.0, 12.0, 1.2),
+            p(&[(9.0, 2.5), (9.0, 5.5)]),
+            p(&[(15.0, 2.5), (15.0, 5.5)]),
+            p(&[(9.0, 18.5), (9.0, 21.5)]),
+            p(&[(15.0, 18.5), (15.0, 21.5)]),
+            p(&[(2.5, 9.0), (5.5, 9.0)]),
+            p(&[(2.5, 15.0), (5.5, 15.0)]),
+            p(&[(18.5, 9.0), (21.5, 9.0)]),
+            p(&[(18.5, 15.0), (21.5, 15.0)]),
+        ],
+        // A machine inside a machine.
+        "virtual-machine" => vec![
+            rr(2.0, 4.0, 20.0, 14.0, 1.2),
+            p(&[(9.0, 18.0), (9.0, 20.5)]),
+            p(&[(15.0, 18.0), (15.0, 20.5)]),
+            p(&[(6.5, 20.5), (17.5, 20.5)]),
+            rr(6.5, 7.0, 11.0, 8.0, 0.8),
+            p(&[(9.5, 9.5), (11.5, 11.0), (9.5, 12.5)]),
+        ],
+        // Walled off: the fence is what makes it a sandbox.
+        "sandbox" => {
+            let mut v = Vec::new();
+            for (x0, x1) in [(2.5, 7.5), (10.0, 14.0), (16.5, 21.5)] {
+                v.push(p(&[(x0, 4.0), (x1, 4.0)]));
+                v.push(p(&[(x0, 20.0), (x1, 20.0)]));
+            }
+            for (y0, y1) in [(4.0, 8.0), (10.5, 13.5), (16.0, 20.0)] {
+                v.push(p(&[(2.5, y0), (2.5, y1)]));
+                v.push(p(&[(21.5, y0), (21.5, y1)]));
+            }
+            v.push(c(12.0, 12.0, 4.0));
+            v.push(pf(&[(10.6, 9.6), (10.6, 14.4), (14.4, 12.0)]));
+            v
+        }
+        // Two tasks in flight at once, started together, landing apart.
+        "async" => vec![
+            d(3.0, 8.0, 1.5),
+            p(&[(4.5, 8.0), (17.0, 8.0)]),
+            p(&[(15.1, 6.1), (17.0, 8.0), (15.1, 9.9)]),
+            d(3.0, 16.0, 1.5),
+            p(&[(4.5, 16.0), (21.5, 16.0)]),
+            p(&[(19.6, 14.1), (21.5, 16.0), (19.6, 17.9)]),
+        ],
+        // Handed out, and called back when the work is done.
+        "callback" => vec![
+            path(vec![L(3.0, 8.0), Q(12.0, 3.0, 21.0, 8.0)]),
+            p(&[(19.0, 5.6), (21.4, 8.2), (18.6, 9.6)]),
+            path(vec![L(21.0, 16.0), Q(12.0, 21.0, 3.0, 16.0)]),
+            p(&[(5.0, 18.4), (2.6, 15.8), (5.4, 14.4)]),
+        ],
+        // Round and round, picking up whatever arrived.
+        "event-loop" => vec![
+            a(12.0, 12.0, 7.5, 130.0, 410.0),
+            pf(&[(5.0, 12.6), (8.6, 14.6), (8.2, 10.6)]),
+            d(12.0, 4.5, 1.5),
+            d(19.5, 12.0, 1.5),
+            d(14.6, 18.9, 1.5),
+        ],
+        // The clock decides which task runs next.
+        "scheduler" => vec![
+            c(7.0, 7.0, 4.5),
+            p(&[(7.0, 4.2), (7.0, 7.0), (9.4, 7.0)]),
+            rr(13.0, 4.0, 9.0, 4.0, 0.6),
+            rr(2.0, 13.5, 20.0, 3.5, 0.6),
+            rr(2.0, 18.5, 20.0, 3.5, 0.6),
+        ],
+
+        // ── Networking ─────────────────────────────────────────────────────
+        "socket" => vec![
+            rr(12.5, 6.5, 9.0, 11.0, 1.2),
+            c(17.0, 12.0, 2.6),
+            p(&[(2.5, 9.5), (9.5, 9.5)]),
+            p(&[(2.5, 14.5), (9.5, 14.5)]),
+            p(&[(9.5, 8.0), (9.5, 16.0)]),
+            p(&[(9.5, 12.0), (12.5, 12.0)]),
+        ],
+        // Two ends agreeing on the same layers.
+        "protocol" => vec![
+            c(4.0, 12.0, 2.4),
+            c(20.0, 12.0, 2.4),
+            p(&[(8.0, 7.5), (16.0, 7.5)]),
+            p(&[(8.0, 12.0), (16.0, 12.0)]),
+            p(&[(8.0, 16.5), (16.0, 16.5)]),
+            p(&[(6.4, 12.0), (8.0, 12.0)]),
+            p(&[(16.0, 12.0), (17.6, 12.0)]),
+        ],
+        // Header and payload, in flight.
+        "packet" => vec![
+            rr(5.0, 8.0, 14.0, 8.0, 1.0),
+            p(&[(9.5, 8.0), (9.5, 16.0)]),
+            p(&[(11.5, 11.0), (16.5, 11.0)]),
+            p(&[(11.5, 13.5), (14.5, 13.5)]),
+            p(&[(1.5, 10.5), (3.5, 10.5)]),
+            p(&[(1.5, 13.5), (3.5, 13.5)]),
+            p(&[(20.5, 10.5), (22.5, 10.5)]),
+            p(&[(20.5, 13.5), (22.5, 13.5)]),
+        ],
+        // One in, three out, evenly.
+        "load-balancer" => vec![
+            rr(8.5, 2.5, 7.0, 4.5, 0.8),
+            p(&[(12.0, 7.0), (12.0, 10.0)]),
+            p(&[(3.5, 10.0), (20.5, 10.0)]),
+            p(&[(3.5, 10.0), (3.5, 13.5)]),
+            p(&[(12.0, 10.0), (12.0, 13.5)]),
+            p(&[(20.5, 10.0), (20.5, 13.5)]),
+            rr(1.0, 13.5, 5.0, 5.0, 0.6),
+            rr(9.5, 13.5, 5.0, 5.0, 0.6),
+            rr(18.0, 13.5, 5.0, 5.0, 0.6),
+        ],
+        // Everything goes through the middle.
+        "proxy" => vec![
+            c(3.5, 12.0, 2.4),
+            rr(8.5, 7.5, 7.0, 9.0, 1.0),
+            c(20.5, 12.0, 2.4),
+            p(&[(5.9, 12.0), (8.5, 12.0)]),
+            p(&[(15.5, 12.0), (18.1, 12.0)]),
+            p(&[(11.0, 10.5), (13.0, 12.0), (11.0, 13.5)]),
+        ],
+        // A wall, and what it stops.
+        "firewall" => vec![
+            p(&[(2.0, 8.0), (22.0, 8.0)]),
+            p(&[(2.0, 13.0), (22.0, 13.0)]),
+            p(&[(2.0, 18.0), (22.0, 18.0)]),
+            p(&[(8.0, 3.5), (8.0, 8.0)]),
+            p(&[(16.0, 3.5), (16.0, 8.0)]),
+            p(&[(12.0, 8.0), (12.0, 13.0)]),
+            p(&[(5.0, 13.0), (5.0, 18.0)]),
+            p(&[(19.0, 13.0), (19.0, 18.0)]),
+            p(&[(9.0, 18.0), (9.0, 22.0)]),
+            p(&[(15.0, 18.0), (15.0, 22.0)]),
+        ],
+        // Small, separate, and talking to each other.
+        "microservice" => vec![
+            rr(2.0, 2.5, 7.0, 7.0, 1.0),
+            rr(15.0, 2.5, 7.0, 7.0, 1.0),
+            rr(8.5, 14.5, 7.0, 7.0, 1.0),
+            p(&[(9.0, 6.0), (15.0, 6.0)]),
+            p(&[(6.5, 9.5), (10.0, 14.5)]),
+            p(&[(17.5, 9.5), (14.0, 14.5)]),
+        ],
+        // The connection stays open, both ways.
+        "websocket" => vec![
+            rr(2.0, 5.5, 8.0, 13.0, 1.0),
+            rr(14.0, 5.5, 8.0, 13.0, 1.0),
+            p(&[(10.0, 9.5), (14.0, 9.5)]),
+            p(&[(12.2, 7.6), (14.2, 9.5), (12.2, 11.4)]),
+            p(&[(14.0, 14.5), (10.0, 14.5)]),
+            p(&[(11.8, 12.6), (9.8, 14.5), (11.8, 16.4)]),
+        ],
+        // The hook something else calls.
+        "webhook" => vec![
+            path(vec![
+                L(7.0, 4.5), Q(15.5, 4.5, 15.5, 11.0), L(15.5, 15.0),
+            ]),
+            p(&[(4.6, 6.9), (7.0, 4.5), (9.4, 6.9)]),
+            rr(11.5, 15.0, 8.0, 6.5, 1.0),
+            p(&[(2.5, 18.0), (11.5, 18.0)]),
+            d(2.5, 18.0, 1.4),
+        ],
+
+        // ── Security ───────────────────────────────────────────────────────
+        // The page, locked: what is inside can no longer be read.
+        "encryption" => vec![
+            rr(2.5, 3.0, 12.0, 15.0, 1.0),
+            p(&[(5.0, 7.0), (11.5, 7.0)]),
+            p(&[(5.0, 10.5), (11.5, 10.5)]),
+            p(&[(5.0, 14.0), (9.0, 14.0)]),
+            rr(13.0, 14.5, 9.0, 7.0, 1.0),
+            a(17.5, 14.5, 3.0, 180.0, 360.0),
+            d(17.5, 18.0, 1.2),
+        ],
+        // Any input, a fixed-length digest.
+        "hash-function" => vec![
+            p(&[(1.5, 6.0), (7.0, 6.0)]),
+            p(&[(1.5, 10.0), (5.0, 10.0)]),
+            p(&[(1.5, 14.0), (8.0, 14.0)]),
+            rr(9.0, 4.0, 7.0, 16.0, 1.0),
+            p(&[(11.0, 7.5), (11.0, 16.5)]),
+            p(&[(14.0, 7.5), (14.0, 16.5)]),
+            p(&[(9.6, 10.0), (15.4, 10.0)]),
+            p(&[(9.6, 14.0), (15.4, 14.0)]),
+            p(&[(17.0, 12.0), (22.5, 12.0)]),
+        ],
+        // The number that proves nothing changed.
+        "checksum" => vec![
+            rr(3.0, 2.5, 14.0, 15.0, 1.0),
+            p(&[(5.8, 6.5), (14.2, 6.5)]),
+            p(&[(5.8, 10.0), (14.2, 10.0)]),
+            p(&[(5.8, 13.5), (11.0, 13.5)]),
+            c(16.5, 17.5, 4.5),
+            p(&[(14.3, 17.6), (15.9, 19.4), (18.8, 15.6)]),
+        ],
+        // One key opens what the other locked.
+        "key-pair" => vec![
+            c(5.5, 7.5, 3.0),
+            p(&[(7.8, 9.5), (13.0, 15.0)]),
+            p(&[(11.2, 13.1), (12.8, 11.5)]),
+            c(18.5, 16.5, 3.0),
+            d(18.5, 16.5, 1.2),
+            p(&[(16.2, 14.5), (11.0, 9.0)]),
+            p(&[(12.8, 10.9), (11.2, 12.5)]),
+        ],
+        // Something you have, and the code it shows.
+        "two-factor" => vec![
+            rr(2.5, 3.5, 9.0, 17.0, 1.5),
+            p(&[(5.5, 6.5), (8.5, 6.5)]),
+            d(7.0, 17.5, 1.0),
+            rr(13.0, 8.0, 9.0, 8.0, 1.0),
+            a(17.5, 8.0, 2.8, 180.0, 360.0),
+            d(15.5, 12.0, 0.9),
+            d(17.5, 12.0, 0.9),
+            d(19.5, 12.0, 0.9),
+        ],
+
+        // ── Data modelling ─────────────────────────────────────────────────
+        // Tables, and the relations between them.
+        "schema" => vec![
+            rr(2.0, 2.5, 8.0, 6.0, 0.8),
+            p(&[(2.0, 5.0), (10.0, 5.0)]),
+            rr(14.0, 2.5, 8.0, 6.0, 0.8),
+            p(&[(14.0, 5.0), (22.0, 5.0)]),
+            rr(8.0, 15.0, 8.0, 6.0, 0.8),
+            p(&[(8.0, 17.5), (16.0, 17.5)]),
+            p(&[(10.0, 8.5), (10.0, 15.0)]),
+            p(&[(18.0, 8.5), (18.0, 12.0), (14.0, 12.0), (14.0, 15.0)]),
+        ],
+        "primary-key" => vec![
+            rr(2.5, 5.0, 19.0, 14.0, 1.0),
+            p(&[(2.5, 9.5), (21.5, 9.5)]),
+            p(&[(2.5, 14.5), (21.5, 14.5)]),
+            c(6.0, 7.2, 1.5),
+            p(&[(7.5, 7.2), (10.5, 7.2)]),
+            p(&[(9.5, 6.2), (9.5, 8.2)]),
+            p(&[(13.5, 7.2), (19.0, 7.2)]),
+            p(&[(6.0, 12.0), (19.0, 12.0)]),
+            p(&[(6.0, 16.8), (19.0, 16.8)]),
+        ],
+        // The key that lives in another table.
+        "foreign-key" => vec![
+            rr(1.5, 3.0, 9.0, 7.0, 0.8),
+            p(&[(1.5, 5.8), (10.5, 5.8)]),
+            c(4.2, 8.0, 1.2),
+            rr(13.5, 14.0, 9.0, 7.0, 0.8),
+            p(&[(13.5, 16.8), (22.5, 16.8)]),
+            c(16.2, 19.0, 1.2),
+            p(&[(5.6, 8.0), (9.0, 8.0), (9.0, 19.0), (14.8, 19.0)]),
+        ],
+        // What the two have in common.
+        "join-tables" => vec![
+            rr(2.0, 7.0, 12.0, 10.0, 1.0),
+            rr(10.0, 7.0, 12.0, 10.0, 1.0),
+            p(&[(10.0, 9.5), (14.0, 9.5)]),
+            p(&[(10.0, 12.0), (14.0, 12.0)]),
+            p(&[(10.0, 14.5), (14.0, 14.5)]),
+        ],
+        // One shape of data becomes another.
+        "migration" => vec![
+            pathc(vec![
+                L(1.5, 6.5), Q(1.5, 4.5, 5.5, 4.5), Q(9.5, 4.5, 9.5, 6.5),
+                Q(9.5, 8.5, 5.5, 8.5), Q(1.5, 8.5, 1.5, 6.5),
+            ]),
+            p(&[(1.5, 6.5), (1.5, 15.0)]),
+            p(&[(9.5, 6.5), (9.5, 15.0)]),
+            path(vec![L(1.5, 15.0), Q(1.5, 17.0, 5.5, 17.0), Q(9.5, 17.0, 9.5, 15.0)]),
+            pathc(vec![
+                L(14.5, 6.5), Q(14.5, 4.5, 18.5, 4.5), Q(22.5, 4.5, 22.5, 6.5),
+                Q(22.5, 8.5, 18.5, 8.5), Q(14.5, 8.5, 14.5, 6.5),
+            ]),
+            p(&[(14.5, 6.5), (14.5, 15.0)]),
+            p(&[(22.5, 6.5), (22.5, 15.0)]),
+            path(vec![L(14.5, 15.0), Q(14.5, 17.0, 18.5, 17.0), Q(22.5, 17.0, 22.5, 15.0)]),
+            p(&[(10.5, 20.5), (13.5, 20.5)]),
+            p(&[(11.9, 19.1), (13.7, 20.5), (11.9, 21.9)]),
+        ],
+        // The same data, kept in more than one place.
+        "replication" => vec![
+            rr(2.0, 3.0, 9.0, 7.0, 1.0),
+            p(&[(2.0, 5.5), (11.0, 5.5)]),
+            rr(13.0, 14.0, 9.0, 7.0, 1.0),
+            p(&[(13.0, 16.5), (22.0, 16.5)]),
+            rr(2.0, 14.0, 9.0, 7.0, 1.0),
+            p(&[(2.0, 16.5), (11.0, 16.5)]),
+            p(&[(6.5, 10.0), (6.5, 14.0)]),
+            p(&[(9.5, 10.0), (17.5, 12.0), (17.5, 14.0)]),
+        ],
+        // One table, split across several stores.
+        "sharding" => vec![
+            rr(7.0, 2.0, 10.0, 5.0, 0.8),
+            p(&[(12.0, 7.0), (12.0, 9.5)]),
+            p(&[(3.5, 9.5), (20.5, 9.5)]),
+            p(&[(3.5, 9.5), (3.5, 12.5)]),
+            p(&[(12.0, 9.5), (12.0, 12.5)]),
+            p(&[(20.5, 9.5), (20.5, 12.5)]),
+            rr(1.0, 12.5, 5.0, 8.0, 0.8),
+            rr(9.5, 12.5, 5.0, 8.0, 0.8),
+            rr(18.0, 12.5, 5.0, 8.0, 0.8),
+        ],
+        // A question asked of a table.
+        "query" => vec![
+            rr(2.5, 3.5, 19.0, 12.0, 1.0),
+            p(&[(2.5, 7.5), (21.5, 7.5)]),
+            p(&[(9.0, 7.5), (9.0, 15.5)]),
+            c(14.5, 17.0, 4.0),
+            p(&[(17.4, 19.9), (21.0, 23.0)]),
+        ],
+
+        // ── Version control and delivery ───────────────────────────────────
+        "git-branch" => vec![
+            c(6.5, 5.0, 2.6),
+            c(6.5, 19.0, 2.6),
+            c(17.5, 5.0, 2.6),
+            p(&[(6.5, 7.6), (6.5, 16.4)]),
+            path(vec![L(17.5, 7.6), Q(17.5, 12.5, 12.0, 12.5), L(6.5, 12.5)]),
+        ],
+        "git-merge" => vec![
+            c(6.5, 5.0, 2.6),
+            c(6.5, 19.0, 2.6),
+            c(17.5, 12.0, 2.6),
+            p(&[(6.5, 7.6), (6.5, 16.4)]),
+            path(vec![L(6.5, 7.6), Q(6.5, 12.0, 11.5, 12.0), L(14.9, 12.0)]),
+        ],
+        "git-commit" => vec![
+            c(12.0, 12.0, 3.4),
+            p(&[(2.0, 12.0), (8.6, 12.0)]),
+            p(&[(15.4, 12.0), (22.0, 12.0)]),
+        ],
+        // A branch, offered up for review.
+        "pull-request" => vec![
+            c(5.5, 5.0, 2.6),
+            c(5.5, 19.0, 2.6),
+            p(&[(5.5, 7.6), (5.5, 16.4)]),
+            c(18.5, 19.0, 2.6),
+            path(vec![L(18.5, 16.4), L(18.5, 8.0), Q(18.5, 5.0, 15.0, 5.0), L(11.0, 5.0)]),
+            p(&[(13.2, 2.8), (10.8, 5.0), (13.2, 7.2)]),
+        ],
+        // The store, with its history.
+        "repository" => vec![
+            path(vec![L(5.0, 3.0), L(19.0, 3.0), L(19.0, 21.0), L(5.0, 21.0)]),
+            path(vec![L(5.0, 3.0), Q(2.5, 3.0, 2.5, 5.5), L(2.5, 18.5), Q(2.5, 21.0, 5.0, 21.0)]),
+            p(&[(5.0, 17.0), (19.0, 17.0)]),
+            c(12.0, 9.0, 2.6),
+            p(&[(12.0, 3.0), (12.0, 6.4)]),
+            p(&[(12.0, 11.6), (12.0, 14.5)]),
+        ],
+        "diff" => vec![
+            rr(2.0, 4.0, 8.5, 16.0, 0.8),
+            rr(13.5, 4.0, 8.5, 16.0, 0.8),
+            p(&[(4.0, 9.0), (8.5, 9.0)]),
+            p(&[(6.25, 6.75), (6.25, 11.25)]),
+            p(&[(15.5, 15.0), (20.0, 15.0)]),
+            p(&[(4.0, 15.0), (8.5, 15.0)]),
+            p(&[(15.5, 9.0), (20.0, 9.0)]),
+        ],
+        // The small fix that goes over the break.
+        "patch" => vec![
+            p(&[(2.0, 12.0), (7.5, 12.0)]),
+            p(&[(16.5, 12.0), (22.0, 12.0)]),
+            rr(6.5, 6.5, 11.0, 11.0, 2.0),
+            p(&[(9.5, 12.0), (14.5, 12.0)]),
+            p(&[(12.0, 9.5), (12.0, 14.5)]),
+        ],
+        // Stages that run every time, and start again.
+        "ci-cd" => vec![
+            rr(1.5, 8.5, 5.5, 7.0, 0.8),
+            rr(9.25, 8.5, 5.5, 7.0, 0.8),
+            rr(17.0, 8.5, 5.5, 7.0, 0.8),
+            p(&[(7.0, 12.0), (9.25, 12.0)]),
+            p(&[(14.75, 12.0), (17.0, 12.0)]),
+            path(vec![L(19.75, 15.5), Q(19.75, 20.5, 12.0, 20.5), Q(4.25, 20.5, 4.25, 15.5)]),
+            p(&[(2.7, 17.0), (4.25, 15.0), (5.8, 17.0)]),
+        ],
+        // Layers, sealed and shipped as one.
+        "container-image" => vec![
+            rr(3.5, 4.0, 17.0, 4.5, 0.8),
+            rr(3.5, 9.75, 17.0, 4.5, 0.8),
+            rr(3.5, 15.5, 17.0, 4.5, 0.8),
+            d(7.0, 6.25, 1.0),
+            d(7.0, 12.0, 1.0),
+            d(7.0, 17.75, 1.0),
+        ],
+        // One hand on all of them.
+        "orchestration" => vec![
+            c(12.0, 5.0, 3.0),
+            p(&[(12.0, 8.0), (12.0, 11.0)]),
+            p(&[(4.0, 11.0), (20.0, 11.0)]),
+            p(&[(4.0, 11.0), (4.0, 14.0)]),
+            p(&[(12.0, 11.0), (12.0, 14.0)]),
+            p(&[(20.0, 11.0), (20.0, 14.0)]),
+            rr(1.5, 14.0, 5.0, 6.5, 0.8),
+            rr(9.5, 14.0, 5.0, 6.5, 0.8),
+            rr(17.5, 14.0, 5.0, 6.5, 0.8),
+        ],
+
+        // ── Theory ─────────────────────────────────────────────────────────
+        // Cost against input: the curve everyone draws.
+        "complexity" => vec![
+            p(&[(3.0, 3.0), (3.0, 20.5), (21.5, 20.5)]),
+            path(vec![L(4.5, 19.5), Q(13.0, 19.0, 16.0, 12.0), Q(18.0, 7.0, 18.5, 4.0)]),
+            p(&[(4.5, 19.5), (20.5, 17.0)]),
+        ],
+        // Out of order in, in order out.
+        "sorting" => vec![
+            rr(2.5, 13.0, 3.0, 7.5, 0.4),
+            rr(6.9, 8.0, 3.0, 12.5, 0.4),
+            rr(11.3, 15.5, 3.0, 5.0, 0.4),
+            rr(15.7, 4.0, 3.0, 16.5, 0.4),
+            p(&[(20.5, 4.0), (20.5, 20.5)]),
+            p(&[(18.9, 18.9), (20.5, 20.9), (22.1, 18.9)]),
+        ],
+        // Halve the range, then halve it again.
+        "binary-search" => vec![
+            rr(2.0, 9.0, 20.0, 6.0, 0.8),
+            p(&[(12.0, 9.0), (12.0, 15.0)]),
+            p(&[(7.0, 9.0), (7.0, 15.0)]),
+            p(&[(17.0, 9.0), (17.0, 15.0)]),
+            p(&[(4.5, 5.5), (9.5, 5.5)]),
+            p(&[(7.0, 5.5), (7.0, 8.0)]),
+            p(&[(14.5, 18.5), (19.5, 18.5)]),
+            p(&[(17.0, 16.0), (17.0, 18.5)]),
+        ],
+        // States, and what moves you between them.
+        "state-machine" => vec![
+            c(5.5, 12.0, 3.5),
+            c(18.5, 12.0, 3.5),
+            path(vec![L(8.6, 10.4), Q(12.0, 7.0, 15.4, 10.4)]),
+            p(&[(13.3, 9.4), (15.8, 10.6), (14.7, 12.6)]),
+            path(vec![L(15.4, 13.6), Q(12.0, 17.0, 8.6, 13.6)]),
+            p(&[(10.7, 14.6), (8.2, 13.4), (9.3, 11.4)]),
+        ],
+        // Inputs on the left, the answer on the right.
+        "truth-table" => vec![
+            rr(3.0, 4.0, 18.0, 16.0, 1.0),
+            p(&[(3.0, 8.0), (21.0, 8.0)]),
+            p(&[(15.0, 4.0), (15.0, 20.0)]),
+            p(&[(9.0, 4.0), (9.0, 20.0)]),
+            d(6.0, 11.0, 1.1), d(12.0, 11.0, 1.1), d(18.0, 11.0, 1.1),
+            d(6.0, 15.0, 1.1),
+            d(18.0, 17.0, 1.1),
+        ],
+        // Two rows of bits, one operator.
+        "bitwise" => vec![
+            p(&[(2.5, 6.0), (10.5, 6.0)]),
+            p(&[(2.5, 11.0), (10.5, 11.0)]),
+            p(&[(2.5, 18.0), (10.5, 18.0)]),
+            p(&[(2.5, 14.0), (10.5, 14.0)]),
+            d(14.5, 6.0, 1.2), c(18.5, 6.0, 1.2),
+            c(14.5, 11.0, 1.2), d(18.5, 11.0, 1.2),
+            d(14.5, 18.0, 1.2), d(18.5, 18.0, 1.2),
+        ],
+        // Ones and zeros, drawn — never typed.
+        "binary-number" => vec![
+            p(&[(4.0, 5.5), (4.0, 18.5)]),
+            p(&[(2.5, 7.5), (4.0, 5.5)]),
+            c(11.0, 12.0, 3.4),
+            p(&[(19.0, 5.5), (19.0, 18.5)]),
+            p(&[(17.5, 7.5), (19.0, 5.5)]),
+        ],
+        // Base sixteen: the digits that run past nine.
+        "hexadecimal" => vec![
+            pc(&[(12.0, 2.5), (20.5, 7.25), (20.5, 16.75), (12.0, 21.5), (3.5, 16.75), (3.5, 7.25)]),
+            p(&[(8.5, 9.0), (13.5, 15.0)]),
+            p(&[(13.5, 9.0), (8.5, 15.0)]),
+            p(&[(15.5, 15.0), (17.5, 15.0)]),
+        ],
+        // Layers of nodes, everything wired to everything.
+        "neural-network" => vec![
+            d(4.0, 6.0, 1.6), d(4.0, 12.0, 1.6), d(4.0, 18.0, 1.6),
+            d(12.0, 8.0, 1.6), d(12.0, 16.0, 1.6),
+            d(20.0, 12.0, 1.6),
+            p(&[(4.0, 6.0), (12.0, 8.0)]),
+            p(&[(4.0, 12.0), (12.0, 8.0)]),
+            p(&[(4.0, 12.0), (12.0, 16.0)]),
+            p(&[(4.0, 18.0), (12.0, 16.0)]),
+            p(&[(12.0, 8.0), (20.0, 12.0)]),
+            p(&[(12.0, 16.0), (20.0, 12.0)]),
+        ],
+
+        _ => return None,
+    })
+}
+
+/// User-interface patterns, interaction and layout.
+///
+/// A pattern is drawn as its silhouette — the shape you would recognise across
+/// a room with the labels removed: a modal is a sheet over a dimmed page, an
+/// accordion is rows where exactly one has opened, padding is the gap the
+/// content does NOT fill. Interaction icons all build on one pointer glyph so
+/// click, double-click and long-press read as a family.
+#[rustfmt::skip]
+fn user_interface_shapes(name: &str) -> Option<Vec<IconShape>> {
+    /// The shared arrow cursor, tip at (x, y).
+    fn pointer(x: f32, y: f32) -> IconShape {
+        pathc(vec![
+            L(x, y),
+            L(x, y + 9.5),
+            L(x + 2.4, y + 7.2),
+            L(x + 4.2, y + 10.6),
+            L(x + 6.0, y + 9.6),
+            L(x + 4.2, y + 6.4),
+            L(x + 7.4, y + 6.0),
+        ])
+    }
+    Some(match name {
+        // ── Overlays ───────────────────────────────────────────────────────
+        // A sheet over the page it blocks.
+        "modal" => vec![
+            rr(2.0, 3.0, 20.0, 18.0, 1.2),
+            rrf(5.0, 7.0, 14.0, 10.0, 1.0),
+            p(&[(7.5, 10.5), (16.5, 10.5)]),
+            p(&[(7.5, 13.5), (13.0, 13.5)]),
+        ],
+        // A question and the two ways out of it.
+        "dialog" => vec![
+            rr(2.0, 4.5, 20.0, 15.0, 1.2),
+            p(&[(5.0, 8.5), (19.0, 8.5)]),
+            p(&[(5.0, 11.5), (14.0, 11.5)]),
+            rr(10.0, 14.5, 5.0, 3.0, 0.6),
+            rrf(16.0, 14.5, 5.0, 3.0, 0.6),
+        ],
+        // A small label with a tail, hanging off what it explains.
+        "tooltip" => vec![
+            rr(2.5, 5.0, 19.0, 8.0, 1.2),
+            p(&[(5.5, 8.0), (18.5, 8.0)]),
+            p(&[(5.5, 10.5), (13.5, 10.5)]),
+            pf(&[(9.5, 13.0), (14.5, 13.0), (11.0, 16.5)]),
+            d(11.0, 19.5, 1.6),
+        ],
+        // Bigger than a tooltip, anchored to a control.
+        "popover" => vec![
+            rr(2.5, 2.5, 19.0, 12.0, 1.2),
+            p(&[(2.5, 6.0), (21.5, 6.0)]),
+            p(&[(5.5, 9.5), (18.5, 9.5)]),
+            p(&[(5.5, 12.0), (13.5, 12.0)]),
+            pf(&[(9.5, 14.5), (14.5, 14.5), (12.0, 17.5)]),
+            rr(8.0, 18.5, 8.0, 3.5, 0.8),
+        ],
+        // The field, and the list it opened.
+        "dropdown" => vec![
+            rr(2.5, 3.0, 19.0, 6.0, 1.0),
+            p(&[(16.0, 4.8), (17.8, 7.0), (19.6, 4.8)]),
+            rr(2.5, 11.0, 19.0, 10.5, 1.0),
+            p(&[(2.5, 14.5), (21.5, 14.5)]),
+            p(&[(2.5, 18.0), (21.5, 18.0)]),
+        ],
+        // Rows, exactly one of them open.
+        "accordion" => vec![
+            rr(2.5, 2.5, 19.0, 4.0, 0.8),
+            p(&[(17.0, 3.8), (18.4, 5.2), (19.8, 3.8)]),
+            rr(2.5, 8.0, 19.0, 9.0, 0.8),
+            p(&[(17.0, 11.2), (18.4, 9.8), (19.8, 11.2)]),
+            p(&[(5.0, 14.0), (14.0, 14.0)]),
+            rr(2.5, 18.5, 19.0, 4.0, 0.8),
+            p(&[(17.0, 19.8), (18.4, 21.2), (19.8, 19.8)]),
+        ],
+        // Where you are, and how you got here.
+        "breadcrumb" => vec![
+            rrf(1.5, 9.5, 4.5, 5.0, 0.8),
+            p(&[(7.5, 9.5), (9.9, 12.0), (7.5, 14.5)]),
+            rr(11.0, 9.5, 4.5, 5.0, 0.8),
+            p(&[(17.0, 9.5), (19.4, 12.0), (17.0, 14.5)]),
+            rr(20.5, 9.5, 3.0, 5.0, 0.8),
+        ],
+        // Page after page, with the one you are on filled in.
+        "pagination" => vec![
+            p(&[(3.5, 9.5), (1.5, 12.0), (3.5, 14.5)]),
+            rr(5.5, 9.0, 5.0, 6.0, 0.8),
+            rrf(11.5, 9.0, 5.0, 6.0, 0.8),
+            rr(17.5, 9.0, 5.0, 6.0, 0.8),
+            p(&[(20.5, 16.5), (22.5, 19.0), (20.5, 21.5)]),
+        ],
+        // One of several steps, done in order.
+        "stepper" => vec![
+            p(&[(4.0, 12.0), (20.0, 12.0)]),
+            d(4.0, 12.0, 2.6),
+            d(12.0, 12.0, 2.6),
+            c(20.0, 12.0, 2.6),
+        ],
+        // The steps, inside the window that walks you through them.
+        "wizard" => vec![
+            rr(2.0, 3.5, 20.0, 17.0, 1.2),
+            d(6.0, 8.0, 1.6),
+            d(12.0, 8.0, 1.6),
+            c(18.0, 8.0, 1.6),
+            p(&[(7.6, 8.0), (10.4, 8.0)]),
+            p(&[(13.6, 8.0), (16.4, 8.0)]),
+            p(&[(5.0, 13.0), (14.0, 13.0)]),
+            rrf(14.0, 15.5, 6.0, 3.5, 0.7),
+        ],
+        // One panel at a time, with the rest waiting either side.
+        "carousel" => vec![
+            rr(6.5, 4.5, 11.0, 12.0, 1.0),
+            p(&[(4.0, 6.5), (4.0, 14.5)]),
+            p(&[(20.0, 6.5), (20.0, 14.5)]),
+            d(9.0, 19.5, 1.1),
+            d(12.0, 19.5, 1.1),
+            d(15.0, 19.5, 1.1),
+        ],
+        // A panel that comes in from the edge.
+        "drawer" => vec![
+            rr(2.0, 4.0, 20.0, 16.0, 1.2),
+            p(&[(9.5, 4.0), (9.5, 20.0)]),
+            rrf(2.0, 4.0, 7.5, 16.0, 1.2),
+            p(&[(13.0, 12.0), (19.5, 12.0)]),
+            p(&[(17.3, 9.8), (19.7, 12.0), (17.3, 14.2)]),
+        ],
+        // A message that comes and goes on its own.
+        "toast" => vec![
+            rr(2.0, 14.0, 20.0, 7.0, 1.2),
+            d(5.8, 17.5, 1.4),
+            p(&[(9.0, 16.5), (19.0, 16.5)]),
+            p(&[(9.0, 19.0), (15.0, 19.0)]),
+            p(&[(2.0, 4.0), (22.0, 4.0)]),
+            p(&[(2.0, 4.0), (2.0, 8.0)]),
+            p(&[(22.0, 4.0), (22.0, 8.0)]),
+        ],
+        // A small removable tag.
+        "chip" => vec![
+            rr(2.0, 8.0, 20.0, 8.0, 4.0),
+            p(&[(5.5, 12.0), (13.0, 12.0)]),
+            p(&[(16.0, 10.0), (19.0, 14.0)]),
+            p(&[(19.0, 10.0), (16.0, 14.0)]),
+        ],
+        // Where the content will be, before it arrives.
+        "skeleton" => vec![
+            rr(2.0, 4.0, 20.0, 16.0, 1.2),
+            rrf(4.5, 7.0, 5.0, 5.0, 2.5),
+            rrf(11.5, 7.5, 8.0, 1.8, 0.9),
+            rrf(11.5, 10.5, 5.5, 1.8, 0.9),
+            rrf(4.5, 15.0, 15.0, 1.8, 0.9),
+        ],
+        // The track and its thumb, beside the content.
+        "scrollbar" => vec![
+            rr(2.5, 3.5, 13.0, 17.0, 1.0),
+            rr(17.5, 3.5, 4.0, 17.0, 2.0),
+            rrf(18.4, 5.5, 2.2, 7.0, 1.1),
+        ],
+        // A field you type a search into — the lens is IN the control.
+        "search-field" => vec![
+            rr(1.5, 8.0, 21.0, 8.0, 4.0),
+            c(6.5, 12.0, 2.6),
+            p(&[(8.4, 13.9), (10.2, 15.7)]),
+            p(&[(12.5, 12.0), (19.0, 12.0)]),
+        ],
+        // A file, going up.
+        "file-upload" => vec![
+            pathc(vec![
+                L(4.5, 2.5), L(13.0, 2.5), L(17.5, 7.0), L(17.5, 14.0), L(4.5, 14.0),
+            ]),
+            p(&[(13.0, 2.5), (13.0, 7.0), (17.5, 7.0)]),
+            p(&[(11.0, 22.0), (11.0, 15.5)]),
+            p(&[(8.2, 18.3), (11.0, 15.5), (13.8, 18.3)]),
+        ],
+        // Nothing here yet, and the frame that says so.
+        "empty-state" => {
+            let mut v = Vec::new();
+            for (x0, x1) in [(3.0, 8.0), (10.0, 14.0), (16.0, 21.0)] {
+                v.push(p(&[(x0, 4.5), (x1, 4.5)]));
+                v.push(p(&[(x0, 19.5), (x1, 19.5)]));
+            }
+            for (y0, y1) in [(4.5, 8.0), (10.5, 13.5), (16.0, 19.5)] {
+                v.push(p(&[(3.0, y0), (3.0, y1)]));
+                v.push(p(&[(21.0, y0), (21.0, y1)]));
+            }
+            v.push(p(&[(9.0, 12.0), (15.0, 12.0)]));
+            v
+        }
+
+        // ── Craft ──────────────────────────────────────────────────────────
+        // Boxes standing in for content: the layout before the design.
+        "wireframe" => vec![
+            rr(2.0, 3.5, 20.0, 17.0, 1.2),
+            p(&[(2.0, 7.5), (22.0, 7.5)]),
+            rr(4.5, 10.0, 6.0, 8.0, 0.6),
+            p(&[(12.5, 11.0), (19.5, 11.0)]),
+            p(&[(12.5, 14.0), (19.5, 14.0)]),
+            p(&[(12.5, 17.0), (16.5, 17.0)]),
+        ],
+        // The design, shown in the thing it will run on.
+        "mockup" => vec![
+            rr(2.0, 3.0, 14.0, 13.0, 1.0),
+            p(&[(6.0, 16.0), (6.0, 18.5)]),
+            p(&[(12.0, 16.0), (12.0, 18.5)]),
+            p(&[(3.5, 18.5), (14.5, 18.5)]),
+            rr(16.5, 9.0, 6.0, 12.0, 1.0),
+            p(&[(18.5, 10.8), (20.5, 10.8)]),
+        ],
+        // The same page, at three widths.
+        "responsive" => vec![
+            rr(1.5, 5.0, 12.0, 10.0, 1.0),
+            p(&[(5.5, 15.0), (5.5, 17.5)]),
+            p(&[(3.0, 17.5), (8.0, 17.5)]),
+            rr(15.0, 7.0, 7.5, 14.0, 1.0),
+            p(&[(17.5, 9.0), (20.0, 9.0)]),
+            d(18.75, 19.0, 0.9),
+        ],
+        "dark-mode" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            path(vec![
+                L(15.5, 6.5),
+                B(11.0, 7.0, 8.5, 9.5, 8.5, 12.5),
+                B(8.5, 15.5, 11.0, 17.8, 15.5, 17.8),
+                B(12.8, 16.0, 11.5, 14.5, 11.5, 12.2),
+                B(11.5, 9.8, 12.8, 8.0, 15.5, 6.5),
+            ]),
+        ],
+        "light-mode" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 3.0),
+            c(12.0, 12.0, 3.6),
+            p(&[(12.0, 5.0), (12.0, 6.6)]),
+            p(&[(12.0, 17.4), (12.0, 19.0)]),
+            p(&[(5.0, 12.0), (6.6, 12.0)]),
+            p(&[(17.4, 12.0), (19.0, 12.0)]),
+            p(&[(7.1, 7.1), (8.2, 8.2)]),
+            p(&[(15.8, 15.8), (16.9, 16.9)]),
+            p(&[(16.9, 7.1), (15.8, 8.2)]),
+            p(&[(8.2, 15.8), (7.1, 16.9)]),
+        ],
+        // The international access symbol, drawn on our own grid.
+        "accessibility" => vec![
+            c(12.0, 12.0, 9.0),
+            d(12.0, 6.6, 1.5),
+            p(&[(6.8, 10.0), (17.2, 10.0)]),
+            p(&[(12.0, 9.5), (12.0, 14.5)]),
+            p(&[(12.0, 14.5), (8.6, 18.5)]),
+            p(&[(12.0, 14.5), (15.4, 18.5)]),
+        ],
+        // The screen, read out loud.
+        "screen-reader" => vec![
+            rr(1.5, 5.0, 12.0, 11.0, 1.0),
+            p(&[(5.5, 16.0), (5.5, 18.5)]),
+            p(&[(3.0, 18.5), (8.0, 18.5)]),
+            a(15.0, 12.0, 3.0, 300.0, 420.0),
+            a(15.0, 12.0, 5.6, 305.0, 415.0),
+            a(15.0, 12.0, 8.2, 310.0, 410.0),
+        ],
+        // A key, with its modifier.
+        "keyboard-shortcut" => vec![
+            rr(1.5, 6.5, 9.0, 9.0, 1.2),
+            p(&[(4.0, 11.0), (8.0, 11.0)]),
+            p(&[(13.5, 11.0), (15.5, 11.0)]),
+            rr(13.0, 6.5, 9.5, 9.0, 1.2),
+            p(&[(16.0, 12.5), (17.75, 9.5), (19.5, 12.5)]),
+        ],
+        "cursor-pointer" => vec![pointer(7.5, 3.0)],
+        // The I-beam that says "text goes here".
+        "cursor-text" => vec![
+            p(&[(12.0, 4.0), (12.0, 20.0)]),
+            p(&[(9.0, 4.0), (15.0, 4.0)]),
+            p(&[(9.0, 20.0), (15.0, 20.0)]),
+        ],
+        // Picked up, and the target it is going to.
+        "drag-drop" => vec![
+            rrf(2.5, 2.5, 8.0, 8.0, 1.0),
+            p(&[(11.5, 6.5), (16.0, 11.0)]),
+            p(&[(13.4, 10.6), (16.4, 11.4), (15.6, 8.4)]),
+            rr(13.0, 13.0, 9.0, 9.0, 1.0),
+            p(&[(15.5, 17.5), (19.5, 17.5)]),
+            p(&[(17.5, 15.5), (17.5, 19.5)]),
+        ],
+        "click" => vec![
+            pointer(9.0, 8.0),
+            p(&[(6.5, 6.0), (5.0, 4.0)]),
+            p(&[(11.0, 5.0), (11.0, 2.5)]),
+            p(&[(15.5, 6.0), (17.0, 4.0)]),
+        ],
+        "double-click" => vec![
+            pointer(9.0, 8.0),
+            p(&[(6.5, 6.0), (5.0, 4.0)]),
+            p(&[(11.0, 5.0), (11.0, 2.5)]),
+            p(&[(15.5, 6.0), (17.0, 4.0)]),
+            p(&[(4.0, 8.5), (2.0, 7.5)]),
+            p(&[(18.0, 8.5), (20.0, 7.5)]),
+        ],
+        // Held down: the pointer, and the time it is waiting out.
+        "long-press" => vec![
+            pointer(6.0, 8.0),
+            a(13.5, 6.0, 4.5, 270.0, 540.0),
+            p(&[(13.5, 6.0), (13.5, 3.0)]),
+        ],
+        // A finger, going across.
+        "swipe" => vec![
+            path(vec![L(3.0, 8.0), Q(12.0, 3.0, 21.0, 8.0)]),
+            p(&[(18.6, 5.8), (21.4, 8.2), (18.3, 9.6)]),
+            p(&[(12.0, 12.0), (12.0, 20.5)]),
+            p(&[(9.0, 14.5), (9.0, 20.5)]),
+            p(&[(15.0, 14.5), (15.0, 20.5)]),
+        ],
+        // The ring that says the keyboard is here.
+        "focus-ring" => vec![
+            rr(6.0, 8.5, 12.0, 7.0, 1.2),
+            rr(2.5, 5.0, 19.0, 14.0, 2.4),
+            p(&[(2.5, 12.0), (2.5, 12.0)]),
+        ],
+
+        // ── Layout ─────────────────────────────────────────────────────────
+        // Which sheet is on top.
+        "z-index" => vec![
+            rr(2.0, 11.0, 12.0, 9.0, 1.0),
+            rr(6.0, 7.5, 12.0, 9.0, 1.0),
+            rr(10.0, 4.0, 12.0, 9.0, 1.0),
+        ],
+        // A row that shares out the space it is given.
+        "flex-layout" => vec![
+            rr(1.5, 5.0, 21.0, 14.0, 1.2),
+            rrf(3.5, 7.5, 4.0, 9.0, 0.6),
+            rrf(10.0, 7.5, 4.0, 9.0, 0.6),
+            rrf(16.5, 7.5, 4.0, 9.0, 0.6),
+            p(&[(7.5, 20.5), (10.0, 20.5)]),
+            p(&[(14.0, 20.5), (16.5, 20.5)]),
+        ],
+        // Columns and gutters — the grid you design ON, not a view mode.
+        "grid-layout" => vec![
+            rr(1.5, 3.5, 21.0, 17.0, 1.2),
+            rrf(3.5, 6.0, 3.5, 12.0, 0.5),
+            rrf(9.0, 6.0, 3.5, 12.0, 0.5),
+            rrf(14.5, 6.0, 3.5, 12.0, 0.5),
+            p(&[(20.5, 6.0), (20.5, 18.0)]),
+        ],
+        // The gap kept INSIDE the box.
+        "padding" => vec![
+            rr(2.0, 2.0, 20.0, 20.0, 1.2),
+            rrf(7.0, 7.0, 10.0, 10.0, 0.8),
+            p(&[(12.0, 2.5), (12.0, 6.5)]),
+            p(&[(12.0, 17.5), (12.0, 21.5)]),
+            p(&[(2.5, 12.0), (6.5, 12.0)]),
+            p(&[(17.5, 12.0), (21.5, 12.0)]),
+        ],
+        // The gap kept OUTSIDE it.
+        "margin" => vec![
+            rr(6.5, 6.5, 11.0, 11.0, 1.0),
+            p(&[(2.0, 1.5), (6.0, 1.5)]),
+            p(&[(1.5, 2.0), (1.5, 6.0)]),
+            p(&[(18.0, 1.5), (22.0, 1.5)]),
+            p(&[(22.5, 2.0), (22.5, 6.0)]),
+            p(&[(2.0, 22.5), (6.0, 22.5)]),
+            p(&[(1.5, 18.0), (1.5, 22.0)]),
+            p(&[(18.0, 22.5), (22.0, 22.5)]),
+            p(&[(22.5, 18.0), (22.5, 22.0)]),
+        ],
+        // The corner itself, with the radius that made it.
+        "border-radius" => vec![
+            path(vec![L(3.5, 20.5), L(3.5, 10.0), Q(3.5, 3.5, 10.0, 3.5), L(20.5, 3.5)]),
+            p(&[(10.0, 10.0), (10.0, 3.5)]),
+            p(&[(10.0, 10.0), (3.5, 10.0)]),
+            d(10.0, 10.0, 1.2),
+            d(3.5, 20.5, 1.2),
+            d(20.5, 3.5, 1.2),
+        ],
+        "drop-shadow" => vec![
+            rrf(8.0, 8.0, 13.0, 13.0, 1.5),
+            rr(3.0, 3.0, 13.0, 13.0, 1.5),
+        ],
+        // Solid over see-through.
+        "opacity" => vec![
+            c(12.0, 12.0, 9.0),
+            p(&[(12.0, 3.0), (12.0, 21.0)]),
+            rrf(4.0, 7.5, 4.0, 4.0, 0.3),
+            rrf(8.0, 11.5, 4.0, 4.0, 0.3),
+            rrf(4.0, 15.5, 4.0, 4.0, 0.3),
+        ],
+        // One colour running into another.
+        "gradient" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 1.5),
+            rrf(2.5, 2.5, 19.0, 5.0, 1.5),
+            p(&[(2.5, 9.5), (21.5, 9.5)]),
+            p(&[(4.5, 13.0), (19.5, 13.0)]),
+            p(&[(7.5, 16.5), (16.5, 16.5)]),
+            p(&[(10.5, 20.0), (13.5, 20.0)]),
+        ],
+        // The lines you align to, not the ones you ship.
+        "guides" => vec![
+            rr(2.5, 2.5, 19.0, 19.0, 1.2),
+            p(&[(9.0, 2.5), (9.0, 21.5)]),
+            p(&[(2.5, 15.5), (21.5, 15.5)]),
+            rr(11.5, 5.5, 7.0, 7.0, 0.6),
+        ],
+        "ruler" => vec![
+            rr(1.5, 8.0, 21.0, 8.0, 1.0),
+            p(&[(5.0, 8.0), (5.0, 12.5)]),
+            p(&[(8.0, 8.0), (8.0, 10.5)]),
+            p(&[(11.0, 8.0), (11.0, 12.5)]),
+            p(&[(14.0, 8.0), (14.0, 10.5)]),
+            p(&[(17.0, 8.0), (17.0, 12.5)]),
+            p(&[(20.0, 8.0), (20.0, 10.5)]),
+        ],
+        // The named canvas a design lives on.
+        "artboard" => vec![
+            p(&[(6.0, 1.5), (6.0, 22.5)]),
+            p(&[(17.0, 1.5), (17.0, 22.5)]),
+            p(&[(1.5, 6.0), (22.5, 6.0)]),
+            p(&[(1.5, 17.0), (22.5, 17.0)]),
+        ],
+        // What the user can actually see of it.
+        "viewport" => vec![
+            p(&[(2.5, 8.0), (2.5, 2.5), (8.0, 2.5)]),
+            p(&[(16.0, 2.5), (21.5, 2.5), (21.5, 8.0)]),
+            p(&[(21.5, 16.0), (21.5, 21.5), (16.0, 21.5)]),
+            p(&[(8.0, 21.5), (2.5, 21.5), (2.5, 16.0)]),
+            rr(8.5, 8.5, 7.0, 7.0, 0.8),
+        ],
+        // The dots a control lands on whether you aimed or not.
+        "snap-grid" => {
+            let mut v = Vec::new();
+            for j in 0..5 {
+                for i in 0..5 {
+                    v.push(d(3.0 + i as f32 * 4.5, 3.0 + j as f32 * 4.5, 0.75));
+                }
+            }
+            v.push(rr(7.5, 7.5, 9.0, 9.0, 0.8));
+            v
+        }
+
+        _ => return None,
+    })
+}
+
 // ── National flags ──────────────────────────────────────────────────────────
 //
 // ⚠️ Read this before adding one.
@@ -7762,6 +9455,87 @@ mod tests {
              alternating 16 px and 128 px), no panics",
             painted / styles.len(),
             styles.len()
+        );
+    }
+
+    /// EVERY control the toolbox offers has an icon, derived by one rule:
+    /// `control-` + the kebab-case of the `ControlType` name.
+    ///
+    /// This is the invariant the operator actually asked for — "we do not have
+    /// icons to represent PowerRustCOBOL own controls" (2026-08-31) — and it
+    /// is the one that rots silently: control number 43 gets added to
+    /// `ControlType::ALL`, the toolbox grows a drawing for it, and the
+    /// catalogue quietly does not. Deriving the name here rather than listing
+    /// it means a new control fails this test until it has an icon.
+    #[test]
+    fn every_control_type_has_an_icon() {
+        fn kebab(camel: &str) -> String {
+            let mut out = String::new();
+            for (i, ch) in camel.chars().enumerate() {
+                if ch.is_ascii_uppercase() && i > 0 {
+                    out.push('-');
+                }
+                out.push(ch.to_ascii_lowercase());
+            }
+            out
+        }
+        let catalogue: std::collections::HashSet<&str> = menu_icon_names().collect();
+        let mut missing = Vec::new();
+        for ct in crate::model::ControlType::ALL {
+            let name = format!("control-{}", kebab(ct.as_str()));
+            if !catalogue.contains(name.as_str()) || icon_shapes(&name).is_none() {
+                missing.push(name);
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{} control(s) have no catalogue icon: {missing:?}",
+            missing.len()
+        );
+        // `Custom` is not in `ControlType::ALL` (plugin controls are found at
+        // run time), but a plugin control still needs something to draw.
+        assert!(
+            catalogue.contains("control-custom"),
+            "a plugin-provided control needs an icon too"
+        );
+        eprintln!(
+            "control icons — {}/{} ControlType::ALL entries covered, plus control-custom",
+            crate::model::ControlType::ALL.len(),
+            crate::model::ControlType::ALL.len()
+        );
+    }
+
+    /// The three sets added on 2026-08-31, counted — and every name in them
+    /// still drawable. The counts are the report the operator reads; a drop
+    /// means something was deleted, which this catalogue never does.
+    #[test]
+    fn the_new_sets_are_complete() {
+        let count = |cat: &str| -> usize {
+            MENU_ICON_CATEGORIES
+                .iter()
+                .find(|(c, _)| *c == cat)
+                .map(|(_, n)| n.len())
+                .unwrap_or(0)
+        };
+        let controls = count("PowerRustCOBOL Controls");
+        let cs = count("Computer Science");
+        let ui = count("User Interface");
+        assert_eq!(controls, 43, "42 ControlType::ALL entries + Custom");
+        assert!(cs >= 79, "computer-science set, got {cs}");
+        assert!(ui >= 49, "user-interface set, got {ui}");
+
+        // Nothing in the three new sets may collide with a name that was
+        // already there — the picker searches by name, so a collision would
+        // silently retarget an existing icon.
+        let mut seen = std::collections::HashSet::new();
+        for name in menu_icon_names() {
+            assert!(seen.insert(name), "duplicate name reached the catalogue: {name}");
+        }
+        let total: usize = MENU_ICON_CATEGORIES.iter().map(|(_, n)| n.len()).sum();
+        eprintln!(
+            "new icon sets — controls {controls} · computer science {cs} · \
+             user interface {ui} = {} added, catalogue now {total}",
+            controls + cs + ui
         );
     }
 

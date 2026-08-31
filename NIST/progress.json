@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.129",
+ "measured_at_version": "1.62.132",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -1214,6 +1214,11 @@
    "version": "1.62.57",
    "change": "X-card letter variants (XXXXP/XXXXD nnn) collapse onto one card; IX103A declares its producer",
    "effect": "IX103A's scan reaches 35 records instead of dying on the first READ. Assertions went 484 -> 482 PASS: two that had never executed now run and fail truthfully. A fidelity gain that shows as a score dip \u2014 see rules.gate_protects_finished_modules_absolutely."
+  },
+  {
+   "version": "1.62.132",
+   "change": "Regression only \u2014 no NIST work. Re-ran both axes after the 1.62.130-132 forms/host/icons changes (the standing rule: any runtime change re-runs the whole-suite census and every finished module's execution pass; 1.62.131 had touched interpreter.rs obj_get/obj_set).",
+   "effect": "Compile census 420/420, FAIL 0 \u2014 unchanged. Execution: every one of the eight protected modules at its exact baseline (NC 95/95, SQ 85/85, IX 41/41, RL 34/34, IF 45/45, IC 25/25, ST 39/39, SM 16/16), which is the whole 8362-assertion baseline, intact. The run's headline reads 8418 PASS / 50 FAIL because the harness now EXECUTES DB, whose members only began compiling at 1.62.128-129: all 50 failures and all 56 extra passes are DB, and DB's execution axis is null by operator ruling (out of scope). Same shape as the 1.62.57 entry \u2014 programs that had never run now run and report truthfully."
   }
  ],
  "grind_state": {

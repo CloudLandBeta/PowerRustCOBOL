@@ -1139,6 +1139,54 @@ pub fn is_bool_word(s: &str) -> bool {
 /// control that gains a boolean property is covered the day it is added.
 /// `Visible` and `Enabled` are named explicitly because they live on the
 /// `Control` struct rather than the property map.
+/// The property that carries a toggle control's on/off state.
+///
+/// A RadioButton is **`Selected`**; a CheckBox and a Switch are **`Checked`**
+/// (operator, 2026-08-31: "Checked belongs to the CheckBox control"). One
+/// answer, so the designer's property grid, the painter, the render engine,
+/// data binding and the runtime cannot drift over which name a radio answers to.
+pub fn selection_property(control_type: &ControlType) -> &'static str {
+    match control_type {
+        ControlType::RadioButton => SELECTED_PROP,
+        _ => CHECKED_PROP,
+    }
+}
+
+/// A RadioButton's state property, since 2026-08-31.
+pub const SELECTED_PROP: &str = "Selected";
+/// A CheckBox's / Switch's state property — and a RadioButton's *legacy* one.
+pub const CHECKED_PROP: &str = "Checked";
+
+/// Read a toggle control's state, accepting the legacy spelling.
+///
+/// Every `.cfrm` written before the rename stores `Checked` on its radios, and
+/// a form the developer has not re-saved must keep working exactly as it did —
+/// so a radio answers to `Selected` first and falls back to `Checked`. The
+/// reverse fallback is deliberate too: a handler that writes `Checked` on a
+/// radio (every existing one does) still lights it up.
+pub fn toggle_state_of(ctrl: &Control) -> bool {
+    let primary = selection_property(&ctrl.control_type);
+    if let Some(v) = ctrl.get_prop(primary) {
+        return v.as_bool();
+    }
+    // The other spelling, for a form or a handler written before the rename.
+    let legacy = if primary == SELECTED_PROP {
+        CHECKED_PROP
+    } else {
+        SELECTED_PROP
+    };
+    ctrl.get_prop(legacy).map(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Is `prop` a spelling of this control's state property? (Either name, so a
+/// legacy `Checked` write to a radio is recognised as the state write it is.)
+pub fn is_toggle_state_property(control_type: &ControlType, prop: &str) -> bool {
+    matches!(
+        control_type,
+        ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch
+    ) && (prop.eq_ignore_ascii_case(SELECTED_PROP) || prop.eq_ignore_ascii_case(CHECKED_PROP))
+}
+
 pub fn is_boolean_property(type_name: &str, prop: &str) -> bool {
     // Boolean on every control that has them, whatever the type — so they do
     // not depend on the object having been registered under its real class.
@@ -1152,6 +1200,12 @@ pub fn is_boolean_property(type_name: &str, prop: &str) -> bool {
         }
     }
     let ct = ControlType::from_str(type_name);
+    // A toggle answers to BOTH spellings (see `toggle_state_of`), and the
+    // legacy one is just as boolean as the canonical one — otherwise a handler
+    // that writes `Checked` on a radio stops being canonicalised to true/false.
+    if is_toggle_state_property(&ct, prop) {
+        return true;
+    }
     Control::new("_", ct, 0, 0)
         .properties
         .iter()
@@ -2668,7 +2722,9 @@ impl ControlType {
                 }
                 // Checked things.
                 ControlType::CheckBox | ControlType::RadioButton | ControlType::Switch => {
-                    if eq("Checked") {
+                    // Either spelling — a radio's own `Selected`, and the
+                    // legacy `Checked` a pre-rename handler still writes.
+                    if eq(SELECTED_PROP) || eq(CHECKED_PROP) {
                         vec!["onChange", "onCheckedChanged", "onValueChanged"]
                     } else {
                         vec![]
@@ -3986,7 +4042,13 @@ impl Control {
                 props.insert("BorderStyle".into(), PropValue::String("None".into()));
             }
             ControlType::CheckBox | ControlType::RadioButton => {
-                props.insert("Checked".into(), PropValue::Bool(false));
+                // A radio is SELECTED, a check box is CHECKED — one seeded key
+                // each, so the property grid shows a radio the name that is
+                // actually its own (operator, 2026-08-31).
+                props.insert(
+                    selection_property(&control_type).into(),
+                    PropValue::Bool(false),
+                );
                 props.insert("GroupName".into(), PropValue::String("".into()));
                 props.insert("CheckAlignment".into(), PropValue::String("Left".into()));
                 props.insert("CheckColor".into(), PropValue::String("#0078D7".into()));
@@ -5335,6 +5397,17 @@ impl Control {
 
     pub fn set_prop(&mut self, name: impl Into<String>, value: impl Into<PropValue>) {
         let name = name.into();
+        // A toggle's state has ONE key on this control (2026-08-31). Writing the
+        // other spelling — `Checked` on a radio, which is what every caller
+        // written before the rename says — lands on the canonical one instead
+        // of adding a second key beside it. Two keys would be read in seeded
+        // order, so the designed `Selected: false` would shadow a `Checked:
+        // true` the caller had just written and the radio would stay dark.
+        let name = if is_toggle_state_property(&self.control_type, &name) {
+            selection_property(&self.control_type).to_owned()
+        } else {
+            name
+        };
         if !self.properties.contains_key(&name) {
             if let Some(existing) = self
                 .properties
