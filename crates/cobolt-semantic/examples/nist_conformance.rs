@@ -1510,7 +1510,8 @@ fn substitute_implementor_names(raw: &str) -> String {
     // ASCII puts `A` at 65 and `D` at 68, so the 1-based ordinal positions are
     // 66 and 69 — the values `parse_special_names_class` turns back into
     // characters with `char::from_u32(n - 1)`.
-    raw.replace("XXXXX090", "66      ")
+    let filled = raw
+        .replace("XXXXX090", "66      ")
         .replace("XXXXX091", "69      ")
         // `XXXXX053` is the I-O-CONTROL **RERUN clause** card: CCVS85 leaves it
         // for the installation to fill in, because the clause names an
@@ -1519,7 +1520,7 @@ fn substitute_implementor_names(raw: &str) -> String {
         // OBSOLETE` refers to a construct that is not in the source. Filling it
         // in is what a validating installation does, and it is the only way
         // that expectation can be tested at all. One line in, one line out.
-        .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS")
+        .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS");
         // `XXXXX065` is the record COUNT for the big sort file — an
         // installation-tunable size the distribution leaves blank. ST115A
         // moves it into RECORDS-IN-FILE and bounds its build loop with it;
@@ -1530,7 +1531,33 @@ fn substitute_implementor_names(raw: &str) -> String {
         // Same length as the card, or the sequence stamp in columns 73–80
         // slides left into the code area — exactly why 090/091 above pad to
         // eight characters.
-        .replace("XXXXX065", "100     ")
+        //
+        // Boundary-anchored, NOT a plain `.replace`: IX106A's alternate-key
+        // test data contains the literal `"…161XXXXXXXXXX065ALTKEY1…"`, whose
+        // X-run ends in the same eight characters. A global replace rewrote
+        // that VALUE and took IX from 574/0 to 569/5 — an X-card only counts
+        // where the character before the match is not another `X`.
+    replace_x_card(&filled, "XXXXX065", "100     ")
+}
+
+/// Replace `card` with `filler` only where the match is not the tail of a
+/// longer X-run — i.e. the preceding character is not `X`.
+fn replace_x_card(raw: &str, card: &str, filler: &str) -> String {
+    debug_assert_eq!(card.len(), filler.len());
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(at) = rest.find(card) {
+        let boundary = at == 0 || !rest[..at].ends_with('X');
+        out.push_str(&rest[..at]);
+        if boundary {
+            out.push_str(filler);
+        } else {
+            out.push_str(card);
+        }
+        rest = &rest[at + card.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Run one program in its own directory, under both budgets.

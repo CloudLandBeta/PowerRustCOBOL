@@ -1305,13 +1305,29 @@ fn parse_io_control(p: &mut Parser) -> Vec<Vec<String>> {
             break;
         }
         let mut files = Vec::new();
-        while p.at_identifier() {
+        // The I-O-CONTROL paragraph is ONE sentence: its clauses follow each
+        // other with the period only at the end. `SAME` (and the clauses this
+        // parser discards) must therefore end the file list rather than be
+        // eaten as a file name — CCVS85 ST131A writes `SAME RECORD AREA FOR
+        // SORT1 SORT2 SAME RECORD AREA FOR SORT3 FILE3.` and the second
+        // group vanished, so a READ of FILE3 was invisible through SORT3's
+        // record and the third sort released 100 blank records.
+        while p.at_identifier()
+            && !["SAME", "RERUN", "MULTIPLE"]
+                .iter()
+                .any(|w| is_word(p.peek(), w))
+        {
             match p.eat_identifier() {
                 Some((f, _)) => files.push(f.to_ascii_uppercase()),
                 None => break,
             }
         }
-        p.expect_period();
+        // A period here ends the I-O-CONTROL sentence; its absence means
+        // another clause follows in the same sentence — `SAME` re-enters the
+        // loop, anything else is left for the caller's discard arm.
+        if p.at(&Token::Period) {
+            p.advance();
+        }
         // A group of one shares nothing.
         if files.len() > 1 {
             groups.push(files);

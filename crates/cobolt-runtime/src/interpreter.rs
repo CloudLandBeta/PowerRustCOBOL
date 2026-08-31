@@ -6776,8 +6776,19 @@ impl Interpreter {
             tracing::warn!("RELEASE: record '{}' is not part of any SD", rec_name);
             return Ok(());
         };
-        let buf = match self.file_specs.get(&file) {
-            Some(spec) => spec.layout.materialize(&self.env),
+        let buf = match self.file_specs.get(&file).cloned() {
+            // The record's own stored image first, named fields over it — the
+            // same rule WRITE uses (`overlay_record_area`). Materializing from
+            // the layout alone blanks every byte only FILLER covers: CCVS85
+            // ST131A's `RELEASE S2 FROM R2` carries its low-order sort digits
+            // in the SD record's FILLER, and `GIVING FILE3` wrote spaces
+            // there, so the third sort's expected keys never existed on disk.
+            Some(spec) => {
+                let mut buf = vec![b' '; spec.layout.len.max(1)];
+                self.overlay_record_area(&spec, &rec_name, &mut buf);
+                spec.layout.materialize_into(&self.env, &mut buf);
+                buf
+            }
             None => self
                 .env
                 .get_string(&rec_name)
@@ -6807,13 +6818,23 @@ impl Interpreter {
         match rec {
             Some(b) => {
                 self.sort_cursors.insert(fkey.clone(), cur + 1);
+                // Named fields only — NOT a store of the whole image under
+                // the record's group name. The environment's byte model for a
+                // group (COMP widths, sign forms) is not the RecordLayout's,
+                // and a stored raw image displaces every later group read:
+                // ST127A went from 61 to 68 failing assertions when RETURN
+                // stored the image the way READ does. FILLER-covered bytes
+                // reach the program through `RETURN … INTO` below instead.
                 if let Some(spec) = self.file_specs.get(&fkey).cloned() {
                     spec.layout.distribute(&mut self.env, &b);
                 }
                 if let Some(tgt) = into {
-                    let s = String::from_utf8_lossy(&b).into_owned();
-                    let tname = self.expr_to_name(tgt);
-                    self.env.set_str(&tname, &s);
+                    // The same contract as `READ … INTO`: a group MOVE of the
+                    // record — bytes distributed across the receiver, not a
+                    // lossy whole-string set (which nothing reads back).
+                    let b = b.clone();
+                    let tname = self.resolve_lvalue(tgt);
+                    self.store_bytes(&tname, &b);
                 }
                 self.exec_stmts(not_at_end)
             }

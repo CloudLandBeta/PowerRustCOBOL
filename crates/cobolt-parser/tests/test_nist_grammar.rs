@@ -397,3 +397,54 @@ fn an_unterminated_invalid_key_phrase_stops_at_else() {
     assert_eq!(then_stmts.len(), 1, "THEN branch: {then_stmts:?}");
     assert_eq!(else_stmts.len(), 2, "ELSE branch was lost: {else_stmts:?}");
 }
+
+/// The I-O-CONTROL paragraph is ONE sentence: several `SAME … AREA` clauses
+/// follow each other with the period only at the very end. CCVS85 **ST131A**
+/// writes `SAME RECORD AREA FOR SORT1 SORT2 SAME RECORD AREA FOR SORT3
+/// FILE3.` — the file-name list must stop at the next `SAME`, not eat it as a
+/// file name. Eating it dropped the second group entirely, so a `READ` of
+/// FILE3 was invisible through SORT3's record and the third sort released 100
+/// blank records.
+#[test]
+fn two_same_clauses_in_one_io_control_sentence_are_two_groups() {
+    let src = "\
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SAME2.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT F1 ASSIGN TO \"f1\".
+           SELECT F2 ASSIGN TO \"f2\".
+           SELECT F3 ASSIGN TO \"f3\".
+           SELECT F4 ASSIGN TO \"f4\".
+       I-O-CONTROL.
+           SAME RECORD AREA FOR F1 F2
+           SAME RECORD AREA FOR F3 F4.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+";
+    let result = parse(tokenize(src, SourceFormat::Free));
+    let errors: Vec<_> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .collect();
+    assert!(errors.is_empty(), "parse errors: {errors:?}");
+    let io = result
+        .program
+        .expect("no program")
+        .environment
+        .expect("no environment")
+        .input_output
+        .expect("no input-output");
+    assert_eq!(
+        io.same_areas,
+        vec![
+            vec!["F1".to_string(), "F2".to_string()],
+            vec!["F3".to_string(), "F4".to_string()]
+        ],
+        "each SAME clause is its own group"
+    );
+}

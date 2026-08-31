@@ -178,3 +178,53 @@ fn sort_input_procedure_goto_external_code_and_back() {
     // made in the "external" paragraph — and the sort must see them all.
     assert_eq!(run_capture(src), vec!["AAA", "BBB", "CCC"]);
 }
+
+/// CCVS85 **ST131A**: `RELEASE S2 FROM R2` where the SD record covers the
+/// low-order sort digits with FILLER. Materializing the release from named
+/// fields alone blanked those bytes, `GIVING` wrote the blanks to disk, and
+/// the third sort's expected keys never existed. The release must carry the
+/// record's whole image — named fields over the stored bytes, as WRITE does.
+#[test]
+fn release_from_keeps_bytes_only_filler_covers() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SRTFIL.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SORT-FILE ASSIGN TO "sortwork3".
+       DATA DIVISION.
+       FILE SECTION.
+       SD SORT-FILE.
+       01 S-REC.
+          05 S-KEY  PIC 9(2).
+          05 FILLER PIC X(3).
+       WORKING-STORAGE SECTION.
+       01 W-REC.
+          05 W-KEY PIC 9(2).
+          05 W-TAG PIC X(3).
+       01 W-BACK.
+          05 B-KEY PIC 9(2).
+          05 B-TAG PIC X(3).
+       01 DONE-FLAG PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           SORT SORT-FILE ON ASCENDING KEY S-KEY
+               INPUT PROCEDURE IS FILL-PROC
+               OUTPUT PROCEDURE IS SHOW-PROC
+           STOP RUN.
+       FILL-PROC.
+           MOVE 20 TO W-KEY MOVE "XYZ" TO W-TAG RELEASE S-REC FROM W-REC
+           MOVE 10 TO W-KEY MOVE "ABC" TO W-TAG RELEASE S-REC FROM W-REC.
+       SHOW-PROC.
+           PERFORM UNTIL DONE-FLAG = 1
+               RETURN SORT-FILE INTO W-BACK
+                   AT END MOVE 1 TO DONE-FLAG
+                   NOT AT END DISPLAY B-KEY "/" B-TAG
+               END-RETURN
+           END-PERFORM.
+    "#;
+    // The tag bytes live under the SD record's FILLER; they must survive the
+    // release and come back in sorted order.
+    assert_eq!(run_capture(src), vec!["10/ABC", "20/XYZ"]);
+}

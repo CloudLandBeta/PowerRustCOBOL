@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.116] — 2026-08-31
+
+### ST131A's shared record area — three defects, and a harness repair
+
+CCVS85 ST131A (`SAME RECORD AREA FOR SORT3 FILE3`) failed 6 assertions
+through three unrelated defects: the I-O-CONTROL paragraph is ONE
+sentence and the `SAME` file-name list ate the next clause's `SAME` as
+a file name, silently dropping the second group; `RELEASE` materialized
+named fields only, so bytes covered by FILLER — the third sort's
+low-order key digits — went to disk as spaces; and `RETURN … INTO` was
+a lossy whole-string set nothing reads back, now the same
+bytes-distributing contract as `READ … INTO` (which also clears
+ST144A). ST131A: 15 of 15. ST (Sort/Merge): 30 → 32 of 39; assertions
+696 PASS / 77 FAIL → 707 / 70.
+
+The full protected gate (parser touched) caught two things: a rejected
+variant of the RETURN fix that stored the raw image under the record's
+group name displaced ST127A's group reads (61 → 68; reverted, recorded
+as a dead end), and 1.62.114's global `XXXXX065` substitution had
+corrupted IX106A's alternate-key test data (`…XXXXXXXXXX065ALTKEY1…`).
+X-card substitution is now boundary-anchored. IX restored to 41/41,
+574 PASS / 0 FAIL; NC, SQ, RL, IF, IC exact; compile 412/421.
+
 ## [PowerRustCOBOL 1.62.115] — 2026-08-31
 
 ### A sort procedure follows GO TO out of its range — and back

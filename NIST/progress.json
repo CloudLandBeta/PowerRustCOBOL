@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.115",
+ "measured_at_version": "1.62.116",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -165,12 +165,12 @@
     40
    ],
    "execution": [
-    30,
+    32,
     39
    ],
    "assertions": {
-    "pass": 696,
-    "fail": 77,
+    "pass": 707,
+    "fail": 70,
     "deleted": 0
    },
    "st301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim: intermediate-subset flagging of features we implement (SD, SAME SORT-MERGE AREA, MERGE, SORT GIVING) is unreachable by design. Scored out of 39, like IX out of 41 and RL out of 34.",
@@ -256,11 +256,12 @@
   {
    "id": "st131a-same-record-area",
    "module": "ST",
-   "priority": 9,
-   "title": "ST131A (6 FAIL) \u2014 SAME RECORD AREA FOR SORT3 FILE3 is not honoured",
+   "priority": 99,
+   "title": "RESOLVED \u2014 ST131A (6 FAIL) \u2014 SAME RECORD AREA FOR SORT3 FILE3 is not honoured",
    "evidence": "1.62.115 probe: RELEASE S3 pushed 100 records of \"000    0000...\" \u2014 S3\u2019s initial value. READ-RELEASE-FILE3 is literally `READ FILE3` then `RELEASE S3`; the member\u2019s own NOTE says the shared record area is the point of the test. Top-level control flow was normal (paragraph trace), so this is storage sharing, not flow.",
    "recipe": "Targeted mirror-on-fill: parse/capture I-O-CONTROL `SAME RECORD AREA FOR f1 f2 ...`; when a READ (or RETURN) fills the record of one member file, distribute the same raw bytes through every other member\u2019s RecordLayout so the data is visible under their record names. RELEASE/WRITE then gather correctly from their own layout. Full generality (MOVE into one member then WRITE another) needs the per-FD byte buffer architectural item \u2014 do not build that here; mirror-on-fill covers the CCVS usage.",
-   "watch_out": "Check whether the parser already accepts SAME RECORD AREA (it compiles) and where the clause is dropped. Mirror only on fill operations; gathering stays per-file. Gate: cheap check only \u2014 interpreter change."
+   "watch_out": "Check whether the parser already accepts SAME RECORD AREA (it compiles) and where the clause is dropped. Mirror only on fill operations; gathering stays per-file. Gate: cheap check only \u2014 interpreter change.",
+   "resolved_at": "1.62.116 \u2014 three defects, none of them the mirror the recipe sketched: the SAME group never PARSED (clause-boundary bug), RELEASE dropped FILLER bytes, RETURN INTO was lossy. The READ-side peer mirror recipe was already in place and correct. ST131A 15/15."
   },
   {
    "id": "build-the-activation-scope-primitive",
@@ -637,6 +638,12 @@
    "what": "Give every member of a module ONE shared work directory so the CCVS85 file chain works.",
    "why_it_failed": "It took IX from 13 to 15 clean but broke members that need a file to be ABSENT: IX111A ('THE FILE IX-NOP WHICH DOES NOT EXIST', expecting status 35) and IX216A (OPEN EXTEND on an OPTIONAL file, expecting 05) both went red against leftovers from earlier programs.",
    "what_to_do_instead": "Per-member `inherits_from()` table, each entry quoted from the consumer's own header comment. Never infer a dependency from two programs sharing an X-card."
+  },
+  {
+   "id": "return-must-not-store-the-record-image-under-the-group-name",
+   "tried": "1.62.116 candidate: make RETURN fill the record area exactly as READ does \u2014 store_bytes(01-name, image) + distribute every record_layout, plus SAME-AREA peer mirroring.",
+   "why_it_failed": "ST127A went 61 -> 68 FAIL (by hand 69 -> 77): once the raw image sits under the group name, later GROUP reads take it verbatim, and the environment\u2019s byte model for a group (COMP digit widths, sign forms) disagrees with the RecordLayout\u2019s, so MOVE SORTFILE-REC TO WS-SORTFILE-REC displaced every field. Bisected cleanly with env-var gates over the three co-resident changes.",
+   "alternative": "RETURN distributes named fields only; FILLER-covered bytes reach the program through RETURN INTO (store_bytes, the READ INTO contract). If a member ever needs the group-name image, that is the per-FD byte-buffer architectural item, not a store under env names. NOTE the open question this leaves: READ DOES store the image under each 01 name \u2014 the same displacement is latent there for FD records with COMP fields, unexercised by the suite so far."
   }
  ],
  "parked": [],
@@ -718,6 +725,11 @@
   "whole_suite_compile_pass": 412
  },
  "history": [
+  {
+   "version": "1.62.116",
+   "change": "SAME clauses split at clause boundaries, RELEASE carries the whole record image, RETURN INTO distributes bytes \u2014 ST131A 15/15 and ST144A clean; X-65 substitution boundary-anchored after it corrupted IX106A",
+   "effect": "ST 30 -> 32 of 39, 696 PASS / 77 FAIL -> 707 / 70. THREE defects under ST131A: (1) parser \u2014 I-O-CONTROL is one sentence, and the SAME file-name list ate the next clause\u2019s SAME as a file name, dropping the SORT3/FILE3 group (test_nist_grammar.rs); (2) exec_release materialized named fields only, blanking FILLER-covered bytes \u2014 the third sort\u2019s low-order key digits \u2014 now overlay_record_area + materialize_into, the WRITE rule (test_sort.rs release_from_keeps_bytes_only_filler_covers); (3) RETURN INTO was a lossy set_str nothing reads back \u2014 now store_bytes via resolve_lvalue, the READ INTO contract (fixes ST144A too). DEAD END recorded: RETURN must NOT store the raw image under the SD 01\u2019s group name the way READ does \u2014 the env group byte-model (COMP widths, sign forms) is not the RecordLayout\u2019s, and ST127A went 61 -> 68 from displaced group reads; bisected with env-var gates, reverted, ST127A restored to exactly 61. FULL GATE RAN (parser touched): NC 4614/0, SQ 624/0, RL 354/0, IF 841/0, IC 309/0 exact \u2014 and IX read 569/5: the deferred-gate bisect found 1.62.114\u2019s global XXXXX065 replace rewriting IX106A\u2019s alternate-key VALUE literal (\"\u2026161XXXXXXXXXX065ALTKEY1\u2026\"). replace_x_card now skips matches whose preceding character is X; IX 574/0 exact again. Compile 412/421 unchanged."
+  },
   {
    "version": "1.62.115",
    "change": "A sort INPUT/OUTPUT PROCEDURE follows a GO TO outside its range and ends when its last paragraph completes \u2014 ST119A 9 FAIL -> 0 (27/27, five never-reached INT tests now run and pass)",
