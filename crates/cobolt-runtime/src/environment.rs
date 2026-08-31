@@ -2472,9 +2472,37 @@ impl CobolEnvironment {
         }
         let mut out = Vec::new();
         for ck in self.occurrence_keys(sym, &key_indices(&key)) {
-            out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default());
+            out.extend_from_slice(&self.image_bytes(&ck));
         }
         Some(out)
+    }
+
+    /// One child's contribution to a group's byte image — its stored bytes,
+    /// except that a **negative** signed non-SEPARATE numeric renders at its
+    /// PICTURE width with the sign overpunched on the trailing digit, exactly
+    /// as a record image does ([`crate::files`]'s convention).
+    ///
+    /// The leading `-` of the display form is one byte the item does not
+    /// have: `sign_is_overpunched` says a signed item's character positions
+    /// hold no sign, yet the display form spends a byte on it, so every field
+    /// after a negative value shifted right by one. CCVS85 ST127A snapshots
+    /// its SD record with `MOVE SORT-1 TO WS-SORTFILE-REC` — three signed
+    /// fields deep — and every CHK-TEST compared the shifted snapshot.
+    /// Positive values already render at width and stay plain digits.
+    fn image_bytes(&self, ck: &str) -> Vec<u8> {
+        let bytes = self.display_bytes(ck).unwrap_or_default();
+        if bytes.first() == Some(&b'-')
+            && bytes[1..].iter().all(|b| b.is_ascii_digit())
+            && !bytes[1..].is_empty()
+            && self.sign_is_overpunched(ck)
+            && matches!(self.get(&ck.to_ascii_uppercase()), Some(CobolValue::Numeric(_)))
+        {
+            let mut digits = bytes[1..].to_vec();
+            let last = *digits.last().unwrap() - b'0';
+            *digits.last_mut().unwrap() = crate::files::overpunch(last, true);
+            return digits;
+        }
+        bytes
     }
 
     /// One item's stored form as bytes: the raw bytes of an alphanumeric item,
@@ -2516,7 +2544,18 @@ impl CobolEnvironment {
                     .sum();
             }
         }
-        self.display_string(key).map(|d| d.len()).unwrap_or(0)
+        let w = self.display_string(key).map(|d| d.len()).unwrap_or(0);
+        // A negative signed (non-SEPARATE) numeric renders with a leading `-`
+        // the item has no character position for — see [`Self::image_bytes`].
+        if w > 0
+            && self.sign_is_overpunched(key)
+            && self
+                .display_string(key)
+                .is_some_and(|d| d.starts_with('-'))
+        {
+            return w - 1;
+        }
+        w
     }
 
     /// The stored width of any item, in characters — a group's whole record or
@@ -2617,7 +2656,18 @@ impl CobolEnvironment {
                 // characters re-imposed: `MOVE "1 A05" TO <group whose only
                 // child is PIC XBA09>` stored `"1  0A"`, the edit re-applied to
                 // an already-edited slice (NC105A MOVE-TEST-F1-13).
-                self.set_verbatim_bytes(&ck, &padded);
+                //
+                // One carve-out: a slice that is a signed record image —
+                // digits with the sign overpunched on the last byte — landing
+                // in a signed numeric child decodes to its value, because that
+                // is the byte form [`Self::image_bytes`] produces for a
+                // negative source field. Plain digits and everything else
+                // land verbatim exactly as before.
+                if let Some(v) = self.decode_overpunched_slice(&ck, &padded) {
+                    self.set(&ck, v);
+                } else {
+                    self.set_verbatim_bytes(&ck, &padded);
+                }
             }
             pos += width;
         }
@@ -2929,6 +2979,41 @@ impl CobolEnvironment {
     /// INS-TEST-F1-23). A numeric-**edited** item is not one of these — it
     /// stores its edited characters, sign and all, and keeps no `field_caps`
     /// entry.
+    /// Decode `bytes` as a signed record image (digits, sign overpunched on
+    /// the trailing byte) for the signed numeric item `ck` — `None` when the
+    /// slice is not that shape or the item is not a signed numeric, in which
+    /// case a group move stores the bytes verbatim as always.
+    fn decode_overpunched_slice(&self, ck: &str, bytes: &[u8]) -> Option<CobolValue> {
+        let (&last, head) = bytes.split_last()?;
+        if !head.iter().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let (digit, negative) = crate::files::de_overpunch(last)?;
+        if !self.sign_is_overpunched(ck)
+            || self.unsigned_numeric.contains(&ck.to_ascii_uppercase())
+            || self
+                .unsigned_numeric
+                .contains(base_name(&ck.to_ascii_uppercase()))
+        {
+            return None;
+        }
+        let mut mantissa: i128 = 0;
+        for &b in head {
+            mantissa = mantissa.checked_mul(10)?.checked_add((b - b'0') as i128)?;
+        }
+        mantissa = mantissa.checked_mul(10)?.checked_add(digit as i128)?;
+        if negative {
+            mantissa = -mantissa;
+        }
+        let decimals = self
+            .field_caps
+            .get(&ck.to_ascii_uppercase())
+            .or_else(|| self.field_caps.get(base_name(&ck.to_ascii_uppercase())))
+            .map(|&(_, d)| d)
+            .unwrap_or(0);
+        Some(CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)))
+    }
+
     pub fn sign_is_overpunched(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         let numeric =

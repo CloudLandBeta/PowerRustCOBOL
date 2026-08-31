@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.117] — 2026-08-31
+
+### The phantom sign byte in group images
+
+A negative signed (non-SEPARATE) numeric rendered its group-image
+bytes with a leading `-` — one byte the item has no character position
+for — so any group move across a negative field shifted every later
+field right by one. CCVS85 ST127A snapshots its sort record across
+three signed fields and compared the shifted copy: all 61 of its
+failures were this. Negative values now render at PICTURE width with
+the sign overpunched on the trailing digit (the record-image
+convention), widths agree, and the receiving side decodes that shape
+back to the value; every other slice still lands verbatim.
+
+ST127A: 61 FAIL → 0 (27 of 27). ST133A, ST134A, ST136A follow — the
+"record-area family" was mostly this same byte. ST (Sort/Merge):
+32 → 36 of 39; assertions 707 PASS / 70 FAIL → 709 / 3. Full gate:
+NC, SQ, IX, RL, IF, IC all exact; whole-suite compile 412/421.
+
 ## [PowerRustCOBOL 1.62.116] — 2026-08-31
 
 ### ST131A's shared record area — three defects, and a harness repair

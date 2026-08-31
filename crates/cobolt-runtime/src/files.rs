@@ -398,7 +398,7 @@ impl RecordLayout {
 /// The ASCII overpunch for one digit: `{` and A–I carry +0..+9, `}` and J–R
 /// carry −0..−9 — the convention IBM's tables map onto ASCII, and the one the
 /// suite's own signed record images use.
-fn overpunch(digit: u8, negative: bool) -> u8 {
+pub(crate) fn overpunch(digit: u8, negative: bool) -> u8 {
     match (digit, negative) {
         (0, false) => b'{',
         (d, false) => b'A' + d - 1,
@@ -408,7 +408,7 @@ fn overpunch(digit: u8, negative: bool) -> u8 {
 }
 
 /// The digit and sign an overpunched byte carries, when it is one.
-fn de_overpunch(b: u8) -> Option<(u8, bool)> {
+pub(crate) fn de_overpunch(b: u8) -> Option<(u8, bool)> {
     match b {
         b'{' => Some((0, false)),
         b'A'..=b'I' => Some((b - b'A' + 1, false)),

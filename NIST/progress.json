@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.116",
+ "measured_at_version": "1.62.117",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -165,12 +165,12 @@
     40
    ],
    "execution": [
-    32,
+    36,
     39
    ],
    "assertions": {
-    "pass": 707,
-    "fail": 70,
+    "pass": 709,
+    "fail": 3,
     "deleted": 0
    },
    "st301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim: intermediate-subset flagging of features we implement (SD, SAME SORT-MERGE AREA, MERGE, SORT GIVING) is unreachable by design. Scored out of 39, like IX out of 41 and RL out of 34.",
@@ -725,6 +725,11 @@
   "whole_suite_compile_pass": 412
  },
  "history": [
+  {
+   "version": "1.62.117",
+   "change": "A negative signed field no longer spends a phantom byte in group images \u2014 ST127A 61 FAIL -> 0 (27/27), and the record-area family collapses with it: ST133A, ST134A, ST136A clean",
+   "effect": "ST 32 -> 36 of 39, 707 PASS / 70 FAIL -> 709 / 3. ONE ROOT CAUSE under five members: a negative signed (non-SEPARATE) numeric rendered its display form with a leading minus \u2014 one byte the item has no character position for (env.sign_is_overpunched has said so since NC216A) \u2014 so every group snapshot containing a negative field shifted everything after it right by one. ST127A snapshots its SD record with MOVE SORT-1 TO WS-SORTFILE-REC across three signed fields; WS-1 read -5432 for -54321, WS-7 read 150 for 501; all 61 CHK failures were this one shift. Fix in environment.rs: image_bytes renders a negative signed numeric at PICTURE width with the sign overpunched on the trailing digit (files.rs record convention, overpunch/de_overpunch now pub(crate)); item_width stops counting the minus; set_group_bytes decodes exactly that overpunch-tailed shape back to the value (everything else still lands verbatim per NC252A). Regression: test_group_move_bytes.rs group_move_keeps_alignment_across_negative_signed_fields. FULL GATE: NC 4614/0, SQ 624/0, IX 574/0, RL 354/0, IF 841/0, IC 309/0 \u2014 all exact; compile 412/421. Only ST137A (3) remains on the execution axis, plus ST139A/ST140A on compile (COLLATING SEQUENCE grammar)."
+  },
   {
    "version": "1.62.116",
    "change": "SAME clauses split at clause boundaries, RELEASE carries the whole record image, RETURN INTO distributes bytes \u2014 ST131A 15/15 and ST144A clean; X-65 substitution boundary-anchored after it corrupted IX106A",
