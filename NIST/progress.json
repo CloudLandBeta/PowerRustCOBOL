@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.119",
+ "measured_at_version": "1.62.120",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -180,17 +180,17 @@
   },
   "SM": {
    "name": "Source text manipulation",
-   "state": "baselined",
+   "state": "in_flight",
    "compile": [
     14,
     17
    ],
    "execution": [
-    4,
+    9,
     17
    ],
    "assertions": {
-    "pass": 25,
+    "pass": 271,
     "fail": 9,
     "deleted": 0
    },
@@ -255,6 +255,15 @@
   }
  },
  "work_queue": [
+  {
+   "id": "sm-remaining",
+   "module": "SM",
+   "priority": 9,
+   "title": "SM: 9 failing assertions across five members, three REPLACE-grammar compile fails",
+   "runtime_failures": "SM201A 1 (TXT-FLD-1 undeclared warning at L641 \u2014 COPY REPLACING id?), SM204A 4 (chain SM203A->SM204A; check the chain in-harness first), SM207A 1, SM301M 1 + SM401M 2 (obsolete/flagging members \u2014 read their expectation model before touching the runtime).",
+   "compile_failures": "SM202A L470 expected To found Error(\"$\") \u2014 pseudo-text ==$==; SM206A L371 unexpected PST-TEST-002; SM208A L472 expected To found \"AO\". All three are COPY \u2026 REPLACING / REPLACE pseudo-text shapes the front end does not accept yet.",
+   "watch_out": "Diagnose in per-member directories with the freshly built /tmp/nist-copy-library planted (canonicalized since 1.62.120). SM301M/SM401M print no XXXXX055 when run bare by hand."
+  },
   {
    "id": "st131a-same-record-area",
    "module": "ST",
@@ -742,6 +751,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.120",
+   "change": "SM: two harness-fidelity repairs \u2014 copybook X-cards canonicalize, and the execution pass expands COPY before judging compilability. 4/17 -> 9/17, 32 PASS / 9 FAIL -> 271 / 9",
+   "effect": "(1) K3FCA assigns TEST-FILE to XXXXP001 while SM104A reads XXXXD001; member text goes through canonical_x_cards and copybook text never did, so SM103A wrote one file and SM104A read another \u2014 five COPY-TESTs against a file that was never there. copy_library_dir now canonicalizes. (2) The execution pass judged compilability by parsing the BARE member text; SM members are built out of copybooks, so eleven of seventeen were declared did-not-compile while the census (which expands) accepted fourteen. The gate now expands against the planted library first, free-form after expansion exactly as the census does. FULL GATE after (the gate touches every module): NC 4614/0, SQ 624/0, IX 574/0, RL 354/0, IF 841/0, IC 309/0, ST 735/0 \u2014 all exact. Remaining SM: SM201A 1, SM204A 4, SM207A 1, SM301M 1, SM401M 2 (9 assertions), and the three census compile-fails SM202A/SM206A/SM208A (COPY REPLACING / REPLACE pseudo-text grammar)."
+  },
   {
    "version": "1.62.119",
    "change": "ST (Sort/Merge) FINISHED \u2014 39/39 and 40/40, 735 PASS / 0 FAIL. SORT/MERGE COLLATING SEQUENCE lands; current_module advances to SM",

@@ -176,7 +176,14 @@ fn copy_library_dir(members: &[Member]) -> Option<PathBuf> {
         // The library members are card images too: strip the identification
         // area so a copied line does not carry its program stamp into the
         // including program.
-        let body = truncate_at_col72(&m.text);
+        //
+        // And canonicalize the X-card letter variants, exactly as member
+        // source gets: K3FCA assigns TEST-FILE to `XXXXP001` (the writer
+        // spelling) while SM104A's own SELECT reads `XXXXD001` — the member
+        // text went through `canonical_x_cards` and the copybook text never
+        // did, so SM103A wrote XXXXP001, SM104A read XXXXX001, and its five
+        // COPY-TESTs checked a file that was never there.
+        let body = canonical_x_cards(&truncate_at_col72(&m.text));
         if std::fs::write(dir.join(&m.name), body).is_ok() {
             written += 1;
         }
@@ -1254,6 +1261,20 @@ fn run_pass(members: &[Member], filter: &str) {
         eprintln!("[{}/{}] {}", i + 1, programs.len(), m.name);
 
         let (text, fmt) = prepare("strict", &m.text);
+        // Expand COPY against the suite's library before judging
+        // compilability — exactly as the census does. SM members are BUILT
+        // out of copybooks (their SELECTs, records, even test paragraphs
+        // arrive by COPY), so parsing the bare member text declared eleven
+        // of SM's seventeen "did not compile" while the census accepted
+        // fourteen — and rcrun, which expands, would have run them happily.
+        // Expansion flattens to free form (see the census's own note).
+        let (text, fmt) = match std::env::temp_dir().join("nist-copy-library") {
+            dir if dir.is_dir() => (
+                cobolt_lexer::expand_copybooks(&text, &dir, fmt).text,
+                SourceFormat::Free,
+            ),
+            _ => (text, fmt),
+        };
         let pr = cobolt_parser::parse(tokenize(&text, fmt));
         let compiles = pr.diagnostics.iter().all(|d| !d.is_error())
             && pr

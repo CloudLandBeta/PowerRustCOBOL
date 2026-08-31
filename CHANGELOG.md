@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.120] — 2026-08-31
+
+### SM — the copybooks speak the same cards as the members
+
+Two harness-fidelity repairs, no runtime change: copybook text now goes
+through the same X-card canonicalization as member source (SM103A wrote
+`XXXXP001`, SM104A read `XXXXD001` — five checks against a file that
+was never there), and the execution pass expands `COPY` against the
+suite's library before judging compilability, as the census always did
+(eleven of seventeen SM members were "did not compile" on the
+execution axis while fourteen compiled in the census).
+
+SM (Source text manipulation): 4 → 9 of 17 clean; assertions 32 PASS /
+9 FAIL → 271 / 9. Full gate after (the compile gate touches every
+module): NC, SQ, IX, RL, IF, IC, ST all exact.
+
 ## [PowerRustCOBOL 1.62.119] — 2026-08-31
 
 ### ST (Sort/Merge) FINISHED — and SORT learns COLLATING SEQUENCE
