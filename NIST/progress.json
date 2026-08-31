@@ -410,7 +410,9 @@
    "evidence": "Written while trying to dump IX215A's data. The reader declared a schema the file does not have, so OPEN returned 39 and every following READ returned 47. The loop is the ordinary CCVS shape \u2014 `L. READ F AT END GO TO E END-READ ... GO TO L.` \u2014 and it never terminated; the command was killed after five minutes.",
    "cause": "1.62.69 made the AT END phrase fire only for status 10, which is correct: 47 is not the AT END condition. But with no USE declarative the statement now falls through and the loop repeats the same failing READ. Before that change the phrase fired on any non-zero status and the loop exited, which was wrong for the right reason.",
    "the_question": "COBOL-85 says an unhandled I-O error invokes the file's USE declarative, and with none declared the result is implementor-defined. Spinning is a poor choice. Terminating the run with a diagnostic, the way an unhandled runtime error already does, is defensible and would surface the real problem instead of a timeout. This is a design decision, so it is recorded rather than taken.",
-   "caveat": "Do NOT fix it by making AT END fire on other statuses again \u2014 that reintroduces the defect 1.62.69 corrected, and IX114A depends on the current behaviour."
+   "caveat": "Do NOT fix it by making AT END fire on other statuses again \u2014 that reintroduces the defect 1.62.69 corrected, and IX114A depends on the current behaviour.",
+   "attempted_at_1_62_128": "The recorded design (terminate with a diagnostic when class 3/4/9 goes unhandled) was BUILT and REVERTED the same hour: gated on \u201cno USE declarative AND no FILE STATUS item\u201d, it still crashed two protected members \u2014 SQ212A and ST146A both provoke such a status on a status-less file and rely on continuation (SQ 624->622, ST 735->729; the module gate caught it, revert restored both exactly). CCVS itself continues here, so termination in ANY form the suite can reach is off the table.",
+   "alternative": "If the spin ever bites a real program: a repeat-guard (terminate only after N consecutive IDENTICAL failing READs of the same file with the same status, N large), which no CCVS member can reach. Not built \u2014 robustness-only, and the guard adds interpreter state."
   },
   {
    "id": "if-two-crashes",
@@ -661,6 +663,12 @@
    "tried": "1.62.116 candidate: make RETURN fill the record area exactly as READ does \u2014 store_bytes(01-name, image) + distribute every record_layout, plus SAME-AREA peer mirroring.",
    "why_it_failed": "ST127A went 61 -> 68 FAIL (by hand 69 -> 77): once the raw image sits under the group name, later GROUP reads take it verbatim, and the environment\u2019s byte model for a group (COMP digit widths, sign forms) disagrees with the RecordLayout\u2019s, so MOVE SORTFILE-REC TO WS-SORTFILE-REC displaced every field. Bisected cleanly with env-var gates over the three co-resident changes.",
    "alternative": "RETURN distributes named fields only; FILLER-covered bytes reach the program through RETURN INTO (store_bytes, the READ INTO contract). If a member ever needs the group-name image, that is the per-FD byte-buffer architectural item, not a store under env names. NOTE the open question this leaves: READ DOES store the image under each 01 name \u2014 the same displacement is latent there for FD records with COMP fields, unexercised by the suite so far."
+  },
+  {
+   "id": "terminating-an-unhandled-io-error-breaks-conforming-members",
+   "tried": "1.62.128+wip: fire_declarative returned RuntimeError::General for unhandled class-3/4/9 statuses when the file had neither a USE declarative nor a FILE STATUS item (the standard-compliant carve-outs).",
+   "why_it_failed": "SQ212A and ST146A crashed (exit 1): both provoke exactly such a status on a status-less file mid-run and the suite expects execution to continue. SQ 624/0 -> 622/0 and ST 735/0 -> 729/0 \u2014 still zero FAIL, which is why only an exact-baseline gate catches it: the members died before running their remaining tests.",
+   "alternative": "Leave continuation in place (status quo). For the spin robustness gap, the only reachable-safe design is a repeat-guard on identical consecutive failing READs \u2014 recorded on the work_queue item, not built."
   }
  ],
  "parked": [
