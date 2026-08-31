@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.124",
+ "measured_at_version": "1.62.125",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -186,12 +186,12 @@
     17
    ],
    "execution": [
-    12,
+    13,
     17
    ],
    "assertions": {
     "pass": 286,
-    "fail": 4,
+    "fail": 3,
     "deleted": 0
    },
    "baselined_at": "1.62.88 \u2014 measured for the first time while answering a question about the XXXXD001 data card. Before this run it was 0 of 17 with 8 PASS / 15 FAIL; two harness-fidelity fixes took it to 4 of 17 and 25 PASS / 9 FAIL (73.5%) with no runtime change at all.",
@@ -751,6 +751,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.125",
+   "change": "Separators are interchangeable in pseudo-text matching \u2014 SM208A 11/11: SM 12/17 286/4 -> 13/17 286/3",
+   "effect": "XII-7 3.4 GR6(b): a standalone comma or semicolon is a separator, not a text word. replace_token_seq drops them from both sequences (the matched span still covers the ones between words; the period stays significant). Regression: copybook.rs separators_are_interchangeable_in_pseudo_text_matching. FULL GATE (lexer): NC/SQ/IX/RL/IF/IC/ST exact, 139 lexer tests green. Remaining SM: SM301M 1, SM401M 2 (obsolete/flagging members \u2014 read their expectation model first), compile SM202A/SM206A."
+  },
   {
    "version": "1.62.124",
    "change": "A top-level 01 FILLER REDEFINES registers its overlay \u2014 SM208A REP-TEST-3 clean: SM 286/5 -> 286/4",

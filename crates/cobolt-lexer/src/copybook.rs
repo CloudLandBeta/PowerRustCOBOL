@@ -496,12 +496,25 @@ fn seq_words(s: &str) -> Vec<(usize, usize)> {
 /// case-insensitively word by word, whitespace- and line-break-insensitive)
 /// with `to`, returning the new text and how many sequences were replaced.
 fn replace_token_seq(text: &str, from: &str, to: &str) -> (String, usize) {
-    let fpos = seq_words(from);
+    // A standalone comma or semicolon is a SEPARATOR, not a text word —
+    // interchangeable with space for matching (XII-7 3.4 GR6(b); CCVS85
+    // SM208A REP-TEST-8 replaces `MOVE;  "FAIL"  , TO` and expects it to
+    // match `MOVE  , "FAIL";      TO`). Both sides drop them; the matched
+    // span still covers the ones between matched words. A period stays — it
+    // ends sentences and is matched deliberately.
+    let separator = |w: &str| w == "," || w == ";";
+    let fpos: Vec<(usize, usize)> = seq_words(from)
+        .into_iter()
+        .filter(|&(s, e)| !separator(&from[s..e]))
+        .collect();
     if fpos.is_empty() {
         return (text.to_string(), 0);
     }
     let fwords: Vec<&str> = fpos.iter().map(|&(s, e)| &from[s..e]).collect();
-    let words = seq_words(text);
+    let words: Vec<(usize, usize)> = seq_words(text)
+        .into_iter()
+        .filter(|&(s, e)| !separator(&text[s..e]))
+        .collect();
     let mut out = String::with_capacity(text.len());
     let mut copied = 0usize;
     let mut n = 0usize;
@@ -751,6 +764,27 @@ COPY ALTLB.
             r.text.contains("FLAT-TEXT"),
             "the unqualified COPY lost the flat lookup:
 {}",
+            r.text
+        );
+    }
+
+    /// CCVS85 **SM208A** REP-TEST-8 (XII-7 3.4 GR6(b)): a standalone comma
+    /// or semicolon is a separator, interchangeable with space for matching —
+    /// `REPLACE ==MOVE;  "FAIL"  , TO== BY ==MOVE "PASS" TO==.` must rewrite
+    /// `MOVE  , "FAIL";      TO  P-OR-F.`
+    #[test]
+    fn separators_are_interchangeable_in_pseudo_text_matching() {
+        let d = tmp();
+        let src = "REPLACE ==MOVE;  \"FAIL\"  , TO== BY ==MOVE \"PASS\" TO==.\nMOVE  , \"FAIL\";      TO  P-OR-F.\nREPLACE OFF.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(
+            r.text.contains("\"PASS\""),
+            "the separator-styled text was not matched:\n{}",
+            r.text
+        );
+        assert!(
+            !r.text.contains("\"FAIL\""),
+            "the original text words were left behind:\n{}",
             r.text
         );
     }

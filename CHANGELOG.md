@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.125] — 2026-08-31
+
+### Separators are interchangeable in pseudo-text
+
+A standalone comma or semicolon is a separator, not a text word, so
+`REPLACE ==MOVE;  "FAIL"  , TO==` must match `MOVE  , "FAIL";  TO` —
+XII-7 3.4 GR6(b), CCVS85 SM208A REP-TEST-8. Matching now drops
+standalone `,`/`;` from both sequences; the period stays significant.
+
+SM208A: 11 of 11. SM (Source text manipulation): 12 → 13 of 17,
+286 PASS / 3 FAIL. Full gate: NC, SQ, IX, RL, IF, IC, ST all exact.
+
 ## [PowerRustCOBOL 1.62.124] — 2026-08-31
 
 ### A top-level `01 FILLER REDEFINES` shares its storage
