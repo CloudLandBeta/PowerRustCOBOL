@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.127",
+ "measured_at_version": "1.62.128",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -45,9 +45,9 @@
   "effect": "38 programs excluded from every score. The in-scope suite is 421, not 434."
  },
  "whole_suite_compile": {
-  "pass": 417,
+  "pass": 420,
   "in_scope": 421,
-  "note": "99.0% at 1.62.127; SM202A and SM206A joined via the operand-semantics round"
+  "note": "99.8% at 1.62.128; DB101A/DB102A/DB103M joined when GO-TO stopped being a keyword"
  },
  "modules": {
   "NC": {
@@ -218,7 +218,7 @@
    "name": "Debug",
    "state": "compile_only",
    "compile": [
-    11,
+    14,
     15
    ],
    "execution": null,
@@ -661,7 +661,14 @@
    "alternative": "RETURN distributes named fields only; FILLER-covered bytes reach the program through RETURN INTO (store_bytes, the READ INTO contract). If a member ever needs the group-name image, that is the per-FD byte-buffer architectural item, not a store under env names. NOTE the open question this leaves: READ DOES store the image under each 01 name \u2014 the same displacement is latent there for FD records with COMP fields, unexercised by the suite so far."
   }
  ],
- "parked": [],
+ "parked": [
+  {
+   "id": "db205a-communication-debug-scope",
+   "module": "DB",
+   "question": "DB205A is DB by name but COMMUNICATION by content: USE FOR DEBUGGING over DISABLE/ENABLE with CD-name \u2014 the CM module machinery, which the 2026-08-29 scope ruling excludes (CM, RW, OB*, EXEC85). Under FIPS, an installation without the optional communication facility does not run DB205A at all. PROPOSED: extend the CM exclusion to DB205A (moves it to N-A; census denominator 421 -> 420, and the suite stands at 420/420 = 100% of in-scope). Alternative: implement parse-only CM grammar, which invariant 5 (never invent grammar to make a test pass) argues against. OPERATOR TO RATIFY \u2014 the denominator is not the grind\u2019s to change.",
+   "evidence": "strictB census: DB205A parse=18, first error L311 DISABLE INPUT CM-INQUE WITH KEY. DB101A/102A/103M/201A/202A/203A/204A and the rest of DB compile clean at 1.62.128."
+  }
+ ],
  "protected_baselines": {
   "_why": "These must hold. If a fix breaks one, revert it and record a dead end \u2014 do not chase the regression forward.",
   "_when": "Operator ruling, 2026-08-29: checked once per MODULE, not once per change. Running every finished module after every fix caught four problems across the whole grind, which does not pay for re-measuring 7000+ assertions each time. The full gate runs when the last failing assertion of the module in flight is done, before the module is written `finished`. Per change, only the module in flight plus the compile census. EXCEPTION: a change to `cobolt-lexer` or `cobolt-parser` is gated immediately \u2014 a front-end change has no module boundary, and two of the four catches were exactly that (NC245A on a comma rule, SQ203A on a header-card rule).",
@@ -737,7 +744,7 @@
    "assertions_pass": 309,
    "assertions_fail": 0
   },
-  "whole_suite_compile_pass": 417,
+  "whole_suite_compile_pass": 420,
   "ST": {
    "compile": [
     40,
@@ -770,6 +777,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.128",
+   "change": "GO-TO is not a reserved word \u2014 DB101A, DB102A, DB103M compile: whole-suite 417 -> 420/421 (99.8%)",
+   "effect": "keywords.rs mapped the single hyphenated word GO-TO to the GO TO verb; it is a legal user-defined word, and CCVS85 DB101A names a SECTION `GO-TO` and a paragraph `GO-TO-TEST`, so `GO-TO SECTION.` parsed as a GO TO statement. One line removed; the verb is the two words GO TO. Nothing in the repo used the hyphenated form. FULL GATE (lexer): all EIGHT protected modules exact (NC 4614/0, SQ 624/0, IX 574/0, RL 354/0, IF 841/0, IC 309/0, ST 735/0, SM 311/0), 143 lexer tests green. The suite\u2019s one remaining in-scope compile failure is DB205A \u2014 debug facilities over COMMUNICATION: its 18 errors are CM verbs and CD machinery, the module the operator ruled out of scope. Proposed ruling recorded (see parked)."
+  },
   {
    "version": "1.62.127",
    "change": "SM (Source text manipulation) FINISHED \u2014 16/16 and 17/17, 311 PASS / 0 FAIL / 3 DELETED-by-design; current_module advances to DB, the last module",

@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.128] — 2026-08-31
+
+### `GO-TO` is a name, not a verb
+
+The lexer mapped the single hyphenated word `GO-TO` to the GO TO verb.
+It is a legal user-defined word — CCVS85 DB101A names a SECTION
+`GO-TO` — so `GO-TO SECTION.` parsed as a GO TO statement. One line
+removed: the verb is the two words `GO TO`.
+
+DB101A, DB102A and DB103M compile; **whole-suite compile 417 → 420 of
+421 (99.8%)**. The one remaining in-scope failure is DB205A, whose
+content is the COMMUNICATION machinery the scope ruling excludes — a
+proposed extension of that ruling is recorded for the operator. Full
+gate: all eight protected modules exact.
+
 ## [PowerRustCOBOL 1.62.127] — 2026-08-31
 
 ### SM (Source text manipulation) FINISHED
