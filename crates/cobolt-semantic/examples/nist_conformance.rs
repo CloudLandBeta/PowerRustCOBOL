@@ -1520,6 +1520,17 @@ fn substitute_implementor_names(raw: &str) -> String {
         // in is what a validating installation does, and it is the only way
         // that expectation can be tested at all. One line in, one line out.
         .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS")
+        // `XXXXX065` is the record COUNT for the big sort file — an
+        // installation-tunable size the distribution leaves blank. ST115A
+        // moves it into RECORDS-IN-FILE and bounds its build loop with it;
+        // unfilled, the identifier is undeclared, the MOVE no-ops and the
+        // loop exits after ONE record, so ST116A sorts a one-record file and
+        // ST117A's BIG-SORT reports ERROR AT RECORD 1. One hundred keeps the
+        // "big" meaningful and the sweep fast.
+        // Same length as the card, or the sequence stamp in columns 73–80
+        // slides left into the code area — exactly why 090/091 above pad to
+        // eight characters.
+        .replace("XXXXX065", "100     ")
 }
 
 /// Run one program in its own directory, under both budgets.

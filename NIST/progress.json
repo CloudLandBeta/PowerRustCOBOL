@@ -1,7 +1,7 @@
 {
   "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
 
-  "measured_at_version": "1.62.113",
+  "measured_at_version": "1.62.114",
   "measured_at": "2026-08-30",
 
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
@@ -96,8 +96,8 @@
       "name": "Sort/Merge",
       "state": "in_flight",
       "compile": [38, 40],
-      "execution": [28, 39],
-      "assertions": { "pass": 682, "fail": 87, "deleted": 0 },
+      "execution": [29, 39],
+      "assertions": { "pass": 683, "fail": 86, "deleted": 0 },
       "st301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim: intermediate-subset flagging of features we implement (SD, SAME SORT-MERGE AREA, MERGE, SORT GIVING) is unreachable by design. Scored out of 39, like IX out of 41 and RL out of 34.",
       "baselined_at": "1.62.107 — 13 of 40 clean, 157 PASS / 99 FAIL (61.3%), DELETED 0. FOUR MEMBERS PRINT NO CCVS REPORT AT ALL (ST102A, ST110A, ST113M, ST116A) — read that bucket first; a missing report usually means a crash or a file the harness must plant. Two members do not compile (ST139A/ST140A: `SEQUENCE MY-FAVORITE-ALPHABET`, a COLLATING SEQUENCE alphabet-name in SORT — visible in the census)."
     },
@@ -526,6 +526,7 @@
   },
 
   "history": [
+    { "version": "1.62.114", "change": "HARNESS: the big-sort record count X-65 is filled (100, padded to card width)", "effect": "ST 28 -> 29 of 39 (683/86); ST115A and ST117A clean — the whole chain had been sorting ONE 507-byte record because the unfilled card left the build loop unbounded-by-nothing. Column lesson re-learned: a substitution must keep the 8-char card width or the sequence stamp slides into code (first attempt crashed both members). Remaining: ST119A 9, ST127A 61 (DUPLICATES table), ST131A 6, ST133A 2, ST134A/136A/137A (record-area buffer item), ST144A 1, and the COLLATING SEQUENCE compile pair." },
     { "version": "1.62.113", "change": "ST301M joins IX301M/RL301M under the intermediate-subset-flagging ruling; ST scored out of 39", "effect": "ST 28 of 39 clean, 682/87. Remaining: ST127A DUPLICATES diff-table analysis (recipe recorded), ST119A five-key series 9, ST131A 6, ST133A 15, ST134A 2, ST136A 3, ST137A 3, ST117A/ST144A singles, ST108A/ST118A SORT-TEST-12 pair, and the COLLATING SEQUENCE compile pair (ST139A/ST140A)." },
     { "version": "1.62.112+wq", "change": "LEDGER ONLY — ST127A DUPLICATES residue narrowed to a between-sets ordering question, with the resume recipe", "effect": "After the sign fix, SORT-TEST-18-1/-18-2 PASS and the residue begins at CHK-TEST-1: COMPUTED= -000054321.000000000 vs CORRECT= -000005432.000000000 — a RECORD WITH A DIFFERENT KEY arrived where the second member of the -5432 duplicate set belonged. Rust's sort is stable, so within-set order should hold; the suspect is BETWEEN sets or a key mis-read. RESUME RECIPE: read ST127A BUILD-RECORD (each of its four builds) and the INPROC release sequence (lines ~262-300), list every released record's eight keys and identifier IN ORDER, run the member by hand and diff that list against XXXXX055's returned sequence — the first divergence names the defective comparison. The hand-run dir with a fresh report is scratchpad st/c127." },
     { "version": "1.62.112", "change": "Signed DISPLAY fields keep their sign in record images: trailing overpunch on render, symmetric on distribute", "effect": "ST 660 -> 683 PASS / 127 -> 92 FAIL, 26 -> 28 of 40 clean. ST127A's unsigned ordering was the cause of its 80-failure bucket. Full protected gate exact (record images are shared ground). Remaining ST: ST127A residue, ST131A 6, ST133A 15, ST301M 5, singles, and the COLLATING SEQUENCE compile pair." },

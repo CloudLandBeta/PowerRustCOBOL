@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.114] — 2026-08-30
+
+### Harness — the big-sort record count (X-65) is filled in
+
+`XXXXX065` is the record count for ST115A's big sort file, a size the
+distribution leaves for the installation. Unfilled, it is an undeclared
+identifier: the `MOVE` into `RECORDS-IN-FILE` no-ops, the build loop's bound
+compares against nothing and exits after ONE 507-byte record, ST116A sorts a
+one-record file, and ST117A's BIG-SORT reports `ERROR AT RECORD 1`. One
+hundred keeps "big" meaningful and the sweep fast — padded to the card's
+eight columns, or the sequence stamp slides into the code area (the first
+attempt crashed both members exactly that way).
+
+Sort/Merge (ST), execution: **28 → 29 of 39 clean** (683 PASS / 86 FAIL);
+ST115A and ST117A both run clean. Whole-suite compile **412 / 421**.
+
 ## [PowerRustCOBOL 1.62.113] — 2026-08-30
 
 ### Harness — ST301M joins the intermediate-subset-flagging exclusion
