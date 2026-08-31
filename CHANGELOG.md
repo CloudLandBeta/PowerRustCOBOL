@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.118] — 2026-08-31
+
+### Harness — the native collating sequence card (X-63)
+
+`XXXXX063` is the installation's statement of its machine's native
+collating order, a quoted 51-character literal ST137A and ST147A
+compare sorted output against. Unfilled, the expected sequences were
+spaces — and the computed sequences were already exactly ASCII. Filled
+with the ASCII sample card the members themselves document, boundary-
+anchored because IX106A carries the same eight bytes inside an X-run
+in its test data.
+
+ST (Sort/Merge): 36 → 37 of 39, assertions 709 PASS / 3 FAIL →
+**711 / 0** — everything that compiles runs clean. The two remaining
+members are the compile-axis gap (SORT … COLLATING SEQUENCE IS
+alphabet-name). IX re-checked exact (574/0); compile 412/421.
+
 ## [PowerRustCOBOL 1.62.117] — 2026-08-31
 
 ### The phantom sign byte in group images

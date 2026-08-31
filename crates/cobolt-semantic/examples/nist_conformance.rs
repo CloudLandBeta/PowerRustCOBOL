@@ -1537,13 +1537,34 @@ fn substitute_implementor_names(raw: &str) -> String {
         // X-run ends in the same eight characters. A global replace rewrote
         // that VALUE and took IX from 574/0 to 569/5 — an X-card only counts
         // where the character before the match is not another `X`.
-    replace_x_card(&filled, "XXXXX065", "100     ")
+    let filled = replace_x_card(&filled, "XXXXX065", "100     ");
+    // `XXXXX063` is the NATIVE collating sequence in ascending order, as a
+    // quoted literal — the installation states its own machine's order, and
+    // ST137A/ST147A compare sorted output against it. This machine's native
+    // order IS ASCII, and the card below is the sample the members themselves
+    // document for that case (quote excluded, `$` doubled because the test
+    // data holds two `$` records). Unfilled, `PIC X(51) VALUE XXXXX063` left
+    // the expected sequences as spaces and every NATIVE COLL.SEQUENCE check
+    // compared against blanks. Longer than the card is safe — the sequence
+    // stamp slides right past column 72 into ignored columns; SHORTER is the
+    // dangerous direction (see 090/091/065). IX106A carries the same eight
+    // characters as the tail of an X-run in test data, which is why this, too,
+    // goes through `replace_x_card`.
+    replace_x_card(
+        &filled,
+        "XXXXX063",
+        "\" $$()*+,-./0123456789;<=>ABCDEFGHIJKLMNOPQRSTUVWXYZ\"",
+    )
 }
 
 /// Replace `card` with `filler` only where the match is not the tail of a
 /// longer X-run — i.e. the preceding character is not `X`.
 fn replace_x_card(raw: &str, card: &str, filler: &str) -> String {
-    debug_assert_eq!(card.len(), filler.len());
+    // Never shorter than the card: the columns after the substitution shift
+    // LEFT by the difference, and the sequence stamp in 73–80 slides into the
+    // code area. Longer only pushes trailing text past column 72, which fixed
+    // format ignores.
+    debug_assert!(filler.len() >= card.len());
     let mut out = String::with_capacity(raw.len());
     let mut rest = raw;
     while let Some(at) = rest.find(card) {

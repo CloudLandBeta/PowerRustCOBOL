@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.117",
+ "measured_at_version": "1.62.118",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -165,12 +165,12 @@
     40
    ],
    "execution": [
-    36,
+    37,
     39
    ],
    "assertions": {
-    "pass": 709,
-    "fail": 3,
+    "pass": 711,
+    "fail": 0,
     "deleted": 0
    },
    "st301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim: intermediate-subset flagging of features we implement (SD, SAME SORT-MERGE AREA, MERGE, SORT GIVING) is unreachable by design. Scored out of 39, like IX out of 41 and RL out of 34.",
@@ -725,6 +725,11 @@
   "whole_suite_compile_pass": 412
  },
  "history": [
+  {
+   "version": "1.62.118",
+   "change": "Harness: the native collating sequence card (X-63) is filled with the ASCII sample the members document \u2014 ST137A clean, ST 711 PASS / 0 FAIL",
+   "effect": "ST 36 -> 37 of 39, 709/3 -> 711/0. ZERO failing assertions in the module: everything that compiles runs clean. ST137A compared its sorted key sequence against `PIC X(51) VALUE XXXXX063` \u2014 the installation states its native order on that card, blank meant every NATIVE COLL.SEQUENCE check compared against spaces, and OUR sort order was already exactly ASCII. Filled boundary-anchored via replace_x_card (IX106A carries the same eight bytes as an X-run tail in test data \u2014 checked: IX 574/0 exact). The only remaining ST gap is the compile axis: ST139A/ST140A use SORT \u2026 COLLATING SEQUENCE IS <alphabet-name>, a COBOL-85 SRT level-2 clause the parser rejects. Next: implement it (the RL precedent \u2014 COBOL-85 that should already work is a fix), wiring SPECIAL-NAMES alphabets into sort_records comparison."
+  },
   {
    "version": "1.62.117",
    "change": "A negative signed field no longer spends a phantom byte in group images \u2014 ST127A 61 FAIL -> 0 (27/27), and the record-area family collapses with it: ST133A, ST134A, ST136A clean",
