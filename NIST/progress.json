@@ -424,6 +424,14 @@
   ],
   "dead_ends": [
     {
+      "id": "record-form-signs-in-the-global-display-path",
+      "tried_at_version": "1.62.113+wt (REVERTED, not landed)",
+      "what": "ST134A: a `S9(8) COMP` sort key crossed record boundaries in its DISPLAY form — leading minus, one byte too wide — because group renders (MOVE record TO record, WRITE via overlay_record_area) gather children through display_string. Attempt: (a) two-pass overlay (display base for FILLER content, then materialize_into on top so named fields land at layout offsets with overpunch); (b) make display_bytes itself return the record form (digit-width + trailing overpunch) for signed non-SEPARATE numerics.",
+      "why_it_failed": "(b) DETONATED THE GATE: RL 34/34 354/0 -> 32/34 with the SCORED COUNT exploding to 1233 at 35.1%, NC 95 -> 94, one runtime suite red. display_bytes feeds DISPLAY output and comparisons everywhere, so overpunch characters leaked into CCVS report text itself and the report parser mis-scored wholesale — the exploded denominator is the tell. Reverted whole (both halves; (a) alone is UNMEASURED).",
+      "what_is_still_true": "ST134A went 1 FAIL -> 0 under the attempt, and the diagnosis chain is solid: WRITE renders via env display walk; MOVE record TO record renders via group gather; both put the display form into record bytes; the 1.62.112 field_bytes overpunch only covers the LAYOUT path (SORT bulk IO).",
+      "what_to_do_instead": "SCOPE THE RECORD FORM TO RECORDS. Extend compute_layout to ALSO emit FILLER spans (it walks the declaration and already advances offsets past them — it only declines to name them), so materialize_into becomes COMPLETE and overlay_record_area can drop the display pass entirely. Then record writes never consult display_string at all, and DISPLAY/comparison semantics stay untouched. For MOVE record TO record, no change is needed once WRITE is layout-complete: the receiving record's WRITE re-renders from values. Re-attempt (a)+filler-spans as ONE change and gate it in full."
+    },
+    {
       "id": "shadowing-only-the-callees-private-working-storage",
       "tried_at_version": "1.62.98 attempt (REVERTED, not landed)",
       "what": "The refinement `shadowing-a-callees-names-without-aliasing-them` itself recommended. Shadow ONLY the names a callee declares in its own WORKING-STORAGE / LOCAL-STORAGE, excluding GLOBAL, and never LINKAGE — so a group parameter's subordinates keep resolving to the caller's storage, which is what broke the 1.62.83 attempt. Save the caller's value, install the callee's, restore after `program_locals` has taken the statics.",
