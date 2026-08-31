@@ -43,6 +43,13 @@ struct Member {
     kind: String,
     name: String,
     text: String,
+    /// The test whose `CALL` this member answers, when its header card declared
+    /// it a `SUBPRG`/`SUBRTN` of one.
+    ///
+    /// A separately compiled subprogram has no CCVS report of its own — it does
+    /// work for its caller and returns — so it is not a test. It has to be
+    /// *present* when its caller runs, and nothing more.
+    subprogram_of: Option<String>,
 }
 
 /// Split the CCVS85 distribution on its `*HEADER,<kind>,<name>` /
@@ -61,16 +68,35 @@ fn split_members(source: &str) -> Vec<Member> {
             //   own PROGRAM-ID is the 4th field; the 2nd names the driving test.
             // Trailing text past the name (some cards carry a sequence stamp) is
             // not part of the name.
+            //
+            // `*HEADER,COBOL,IC101A,SUBRTN,IC102A` — a **called subprogram**.
+            //
+            // The two words are not synonyms, and the difference decides
+            // whether the member is a test:
+            //
+            // * `SUBPRG` names the next *program of the same group*, and every
+            //   one is a full test with its own report — `IX101A,SUBPRG,IX102A`
+            //   is the pair whose chain `inherits_from` already describes, and
+            //   `SQ202A,SUBPRG,SQ203A` is a scored member.
+            // * `SUBRTN` names a program the test **calls**. All 24 are in IC
+            //   and OBIC, and each one answers a literal `CALL "IC102A"`.
+            //
+            // Read as an ordinary header a SUBRTN member took its *caller's*
+            // name, so `IC102A` was a second member called `IC101A` and
+            // `extract IC102A` produced nothing.
             let mut parts = rest.split(',');
             let kind = parts.next().unwrap_or("").trim().to_string();
             let test = parts.next().unwrap_or("").trim().to_string();
             let sub = parts.next().unwrap_or("").trim().to_string();
             let subname = parts.next().unwrap_or("").trim().to_string();
-            let raw = if sub == "SUBPRG" && !subname.is_empty() {
-                subname
-            } else {
-                test
-            };
+            let named_apart = (sub == "SUBPRG" || sub == "SUBRTN") && !subname.is_empty();
+            let is_callee = sub == "SUBRTN" && !subname.is_empty();
+            let caller = test
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .to_string();
+            let raw = if named_apart { subname } else { test };
             let name = raw
                 .split_whitespace()
                 .next()
@@ -80,6 +106,7 @@ fn split_members(source: &str) -> Vec<Member> {
                 kind,
                 name,
                 text: String::new(),
+                subprogram_of: is_callee.then_some(caller),
             });
             continue;
         }
@@ -149,16 +176,37 @@ fn copy_library_dir(members: &[Member]) -> Option<PathBuf> {
         // The library members are card images too: strip the identification
         // area so a copied line does not carry its program stamp into the
         // including program.
-        let body = truncate_at_col72(&m.text);
+        //
+        // And canonicalize the X-card letter variants, exactly as member
+        // source gets: K3FCA assigns TEST-FILE to `XXXXP001` (the writer
+        // spelling) while SM104A's own SELECT reads `XXXXD001` — the member
+        // text went through `canonical_x_cards` and the copybook text never
+        // did, so SM103A wrote XXXXP001, SM104A read XXXXX001, and its five
+        // COPY-TESTs checked a file that was never there.
+        let body = canonical_x_cards(&truncate_at_col72(&m.text));
         if std::fs::write(dir.join(&m.name), body).is_ok() {
             written += 1;
         }
     }
     if written == 0 {
-        None
-    } else {
-        Some(dir)
+        return None;
     }
+    // SM207A's two alternate libraries: the member `ALTLB` exists in BOTH,
+    // with different contents. The distribution stores library 1's copy under
+    // its own name and library 2's copy under `ALTL1`, and each text names
+    // its home in its first comment line: ALTLB belongs to the library the
+    // X-47 card equates, ALTL1 to the X-48 one. The program leaves those
+    // cards unfilled, so the library word reaches the expander literally —
+    // `COPY ALTLB OF XXXXX047.` — and a subdirectory of that name holds the
+    // right text.
+    for (lib, member, src) in [("XXXXX047", "ALTLB", "ALTLB"), ("XXXXX048", "ALTLB", "ALTL1")] {
+        let sub = dir.join(lib);
+        let _ = std::fs::create_dir_all(&sub);
+        if let Ok(body) = std::fs::read_to_string(dir.join(src)) {
+            let _ = std::fs::write(sub.join(member), body);
+        }
+    }
+    Some(dir)
 }
 
 fn prepare(pass: &str, text: &str) -> (String, SourceFormat) {
@@ -246,8 +294,54 @@ fn bucket(msg: &str) -> String {
 /// *flagging* rather than execution, and `EXEC85` is NIST's own COBOL driver
 /// program, replaced here by a Rust harness. See
 /// `specs/nist/NIST-spec-out-of-scope-modules.md`.
+///
+/// **`SG` is Segmentation** (operator ruling, 2026-08-29). It exists to fit a
+/// program into a machine too small to hold it: `SECTION` headers carry a
+/// segment-number and the runtime overlays the independent segments over one
+/// another. RustCOBOL is 64-bit, on 64-bit systems, with more address space
+/// than any COBOL program can exhaust — so a segment-number is accepted and
+/// has **no effect at all**, and there is no behaviour for the module to
+/// measure. It is excluded rather than scored against a mechanism that will
+/// never exist.
 fn is_out_of_scope(module: &str) -> bool {
-    matches!(module, "CM" | "RW" | "OBSQ" | "OBIC" | "OBNC" | "EXEC")
+    matches!(
+        module,
+        "CM" | "RW" | "SG" | "OBSQ" | "OBIC" | "OBNC" | "EXEC"
+    )
+}
+
+/// Members whose **verdict** does not apply to this implementation, though the
+/// program itself is perfectly good COBOL.
+///
+/// Excluded from the execution score only — they still compile, and still
+/// count in the `strict` census, because there is nothing wrong with them as
+/// source.
+///
+/// `IX301M` says what it is in its own header: "TESTS THE FLAGGING OF
+/// INTERMEDIATE SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED
+/// INPUT-OUTPUT". Every construct it expects flagged — `ORGANIZATION IS
+/// INDEXED`, `ACCESS MODE IS RANDOM`, `RECORD KEY IS`, and the `NOT INVALID
+/// KEY` phrases — is one PowerRustCOBOL implements. A compiler validating at
+/// the **high** subset must not flag a feature it supports, so those seven
+/// expectations are unreachable by design rather than by defect. Only a
+/// minimum-subset validation would satisfy them.
+///
+/// `RL301M` is the same program one module over — "tests the flagging of
+/// intermediate subset features that are used in relative input-output" — and
+/// its six expectations are `ORGANIZATION IS RELATIVE`, `ACCESS MODE IS
+/// RANDOM`, `RELATIVE KEY IS` and the `NOT INVALID KEY` phrases. Same reading,
+/// same ruling.
+///
+/// `ST301M` completes the trio — "tests the flagging of intermediate subset
+/// features that are used in sort-merge functions" — and its five
+/// expectations are the `SD`, `SAME SORT-MERGE AREA`, `MERGE`, and
+/// `SORT … GIVING` this implementation runs every day. Same reading, same
+/// ruling.
+///
+/// Operator ruling, 2026-08-29. Compare `IX401M`, which asks for *high*-subset
+/// flagging and scores 10 of 10.
+fn verdict_does_not_apply(name: &str) -> bool {
+    matches!(name, "IX301M" | "RL301M" | "ST301M" | "SM301M")
 }
 
 fn module_of(name: &str) -> String {
@@ -257,6 +351,24 @@ fn module_of(name: &str) -> String {
         .map(|(b, _)| b)
         .unwrap_or(name.len());
     name[..cut].to_string()
+}
+
+/// The module a member is SCORED under — the letters of its name, with one
+/// member-level ruling folded in.
+///
+/// **DB205A is DB by name and COMMUNICATION by content**: its body is
+/// `DISABLE`/`ENABLE` with CD-name and the communication queues, exercised
+/// under `USE FOR DEBUGGING`. The 2026-08-29 scope ruling excludes the CM
+/// module; the 2026-08-31 operator ruling extends that exclusion to this
+/// member (ledger `parked: db205a-communication-debug-scope`, ratified) —
+/// under FIPS, an installation without the optional communication facility
+/// does not run it at all. Scoring it under CM sends it to N-A on every
+/// axis at once.
+fn scoring_module_of(name: &str) -> String {
+    if name.eq_ignore_ascii_case("DB205A") {
+        return "CM".to_string();
+    }
+    module_of(name)
 }
 
 fn main() {
@@ -591,7 +703,7 @@ fn main() {
         if m.kind != "COBOL" {
             continue;
         }
-        let module = module_of(&m.name);
+        let module = scoring_module_of(&m.name);
         if !filter.is_empty() && !m.name.starts_with(&filter) {
             continue;
         }
@@ -890,12 +1002,79 @@ fn inherits_from(name: &str) -> Option<&'static str> {
     Some(match name {
         // "THE FILE USED AS INPUT IS THAT CREATED BY IX101."
         "IX102A" => "IX101A",
+        // "THE FILE USED IS THAT RESULTING FROM IX102." Its own file is card
+        // 24 spelled `XXXXD024`, which IX102A wrote as `XXXXP024` — see
+        // `canonical_x_cards`.
+        "IX103A" => "IX102A",
         // "THE ROUTINE USES THE FILE IX-FS3 WHICH HAS BEEN CREATED BY IX109."
         "IX110A" => "IX109A",
         // "THIS ROUTINE USES THE MASS STORAGE FILE IX-FS3 CREATED IN IX113A."
         "IX114A" | "IX115A" | "IX116A" | "IX117A" | "IX118A" | "IX119A" | "IX120A" => "IX113A",
         // "THE FILE USED AS INPUT IS THAT CREATED BY IX201A."
         "IX202A" => "IX201A",
+        // "THE FILE USED IS THAT RESULTING FROM IX202." The IX2xx series
+        // mirrors IX1xx: one member creates the file, the next two process it.
+        "IX203A" => "IX202A",
+        // ── RL: the same three-generation shape, four times over ───────────
+        // "THE FILE USED AS INPUT IS THAT FILE CREATED BY RL101." Each series
+        // is a creator, an updater and a verifier over one file, all four of
+        // them on card 21 (`XXXXP021` writing, `XXXXD021` reading — see
+        // `canonical_x_cards`), so the whole chain shares one directory.
+        "RL102A" => "RL101A",
+        // "THE FILE USED IS THAT RESULTING FROM RL102."
+        "RL103A" => "RL102A",
+        "RL109A" => "RL108A",
+        // "THE FILE USED IS THAT RESULTING FROM RL109A."
+        "RL110A" => "RL109A",
+        "RL202A" => "RL201A",
+        // The header says "RESULTING FROM RL102", but RL203A is the third of
+        // the RL2xx series and reads what RL202A left on card 21 — the suite
+        // copied the RL1xx comment and did not renumber it.
+        "RL203A" => "RL202A",
+        "RL207A" => "RL206A",
+        // "THE FILE USED IS THAT RESULTING FROM RL206A" — same off-by-one
+        // comment as RL203A; the producer is the updater, RL207A.
+        "RL208A" => "RL207A",
+        // "THE FILE USED AS INPUT IS THE FILE 'RL-FS1' CREATED BY RL212A AND
+        // THE OTHER FILE 'RL-FS2' WILL NOT BE PRESENT." RL212A writes card 21
+        // only, so card 22 stays absent exactly as the program requires.
+        "RL213A" => "RL212A",
+        // ── ST: eight creator → sorter → verifier chains, straight off the
+        // member headers (`*HEADER,COBOL,ST101A,SUBPRG,ST102A`). The creator
+        // writes the population file, the sorter SORTs it USING/GIVING with no
+        // report of its own, and the verifier reads the sorted output.
+        "ST102A" => "ST101A",
+        "ST103A" => "ST102A",
+        "ST105A" => "ST104A",
+        "ST107A" => "ST106A",
+        "ST110A" => "ST109A",
+        "ST111A" => "ST110A",
+        "ST113M" => "ST112M",
+        "ST114M" => "ST113M",
+        "ST116A" => "ST115A",
+        "ST117A" => "ST116A",
+        "ST120A" => "ST119A",
+        "ST121A" => "ST120A",
+        "ST123A" => "ST122A",
+        "ST124A" => "ST123A",
+        "ST126A" => "ST125A",
+        // ── SM: a COPY writes the file, the next program reads it back ─────
+        // The Source Text Manipulation module proves a copybook by *using* it:
+        // one program builds a file through `COPY`-supplied declarations and
+        // the next checks the records that came out. The file is card 1 —
+        // `XXXXP001` writing, `XXXXD001` reading (see `canonical_x_cards`).
+        //
+        // "PROGRAM SM102A TESTS THE OUTPUT FILE PRODUCED BY SM101A"
+        "SM102A" => "SM101A",
+        // "PROGRAM SM104A READS AND CHECKS THE FILE PRODUCED BY SM103A TO
+        // VERIFY THE PROPER EXECUTION OF THE 'COPY' STATEMENTS IN THAT
+        // PROGRAM."
+        "SM104A" => "SM103A",
+        // "PROGRAM SM202A READS THE FILE PRODUCED BY SM201A"
+        "SM202A" => "SM201A",
+        // "ALL TESTS IN SM204A CHECK OUTPUT OF SM203A." — the same
+        // builder/checker shape as SM103A/SM104A, on card 002.
+        "SM204A" => "SM203A",
         _ => return None,
     })
 }
@@ -908,21 +1087,43 @@ fn inherits_from(name: &str) -> Option<&'static str> {
 /// its report is discarded. A member that declares nothing costs nothing here.
 fn run_producers(
     rcrun: &std::path::Path,
-    workroot: &std::path::Path,
+    dir: &std::path::Path,
     members: &[Member],
     target: &str,
 ) {
-    let Some(producer) = inherits_from(target) else {
-        return;
-    };
-    // Depth first, so the oldest ancestor writes its file before the member
-    // that reads and extends it.
-    run_producers(rcrun, workroot, members, producer);
-    let Some(m) = members.iter().find(|m| m.name == producer) else {
-        eprintln!("  ! {target} declares producer {producer}, which is not in the suite");
-        return;
-    };
-    run_one_in(rcrun, &workroot.join(target), &m.name, &m.text);
+    // **Every producer runs in the consumer's own directory** — one directory
+    // for the whole chain. Deriving a directory per generation put IX102A
+    // where IX101A had never run, so it processed an empty file and left a
+    // short one: IX103A's scan reached 35 records of 500 while IX101A and
+    // IX102A both reported perfectly clean. `producer_chain` is flat and
+    // oldest-first, which makes that mistake unavailable.
+    for name in producer_chain(target) {
+        match members.iter().find(|m| m.name == name) {
+            Some(m) => {
+                run_one_in(rcrun, dir, &m.name, &m.text);
+            }
+            None => eprintln!("  ! {target} declares producer {name}, not in the suite"),
+        }
+    }
+}
+
+/// The producers `target` depends on, **oldest first**.
+///
+/// Flat rather than recursive so the caller cannot accidentally vary anything
+/// per generation. The chain is short and [`declared_producers_terminate`]
+/// pins that it ends; the guard here is a backstop against a future cycle.
+fn producer_chain(target: &str) -> Vec<&'static str> {
+    let mut chain = Vec::new();
+    let mut at = target;
+    while let Some(p) = inherits_from(at) {
+        if chain.contains(&p) {
+            break;
+        }
+        chain.push(p);
+        at = p;
+    }
+    chain.reverse();
+    chain
 }
 
 /// The data files the **installation** supplies, planted into a member's work
@@ -938,7 +1139,7 @@ fn run_producers(
 /// A member not listed here gets nothing, and its directory is untouched.
 fn installation_data_files(name: &str) -> &'static [(&'static str, &'static str)] {
     match name {
-        "SQ203A" => &[("XXXXD001", SQ203A_XXXXD001)],
+        "SQ203A" => &[("XXXXX001", SQ203A_XXXXD001)],
         _ => &[],
     }
 }
@@ -1068,22 +1269,47 @@ fn run_pass(members: &[Member], filter: &str) {
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
 
+    // Build the copybook library once, here, so `plant_copy_library` has
+    // something to mirror. The compile pass builds its own; the execution pass
+    // must not depend on that one having run.
+    let _ = copy_library_dir(members);
+
+    // A separately compiled subprogram is not a test. It carries no CCVS
+    // report — it does work for its caller and returns — so running it alone
+    // scores nothing, and counting it as a program that failed to run clean is
+    // simply wrong. It is still measured on the **compile** axis, where it is
+    // ordinary COBOL like any other member.
     let programs: Vec<&Member> = members
         .iter()
         .filter(|m| m.kind == "COBOL")
+        .filter(|m| m.subprogram_of.is_none())
         .filter(|m| filter.is_empty() || m.name.to_uppercase().starts_with(&filter.to_uppercase()))
         .collect();
 
     let mut outcomes: Vec<(String, String, RunOutcome)> = Vec::new();
 
     for (i, m) in programs.iter().enumerate() {
-        let module = module_of(&m.name);
-        if is_out_of_scope(&module) {
+        let module = scoring_module_of(&m.name);
+        if is_out_of_scope(&module) || verdict_does_not_apply(&m.name) {
             continue;
         }
         eprintln!("[{}/{}] {}", i + 1, programs.len(), m.name);
 
         let (text, fmt) = prepare("strict", &m.text);
+        // Expand COPY against the suite's library before judging
+        // compilability — exactly as the census does. SM members are BUILT
+        // out of copybooks (their SELECTs, records, even test paragraphs
+        // arrive by COPY), so parsing the bare member text declared eleven
+        // of SM's seventeen "did not compile" while the census accepted
+        // fourteen — and rcrun, which expands, would have run them happily.
+        // Expansion flattens to free form (see the census's own note).
+        let (text, fmt) = match std::env::temp_dir().join("nist-copy-library") {
+            dir if dir.is_dir() => (
+                cobolt_lexer::expand_copybooks(&text, &dir, fmt).text,
+                SourceFormat::Free,
+            ),
+            _ => (text, fmt),
+        };
         let pr = cobolt_parser::parse(tokenize(&text, fmt));
         let compiles = pr.diagnostics.iter().all(|d| !d.is_error())
             && pr
@@ -1137,11 +1363,14 @@ fn fails_pass(members: &[Member], filter: &str) {
     let _ = std::fs::remove_dir_all(&workroot);
     std::fs::create_dir_all(&workroot).expect("cannot create the work directory");
 
-    for m in members.iter().filter(|m| m.kind == "COBOL") {
+    for m in members
+        .iter()
+        .filter(|m| m.kind == "COBOL" && m.subprogram_of.is_none())
+    {
         if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
             continue;
         }
-        if is_out_of_scope(&module_of(&m.name)) {
+        if is_out_of_scope(&scoring_module_of(&m.name)) {
             continue;
         }
         let (outcome, report) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
@@ -1242,11 +1471,103 @@ fn report_pass(members: &[Member], filter: &str) {
 /// These are fixed-format decks: a shorter operand drags the sequence area in
 /// columns 73-80 leftwards into the content area, where `NC1744.2` would then
 /// be read as code.
+/// Collapse the `XXXXP nnn` / `XXXXD nnn` spellings of an X-card onto the
+/// canonical `XXXXX nnn`.
+///
+/// An X-card is identified by its **number**, not by the letter in position 5.
+/// IX103A's own header lists "X-24 INDEXED FILE IMPLEMENTOR-NAME IN ASSGN TO
+/// CLAUSE FOR DATA FILE IX-FS1" and "X-44 … FOR INDEX FILE IX-FS1" — the number
+/// says which file, and card 24 appears in the deck as `XXXXX024` (43 times),
+/// `XXXXP024` (6) and `XXXXD024` (2). A validating installation replaces each
+/// card with one implementor name, so all three spellings name one file.
+///
+/// Left alone they are three different files, and a chain breaks in silence:
+/// IX102A creates IX-FS1 as `XXXXP024`, IX103A processes "THE FILE USED IS
+/// THAT RESULTING FROM IX102" as `XXXXD024`, and every one of its sequential
+/// reads hit AT END on the first call because the file it opened had never
+/// been written.
+///
+/// **Only `P` and `D` are collapsed**, the two for which the deck gives direct
+/// evidence. `XXXXY382` and `XXXXY066` are left as they are — their numbers
+/// match no other card, so there is nothing to say they are variants of
+/// anything.
+///
+/// The replacement is the same eight characters, which matters: these are
+/// fixed-format decks and a shorter operand would drag the sequence area in
+/// columns 73-80 into the content area.
+fn canonical_x_cards(raw: &str) -> String {
+    let b = raw.as_bytes();
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0;
+    while i < b.len() {
+        // `XXXX` + (`P` | `D`) + three digits, and nothing alphanumeric before
+        // it, so a longer identifier that merely ends this way is untouched.
+        let card_here = i + 8 <= b.len()
+            && &b[i..i + 4] == b"XXXX"
+            && matches!(b[i + 4], b'P' | b'D')
+            && b[i + 5..i + 8].iter().all(u8::is_ascii_digit)
+            // A COBOL word may contain hyphens, so `MY-XXXXP024` is one
+            // identifier and not a card reference.
+            && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'-'));
+        if card_here {
+            out.push_str("XXXXX");
+            out.push_str(&raw[i + 5..i + 8]);
+            i += 8;
+        } else {
+            out.push(raw[i..].chars().next().unwrap_or('\0'));
+            i += raw[i..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    out
+}
+
+/// Comment out the `U` opt-code lines, selecting the `T` alternative.
+///
+/// A CCVS85 line may carry an opt-code letter in the indicator column, and the
+/// installation's `*OPT` card says which letters are active — "THE LETTER
+/// CORRESPONDS TO A CHARACTER IN POSITION 7 OF THE SOURCE LINE". Most letters
+/// mark additions that are harmless to include. **`T` and `U` are different:
+/// they are mutually exclusive alternatives**, and taking both makes a record
+/// longer than either reading intends.
+///
+/// IX208A's `IX-FS2R1-F-G-240` is the clearest case. Its own name says 240
+/// characters; with `T` alone it is 240, with `U` alone it is 240, and with
+/// both it is **250**, every field after the first key displaced by five.
+///
+/// **`T` is the reading these programs are written for.** IX208A builds
+/// `WRK-IX-FS2-ALTKEY` from a `T` line plus a five-digit number, making it ten
+/// characters — the same shape as `IX-FS2-ALTKEY1` under `T` and not under `U`.
+/// The program moves one into the other before every `START`, so they have to
+/// agree.
+///
+/// There are exactly **ten** `U` lines in the suite, in IX107A, IX207A and
+/// IX208A. No member of any other module carries one, so this cannot disturb a
+/// finished module.
+///
+/// The letter is replaced by `*` rather than removed, so every column after it
+/// stays where it was in these fixed-format decks.
+fn select_opt_t_over_u(raw: &str) -> String {
+    raw.lines()
+        .map(|line| {
+            if line.len() > 6 && line.as_bytes()[6] == b'U' {
+                let mut s = line.to_string();
+                s.replace_range(6..7, "*");
+                s
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn substitute_implementor_names(raw: &str) -> String {
+    let raw = &select_opt_t_over_u(&canonical_x_cards(raw));
     // ASCII puts `A` at 65 and `D` at 68, so the 1-based ordinal positions are
     // 66 and 69 — the values `parse_special_names_class` turns back into
     // characters with `char::from_u32(n - 1)`.
-    raw.replace("XXXXX090", "66      ")
+    let filled = raw
+        .replace("XXXXX090", "66      ")
         .replace("XXXXX091", "69      ")
         // `XXXXX053` is the I-O-CONTROL **RERUN clause** card: CCVS85 leaves it
         // for the installation to fill in, because the clause names an
@@ -1255,7 +1576,65 @@ fn substitute_implementor_names(raw: &str) -> String {
         // OBSOLETE` refers to a construct that is not in the source. Filling it
         // in is what a validating installation does, and it is the only way
         // that expectation can be tested at all. One line in, one line out.
-        .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS")
+        .replace("XXXXX053", "RERUN ON TFIL EVERY 5000 RECORDS");
+        // `XXXXX065` is the record COUNT for the big sort file — an
+        // installation-tunable size the distribution leaves blank. ST115A
+        // moves it into RECORDS-IN-FILE and bounds its build loop with it;
+        // unfilled, the identifier is undeclared, the MOVE no-ops and the
+        // loop exits after ONE record, so ST116A sorts a one-record file and
+        // ST117A's BIG-SORT reports ERROR AT RECORD 1. One hundred keeps the
+        // "big" meaningful and the sweep fast.
+        // Same length as the card, or the sequence stamp in columns 73–80
+        // slides left into the code area — exactly why 090/091 above pad to
+        // eight characters.
+        //
+        // Boundary-anchored, NOT a plain `.replace`: IX106A's alternate-key
+        // test data contains the literal `"…161XXXXXXXXXX065ALTKEY1…"`, whose
+        // X-run ends in the same eight characters. A global replace rewrote
+        // that VALUE and took IX from 574/0 to 569/5 — an X-card only counts
+        // where the character before the match is not another `X`.
+    let filled = replace_x_card(&filled, "XXXXX065", "100     ");
+    // `XXXXX063` is the NATIVE collating sequence in ascending order, as a
+    // quoted literal — the installation states its own machine's order, and
+    // ST137A/ST147A compare sorted output against it. This machine's native
+    // order IS ASCII, and the card below is the sample the members themselves
+    // document for that case (quote excluded, `$` doubled because the test
+    // data holds two `$` records). Unfilled, `PIC X(51) VALUE XXXXX063` left
+    // the expected sequences as spaces and every NATIVE COLL.SEQUENCE check
+    // compared against blanks. Longer than the card is safe — the sequence
+    // stamp slides right past column 72 into ignored columns; SHORTER is the
+    // dangerous direction (see 090/091/065). IX106A carries the same eight
+    // characters as the tail of an X-run in test data, which is why this, too,
+    // goes through `replace_x_card`.
+    replace_x_card(
+        &filled,
+        "XXXXX063",
+        "\" $$()*+,-./0123456789;<=>ABCDEFGHIJKLMNOPQRSTUVWXYZ\"",
+    )
+}
+
+/// Replace `card` with `filler` only where the match is not the tail of a
+/// longer X-run — i.e. the preceding character is not `X`.
+fn replace_x_card(raw: &str, card: &str, filler: &str) -> String {
+    // Never shorter than the card: the columns after the substitution shift
+    // LEFT by the difference, and the sequence stamp in 73–80 slides into the
+    // code area. Longer only pushes trailing text past column 72, which fixed
+    // format ignores.
+    debug_assert!(filler.len() >= card.len());
+    let mut out = String::with_capacity(raw.len());
+    let mut rest = raw;
+    while let Some(at) = rest.find(card) {
+        let boundary = at == 0 || !rest[..at].ends_with('X');
+        out.push_str(&rest[..at]);
+        if boundary {
+            out.push_str(filler);
+        } else {
+            out.push_str(card);
+        }
+        rest = &rest[at + card.len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Run one program in its own directory, under both budgets.
@@ -1272,12 +1651,71 @@ fn run_one(
     let dir = workroot.join(name);
     let _ = std::fs::remove_dir_all(&dir);
     // Whatever this member says it inherits, written into its directory first.
-    run_producers(rcrun, workroot, members, name);
-    let r = run_one_in(rcrun, &dir, name, raw);
+    run_producers(rcrun, &dir, members, name);
+    let source = with_subprograms(members, name, raw);
+    let r = run_one_in(rcrun, &dir, name, &source);
     // Reclaim the directory — a sweep is hundreds of programs and a runaway
     // print file is measured in gigabytes.
     let _ = std::fs::remove_dir_all(&dir);
     r
+}
+
+/// A test's source followed by every subprogram declared to belong to it.
+///
+/// The Inter-program Communication module is *about* `CALL`, and its callees
+/// are separate members of the deck: `IC101A` calls `IC102A`, and `IC108A`
+/// calls `IC109A`, `IC110A` and `IC111A`. Run on its own a caller has nothing
+/// to call, which is why IC measured 6 of 47 with no crash and no timeout — the
+/// programs ran and got the answers wrong.
+///
+/// Concatenating them puts every program in one run unit, which is what the
+/// suite's own build instructions do: each member carries a complete
+/// IDENTIFICATION DIVISION, so the result is a sequence of programs rather than
+/// a nested one. A member with no subprograms is returned untouched.
+fn with_subprograms(members: &[Member], name: &str, raw: &str) -> String {
+    let mut out = raw.to_string();
+    for sub in members
+        .iter()
+        .filter(|m| m.subprogram_of.as_deref() == Some(name))
+    {
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&sub.text);
+    }
+    out
+}
+
+/// Copy the suite's copybook library into a member's work directory.
+///
+/// The library is built once per run by [`copy_library_dir`] and cached in the
+/// temp directory; this only mirrors it, so a member that uses no `COPY` pays a
+/// directory scan and nothing else. Failures are silent on purpose — a member
+/// with no `COPY` directive is unaffected either way, and one that needs a
+/// copybook will report the missing text itself, which is a clearer diagnosis
+/// than a harness error about a file the program may never have wanted.
+fn plant_copy_library(dir: &std::path::Path) {
+    let lib = std::env::temp_dir().join("nist-copy-library");
+    let Ok(entries) = std::fs::read_dir(&lib) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_file() {
+            let _ = std::fs::copy(&p, dir.join(e.file_name()));
+        } else if p.is_dir() {
+            // The alternate-library subdirectories (SM207A) travel too.
+            let sub = dir.join(e.file_name());
+            let _ = std::fs::create_dir_all(&sub);
+            if let Ok(inner) = std::fs::read_dir(&p) {
+                for f in inner.flatten() {
+                    if f.path().is_file() {
+                        let _ = std::fs::copy(f.path(), sub.join(f.file_name()));
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Run one program in an already-chosen directory, leaving it in place.
@@ -1301,6 +1739,24 @@ fn run_one_in(
     if std::fs::write(&src, substitute_implementor_names(raw)).is_err() {
         return (RunOutcome::Crash("cannot write the source".into()), None);
     }
+    // Whether this member REPORTS at all. Naming the X-55 printer card is
+    // not the signal — ST110A declares PRINT-FILE and never opens it — but
+    // every member that reports drives the CCVS machinery through its
+    // PRINT-DETAIL paragraph, and the sorters have no CCVS machinery to
+    // drive. See the NoReport decision below.
+    let text_names_printer = raw.contains("PRINT-DETAIL");
+
+    // The suite's copybooks, beside the source, because that is where `rcrun`
+    // looks for them (`expand_copy` in cobolt-cli resolves a `COPY` against the
+    // source file's own directory).
+    //
+    // The **compile** pass has expanded copybooks since the harness gained the
+    // library; the execution pass never did, and nothing said so. SM101A builds
+    // its output file out of `COPY`-supplied record declarations, so without
+    // them it expanded to nothing, wrote a zero-byte file, and SM102A read it
+    // and reported `EOF PREMATURELY FOUND` — a failure that looks like a
+    // runtime defect and is a missing input.
+    plant_copy_library(&dir);
 
     // Whatever the installation is expected to have on disk before the program
     // starts. Written before the run, never after, so the program sees it on
@@ -1430,6 +1886,15 @@ fn run_one_in(
                         .unwrap_or_default();
                     match score_console_report(name, &console) {
                         Some((p, f, d)) => (RunOutcome::Ran(p, f, d), Some(console)),
+                        // A member that never names the printer card CANNOT
+                        // report — ST's sorters (`ST102A` is 78 lines: SELECTs,
+                        // an SD, one SORT, STOP RUN) do their work silently and
+                        // are verified by the next program in their chain.
+                        // Exit 0 with no report is exactly what such a member
+                        // looks like when it works.
+                        None if !text_names_printer => {
+                            (RunOutcome::Ran(0, 0, 0), None)
+                        }
                         None => (RunOutcome::NoReport, printed),
                     }
                 }
@@ -1652,7 +2117,7 @@ fn flag_pass(members: &[Member], filter: &str) {
         if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
             continue;
         }
-        if is_out_of_scope(&module_of(&m.name)) || !is_flagging_member(&m.text) {
+        if is_out_of_scope(&scoring_module_of(&m.name)) || !is_flagging_member(&m.text) {
             continue;
         }
         let (p, f, detail) = score_flagging(&m.text);
@@ -1917,6 +2382,62 @@ mod tests {
         }
     }
 
+    /// `SUBPRG` and `SUBRTN` are not synonyms, and the difference decides
+    /// whether a member is a test.
+    ///
+    /// `SUBPRG` names the next program of the same *group* — every one is a
+    /// full test with its own report. `SUBRTN` names a program the test
+    /// **calls**. Folding the two together excluded `SQ203A` from scoring and
+    /// took SQ from 85 of 85 to 84 of 84.
+    #[test]
+    fn subprg_is_a_test_and_subrtn_is_a_callee() {
+        let deck = "*HEADER,COBOL,SQ202A\n\
+                    000100 IDENTIFICATION DIVISION.\n\
+                    *END-OF,SQ202A\n\
+                    *HEADER,COBOL,SQ202A,SUBPRG,SQ203A\n\
+                    000100 IDENTIFICATION DIVISION.\n\
+                    *END-OF,SQ203A\n\
+                    *HEADER,COBOL,IC101A,SUBRTN,IC102A\n\
+                    000100 IDENTIFICATION DIVISION.\n\
+                    *END-OF,IC102A\n";
+        let members = split_members(deck);
+        let by = |n: &str| members.iter().find(|m| m.name == n).expect(n);
+
+        // Both are named by their own 4th field, not by the driving test.
+        assert_eq!(by("SQ203A").name, "SQ203A");
+        assert_eq!(by("IC102A").name, "IC102A");
+        // …but only the SUBRTN belongs to its caller.
+        assert_eq!(by("SQ203A").subprogram_of, None);
+        assert_eq!(by("IC102A").subprogram_of.as_deref(), Some("IC101A"));
+        assert_eq!(by("SQ202A").subprogram_of, None);
+    }
+
+    /// A caller's source carries its callees; a member with none is untouched.
+    #[test]
+    fn a_caller_is_run_with_its_subprograms() {
+        let deck = "*HEADER,COBOL,IC108A\nCALLER\n*END-OF,IC108A\n\
+                    *HEADER,COBOL,IC108A,SUBRTN,IC109A\nCALLEE-ONE\n*END-OF,IC109A\n\
+                    *HEADER,COBOL,IC108A,SUBRTN,IC110A\nCALLEE-TWO\n*END-OF,IC110A\n\
+                    *HEADER,COBOL,NC101A\nALONE\n*END-OF,NC101A\n";
+        let members = split_members(deck);
+        let text = |n: &str| {
+            members
+                .iter()
+                .find(|m| m.name == n)
+                .map(|m| m.text.clone())
+                .unwrap()
+        };
+
+        let joined = with_subprograms(&members, "IC108A", &text("IC108A"));
+        assert!(joined.contains("CALLER"), "{joined}");
+        assert!(joined.contains("CALLEE-ONE"), "{joined}");
+        assert!(joined.contains("CALLEE-TWO"), "{joined}");
+
+        // A member that declares no callee is handed back exactly as it was.
+        let alone = with_subprograms(&members, "NC101A", &text("NC101A"));
+        assert_eq!(alone, text("NC101A"));
+    }
+
     /// The producer table is opt-in and terminates.
     ///
     /// A cycle would make `run_producers` recurse forever, and a self-reference
@@ -1925,7 +2446,7 @@ mod tests {
     fn declared_producers_terminate() {
         for consumer in [
             "IX102A", "IX110A", "IX114A", "IX115A", "IX116A", "IX117A", "IX118A", "IX119A",
-            "IX120A", "IX202A",
+            "IX120A", "IX202A", "SM102A", "SM104A", "SM202A",
         ] {
             let mut seen = vec![consumer.to_string()];
             let mut at = consumer;
@@ -1942,6 +2463,38 @@ mod tests {
         }
     }
 
+    /// The producer chain is flat, oldest-first, and excludes the target.
+    ///
+    /// IX103A inherits from IX102A, which inherits from IX101A, so IX101A must
+    /// run first — and all of them in the consumer's own directory. Running a
+    /// generation anywhere else left IX102A processing an empty file.
+    #[test]
+    fn producer_chain_is_oldest_first() {
+        assert_eq!(producer_chain("IX103A"), vec!["IX101A", "IX102A"]);
+        assert_eq!(producer_chain("IX102A"), vec!["IX101A"]);
+        assert_eq!(producer_chain("IX203A"), vec!["IX201A", "IX202A"]);
+        assert_eq!(producer_chain("IX110A"), vec!["IX109A"]);
+        assert_eq!(producer_chain("IX114A"), vec!["IX113A"]);
+        // RL runs the same three-generation shape four times over, so the
+        // verifier of each series carries both of its ancestors.
+        assert_eq!(producer_chain("RL103A"), vec!["RL101A", "RL102A"]);
+        assert_eq!(producer_chain("RL110A"), vec!["RL108A", "RL109A"]);
+        assert_eq!(producer_chain("RL203A"), vec!["RL201A", "RL202A"]);
+        assert_eq!(producer_chain("RL208A"), vec!["RL206A", "RL207A"]);
+        assert_eq!(producer_chain("RL213A"), vec!["RL212A"]);
+        // SM pairs a builder with a checker, three times, one generation deep.
+        assert_eq!(producer_chain("SM102A"), vec!["SM101A"]);
+        assert_eq!(producer_chain("SM104A"), vec!["SM103A"]);
+        assert_eq!(producer_chain("SM202A"), vec!["SM201A"]);
+        // Self-contained members bring nothing with them.
+        assert!(producer_chain("IX101A").is_empty());
+        assert!(producer_chain("NC101A").is_empty());
+        // The target itself is never in its own chain.
+        for t in ["IX103A", "IX110A", "IX202A", "RL103A", "RL208A"] {
+            assert!(!producer_chain(t).contains(&t), "{t} would run twice");
+        }
+    }
+
     /// A member that builds its own file declares no producer.
     ///
     /// IX111A needs `IX-NOP` to be **absent** (it expects status 35), and
@@ -1952,6 +2505,19 @@ mod tests {
         for solo in [
             "IX101A", "IX109A", "IX111A", "IX112A", "IX113A", "IX201A", "IX216A", "SQ203A",
             "NC101A",
+            // The creator of each RL series, and RL212A whose consumer needs
+            // card 22 to stay absent.
+            "RL101A", "RL108A", "RL201A", "RL206A", "RL212A",
+            // The three SM builders.
+            "SM101A", "SM103A", "SM201A",
+            // ST102A and ST120A read card 1 and ST101A writes it, but **no ST
+            // member declares a producer** — their headers list only X-55,
+            // X-82 and X-83. Chaining on the shared card alone is the
+            // inference this table exists to refuse, and here it would also be
+            // unsafe: ST102A has no PRINT-FILE at all, so a producer's report
+            // would be left in `XXXXX055` and read as ST102A's own. Its
+            // verdict belongs to ST103A, which checks the sorted output.
+            "ST102A", "ST103A", "ST120A",
         ] {
             assert_eq!(
                 inherits_from(solo),
@@ -1961,11 +2527,63 @@ mod tests {
         }
     }
 
+    /// An X-card is identified by its number, not the letter in position 5.
+    ///
+    /// Card 24 appears in the deck as `XXXXX024`, `XXXXP024` and `XXXXD024`.
+    /// Left as three names it is three files, and IX102A writing `XXXXP024`
+    /// while IX103A reads `XXXXD024` silently breaks a chain the suite's own
+    /// header declares.
+    #[test]
+    fn x_card_letter_variants_collapse_onto_one_card() {
+        assert_eq!(canonical_x_cards("XXXXP024"), "XXXXX024");
+        assert_eq!(canonical_x_cards("XXXXD024"), "XXXXX024");
+        assert_eq!(canonical_x_cards("XXXXX024"), "XXXXX024");
+        // Same width, or the sequence area in columns 73-80 slides into the
+        // content area of a fixed-format deck.
+        assert_eq!(canonical_x_cards("XXXXD001").len(), 8);
+        // Untouched: their numbers match no other card, so there is nothing to
+        // say they are variants of anything.
+        assert_eq!(canonical_x_cards("XXXXY382"), "XXXXY382");
+        // Not a card: an identifier that merely ends this way keeps its shape.
+        assert_eq!(canonical_x_cards("MY-XXXXP024"), "MY-XXXXP024");
+        // In context, with the rest of the line intact.
+        assert_eq!(
+            canonical_x_cards("     SELECT IX-FS1 ASSIGN XXXXP024   IX1024.2"),
+            "     SELECT IX-FS1 ASSIGN XXXXX024   IX1024.2"
+        );
+    }
+
+    /// `T` and `U` opt-code lines are alternatives; only `T` survives.
+    #[test]
+    fn opt_code_u_lines_are_commented_out() {
+        // The letter becomes `*`, and every other column stays put — these are
+        // fixed-format decks.
+        let deck = "014400U    05 FILLER             PIC X(24).                             IX1074.2";
+        let out = select_opt_t_over_u(deck);
+        assert_eq!(&out[6..7], "*", "the U line must become a comment");
+        assert_eq!(out.len(), deck.len(), "columns must not shift");
+        assert_eq!(&out[7..], &deck[7..], "only column 7 changes");
+        // `T` is the surviving alternative and is left exactly as it is.
+        let t = "014300T        10 FILLER         PIC X(24).                             IX1074.2";
+        assert_eq!(select_opt_t_over_u(t), t);
+        // Other opt letters are additions, not alternatives, and are untouched.
+        for other in [
+            "033500Y    IF RECORD-COUNT GREATER 50                            DB1014.2",
+            "005500P    SELECT RAW-DATA   ASSIGN TO                           IX1094.2",
+            "007700C    LABEL RECORDS ARE STANDARD                            SQ2034.2",
+        ] {
+            assert_eq!(select_opt_t_over_u(other), other);
+        }
+        // A `U` anywhere but the indicator column is ordinary text.
+        let word = "001000     MOVE UNIT-COUNT TO X.                                 NC1014.2";
+        assert_eq!(select_opt_t_over_u(word), word);
+    }
+
     /// Only the members that need one get a data file.
     #[test]
     fn installation_data_files_are_opt_in() {
         assert_eq!(installation_data_files("SQ203A").len(), 1);
-        assert_eq!(installation_data_files("SQ203A")[0].0, "XXXXD001");
+        assert_eq!(installation_data_files("SQ203A")[0].0, "XXXXX001");
         for untouched in ["SQ202A", "NC101A", "IX101A"] {
             assert!(
                 installation_data_files(untouched).is_empty(),

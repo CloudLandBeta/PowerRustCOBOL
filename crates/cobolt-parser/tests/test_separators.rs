@@ -196,6 +196,101 @@ fn ac8_the_decimal_comma_still_works() {
     assert!(errors(src).is_empty(), "{:?}", errors(src));
 }
 
+/// A separator comma before a **sign** is the one that carries meaning.
+///
+/// COBOL-85 tells a sign from a binary operator by the space that follows it:
+/// `A -3` is two operands, `A - 3` is one subtraction. Drop the comma from
+/// `FUNCTION MOD(A, -3)` and what is left reads as a subtraction — the function
+/// is called with one argument, and IF124A and IF133A crashed the interpreter
+/// on the second.
+#[test]
+fn a_comma_before_a_sign_still_separates_two_arguments() {
+    let data = "01  A       PIC S9(9)V9(9) VALUE 11.\n01  WS-NUM  PIC S9(9)V9(9).\n";
+    let src = program(data, "    COMPUTE WS-NUM = FUNCTION MOD(A, -3).\n");
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+    let ast = format!("{:?}", parse(tokenize(&src, SourceFormat::Free)).program);
+    assert!(
+        !ast.contains("Subtract") && !ast.contains("Sub,"),
+        "the two arguments were merged into a subtraction: {ast}"
+    );
+}
+
+/// …and it does not become required. Without the comma the two operands are
+/// still two, because the sign is glued to its literal.
+#[test]
+fn a_sign_after_a_comma_is_not_a_binary_operator() {
+    let data = "01  A       PIC S9(9)V9(9) VALUE 11.\n01  WS-NUM  PIC S9(9)V9(9).\n";
+    let with = program(data, "    COMPUTE WS-NUM = FUNCTION MAX(A, -3, 7).\n");
+    let without = program(data, "    COMPUTE WS-NUM = FUNCTION MAX(A -3 7).\n");
+    assert!(errors(&with).is_empty(), "{:?}", errors(&with));
+    assert!(errors(&without).is_empty(), "{:?}", errors(&without));
+}
+
+/// The **semicolon** keeps no such exception: it is never a list separator,
+/// only decoration, so it is dropped even before a sign.
+///
+/// NC245A writes exactly this to prove it — a subscript list mixing both
+/// punctuations with signed subscripts — and keeping the semicolon is a parse
+/// error rather than a separator.
+#[test]
+fn a_semicolon_before_a_sign_is_still_only_decoration() {
+    let data = "01  ELEM3-TABLE.\n   05 ELEM3 PIC 9 OCCURS 20 TIMES.\n01  TEMP PIC 9.\n";
+    for body in [
+        "    MOVE ELEM3( +3; +5, +10) TO TEMP.\n",
+        "    MOVE ELEM3 (+3, 5; 10) TO TEMP.\n",
+        "    ADD ELEM3 (3; 5; 10) TO TEMP.\n",
+    ] {
+        let src = program(data, body);
+        assert!(errors(&src).is_empty(), "{body}: {:?}", errors(&src));
+    }
+}
+
+/// With **no separator at all**, the space still settles it.
+///
+/// COBOL-85 tells a sign from a binary operator by the space that follows it,
+/// so `10.2 -0.2` is two operands and `10.2 - 0.2` is one subtraction. IF132A
+/// writes `FUNCTION RANGE(10.2 -0.2, 5.6, -15.6)` with no comma between the
+/// first two arguments and expects four of them.
+#[test]
+fn a_sign_glued_to_a_literal_starts_a_new_operand() {
+    let data = "01  WS-NUM  PIC S9(9)V9(4).\n";
+    let src = program(
+        data,
+        "    COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).\n",
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+    let ast = format!("{:?}", parse(tokenize(&src, SourceFormat::Free)).program);
+    // Four arguments, so the mantissa of -0.2 survives as its own literal.
+    assert!(
+        ast.contains("-2") && !ast.contains("Sub"),
+        "the first two arguments merged into a subtraction: {ast}"
+    );
+}
+
+/// …and a properly spaced operator is still an operator.
+#[test]
+fn a_spaced_sign_is_still_a_binary_operator() {
+    let data = "01  WS-NUM  PIC S9(9)V9(4).\n";
+    let spaced = program(data, "    COMPUTE WS-NUM = 10.2 - 0.2.\n");
+    assert!(errors(&spaced).is_empty(), "{:?}", errors(&spaced));
+    let ast = format!("{:?}", parse(tokenize(&spaced, SourceFormat::Free)).program);
+    assert!(ast.contains("Sub"), "the subtraction was lost: {ast}");
+}
+
+/// The rule reaches only as far as a **literal** before the sign. An
+/// identifier cannot be told from a keyword here, and both `PICTURE -9(9).9(9)`
+/// and `VARYING … BY -1` are "operand, gap, glued sign, digits".
+#[test]
+fn a_glued_sign_after_a_word_is_left_alone() {
+    let data = "01  N-EDIT  PICTURE -9(9).9(9).\n01  WS-I PIC S9(4).\n01 WS-N PIC S9(9).\n";
+    let src = program(
+        data,
+        "    PERFORM VARYING WS-I FROM 60 BY -1 UNTIL WS-I < 1\n\
+         \x20       CONTINUE\n    END-PERFORM.\n",
+    );
+    assert!(errors(&src).is_empty(), "{:?}", errors(&src));
+}
+
 /// The RustCOBOL member-call argument list is not COBOL-85, but it is real
 /// syntax and its comma is followed by a space — so it went through the same
 /// change and must not have regressed to a single argument.

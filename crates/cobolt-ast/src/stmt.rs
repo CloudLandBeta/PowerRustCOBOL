@@ -748,12 +748,20 @@ pub enum Stmt {
         file: String,
         keys: Vec<SortKey>,
         duplicates: bool,
+        /// `[COLLATING] SEQUENCE [IS] alphabet-name` — orders the
+        /// alphanumeric keys of THIS sort, overriding the program sequence
+        /// (CCVS85 ST139A/ST140A).
+        collating: Option<String>,
         /// Input files (`USING`) — mutually exclusive with `input_proc`.
         using: Vec<String>,
         /// Output files (`GIVING`) — mutually exclusive with `output_proc`.
         giving: Vec<String>,
-        input_proc: Option<String>,
-        output_proc: Option<String>,
+        /// `INPUT PROCEDURE a [THRU b]` — the RELEASE loop may span a RANGE
+        /// of sections, and CCVS85 ST106A writes exactly that
+        /// (`INPUT PROCEDURE INPROC THRU INPROC-EXIT`). Dropping the THRU end
+        /// performed one section of the range and released nothing.
+        input_proc: Option<(String, Option<String>)>,
+        output_proc: Option<(String, Option<String>)>,
         span: Span,
     },
 
@@ -761,9 +769,11 @@ pub enum Stmt {
     Merge {
         file: String,
         keys: Vec<SortKey>,
+        /// `[COLLATING] SEQUENCE [IS] alphabet-name` — as on `Sort`.
+        collating: Option<String>,
         using: Vec<String>,
         giving: Vec<String>,
-        output_proc: Option<String>,
+        output_proc: Option<(String, Option<String>)>,
         span: Span,
     },
 

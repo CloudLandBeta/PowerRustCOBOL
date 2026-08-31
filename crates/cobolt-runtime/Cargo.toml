@@ -16,7 +16,7 @@ repository.workspace   = true
 [features]
 # Everything the interpreter has always had. Nothing in this workspace turns it
 # off — `rcrun`, the IDE and every test keep the full surface.
-default = ["sql"]
+default = ["sql", "http", "maps"]
 
 # The SQL bridge: `COBOL-OPEN-DB` and its five companions, over SQLite,
 # PostgreSQL and MySQL.
@@ -28,6 +28,28 @@ default = ["sql"]
 # programs that never open a database. The compiler now turns this off for a
 # program it can prove never reaches SQL, and those builds need Rust alone.
 sql = ["dep:rusqlite", "dep:postgres", "dep:mysql"]
+
+# The REST client: `COBOL-HTTP-GET` and its five companions, plus the
+# OpenRouteService door (`TraceRoad`) that goes over the same agent.
+#
+# Separable for the same reason `sql` is, one platform down: TLS here is the
+# operating system's stack through `native-tls`, and on **Linux** that is
+# OpenSSL — so building needed `libssl-dev` and a C toolchain to compile
+# `openssl-sys`. A program that never calls an HTTP verb should not need
+# either, and with this off `openssl-sys` leaves the graph.
+#
+# ⚠️ A FORM application still links TLS regardless: `cobolt-forms`'s `render`
+# feature fetches OSM basemap tiles with its own `ureq`. This trims console
+# programs, not form ones.
+http = ["dep:ureq", "dep:native-tls"]
+
+# The Maps data verbs — Directions, Geocoding, Places, Distance Matrix — over
+# the `google_maps` client.
+#
+# Not a C dependency: `google_maps` is `reqwest` + `tokio`, pure Rust. It is
+# separable for size and build time, being the largest single dependency the
+# runtime carries and one only a program with a Maps control ever touches.
+maps = ["dep:google_maps", "dep:tokio"]
 
 [dependencies]
 cobolt-lexer    = { path = "../cobolt-lexer" }
@@ -56,8 +78,8 @@ mysql           = { version = "28", default-features = false, features = ["minim
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
 redb            = { version = "2.2" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
-ureq            = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"] }  # native-tls, not rustls (ring compiles C)
-native-tls      = "0.2"   # the connector ureq needs handed to it; see http_runtime::tls_connector
+ureq            = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }  # native-tls, not rustls (ring compiles C)
+native-tls      = { version = "0.2", optional = true }   # the connector ureq needs handed to it; see http_runtime::tls_connector
 # Maps control (spec 039 T11): Directions/Geocoding/Places/Distance-Matrix
 # only — never the OSM basemap tiles (cobolt-forms fetches those directly).
 # This crate is `reqwest`+async, unlike the rest of this crate's blocking
@@ -70,8 +92,8 @@ google_maps = { version = "3.10.0", default-features = false, features = [
   "directions",
   "places",
   "distance_matrix",
-] }
-tokio       = { workspace = true }
+], optional = true }
+tokio       = { workspace = true, optional = true }
 # COBOL-85 `ACCEPT … FROM DATE/TIME/DAY/DAY-OF-WEEK` and `FUNCTION CURRENT-DATE`
 # are defined on the **local** clock, and CURRENT-DATE reports the real offset
 # from GMT in its last five characters. Deriving them from UNIX_EPOCH gives UTC,

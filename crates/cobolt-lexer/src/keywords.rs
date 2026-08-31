@@ -147,7 +147,10 @@ pub fn lookup(word: &str) -> Option<Token> {
         "WITH" => Token::With,
         "NO" => Token::No,
         "GO" => Token::Go,
-        "GO-TO" => Token::GoTo,
+        // NOT a keyword: `GO-TO` is a legal user-defined word — CCVS85
+        // DB101A names a SECTION `GO-TO` and a paragraph `GO-TO-TEST`, and
+        // mapping it to the verb made `GO-TO SECTION.` parse as a GO TO
+        // statement. The verb is the two words `GO TO`.
         "GOBACK" | "GO-BACK" => Token::GoBack,
         "STOP" => Token::Stop,
         "RUN" => Token::Run,

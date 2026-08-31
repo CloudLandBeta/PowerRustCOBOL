@@ -309,9 +309,19 @@ impl RedbIndexedFile {
 
     // ── small helpers ────────────────────────────────────────────────────────
 
+    /// Pad a short record out to the declared length, and leave a long one
+    /// alone.
+    ///
+    /// `record_len` is the FD's declared width, not a ceiling: a file whose
+    /// records vary in size stores each at its own length. Resizing to
+    /// `record_len` flat **truncated** every longer record, which is what the
+    /// disk engine avoids with the same `.max()` — IX105A writes long records
+    /// and reads them back checking the length, and reported "WRONG LENGTH OR
+    /// WRONG RECORD" four times under this engine while passing under the
+    /// other.
     fn fit(&self, rec: &[u8]) -> Bytes {
         let mut r = rec.to_vec();
-        r.resize(self.record_len, b' ');
+        r.resize(self.record_len.max(rec.len()), b' ');
         r
     }
 
@@ -323,13 +333,20 @@ impl RedbIndexedFile {
         }
     }
 
+    /// Recover a stored record, padding a short one out to the declared width
+    /// and returning a long one at its own length.
+    ///
+    /// The `.max()` is the same rule as `fit`: `record_len` is the FD's
+    /// declared width, not a ceiling. Resizing flat handed every longer record
+    /// back truncated even once it had been stored whole.
     fn decode_value(&self, stored: &[u8]) -> Bytes {
         let mut v = if self.compressing {
             compress::decompress(stored)
         } else {
             stored.to_vec()
         };
-        v.resize(self.record_len, b' ');
+        let want = self.record_len.max(v.len());
+        v.resize(want, b' ');
         v
     }
 
@@ -463,33 +480,42 @@ impl RedbIndexedFile {
         }, None)
     }
 
-    fn primary_bound(&self, op: StartOp, key: &[u8]) -> Option<Bytes> {
+    /// `lo`/`hi` bound the keys sharing the `START` key's prefix — see
+    /// `crate::indexed::generic_key_bounds`. A generic key names only the
+    /// leftmost part of the record key, so `EQUAL` is the first entry inside
+    /// the band and `GREATER` the first past it; a full-width key collapses
+    /// both bounds onto itself and every relation is as it was.
+    fn primary_bound(&self, op: StartOp, lo: &[u8], hi: &[u8]) -> Option<Bytes> {
         with_primary!(self, t => {
             let res = match op {
-                StartOp::Eq => return t.get(key).ok().flatten().map(|_| key.to_vec()),
-                StartOp::Ge => t.range::<&[u8]>((Included(key), Unbounded)).ok()?.next(),
-                StartOp::Gt => t.range::<&[u8]>((Excluded(key), Unbounded)).ok()?.next(),
-                StartOp::Le => t.range::<&[u8]>((Unbounded, Included(key))).ok()?.next_back(),
-                StartOp::Lt => t.range::<&[u8]>((Unbounded, Excluded(key))).ok()?.next_back(),
+                StartOp::Eq => t.range::<&[u8]>((Included(lo), Included(hi))).ok()?.next(),
+                StartOp::Ge => t.range::<&[u8]>((Included(lo), Unbounded)).ok()?.next(),
+                StartOp::Gt => t.range::<&[u8]>((Excluded(hi), Unbounded)).ok()?.next(),
+                StartOp::Le => t.range::<&[u8]>((Unbounded, Included(hi))).ok()?.next_back(),
+                StartOp::Lt => t.range::<&[u8]>((Unbounded, Excluded(lo))).ok()?.next_back(),
             };
             res.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
         }, None)
     }
 
     /// The composite alt key in index `idx` matching `op` against `key`.
-    fn alt_bound_composite(&self, idx: usize, op: StartOp, key: &[u8]) -> Option<Bytes> {
-        let comp = composite(idx, key);
+    /// The composite alt key in index `idx` matching `op`, with `klo`/`khi`
+    /// bounding the alternate-key values sharing the `START` key's prefix.
+    ///
+    /// Two bands are in play: `prefix_bounds(idx)` keeps the search inside this
+    /// alternate's slice of the shared multimap, and the composite `lo`/`hi`
+    /// bound the keys sharing the prefix within it.
+    fn alt_bound_composite(&self, idx: usize, op: StartOp, klo: &[u8], khi: &[u8]) -> Option<Bytes> {
+        let clo = composite(idx, klo);
+        let chi = composite(idx, khi);
         let (lo, hi) = prefix_bounds(idx);
         with_alt!(self, mt => {
             let res = match op {
-                StartOp::Eq => {
-                    let has = mt.get(comp.as_slice()).map(|mut it| it.next().is_some()).unwrap_or(false);
-                    return if has { Some(comp.clone()) } else { None };
-                }
-                StartOp::Ge => mt.range::<&[u8]>((Included(comp.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
-                StartOp::Gt => mt.range::<&[u8]>((Excluded(comp.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
-                StartOp::Le => mt.range::<&[u8]>((Included(lo.as_slice()), Included(comp.as_slice()))).ok()?.next_back(),
-                StartOp::Lt => mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(comp.as_slice()))).ok()?.next_back(),
+                StartOp::Eq => mt.range::<&[u8]>((Included(clo.as_slice()), Included(chi.as_slice()))).ok()?.next(),
+                StartOp::Ge => mt.range::<&[u8]>((Included(clo.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
+                StartOp::Gt => mt.range::<&[u8]>((Excluded(chi.as_slice()), Excluded(hi.as_slice()))).ok()?.next(),
+                StartOp::Le => mt.range::<&[u8]>((Included(lo.as_slice()), Included(chi.as_slice()))).ok()?.next_back(),
+                StartOp::Lt => mt.range::<&[u8]>((Included(lo.as_slice()), Excluded(clo.as_slice()))).ok()?.next_back(),
             };
             res.and_then(|x| x.ok()).map(|(k, _)| k.value().to_vec())
         }, None)
@@ -566,13 +592,15 @@ impl RedbIndexedFile {
     }
 
     fn find_start(&self, op: StartOp, key: &[u8]) -> Option<(Bytes, Bytes)> {
+        // A `START` key may be generic — naming only the leftmost part of the
+        // key — so it is matched on that prefix.
         if self.kor == 0 {
-            let key = pad(key, self.primary.len);
-            self.primary_bound(op, &key).map(|pk| (pk.clone(), pk))
+            let (lo, hi, _) = crate::indexed::generic_key_bounds(key, self.primary.len);
+            self.primary_bound(op, &lo, &hi).map(|pk| (pk.clone(), pk))
         } else {
             let idx = self.kor - 1;
-            let key = pad(key, self.alternates[idx].len);
-            let comp = self.alt_bound_composite(idx, op, &key)?;
+            let (lo, hi, _) = crate::indexed::generic_key_bounds(key, self.alternates[idx].len);
+            let comp = self.alt_bound_composite(idx, op, &lo, &hi)?;
             let rv = comp[2..].to_vec();
             let pk = self.alt_values(&comp).into_iter().next()?;
             Some((rv, pk))
@@ -980,8 +1008,10 @@ impl IndexedStore for RedbIndexedFile {
                 None => return status::NO_NEXT,
             },
         };
+        // A sequential REWRITE may not change the record's key — see the
+        // in-memory engine. Status 21, the INVALID KEY condition.
         if target != pkey {
-            return status::LOGIC_ERROR;
+            return status::SEQUENCE_ERROR;
         }
         let old = match self.lookup_primary(&pkey) {
             Some(r) => r,
@@ -1001,13 +1031,43 @@ impl IndexedStore for RedbIndexedFile {
                 return status::DUP_KEY;
             }
         }
-        // The record keeps its original insertion sequence across a REWRITE, so
-        // its position among duplicate alternates is preserved (disk parity).
+        // A record that keeps all its alternate values keeps its insertion
+        // sequence, and so its position among duplicates.
+        //
+        // **A record whose alternate value CHANGES leaves one duplicate set and
+        // joins another, at the end of it** — it cannot hold a position in a
+        // set it has only just entered. IX215A turns on exactly this: GF-08
+        // rewrites record 176 into a duplicate value, GF-09 rewrites record 4
+        // into the same one, and a `START` on that value must deliver 176,
+        // whose entry joined first. Reusing the original sequence delivered
+        // record 4, whose *file* insertion was earlier but whose membership of
+        // this set was not.
+        //
+        // One sequence is stored per record, not per alternate, and removal
+        // reconstructs the multimap value from it — so when any alternate
+        // changes, the record takes a fresh sequence and **every** entry is
+        // re-pointed to it. That keeps the stored sequence authoritative. The
+        // cost is that an unchanged alternate also moves to the end of its set;
+        // a per-alternate sequence would avoid that, at the price of scanning
+        // the multimap to recover each entry's own value on removal.
         let has_alts = !self.alternates.is_empty();
-        let seq = if has_alts {
+        let alt_changed = self
+            .alternates
+            .iter()
+            .enumerate()
+            .any(|(i, ks)| composite(i, &extract(ks, &old)) != composite(i, &extract(ks, &rec)));
+        let old_seq = if has_alts {
             self.seq_of(&pkey).unwrap_or(0)
         } else {
             0
+        };
+        let seq = if has_alts && alt_changed {
+            match self.alloc_seq() {
+                Ok(s) => s,
+                Err(()) => return status::IO_ERROR,
+            }
+        } else {
+            old_seq
         };
         let stored = self.encode_value(&rec);
         let w = self.wtx.as_ref().unwrap();
@@ -1018,23 +1078,39 @@ impl IndexedStore for RedbIndexedFile {
         } {
             return status::IO_ERROR;
         }
-        // Re-point alternate indexes: remove old entries, add new ones (same seq).
+        // Re-point the alternate indexes. When the sequence changed, every
+        // entry moves to it — including the ones whose value did not change,
+        // because removal reconstructs the multimap value from the record's one
+        // stored sequence and would not find them otherwise.
         if has_alts {
+            let old_val = Self::alt_value(old_seq, &pkey);
+            let new_val = Self::alt_value(seq, &pkey);
             match w.open_multimap_table(ALT) {
                 Ok(mut mt) => {
-                    let val = Self::alt_value(seq, &pkey);
                     for (i, ks) in self.alternates.iter().enumerate() {
                         let oc = composite(i, &extract(ks, &old));
                         let nc = composite(i, &extract(ks, &rec));
-                        if oc != nc {
-                            let _ = mt.remove(oc.as_slice(), val.as_slice());
-                            if mt.insert(nc.as_slice(), val.as_slice()).is_err() {
-                                return status::IO_ERROR;
-                            }
+                        if oc == nc && old_val == new_val {
+                            continue; // nothing moved
+                        }
+                        let _ = mt.remove(oc.as_slice(), old_val.as_slice());
+                        if mt.insert(nc.as_slice(), new_val.as_slice()).is_err() {
+                            return status::IO_ERROR;
                         }
                     }
                 }
                 Err(_) => return status::IO_ERROR,
+            }
+            // Keep the stored sequence authoritative for the next removal.
+            if seq != old_seq {
+                match w.open_table(SEQ) {
+                    Ok(mut t) => {
+                        if t.insert(pkey.as_slice(), seq.to_be_bytes().as_slice()).is_err() {
+                            return status::IO_ERROR;
+                        }
+                    }
+                    Err(_) => return status::IO_ERROR,
+                }
             }
         }
         if self.log_level.is_on() {

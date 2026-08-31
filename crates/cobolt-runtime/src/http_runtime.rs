@@ -36,8 +36,36 @@
 //! (schannel on Windows, Security.framework on macOS, OpenSSL on Linux),
 //! reached through `ureq`'s native-tls adapter.
 
+//! # The `http` feature
+//!
+//! Everything below that touches the network is behind it. TLS here is the
+//! platform's own stack through `native-tls`, and on **Linux** that is OpenSSL
+//! — a system library the build machine must have development headers for. A
+//! program that never calls one of the verbs above should not have to; the
+//! compiler leaves this feature off for those, and `openssl-sys` drops out of
+//! the dependency graph entirely.
+//!
+//! The `HttpClient` type, its header state and its whole method surface exist
+//! either way. Only the sending is gone — an off-build reports that through the
+//! same `(body, status)` pair a network failure uses, so no caller changes.
+
 use std::collections::HashMap;
+#[cfg(feature = "http")]
 use std::sync::{Arc, OnceLock};
+
+/// What a verb reports when the HTTP bridge was left out of the build.
+///
+/// Travels back as the response body with status 0 — the same channel a DNS
+/// failure or a refused connection uses, so a COBOL program that checks its
+/// status var already handles it. Reachable only when the compiler proved the
+/// program never reaches an HTTP verb and it did anyway.
+#[cfg(not(feature = "http"))]
+const HTTP_NOT_LINKED: &str = "the HTTP bridge is not linked into this program: \
+     the build found no CALL to COBOL-HTTP-GET (or any of its companions) and \
+     left the client out, which is what lets an application build without the \
+     platform's TLS development files. Reaching an HTTP verb through a name \
+     assembled at run time defeats that reading — CALL the verb by its literal \
+     name somewhere the build can see it";
 
 // ── TLS ────────────────────────────────────────────────────────────────────
 
@@ -52,6 +80,7 @@ use std::sync::{Arc, OnceLock};
 ///
 /// `None` means the platform refused to hand over its TLS stack; plain HTTP still
 /// works and HTTPS reports the failure through the usual status-0 path.
+#[cfg(feature = "http")]
 fn tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
     static CONNECTOR: OnceLock<Option<Arc<native_tls::TlsConnector>>> = OnceLock::new();
     CONNECTOR
@@ -71,6 +100,7 @@ fn tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
 /// second: the connector is the whole reason HTTPS works here at all, and a
 /// module that quietly forgot it would fail with "no TLS backend" only in
 /// production, only over HTTPS.
+#[cfg(feature = "http")]
 pub(crate) fn agent(timeout_ms: u64) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
     if timeout_ms > 0 {
@@ -108,7 +138,47 @@ impl HttpClient {
     pub fn clear_headers(&mut self) {
         self.headers.clear();
     }
+}
 
+// ── Sending, when the `http` feature is off ──────────────────────────────────
+//
+// Deliberately adjacent to the real implementation rather than in a file of its
+// own: a method added below must be added here too, and a shim kept somewhere
+// else is a shim that silently rots until someone builds the configuration
+// nobody builds by default.
+#[cfg(not(feature = "http"))]
+impl HttpClient {
+    pub fn get(&self, _url: &str) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+    pub fn post(&self, _url: &str, _body: &str) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+    pub fn put(&self, _url: &str, _body: &str) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+    pub fn delete(&self, _url: &str) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+    pub fn get_with_timeout(&self, _url: &str, _timeout_ms: u64) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+    pub fn delete_with_timeout(&self, _url: &str, _timeout_ms: u64) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+    pub fn send_with_body_timeout(
+        &self,
+        _method: &str,
+        _url: &str,
+        _body: &str,
+        _timeout_ms: u64,
+    ) -> (String, u16) {
+        (HTTP_NOT_LINKED.to_owned(), 0)
+    }
+}
+
+#[cfg(feature = "http")]
+impl HttpClient {
     /// Execute an HTTP GET.
     ///
     /// Returns `(body, status_code)`.  On network failure status is 0 and

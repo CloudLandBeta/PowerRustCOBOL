@@ -1,0 +1,800 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+//
+// Licensed under the Apache License, Version 2.0.
+// See the LICENSE file in the project root for full license information.
+
+//! What a group's storage actually looks like, item by item.
+//!
+//! Written to settle the `pairing-linkage-leaves-by-byte-offset` dead end in
+//! `NIST/progress.json`. A LINKAGE parameter is a view over the caller's bytes,
+//! so binding it means matching the two descriptions by **byte offset** — and
+//! the first attempt at that made CCVS85 IC203A worse rather than better, for
+//! reasons no amount of reading settled.
+//!
+//! The shape that matters is IC203A's `TABLE-2` against IC205A's. The caller
+//! declares two bytes as `02 DN6 PIC X OCCURS 2 TIMES` — one child, occurring
+//! twice — and the callee declares the same two bytes as `02 TV-1 PIC X` plus
+//! `02 TV-2 PIC X`, two children. Any binding by tree position can only ever
+//! reach half of it; a binding by offset should reach all of it, and did not.
+//!
+//! These are **probes, not guards**. They assert the properties an offset walk
+//! depends on, so that when one is false it is named rather than guessed at.
+
+use std::sync::mpsc;
+
+use cobolt_lexer::{tokenize, SourceFormat};
+use cobolt_parser::{parse, Severity};
+use cobolt_runtime::Interpreter;
+
+/// Run `src` and collect what it DISPLAYed, trimmed.
+fn run_capture(src: &str) -> Vec<String> {
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = std::sync::mpsc::channel();
+    let (state_tx, _state_rx) = std::sync::mpsc::channel();
+    let (display_tx, display_rx) = std::sync::mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.run().expect("run failed");
+    display_rx.try_iter().map(|s| s.trim().to_owned()).collect()
+}
+
+/// Build an interpreter over `src` and run it, then hand back the environment
+/// so its storage can be inspected.
+fn env_of(src: &str) -> Interpreter {
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, _state_rx) = mpsc::channel();
+    let (display_tx, _display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.run().expect("run failed");
+    interp
+}
+
+const OCCURS_SIDE: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OCCSIDE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  DN6 PIC X OCCURS 2 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "AB" TO TABLE-2
+           STOP RUN.
+"#;
+
+const FLAT_SIDE: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLATSIDE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  TV-1 PIC X.
+           02  TV-2 PIC X.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "AB" TO TABLE-2
+           STOP RUN.
+"#;
+
+/// Both descriptions must agree on the group's width, or no offset mapping
+/// between them can mean anything. This is the precondition the whole approach
+/// rests on and it was never checked before the first attempt.
+#[test]
+fn the_two_descriptions_of_table_2_are_the_same_width() {
+    let occ = env_of(OCCURS_SIDE);
+    let flat = env_of(FLAT_SIDE);
+    let a = occ.env.stored_width("TABLE-2");
+    let b = flat.env.stored_width("TABLE-2");
+    assert_eq!(a, 2, "OCCURS 2 of PIC X is two bytes, got {a}");
+    assert_eq!(b, 2, "two PIC X items are two bytes, got {b}");
+}
+
+/// `item_width` ends in `display_string(key).map(len).unwrap_or(0)`, so an item
+/// it cannot render reports **zero** — and in an offset walk a zero shifts every
+/// item after it. Suspect (1) of the dead end.
+///
+/// The unsubscripted name of an OCCURS item is the interesting case: it is what
+/// a naive walk reaches when it does not expand the table.
+#[test]
+fn no_leaf_reports_a_zero_width() {
+    let occ = env_of(OCCURS_SIDE);
+    let flat = env_of(FLAT_SIDE);
+    for (env, name) in [
+        (&occ, "DN6"),
+        (&occ, "DN6(1)"),
+        (&occ, "DN6(2)"),
+        (&flat, "TV-1"),
+        (&flat, "TV-2"),
+    ] {
+        let w = env.env.stored_width(name);
+        assert_ne!(
+            w, 0,
+            "{name} reports width 0 — an offset walk built on this silently \
+             mis-places every item after it"
+        );
+    }
+}
+
+/// The declared children of the two descriptions, which is what the reverted
+/// attempt paired positionally. One entry against two is why position cannot
+/// express this pair, and is the reason to want an offset mapping at all.
+#[test]
+fn the_declared_children_do_not_correspond() {
+    let occ = env_of(OCCURS_SIDE);
+    let flat = env_of(FLAT_SIDE);
+    let occ_kids = occ
+        .env
+        .symbol("TABLE-2")
+        .map(|s| s.layout_keys.len())
+        .unwrap_or(0);
+    let flat_kids = flat
+        .env
+        .symbol("TABLE-2")
+        .map(|s| s.layout_keys.len())
+        .unwrap_or(0);
+    assert_eq!(occ_kids, 1, "OCCURS side declares one child");
+    assert_eq!(flat_kids, 2, "flat side declares two");
+    assert_ne!(
+        occ_kids, flat_kids,
+        "if these ever match, this pair stopped being the interesting case"
+    );
+}
+
+/// An occurrence has to be addressable by its subscripted key for an offset
+/// walk to name it — `DN6(1)` and `DN6(2)` are what such a walk emits, and an
+/// alias onto a key the environment does not resolve would bind nothing at all.
+/// Suspect (2) of the dead end.
+#[test]
+fn each_occurrence_is_addressable_and_holds_its_own_byte() {
+    let occ = env_of(OCCURS_SIDE);
+    let first = occ.env.display_string("DN6(1)");
+    let second = occ.env.display_string("DN6(2)");
+    assert_eq!(
+        first.as_deref(),
+        Some("A"),
+        "DN6(1) should hold the first byte of \"AB\""
+    );
+    assert_eq!(
+        second.as_deref(),
+        Some("B"),
+        "DN6(2) should hold the second"
+    );
+}
+
+/// The direction the CALLEE writes in: a subprogram sets the leaves, and the
+/// caller then reads the group. If a write to `DN6(1)` does not surface in
+/// `TABLE-2`, an offset binding onto occurrences is unobservable from the
+/// caller no matter how correctly the offsets were computed — and IC203A reads
+/// `TABLE-2`, which is exactly what its failing assertion names.
+#[test]
+fn writing_an_occurrence_surfaces_in_the_group() {
+    let mut occ = env_of(OCCURS_SIDE);
+    occ.env.set_str("DN6(1)", "X");
+    occ.env.set_str("DN6(2)", "Y");
+    let group = occ.env.display_string("TABLE-2");
+    assert_eq!(
+        group.as_deref(),
+        Some("XY"),
+        "the group must read back what was written into its occurrences; \
+         if it does not, binding a LINKAGE item onto DN6(1) is invisible to \
+         the program that owns the table"
+    );
+}
+
+/// **An alias is only ever looked up by BASE NAME**, so an alias entry written
+/// against one occurrence is never consulted by anything.
+///
+/// This is the property that settles the `pairing-linkage-leaves-by-byte-offset`
+/// dead end. `resolve_name` resolves the *unsubscripted* leaf and consults
+/// `addr_aliases` with that; the subscript is appended by the caller
+/// afterwards. So `DN6(1) -> TV-1` sits in the map and nothing reads it, and a
+/// per-occurrence offset mapping binds strictly LESS than the positional
+/// pairing it replaced — which is exactly the IC203A 1 -> 7 that was measured
+/// and reverted at 1.62.90.
+///
+/// The consequence for the design: IC203A's shape (`02 DN6 PIC X OCCURS 2`
+/// against `02 TV-1 PIC X` + `02 TV-2 PIC X`) cannot be expressed as an
+/// item-to-item alias at all, so it needs the shared-buffer model rather than
+/// a better offset walk.
+#[test]
+fn a_subscripted_alias_key_is_never_consulted() {
+    let mut env = cobolt_runtime::CobolEnvironment::new();
+    env.set_alias("DN6(1)", "TV-1");
+
+    // Exactly what the interpreter does for a reference `DN6 (1)`: resolve the
+    // leaf, then apply the subscript to whatever came back.
+    let resolved = env.resolve_name("DN6", &[]);
+    let key = cobolt_runtime::environment::subscript_key(&resolved, &[1]);
+
+    assert_eq!(
+        key, "DN6(1)",
+        "the per-occurrence alias was consulted after all — if this ever fails, \
+         the offset mapping in the ledger becomes viable and the dead end \
+         pairing-linkage-leaves-by-byte-offset should be re-read"
+    );
+    assert_eq!(
+        resolved, "DN6",
+        "resolve_name must not have found an alias keyed by a subscripted name"
+    );
+}
+
+/// Does the flat offset walk actually produce spans for IC103A's shape?
+///
+/// The offset pairing landed and moved nothing, so before theorising about the
+/// pairing this asks the walker directly. IC103A describes ten bytes as
+/// `02 ALPHA-NUM-FIELD X(5)` + `02 GROUP-LEV2 (03 NUMER-FIELD 99, 03
+/// ALPHA-FIELD A(3))`, and every leaf should come back with its offset.
+const FLAT_GROUP: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FLATG.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  GROUP-01.
+           02  ALPHA-NUM-FIELD PIC X(5).
+           02  GROUP-LEV2.
+               03  NUMER-FIELD  PIC 99.
+               03  ALPHA-FIELD  PIC A(3).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "ABCDE" TO ALPHA-NUM-FIELD
+           MOVE 42 TO NUMER-FIELD
+           MOVE "XYZ" TO ALPHA-FIELD
+           STOP RUN.
+"#;
+
+#[test]
+fn the_flat_offset_walk_reaches_every_leaf() {
+    let env = env_of(FLAT_GROUP);
+    let spans = env.env.flat_leaf_spans("GROUP-01");
+    assert!(
+        spans.is_some(),
+        "GROUP-01 has no OCCURS anywhere, so the flat walk must produce spans; \
+         None means a leaf reported width 0 or a symbol was missing"
+    );
+    let spans = spans.unwrap();
+    let got: Vec<(String, usize, usize)> = spans.clone();
+    assert_eq!(
+        got.len(),
+        3,
+        "three elementary leaves are expected; got {got:?}"
+    );
+    assert_eq!(
+        got.iter().map(|(_, o, w)| (*o, *w)).collect::<Vec<_>>(),
+        vec![(0, 5), (5, 2), (7, 3)],
+        "offsets and widths must tile the ten bytes in order; got {got:?}"
+    );
+}
+
+/// The same walk over a **LINKAGE** description, which is what the CALL path
+/// actually asks about.
+///
+/// A LINKAGE item owns no storage of its own and has never been written when
+/// the binding is computed, so if `item_width` measures the *rendered value*
+/// rather than the declared PICTURE, every leaf reports width 0 and the walk
+/// refuses. That would make the offset pairing silently inert — which is
+/// exactly what was observed: it landed and moved nothing.
+const LINKAGE_GROUP: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. LNKG.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  GRP-01.
+           02  AN-FIELD     PIC X(5).
+           02  NUM-DISPLAY  PIC 99.
+           02  GRP-LEVEL.
+               03  A-FIELD  PIC A(3).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+"#;
+
+#[test]
+fn the_flat_offset_walk_reaches_an_unwritten_linkage_description() {
+    let env = env_of(LINKAGE_GROUP);
+    let spans = env.env.flat_leaf_spans("GRP-01");
+    assert!(
+        spans.is_some(),
+        "GRP-01 is flat, so the walk must produce spans even though nothing has \
+         written to it — None means a leaf's width came from its (empty) value \
+         instead of its PICTURE"
+    );
+    assert_eq!(
+        spans
+            .unwrap()
+            .iter()
+            .map(|(_, o, w)| (*o, *w))
+            .collect::<Vec<_>>(),
+        vec![(0, 5), (5, 2), (7, 3)],
+        "an unwritten LINKAGE description must lay out by its PICTUREs"
+    );
+}
+
+/// A group parameter whose callee describes the same bytes with a **different
+/// tree** must still reach every field.
+///
+/// CCVS85 **IC103A**, reduced. Its own header states the case: "THE ITEM
+/// DESCRIPTIONS ARE DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE
+/// NUMBER OF CHARACTERS IS IDENTICAL." The caller describes ten bytes as two
+/// top-level children, the callee as three. Pairing by tree position bound only
+/// the first — `NUM-DISPLAY` got the caller's whole five-byte `GROUP-LEV2`
+/// ("42XYZ") and `A-FIELD` got nothing at all.
+const DIFFERING_TREES: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  GROUP-01.
+           02  ALPHA-NUM-FIELD PIC X(5).
+           02  GROUP-LEV2.
+               03  NUMER-FIELD  PIC 99.
+               03  ALPHA-FIELD  PIC A(3).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "ABCDE" TO ALPHA-NUM-FIELD
+           MOVE 42 TO NUMER-FIELD
+           MOVE "XYZ" TO ALPHA-FIELD
+           CALL "GSUB" USING GROUP-01
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  GRP-01.
+           02  AN-FIELD     PIC X(5).
+           02  NUM-DISPLAY  PIC 99.
+           02  GRP-LEVEL.
+               03  A-FIELD  PIC A(3).
+       PROCEDURE DIVISION USING GRP-01.
+       S-MAIN.
+           DISPLAY "AN=["  AN-FIELD    "]"
+           DISPLAY "NUM=[" NUM-DISPLAY "]"
+           DISPLAY "A=["   A-FIELD     "]"
+           EXIT PROGRAM.
+       END PROGRAM GSUB.
+       END PROGRAM GMAIN.
+"#;
+
+#[test]
+fn a_group_parameter_pairs_its_leaves_by_offset_not_position() {
+    let out = run_capture(DIFFERING_TREES);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("the callee displays {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(field("AN"), "ABCDE", "first child: position and offset agree");
+    assert_eq!(
+        field("NUM"),
+        "42",
+        "NUM-DISPLAY covers bytes 5..7, so it must bind to NUMER-FIELD; \
+         \"42XYZ\" means it was paired with the caller's GROUP-LEV2 by position"
+    );
+    assert_eq!(
+        field("A"),
+        "XYZ",
+        "A-FIELD covers bytes 7..10 and must bind to ALPHA-FIELD; blank means \
+         the positional zip ran out of caller children and left it unbound"
+    );
+}
+
+/// Pairs with the test above: a description containing a **table** must keep
+/// the positional pairing, because an alias is only looked up by base name and
+/// a per-occurrence entry would never be consulted. Binding by offset there
+/// would leave the leaf bound to nothing — worse than the imperfect pairing it
+/// replaced. This is IC203A's shape, which the 1.62.90 attempt took from 1
+/// failure to 7.
+#[test]
+fn an_occurs_description_is_left_on_the_positional_pairing() {
+    let env = env_of(FLAT_GROUP);
+    assert!(
+        env.env.flat_leaf_spans("TABLE-2").is_none(),
+        "a description with OCCURS must refuse the flat walk"
+    );
+}
+
+/// A group parameter aliased onto the argument's **table** reads and writes the
+/// table's occurrences, not a phantom unsubscripted slot.
+///
+/// CCVS85 **IC106A** / **IC107A** LINK-TEST-06. The caller passes
+/// `01 TABLE-2. 02 DN2 PIC X OCCURS 10.` and the callee describes the same ten
+/// bytes as `02 GROUP-21. 06 DN2 OCCURS 10.`, so pairing aliases
+/// `GROUP-21 -> DN2` — a ten-byte group onto an OCCURS base name, whose bare
+/// key owns no storage: every reader addresses `DN2 (n)`. Before 1.62.99 an
+/// access through that alias landed on the bare key and vanished; now an
+/// unsubscripted table reference is the group of its own occurrences
+/// (`table_extent_keys`), so the alias works.
+///
+/// The failing signature was sharp, and worth keeping on record: `DN2 (3)`
+/// read correctly while `GROUP-21` came back blank — occurrences resolved by
+/// name, only group-level access was broken. That is why the test's own label,
+/// "REDEFINED ITEM IN LINKAGE SEC", misled: removing the REDEFINES entirely
+/// still failed. This test pins the no-REDEFINES half — a direct group READ
+/// through the binding, and a per-occurrence write back to the caller — which
+/// the faithful-shape test in `test_linkage_redefines.rs` does not touch.
+const GROUP_PARAM_OVER_A_TABLE: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  DN2 PICTURE X OCCURS 10 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "0123456789" TO TABLE-2
+           CALL "TSUB" USING TABLE-2
+           DISPLAY "AFTER=[" TABLE-2 "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  GROUP-2.
+           02  GROUP-21.
+               06  DN2 PIC X OCCURS 10 TIMES.
+       PROCEDURE DIVISION USING GROUP-2.
+       S-MAIN.
+           DISPLAY "G21=[" GROUP-21 "]"
+           MOVE "Q" TO DN2 (8)
+           EXIT PROGRAM.
+       END PROGRAM TSUB.
+       END PROGRAM TMAIN.
+"#;
+
+#[test]
+fn a_group_subordinate_reads_a_table_argument_whole() {
+    let out = run_capture(GROUP_PARAM_OVER_A_TABLE);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("expected {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(
+        field("G21"),
+        "0123456789",
+        "GROUP-21 describes the caller's ten-byte table, so reading it whole \
+         must gather the occurrences; blank means the alias short-circuited the \
+         group walk onto the table's unsubscripted slot"
+    );
+    assert_eq!(
+        field("AFTER"),
+        "0123456Q89",
+        "writing one occurrence must still reach the caller — dropping the \
+         group alias must not cost the per-occurrence binding"
+    );
+}
+
+/// The parameter side of a group binding is walked over the **callee's own
+/// symbols** — the shared environment may hold the caller's description under
+/// the very same name.
+///
+/// CCVS85 **IC203A** / **IC205A** CNCL-TEST-05. Both programs call their
+/// record `TABLE-2`: the caller's is `02 DN6 PIC X OCCURS 2` and the callee's
+/// is `02 TV-1 PIC X. 02 TV-2 PIC X.` Because the names collide,
+/// `push_local_scope` never installs the callee's 01, and a pairing walked
+/// through the shared environment read the CALLER's tree for both sides — so
+/// `TV-1` and `TV-2` never bound to anything, and IC205A's `MOVE "B" TO TV-2`
+/// wrote a private slot nothing reads (`COMPUTED=` empty in the CCVS report).
+///
+/// The argument side may contain a fixed table: its occurrences are expanded
+/// as alias TARGETS (`TV-2 -> DN6(2)`), which is the consultable direction —
+/// an alias KEY is only ever looked up by base name.
+const SAME_NAME_DIFFERENT_TREES: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  TABLE-2.
+           02  DN6 PICTURE X OCCURS 2 TIMES.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE SPACE TO TABLE-2
+           CALL "CSUB" USING TABLE-2
+           DISPLAY "T2=[" TABLE-2 "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. CSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  TABLE-2.
+           02  TV-1 PIC X.
+           02  TV-2 PIC X.
+       PROCEDURE DIVISION USING TABLE-2.
+       S-MAIN.
+           MOVE "A" TO TV-1
+           MOVE "B" TO TV-2
+           EXIT PROGRAM.
+       END PROGRAM CSUB.
+       END PROGRAM CMAIN.
+"#;
+
+#[test]
+fn a_colliding_record_name_still_binds_the_callees_children() {
+    let out = run_capture(SAME_NAME_DIFFERENT_TREES);
+    let t2 = out
+        .iter()
+        .find_map(|l| {
+            l.strip_prefix("T2=[")
+                .and_then(|r| r.strip_suffix(']'))
+                .map(str::to_owned)
+        })
+        .expect("the caller displays T2=[…]");
+    assert_eq!(
+        t2, "AB",
+        "TV-1 and TV-2 describe the caller's two bytes, so both writes must \
+         arrive; blank means the callee's children were paired off the \
+         caller's tree and bound to nothing"
+    );
+}
+
+/// A **subscripted argument** binds the parameter to that one occurrence.
+///
+/// CCVS85 **IC235A** CALL-TEST-06-08: `CALL "IC235A-1" USING …
+/// SUBSCRIPTED-DATA (4)`, where the callee's parameter is the SAME name,
+/// unsubscripted, `01 SUBSCRIPTED-DATA PIC XX`. `expr_to_name` dropped the
+/// subscript, so the parameter bound to the bare table name — and a write
+/// there is the whole table since 1.62.99, so the callee's `MOVE "1A"` landed
+/// in occurrence 1 while the caller reads occurrence 4.
+///
+/// The subscript is evaluated at binding time, as BY REFERENCE fixes the
+/// argument's identity at the CALL; the subscripted key rides as the alias
+/// TARGET, which is followed verbatim (only alias KEYS are base-name lookups).
+const SUBSCRIPTED_ARGUMENT: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  FILLER.
+           03  SUBSCRIPTED-DATA OCCURS 10 PIC XX.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 99 TO SUBSCRIPTED-DATA (4)
+           CALL "SSUB" USING SUBSCRIPTED-DATA (4)
+           DISPLAY "S4=[" SUBSCRIPTED-DATA (4) "]"
+           DISPLAY "S1=[" SUBSCRIPTED-DATA (1) "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  SUBSCRIPTED-DATA PIC XX.
+       PROCEDURE DIVISION USING SUBSCRIPTED-DATA.
+       S-MAIN.
+           MOVE "1A" TO SUBSCRIPTED-DATA
+           EXIT PROGRAM.
+       END PROGRAM SSUB.
+       END PROGRAM SMAIN.
+"#;
+
+#[test]
+fn a_subscripted_argument_binds_that_occurrence() {
+    let out = run_capture(SUBSCRIPTED_ARGUMENT);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("expected {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(
+        field("S4"),
+        "1A",
+        "the callee was handed occurrence 4, so its write must land there"
+    );
+    assert_eq!(
+        field("S1"),
+        "  ",
+        "occurrence 1 was never passed and must stay untouched — \"1A\" here \
+         means the binding fell back to the bare table name"
+    );
+}
+
+/// A record passed BY REFERENCE is a **view**: the callee's leaves read the
+/// caller's bytes even when the caller has no items there at all.
+///
+/// CCVS85 **IC112A** LINK-TEST-08 passes its FD's record — declared
+/// `01 SQ-FS3R1-F-G-120. 02 FILLER PIC X(120).`, an ALL-FILLER record — and
+/// IC113A lays a fully named 120-byte tree over it, checking `XRECORD-NUMBER`
+/// at offset 34. No item-to-item pairing can bind those: the caller has no
+/// item covering any of the callee's leaves. The argument's bytes are sliced
+/// into the callee's leaves at entry, and the named leaves are patched back
+/// over the argument's bytes at exit — FILLER positions keeping what the
+/// caller had, which the OUT assertion checks byte for byte.
+///
+/// Two defects fell together here. The positional zip also paired the callee's
+/// first leaf onto the caller's synthetic FILLER slot, and a `MOVE "BYE" TO
+/// HEAD` through that alias wiped the whole 20-byte record to `"BYE"` +
+/// spaces; synthetic FILLER keys are now excluded from pairing on both sides —
+/// no program can reference one, so such an alias can only ever misfire.
+const RECORD_AS_VIEW: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  REC.
+           02  FILLER PIC X(20).
+       01  SHOW PIC X(20).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "HELLO12345WORLD67890" TO REC
+           CALL "RSUB" USING REC
+           MOVE REC TO SHOW
+           DISPLAY "OUT=[" SHOW "]"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. RSUB.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  VIEWREC.
+           02  HEAD PIC X(5).
+           02  FILLER PIC X(5).
+           02  BODY PIC X(5).
+           02  TAIL PIC X(5).
+       PROCEDURE DIVISION USING VIEWREC.
+       S-MAIN.
+           DISPLAY "HEAD=[" HEAD "]"
+           DISPLAY "BODY=[" BODY "]"
+           MOVE "BYE" TO HEAD
+           EXIT PROGRAM.
+       END PROGRAM RSUB.
+       END PROGRAM RMAIN.
+"#;
+
+#[test]
+fn an_all_filler_record_argument_is_a_view_over_its_bytes() {
+    let out = run_capture(RECORD_AS_VIEW);
+    let field = |name: &str| -> String {
+        out.iter()
+            .find_map(|l| {
+                l.strip_prefix(&format!("{name}=["))
+                    .and_then(|r| r.strip_suffix(']'))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("expected {name}=[…]; got {out:?}"))
+    };
+    assert_eq!(
+        field("HEAD"),
+        "HELLO",
+        "the callee's first five bytes are the record's first five; the whole \
+         record here means HEAD was aliased onto the caller's FILLER slot"
+    );
+    assert_eq!(
+        field("BODY"),
+        "WORLD",
+        "BODY sits past a five-byte FILLER, so the slice must honour the offset"
+    );
+    assert_eq!(
+        field("OUT"),
+        "BYE  12345WORLD67890",
+        "the write to HEAD must reach the caller's first five bytes and \
+         nothing else — FILLER positions keep what the caller had"
+    );
+}
+
+/// A nested program's own SELECT/FD is a real file, and its read cursor
+/// persists across activations.
+///
+/// `build_file_specs` walked the outer program only, so a file declared inside
+/// a subprogram hit `READ: unknown file` and every I/O statement on it
+/// silently did nothing. CCVS85 **IC115A** creates, verifies and re-reads the
+/// 649-record SQ-FS3 entirely from inside a subprogram (IC114A LINK-TEST-10
+/// through -12). Registration is outermost-first: the one name every CCVS85
+/// program declares — PRINT-FILE — must keep resolving to the outer program's
+/// file, exactly as FILE STATUS falls through.
+#[test]
+fn a_nested_programs_own_file_reads_across_calls() {
+    let dir = std::env::temp_dir().join("prc_fcur_test");
+    let _ = std::fs::create_dir_all(&dir);
+    let data = dir.join("fcur-data.dat");
+    let _ = std::fs::remove_file(&data);
+    let src = format!(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FMAIN.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  LNK.
+           02  CALL-FLAG PIC 9.
+           02  EOF-FLAG  PIC 9.
+       01  REC-VIEW PIC X(10).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE 1 TO CALL-FLAG
+           CALL "FSUB" USING LNK REC-VIEW
+           MOVE 2 TO CALL-FLAG
+           MOVE 0 TO EOF-FLAG
+           CALL "FSUB" USING LNK REC-VIEW
+           DISPLAY "R1=[" REC-VIEW "]"
+           CALL "FSUB" USING LNK REC-VIEW
+           DISPLAY "R2=[" REC-VIEW "]"
+           CALL "FSUB" USING LNK REC-VIEW
+           CALL "FSUB" USING LNK REC-VIEW
+           DISPLAY "E=" EOF-FLAG
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. FSUB.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TFILE ASSIGN TO "{data}"
+           ORGANIZATION IS LINE SEQUENTIAL.
+       DATA DIVISION.
+       FILE SECTION.
+       FD  TFILE.
+       01  TREC PIC X(10).
+       LINKAGE SECTION.
+       01  LNK.
+           02  CALL-FLAG PIC 9.
+           02  EOF-FLAG  PIC 9.
+       01  REC-VIEW PIC X(10).
+       PROCEDURE DIVISION USING LNK REC-VIEW.
+       S-MAIN.
+           IF CALL-FLAG = 1
+               OPEN OUTPUT TFILE
+               MOVE "AAAAAAAAAA" TO TREC WRITE TREC
+               MOVE "BBBBBBBBBB" TO TREC WRITE TREC
+               MOVE "CCCCCCCCCC" TO TREC WRITE TREC
+               CLOSE TFILE
+               OPEN INPUT TFILE
+           ELSE
+               READ TFILE
+                   AT END MOVE 1 TO EOF-FLAG
+                   NOT AT END MOVE TREC TO REC-VIEW
+               END-READ
+           END-IF
+           EXIT PROGRAM.
+       END PROGRAM FSUB.
+       END PROGRAM FMAIN.
+"#,
+        data = data.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&data);
+    assert!(
+        out.iter().any(|l| l == "R1=[AAAAAAAAAA]"),
+        "the first per-call READ must return record 1; got {out:?} — \
+         'unknown file' means the nested program's SELECT was never registered"
+    );
+    assert!(
+        out.iter().any(|l| l == "R2=[BBBBBBBBBB]"),
+        "the cursor must persist across activations; got {out:?}"
+    );
+    assert!(
+        out.iter().any(|l| l == "E=1"),
+        "the fourth READ is past the data and must signal AT END; got {out:?}"
+    );
+}

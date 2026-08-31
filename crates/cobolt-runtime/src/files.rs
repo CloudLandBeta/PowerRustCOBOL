@@ -41,6 +41,11 @@ pub struct FieldPos {
     pub len: usize,
     pub numeric: bool,
     pub decimals: u8,
+    /// Whether the PICTURE is signed (`S9…`) with the sign carried IN the
+    /// digits (no `SEPARATE`): the record image stores it as a trailing
+    /// overpunch, and dropping it read `-5432` back as `5432` — CCVS85
+    /// ST127A's descending keys sorted unsigned and eighty assertions failed.
+    pub signed: bool,
     /// Whether this entry describes a **group** rather than an elementary item.
     ///
     /// A group holds no value of its own — its characters are its children's,
@@ -113,6 +118,7 @@ fn walk(
                         len: offset.saturating_sub(began).max(1),
                         numeric: false,
                         decimals: 0,
+                        signed: false,
                         is_group: true,
                     });
                 }
@@ -144,6 +150,9 @@ fn walk(
                     len,
                     numeric,
                     decimals: pic.decimals.min(u8::MAX as u16) as u8,
+                    signed: matches!(pic.kind, PicKind::Numeric)
+                        && pic.template.to_ascii_uppercase().starts_with('S')
+                        && !sign.is_some_and(|s| s.separate),
                     is_group: false,
                 });
             }
@@ -354,11 +363,27 @@ impl RecordLayout {
             let slice = &buf[f.offset..end];
             let key = env_key(env, f);
             if f.numeric {
-                let digits: String = slice
+                // The trailing byte may carry the sign overpunch; a leading
+                // `-` (a SIGN SEPARATE writer, or hand-made data) is honoured
+                // too.
+                let mut neg = slice.first() == Some(&b'-');
+                let mut work: Vec<u8> = slice.to_vec();
+                if f.signed {
+                    if let Some(last) = work.last_mut() {
+                        if let Some((d, n)) = de_overpunch(*last) {
+                            *last = b'0' + d;
+                            neg = n;
+                        }
+                    }
+                }
+                let digits: String = work
                     .iter()
                     .map(|&b| if b.is_ascii_digit() { b as char } else { '0' })
                     .collect();
-                let mantissa: i128 = digits.parse().unwrap_or(0);
+                let mut mantissa: i128 = digits.parse().unwrap_or(0);
+                if neg {
+                    mantissa = -mantissa;
+                }
                 env.set(
                     &key,
                     CobolValue::Numeric(CobolNumeric::new(mantissa, f.decimals)),
@@ -367,6 +392,29 @@ impl RecordLayout {
                 env.set_str(&key, &String::from_utf8_lossy(slice));
             }
         }
+    }
+}
+
+/// The ASCII overpunch for one digit: `{` and A–I carry +0..+9, `}` and J–R
+/// carry −0..−9 — the convention IBM's tables map onto ASCII, and the one the
+/// suite's own signed record images use.
+pub(crate) fn overpunch(digit: u8, negative: bool) -> u8 {
+    match (digit, negative) {
+        (0, false) => b'{',
+        (d, false) => b'A' + d - 1,
+        (0, true) => b'}',
+        (d, true) => b'J' + d - 1,
+    }
+}
+
+/// The digit and sign an overpunched byte carries, when it is one.
+pub(crate) fn de_overpunch(b: u8) -> Option<(u8, bool)> {
+    match b {
+        b'{' => Some((0, false)),
+        b'A'..=b'I' => Some((b - b'A' + 1, false)),
+        b'}' => Some((0, true)),
+        b'J'..=b'R' => Some((b - b'J' + 1, true)),
+        _ => None,
     }
 }
 
@@ -402,7 +450,17 @@ fn field_bytes(env: &CobolEnvironment, f: &FieldPos) -> Vec<u8> {
             if s.len() > f.len {
                 s = s[s.len() - f.len..].to_string(); // keep low-order digits
             }
-            s.into_bytes()
+            let mut b = s.into_bytes();
+            // A signed field carries its sign as a trailing overpunch in the
+            // record image — `{`/A–I for +0..+9, `}`/J–R for −0..−9 — and
+            // `distribute` reads the same convention back.
+            if f.signed {
+                if let Some(last) = b.last_mut() {
+                    let d = last.wrapping_sub(b'0');
+                    *last = overpunch(d, n.mantissa < 0);
+                }
+            }
+            b
         }
         Some(v) => {
             let mut b = v.as_display_string().into_bytes();

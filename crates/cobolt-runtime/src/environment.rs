@@ -90,6 +90,12 @@ pub struct ItemSym {
     pub is_global: bool,
     /// Raw PIC template, or an empty string for group/index items.
     pub pic: String,
+    /// Digits after the implied decimal point (`V`), from the item's PICTURE.
+    ///
+    /// Needed to read a numeric item back through its own scale when its slot
+    /// holds characters — a group `MOVE` puts `"123456"` into both `PIC 9(6)`
+    /// and `PIC 9(4)V99`, and those are 123456 and 1234.56.
+    pub pic_decimals: u16,
     /// Program/form/procedure that declared this item.
     pub origin: String,
     /// The `OCCURS … DEPENDING ON` item (uppercased), for a variable-length
@@ -386,6 +392,43 @@ pub fn base_name(key: &str) -> &str {
     }
 }
 
+/// The number of character positions a PICTURE describes.
+///
+/// Deliberately narrow: only `9`, `X` and `A`, with `S` and `V` contributing
+/// nothing because neither occupies a storage position, and `(n)` repeats.
+/// Anything else — an edited picture, `P` scaling, a usage this does not model
+/// — returns `None` so the caller falls back rather than laying out a group
+/// against a width that was guessed.
+fn pic_char_width(pic: &str) -> Option<usize> {
+    let chars: Vec<char> = pic.to_ascii_uppercase().chars().collect();
+    let mut total = 0usize;
+    let mut i = 0usize;
+    while i < chars.len() {
+        let per = match chars[i] {
+            // Alphanumeric-edit insertion characters occupy a stored
+            // position each — that is the whole point of `PIC XXBX0X` being
+            // six positions wide. Numeric-edit symbols still refuse below.
+            '9' | 'X' | 'A' | 'B' | '0' | '/' => 1usize,
+            'S' | 'V' => 0,
+            _ => return None,
+        };
+        i += 1;
+        let mut repeat = 1usize;
+        if i < chars.len() && chars[i] == '(' {
+            let close = i + chars[i..].iter().position(|&c| c == ')')?;
+            repeat = chars[i + 1..close]
+                .iter()
+                .collect::<String>()
+                .trim()
+                .parse()
+                .ok()?;
+            i = close + 1;
+        }
+        total += per * repeat;
+    }
+    (total > 0).then_some(total)
+}
+
 /// Largest description, in expanded storage slots, that a live `REDEFINES`
 /// overlay will keep in step on every write. See `build_redefine_links`.
 const REDEFINE_SYNC_BUDGET: usize = 256;
@@ -515,6 +558,12 @@ impl CobolEnvironment {
     /// Record the program's `SPECIAL-NAMES. CURRENCY` symbol.
     pub fn set_currency(&mut self, c: char) {
         self.currency_symbol = Some(c);
+    }
+
+    /// Whether `SPECIAL-NAMES. DECIMAL-POINT IS COMMA` is in force, which swaps
+    /// the roles of `.` and `,` in every numeric literal and edited PICTURE.
+    pub fn decimal_comma(&self) -> bool {
+        self.decimal_comma
     }
 
     pub fn from_data_division_with(data: &DataDivision, decimal_comma: bool) -> Self {
@@ -792,6 +841,13 @@ impl CobolEnvironment {
                 continue;
             }
             self.syncing.insert(peer.clone());
+            // A class member may be a LINKAGE item, whose storage is the
+            // CALLER's: `CALL … USING` aliases it, and a raw key reads and
+            // writes the callee's own untouched slot instead. The refresh has
+            // to follow that alias on both sides or it re-renders the wrong
+            // bytes into the wrong place.
+            let own = self.addr_aliases.get(&own).cloned().unwrap_or(own);
+            let peer = self.addr_aliases.get(&peer).cloned().unwrap_or(peer);
             let mut bytes = self.display_string(&own).unwrap_or_default();
             // A **01-level** REDEFINES may describe more storage than the item
             // it redefines, and CCVS85 tests exactly that: NC107A overlays a
@@ -826,7 +882,10 @@ impl CobolEnvironment {
     /// written, so that terminates. (The group and edited branches already
     /// refresh through the writers they delegate to.)
     fn set_from_bytes(&mut self, key: &str, s: &str) {
-        if self.is_group(key) {
+        // `is_group` is answered by base name, so it cannot tell one occurrence
+        // of a table from the table itself; `table_extent_keys` can, and only
+        // the unsubscripted form is a group of occurrences.
+        if self.is_group(key) || self.table_extent_keys(key).is_some() {
             self.set_group(key, s);
             return;
         }
@@ -942,6 +1001,23 @@ impl CobolEnvironment {
     /// resolves to itself; a duplicated name is matched against the candidates'
     /// ancestor paths (an ambiguous reference picks the first declaration).
     pub fn resolve_name(&self, leaf: &str, quals: &[String]) -> String {
+        // An ACTIVATION DIVERT wins before canonicalization. While a called
+        // program runs, only its own statements execute, so a bare leaf that
+        // carries a divert alias is that program's own item — whatever
+        // qualifiers rode along, and whatever same-named item the caller
+        // declared. Canonicalizing first sent CCVS85 IC115A's
+        // `XRECORD-NUMBER (1)` to the CALLER's path-qualified key (the name is
+        // duplicated across the two programs), the divert never fired, and the
+        // create loop wrote records until it was killed. Only diverts take
+        // this early path — their targets carry the activation separator that
+        // no SET ADDRESS target can contain — so pointer aliasing is
+        // untouched.
+        let leaf_up = leaf.to_ascii_uppercase();
+        if let Some(t) = self.addr_aliases.get(&leaf_up) {
+            if t.contains('\u{4}') {
+                return t.clone();
+            }
+        }
         let key = self.resolve_canonical(leaf, quals);
         // A `SET ADDRESS OF item TO ptr` aliases `item` onto another item's
         // storage — redirect here so every interpreter reference follows it.
@@ -1072,6 +1148,57 @@ impl CobolEnvironment {
             return;
         }
 
+        // `01 FILLER REDEFINES x.` — a TOP-LEVEL unnamed redefinition. The
+        // children-loop branch below handles the same shape one level down
+        // (ACCEPT-TEST-14's `02 FILLER REDEFINES …`), but it keys the
+        // synthetic slot under its parent, and a level-01 FILLER has none —
+        // so the redefinition was dropped whole and its children read spaces
+        // however the redefined item was filled. CCVS85 SM208A reads its
+        // 322-byte REPLACE result back through exactly this shape
+        // (`01 FILLER REDEFINES WRK-XN-00322.`). Same treatment, keyed under
+        // the empty parent with a unique index.
+        if !is_named
+            && quals.is_empty()
+            && decl.redefines.is_some()
+            && has_storage_children(decl)
+        {
+            if let Some(target) = &decl.redefines {
+                let fk = filler_key("", self.symbols.len());
+                let overlay_keys: Vec<String> = decl
+                    .children
+                    .iter()
+                    .filter(|g| g.level != 88 && g.level != 66 && g.redefines.is_none())
+                    .filter_map(|g| g.name.as_ref())
+                    .filter(|n| !n.eq_ignore_ascii_case("FILLER"))
+                    .map(|n| self.canon_key(&n.to_ascii_uppercase(), quals))
+                    .collect();
+                if !overlay_keys.is_empty() {
+                    self.symbols.insert(
+                        fk.clone(),
+                        ItemSym {
+                            dims: dims.clone(),
+                            children: Vec::new(),
+                            child_keys: Vec::new(),
+                            layout_keys: overlay_keys,
+                            quals: quals.clone(),
+                            is_group: true,
+                            index_names: Vec::new(),
+                            occurs: 0,
+                            keys: Vec::new(),
+                            scope: Some(scope),
+                            is_global: inherited_global || decl.is_global,
+                            pic: String::new(),
+                            pic_decimals: 0,
+                            origin: origin.to_owned(),
+                            depending_on: None,
+                        },
+                    );
+                    let tkey = self.canon_key(&target.to_ascii_uppercase(), quals);
+                    self.redefine_pairs.push((fk, tkey));
+                }
+            }
+        }
+
         if is_named {
             let leaf = upper.clone().unwrap();
             // A record description begins here; every 66 that follows belongs
@@ -1197,6 +1324,7 @@ impl CobolEnvironment {
                         .as_ref()
                         .map(|pic| pic.template.clone())
                         .unwrap_or_default(),
+                    pic_decimals: decl.picture.as_ref().map_or(0, |pic| pic.decimals),
                     origin: origin.to_owned(),
                     depending_on: decl
                         .occurs
@@ -1282,6 +1410,7 @@ impl CobolEnvironment {
                                 scope: Some(scope),
                                 is_global: inherited_global || decl.is_global,
                                 pic: String::new(),
+                                pic_decimals: 0,
                                 origin: origin.to_owned(),
                                 depending_on: None,
                             },
@@ -1501,6 +1630,522 @@ impl CobolEnvironment {
             .or_else(|| cands.first())
     }
 
+    /// Every condition-name this environment knows, as `(name, metadata)`.
+    ///
+    /// A nested program's 88-levels live in the environment its own DATA
+    /// DIVISION is analysed into, and that environment is discarded — only its
+    /// values and symbols were carried across to the shared one. So `IF
+    /// 88-name` inside a subprogram found nothing and fell back to "the slot
+    /// holds something non-zero", which is false for a LINKAGE item the callee
+    /// has not written, whatever the caller put there (CCVS85 IC207A).
+    pub fn cond_name_entries(&self) -> Vec<(String, CondName)> {
+        self.cond_names
+            .iter()
+            .flat_map(|(n, cands)| cands.iter().map(move |c| (n.clone(), c.clone())))
+            .collect()
+    }
+
+    /// Add a called program's condition-names for the duration of the call.
+    ///
+    /// A name the environment **already** knows is left alone, exactly as
+    /// [`push_local_scope`](Self::push_local_scope) leaves an existing item
+    /// alone: this can only supply a resolution where there was none, never
+    /// change one that already worked. Returns the names actually added, for
+    /// [`remove_cond_names`](Self::remove_cond_names) to take back out.
+    pub fn install_cond_names(&mut self, entries: &[(String, CondName)]) -> Vec<String> {
+        let mut added = Vec::new();
+        for (name, info) in entries {
+            let key = name.to_ascii_uppercase();
+            if !self.cond_names.contains_key(&key) {
+                self.cond_names.insert(key.clone(), vec![info.clone()]);
+                added.push(key);
+            }
+        }
+        added
+    }
+
+    /// Remove exactly the condition-names a matching
+    /// [`install_cond_names`](Self::install_cond_names) added.
+    pub fn remove_cond_names(&mut self, names: &[String]) {
+        for name in names {
+            self.cond_names.shift_remove(name);
+        }
+    }
+
+    /// This environment's `REDEFINES` refresh classes, ready to be adopted by
+    /// another environment for the duration of a nested-program call.
+    ///
+    /// Only the **refresh** half of the redefinition machinery is exposed.
+    /// `redefine_aliases` — the layout-identical, over-budget half — is
+    /// deliberately left out: adopting both at once was tried at 1.62.92 and
+    /// took IC106A from 3 failures to 6 while passing its own acceptance tests,
+    /// so the two are separated and measured one at a time.
+    pub fn redefine_link_entries(&self) -> Vec<(String, Vec<(String, String)>)> {
+        self.redefine_links
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    /// Establish a called program's `REDEFINES` classes for the duration of the
+    /// call, so its two descriptions of one area actually share it.
+    ///
+    /// Merges with the same **append, never replace, and never duplicate** rule
+    /// `build_redefine_links` uses, and for the same reason: a key can belong to
+    /// more than one class and each has to fire. The dedup is what makes this
+    /// safe for CCVS85's boilerplate report area — `COMPUTED-N REDEFINES
+    /// COMPUTED-A` and its neighbours are declared in the outer program *and*
+    /// in every nested one, under the same names, so the pairs are identical
+    /// and adopting them is a no-op rather than a second live overlay over the
+    /// same twenty bytes.
+    ///
+    /// Returns exactly what was added, so [`drop_redefine_links`] can take back
+    /// that and nothing else. A leak here is worse than the defect it fixes: it
+    /// would corrupt an unrelated program's storage on a later call.
+    ///
+    /// [`drop_redefine_links`]: Self::drop_redefine_links
+    pub fn adopt_redefine_links(
+        &mut self,
+        entries: &[(String, Vec<(String, String)>)],
+    ) -> Vec<(String, (String, String))> {
+        let mut added = Vec::new();
+        for (trigger, peers) in entries {
+            let slot = self.redefine_links.entry(trigger.clone()).or_default();
+            for pair in peers {
+                if !slot.contains(pair) {
+                    slot.push(pair.clone());
+                    added.push((trigger.clone(), pair.clone()));
+                }
+            }
+        }
+        added
+    }
+
+    /// Populate a freshly adopted `REDEFINES` class from the storage a
+    /// parameter alias points at.
+    ///
+    /// The refresh is **write-driven**: it re-renders a description into its
+    /// peers when something writes to it. For a LINKAGE class that is too late.
+    /// The caller filled the argument *before* the CALL, so by the time the
+    /// class exists and the alias points at the caller's bytes, the write that
+    /// would have propagated them has already happened and the redefining
+    /// description is still an untouched slot. CCVS85 **IC237A-1** declares
+    /// `01 L-A PIC 9.` / `01 L-A1 REDEFINES L-A PIC 9.` in its LINKAGE SECTION
+    /// and does `MOVE L-A1 TO L-C`: `L-A` read 1 and `L-A1` read 0.
+    ///
+    /// So prime once, at entry, from whichever member of the class actually
+    /// resolves through an alias. A class with no aliased member is left alone
+    /// — it is the callee's own storage and has nothing to inherit.
+    ///
+    /// Must be called AFTER the parameter aliases are installed.
+    pub fn prime_redefine_classes(&mut self, added: &[(String, (String, String))]) {
+        let mut seen: Vec<String> = Vec::new();
+        for (trigger, _) in added {
+            if seen.contains(trigger) || !self.addr_aliases.contains_key(trigger) {
+                continue;
+            }
+            seen.push(trigger.clone());
+            self.refresh_redefine_peers(trigger);
+        }
+    }
+
+    /// Remove exactly the classes a matching
+    /// [`adopt_redefine_links`](Self::adopt_redefine_links) added, dropping a
+    /// trigger whose list this empties.
+    pub fn drop_redefine_links(&mut self, added: &[(String, (String, String))]) {
+        for (trigger, pair) in added {
+            if let Some(slot) = self.redefine_links.get_mut(trigger) {
+                slot.retain(|p| p != pair);
+                if slot.is_empty() {
+                    self.redefine_links.shift_remove(trigger);
+                }
+            }
+        }
+    }
+
+    /// An item's width in characters **as declared**, independent of whatever
+    /// its slot currently holds.
+    ///
+    /// `None` for anything whose declared width cannot be read off directly —
+    /// notably an edited item, whose stored width comes from expanding its PIC
+    /// template. Refusing is deliberate: a wrong width here silently shifts
+    /// every offset after it, and the caller falls back to a pairing that is at
+    /// worst no worse than before.
+    fn declared_width(&self, key: &str) -> Option<usize> {
+        let key = key.to_ascii_uppercase();
+        let base = base_name(&key);
+        if self.edited_templates.contains_key(base) {
+            return None;
+        }
+        if let Some(&(int_digits, decimals)) = self.field_caps.get(base) {
+            return Some(int_digits as usize + decimals as usize);
+        }
+        if let Some(cap) = self.alphanumeric_capacity(&key) {
+            return Some(cap);
+        }
+        // Last resort: read the width off the declared PICTURE itself.
+        //
+        // A nested program's numeric capacities never reach this environment —
+        // `push_local_scope` carries `store` and `symbols` and nothing else, so
+        // a callee's `PIC 99` has a `pic` string but no `field_caps` entry. The
+        // symbol still knows what it was declared as, and for layout that is
+        // all this needs. (The missing `field_caps` transfer is a separate and
+        // wider defect: it is what numeric truncation reads.)
+        pic_char_width(&self.symbols.get(base)?.pic)
+    }
+
+    /// Every elementary item under `key`, in declaration order, as
+    /// `(storage key, byte offset within the group, width)`.
+    ///
+    /// `None` when the description contains an `OCCURS` **anywhere**, and that
+    /// refusal is the point. A LINKAGE parameter is a view over the caller's
+    /// bytes, so binding it means matching the two descriptions by offset — but
+    /// an alias is only ever looked up by BASE NAME (`resolve_name` resolves
+    /// the unsubscripted leaf and the subscript is applied afterwards), so an
+    /// entry written `DN6(1) -> TV-1` is never consulted by anything. A
+    /// per-occurrence offset mapping therefore binds strictly *less* than the
+    /// positional pairing it would replace, which is exactly the reverted
+    /// 1.62.90 attempt that took CCVS85 IC203A from 1 failure to 7.
+    ///
+    /// So: flat descriptions get the offset mapping, and anything with a table
+    /// in it keeps the existing behaviour rather than being mis-bound. Proven
+    /// by `a_subscripted_alias_key_is_never_consulted`.
+    pub fn flat_leaf_spans(&self, key: &str) -> Option<Vec<(String, usize, usize)>> {
+        let mut out = Vec::new();
+        let mut offset = 0usize;
+        self.flat_walk(&key.to_ascii_uppercase(), &mut offset, &mut out)?;
+        if out.is_empty() {
+            return None;
+        }
+        Some(out)
+    }
+
+    fn flat_walk(
+        &self,
+        key: &str,
+        offset: &mut usize,
+        out: &mut Vec<(String, usize, usize)>,
+    ) -> Option<()> {
+        let sym = self.symbols.get(base_name(key))?;
+        // A table anywhere in the description disqualifies the whole walk.
+        if !sym.dims.is_empty() {
+            return None;
+        }
+        if sym.is_group && !sym.layout_keys.is_empty() {
+            for child in &sym.layout_keys {
+                self.flat_walk(child, offset, out)?;
+            }
+            return Some(());
+        }
+        // **The DECLARED width, never the rendered one.** `item_width` measures
+        // the value currently in the slot, and a LINKAGE item has never been
+        // written when the binding is computed: an unwritten `PIC 99` renders
+        // as `0` and reports width 1, which shifts every offset after it and
+        // makes the two descriptions disagree on their total. That is what made
+        // this mapping silently inert — CCVS85 IC103A's callee measured 9 bytes
+        // against its caller's 10 and the match was refused.
+        //
+        // The existing probe `no_leaf_reports_a_zero_width` did not catch it,
+        // because the width was WRONG rather than zero.
+        let width = self.declared_width(key)?;
+        if width == 0 {
+            return None;
+        }
+        out.push((key.to_string(), *offset, width));
+        *offset += width;
+        Some(())
+    }
+
+    /// Pair a group parameter's elementary items with the argument's **by the
+    /// bytes each covers**, rather than by position in the declaration tree.
+    ///
+    /// COBOL-85 gives a LINKAGE item a view over the caller's storage: the
+    /// callee lays its own description over the caller's bytes and neither the
+    /// names nor the shape of the tree has to match. CCVS85 **IC103A** says so
+    /// in its own header — "THE ITEM DESCRIPTIONS ARE DIFFERENT IN THE
+    /// SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE NUMBER OF CHARACTERS IS
+    /// IDENTICAL" — and describes ten bytes as three top-level children where
+    /// its caller uses two. Position and offset agree only for the first child,
+    /// which is exactly the assertion that passed.
+    ///
+    /// `None` unless BOTH descriptions are flat, they agree on total width, and
+    /// every callee leaf is covered by exactly one caller leaf. Anything less
+    /// keeps the positional pairing: a partial offset mapping is worse than a
+    /// wrong-but-whole one, because the leaves it fails to place are left bound
+    /// to nothing at all.
+    pub fn leaf_pairs_by_offset(&self, param: &str, arg: &str) -> Option<Vec<(String, String)>> {
+        let p = self.flat_leaf_spans(param)?;
+        let a = self.flat_leaf_spans(arg)?;
+        let p_width: usize = p.iter().map(|(_, _, w)| w).sum();
+        let a_width: usize = a.iter().map(|(_, _, w)| w).sum();
+        if p_width != a_width {
+            return None;
+        }
+        let mut pairs = Vec::with_capacity(p.len());
+        for (pk, poff, pw) in &p {
+            let (ak, _, _) = a.iter().find(|(_, aoff, aw)| aoff == poff && aw == pw)?;
+            pairs.push((pk.clone(), ak.clone()));
+        }
+        Some(pairs)
+    }
+
+    /// The **parameter** side of a group binding, walked over the CALLEE's own
+    /// symbol table rather than this environment's.
+    ///
+    /// The shared environment can hold the CALLER's description under the same
+    /// name: CCVS85 IC203A and IC205A both call their record `TABLE-2`, so
+    /// `push_local_scope` skips the callee's 01 (the name exists) and any walk
+    /// through `self.symbols` reads the caller's tree for BOTH sides of the
+    /// pairing. The callee's children then never bind at all — IC205A's `MOVE
+    /// "B" TO TV-2` wrote a private slot nothing reads (CNCL-TEST-05,
+    /// `COMPUTED=` empty against `CORRECT = AB`).
+    ///
+    /// Widths come from the PICTURE alone, which dodges the missing
+    /// `field_caps` transfer deliberately: a `PIC 99` reads as 2 without
+    /// consulting state the callee never got to install. A table anywhere on
+    /// this side refuses the walk — a per-occurrence alias KEY is never
+    /// consulted (`a_subscripted_alias_key_is_never_consulted`) — and so does
+    /// anything `pic_char_width` cannot read (edited pictures, missing
+    /// symbols, synthetic FILLER slots, which carry no `ItemSym`).
+    pub fn param_leaf_spans_from(
+        symbols: &[(String, ItemSym)],
+        key: &str,
+    ) -> Option<Vec<(String, usize, usize)>> {
+        fn lookup<'a>(symbols: &'a [(String, ItemSym)], k: &str) -> Option<&'a ItemSym> {
+            symbols
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(k))
+                .map(|(_, s)| s)
+        }
+        fn walk(
+            symbols: &[(String, ItemSym)],
+            key: &str,
+            off: &mut usize,
+            out: &mut Vec<(String, usize, usize)>,
+        ) -> Option<()> {
+            let sym = lookup(symbols, base_name(key))?;
+            if !sym.dims.is_empty() {
+                return None;
+            }
+            if sym.is_group && !sym.layout_keys.is_empty() {
+                for child in &sym.layout_keys {
+                    walk(symbols, child, off, out)?;
+                }
+                return Some(());
+            }
+            let w = pic_char_width(&sym.pic)?;
+            if w == 0 {
+                return None;
+            }
+            out.push((key.to_ascii_uppercase(), *off, w));
+            *off += w;
+            Some(())
+        }
+        let mut out = Vec::new();
+        let mut off = 0usize;
+        walk(symbols, &key.to_ascii_uppercase(), &mut off, &mut out)?;
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// The **argument** side of a group binding: every elementary occurrence,
+    /// in storage order, as `(key, offset, width)`.
+    ///
+    /// Unlike [`flat_leaf_spans`](Self::flat_leaf_spans), a fixed-extent table
+    /// leaf does not refuse the walk — it contributes one span per occurrence,
+    /// as a SUBSCRIPTED key. That is safe on this side and only this side:
+    /// these keys become alias *targets*, which are stored and followed
+    /// verbatim, where an alias KEY is only ever consulted by base name. An
+    /// OCCURS DEPENDING ON table still refuses — its extent at binding time is
+    /// not its extent for the whole call.
+    pub fn arg_leaf_spans(&self, key: &str) -> Option<Vec<(String, usize, usize)>> {
+        let mut out = Vec::new();
+        let mut off = 0usize;
+        self.arg_walk(&key.to_ascii_uppercase(), &mut off, &mut out)?;
+        (!out.is_empty()).then_some(out)
+    }
+
+    fn arg_walk(
+        &self,
+        key: &str,
+        off: &mut usize,
+        out: &mut Vec<(String, usize, usize)>,
+    ) -> Option<()> {
+        let sym = self.symbols.get(base_name(key))?;
+        if sym.is_group && !sym.layout_keys.is_empty() && sym.dims.is_empty() {
+            for child in &sym.layout_keys.clone() {
+                self.arg_walk(child, off, out)?;
+            }
+            return Some(());
+        }
+        if sym.dims.is_empty() {
+            let w = self.declared_width(key)?;
+            if w == 0 {
+                return None;
+            }
+            out.push((key.to_string(), *off, w));
+            *off += w;
+            return Some(());
+        }
+        if self.odo_count(key).is_some() {
+            return None;
+        }
+        let w = self.declared_width(key)?;
+        if w == 0 {
+            return None;
+        }
+        for ck in self.expand_occurrences(key, &[]) {
+            out.push((ck, *off, w));
+            *off += w;
+        }
+        Some(())
+    }
+
+    /// Pair pre-computed parameter spans with an argument's leaves by the bytes
+    /// each covers. `None` unless the totals agree and every parameter leaf is
+    /// covered by exactly one argument leaf — a partial mapping would leave the
+    /// rest bound to nothing, worse than the pairing it replaces.
+    pub fn pair_param_spans_to_arg(
+        &self,
+        param: &[(String, usize, usize)],
+        arg: &str,
+    ) -> Option<Vec<(String, String)>> {
+        let a = self.arg_leaf_spans(arg)?;
+        let p_width: usize = param.iter().map(|(_, _, w)| w).sum();
+        let a_width: usize = a.iter().map(|(_, _, w)| w).sum();
+        if p_width != a_width {
+            return None;
+        }
+        param
+            .iter()
+            .map(|(pk, po, pw)| {
+                a.iter()
+                    .find(|(_, ao, aw)| ao == po && aw == pw)
+                    .map(|(ak, _, _)| (pk.clone(), ak.clone()))
+            })
+            .collect()
+    }
+
+    /// This environment's numeric capacities, edit templates and BLANK WHEN
+    /// ZERO set — what its items ARE — for installing under another
+    /// environment's activation-qualified keys.
+    #[allow(clippy::type_complexity)]
+    pub fn descriptive_entries(
+        &self,
+    ) -> (
+        Vec<(String, (u8, u8))>,
+        Vec<(String, String)>,
+        Vec<String>,
+        Vec<(String, String)>,
+    ) {
+        (
+            self.field_caps.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            self.edited_templates
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            self.blank_when_zero.iter().cloned().collect(),
+            // Alphanumeric-edit templates are a SEPARATE map from the numeric
+            // ones, and forgetting that cost an hour: `PIC XXBX0X` lives here.
+            self.alnum_edited
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        )
+    }
+
+    /// Install a called program's descriptive state under its OWN keys.
+    ///
+    /// The wholesale carry was tried at raw keys and reverted — a description
+    /// merged into the shared maps was visible to sibling programs, and the
+    /// isolation tests said so. Under activation-qualified keys the collision
+    /// cannot exist: every entry's key carries its program's name. So this is
+    /// installed ONCE, at construction, and never unwound — without it a
+    /// private `PIC 9(6)` had no capacity and `IF X (1) EQUAL TO 649` ran as
+    /// an alphanumeric comparison of `"000649"` against `"649   "`, which is
+    /// how CCVS85 IC115A's create loop wrote thirty megabytes before it was
+    /// killed.
+    pub fn install_descriptive(
+        &mut self,
+        caps: &[(String, (u8, u8))],
+        templates: &[(String, String)],
+        bwz: &[String],
+        alnum: &[(String, String)],
+    ) {
+        for (k, v) in alnum {
+            self.alnum_edited.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        for (k, v) in caps {
+            self.field_caps.entry(k.clone()).or_insert(*v);
+        }
+        for (k, v) in templates {
+            self.edited_templates
+                .entry(k.clone())
+                .or_insert_with(|| v.clone());
+        }
+        for k in bwz {
+            self.blank_when_zero.insert(k.clone());
+        }
+    }
+
+    /// Lend the PARAMETER's edit template to the ARGUMENT for the length of a
+    /// binding. Returns true when a template was actually lent.
+    ///
+    /// The edit belongs to the description written THROUGH: IC104A declares
+    /// `EDITED-FIELD PIC XXBX0X` over its caller's plain `ALPHA-EDITED PIC
+    /// X(6)`, and `MOVE "ABCD" TO EDITED-FIELD` must store `AB C0D`. The write
+    /// follows the alias to the caller's key and asked for THAT key's template
+    /// — which does not exist, correctly, outside the call. Lending it is
+    /// sound because only the activation's statements execute while it is
+    /// lent, and [`Self::return_edit_template`] takes back exactly what was
+    /// lent (CCVS85 IC103A / IC235A CALL-TEST-06-06).
+    pub fn lend_edit_template(&mut self, param: &str, arg: &str) -> bool {
+        let from = base_name(&param.to_ascii_uppercase()).to_string();
+        let to = base_name(&arg.to_ascii_uppercase()).to_string();
+        if let Some(t) = self.alnum_edited.get(&from).cloned() {
+            if !self.alnum_edited.contains_key(&to) {
+                self.alnum_edited.insert(to, t);
+                return true;
+            }
+            return false;
+        }
+        if self.edited_templates.contains_key(&to) {
+            return false;
+        }
+        let Some(t) = self.edited_templates.get(&from).cloned() else {
+            return false;
+        };
+        self.edited_templates.insert(to, t);
+        true
+    }
+
+    /// Mirror one name's descriptive entries onto another key — used when a
+    /// record-view field moves onto an activation key, so its declared numeric
+    /// capacity and edit shape travel with it. Without this a view's
+    /// `PIC 9(6)` compared as text ("000001" against "1     ").
+    pub fn mirror_descriptive(&mut self, from: &str, to: &str) {
+        let f = base_name(&from.to_ascii_uppercase()).to_string();
+        let t = base_name(&to.to_ascii_uppercase()).to_string();
+        if let Some(v) = self.field_caps.get(&f).copied() {
+            self.field_caps.entry(t.clone()).or_insert(v);
+        }
+        if let Some(v) = self.edited_templates.get(&f).cloned() {
+            self.edited_templates.entry(t.clone()).or_insert(v);
+        }
+        if let Some(v) = self.alnum_edited.get(&f).cloned() {
+            self.alnum_edited.entry(t.clone()).or_insert(v);
+        }
+        if self.blank_when_zero.contains(&f) {
+            self.blank_when_zero.insert(t);
+        }
+    }
+
+    /// Take back a template a matching [`Self::lend_edit_template`] lent.
+    pub fn return_edit_template(&mut self, arg: &str) {
+        let base = base_name(&arg.to_ascii_uppercase()).to_string();
+        self.alnum_edited.shift_remove(&base);
+        self.edited_templates.shift_remove(&base);
+    }
+
     // ── Pointers (USAGE POINTER / SET ADDRESS OF) ───────────────────────────────
 
     /// A stable non-zero address id for the storage key `key` (0 is reserved
@@ -1531,6 +2176,17 @@ impl CobolEnvironment {
     /// Remove an address alias (`SET ADDRESS OF alias TO NULL`).
     pub fn clear_alias(&mut self, alias: &str) {
         self.addr_aliases.shift_remove(&alias.to_ascii_uppercase());
+    }
+
+    /// What `alias` currently redirects to, if anything.
+    ///
+    /// A `CALL … USING` binds its BY REFERENCE parameters the same way, and has
+    /// to put back whatever was there when the call returns — a program may be
+    /// called from inside another that aliased the same name.
+    pub fn alias_target(&self, alias: &str) -> Option<String> {
+        self.addr_aliases
+            .get(&alias.to_ascii_uppercase())
+            .cloned()
     }
 
     // ── 66-level RENAMES ────────────────────────────────────────────────────────
@@ -1725,6 +2381,20 @@ impl CobolEnvironment {
     fn occurrence_keys(&self, sym: &ItemSym, prefix: &[i64]) -> Vec<String> {
         let mut out = Vec::new();
         for ck in &sym.layout_keys {
+            out.extend(self.expand_occurrences(ck, prefix));
+        }
+        out
+    }
+
+    /// The storage keys one subordinate item contributes to its group's layout,
+    /// given the subscript `prefix` the group itself was referenced with.
+    ///
+    /// An item that opens no dimension of its own contributes exactly one key;
+    /// a table contributes one per occurrence of the dimensions the prefix
+    /// leaves open, in row-major order.
+    fn expand_occurrences(&self, ck: &str, prefix: &[i64]) -> Vec<String> {
+        let mut out = Vec::new();
+        {
             // A synthetic FILLER slot has no symbol entry; it shares its
             // parent's dimensions and so takes the prefix unchanged.
             let dims: &[usize] = match self.symbols.get(ck) {
@@ -1733,7 +2403,7 @@ impl CobolEnvironment {
             };
             if dims.is_empty() {
                 out.push(subscript_key(ck, prefix));
-                continue;
+                return out;
             }
             // An `OCCURS … DEPENDING ON` table contributes only the occurrences
             // that are **active now**, not its declared maximum: the enclosing
@@ -1771,6 +2441,36 @@ impl CobolEnvironment {
         out
     }
 
+    /// Every occurrence of an **elementary table** addressed by a key that does
+    /// not subscript it all the way down — `DN2` for `02 DN2 PIC X OCCURS 10`,
+    /// or `A (2)` for a two-dimensional `A`. `None` for anything else,
+    /// including a fully subscripted reference to one occurrence and any group,
+    /// which already reads and writes through its `layout_keys`.
+    ///
+    /// A table's occurrences are separate slots here; in COBOL they are one
+    /// contiguous area and the base name denotes the whole of it. No program
+    /// can ask for that directly — a table item must be subscripted — but a
+    /// `CALL … USING` alias can: CCVS85 IC107A describes its caller's
+    /// `02 DN2 PIC X OCCURS 10` as a **group** `GROUP-21`, lays a `REDEFINES`
+    /// over that group and writes through the overlay. The parameter alias
+    /// binds `GROUP-21` to the bare `DN2`, so the refresh has to spread its ten
+    /// bytes across the ten occurrences. Without this the write landed on the
+    /// unsubscripted key, which nothing ever reads, and IC106A's LINK-TEST-06
+    /// saw its last three table positions come back blank.
+    fn table_extent_keys(&self, key: &str) -> Option<Vec<String>> {
+        let upper = key.to_ascii_uppercase();
+        let base = base_name(&upper);
+        let sym = self.symbols.get(base)?;
+        if sym.is_group || !sym.layout_keys.is_empty() {
+            return None;
+        }
+        let prefix = key_indices(&upper);
+        if prefix.len() >= sym.dims.len() {
+            return None;
+        }
+        Some(self.expand_occurrences(base, &prefix))
+    }
+
     /// The synthesized value of a group: its subordinate items' display strings
     /// concatenated in declaration order. `None` when `name` is not a group.
     ///
@@ -1780,6 +2480,13 @@ impl CobolEnvironment {
     /// flattened record.
     pub fn group_value(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_uppercase();
+        if let Some(keys) = self.table_extent_keys(&key) {
+            let mut out = String::new();
+            for ck in keys {
+                out.push_str(&self.display_string(&ck).unwrap_or_default());
+            }
+            return Some(out);
+        }
         let sym = self.symbols.get(base_name(&key))?;
         // `layout_keys` empty ⇒ no subordinate data items ⇒ elementary, whatever
         // `is_group` says (88-level condition-names count as children there).
@@ -1803,15 +2510,50 @@ impl CobolEnvironment {
     /// middle of the mangled `HIGH-VALUES` one that preceded it.
     pub fn group_bytes(&self, name: &str) -> Option<Vec<u8>> {
         let key = name.to_ascii_uppercase();
+        if let Some(keys) = self.table_extent_keys(&key) {
+            let mut out = Vec::new();
+            for ck in keys {
+                out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default());
+            }
+            return Some(out);
+        }
         let sym = self.symbols.get(base_name(&key))?;
         if !sym.is_group || sym.layout_keys.is_empty() {
             return None;
         }
         let mut out = Vec::new();
         for ck in self.occurrence_keys(sym, &key_indices(&key)) {
-            out.extend_from_slice(&self.display_bytes(&ck).unwrap_or_default());
+            out.extend_from_slice(&self.image_bytes(&ck));
         }
         Some(out)
+    }
+
+    /// One child's contribution to a group's byte image — its stored bytes,
+    /// except that a **negative** signed non-SEPARATE numeric renders at its
+    /// PICTURE width with the sign overpunched on the trailing digit, exactly
+    /// as a record image does ([`crate::files`]'s convention).
+    ///
+    /// The leading `-` of the display form is one byte the item does not
+    /// have: `sign_is_overpunched` says a signed item's character positions
+    /// hold no sign, yet the display form spends a byte on it, so every field
+    /// after a negative value shifted right by one. CCVS85 ST127A snapshots
+    /// its SD record with `MOVE SORT-1 TO WS-SORTFILE-REC` — three signed
+    /// fields deep — and every CHK-TEST compared the shifted snapshot.
+    /// Positive values already render at width and stay plain digits.
+    fn image_bytes(&self, ck: &str) -> Vec<u8> {
+        let bytes = self.display_bytes(ck).unwrap_or_default();
+        if bytes.first() == Some(&b'-')
+            && bytes[1..].iter().all(|b| b.is_ascii_digit())
+            && !bytes[1..].is_empty()
+            && self.sign_is_overpunched(ck)
+            && matches!(self.get(&ck.to_ascii_uppercase()), Some(CobolValue::Numeric(_)))
+        {
+            let mut digits = bytes[1..].to_vec();
+            let last = *digits.last().unwrap() - b'0';
+            *digits.last_mut().unwrap() = crate::files::overpunch(last, true);
+            return digits;
+        }
+        bytes
     }
 
     /// One item's stored form as bytes: the raw bytes of an alphanumeric item,
@@ -1841,6 +2583,9 @@ impl CobolEnvironment {
     /// concatenation: building the string of a large table just to take its
     /// length allocated the whole record on every child of every group move.
     fn item_width(&self, key: &str) -> usize {
+        if let Some(keys) = self.table_extent_keys(key) {
+            return keys.iter().map(|k| self.item_width(k)).sum();
+        }
         if let Some(sym) = self.symbols.get(base_name(&key.to_ascii_uppercase())) {
             if sym.is_group && !sym.layout_keys.is_empty() {
                 return self
@@ -1850,7 +2595,18 @@ impl CobolEnvironment {
                     .sum();
             }
         }
-        self.display_string(key).map(|d| d.len()).unwrap_or(0)
+        let w = self.display_string(key).map(|d| d.len()).unwrap_or(0);
+        // A negative signed (non-SEPARATE) numeric renders with a leading `-`
+        // the item has no character position for — see [`Self::image_bytes`].
+        if w > 0
+            && self.sign_is_overpunched(key)
+            && self
+                .display_string(key)
+                .is_some_and(|d| d.starts_with('-'))
+        {
+            return w - 1;
+        }
+        w
     }
 
     /// The stored width of any item, in characters — a group's whole record or
@@ -1897,19 +2653,28 @@ impl CobolEnvironment {
     /// spelling of its own width. See [`Self::group_bytes`].
     pub fn set_group_bytes(&mut self, name: &str, bytes: &[u8]) {
         let key = name.to_ascii_uppercase();
-        let Some(sym) = self.symbols.get(base_name(&key)) else {
-            return;
-        };
-        if !sym.is_group || sym.layout_keys.is_empty() {
-            return; // elementary (see `is_group` on 88-level children)
+        // A bare table name is a group of its own occurrences here — see
+        // [`table_extent_keys`](Self::table_extent_keys).
+        let extent = self.table_extent_keys(&key).is_some();
+        if !extent {
+            let Some(sym) = self.symbols.get(base_name(&key)) else {
+                return;
+            };
+            if !sym.is_group || sym.layout_keys.is_empty() {
+                return; // elementary (see `is_group` on 88-level children)
+            }
         }
         // Everything from here measures a **receiving** group, which takes each
         // ODO table's declared maximum rather than its current length. The
         // symbol is looked up again because raising the flag needs `self`.
         self.odo_receiving += 1;
-        let child_keys = match self.symbols.get(base_name(&key)) {
-            Some(sym) => self.occurrence_keys(sym, &key_indices(&key)),
-            None => Vec::new(),
+        let child_keys = if extent {
+            self.table_extent_keys(&key).unwrap_or_default()
+        } else {
+            match self.symbols.get(base_name(&key)) {
+                Some(sym) => self.occurrence_keys(sym, &key_indices(&key)),
+                None => Vec::new(),
+            }
         };
         let mut pos = 0usize;
         for ck in child_keys {
@@ -1942,7 +2707,18 @@ impl CobolEnvironment {
                 // characters re-imposed: `MOVE "1 A05" TO <group whose only
                 // child is PIC XBA09>` stored `"1  0A"`, the edit re-applied to
                 // an already-edited slice (NC105A MOVE-TEST-F1-13).
-                self.set_verbatim_bytes(&ck, &padded);
+                //
+                // One carve-out: a slice that is a signed record image —
+                // digits with the sign overpunched on the last byte — landing
+                // in a signed numeric child decodes to its value, because that
+                // is the byte form [`Self::image_bytes`] produces for a
+                // negative source field. Plain digits and everything else
+                // land verbatim exactly as before.
+                if let Some(v) = self.decode_overpunched_slice(&ck, &padded) {
+                    self.set(&ck, v);
+                } else {
+                    self.set_verbatim_bytes(&ck, &padded);
+                }
             }
             pos += width;
         }
@@ -2148,6 +2924,14 @@ impl CobolEnvironment {
     }
 
     /// `true` if the named item is a plain alphanumeric field (not numeric-edited).
+    /// Digits after the implied decimal point in this item's PICTURE, or 0 for
+    /// an item that has none. See [`ItemSym::pic_decimals`].
+    pub fn field_decimals(&self, name: &str) -> u16 {
+        self.symbols
+            .get(base_name(&name.to_ascii_uppercase()))
+            .map_or(0, |s| s.pic_decimals)
+    }
+
     pub fn is_alphanumeric_field(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         if self.edited_templates.contains_key(base_name(&key)) {
@@ -2246,6 +3030,41 @@ impl CobolEnvironment {
     /// INS-TEST-F1-23). A numeric-**edited** item is not one of these — it
     /// stores its edited characters, sign and all, and keeps no `field_caps`
     /// entry.
+    /// Decode `bytes` as a signed record image (digits, sign overpunched on
+    /// the trailing byte) for the signed numeric item `ck` — `None` when the
+    /// slice is not that shape or the item is not a signed numeric, in which
+    /// case a group move stores the bytes verbatim as always.
+    fn decode_overpunched_slice(&self, ck: &str, bytes: &[u8]) -> Option<CobolValue> {
+        let (&last, head) = bytes.split_last()?;
+        if !head.iter().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let (digit, negative) = crate::files::de_overpunch(last)?;
+        if !self.sign_is_overpunched(ck)
+            || self.unsigned_numeric.contains(&ck.to_ascii_uppercase())
+            || self
+                .unsigned_numeric
+                .contains(base_name(&ck.to_ascii_uppercase()))
+        {
+            return None;
+        }
+        let mut mantissa: i128 = 0;
+        for &b in head {
+            mantissa = mantissa.checked_mul(10)?.checked_add((b - b'0') as i128)?;
+        }
+        mantissa = mantissa.checked_mul(10)?.checked_add(digit as i128)?;
+        if negative {
+            mantissa = -mantissa;
+        }
+        let decimals = self
+            .field_caps
+            .get(&ck.to_ascii_uppercase())
+            .or_else(|| self.field_caps.get(base_name(&ck.to_ascii_uppercase())))
+            .map(|&(_, d)| d)
+            .unwrap_or(0);
+        Some(CobolValue::Numeric(CobolNumeric::new(mantissa, decimals)))
+    }
+
     pub fn sign_is_overpunched(&self, name: &str) -> bool {
         let key = name.to_ascii_uppercase();
         let numeric =
@@ -2687,6 +3506,25 @@ impl CobolEnvironment {
         self.store.iter().filter(|(k, _)| !is_filler_key(k))
     }
 
+    /// Every stored item **including unnamed FILLERs**, for copying a program's
+    /// storage rather than showing it.
+    ///
+    /// [`iter`](Self::iter) hides FILLER keys, which is right for a debugger
+    /// view and wrong for a snapshot: a FILLER occupies bytes, so a description
+    /// copied without one lays every item after it at the wrong offset. CCVS85
+    /// **IC107** declares `02 GROUP-2-1 REDEFINES GROUP-21.` with `03 FILLER
+    /// PIC X(7).` then `03 DN3 PICTURE XXX.` in its LINKAGE SECTION, and a
+    /// nested program's items reach the shared environment through
+    /// `push_local_scope` from this snapshot — so the seven-byte FILLER was
+    /// absent, reported width 0, and `MOVE … TO DN3` landed at the front of the
+    /// table instead of over its last three bytes (LINK-TEST-06).
+    pub fn all_entries(&self) -> Vec<(String, CobolValue)> {
+        self.store
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
     // ── Nested-program scope management ──────────────────────────────────────
 
     /// Push a set of local data items into this environment for the duration
@@ -2708,13 +3546,31 @@ impl CobolEnvironment {
             let upper = key.to_ascii_uppercase();
             if !self.store.contains_key(&upper) {
                 self.store.insert(upper.clone(), val.clone());
-                if let Some((_, sym)) = symbols
-                    .iter()
-                    .find(|(sym_key, _)| sym_key.eq_ignore_ascii_case(&upper))
-                {
-                    self.symbols.insert(upper.clone(), sym.clone());
-                }
                 inserted.push(upper);
+            }
+        }
+        // **Symbols are carried on their own, not as a side effect of values.**
+        // A group and a table's base name own no storage slot, so tying symbol
+        // insertion to store keys silently dropped exactly the metadata every
+        // structured walk needs — the `dims`, `layout_keys` and PICTUREs of a
+        // nested program's tables and groups. Rendering IC115A's
+        // FILE-RECORD-INFO template inside the subprogram then packed its
+        // fields 17 bytes short: the group walk could not see the table's own
+        // shape, and CCVS85 IC114A's 649-record file carried its label column
+        // in the wrong place on every record (LINK-TEST-12).
+        //
+        // A name the environment already describes is left alone, exactly as a
+        // value is; [`pop_local_scope`] removes exactly what was added here.
+        for (key, sym) in symbols {
+            let upper = key.to_ascii_uppercase();
+            if !self.symbols.contains_key(&upper) {
+                self.symbols.insert(upper.clone(), sym.clone());
+                if !self.store.contains_key(&upper) {
+                    // Track symbol-only names too, so the pop is exact. The
+                    // store guard in `pop_local_scope` tolerates keys with no
+                    // value.
+                    inserted.push(upper);
+                }
             }
         }
         inserted

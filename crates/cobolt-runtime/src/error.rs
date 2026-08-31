@@ -46,6 +46,19 @@ pub enum RuntimeError {
     #[error("EXEC RUST error at {span}: {message}")]
     ExecRustError { message: String, span: Span },
 
+    /// An intrinsic function was called with fewer arguments than it takes.
+    ///
+    /// Reported rather than panicked: a COBOL program must never be able to
+    /// crash the interpreter, and "FUNCTION MOD needs 2 arguments, 1 given" is
+    /// something the developer can act on where an index-out-of-bounds is not.
+    #[error("FUNCTION {name} at {span} needs {needed} arguments, {given} given")]
+    IntrinsicArity {
+        name: String,
+        needed: usize,
+        given: usize,
+        span: Span,
+    },
+
     /// GO TO control-flow signal — not a real error; caught by the main run loop.
     ///
     /// `section` carries a `GO TO paragraph {OF|IN} section` qualifier through

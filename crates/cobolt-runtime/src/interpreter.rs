@@ -149,6 +149,10 @@ struct FileSpec {
     /// the SELECT wrote one; several keys of one file may share a data-name and
     /// be told apart only by this.
     record_key_quals: Vec<String>,
+    /// `RELATIVE KEY IS data-name` — the integer record number a RELATIVE file
+    /// is addressed by. Not part of the record: the program sets it before a
+    /// random access, and a sequential read fills it in.
+    relative_key: Option<String>,
     /// ALTERNATE RECORD KEY entries (INDEXED files).
     alternate_keys: Vec<AlternateKey>,
     /// STORAGE IS MEMORY | DISK (INDEXED files).
@@ -245,7 +249,7 @@ fn rewrite_in_place(
 const VARYING_LEN_PREFIX: usize = 4;
 
 /// A currently-open file handle. The variant follows the file's ORGANIZATION,
-/// so the verbs dispatch by file type (RELATIVE will add a variant here).
+/// so the verbs dispatch by file type.
 enum OpenFile {
     /// SEQUENTIAL / LINE SEQUENTIAL, opened for output/extend.
     Writer {
@@ -260,6 +264,10 @@ enum OpenFile {
     /// INDEXED (ISAM) — a keyed engine (in-memory or on-disk) handles every
     /// verb. The concrete backend is chosen by STORAGE MODE.
     Indexed(Box<dyn crate::indexed::IndexedStore>),
+    /// RELATIVE — a numbered-slot engine. The key is a record *number* the
+    /// program keeps outside the record, which is why this cannot be an
+    /// `IndexedStore`: that trait reads its keys out of the record bytes.
+    Relative(Box<crate::relative::RelativeFile>),
 }
 
 // ── Nested program registry ───────────────────────────────────────────────────
@@ -286,9 +294,74 @@ struct NestedProgram {
     local_items: Vec<(String, CobolValue)>,
     /// Symbol metadata for the local items above, used by debugger snapshots.
     local_symbols: Vec<(String, crate::environment::ItemSym)>,
+    /// The 88-level condition-names this program declares, `(name, metadata)`.
+    ///
+    /// `cond_names` is built when an environment is analysed from a DATA
+    /// DIVISION, and a nested program's items reach the shared environment
+    /// through `push_local_scope`, which carries values and symbols only. So a
+    /// subprogram's own 88 resolved to nothing and `IF 88-name` fell back to
+    /// "the slot holds something non-zero" — false for an unwritten LINKAGE
+    /// item however the caller had filled it (CCVS85 IC207A LINK-TEST-03).
+    local_cond_names: Vec<(String, crate::environment::CondName)>,
+    /// The `REDEFINES` refresh classes this program declares.
+    ///
+    /// `push_local_scope` inserts a nested program's items into `store` and
+    /// `symbols` and does nothing else, so its redefining item was simply an
+    /// independent slot: two descriptions of one area that did not share it.
+    /// That reaches past the suite — every RAD form event handler is a nested
+    /// program (CCVS85 IC106A LINK-TEST-06).
+    local_redefine_links: Vec<(String, Vec<(String, String)>)>,
+    /// Byte layout of each LINKAGE **01 group** this program declares, from
+    /// `compute_layout` — total width plus every NAMED elementary leaf as
+    /// `(uppercase name, offset, width)`, with FILLERs advancing the offset
+    /// but contributing no entry.
+    ///
+    /// This is the record-as-view case: CCVS85 IC112A passes its FD's
+    /// `01 SQ-FS3R1-F-G-120. 02 FILLER PIC X(120).` — an ALL-FILLER record —
+    /// and IC113A lays a fully named 120-byte tree over it. No item-to-item
+    /// pairing can bind those: the caller has no item covering the callee's
+    /// `XRECORD-NUMBER` at offset 34. The layout is what lets the CALL slice
+    /// the caller's bytes in and patch them back out.
+    linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>, Vec<(String, usize, usize)>))>,
+    /// Names this program declares in its OWN WORKING-STORAGE or
+    /// LOCAL-STORAGE, excluding `GLOBAL` — the storage that is private to an
+    /// activation even when the caller spells a name the same way.
+    ///
+    /// Everything these names describe was rewritten at registration onto
+    /// program-qualified keys (see `activation_key`), so the shared
+    /// environment cannot collide them with anyone; at CALL a divert alias
+    /// `name -> qualified` makes the callee's own references find them, and
+    /// the caller's storage never learns they existed.
+    local_private: Vec<String>,
+    /// Numeric capacities, edit templates and BLANK WHEN ZERO for this
+    /// program's PRIVATE items, keyed by their activation-qualified keys —
+    /// installed once at construction, where no sibling can see them because
+    /// no sibling's keys can collide.
+    #[allow(clippy::type_complexity)]
+    local_descriptive: (
+        Vec<(String, (u8, u8))>,
+        Vec<(String, String)>,
+        Vec<String>,
+        Vec<(String, String)>,
+    ),
     /// `PROCEDURE DIVISION USING …` LINKAGE parameter names (as written), in
     /// order — bound to the caller's `CALL … USING` arguments.
     using: Vec<String>,
+    /// This program's own `FILE STATUS IS` bindings, file name → status item,
+    /// both uppercase.
+    ///
+    /// A file can be shared between programs — that is what `IS EXTERNAL` on an
+    /// FD means, and its open state and position genuinely are one thing. The
+    /// **status item is not**: it is named by each program's own `SELECT`, out
+    /// of that program's own storage. IC227A declares `FILE STATUS IS
+    /// EXTERNAL-FILE-FS` in WORKING-STORAGE while IC227A-1 declares `FILE
+    /// STATUS IS LINKAGE-FS` in its LINKAGE SECTION, and an operation performed
+    /// by one must report into that one's item.
+    ///
+    /// Held here because `build_file_specs` reads the outer program only, so
+    /// without this every program in a run unit reported into the outermost
+    /// one's storage.
+    file_status: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -302,6 +375,60 @@ struct BindingRuntimeState {
     last_status: String,
 }
 
+/// The storage key a called program's PRIVATE item lives under for the length
+/// of an activation: `PROGRAM-ID` + `\u{4}` + the item's own key. The
+/// separator cannot occur in a COBOL name — the same trick the synthetic
+/// FILLER keys play with `\u{2}` — so no program can collide with it.
+fn activation_key(prog: &str, name: &str) -> String {
+    format!("{prog}\u{4}{name}")
+}
+
+/// Rewrite `key` onto its activation-qualified form when its BASE name is
+/// private, keeping any subscript or synthetic-FILLER suffix exactly as it
+/// stands: `DN2` → `IC205A\u{4}DN2`, `ITM(2)` → `Q(ITM)(2)`,
+/// `GRP\u{2}0` → `Q(GRP)\u{2}0`.
+fn requalify(key: &str, prog: &str, private: &std::collections::HashSet<String>) -> String {
+    let split = key.find(|c| c == '(' || c == '\u{2}');
+    let (base, rest) = match split {
+        Some(i) => key.split_at(i),
+        None => (key, ""),
+    };
+    if private.contains(base) {
+        format!("{}{rest}", activation_key(prog, base))
+    } else {
+        key.to_string()
+    }
+}
+
+/// Collect the names a program declares as its own private storage: its
+/// WORKING-STORAGE and LOCAL-STORAGE, excluding `GLOBAL` items (sharing them
+/// is what GLOBAL means), 88s and 66s (they own no storage) and FILLER.
+fn collect_private_names(decl: &cobolt_ast::data::DataDecl, out: &mut std::collections::HashSet<String>) {
+    // `GLOBAL` and `EXTERNAL` both mean SHARED — one down the containment
+    // tree, the other across the run unit (CCVS85 IC226A checks exactly that
+    // an EXTERNAL item's value comes back). An OBJECT REFERENCE is excluded
+    // with them: its handle is seeded once at startup by the Rust bridge and
+    // the EXEC RUST context reaches it by name, so it is a run-unit binding,
+    // not activation data.
+    if decl.is_global
+        || decl.is_external
+        || matches!(decl.usage, cobolt_ast::data::Usage::ObjectReference)
+    {
+        return;
+    }
+    if decl.level != 88 && decl.level != 66 {
+        if let Some(name) = &decl.name {
+            let upper = name.to_ascii_uppercase();
+            if upper != "FILLER" {
+                out.insert(upper);
+            }
+        }
+    }
+    for child in &decl.children {
+        collect_private_names(child, out);
+    }
+}
+
 /// Recursively register a `Program` and all of its `nested_programs` into
 /// `registry`, keyed by the program-id (uppercase).
 fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>) {
@@ -309,34 +436,164 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
 
     // Collect this program's own local data items (everything in its DATA
     // DIVISION — they will be added to the env as a scope overlay on call).
-    let local_items: Vec<(String, CobolValue)> = if let Some(data) = &prog.data {
-        let local_env = CobolEnvironment::from_data_division_with_origin(
-            data,
-            prog.decimal_comma,
-            prog.currency,
-            &prog.identification.program_id,
-        );
-        local_env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let local_symbols: Vec<(String, crate::environment::ItemSym)> = if let Some(data) = &prog.data {
+    // One analysis of this program's DATA DIVISION, three things taken from
+    // it. It used to be built twice — once for the values and once for the
+    // symbols — and the condition-names were taken from neither.
+    let local_env = prog.data.as_ref().map(|data| {
         CobolEnvironment::from_data_division_with_origin(
             data,
             prog.decimal_comma,
             prog.currency,
             &prog.identification.program_id,
         )
-        .symbol_entries()
-    } else {
-        Vec::new()
+    });
+    // `all_entries`, not `iter`: the latter hides unnamed FILLERs, and a
+    // FILLER occupies bytes. Without them every item after one in a nested
+    // program's description sits at the wrong offset.
+    let local_items: Vec<(String, CobolValue)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::all_entries)
+        .unwrap_or_default();
+    let local_symbols: Vec<(String, crate::environment::ItemSym)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::symbol_entries)
+        .unwrap_or_default();
+    let local_cond_names: Vec<(String, crate::environment::CondName)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::cond_name_entries)
+        .unwrap_or_default();
+    // (total, elementary fields, named groups) — the groups matter to the
+    // record view: IC113A checks `REELUNIT-NUMBER-GROUP`, a two-byte group,
+    // and a view that diverts only leaves sends that name to whatever the
+    // caller declared under it.
+    let linkage_layouts: Vec<(String, (usize, Vec<(String, usize, usize)>, Vec<(String, usize, usize)>))> = {
+        use cobolt_ast::program::DataSection;
+        let mut out = Vec::new();
+        if let Some(data) = &prog.data {
+            for section in &data.sections {
+                if let DataSection::Linkage(items) = section {
+                    for decl in items {
+                        if decl.children.is_empty() {
+                            continue;
+                        }
+                        let Some(name) = &decl.name else { continue };
+                        let layout = crate::files::compute_layout(decl);
+                        let fields: Vec<(String, usize, usize)> = layout
+                            .fields
+                            .iter()
+                            .filter(|f| !f.is_group)
+                            .map(|f| (f.name.to_ascii_uppercase(), f.offset, f.len))
+                            .collect();
+                        let groups: Vec<(String, usize, usize)> = layout
+                            .groups
+                            .iter()
+                            .map(|f| (f.name.to_ascii_uppercase(), f.offset, f.len))
+                            .collect();
+                        if layout.len > 0 && !fields.is_empty() {
+                            out.push((name.to_ascii_uppercase(), (layout.len, fields, groups)));
+                        }
+                    }
+                }
+            }
+        }
+        out
     };
+    let local_redefine_links: Vec<(String, Vec<(String, String)>)> = local_env
+        .as_ref()
+        .map(CobolEnvironment::redefine_link_entries)
+        .unwrap_or_default();
+
+    // This program's own `FILE STATUS IS` bindings. `build_file_specs` only
+    // ever reads the outermost program, so without this a subprogram's I/O
+    // reported into the outer program's storage — see `NestedProgram::
+    // file_status`.
+    let file_status: HashMap<String, String> = prog
+        .environment
+        .as_ref()
+        .and_then(|env| env.input_output.as_ref())
+        .map(|io| {
+            io.file_controls
+                .iter()
+                .filter_map(|fc| {
+                    fc.file_status
+                        .as_ref()
+                        .map(|s| (fc.name.to_ascii_uppercase(), s.to_ascii_uppercase()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let key = prog.identification.program_id.to_ascii_uppercase();
     let using = prog.procedure.using.clone();
+
+    // ── The activation scope, established at registration ────────────────
+    // Everything the program PRIVATELY declares moves onto program-qualified
+    // keys here, once, so the shared environment cannot collide it with any
+    // other program's names. Symbols carry their internal key lists through
+    // the same rewrite, which is what keeps group walks, occurrence
+    // expansion, REDEFINES classes and condition-name hosts coherent.
+    let private: std::collections::HashSet<String> = {
+        use cobolt_ast::program::DataSection;
+        let mut out = std::collections::HashSet::new();
+        if let Some(data) = &prog.data {
+            for section in &data.sections {
+                if let DataSection::WorkingStorage(items) | DataSection::LocalStorage(items) =
+                    section
+                {
+                    for decl in items {
+                        collect_private_names(decl, &mut out);
+                    }
+                }
+            }
+        }
+        out
+    };
+    let rq = |k: &str| requalify(k, &key, &private);
+    let local_items: Vec<(String, CobolValue)> = local_items
+        .into_iter()
+        .map(|(k, v)| (rq(&k), v))
+        .collect();
+    let local_symbols: Vec<(String, crate::environment::ItemSym)> = local_symbols
+        .into_iter()
+        .map(|(k, mut sym)| {
+            sym.child_keys = sym.child_keys.iter().map(|c| rq(c)).collect();
+            sym.layout_keys = sym.layout_keys.iter().map(|c| rq(c)).collect();
+            (rq(&k), sym)
+        })
+        .collect();
+    let local_cond_names: Vec<(String, crate::environment::CondName)> = local_cond_names
+        .into_iter()
+        .map(|(n, mut c)| {
+            c.parent = rq(&c.parent);
+            (n, c)
+        })
+        .collect();
+    let local_redefine_links: Vec<(String, Vec<(String, String)>)> = local_redefine_links
+        .into_iter()
+        .map(|(t, pairs)| {
+            (
+                rq(&t),
+                pairs.into_iter().map(|(a, b)| (rq(&a), rq(&b))).collect(),
+            )
+        })
+        .collect();
+    let local_descriptive = {
+        let (caps, templates, bwz, alnum) = local_env
+            .as_ref()
+            .map(CobolEnvironment::descriptive_entries)
+            .unwrap_or_default();
+        (
+            caps.into_iter().map(|(k, v)| (rq(&k), v)).collect::<Vec<_>>(),
+            templates
+                .into_iter()
+                .map(|(k, v)| (rq(&k), v))
+                .collect::<Vec<_>>(),
+            bwz.into_iter().map(|k| rq(&k)).collect::<Vec<_>>(),
+            alnum.into_iter().map(|(k, v)| (rq(&k), v)).collect::<Vec<_>>(),
+        )
+    };
+    let mut local_private: Vec<String> = private.into_iter().collect();
+    local_private.sort();
     registry.insert(
         key,
         NestedProgram {
@@ -346,7 +603,13 @@ fn register_nested(prog: &Program, registry: &mut HashMap<String, NestedProgram>
             section_names,
             local_items,
             local_symbols,
+            local_cond_names,
+            local_redefine_links,
+            linkage_layouts,
+            local_private,
+            local_descriptive,
             using,
+            file_status,
         },
     );
 
@@ -449,16 +712,32 @@ fn seed_nested_object_refs(
         repo.extend(repository_map(nested));
 
         let handles = create_object_refs(nested, &repo, bridge, refs);
-        if let Some(np) = registry.get_mut(&nested.identification.program_id.to_ascii_uppercase()) {
+        let prog_id = nested.identification.program_id.to_ascii_uppercase();
+        if let Some(np) = registry.get_mut(&prog_id) {
             for (key, id) in handles {
+                // The program's private items moved onto activation-qualified
+                // keys at registration; the object handle and its `refs` type
+                // entry have to live under the same key, or the handler's
+                // reference resolves to a slot the bridge never heard of.
+                let upper = key.to_ascii_uppercase();
+                let qkey = if np.local_private.contains(&upper) {
+                    activation_key(&prog_id, &upper)
+                } else {
+                    upper
+                };
+                if qkey != key {
+                    if let Some(t) = refs.remove(&key) {
+                        refs.insert(qkey.clone(), t);
+                    }
+                }
                 let handle = CobolValue::from_i64(id);
                 match np
                     .local_items
                     .iter_mut()
-                    .find(|(k, _)| k.eq_ignore_ascii_case(&key))
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&qkey))
                 {
                     Some((_, slot)) => *slot = handle,
-                    None => np.local_items.push((key, handle)),
+                    None => np.local_items.push((qkey, handle)),
                 }
             }
         }
@@ -564,13 +843,59 @@ fn bridge_to_cobol(b: crate::rust_bridge::BridgeValue) -> CobolValue {
     }
 }
 
+/// Map each file to the others sharing its record area, from I-O-CONTROL
+/// `SAME [RECORD] AREA`.
+///
+/// One entry per file in each group, listing that group's other members, so a
+/// `READ` can find its peers by name without walking the groups.
+fn build_same_area_peers(program: &Program) -> HashMap<String, Vec<String>> {
+    let mut peers: HashMap<String, Vec<String>> = HashMap::new();
+    let Some(io) = program.environment.as_ref().and_then(|e| e.input_output.as_ref()) else {
+        return peers;
+    };
+    for group in &io.same_areas {
+        for f in group {
+            let f = f.to_ascii_uppercase();
+            let others: Vec<String> = group
+                .iter()
+                .map(|o| o.to_ascii_uppercase())
+                .filter(|o| *o != f)
+                .collect();
+            peers.entry(f).or_default().extend(others);
+        }
+    }
+    peers
+}
+
 /// Build the file registry from the program's FILE-CONTROL (SELECT) entries and
 /// FILE SECTION (FD) records: `(logical name → spec, record name → file name)`.
 fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<String, String>) {
-    use cobolt_ast::program::DataSection;
-
     let mut specs: HashMap<String, FileSpec> = HashMap::new();
     let mut record_to_file: HashMap<String, String> = HashMap::new();
+    collect_file_specs(program, &mut specs, &mut record_to_file);
+    (specs, record_to_file)
+}
+
+/// Register `program`'s files, then every nested program's, **outermost
+/// first** — an already-known name is left alone.
+///
+/// A nested program's own SELECT/FD was previously never read at all — this
+/// walked the outer program only — so `OPEN`/`READ`/`WRITE` on a file declared
+/// inside a subprogram hit `unknown file` and silently did nothing. CCVS85
+/// **IC115A** creates and reads the 649-record SQ-FS3 entirely from inside a
+/// subprogram (IC114A LINK-TEST-12), and a 40-line repro showed `READ: unknown
+/// file`.
+///
+/// First-wins matters for the one name every CCVS85 program declares:
+/// PRINT-FILE. Each subprogram's report I/O must keep resolving to the outer
+/// program's file, exactly as its FILE STATUS already resolves through
+/// `NestedProgram::file_status` with a fall-through.
+fn collect_file_specs(
+    program: &Program,
+    specs: &mut HashMap<String, FileSpec>,
+    record_to_file: &mut HashMap<String, String>,
+) {
+    use cobolt_ast::program::DataSection;
 
     // Collect each FD's 01-record names + the byte layout of every one of them.
     let mut fd_records: HashMap<String, Vec<String>> = HashMap::new();
@@ -619,9 +944,14 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
         if let Some(io) = &env.input_output {
             for fc in &io.file_controls {
                 let key = fc.name.to_ascii_uppercase();
+                if specs.contains_key(&key) {
+                    continue;
+                }
                 let record_names = fd_records.get(&key).cloned().unwrap_or_default();
                 for rn in &record_names {
-                    record_to_file.insert(rn.clone(), key.clone());
+                    record_to_file
+                        .entry(rn.clone())
+                        .or_insert_with(|| key.clone());
                 }
                 specs.insert(
                     key.clone(),
@@ -632,6 +962,7 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
                         status_field: fc.file_status.clone().map(|s| s.to_ascii_uppercase()),
                         record_names,
                         record_key: fc.record_key.clone().map(|s| s.to_ascii_uppercase()),
+                        relative_key: fc.relative_key.clone().map(|s| s.to_ascii_uppercase()),
                         record_key_quals: fc
                             .record_key_quals
                             .iter()
@@ -652,7 +983,9 @@ fn build_file_specs(program: &Program) -> (HashMap<String, FileSpec>, HashMap<St
         }
     }
 
-    (specs, record_to_file)
+    for child in &program.nested_programs {
+        collect_file_specs(child, specs, record_to_file);
+    }
 }
 
 /// Map the AST open mode onto the indexed engine's.
@@ -731,6 +1064,181 @@ fn make_indexed_engine(
             Box::new(e)
         }
     }
+}
+
+/// Which argument of a list is the greatest (or the least), by position.
+///
+/// Two things the obvious `as_f64()` reading gets wrong, and both are
+/// observable:
+///
+/// * **The comparison is COBOL's own.** `cob_ordering` is what `SORT` and every
+///   relation use, so an all-alphanumeric argument list is ordered by the
+///   collating sequence. Read as floats they are all zero, and
+///   `FUNCTION MAX("R", I, "I", "a")` returned zero rather than `"a"`.
+/// * **The first of equal arguments wins.** `ORD-MAX` and `ORD-MIN` return a
+///   *position*, so ties are visible: `FUNCTION ORD-MAX(A, 5, 5, A)` is 1 when
+///   A is the greatest. Comparing strictly keeps the earliest, where Rust's
+///   `max_by` keeps the last.
+fn extreme_index(vals: &[CobolValue], want_max: bool) -> Option<usize> {
+    use std::cmp::Ordering;
+    let mut best = 0usize;
+    for i in 1..vals.len() {
+        let ord = cob_ordering(&vals[i], &vals[best]);
+        let better = if want_max {
+            ord == Ordering::Greater
+        } else {
+            ord == Ordering::Less
+        };
+        if better {
+            best = i;
+        }
+    }
+    (!vals.is_empty()).then_some(best)
+}
+
+/// The value of a `NUMVAL` / `NUMVAL-C` argument string.
+///
+/// The sign may be written at **either end**, and it does not have to touch the
+/// digits: `"   -  4929.0323"` and `"  200.0002   - "` are both well-formed
+/// COBOL-85, as is the `CR`/`DB` credit-debit suffix. Spaces may sit almost
+/// anywhere, and NUMVAL-C additionally allows a currency string and digit-group
+/// separators. Reading the argument as a plain Rust float instead — which is
+/// what this did — returned **zero** for every one of those forms, and IF125A
+/// and IF126A between them write nine of the eleven.
+///
+/// `currency` is NUMVAL-C's currency string, removed wherever it sits; it is
+/// empty for plain NUMVAL. `decimal_comma` swaps the roles of `.` and `,`.
+fn numval(arg: &str, currency: &str, decimal_comma: bool) -> f64 {
+    let mut s = arg.trim().to_string();
+    let mut negative = false;
+
+    // `CR` and `DB` are the credit-debit spelling of a trailing minus.
+    let up = s.to_ascii_uppercase();
+    if up.ends_with("CR") || up.ends_with("DB") {
+        s.truncate(s.len() - 2);
+        negative = true;
+    } else {
+        // Otherwise one sign, at either end, with any amount of space between
+        // it and the digits.
+        let t = s.trim();
+        let stripped = t
+            .strip_suffix('-')
+            .or_else(|| t.strip_prefix('-'))
+            .map(|rest| (rest, true))
+            .or_else(|| {
+                t.strip_suffix('+')
+                    .or_else(|| t.strip_prefix('+'))
+                    .map(|rest| (rest, false))
+            });
+        if let Some((rest, neg)) = stripped {
+            negative = neg;
+            s = rest.to_string();
+        }
+    }
+
+    if !currency.is_empty() {
+        s = s.replace(currency, "");
+    }
+
+    // What is left is digits, spaces, digit-group separators and at most one
+    // decimal point. Keeping only the digits and that point drops the rest.
+    let point = if decimal_comma { ',' } else { '.' };
+    let digits: String = s
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == point)
+        .map(|c| if c == point { '.' } else { c })
+        .collect();
+    let v: f64 = digits.parse().unwrap_or(0.0);
+    if negative {
+        -v
+    } else {
+        v
+    }
+}
+
+/// The two arguments of a two-argument intrinsic, or a reportable error.
+///
+/// `FUNCTION MOD(A, -3)` was reaching the interpreter with one argument — the
+/// lexer had dropped the separator comma and the parser read `A -3` as a
+/// subtraction — and indexing the second panicked, which is how IF124A and
+/// IF133A came out of the harness as "crashed" rather than as failures. The
+/// lexer no longer drops that comma, but a program is still free to write the
+/// call wrong, and a COBOL program must never be able to crash the interpreter.
+fn two_args<'a>(
+    name: &str,
+    args: &'a [Expr],
+    span: Span,
+) -> Result<(&'a Expr, &'a Expr), RuntimeError> {
+    match args {
+        [a, b, ..] => Ok((a, b)),
+        _ => Err(RuntimeError::IntrinsicArity {
+            name: name.to_string(),
+            needed: 2,
+            given: args.len(),
+            span,
+        }),
+    }
+}
+
+/// The integer digit positions a PICTURE describes — the `9`s to the left of
+/// any `V`, with `9(n)` counting as *n* of them.
+///
+/// Only the integer side matters to the caller: a RELATIVE KEY is a whole
+/// record number, so what decides whether a number fits is how many digits the
+/// item has before the decimal point.
+fn pic_integer_digits(pic: &str) -> u32 {
+    let up = pic.to_ascii_uppercase();
+    let b = up.as_bytes();
+    let (mut total, mut i) = (0u32, 0usize);
+    while i < b.len() {
+        match b[i] {
+            // Everything from the implied decimal point on is fractional.
+            b'V' => break,
+            b'9' => {
+                i += 1;
+                // A parenthesised repeat count multiplies the position before it.
+                match (b.get(i), up[i..].find(')')) {
+                    (Some(b'('), Some(off)) => {
+                        let end = i + off;
+                        total += up[i + 1..end].trim().parse::<u32>().unwrap_or(1);
+                        i = end + 1;
+                    }
+                    _ => total += 1,
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    total
+}
+
+/// Build the numbered-slot engine behind `ORGANIZATION IS RELATIVE`.
+///
+/// The slot width is the *largest* record the FD describes, because every 01 of
+/// an FD overlays one record area and any of them may be written. A `RECORD IS
+/// VARYING` clause raises it further: the clause is what the program promised,
+/// and a short record still has to fit in a slot sized for a long one.
+fn make_relative_engine(spec: &FileSpec, path: &str) -> crate::relative::RelativeFile {
+    use cobolt_ast::program::StorageMode;
+    let widest = spec
+        .record_layouts
+        .iter()
+        .map(|(_, l)| l.len)
+        .max()
+        .unwrap_or(spec.layout.len)
+        .max(spec.layout.len);
+    let declared = spec
+        .sizing
+        .as_ref()
+        .and_then(|s| s.max)
+        .unwrap_or(0) as usize;
+    let mut e = crate::relative::RelativeFile::new(
+        path,
+        widest.max(declared).max(1),
+        spec.storage_mode == StorageMode::Memory,
+    );
+    e.set_persist(spec.persist);
+    e
 }
 
 /// Translate a COBOL relational operator (from `START`) to a key search op.
@@ -924,6 +1432,18 @@ pub struct Interpreter {
     // ── File I/O ──────────────────────────────────────────────────────────────
     /// Logical file name → static SELECT/FD description.
     file_specs: HashMap<String, FileSpec>,
+    /// The `FILE STATUS` bindings of the nested program currently running, if
+    /// any — file name → status item, both uppercase.
+    ///
+    /// Empty while the outermost program runs, when `file_specs` already holds
+    /// the right answer. Swapped in around a nested `CALL` and swapped back
+    /// after, so nesting unwinds in order.
+    ///
+    /// A miss falls back to `file_specs`, which is what a nested program
+    /// referencing a `GLOBAL` file it did not itself `SELECT` needs: the status
+    /// item is then the containing program's, because that is the SELECT the
+    /// binding came from.
+    active_file_status: HashMap<String, String>,
     /// FD record (01) name → owning logical file name.
     record_to_file: HashMap<String, String>,
     /// Logical file name → currently-open handle.
@@ -1005,6 +1525,17 @@ pub struct Interpreter {
     /// record is not written. Cleared by `OPEN` and `CLOSE`, so the order is
     /// judged within one open of the file and not across two.
     last_write_key: HashMap<String, Vec<u8>>,
+    /// Logical file name → the other files it shares a record area with, from
+    /// I-O-CONTROL `SAME [RECORD] AREA`.
+    ///
+    /// Those files' `01`s describe **one** piece of storage, so a `READ` of any
+    /// of them is visible through the record names of all of them. IX205A reads
+    /// `IX-FD2` and then asserts that `IX-FD1`'s record shows IX-FD2's
+    /// contents.
+    same_area_peers: HashMap<String, Vec<String>>,
+    /// SPECIAL-NAMES `ALPHABET` definitions, for `SORT/MERGE … COLLATING
+    /// SEQUENCE IS alphabet-name` to resolve against.
+    alphabets: Vec<(String, cobolt_ast::program::AlphabetSpec)>,
 }
 
 /// Where a sequential `READ` found the record it delivered.
@@ -1107,6 +1638,13 @@ impl Interpreter {
         for nested in &program.nested_programs {
             register_nested(nested, &mut nested_registry);
         }
+        // Every registered program's descriptive state, installed once —
+        // activation-qualified keys cannot collide across programs, so there
+        // is nothing to scope and nothing to unwind.
+        for np in nested_registry.values() {
+            let (caps, templates, bwz, alnum) = &np.local_descriptive;
+            env.install_descriptive(caps, templates, bwz, alnum);
+        }
         // A nested program — every RAD event handler is one — declares its own
         // `OBJECT REFERENCE` items; they need objects too, seeded into the
         // program's local template so they are in place from its first CALL.
@@ -1119,6 +1657,8 @@ impl Interpreter {
         );
 
         let (file_specs, record_to_file) = build_file_specs(&program);
+        let same_area_peers = build_same_area_peers(&program);
+        let alphabets = program.alphabets.clone();
 
         // Build the DECLARATIVES' own paragraph space and locate each handler's
         // section inside it.
@@ -1179,6 +1719,7 @@ impl Interpreter {
             debug_stepping: false,
             current_paragraph: String::new(),
             file_specs,
+            active_file_status: HashMap::new(),
             record_to_file,
             open_files: HashMap::new(),
             locked_files: std::collections::HashSet::new(),
@@ -1202,6 +1743,8 @@ impl Interpreter {
             last_read: HashMap::new(),
             read_established: std::collections::HashSet::new(),
             last_write_key: HashMap::new(),
+            same_area_peers,
+            alphabets,
         }
     }
 
@@ -3000,20 +3543,23 @@ impl Interpreter {
                 giving,
                 input_proc,
                 output_proc,
+                collating,
                 duplicates: _,
                 span,
             } => self.exec_sort(
                 file,
                 keys,
+                collating.as_deref(),
                 using,
                 giving,
-                input_proc.as_deref(),
-                output_proc.as_deref(),
+                input_proc.as_ref(),
+                output_proc.as_ref(),
                 *span,
             ),
             Stmt::Merge {
                 file,
                 keys,
+                collating,
                 using,
                 giving,
                 output_proc,
@@ -3021,10 +3567,11 @@ impl Interpreter {
             } => self.exec_sort(
                 file,
                 keys,
+                collating.as_deref(),
                 using,
                 giving,
                 None,
-                output_proc.as_deref(),
+                output_proc.as_ref(),
                 *span,
             ),
             Stmt::Release { record, from, .. } => self.exec_release(record, from.as_ref()),
@@ -3542,6 +4089,7 @@ impl Interpreter {
     /// made every such condition false whatever the record contained (NC250A
     /// IF--TEST-87 and IF--TEST-88).
     fn cond_host_value(&self, key: &str) -> CobolValue {
+        let key = &self.cond_host_key(key);
         if let Some(bytes) = self.env.group_bytes(key) {
             let n = bytes.len();
             return CobolValue::String {
@@ -3553,6 +4101,29 @@ impl Interpreter {
             .get(key)
             .cloned()
             .unwrap_or_else(|| CobolValue::from_i64(0))
+    }
+
+    /// Where a condition-name's host item actually lives.
+    ///
+    /// A LINKAGE host **is** the caller's storage: `CALL … USING` aliases the
+    /// parameter onto the argument, and only an alias-following lookup reaches
+    /// it. Reading the raw key found the callee's own untouched slot instead,
+    /// so the condition was false whatever the caller had put there.
+    ///
+    /// The subscript survives the substitution and stays a subscript. It
+    /// belongs to the host item — it says *which occurrence* the VALUEs are
+    /// tested against — so `L-ITM(2)` under the alias `L-ITM → ITM` is
+    /// `ITM(2)`, one occurrence, and never the whole table.
+    ///
+    /// An unaliased key is returned as it came, so an ordinary
+    /// WORKING-STORAGE condition-name resolves exactly as it did before.
+    fn cond_host_key(&self, key: &str) -> String {
+        use crate::environment::{base_name, key_indices, subscript_key};
+        let upper = key.to_ascii_uppercase();
+        match self.env.alias_target(base_name(&upper)) {
+            Some(target) => subscript_key(&target, &key_indices(&upper)),
+            None => upper,
+        }
     }
 
     /// Set the host item of an 88-level condition-name so the condition becomes
@@ -5767,12 +6338,34 @@ impl Interpreter {
     /// key left the children holding whatever the program had seeded them with,
     /// so `IF SQ-FS1-STATUS = "42"` compared against that seed and every status
     /// test on such a file failed.
+    /// Record `code` in the status item of whichever program is running.
+    ///
+    /// The running program's own `SELECT` decides where that is. A file may be
+    /// shared — `IS EXTERNAL` on an FD makes its open state and position one
+    /// thing across the run unit — but each program names its own status item
+    /// out of its own storage, and an operation reports into the item belonging
+    /// to the program that performed it. IC227A and IC227A-1 share a file and
+    /// call their status items `EXTERNAL-FILE-FS` and `LINKAGE-FS`; before this
+    /// looked at the running program, every operation wrote the outer one.
     fn set_file_status(&mut self, file: &str, code: &str) {
         if let Some(field) = self
-            .file_specs
+            .active_file_status
             .get(file)
-            .and_then(|s| s.status_field.clone())
+            .cloned()
+            .or_else(|| {
+                self.file_specs
+                    .get(file)
+                    .and_then(|s| s.status_field.clone())
+            })
         {
+            // Through `resolve_name`, not the raw name: a status item can be a
+            // LINKAGE item, and then it IS the caller's storage rather than a
+            // slot of its own. `set_str` keys by `storage_key`, which follows
+            // REDEFINES but not the parameter aliases `resolve_name` owns — so
+            // writing the raw name filled a LINKAGE slot nobody reads and the
+            // caller's argument never moved. IC227A-1 declares `FILE STATUS IS
+            // LINKAGE-FS`, which is its caller's third argument.
+            let field = self.env.resolve_name(&field, &[]);
             if self.env.is_group(&field) {
                 self.env.set_group(&field, code);
             } else {
@@ -5929,9 +6522,68 @@ impl Interpreter {
                     self.indexed_log_format,
                 );
                 engine.set_registered_user(reg_user.clone());
-                let code = engine.open(map_open_mode(mode));
+                // `SELECT OPTIONAL` applies to a keyed file exactly as it does
+                // to a sequential one, and the rules were only ever written for
+                // the sequential branch. A file that is not there opens anyway
+                // and the program is told so with status **05**.
+                //
+                // For `INPUT` the engine would refuse a missing file with 35, so
+                // the container is materialised by opening it I-O — the same
+                // answer the sequential branch already gives, where `INPUT` on
+                // an OPTIONAL file uses `create(true)`. Reads then find it empty
+                // and raise `AT END`, which is what the standard asks for.
+                let optional_absent = spec.optional
+                    && !existed
+                    && matches!(
+                        mode,
+                        OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                    );
+                let open_as = if optional_absent && mode == OpenMode::Input {
+                    OpenMode::InputOutput
+                } else {
+                    mode
+                };
+                let code = engine.open(map_open_mode(open_as));
+                let code = if optional_absent && (code == "00" || code == "35") {
+                    "05"
+                } else {
+                    code
+                };
                 self.open_files
                     .insert(file.clone(), OpenFile::Indexed(engine));
+                self.set_file_status(&file, code);
+                self.fire_declarative(&file, code, false)?;
+                continue;
+            }
+
+            // ── RELATIVE: dispatch to the numbered-slot engine ─────────────
+            if org == FileOrganization::Relative {
+                let mut engine = make_relative_engine(&spec, &path);
+                // `SELECT OPTIONAL` reads the same here as it does for the
+                // other two organizations: a file that is not there opens
+                // anyway and the program is told so with **05**. INPUT would
+                // otherwise be refused with 35, so the container is
+                // materialised by opening it I-O and the first READ then finds
+                // it empty.
+                let optional_absent = spec.optional
+                    && !existed
+                    && matches!(
+                        mode,
+                        OpenMode::Input | OpenMode::InputOutput | OpenMode::Extend
+                    );
+                let open_as = if optional_absent && mode == OpenMode::Input {
+                    OpenMode::InputOutput
+                } else {
+                    mode
+                };
+                let code = engine.open(map_open_mode(open_as));
+                let code = if optional_absent && (code == "00" || code == "35") {
+                    "05"
+                } else {
+                    code
+                };
+                self.open_files
+                    .insert(file.clone(), OpenFile::Relative(Box::new(engine)));
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
                 continue;
@@ -6092,6 +6744,7 @@ impl Interpreter {
                     }
                     OpenFile::Reader { .. } => "00",
                     OpenFile::Indexed(engine) => engine.close(),
+                    OpenFile::Relative(engine) => engine.close(),
                 };
                 self.set_file_status(&file, code);
                 self.fire_declarative(&file, code, false)?;
@@ -6132,8 +6785,19 @@ impl Interpreter {
             tracing::warn!("RELEASE: record '{}' is not part of any SD", rec_name);
             return Ok(());
         };
-        let buf = match self.file_specs.get(&file) {
-            Some(spec) => spec.layout.materialize(&self.env),
+        let buf = match self.file_specs.get(&file).cloned() {
+            // The record's own stored image first, named fields over it — the
+            // same rule WRITE uses (`overlay_record_area`). Materializing from
+            // the layout alone blanks every byte only FILLER covers: CCVS85
+            // ST131A's `RELEASE S2 FROM R2` carries its low-order sort digits
+            // in the SD record's FILLER, and `GIVING FILE3` wrote spaces
+            // there, so the third sort's expected keys never existed on disk.
+            Some(spec) => {
+                let mut buf = vec![b' '; spec.layout.len.max(1)];
+                self.overlay_record_area(&spec, &rec_name, &mut buf);
+                spec.layout.materialize_into(&self.env, &mut buf);
+                buf
+            }
             None => self
                 .env
                 .get_string(&rec_name)
@@ -6163,13 +6827,23 @@ impl Interpreter {
         match rec {
             Some(b) => {
                 self.sort_cursors.insert(fkey.clone(), cur + 1);
+                // Named fields only — NOT a store of the whole image under
+                // the record's group name. The environment's byte model for a
+                // group (COMP widths, sign forms) is not the RecordLayout's,
+                // and a stored raw image displaces every later group read:
+                // ST127A went from 61 to 68 failing assertions when RETURN
+                // stored the image the way READ does. FILLER-covered bytes
+                // reach the program through `RETURN … INTO` below instead.
                 if let Some(spec) = self.file_specs.get(&fkey).cloned() {
                     spec.layout.distribute(&mut self.env, &b);
                 }
                 if let Some(tgt) = into {
-                    let s = String::from_utf8_lossy(&b).into_owned();
-                    let tname = self.expr_to_name(tgt);
-                    self.env.set_str(&tname, &s);
+                    // The same contract as `READ … INTO`: a group MOVE of the
+                    // record — bytes distributed across the receiver, not a
+                    // lossy whole-string set (which nothing reads back).
+                    let b = b.clone();
+                    let tname = self.resolve_lvalue(tgt);
+                    self.store_bytes(&tname, &b);
                 }
                 self.exec_stmts(not_at_end)
             }
@@ -6185,10 +6859,11 @@ impl Interpreter {
         &mut self,
         file: &str,
         keys: &[cobolt_ast::stmt::SortKey],
+        collating: Option<&str>,
         using: &[String],
         giving: &[String],
-        input_proc: Option<&str>,
-        output_proc: Option<&str>,
+        input_proc: Option<&(String, Option<String>)>,
+        output_proc: Option<&(String, Option<String>)>,
         span: Span,
     ) -> Result<(), RuntimeError> {
         let fkey = file.to_ascii_uppercase();
@@ -6196,8 +6871,8 @@ impl Interpreter {
         self.sort_cursors.insert(fkey.clone(), 0);
 
         // ── Phase 1: collect records ──────────────────────────────────────
-        if let Some(ip) = input_proc {
-            self.exec_perform(&PerformTarget::Section(ip.to_string(), span), span)?;
+        if let Some((name, thru)) = input_proc {
+            self.exec_sort_procedure(name, thru.as_deref(), span)?;
         } else {
             for uf in using {
                 let recs = self.read_all_records(uf);
@@ -6209,12 +6884,12 @@ impl Interpreter {
         }
 
         // ── Phase 2: sort by keys ─────────────────────────────────────────
-        self.sort_records(&fkey, keys, span)?;
+        self.sort_records(&fkey, keys, collating, span)?;
 
         // ── Phase 3: deliver records ──────────────────────────────────────
-        if let Some(op) = output_proc {
+        if let Some((name, thru)) = output_proc {
             self.sort_cursors.insert(fkey.clone(), 0);
-            self.exec_perform(&PerformTarget::Section(op.to_string(), span), span)?;
+            self.exec_sort_procedure(name, thru.as_deref(), span)?;
         } else {
             let recs = self.sort_buffers.get(&fkey).cloned().unwrap_or_default();
             for gf in giving {
@@ -6230,11 +6905,23 @@ impl Interpreter {
         &mut self,
         fkey: &str,
         keys: &[cobolt_ast::stmt::SortKey],
+        collating: Option<&str>,
         span: Span,
     ) -> Result<(), RuntimeError> {
         let Some(spec) = self.file_specs.get(fkey).cloned() else {
             return Ok(());
         };
+        // `[COLLATING] SEQUENCE IS alphabet-name` orders THIS sort's
+        // alphanumeric keys by that alphabet (CCVS85 ST139A/ST140A). The
+        // standard sequences and NATIVE are the machine order and need no
+        // table — `from_spec` returns `None` and the ordinary comparison
+        // stands, which is also what an unknown name degrades to.
+        let coll = collating.and_then(|name| {
+            self.alphabets
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                .and_then(|(_, spec)| crate::collation::Collation::from_spec(spec))
+        });
         let recs = self.sort_buffers.remove(fkey).unwrap_or_default();
         // Precompute each record's (key-value, ascending) vector.
         let mut keyed: Vec<(Vec<(CobolValue, bool)>, Vec<u8>)> = Vec::with_capacity(recs.len());
@@ -6250,7 +6937,14 @@ impl Interpreter {
         }
         keyed.sort_by(|a, b| {
             for ((av, asc), (bv, _)) in a.0.iter().zip(b.0.iter()) {
-                let ord = cob_ordering(av, bv);
+                // A named sequence orders alphanumeric keys; numeric keys
+                // compare by value under any sequence.
+                let ord = match (&coll, av, bv) {
+                    (Some(c), CobolValue::String { .. }, CobolValue::String { .. }) => {
+                        c.compare(&av.as_display_string(), &bv.as_display_string())
+                    }
+                    _ => cob_ordering(av, bv),
+                };
                 if ord != std::cmp::Ordering::Equal {
                     return if *asc { ord } else { ord.reverse() };
                 }
@@ -6280,6 +6974,15 @@ impl Interpreter {
             .get(&fkey)
             .map(|s| s.layout.len.max(1))
             .unwrap_or(1);
+        // A variable-length file carries a length prefix before every record —
+        // the same contract the ordinary READ honours. SORT's bulk reader used
+        // a fixed-size read, which sheared every record of CCVS85 ST110A's
+        // 50-to-100-byte SORTIN off its neighbours and fed the sorter garbage
+        // (the chain verifiers all reported premature EOF on its output).
+        let varying = self
+            .file_specs
+            .get(&fkey)
+            .is_some_and(|s| s.is_varying());
         let mut out = Vec::new();
         loop {
             let rec = match self.open_files.get_mut(&fkey) {
@@ -6293,6 +6996,21 @@ impl Interpreter {
                                     line.pop();
                                 }
                                 Some(line.into_bytes())
+                            }
+                            Err(_) => None,
+                        }
+                    }
+                    _ if varying => {
+                        let mut p = [0u8; VARYING_LEN_PREFIX];
+                        match r.read_exact(&mut p) {
+                            Ok(()) => {
+                                let n =
+                                    u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as usize;
+                                let mut bytes = vec![0u8; n];
+                                match r.read_exact(&mut bytes) {
+                                    Ok(()) => Some(bytes),
+                                    Err(_) => None,
+                                }
                             }
                             Err(_) => None,
                         }
@@ -6327,6 +7045,13 @@ impl Interpreter {
             None,
             Span::dummy(),
         )?;
+        // Mirror the ordinary WRITE's contract: a varying file gets each
+        // record's length prefix, so the verifier that READs the GIVING file
+        // finds records where it expects them (ST110A's chain).
+        let varying = self
+            .file_specs
+            .get(&fkey)
+            .is_some_and(|s| s.is_varying());
         for b in recs {
             if let Some(OpenFile::Writer { w, org }) = self.open_files.get_mut(&fkey) {
                 let _ = match org {
@@ -6334,6 +7059,9 @@ impl Interpreter {
                         let s = String::from_utf8_lossy(b);
                         writeln!(w, "{}", s.trim_end())
                     }
+                    _ if varying => w
+                        .write_all(&(b.len() as u32).to_be_bytes())
+                        .and_then(|()| w.write_all(b)),
                     _ => w.write_all(b),
                 };
             }
@@ -6410,11 +7138,32 @@ impl Interpreter {
             (Some(now), Some(prev)) => now.as_slice() <= prev.as_slice(),
             _ => false,
         };
+        // A RELATIVE write is addressed by record *number*. Under RANDOM or
+        // DYNAMIC access the program set it in the RELATIVE KEY item; in the
+        // sequential access mode the engine assigns the next slot and the
+        // program is told which one it got, which is the only way a sequential
+        // creator learns its own record numbers (RL101A onward).
+        let rel_spec = self
+            .file_specs
+            .get(&file)
+            .filter(|s| s.organization == FileOrganization::Relative)
+            .cloned();
+        let rel_key = rel_spec.as_ref().and_then(|s| match s.access {
+            AccessMode::Sequential => None,
+            _ => Some(self.relative_key_of(s).unwrap_or(0)),
+        });
+        let mut rel_assigned: Option<u64> = None;
         let code = match self.open_files.get_mut(&file) {
             _ if out_of_range => "44",
             _ if out_of_sequence => crate::indexed::status::SEQUENCE_ERROR,
             // ── INDEXED ────────────────────────────────────────────────────
             Some(OpenFile::Indexed(engine)) => engine.write(&buf),
+            // ── RELATIVE ───────────────────────────────────────────────────
+            Some(OpenFile::Relative(engine)) => {
+                let (code, n) = engine.write(&buf, rel_key);
+                rel_assigned = Some(n);
+                code
+            }
             // ── SEQUENTIAL / LINE SEQUENTIAL ───────────────────────────────
             Some(OpenFile::Writer { w, org }) => {
                 let r = match org {
@@ -6445,6 +7194,14 @@ impl Interpreter {
         // A WRITE is an I-O statement like any other: it displaces whatever
         // record a previous READ had established.
         self.read_established.remove(&file);
+        // The slot a sequential RELATIVE write landed in goes back into the
+        // RELATIVE KEY item. A random write already knows its number.
+        if let (Some(spec), Some(n)) = (rel_spec.as_ref(), rel_assigned) {
+            if code == "00" && rel_key.is_none() {
+                let spec = spec.clone();
+                self.set_relative_key(&spec, n);
+            }
+        }
         // Only a record that actually went in moves the sequence forward; a
         // rejected one leaves the previous key standing, so the next WRITE is
         // judged against the last one written rather than the last attempted.
@@ -6500,9 +7257,63 @@ impl Interpreter {
         if spec.record_key.as_deref() == Some(name) && agrees(quals, &spec.record_key_quals) {
             return 0;
         }
-        spec.alternate_keys
+        if let Some(i) = spec
+            .alternate_keys
             .iter()
             .position(|ak| ak.field.eq_ignore_ascii_case(name) && agrees(quals, &ak.quals))
+        {
+            return i + 1;
+        }
+        // Not one of the declared names — but a key is the **storage** it names,
+        // not the name itself. `REDEFINES` gives the same bytes a second name,
+        // and a program may use either: IX215A declares `ALTERNATE RECORD KEY IS
+        // IX-FD1-ALTKEY1` and then starts on `IX-REDF-ALTKEY1 REDEFINES
+        // IX-FD1-ALTKEY1`. Matching on the name alone left that START on key of
+        // reference 0, searching the PRIMARY index for an alternate key's
+        // characters, and it took the INVALID KEY path every time.
+        //
+        // So fall back to the byte range: an item covering exactly a declared
+        // key's extent *is* that key.
+        let Some(f) = spec.layout.field_qualified(name, quals) else {
+            return 0;
+        };
+        let primary = spec
+            .record_key
+            .as_deref()
+            .and_then(|k| spec.layout.key_spec_qualified(k, &spec.record_key_quals, false));
+        let alt_spec = |ak: &AlternateKey| {
+            spec.layout
+                .key_spec_qualified(&ak.field, &ak.quals, ak.with_duplicates)
+        };
+        // An item covering exactly a key's bytes *is* that key — that is how a
+        // `REDEFINES` of a key names it.
+        let exact = |ks: &crate::indexed::KeySpec| ks.offset == f.offset && ks.len == f.len;
+        if primary.as_ref().is_some_and(exact) {
+            return 0;
+        }
+        if let Some(i) = spec.alternate_keys.iter().position(|ak| {
+            alt_spec(ak).is_some_and(|ks| exact(&ks))
+        }) {
+            return i + 1;
+        }
+        // Failing that, an item that begins where a key begins and is shorter
+        // is the **generic** form: a subordinate item naming the key's leftmost
+        // part, which selects that key and searches on the prefix. IX209A's
+        // START-TEST-GF-23 says so outright — "AN OPERAND IN THE KEY PHRASE
+        // WHICH IS NOT THE NAME OF AN ALTERNATE KEY BUT IS THE NAME OF A DATA
+        // ITEM WHICH IS SUBORDINATE TO THE ALTERNATE KEY". Requiring an exact
+        // extent left those STARTs on key of reference 0, searching the primary
+        // index for an alternate key's characters.
+        //
+        // Exact matches are tried first, so a key that is itself the leftmost
+        // part of a longer one still resolves to itself.
+        let prefix_of = |ks: &crate::indexed::KeySpec| ks.offset == f.offset && f.len < ks.len;
+        if primary.as_ref().is_some_and(prefix_of) {
+            return 0;
+        }
+        spec.alternate_keys
+            .iter()
+            .position(|ak| alt_spec(ak).is_some_and(|ks| prefix_of(&ks)))
             .map(|i| i + 1)
             .unwrap_or(0)
     }
@@ -6521,6 +7332,43 @@ impl Interpreter {
             false,
         )?;
         buf.get(ks.offset..ks.offset + ks.len).map(<[u8]>::to_vec)
+    }
+
+    /// The record number a RELATIVE file is currently addressed by — the value
+    /// of the item the SELECT named in `RELATIVE KEY IS`.
+    ///
+    /// Unlike a RECORD KEY this lives *outside* the record, in WORKING-STORAGE,
+    /// so it is read from the environment and never from the record image. A
+    /// file that declares no RELATIVE KEY can only be accessed sequentially,
+    /// and then there is nothing to read.
+    fn relative_key_of(&self, spec: &FileSpec) -> Option<u64> {
+        let name = spec.relative_key.as_deref()?;
+        self.env.get_i64(name).and_then(|n| u64::try_from(n).ok())
+    }
+
+    /// How many integer digit positions the RELATIVE KEY item can hold.
+    ///
+    /// The width of that PICTURE is part of the file's *behaviour*, not just
+    /// its storage: COBOL-85 gives a sequential READ whose record number will
+    /// not fit the item its own status, **14**. RL117A declares
+    /// `RL-FD3-KEY PIC 99` over a 500-record file and expects the hundredth
+    /// read to report exactly that. `None` when the file has no relative key,
+    /// or the item's PICTURE is not recorded — then there is nothing to check
+    /// against and the read is left alone.
+    fn relative_key_digits(&self, spec: &FileSpec) -> Option<u32> {
+        let name = spec.relative_key.as_deref()?;
+        let pic = self.env.symbol(name).map(|s| s.pic.clone())?;
+        let d = pic_integer_digits(&pic);
+        (d > 0).then_some(d)
+    }
+
+    /// Put the record number a sequential access just used back into the
+    /// RELATIVE KEY item, which is how the program learns where the record it
+    /// read (or wrote) actually sits.
+    fn set_relative_key(&mut self, spec: &FileSpec, n: u64) {
+        if let Some(name) = spec.relative_key.clone() {
+            self.env.set_i64(&name, n as i64);
+        }
     }
 
     /// Lay one 01 record description's current bytes over the record area.
@@ -6711,9 +7559,20 @@ impl Interpreter {
         // key of reference (primary = 0, else the matching alternate index).
         // NEXT/PREVIOUS force sequential; an unqualified READ is random by
         // RECORD KEY under RANDOM or DYNAMIC access, sequential otherwise.
+        //
+        // **The phrase settles the format when the direction does not.**
+        // `AT END` belongs to the sequential READ and `INVALID KEY` to the
+        // keyed one, so a statement carrying `AT END` is sequential even where
+        // the access mode would otherwise make it random — `NEXT` is optional
+        // in that format. IX208A walks the file with `START … KEY IS GREATER`
+        // followed by `READ IX-FS2 RECORD AT END`, ten records at a time; read
+        // as random by RECORD KEY it never moved off the START and eight
+        // assertions failed. `KEY IS` still forces the keyed form outright.
         let sequential_dir = direction != ReadDirection::Default;
+        let has_at_end = !at_end.is_empty() || !not_at_end.is_empty();
         let random = !sequential_dir
-            && (key.is_some() || matches!(spec.access, AccessMode::Random | AccessMode::Dynamic));
+            && (key.is_some()
+                || (!has_at_end && matches!(spec.access, AccessMode::Random | AccessMode::Dynamic)));
         let read_dir = if direction == ReadDirection::Previous {
             ReadDir::Previous
         } else {
@@ -6735,6 +7594,10 @@ impl Interpreter {
             })
             .flatten();
         let kor = self.key_of_reference(&spec, &key_name, &key_quals);
+        // A RELATIVE file's key is a record number kept outside the record, so
+        // it comes from the environment rather than from the record layout.
+        let rel_num = (spec.organization == FileOrganization::Relative)
+            .then(|| self.relative_key_of(&spec).unwrap_or(0));
 
         // A sequential READ once `AT END` has been reached is 46, not a second
         // 10: the AT END left no valid next record, and reading on is a
@@ -6752,7 +7615,10 @@ impl Interpreter {
         // A record-SEQUENTIAL read also records where it found the record, so a
         // following `REWRITE` knows what it is replacing.
         let mut read_at: Option<LastRead> = None;
-        let (buf, code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
+        // Which slot a RELATIVE read actually delivered, so the RELATIVE KEY
+        // item can be told. A sequential read is how the program discovers it.
+        let mut rel_delivered: Option<u64> = None;
+        let (mut buf, mut code): (Option<Vec<u8>>, &str) = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 if random {
                     engine.set_key_of_reference(kor);
@@ -6762,6 +7628,17 @@ impl Interpreter {
                     }
                 } else {
                     engine.read_seq(read_dir)
+                }
+            }
+            Some(OpenFile::Relative(engine)) => {
+                if random {
+                    engine.read_key(rel_num.unwrap_or(0))
+                } else {
+                    let (rec, n, code) = engine.read_seq(read_dir);
+                    if code == status::OK {
+                        rel_delivered = Some(n);
+                    }
+                    (rec, code)
                 }
             }
             Some(OpenFile::Reader { r, org }) => match org {
@@ -6825,6 +7702,23 @@ impl Interpreter {
             _ => (None, status::NOT_OPEN_INPUT),
         };
 
+        // **Status 14** — a sequential READ of a relative file whose record
+        // number has more significant digits than the RELATIVE KEY item can
+        // hold. The program asked to be told where each record sits and the
+        // item it supplied cannot say, so the read is unsuccessful: no record
+        // is delivered, the key item is left alone, and — 14 being an at-end
+        // class condition like 10 — the `AT END` phrase is what handles it.
+        if let Some(n) = rel_delivered {
+            if self
+                .relative_key_digits(&spec)
+                .is_some_and(|d| n.to_string().len() as u32 > d)
+            {
+                rel_delivered = None;
+                buf = None;
+                code = "14";
+            }
+        }
+
         // `READ … WITH NO LOCK` releases the lock the engine takes under I-O.
         if lock == Some(false) {
             if let Some(OpenFile::Indexed(engine)) = self.open_files.get_mut(&file) {
@@ -6833,7 +7727,9 @@ impl Interpreter {
         }
 
         // Latch / release the end-of-file position this READ leaves behind.
-        if code == status::EOF && !random {
+        // 14 latches with 10: both are at-end class conditions that leave the
+        // file with no valid next record, so reading on again is 46.
+        if (code == status::EOF || code == "14") && !random {
             self.at_end_files.insert(file.clone());
         } else if code == status::OK {
             self.at_end_files.remove(&file);
@@ -6855,6 +7751,12 @@ impl Interpreter {
         } else {
             self.read_established.remove(&file);
         }
+        // A sequential RELATIVE read reports the slot it delivered — the
+        // program has no other way to learn the record's number, and RL103A
+        // checks the key item after every one of them.
+        if let Some(n) = rel_delivered {
+            self.set_relative_key(&spec, n);
+        }
 
         self.set_file_status(&file, code);
         // Pick the success / failure handler. Random reads branch on INVALID KEY,
@@ -6870,6 +7772,23 @@ impl Interpreter {
             (pick(not_invalid_key, not_at_end), pick(invalid_key, at_end))
         } else {
             (pick(not_at_end, not_invalid_key), pick(at_end, invalid_key))
+        };
+        // A statement's phrase covers **one** condition, not every failure. A
+        // keyed READ has `INVALID KEY` (statuses 21-24); a sequential one has
+        // `AT END` (10). Anything else — 30, 47, 48, 49, 92 — is an error the
+        // statement cannot handle: neither phrase runs, and the file's USE
+        // declarative is what deals with it.
+        //
+        // Running the failure phrase for any non-zero status meant a `READ` of
+        // a file that was never opened took the `AT END` path and suppressed
+        // the declarative, so IX114A never saw its handler for status 47. The
+        // 46 case above is the same rule, special-cased before this existed.
+        let phrase_condition_arose = if random {
+            matches!(code, "21" | "22" | "23" | "24")
+        } else {
+            // 10 and 14 are the two at-end class conditions a sequential READ
+            // can raise, and `AT END` covers both.
+            code == status::EOF || code == "14"
         };
         if code == status::OK {
             if let Some(b) = &buf {
@@ -6889,6 +7808,19 @@ impl Interpreter {
                         // named fields, and SQ127A's record is one 120-byte
                         // FILLER. The layout then re-imposes those named
                         // fields, whose PICTUREs interpret their own slice.
+                        self.store_bytes(name, b);
+                        layout.distribute(&mut self.env, b);
+                    }
+                }
+                // Files joined by I-O-CONTROL `SAME [RECORD] AREA` describe one
+                // piece of storage, so the bytes just read are visible through
+                // every one of their record names too (IX205A reads IX-FD2 and
+                // reads the result back out of IX-FD1's record).
+                for peer in self.same_area_peers.get(&file).cloned().unwrap_or_default() {
+                    let Some(pspec) = self.file_specs.get(&peer).cloned() else {
+                        continue;
+                    };
+                    for (name, layout) in &pspec.record_layouts {
                         self.store_bytes(name, b);
                         layout.distribute(&mut self.env, b);
                     }
@@ -6922,13 +7854,13 @@ impl Interpreter {
             }
             let _ = rec_name;
             self.exec_stmts(ok_branch)?;
-        } else {
+        } else if phrase_condition_arose {
             self.exec_stmts(fail_branch)?;
         }
         // On an unhandled error status, run the file's USE declarative. The
-        // statement "handled" the condition only if it supplied the matching
-        // AT END / INVALID KEY phrase (a non-empty failure branch).
-        self.fire_declarative(&file, code, !fail_branch.is_empty())?;
+        // statement "handled" the condition only if the status was one its
+        // phrase is defined for *and* it supplied that phrase.
+        self.fire_declarative(&file, code, phrase_condition_arose && !fail_branch.is_empty())?;
         Ok(())
     }
 
@@ -6980,6 +7912,10 @@ impl Interpreter {
         // by the immediately preceding READ.
         let io_mode = self.open_modes.get(&file).copied() == Some(OpenMode::InputOutput);
         let last = self.last_read.get(&file).copied();
+        // A RELATIVE rewrite under RANDOM or DYNAMIC access names its record by
+        // number, from the RELATIVE KEY item.
+        let rel_num = (spec.organization == FileOrganization::Relative)
+            .then(|| self.relative_key_of(&spec).unwrap_or(0));
         let code = match self.open_files.get_mut(&file) {
             // In the sequential access mode a REWRITE replaces the record the
             // previous READ delivered, so the standard requires one: with no
@@ -6990,6 +7926,14 @@ impl Interpreter {
             Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.rewrite(&buf, if random { Some(buf.as_slice()) } else { None })
+            }
+            // The same rule for a numbered slot: a sequential REWRITE replaces
+            // the record the previous READ delivered, and needs one.
+            Some(OpenFile::Relative(_)) if !random && !self.read_established.contains(&file) => {
+                "43"
+            }
+            Some(OpenFile::Relative(engine)) => {
+                engine.rewrite(&buf, if random { rel_num } else { None })
             }
             // Record SEQUENTIAL, open I-O: replace the record the last READ
             // delivered, in place.
@@ -7053,6 +7997,10 @@ impl Interpreter {
             spec.layout
                 .field_value_qualified(&self.env, k, &spec.record_key_quals)
         });
+        // A RELATIVE delete under RANDOM or DYNAMIC access names its record by
+        // number, from the RELATIVE KEY item.
+        let rel_num = (spec.organization == FileOrganization::Relative)
+            .then(|| self.relative_key_of(&spec).unwrap_or(0));
         let code = match self.open_files.get_mut(&file) {
             // Sequential DELETE removes the record the previous READ delivered,
             // and so requires one — the same rule, and the same status 43, that
@@ -7060,6 +8008,14 @@ impl Interpreter {
             Some(OpenFile::Indexed(_)) if !random && !self.read_established.contains(&file) => "43",
             Some(OpenFile::Indexed(engine)) => {
                 engine.delete(if random { key_bytes.as_deref() } else { None })
+            }
+            Some(OpenFile::Relative(_)) if !random && !self.read_established.contains(&file) => {
+                "43"
+            }
+            // The slot is emptied, not removed: its number stays addressable,
+            // and the records after it do not move down.
+            Some(OpenFile::Relative(engine)) => {
+                engine.delete(if random { rel_num } else { None })
             }
             Some(_) => {
                 tracing::warn!("DELETE on a non-indexed file '{}' is not valid", file);
@@ -7104,6 +8060,21 @@ impl Interpreter {
             .layout
             .field_value_qualified(&self.env, &key_name, &key_quals);
         let kor = self.key_of_reference(&spec, &key_name, &key_quals);
+        // A RELATIVE `START` compares record *numbers*, and the data-name it
+        // carries is the RELATIVE KEY item — in WORKING-STORAGE, not in the
+        // record, so the record layout has nothing to say about it. With no KEY
+        // phrase at all the file's declared key is the implied one.
+        let rel_num = (spec.organization == FileOrganization::Relative).then(|| {
+            let name = if key_name.is_empty() {
+                spec.relative_key.clone().unwrap_or_default()
+            } else {
+                key_name.clone()
+            };
+            self.env
+                .get_i64(&name)
+                .and_then(|v| u64::try_from(v).ok())
+                .unwrap_or(0)
+        });
         let code = match self.open_files.get_mut(&file) {
             Some(OpenFile::Indexed(engine)) => {
                 engine.set_key_of_reference(kor);
@@ -7111,6 +8082,9 @@ impl Interpreter {
                     Some(kb) => engine.start(map_start_op(op), kb),
                     None => status::NOT_FOUND,
                 }
+            }
+            Some(OpenFile::Relative(engine)) => {
+                engine.start(map_start_op(op), rel_num.unwrap_or(0))
             }
             Some(_) => {
                 tracing::warn!("START on a non-indexed file '{}' is not valid", file);
@@ -7602,7 +8576,12 @@ impl Interpreter {
                     sec_names,
                     local_items,
                     local_symbols,
+                    local_cond_names,
+                    local_redefine_links,
+                    linkage_layouts,
+                    local_private,
                     params,
+                    callee_file_status,
                 ) = {
                     let np = &self.nested_registry[&prog_name];
                     (
@@ -7612,7 +8591,12 @@ impl Interpreter {
                         np.section_names.clone(),
                         np.local_items.clone(),
                         np.local_symbols.clone(),
+                        np.local_cond_names.clone(),
+                        np.local_redefine_links.clone(),
+                        np.linkage_layouts.clone(),
+                        np.local_private.clone(),
                         np.using.clone(),
+                        np.file_status.clone(),
                     )
                 };
 
@@ -7623,7 +8607,30 @@ impl Interpreter {
                     .zip(using.iter())
                     .map(|(p, a)| {
                         let pk = p.to_ascii_uppercase();
-                        let ak = self.expr_to_name(call_arg_expr(a)).to_ascii_uppercase();
+                        // **A subscripted argument keeps its subscript.**
+                        // `expr_to_name` drops it, so `CALL … USING
+                        // SUBSCRIPTED-DATA (4)` bound the parameter to the bare
+                        // table name — and a write there is the whole table
+                        // since 1.62.99, so the callee's value landed in
+                        // occurrence 1 while CCVS85 IC235A's CALL-TEST-06-08
+                        // reads occurrence 4. The subscript is evaluated NOW,
+                        // at binding time, exactly as BY REFERENCE fixes the
+                        // argument's identity at the CALL. A subscripted key is
+                        // valid as an alias TARGET — targets are followed
+                        // verbatim; only alias KEYS are base-name lookups.
+                        let arg = call_arg_expr(a);
+                        let ak = match arg {
+                            Expr::Subscript {
+                                base,
+                                indices,
+                                span,
+                            } => {
+                                let resolved = self.expr_to_name(base).to_ascii_uppercase();
+                                let idx = self.eval_indices(indices, *span);
+                                crate::environment::subscript_key(&resolved, &idx)
+                            }
+                            _ => self.expr_to_name(arg).to_ascii_uppercase(),
+                        };
                         let by_ref = matches!(a, CallArg::ByReference(_));
                         (pk, ak, by_ref)
                     })
@@ -7644,13 +8651,232 @@ impl Interpreter {
                     .cloned()
                     .unwrap_or_else(|| local_items.clone());
                 let inserted_keys = self.env.push_local_scope(&snapshot, &local_symbols);
+                // …and this program's own condition-names, which travel with
+                // its data items and were previously left behind entirely.
+                let inserted_conds = self.env.install_cond_names(&local_cond_names);
+                // …and its REDEFINES classes, so a redefinition it declares
+                // actually shares the storage it redefines.
+                let inserted_redefs = self.env.adopt_redefine_links(&local_redefine_links);
 
-                // Copy-in: bind each parameter to the caller argument's value
-                // (after the local scope so it overrides the persisted slot).
-                for (pk, ak, _) in &bindings {
-                    if let Some(v) = self.env.get(ak).cloned() {
-                        self.env.set(pk, v);
+                // **BY REFERENCE binds the caller's storage, not a copy of it.**
+                // Aliasing the parameter onto the argument is what makes that
+                // true when the callee's name for it is a name the caller also
+                // uses for something else: IC201A passes `DN1` as its *third*
+                // argument, IC202A calls that parameter `DN3`, and the caller
+                // has an unrelated `DN3` of its own. Copying in by name wrote
+                // the caller's `DN3`, and the test that catches it says so —
+                // "DN3 VALUE CHANGED BY CALL".
+                //
+                // Aliasing only the parameter, and not everything the callee
+                // declares, is deliberate: a group parameter's subordinate
+                // items keep resolving by name to the caller's, which is how a
+                // callee reads the fields of a record it was handed. Shadowing
+                // them instead cut IC from 10 clean programs to 5.
+                let mut aliased: Vec<(String, Option<String>)> = Vec::new();
+                // **BY CONTENT is the same binding, put back afterwards.** The
+                // callee is handed the value, may do as it likes with it, and
+                // the caller's data is as it was when the call returns. In a
+                // single run unit that is indistinguishable from a private
+                // copy, and it reuses the aliasing that already makes a group
+                // parameter's fields reachable — copying by name did not, so a
+                // BY CONTENT parameter whose name the caller also used wrote
+                // straight through to the caller (IC225A's `VALUE OF DN4 HAS
+                // BEEN CHANGED`).
+                let mut restore_after: Vec<(String, Option<CobolValue>)> = Vec::new();
+                // Record-as-view parameters: (argument key, total width, the
+                // callee leaves to patch back at exit).
+                let mut record_views: Vec<(String, usize, Vec<(String, usize, usize)>)> =
+                    Vec::new();
+                // Arguments wearing a parameter's edit template for the call.
+                let mut lent_templates: Vec<String> = Vec::new();
+                for (pk, ak, by_ref) in &bindings {
+                    // The parameter, followed by everything subordinate to it.
+                    // A **group** parameter is handed over whole and the callee
+                    // reads its *fields* — under its own names for them, which
+                    // need not be the caller's. IC204A declares `SUB-TABLE-1`
+                    // over `SUB-DN2 / SUB-DN3 / SUB-DN4` while its caller
+                    // passes `TABLE-1` over `DN2 / DN3 / DN4`. The two describe
+                    // the same bytes, so the subordinate items are paired by
+                    // **position** — there is nothing else to pair them by.
+                    // Without it the callee wrote its own LINKAGE slots and the
+                    // caller saw nothing (IC203A's thirteen `DN2 INCORRECT`).
+                    //
+                    // **Position is the wrong axis when the two trees differ.**
+                    // IC103A's own header says so — "THE ITEM DESCRIPTIONS ARE
+                    // DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT
+                    // THE NUMBER OF CHARACTERS IS IDENTICAL" — so where both
+                    // descriptions are flat and cover the same bytes, the
+                    // leaves are paired by OFFSET instead. A description
+                    // containing a table is left on the positional pairing:
+                    // an alias is only ever looked up by base name, so a
+                    // per-occurrence entry would never be consulted and the
+                    // leaf would end up bound to nothing (the reverted 1.62.90
+                    // attempt, IC203A 1 -> 7).
+                    // A synthetic FILLER key never belongs in a pairing: no
+                    // program can reference one (`\u{2}` cannot appear in a
+                    // COBOL name), so a callee name aliased onto a caller's
+                    // FILLER slot writes that slot at the FILLER's own width —
+                    // `MOVE "BYE" TO HEAD` through such an alias wiped a
+                    // 20-byte record to "BYE" + spaces. Filtering both sides
+                    // also lets the record-as-view path below recognise an
+                    // all-FILLER argument for what it is: nothing to pair.
+                    let unfilled = |keys: Vec<String>| -> Vec<String> {
+                        keys.into_iter().filter(|k| !k.contains('\u{2}')).collect()
+                    };
+                    let pairs: Vec<(String, String)> = {
+                        // The parameter side is walked over the CALLEE's own
+                        // symbols first: the shared env may hold the CALLER's
+                        // description under the very same name (IC203A and
+                        // IC205A both call their record TABLE-2), and then an
+                        // env-based walk reads the caller's tree for both
+                        // sides and the callee's children never bind.
+                        let from_callee = CobolEnvironment::param_leaf_spans_from(&local_symbols, pk)
+                            .and_then(|p| self.env.pair_param_spans_to_arg(&p, ak));
+                        let subordinates = from_callee
+                            .or_else(|| self.env.leaf_pairs_by_offset(pk, ak))
+                            .unwrap_or_else(|| {
+                            let p = unfilled(
+                                self.env
+                                    .symbol(pk)
+                                    .map(|s| s.layout_keys.clone())
+                                    .unwrap_or_default(),
+                            );
+                            let a = unfilled(
+                                self.env
+                                    .symbol(ak)
+                                    .map(|s| s.layout_keys.clone())
+                                    .unwrap_or_default(),
+                            );
+                            p.into_iter().zip(a).collect()
+                        });
+                        std::iter::once((pk.clone(), ak.clone()))
+                            .chain(subordinates)
+                            .collect()
+                    };
+                    // **An elementary BY CONTENT parameter is a private copy.**
+                    // The alias-and-restore treatment breaks the moment the
+                    // same argument ALSO travels by reference: CCVS85 IC225A's
+                    // CALL-TEST-02-03 passes DN1 once CONTENT and once
+                    // REFERENCE, the callee's ADD reaches the caller through
+                    // the reference — and the content restore then put the old
+                    // value back. A copy on an activation key needs no restore,
+                    // so the reference write survives, and a write through the
+                    // CONTENT parameter reaches only the copy, which is the
+                    // clause's whole meaning. Groups keep the old treatment:
+                    // their subordinates resolve to the caller's storage by
+                    // design, and a group copy would strand them.
+                    let elem = |i: &Interpreter, k: &str| {
+                        i.env.symbol(k).map_or(true, |s| s.layout_keys.is_empty())
+                    };
+                    if !*by_ref && elem(self, pk) && elem(self, ak) {
+                        let q = activation_key(&prog_name, pk);
+                        if let Some(v) = self.env.get(ak).cloned() {
+                            self.env.set(&q, v);
+                        }
+                        self.env.mirror_descriptive(ak, &q);
+                        aliased.push((pk.clone(), self.env.alias_target(pk)));
+                        self.env.set_alias(pk, &q);
+                        continue;
                     }
+                    if !*by_ref {
+                        for (_, a_sub) in &pairs {
+                            restore_after.push((a_sub.clone(), self.env.get(a_sub).cloned()));
+                        }
+                    }
+                    // **A record used as a view.** When the pairing bound
+                    // nothing below the 01 itself, the callee's leaves have no
+                    // path to the caller's bytes — the caller may have nothing
+                    // there but one big FILLER (CCVS85 IC112A LINK-TEST-08).
+                    // If the callee's declared byte layout for this parameter
+                    // matches the argument's width, slice the argument's bytes
+                    // into the leaves now and patch them back at exit. Only
+                    // slots THIS call inserted are touched, so no other
+                    // program's storage can be written; and where child
+                    // aliases exist this path stays off, so every binding that
+                    // already worked is untouched.
+                    if *by_ref && pairs.len() == 1 {
+                        if let Some((total, fields, groups)) = linkage_layouts
+                            .iter()
+                            .find(|(n, _)| n == pk)
+                            .map(|(_, l)| l)
+                        {
+                            if let Some(bytes) = self.env.display_bytes(ak) {
+                                if bytes.len() == *total {
+                                    // A view's fields are the callee's private
+                                    // window over the argument's bytes — they
+                                    // pair with nothing by design, so they take
+                                    // activation keys and diverts exactly as
+                                    // private data does. Restricting to
+                                    // freshly-inserted names starved the view
+                                    // whenever a field name collided with the
+                                    // caller's CCVS boilerplate (IC113A's
+                                    // XRECORD-NUMBER against IC112A's
+                                    // FILE-RECORD-INFO tree, 649 of 649 records
+                                    // in error).
+                                    let mine: Vec<(String, usize, usize)> = fields
+                                        .iter()
+                                        .map(|(n, off, len)| {
+                                            let vk = if inserted_keys.contains(n) {
+                                                n.clone()
+                                            } else {
+                                                let q = activation_key(&prog_name, n);
+                                                aliased
+                                                    .push((n.clone(), self.env.alias_target(n)));
+                                                self.env.set_alias(n, &q);
+                                                self.env.mirror_descriptive(n, &q);
+                                                q
+                                            };
+                                            (vk, *off, *len)
+                                        })
+                                        .collect();
+                                    for (n, off, len) in &mine {
+                                        self.env.set_bytes(n, &bytes[*off..*off + *len]);
+                                    }
+                                    // Named GROUPS join the view for reading —
+                                    // diverted and sliced in — but stay out of
+                                    // the copy-out, which patches from the
+                                    // elementary leaves.
+                                    for (n, off, len) in groups {
+                                        let q = activation_key(&prog_name, n);
+                                        aliased.push((n.clone(), self.env.alias_target(n)));
+                                        self.env.set_alias(n, &q);
+                                        self.env.set_bytes(&q, &bytes[*off..*off + *len]);
+                                    }
+                                    if !mine.is_empty() {
+                                        record_views.push((ak.clone(), *total, mine));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for (p_sub, a_sub) in pairs {
+                        if p_sub != a_sub {
+                            aliased.push((p_sub.clone(), self.env.alias_target(&p_sub)));
+                            self.env.set_alias(&p_sub, &a_sub);
+                            // An edited parameter lends its template to the
+                            // argument: the edit belongs to the description
+                            // written THROUGH (IC103A/IC235A CALL-TEST-06-06).
+                            if self.env.lend_edit_template(&p_sub, &a_sub) {
+                                lent_templates.push(a_sub.clone());
+                            }
+                        }
+                    }
+                }
+
+                // With the aliases installed, seed any adopted REDEFINES class
+                // from the caller's bytes: the refresh is write-driven and the
+                // caller's write happened before this call existed.
+                self.env.prime_redefine_classes(&inserted_redefs);
+
+                // Divert the callee's own names onto its activation keys —
+                // installed after the parameter aliases, and into the same
+                // save/restore vec, so nesting unwinds exactly. From here to
+                // the restore, only this program's statements execute, so the
+                // divert cannot capture anyone else's references.
+                for name in &local_private {
+                    aliased.push((name.clone(), self.env.alias_target(name)));
+                    self.env
+                        .set_alias(name, &activation_key(&prog_name, name));
                 }
 
                 // Run the nested program's paragraphs in declaration order,
@@ -7664,16 +8890,81 @@ impl Interpreter {
                 let saved_bodies =
                     std::mem::replace(&mut self.para_bodies, para_bodies.clone());
                 let saved_secs = std::mem::replace(&mut self.section_names, sec_names);
+                // …and so is the file's status item: an I/O statement in this
+                // program reports into the item ITS OWN `SELECT` names, not the
+                // caller's, even when the file itself is shared (`IS EXTERNAL`).
+                let saved_file_status =
+                    std::mem::replace(&mut self.active_file_status, callee_file_status);
                 let result = self.run_para_sequence(&para_bodies, &para_order);
+                self.active_file_status = saved_file_status;
                 self.para_map = saved_map;
                 self.para_order = saved_order;
                 self.para_bodies = saved_bodies;
                 self.section_names = saved_secs;
 
-                // Copy-out: BY REFERENCE arguments receive the parameter's final
-                // value (BY CONTENT / BY VALUE are not written back).
+                // Take back the lent edit templates before anything reads the
+                // arguments as the caller declared them.
+                for a in &lent_templates {
+                    self.env.return_edit_template(a);
+                }
+
+                // Patch a record-view's leaves back into the argument's bytes:
+                // current bytes first, then each named leaf rendered over its
+                // own slice, so FILLER positions keep what the caller had.
+                for (ak, total, fields) in &record_views {
+                    if let Some(mut bytes) = self.env.display_bytes(ak) {
+                        if bytes.len() == *total {
+                            for (n, off, len) in fields {
+                                if let Some(fb) = self.env.display_bytes(n) {
+                                    if fb.len() == *len {
+                                        bytes[*off..*off + *len].copy_from_slice(&fb);
+                                    }
+                                }
+                            }
+                            // A group owns no slot of its own — its bytes are
+                            // its children's — so the patched record has to go
+                            // back through the group writer. `set_bytes` on a
+                            // group key stored to an orphan slot nothing reads.
+                            if self.env.group_width(ak).is_some() {
+                                self.env.set_group_bytes(ak, &bytes);
+                            } else {
+                                self.env.set_bytes(ak, &bytes);
+                            }
+                        }
+                    }
+                }
+
+                // Put back what a BY CONTENT argument held before the call.
+                // Innermost first, so an argument bound twice unwinds in order.
+                // A key with nothing to restore is one the caller never had —
+                // which cannot happen for an argument it named, so there is
+                // nothing to put back.
+                for (key, prev) in restore_after.iter().rev() {
+                    if let Some(v) = prev {
+                        self.env.set(key, v.clone());
+                    }
+                }
+
+                // Release the parameter aliases, restoring whatever they
+                // displaced — this program may itself have been called from one
+                // that aliased the same name.
+                let alias_keys: std::collections::HashSet<&String> =
+                    aliased.iter().map(|(pk, _)| pk).collect();
+                for (pk, prev) in aliased.iter().rev() {
+                    match prev {
+                        Some(t) => self.env.set_alias(pk, t),
+                        None => self.env.clear_alias(pk),
+                    }
+                }
+
+                // Copy-out, for the BY REFERENCE parameters that were **not**
+                // aliased — the ones whose name is the argument's own name, so
+                // parameter and argument are already one slot and this is a
+                // no-op that keeps the two paths symmetrical. An aliased
+                // parameter needs nothing: every write went straight to the
+                // caller's storage as it happened.
                 for (pk, ak, by_ref) in &bindings {
-                    if *by_ref {
+                    if *by_ref && !alias_keys.contains(pk) {
                         if let Some(v) = self.env.get(pk).cloned() {
                             self.env.set(ak, v);
                         }
@@ -7692,6 +8983,8 @@ impl Interpreter {
                 // Remove the nested program's local items from the shared env
                 // regardless of outcome (their state lives in `program_locals`).
                 self.env.pop_local_scope(&inserted_keys);
+                self.env.remove_cond_names(&inserted_conds);
+                self.env.drop_redefine_links(&inserted_redefs);
 
                 match result {
                     Ok(()) | Err(RuntimeError::GoBack) => {} // GOBACK = normal return
@@ -10327,46 +11620,60 @@ impl Interpreter {
             }
             "NUMVAL" | "NUMVAL-C" => {
                 let s = self.eval_expr(&args[0], span)?.as_display_string();
-                let f: f64 = s
-                    .trim()
-                    .replace(',', "")
-                    .replace('$', "")
-                    .replace('£', "")
-                    .parse()
-                    .unwrap_or(0.0);
-                Ok(CobolValue::from_f64(f))
+                // NUMVAL-C's optional second argument is the currency string
+                // to ignore; with none it is the `SPECIAL-NAMES. CURRENCY
+                // SIGN`, which defaults to `$`. Plain NUMVAL takes no currency
+                // at all.
+                let currency = if name == "NUMVAL-C" {
+                    match args.get(1) {
+                        Some(e) => self
+                            .eval_expr(e, span)?
+                            .as_display_string()
+                            .trim()
+                            .to_string(),
+                        None => self.env.currency().to_string(),
+                    }
+                } else {
+                    String::new()
+                };
+                let dc = self.env.decimal_comma();
+                Ok(CobolValue::from_f64(numval(&s, &currency, dc)))
             }
             "MAX" => {
+                // The result is the **argument itself**, not a number derived
+                // from it. When the arguments are alphanumeric the comparison
+                // is by the collating sequence and the answer is a character
+                // string: `FUNCTION MAX("R", I, "I", "a")` is `"a"`. Reading
+                // every argument as an `f64` made all four of them zero and
+                // returned zero (IF119A, IF123A).
                 let vals = self.eval_args(args, span)?;
-                let max = vals
-                    .iter()
-                    .map(|v| v.as_f64())
-                    .fold(f64::NEG_INFINITY, f64::max);
-                Ok(CobolValue::from_f64(max))
+                Ok(extreme_index(&vals, true)
+                    .map(|i| vals[i].clone())
+                    .unwrap_or_else(|| CobolValue::from_i64(0)))
             }
             "MIN" => {
                 let vals = self.eval_args(args, span)?;
-                let min = vals
-                    .iter()
-                    .map(|v| v.as_f64())
-                    .fold(f64::INFINITY, f64::min);
-                Ok(CobolValue::from_f64(min))
+                Ok(extreme_index(&vals, false)
+                    .map(|i| vals[i].clone())
+                    .unwrap_or_else(|| CobolValue::from_i64(0)))
             }
             "SQRT" => {
                 let v = self.eval_expr(&args[0], span)?.as_f64();
                 Ok(CobolValue::from_f64(v.sqrt()))
             }
             "MOD" => {
-                let a = self.eval_expr(&args[0], span)?.as_f64();
-                let b = self.eval_expr(&args[1], span)?.as_f64();
+                let (x, y) = two_args(name, args, span)?;
+                let a = self.eval_expr(x, span)?.as_f64();
+                let b = self.eval_expr(y, span)?.as_f64();
                 if b == 0.0 {
                     return Err(RuntimeError::DivisionByZero { span });
                 }
                 Ok(CobolValue::from_f64(a - (a / b).floor() * b))
             }
             "REM" => {
-                let a = self.eval_expr(&args[0], span)?.as_f64();
-                let b = self.eval_expr(&args[1], span)?.as_f64();
+                let (x, y) = two_args(name, args, span)?;
+                let a = self.eval_expr(x, span)?.as_f64();
+                let b = self.eval_expr(y, span)?.as_f64();
                 if b == 0.0 {
                     return Err(RuntimeError::DivisionByZero { span });
                 }
@@ -10440,19 +11747,16 @@ impl Interpreter {
                 Ok(CobolValue::from_str(&s, 1))
             }
             "ORD-MAX" | "ORD-MIN" => {
+                // The *position*, so which of several equal arguments wins is
+                // observable: `FUNCTION ORD-MAX(A, 5, 5, A)` is 1 when A is the
+                // greatest, not 4. `max_by` answers with the last of a tie,
+                // which is how IF128A and IF129A failed.
                 let vals = self.eval_args(args, span)?;
-                let cmp = |a: f64, b: f64| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal);
-                let pick = if name.eq_ignore_ascii_case("ORD-MAX") {
-                    vals.iter()
-                        .enumerate()
-                        .max_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
-                } else {
-                    vals.iter()
-                        .enumerate()
-                        .min_by(|a, b| cmp(a.1.as_f64(), b.1.as_f64()))
-                };
+                let want_max = name.eq_ignore_ascii_case("ORD-MAX");
                 Ok(CobolValue::from_i64(
-                    pick.map(|(i, _)| i as i64 + 1).unwrap_or(0),
+                    extreme_index(&vals, want_max)
+                        .map(|i| i as i64 + 1)
+                        .unwrap_or(0),
                 ))
             }
             // ── Statistics over the argument list ─────────────────────────────
@@ -10594,8 +11898,9 @@ impl Interpreter {
             "ANNUITY" => {
                 // Ratio of one payment to the present value of a series of `n`
                 // payments at interest `rate`: rate / (1 − (1+rate)^−n).
-                let rate = self.eval_expr(&args[0], span)?.as_f64();
-                let n = self.eval_expr(&args[1], span)?.as_f64();
+                let (r, count) = two_args(name, args, span)?;
+                let rate = self.eval_expr(r, span)?.as_f64();
+                let n = self.eval_expr(count, span)?.as_f64();
                 let v = if rate == 0.0 {
                     if n == 0.0 {
                         0.0
@@ -10873,6 +12178,49 @@ impl Interpreter {
         }
     }
 
+    /// Read a **numeric-declared** operand back through its own PICTURE.
+    ///
+    /// A group `MOVE` is an alphanumeric move: it transfers characters and
+    /// converts nothing, so a `PIC 9(6)` child legitimately ends up holding the
+    /// string `"000007"`. That is correct storage — the item is still numeric,
+    /// and a relation between two numeric operands is algebraic.
+    ///
+    /// Nothing put the value back into numeric form, so when **both** sides of
+    /// a comparison had been filled that way neither looked numeric, the
+    /// pseudo-move did not apply, and `compare_values` compared the two display
+    /// strings: `"000000007"` against `"000007"`, unequal. One side against a
+    /// literal-valued numeric was fine, which is why this survived so long.
+    /// IX103A and IX203A both check a record number against the digits embedded
+    /// in that record's key, and both saw every record as a mismatch.
+    ///
+    /// The item's own scale decides the value: `"123456"` is 123456 in a
+    /// `PIC 9(6)` and 1234.56 in a `PIC 9(4)V99`.
+    fn numeric_view(&mut self, e: &Expr, v: CobolValue) -> CobolValue {
+        if v.is_numeric() {
+            return v;
+        }
+        if !matches!(
+            e,
+            Expr::Identifier(..) | Expr::Qualified { .. } | Expr::Subscript { .. }
+        ) {
+            return v;
+        }
+        let key = self.resolve_lvalue(e);
+        let scale = self.env.field_decimals(&key);
+        let s = v.as_display_string();
+        let digits = s.trim();
+        // Anything that is not a run of digits is left alone: the item may hold
+        // characters that are not a number at all, and inventing one would be
+        // worse than comparing what is there.
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return v;
+        }
+        match crate::value::parse_decimal(digits) {
+            Some(n) => CobolValue::Numeric(CobolNumeric::new(n.mantissa, scale as u8)),
+            None => v,
+        }
+    }
+
     /// Apply the pseudo-move to whichever side of a relation needs it.
     ///
     /// Exactly one operand numeric and the other nonnumeric is the case the
@@ -10909,6 +12257,16 @@ impl Interpreter {
                 let r = self.eval_expr(rhs, *span)?;
                 let l = self.as_comparand(lhs, l);
                 let r = self.as_comparand(rhs, r);
+                // Two numeric operands compare algebraically, whatever their
+                // slots happen to hold — see `numeric_view`.
+                let (l, r) = if !self.is_nonnumeric_operand(lhs) && !self.is_nonnumeric_operand(rhs)
+                {
+                    let l = self.numeric_view(lhs, l);
+                    let r = self.numeric_view(rhs, r);
+                    (l, r)
+                } else {
+                    (l, r)
+                };
                 let (l, r) = self.nonnumeric_relation(lhs, l, rhs, r);
                 let (l, r) = size_figuratives(lhs, l, rhs, r);
                 Ok(compare_values(&l, &r, *op))
@@ -11114,6 +12472,99 @@ impl Interpreter {
     ///
     /// A `GO TO` that leaves the range still propagates, which is what COBOL
     /// requires.
+    /// Run a SORT/MERGE `INPUT PROCEDURE` / `OUTPUT PROCEDURE` range.
+    ///
+    /// Unlike an ordinary `PERFORM a THRU b`, a sort procedure's range is
+    /// bounded by *where it ends*, not by *which paragraphs it may visit*:
+    /// CCVS85 ST119A's input procedure does `GO TO` a paragraph outside the
+    /// range ("external code") which jumps straight back in — XI-19 4.4.4
+    /// GR(10). The ordinary range runner escapes on an out-of-range jump, and
+    /// that escape unwound through `exec_sort` itself: the sort was abandoned
+    /// with an empty buffer, the released records landed later by top-level
+    /// fall-through, and every ordering test read back the *release order*.
+    /// Here a `GO TO` is followed wherever it goes, and the procedure is over
+    /// when its last paragraph completes normally.
+    fn exec_sort_procedure(
+        &mut self,
+        name: &str,
+        thru: Option<&str>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let from_u = name.to_ascii_uppercase();
+        let from_pos = self
+            .para_order
+            .iter()
+            .position(|p| p == &from_u)
+            .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                name: from_u.clone(),
+                span,
+            })?;
+        // A section-form procedure spans that section; a paragraph-form one is
+        // just itself. `THRU x` extends the end to x — or to x's last
+        // paragraph when x names a section.
+        let mut to_pos = match self.section_span(&from_u) {
+            Some((_, last)) => last,
+            None => from_pos,
+        };
+        if let Some(t) = thru {
+            let to_u = t.to_ascii_uppercase();
+            let tp = self
+                .para_order
+                .iter()
+                .position(|p| p == &to_u)
+                .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                    name: to_u.clone(),
+                    span,
+                })?;
+            to_pos = match self.section_span(&to_u) {
+                Some((_, last)) => last.max(tp),
+                None => tp,
+            };
+        }
+        let to_pos = to_pos.max(from_pos);
+        let outer = self.current_paragraph.clone();
+        let mut idx = from_pos;
+        let result = loop {
+            if idx >= self.para_order.len() {
+                break Ok(());
+            }
+            let pname = self.para_order[idx].clone();
+            self.current_paragraph = pname;
+            let stmts = match self.para_bodies.get(idx) {
+                Some(s) => s.clone(),
+                None => {
+                    if idx == to_pos {
+                        break Ok(());
+                    }
+                    idx += 1;
+                    continue;
+                }
+            };
+            match self.exec_stmts(&stmts) {
+                Ok(())
+                | Err(RuntimeError::ExitParagraph)
+                | Err(RuntimeError::ExitSection)
+                | Err(RuntimeError::NextSentence) => {
+                    // The range ends when its LAST paragraph completes —
+                    // wherever control has wandered in between.
+                    if idx == to_pos {
+                        break Ok(());
+                    }
+                    idx += 1;
+                }
+                Err(RuntimeError::GoTo { target, section }) => {
+                    match self.goto_index(&target, section.as_deref()) {
+                        Some(pos) => idx = pos,
+                        None => break Err(RuntimeError::GoTo { target, section }),
+                    }
+                }
+                Err(e) => break Err(e),
+            }
+        };
+        self.current_paragraph = outer;
+        result
+    }
+
     fn exec_para_range(&mut self, from: &str, to: &str, span: Span) -> Result<(), RuntimeError> {
         let from_u = from.to_ascii_uppercase();
         let to_u = to.to_ascii_uppercase();

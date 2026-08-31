@@ -59,6 +59,7 @@ pub mod ors_bridge;
 /// Re-exported here so every `crate::numedit::…` call site is unchanged.
 pub use cobolt_forms::numedit;
 pub mod objects;
+pub mod relative;
 pub mod rust_bridge;
 pub mod value;
 

@@ -1,0 +1,290 @@
+---
+name: nist-grind
+description: Drive the NIST CCVS85 conformance suite toward 100% on both axes, one work item at a time, across as many sessions as it takes. Reads and updates the committed ledger NIST/progress.json so every session starts identically without re-deriving state. Use when the user runs /nist-grind, asks to continue or automate the NIST work, or when resuming NIST conformance after any break.
+---
+
+# /nist-grind — the NIST conformance loop
+
+This is a **long-running, multi-session grind**. It is designed so that any
+session, and any subagent, can pick it up cold and continue without a
+hand-written handoff.
+
+**The ledger is `NIST/progress.json`. It is the state.** Read it first, update
+it last, commit it with the change. Do not write a `HANDOFF-*.md` — those were
+re-derived by hand each session and drifted out of date. If you learn something
+durable, it belongs in the ledger (`dead_ends`, `work_queue`, `history`) or in
+`CLAUDE.md`, not in a scratch document.
+
+---
+
+## Never stop to ask
+
+**Operator ruling, 2026-08-29, given twice: do NOT ask questions. Take the
+recommended course of action and proceed.** Record the decision and the
+reasoning in the ledger so it can be reviewed afterwards, but never block the
+loop on a question. If a choice looks like it needs a judgement call, make the
+call, say which way you went and why, and keep going.
+
+The standing rulings already given are in the ledger under `rules` — read them
+before deciding anything: IX301M is out of scope, RL starts now, and redb
+becomes the default disk engine.
+
+## The invariants — these outrank speed
+
+1. **One module at a time, in order** (GOLDEN RULE #9). Finish the current
+   module on **both** axes before starting the next. A tempting fix in another
+   module goes in `parked` and is not acted on.
+2. **The protected baselines must hold — checked once per MODULE** (operator
+   ruling, 2026-08-29; see step 6). They are in the ledger under
+   `protected_baselines`: NC 95/95 on both axes with 4614 PASS / 0 FAIL, SQ
+   85/85 with 624 PASS / 0 FAIL, IX 41/41 with 574/0, RL 34/34 with 354/0, IF
+   45/45 with 841/0, whole-suite compile 410/421. **If a change breaks one,
+   revert that change and record a dead end.** Do not chase the regression
+   forward. A **lexer or parser** change is still gated immediately — that is
+   where the damage has actually happened.
+3. **Never conflate the two axes.** Compile is the strictly weaker claim.
+   Always report both numbers.
+4. **A deleted test is not a passing one.** `***** ****TEST DELETED****` means
+   the program failed its own setup and skipped the case. Watch the `DELETED`
+   count in the run summary — it can move hugely while the clean-program count
+   sits still, and that is real progress.
+5. **Never invent grammar to make a test pass.** If a member needs syntax that
+   is genuinely not implemented, that is a feature gap: record it in the ledger
+   (`blocked_on` or `parked`) and move to the next item. Fixing a bug in
+   already-supported syntax is in scope; extending the language is not.
+6. **Never merge to `main`** without an explicit ask in the current
+   conversation. **Never post to the forum at all** while the grind is running
+   (operator ruling, 2026-08-29) — announcements are batched and are the
+   operator's call. Committing and pushing `fixes` is pre-authorised.
+7. **Everything here is technical debt, not a feature** (operator ruling,
+   2026-08-29). Until all NIST implementation is done there are no features:
+   all of it lands on `fixes`, nothing splits into a features commit, and
+   nothing is an f=96 item. This covers **RL** too — RELATIVE is COBOL-85 that
+   should already have worked, so under GOLDEN RULE #4 it is a fix.
+8. **Never end a session with work uncommitted** (operator ruling,
+   2026-08-29). Commit and push `fixes` before stopping, subject only to the
+   São Paulo push window — inside it, commit and defer the push.
+
+---
+
+## The loop
+
+Repeat until the current module is 100/100 on both axes, then advance
+`current_module` to the next entry in `module_order` and keep going.
+
+### 1. Orient (cheap — do not skip)
+
+```bash
+git branch --show-current          # must be `fixes`; if not, checkout and merge main
+cat NIST/progress.json             # the state
+```
+
+If the branch is not `fixes`, `git checkout fixes` **and merge `main` into it
+before the first edit** (GOLDEN RULE #5).
+
+### 2. Build both binaries — separately
+
+```bash
+cargo build --release -p cobolt-cli
+```
+
+```bash
+cargo build --release -p cobolt-semantic --example nist_conformance
+```
+
+⚠️ **Two commands, never one.** Combining `-p cobolt-cli` with `--example`
+leaves `rcrun` stale, and the census then silently measures the previous
+version.
+
+### 3. Pick the top work item
+
+Take the highest-priority entry in `work_queue` for `current_module`. If the
+queue is empty or stale, rebuild it:
+
+```bash
+./target/release/examples/nist_conformance run   IX > /tmp/run-ix.txt
+./target/release/examples/nist_conformance fails IX > /tmp/fails-ix.txt
+```
+
+Bucket the failures by their message to find shared causes — one program's
+failure is an anecdote, a bucket across ten programs is a root cause.
+
+**Check `dead_ends` before starting.** If the approach you are about to take is
+listed there, read why it failed and take the recorded alternative instead.
+
+### 4. Diagnose — parallel is allowed here, and only here
+
+Diagnosis is read-only, so it is safe to fan out. Spawn one agent per failure
+bucket (Explore or general-purpose), each returning: the failing programs, the
+COBOL construct involved, the observed vs expected status or value, and the
+narrowest hypothesis. **Do not let a diagnosing agent edit anything.**
+
+Then **verify the hypothesis by hand before writing a fix.** Extract the member
+and run it:
+
+```bash
+mkdir -p /tmp/ix && cd /tmp/ix
+/path/to/nist_conformance extract IX214A > IX214A.cbl
+/path/to/rcrun run IX214A.cbl --source-format fixed --switch XXXXX051=ON --switch XXXXX052=OFF
+```
+
+The CCVS report is `XXXXX055` in that directory — read it with `grep -a`, it is
+binary-ish. For a member that declares a producer (`inherits_from` in the
+harness), run the producer in the same directory first.
+
+Better still, **reduce to a minimal COBOL repro** in `/tmp`. Three of this
+suite's biggest fixes were found that way, and a repro that fails before and
+passes after is what the regression test is built from.
+
+### 5. Fix — sequentially, one item at a time
+
+Never apply two independent fixes before measuring. They share one runtime, and
+a regression from either becomes untraceable.
+
+### 6. Test, then gate
+
+**Operator ruling, 2026-08-29: the full regression runs once per MODULE, not
+once per change.** Running every finished module after every fix costs minutes
+each time and caught four problems in the whole grind — a poor trade against
+7000+ assertions of re-measurement. The gate moves to the end of the module:
+when the last failing assertion of the module in flight is done, everything
+runs before the module is called finished.
+
+**Per change — the cheap check only:**
+
+```bash
+cargo test --release -p cobolt-runtime --no-fail-fast
+```
+
+```bash
+./target/release/examples/nist_conformance run <CURRENT-MODULE>
+```
+
+```bash
+./target/release/examples/nist_conformance strict
+```
+
+Read **every** `test result:` line. Never verdict a sweep from a grep for
+failures. The census is one command and roughly ninety seconds, and it is kept
+per-change on purpose: a **lexer or parser change has no module boundary**, and
+that is where the damage has actually happened. It is how NC245A surfaced —
+the semicolon mistake made it fail to *compile*, and the census names it.
+
+**Per module — the full gate**, before writing `finished` in the ledger:
+
+```bash
+./target/release/examples/nist_conformance run NC
+./target/release/examples/nist_conformance run SQ
+./target/release/examples/nist_conformance run IX
+./target/release/examples/nist_conformance run RL
+./target/release/examples/nist_conformance run IF
+```
+
+Every `protected_baselines` figure must match exactly. If one moved down,
+**bisect the module's commits** — that is the price of the deferral, and it is
+the trade the operator chose deliberately. Revert the offending change and
+record a dead end; do not chase the regression forward.
+
+⚠️ **One exception stays per-change.** If the fix touches `cobolt-lexer` or
+`cobolt-parser`, run the full gate immediately rather than deferring it. Two of
+the grind's four caught regressions were front-end changes breaking a module
+that had nothing to do with the work in flight (NC245A on a comma rule, SQ203A
+on a header-card rule), and a front-end defect landed under ten later commits is
+a bisect instead of a revert.
+
+### 7. Add a regression test
+
+Every fix gets one, in the crate it belongs to — usually
+`crates/cobolt-runtime/tests/test_indexed.rs` or a `#[cfg(test)]` module in the
+source. The test must fail before the fix and pass after. Say in the test's doc
+comment **which CCVS85 member** motivated it and what went wrong.
+
+### 8. Land it
+
+- Bump `VERSION` in `crates/cobolt-ide/src/version.rs` — the **fix number `z`**,
+  always, feature or fix. Only the operator raises `x` or `y`.
+- Add a `CHANGELOG.md` entry at the top, dated absolutely, carrying the before
+  and after numbers on both axes.
+- Update `NIST/progress.json`: the module's figures, `measured_at_version`,
+  `history`, and the `work_queue` (remove what is done, re-rank the rest).
+- Update `docs/developers-guide-en.md` **if a developer would observe the
+  change** (GOLDEN RULE #3). English canonical only — GOLDEN RULE #8 is
+  suspended, so touch no translation file.
+- Commit, then push `fixes`.
+
+```bash
+git push origin fixes
+```
+
+⚠️ **The push window (GOLDEN RULE #1).** Never push between **09:00 and 18:00
+São Paulo, Monday–Friday**. Check first:
+
+```bash
+TZ=America/Sao_Paulo date '+%A %H:%M'
+```
+
+Inside the window: **commit anyway, skip the push**, note it in the ledger, and
+keep working. The embargo delays publication, never progress.
+
+### 9. Loop
+
+Go back to step 3. Do not stop to summarise unless the user asked, the module
+finished, or you hit a genuine blocker.
+
+---
+
+## When a module finishes
+
+Both axes at 100%. Then, in one change:
+
+1. Set its `state` to `finished` and `protected` to `true` in the ledger.
+2. Add its figures to `protected_baselines` — from now on every future change
+   must preserve them.
+3. Advance `current_module` to the next entry in `module_order`.
+4. Baseline the new module (`run <MOD>`) and seed its `work_queue`.
+
+---
+
+## Reporting
+
+Per module, always as **two separate numbers**, and vertically — one row per
+module, names spelled out (`NC (Nucleus)`, not bare `NC`):
+
+| Module | Compile | Execution | Assertions |
+|---|---:|---:|---|
+
+Report only figures the tools actually produced. Never estimate, never round up
+a measurement, and never present a compile score as if it meant the programs
+work.
+
+---
+
+## Known traps
+
+- **zsh does not word-split unquoted variables.** Putting `rcrun`'s flags in a
+  shell variable passes them as a single argument and the program silently does
+  nothing, creating no output files. Write the flags out in full.
+- **Do not run `cargo` while a `cargo test --workspace` sweep is running.** The
+  compiler tests shell out to `cargo build`, and the package-cache lock makes
+  one fail with a message that looks like a real failure.
+- **Check `df` before believing a build error.** Disk exhaustion masquerades as
+  "could not compile <some innocent crate>"; `target/` runs to tens of GB.
+- **A harness limitation looks exactly like a runtime regression.** Two of this
+  session's findings were the measurement being wrong, not the compiler. Run
+  the program by hand before blaming the runtime.
+- **RL (Relative I/O) has to be built, and it is authorised — as technical
+  debt.** There is no RELATIVE engine at all: the parser accepts the clause and
+  the runtime never matches it, so such a program parses and then misbehaves
+  silently. The operator ruled on 2026-08-29 to **implement it as the NIST
+  suite expects**, and to treat it as a **fix, not a feature** — it is
+  COBOL-85 that should already have worked. So it lands on `fixes` like
+  everything else and needs no spec pipeline. It is last in `module_order` on
+  purpose: do not start it until IX is 100/100 on both axes. Scope notes are in
+  the ledger's `RL` entry. **This is the one authorised exception** to "never
+  invent capability to make a test pass" — elsewhere a genuine grammar gap is
+  still recorded and parked.
+- **This project is Rust only.** Never write a shell, Python or Node script to
+  inspect, count, generate or bulk-edit anything — not even as a throwaway in
+  `/tmp`. Use the editing tools, or write it in Rust as a test or an example
+  binary. Invoking `cargo`, `git`, `grep`, `ls` is fine; stringing them into a
+  script is not.

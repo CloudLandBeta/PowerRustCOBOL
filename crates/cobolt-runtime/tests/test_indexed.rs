@@ -640,3 +640,1020 @@ fn a_record_key_naming_a_group_indexes_that_group() {
         "the START must position at K003, so the READ delivers it:\n{joined}"
     );
 }
+
+/// `START … KEY IS` may name a **subordinate item** of the record key, and is
+/// then matched on that prefix — a generic key.
+///
+/// The key was space-padded to full width instead, so `EQUAL TO` on a
+/// five-character item searched for a thirteen-byte key ending in eight blanks
+/// — which no record has — and returned 23 every time. `GREATER THAN` compared
+/// against those blanks and stopped on the first record *sharing* the prefix
+/// rather than passing them all. IX214A's `START-INITIALIZE-RECORD` depends on
+/// this, and a failure there made the program delete its own tests.
+#[test]
+fn start_on_a_subordinate_item_of_the_key_matches_on_the_prefix() {
+    let path = temp_idx("generickey");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY.\n\
+         \x20            10 R-K1 PIC X(5).\n\
+         \x20            10 R-K2 PIC X(8).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"AAAAA\" TO R-K1 MOVE \"00000001\" TO R-K2\n\
+         \x20          MOVE \"ONE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"BBBBB\" TO R-K1 MOVE \"00000002\" TO R-K2\n\
+         \x20          MOVE \"TWO\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"BBBBB\" TO R-K1 MOVE \"00000003\" TO R-K2\n\
+         \x20          MOVE \"THREE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"CCCCC\" TO R-K1 MOVE \"00000004\" TO R-K2\n\
+         \x20          MOVE \"FOUR\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE SPACES TO R-KEY\n\
+         \x20          MOVE \"BBBBB\" TO R-K1\n\
+         \x20          START F KEY IS EQUAL TO R-K1\n\
+         \x20             INVALID KEY DISPLAY \"EQ BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"EQ OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"EQ ATEND\" END-READ\n\
+         \x20          DISPLAY \"EQ GOT \" R-K1 \"/\" R-K2\n\
+         \x20          MOVE SPACES TO R-KEY\n\
+         \x20          MOVE \"BBBBB\" TO R-K1\n\
+         \x20          START F KEY IS GREATER THAN R-K1\n\
+         \x20             INVALID KEY DISPLAY \"GT BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"GT OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"GT ATEND\" END-READ\n\
+         \x20          DISPLAY \"GT GOT \" R-K1 \"/\" R-K2\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("EQ OK 00"),
+        "a five-character generic key must match, not be padded with blanks:\n{joined}"
+    );
+    assert!(
+        joined.contains("EQ GOT BBBBB/00000002"),
+        "EQUAL positions on the FIRST record sharing the prefix:\n{joined}"
+    );
+    assert!(joined.contains("GT OK 00"), "{joined}");
+    assert!(
+        joined.contains("GT GOT CCCCC/00000004"),
+        "GREATER THAN must pass every record sharing the prefix, not stop on \
+         the first of them:\n{joined}"
+    );
+}
+
+/// A key of reference may be named through a `REDEFINES`.
+///
+/// A key is the storage it names, not the name itself, and `REDEFINES` gives
+/// the same bytes a second name. IX215A declares `ALTERNATE RECORD KEY IS
+/// IX-FD1-ALTKEY1` and then starts on `IX-REDF-ALTKEY1 REDEFINES
+/// IX-FD1-ALTKEY1`. Matching on the name alone left that `START` on key of
+/// reference 0 — searching the PRIMARY index for an alternate key's characters
+/// — so it took the INVALID KEY path every time.
+#[test]
+fn a_redefines_of_a_key_names_the_same_key_of_reference() {
+    let path = temp_idx("redefkey");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC X(4).\n\
+         \x20         05 R-ALT.\n\
+         \x20            10 R-ALT-A PIC X(3).\n\
+         \x20            10 R-ALT-B PIC X(3).\n\
+         \x20         05 R-REDF REDEFINES R-ALT PIC X(6).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"AAABBB\" TO R-REDF\n\
+         \x20          MOVE \"ONE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"CCCDDD\" TO R-REDF\n\
+         \x20          MOVE \"TWO\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE \"CCCDDD\" TO R-REDF\n\
+         \x20          START F KEY IS EQUAL TO R-REDF\n\
+         \x20             INVALID KEY DISPLAY \"REDF BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"REDF OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY \"/\" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("REDF OK 00"),
+        "a REDEFINES of the alternate key must select that alternate, not fall \
+         back to the primary index:\n{joined}"
+    );
+    assert!(
+        joined.contains("GOT K002/TWO"),
+        "and it must position on the record that alternate value belongs to:\n{joined}"
+    );
+}
+
+/// Deleting during a sequential scan must not skip the next record.
+///
+/// The disk engine's cursor was a `(leaf, entry index)` slot, and `DELETE`
+/// removed the entry without touching it. Its successors shift left, so the
+/// record that was at `idx + 1` lands on `idx` and the next `READ` steps over
+/// it: a scan deleting every fourth of 20 records saw only 16. IX103A does
+/// exactly this over 500 records and reached 35.
+///
+/// The in-memory and redb engines key their cursors and were never affected;
+/// this exercises the default `STORAGE IS DISK` path.
+#[test]
+fn deleting_during_a_sequential_scan_does_not_skip_the_next_record() {
+    let path = temp_idx("delscan");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS     PIC XX.\n\
+         \x20      01 I      PIC 9(4) VALUE 0.\n\
+         \x20      01 READS  PIC 9(4) VALUE 0.\n\
+         \x20      01 EVERY4 PIC 9(4) VALUE 0.\n\
+         \x20      01 DELS   PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 20\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"REC\" TO R-NAME\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F.\n\
+         \x20      SCAN.\n\
+         \x20          ADD 1 TO READS\n\
+         \x20          ADD 1 TO EVERY4\n\
+         \x20          READ F AT END GO TO DONE END-READ\n\
+         \x20          IF EVERY4 = 4\n\
+         \x20             DELETE F END-DELETE\n\
+         \x20             ADD 1 TO DELS\n\
+         \x20             MOVE 0 TO EVERY4\n\
+         \x20          END-IF\n\
+         \x20          GO TO SCAN.\n\
+         \x20      DONE.\n\
+         \x20          DISPLAY \"READS \" READS \" DELS \" DELS\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE 0 TO I.\n\
+         \x20      COUNT-LOOP.\n\
+         \x20          READ F AT END GO TO COUNTED END-READ\n\
+         \x20          ADD 1 TO I\n\
+         \x20          GO TO COUNT-LOOP.\n\
+         \x20      COUNTED.\n\
+         \x20          DISPLAY \"REMAIN \" I\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // Every one of the 20 records is delivered, then AT END: 21 iterations.
+    assert!(
+        joined.contains("READS 0021"),
+        "the scan must see all 20 records; a skip shows up as a lower count:\n{joined}"
+    );
+    // Records 4, 8, 12, 16, 20.
+    assert!(joined.contains("DELS 0005"), "{joined}");
+    assert!(
+        joined.contains("REMAIN 0015"),
+        "20 written minus 5 deleted:\n{joined}"
+    );
+}
+
+/// `ORGANIZATION IS` and the word `KEY` are optional words.
+///
+/// COBOL-85 writes the clauses as `[ORGANIZATION IS] INDEXED` and
+/// `RECORD [KEY] [IS] data-name`. IX103A omits both — its header says so
+/// outright: "SELECT ... INDEXED ... (WITHOUT THE OPTIONAL WORD
+/// <ORGANIZATION>)".
+///
+/// Neither omission failed the compile. The bare organization was ignored, so
+/// the file stayed SEQUENTIAL and an indexed file was opened as a stream of
+/// bytes: a scan of a 500-record file delivered **870** newline-delimited
+/// "records". Dropping `RECORD IX-FS1-KEY` left the file with no key at all.
+#[test]
+fn organization_and_record_key_accept_their_optional_words() {
+    let path = temp_idx("bareorg");
+    let _ = std::fs::remove_file(&path);
+    // Written with the full spelling…
+    let full = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC 9(4).\n\
+         \x20         05 R-PAD  PIC X(60).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 I  PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 300\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"X\" TO R-PAD\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&full);
+    assert!(
+        !out.join("\n").contains("error"),
+        "writer failed:\n{}",
+        out.join("\n")
+    );
+
+    // …and read back with every optional word omitted.
+    let bare = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              INDEXED\n\
+         \x20              RECORD    R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC 9(4).\n\
+         \x20         05 R-PAD  PIC X(60).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 N  PIC 9(6) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN INPUT F\n\
+         \x20          DISPLAY \"OPEN \" FS.\n\
+         \x20      L.\n\
+         \x20          READ F AT END GO TO E END-READ\n\
+         \x20          ADD 1 TO N\n\
+         \x20          GO TO L.\n\
+         \x20      E.\n\
+         \x20          DISPLAY \"COUNT \" N\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&bare);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("OPEN 00"),
+        "a bare INDEXED file must open as indexed:\n{joined}"
+    );
+    assert!(
+        joined.contains("COUNT 000300"),
+        "the bare spelling must read the same 300 records the full spelling \
+         wrote; treating it as a byte stream gives a wildly different count:\n{joined}"
+    );
+}
+
+/// `SAME RECORD AREA` makes two files share one record area.
+///
+/// The files' `01`s describe the same storage, so a `READ` of one is visible
+/// through the record name of the other. IX205A states it plainly: "IN TESTING
+/// THE SAME AREA CLAUSE THE RECORD AREA SHOULD BE SHARED BY BOTH FILES ...
+/// THEREFORE FILE IX-FD2 IS READ AND THE RECORD IDENTIFIED FOR IX-FD1 IS
+/// ACCESSED".
+///
+/// The whole `I-O-CONTROL` paragraph used to be skipped, so the clause did
+/// nothing at all and the program still compiled — the same shape as the
+/// optional-words defect.
+#[test]
+fn same_record_area_shares_one_record_between_two_files() {
+    let a = temp_idx("samearea_a");
+    let b = temp_idx("samearea_b");
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT FA ASSIGN TO \"{a}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS A-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20          SELECT FB ASSIGN TO \"{b}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS B-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      I-O-CONTROL.\n\
+         \x20          SAME   RECORD  FA  FB.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD FA.\n\
+         \x20      01 RA.\n\
+         \x20         05 A-KEY  PIC X(4).\n\
+         \x20         05 A-NAME PIC X(8).\n\
+         \x20      FD FB.\n\
+         \x20      01 RB.\n\
+         \x20         05 B-KEY  PIC X(4).\n\
+         \x20         05 B-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT FA\n\
+         \x20          MOVE \"AK01\" TO A-KEY MOVE \"FROM-A\" TO A-NAME\n\
+         \x20          WRITE RA END-WRITE\n\
+         \x20          CLOSE FA\n\
+         \x20          OPEN OUTPUT FB\n\
+         \x20          MOVE \"BK01\" TO B-KEY MOVE \"FROM-B\" TO B-NAME\n\
+         \x20          WRITE RB END-WRITE\n\
+         \x20          CLOSE FB\n\
+         \x20          MOVE SPACES TO RA\n\
+         \x20          OPEN INPUT FB\n\
+         \x20          READ FB AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"VIA-B \" B-KEY \"/\" B-NAME\n\
+         \x20          DISPLAY \"VIA-A \" A-KEY \"/\" A-NAME\n\
+         \x20          CLOSE FB\n\
+         \x20          STOP RUN.\n",
+        a = a.display(),
+        b = b.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&a);
+    let _ = std::fs::remove_file(&b);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("VIA-B BK01/FROM-B"),
+        "the file actually read must deliver its own record:\n{joined}"
+    );
+    assert!(
+        joined.contains("VIA-A BK01/FROM-B"),
+        "sharing one record area means FA's record shows what the READ of FB \
+         put there; without it FA's record is still blank:\n{joined}"
+    );
+}
+
+/// `SELECT OPTIONAL` applies to a keyed file too: a file that is not there
+/// opens anyway, and the program is told so with status **05**.
+///
+/// The rule was written only for the sequential branch of `OPEN`; the INDEXED
+/// branch took the engine's status straight through, so an `OPEN EXTEND` of an
+/// absent optional file reported a plain 00 and IX216A could not tell the two
+/// cases apart. `INPUT` is included because the engine would otherwise refuse a
+/// missing file with 35.
+#[test]
+fn optional_keyed_file_that_is_absent_opens_with_05() {
+    for mode in ["EXTEND", "I-O", "INPUT"] {
+        let path = temp_idx(&format!("optabsent{}", mode.replace('-', "")));
+        let _ = std::fs::remove_file(&path);
+        let src = format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. T.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      INPUT-OUTPUT SECTION.\n\
+             \x20      FILE-CONTROL.\n\
+             \x20          SELECT OPTIONAL F ASSIGN TO \"{path}\"\n\
+             \x20              ORGANIZATION IS INDEXED\n\
+             \x20              ACCESS MODE IS SEQUENTIAL\n\
+             \x20              RECORD KEY IS R-KEY\n\
+             \x20              FILE STATUS IS FS.\n\
+             \x20      DATA DIVISION.\n\
+             \x20      FILE SECTION.\n\
+             \x20      FD F.\n\
+             \x20      01 R.\n\
+             \x20         05 R-KEY  PIC X(4).\n\
+             \x20         05 R-NAME PIC X(8).\n\
+             \x20      WORKING-STORAGE SECTION.\n\
+             \x20      01 FS PIC XX.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20      MAIN.\n\
+             \x20          OPEN {mode} F\n\
+             \x20          DISPLAY \"ABSENT \" FS\n\
+             \x20          CLOSE F\n\
+             \x20          OPEN {mode} F\n\
+             \x20          DISPLAY \"PRESENT \" FS\n\
+             \x20          CLOSE F\n\
+             \x20          STOP RUN.\n",
+            path = path.display(),
+            mode = mode
+        );
+        let out = run_capture(&src);
+        let _ = std::fs::remove_file(&path);
+        let joined = out.join("\n");
+        assert!(
+            joined.contains("ABSENT 05"),
+            "OPEN {mode} of an absent OPTIONAL keyed file is 05:\n{joined}"
+        );
+        // The second open finds the file the first one created, so it is a
+        // plain success — 05 must not be reported for a file that is there.
+        assert!(
+            joined.contains("PRESENT 00"),
+            "OPEN {mode} of a file now present is 00:\n{joined}"
+        );
+    }
+}
+
+/// A sequential `REWRITE` may not change the record's key.
+///
+/// It replaces the record the last `READ` delivered, so the key it carries must
+/// still be that record's key; a different one raises the INVALID KEY condition
+/// with status **21**. It was reported as 92, a logic error, which IX119A
+/// (expecting 21 or 22) could not accept.
+///
+/// Under RANDOM or DYNAMIC access the record is addressed by the key it
+/// carries, so there is nothing to disagree with and the rule does not apply.
+#[test]
+fn sequential_rewrite_may_not_change_the_key() {
+    let path = temp_idx("rwkeychange");
+    let _ = std::fs::remove_file(&path);
+    let body = |access: &str, proc_body: &str| {
+        format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. T.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      INPUT-OUTPUT SECTION.\n\
+             \x20      FILE-CONTROL.\n\
+             \x20          SELECT F ASSIGN TO \"{path}\"\n\
+             \x20              ORGANIZATION IS INDEXED\n\
+             \x20              ACCESS MODE IS {access}\n\
+             \x20              RECORD KEY IS R-KEY\n\
+             \x20              FILE STATUS IS FS.\n\
+             \x20      DATA DIVISION.\n\
+             \x20      FILE SECTION.\n\
+             \x20      FD F.\n\
+             \x20      01 R.\n\
+             \x20         05 R-KEY  PIC X(4).\n\
+             \x20         05 R-NAME PIC X(8).\n\
+             \x20      WORKING-STORAGE SECTION.\n\
+             \x20      01 FS PIC XX.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20      MAIN.\n\
+             {proc_body}\n\
+             \x20          STOP RUN.\n",
+            path = path.display(),
+            access = access,
+            proc_body = proc_body
+        )
+    };
+
+    let out = run_capture(&body(
+        "SEQUENTIAL",
+        "           OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"TWO\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          READ F AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          MOVE \"K999\" TO R-KEY\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          DISPLAY \"CHANGED \" FS\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"EDITED\" TO R-NAME\n\
+         \x20          READ F AT END CONTINUE END-READ\n\
+         \x20          MOVE \"EDITED\" TO R-NAME\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          DISPLAY \"SAMEKEY \" FS\n\
+         \x20          CLOSE F",
+    ));
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("CHANGED 21"),
+        "a changed key on a sequential REWRITE is 21, not a logic error:\n{joined}"
+    );
+    assert!(
+        joined.contains("SAMEKEY 00"),
+        "rewriting the record just read, key unchanged, still succeeds:\n{joined}"
+    );
+
+    // DYNAMIC addresses the record by the key it carries, so a "different" key
+    // simply names a different record and the rule does not apply.
+    let out = run_capture(&body(
+        "DYNAMIC",
+        "           OPEN I-O F\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"VIA-KEY\" TO R-NAME\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          DISPLAY \"RANDOM \" FS\n\
+         \x20          CLOSE F",
+    ));
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("RANDOM 00"),
+        "a keyed REWRITE addresses its own record and is unaffected:\n{joined}"
+    );
+}
+
+/// A statement's phrase covers one condition, not every failure.
+///
+/// A sequential `READ` has `AT END`, which is status **10** and nothing else; a
+/// keyed one has `INVALID KEY`, statuses 21-24. Any other error — 30, 47, 48,
+/// 49, 92 — is one the statement cannot handle: neither phrase runs, and the
+/// file's `USE` declarative deals with it.
+///
+/// Running the failure phrase for *any* non-zero status meant a `READ` of a
+/// file that was never opened took the `AT END` path and suppressed the
+/// declarative, so IX114A never saw its handler for status 47.
+#[test]
+fn a_read_error_outside_the_phrase_condition_reaches_the_declarative() {
+    let path = temp_idx("phrasecond");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS SEQUENTIAL\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC X(4).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      DECLARATIVES.\n\
+         \x20      D-SECT SECTION.\n\
+         \x20          USE AFTER STANDARD ERROR PROCEDURE ON F.\n\
+         \x20      D-PARA.\n\
+         \x20          DISPLAY \"DECLARATIVE \" FS.\n\
+         \x20      END DECLARATIVES.\n\
+         \x20      MAIN SECTION.\n\
+         \x20      M.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME\n\
+         \x20          WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          READ F AT END DISPLAY \"ATEND-TAKEN\" END-READ\n\
+         \x20          DISPLAY \"AFTER-CLOSED-READ \" FS\n\
+         \x20          OPEN INPUT F\n\
+         \x20          READ F AT END DISPLAY \"ATEND-TAKEN\" END-READ\n\
+         \x20          READ F AT END DISPLAY \"REAL-ATEND\" END-READ\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // Reading a closed file is 47 — not an AT END condition.
+    assert!(
+        joined.contains("AFTER-CLOSED-READ 47"),
+        "a READ of a file that is not open is 47:\n{joined}"
+    );
+    assert!(
+        joined.contains("DECLARATIVE 47"),
+        "47 is not the AT END condition, so the USE declarative must run:\n{joined}"
+    );
+    // …and the phrase must not have been taken for it.
+    assert_eq!(
+        joined.matches("ATEND-TAKEN").count(),
+        0,
+        "the AT END phrase covers status 10 only:\n{joined}"
+    );
+    // A genuine end of file still reaches the phrase.
+    assert!(
+        joined.contains("REAL-ATEND"),
+        "reading past the last record is a real AT END:\n{joined}"
+    );
+}
+
+/// Deleting during a **dynamic** scan does not skip the next record either.
+///
+/// Under `ACCESS MODE IS DYNAMIC` a scan reads with `READ NEXT` and then
+/// deletes, and the delete is addressed by key — but the record leaving is
+/// still the one the cursor sits on, so the B+tree slot shifts underneath it
+/// exactly as in the sequential form. The first fix guarded on *how* the record
+/// was addressed rather than *which* record it was, and missed this: IX203A's
+/// scan lost 96 of 500 records and 24 of its 125 deletions.
+#[test]
+fn deleting_during_a_dynamic_scan_does_not_skip_the_next_record() {
+    let path = temp_idx("dyndelscan");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS     PIC XX.\n\
+         \x20      01 I      PIC 9(4) VALUE 0.\n\
+         \x20      01 READS  PIC 9(4) VALUE 0.\n\
+         \x20      01 EVERY4 PIC 9(4) VALUE 0.\n\
+         \x20      01 DELS   PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 20\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"REC\" TO R-NAME\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F.\n\
+         \x20      SCAN.\n\
+         \x20          ADD 1 TO READS\n\
+         \x20          ADD 1 TO EVERY4\n\
+         \x20          READ F NEXT AT END GO TO DONE END-READ\n\
+         \x20          IF EVERY4 = 4\n\
+         \x20             DELETE F END-DELETE\n\
+         \x20             ADD 1 TO DELS\n\
+         \x20             MOVE 0 TO EVERY4\n\
+         \x20          END-IF\n\
+         \x20          GO TO SCAN.\n\
+         \x20      DONE.\n\
+         \x20          DISPLAY \"READS \" READS \" DELS \" DELS\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("READS 0021"),
+        "all 20 records then AT END; a skip shows up as a lower count:\n{joined}"
+    );
+    assert!(joined.contains("DELS 0005"), "records 4, 8, 12, 16, 20:\n{joined}");
+}
+
+/// A `START` supersedes a resume left pending by a `DELETE`.
+///
+/// The resume says "carry on after the record that just went"; a `START` says
+/// where the file is now, and must win. Without that, IX213A's `START ... KEY
+/// IS EQUAL` was overridden and the following `READ` reported `FILE IS AT END`
+/// instead of delivering the record it had positioned on.
+#[test]
+fn start_supersedes_a_pending_delete_resume() {
+    let path = temp_idx("startafterdel");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      01 I  PIC 9(4) VALUE 0.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          PERFORM VARYING I FROM 1 BY 1 UNTIL I > 10\n\
+         \x20             MOVE I TO R-KEY\n\
+         \x20             MOVE \"REC\" TO R-NAME\n\
+         \x20             WRITE R END-WRITE\n\
+         \x20          END-PERFORM\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          READ F NEXT AT END CONTINUE END-READ\n\
+         \x20          DELETE F END-DELETE\n\
+         \x20          MOVE 8 TO R-KEY\n\
+         \x20          START F KEY IS EQUAL TO R-KEY\n\
+         \x20             INVALID KEY DISPLAY \"START BAD \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"WRONG-ATEND\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("GOT 0008"),
+        "the READ must resume where START put it, not after the deleted \
+         record:\n{joined}"
+    );
+    assert!(
+        !joined.contains("WRONG-ATEND"),
+        "a stale resume drove the file to end-of-file:\n{joined}"
+    );
+}
+
+/// A generic `START` key may name a subordinate item of an **alternate** key.
+///
+/// The operand need not be the alternate key itself: an item beginning where
+/// the key begins and shorter than it names that key and searches on the
+/// prefix. IX209A's START-TEST-GF-23 says so outright — "AN OPERAND IN THE KEY
+/// PHRASE WHICH IS NOT THE NAME OF AN ALTERNATE KEY BUT IS THE NAME OF A DATA
+/// ITEM WHICH IS SUBORDINATE TO THE ALTERNATE KEY".
+///
+/// The key of reference was matched by *exact* byte extent, so a subordinate
+/// item resolved to no key at all and fell back to 0 — searching the primary
+/// index for an alternate key's characters.
+#[test]
+fn a_generic_start_key_selects_the_alternate_it_is_part_of() {
+    let path = temp_idx("genalt");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC X(4).\n\
+         \x20         05 R-ALT.\n\
+         \x20            10 R-ALT-1-5 PIC X(5).\n\
+         \x20            10 R-ALT-6-8 PIC X(3).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY\n\
+         \x20          MOVE \"AAAAA\" TO R-ALT-1-5 MOVE \"111\" TO R-ALT-6-8\n\
+         \x20          MOVE \"FIRST\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY\n\
+         \x20          MOVE \"BBBBB\" TO R-ALT-1-5 MOVE \"222\" TO R-ALT-6-8\n\
+         \x20          MOVE \"SECOND\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE SPACES TO R-ALT\n\
+         \x20          MOVE \"BBBBB\" TO R-ALT-1-5\n\
+         \x20          START F KEY IS EQUAL TO R-ALT-1-5\n\
+         \x20             INVALID KEY DISPLAY \"GEN BAD \" FS\n\
+         \x20             NOT INVALID KEY DISPLAY \"GEN OK \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"GOT \" R-KEY \"/\" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("GEN OK 00"),
+        "the leftmost part of an alternate key selects that alternate; matching \
+         on an exact extent left this on the primary index:\n{joined}"
+    );
+    assert!(
+        joined.contains("GOT K002/SECOND"),
+        "and positions on the record whose alternate begins with it:\n{joined}"
+    );
+}
+
+/// `AT END` makes a `READ` sequential even where the access mode would not.
+///
+/// `AT END` belongs to the sequential READ and `INVALID KEY` to the keyed one,
+/// and `NEXT` is optional in the sequential format. So a `READ … AT END` under
+/// `ACCESS MODE IS DYNAMIC` continues from where a `START` left the file rather
+/// than re-reading by RECORD KEY. `KEY IS` still forces the keyed form.
+#[test]
+fn at_end_makes_a_read_sequential_under_dynamic_access() {
+    let path = temp_idx("atendseq");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC X(4).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY MOVE \"ONE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K002\" TO R-KEY MOVE \"TWO\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE \"K003\" TO R-KEY MOVE \"THREE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE \"K001\" TO R-KEY\n\
+         \x20          START F KEY IS GREATER R-KEY END-START\n\
+         \x20          READ F RECORD AT END DISPLAY \"ATEND-1\" END-READ\n\
+         \x20          DISPLAY \"R1 \" R-KEY\n\
+         \x20          READ F RECORD AT END DISPLAY \"ATEND-2\" END-READ\n\
+         \x20          DISPLAY \"R2 \" R-KEY\n\
+         \x20          MOVE \"K001\" TO R-KEY\n\
+         \x20          READ F RECORD INVALID KEY DISPLAY \"KEYED BAD\" END-READ\n\
+         \x20          DISPLAY \"R3 \" R-KEY \"/\" R-NAME\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("R1 K002"),
+        "AT END makes this sequential, so it continues past the START; read as \
+         keyed it would re-deliver K001:\n{joined}"
+    );
+    assert!(joined.contains("R2 K003"), "and on to the next:\n{joined}");
+    // INVALID KEY is the keyed form's phrase, and still addresses by key.
+    assert!(
+        joined.contains("R3 K001/ONE"),
+        "INVALID KEY keeps the keyed form:\n{joined}"
+    );
+}
+
+/// A `REWRITE` that changes an alternate key joins the end of its new
+/// duplicate set.
+///
+/// A record whose alternate value changes leaves one duplicate set and enters
+/// another; it cannot hold a position in a set it has only just joined.
+/// IX215A turns on exactly this — one record is rewritten into a duplicate
+/// value, then a second is rewritten into the same one, and a `START` on that
+/// value must deliver the record whose entry joined **first**. Reusing the
+/// record's original insertion sequence delivered the other, whose file
+/// insertion was earlier but whose membership of this set was not.
+#[test]
+fn a_rewrite_into_a_duplicate_set_joins_at_the_end() {
+    let path = temp_idx("dupsetjoin");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT WITH DUPLICATES\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY   PIC 9(4).\n\
+         \x20         05 R-ALT   PIC X(6).\n\
+         \x20         05 R-NAME  PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE 0004 TO R-KEY MOVE \"AAAAAA\" TO R-ALT\n\
+         \x20          MOVE \"EARLY\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          MOVE 0176 TO R-KEY MOVE \"BBBBBB\" TO R-ALT\n\
+         \x20          MOVE \"LATE\" TO R-NAME WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          MOVE 0176 TO R-KEY\n\
+         \x20          READ F INVALID KEY DISPLAY \"R176 BAD\" END-READ\n\
+         \x20          MOVE \"DCDCDC\" TO R-ALT\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          MOVE 0004 TO R-KEY\n\
+         \x20          READ F INVALID KEY DISPLAY \"R4 BAD\" END-READ\n\
+         \x20          MOVE \"DCDCDC\" TO R-ALT\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          MOVE \"DCDCDC\" TO R-ALT\n\
+         \x20          START F KEY IS EQUAL TO R-ALT\n\
+         \x20             INVALID KEY DISPLAY \"START BAD \" FS\n\
+         \x20          END-START\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND\" END-READ\n\
+         \x20          DISPLAY \"FIRST \" R-KEY\n\
+         \x20          READ F NEXT AT END DISPLAY \"ATEND2\" END-READ\n\
+         \x20          DISPLAY \"SECOND \" R-KEY\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let out = run_capture(&src);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // 176 joined the set first, though 4 was written to the file first.
+    assert!(
+        joined.contains("FIRST 0176"),
+        "the record that entered the duplicate set first comes first, whatever \
+         order the records were originally written in:\n{joined}"
+    );
+    assert!(
+        joined.contains("SECOND 0004"),
+        "and the one that joined later follows it:\n{joined}"
+    );
+}

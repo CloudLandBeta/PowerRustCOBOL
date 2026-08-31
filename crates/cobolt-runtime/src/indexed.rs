@@ -110,7 +110,6 @@ pub enum ReadDir {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum IndexedEngine {
     /// The built-in, dependency-free Rust ISAM engine (KSDS-style, journaled).
-    #[default]
     Rust,
     /// RM/COBOL-85 indexed files (delegates to the Rust engine for now).
     RmCobol85,
@@ -118,6 +117,13 @@ pub enum IndexedEngine {
     Fujitsu,
     /// Crash-safe redb substrate (`STORAGE IS DISK`): O(1) OPEN, working-set RAM,
     /// ACID COMMIT/ROLLBACK. See [`crate::indexed_redb`].
+    ///
+    /// **The default since 1.62.73** (operator ruling, 2026-08-29). It keeps a
+    /// `seq` table, so duplicate alternates are retrieved in the order their
+    /// entries joined the set — which PRCIDXD1 cannot do without a container
+    /// format change, since it orders duplicates by RecordId and that is
+    /// permanently the original write order.
+    #[default]
     Redb,
 }
 
@@ -130,7 +136,10 @@ impl IndexedEngine {
             .replace(['_', ' '], "-")
             .as_str()
         {
-            "rust" | "rstcobol" | "rustcobol" | "native" | "default" => Some(Self::Rust),
+            "rust" | "rstcobol" | "rustcobol" | "native" => Some(Self::Rust),
+            // `default` names whatever the default currently is, so it moved
+            // with it rather than staying pinned to the PRCIDXD1 engine.
+            "default" => Some(Self::default()),
             "rm" | "rm-cobol" | "rm-cobol85" | "rmcobol" | "rmcobol85" => Some(Self::RmCobol85),
             "fujitsu" | "fujitsu-cobol" | "fujitsu-cobol85" | "fj" => Some(Self::Fujitsu),
             "redb" | "crash-safe" | "acid" => Some(Self::Redb),
@@ -687,9 +696,14 @@ impl IndexedFile {
                 None => return status::NO_NEXT,
             },
         };
-        // The primary key may not change on REWRITE.
+        // In the sequential access mode a REWRITE replaces the record the last
+        // READ delivered, so its key must still be that record's key. A changed
+        // key is the INVALID KEY condition with status **21**, not a logic
+        // error — IX119A rewrites with a different key and expects 21 or 22.
+        // Under RANDOM or DYNAMIC access the record is addressed by the key it
+        // carries, so `target` is that key and this never fires.
         if target != pkey {
-            return status::LOGIC_ERROR;
+            return status::SEQUENCE_ERROR;
         }
         let old = match self.records.get(&pkey) {
             Some(r) => r.clone(),
@@ -836,44 +850,14 @@ impl IndexedFile {
         } else {
             self.alternates[self.kor - 1].len
         };
-        let key = pad(key, ks_len);
+        let (lo, hi, n) = generic_key_bounds(key, ks_len);
         if self.kor == 0 {
-            match op {
-                StartOp::Eq => self.records.get(&key).map(|_| key.clone()),
-                StartOp::Ge => self.records.range(key..).next().map(|(k, _)| k.clone()),
-                StartOp::Gt => self
-                    .records
-                    .range(key.clone()..)
-                    .find(|(k, _)| **k > key)
-                    .map(|(k, _)| k.clone()),
-                StartOp::Le => self
-                    .records
-                    .range(..=key.clone())
-                    .next_back()
-                    .map(|(k, _)| k.clone()),
-                StartOp::Lt => self
-                    .records
-                    .range(..key)
-                    .next_back()
-                    .map(|(k, _)| k.clone()),
-            }
+            select_by_prefix(&self.records, op, &lo, &hi, n).cloned()
         } else {
-            let idx = self.kor - 1;
-            let map = &self.alt_index[idx];
-            let akey = match op {
-                StartOp::Eq => map.get(&key).map(|_| key.clone()),
-                StartOp::Ge => map.range(key..).next().map(|(k, _)| k.clone()),
-                StartOp::Gt => map
-                    .range(key.clone()..)
-                    .find(|(k, _)| **k > key)
-                    .map(|(k, _)| k.clone()),
-                StartOp::Le => map
-                    .range(..=key.clone())
-                    .next_back()
-                    .map(|(k, _)| k.clone()),
-                StartOp::Lt => map.range(..key).next_back().map(|(k, _)| k.clone()),
-            };
-            akey.and_then(|ak| map.get(&ak).and_then(|set| set.iter().next().cloned()))
+            let map = &self.alt_index[self.kor - 1];
+            select_by_prefix(map, op, &lo, &hi, n)
+                .and_then(|ak| map.get(ak))
+                .and_then(|set| set.iter().next().cloned())
         }
     }
 
@@ -1307,6 +1291,60 @@ fn pad(key: &[u8], len: usize) -> Bytes {
     k
 }
 
+/// The comparison bounds for a `START` key, which may be **generic**.
+///
+/// COBOL-85 lets `START … KEY IS <op> data-name` name a *subordinate item* of
+/// the record key — its leftmost part — and the comparison then uses only that
+/// item's length. Such a key is shorter than the full key, and the file is
+/// searched on that **prefix**.
+///
+/// Returns the lowest and highest full-width keys sharing the prefix, plus the
+/// prefix length. Padding low with `0x00` and high with `0xFF` makes
+/// `[lo, hi]` exactly the set of keys beginning with it, so every relation
+/// reduces to an ordinary range query.
+///
+/// **Space-padding was the bug.** `START … KEY IS EQUAL TO` on a five-character
+/// item searched for a thirteen-byte key ending in eight blanks, which no
+/// record has, and returned 23 every time; `GREATER THAN` compared against
+/// those blanks and stopped on the first record *sharing* the prefix instead of
+/// passing them all. When the named item is the whole key the two bounds
+/// collapse onto it and behaviour is exactly as before.
+pub(crate) fn generic_key_bounds(key: &[u8], ks_len: usize) -> (Bytes, Bytes, usize) {
+    let n = key.len().min(ks_len);
+    let prefix = &key[..n];
+    let mut lo = prefix.to_vec();
+    lo.resize(ks_len, 0x00);
+    let mut hi = prefix.to_vec();
+    hi.resize(ks_len, 0xFF);
+    (lo, hi, n)
+}
+
+/// Pick the key a `START` positions on, comparing on the first `n` bytes.
+///
+/// `lo`/`hi` bound the keys sharing the prefix (see [`generic_key_bounds`]), so
+/// `EQUAL` is the first key inside the band, `GREATER` the first one past it,
+/// and `LESS` the last one before it — the same answers a full-width key gives,
+/// since its band is a single value.
+fn select_by_prefix<'a, V>(
+    map: &'a std::collections::BTreeMap<Bytes, V>,
+    op: StartOp,
+    lo: &Bytes,
+    hi: &Bytes,
+    n: usize,
+) -> Option<&'a Bytes> {
+    match op {
+        StartOp::Eq => map.range(lo.clone()..=hi.clone()).next().map(|(k, _)| k),
+        StartOp::Ge => map.range(lo.clone()..).next().map(|(k, _)| k),
+        // Past every key sharing the prefix, not merely past the padded value.
+        StartOp::Gt => map
+            .range(lo.clone()..)
+            .find(|(k, _)| k.len() < n || k[..n] > lo[..n])
+            .map(|(k, _)| k),
+        StartOp::Le => map.range(..=hi.clone()).next_back().map(|(k, _)| k),
+        StartOp::Lt => map.range(..lo.clone()).next_back().map(|(k, _)| k),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1599,10 +1637,13 @@ mod tests {
     #[test]
     fn engine_name_parsing_and_aliases() {
         use IndexedEngine as E;
-        assert_eq!(IndexedEngine::default(), E::Rust);
+        // The default moved to redb at 1.62.73 (operator ruling): it keeps a
+        // `seq` table, so duplicate alternates are retrieved in the order
+        // their entries joined the set.
+        assert_eq!(IndexedEngine::default(), E::Redb);
         assert_eq!(E::parse("rust"), Some(E::Rust));
         assert_eq!(E::parse("RUST"), Some(E::Rust));
-        assert_eq!(E::parse("default"), Some(E::Rust));
+        assert_eq!(E::parse("default"), Some(IndexedEngine::default()));
         assert_eq!(E::parse("rm-cobol85"), Some(E::RmCobol85));
         assert_eq!(E::parse("RM_COBOL85"), Some(E::RmCobol85));
         assert_eq!(E::parse("rmcobol"), Some(E::RmCobol85));

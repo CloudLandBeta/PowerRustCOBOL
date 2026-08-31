@@ -5023,6 +5023,112 @@ rewriting is how you *ask* for a different length, and `44` is the answer.
 > rewriting "the record I read three reads ago". Keep the loop tight: read,
 > change, rewrite, read again.
 
+### Addressing records by number: `ORGANIZATION IS RELATIVE`
+
+A **relative** file is a table of numbered slots, not a list of records. Slot
+*n* either holds a record or is empty, and an empty slot keeps its number:
+deleting record 7 does not renumber record 8. If you have used relative files
+in PowerCOBOL or isCOBOL the model is the familiar one, and it sits neatly
+between the two organizations either side of it — a sequential file you can
+only walk, an indexed file you address by a key inside the record, and a
+relative file you address by the record's *position*.
+
+That number lives in the `RELATIVE KEY` item, which is in WORKING-STORAGE, **not
+in the record**:
+
+```cobol
+       SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+           ORGANIZATION IS RELATIVE
+           ACCESS MODE IS DYNAMIC
+           RELATIVE KEY IS CUST-SLOT
+           FILE STATUS IS CUST-STATUS.
+```
+
+`RELATIVE KEY` is required for `RANDOM` and `DYNAMIC` access and for `START`;
+a file you only ever walk with `ACCESS MODE IS SEQUENTIAL` may omit it. Both
+`KEY` and `IS` are optional, so `RELATIVE KEY RK` and plain `RELATIVE RK` name
+the same item — useful to know when reading older source.
+
+**Creating a file.** In the sequential access mode you do not choose the
+numbers — each `WRITE` takes the next slot, and the engine puts the number it
+used into the `RELATIVE KEY` item. That is how a program that creates a file
+learns its own record numbers:
+
+```cobol
+           OPEN OUTPUT CUSTOMER-FILE.
+           PERFORM 1000-BUILD-ONE UNTIL NO-MORE-INPUT.
+      *    After each WRITE, CUST-SLOT holds the number just assigned.
+```
+
+**Addressing a record directly.** Under `RANDOM` or `DYNAMIC` you set the
+number first, and every verb acts on that slot:
+
+```cobol
+           MOVE 417 TO CUST-SLOT.
+           READ CUSTOMER-FILE
+               INVALID KEY DISPLAY "NO RECORD 417"
+           END-READ.
+```
+
+**Walking it.** `READ … NEXT` and `READ … PREVIOUS` visit the occupied slots in
+number order and skip the empty ones, and each read reports the slot it
+delivered in the `RELATIVE KEY` item — the only way to know *where* the record
+you just read actually sits.
+
+**Positioning without reading.** `START` moves to the first slot matching the
+comparison and delivers nothing; the following `READ NEXT` returns that record:
+
+```cobol
+           MOVE 400 TO CUST-SLOT.
+           START CUSTOMER-FILE KEY IS NOT LESS THAN CUST-SLOT
+               INVALID KEY SET NO-SUCH-RECORD TO TRUE
+           END-START.
+           READ CUSTOMER-FILE NEXT RECORD AT END ...
+```
+
+**Changing and removing.** `REWRITE` and `DELETE` name their record by number
+under random or dynamic access, or act on the record the last `READ` delivered
+in the sequential access mode. `DELETE` empties the slot; the number stays
+addressable and later records do **not** move down.
+
+The statuses worth testing for:
+
+| Situation | Status |
+| --- | --- |
+| `WRITE` onto a slot that already holds a record | `22` |
+| `WRITE`, `READ`, `REWRITE` or `DELETE` with a `RELATIVE KEY` of zero | `24` |
+| `READ`, `REWRITE`, `DELETE` or `START` on an empty slot, or one past the end | `23` |
+| `READ NEXT` / `PREVIOUS` with no further record | `10` |
+| A sequential `READ` whose record number will not fit the `RELATIVE KEY` item | `14` |
+| Sequential `REWRITE` or `DELETE` with no `READ` before it | `43` |
+| The file is not open in the mode the verb needs | `47`, `48`, `49` |
+
+**Size the key item for the whole file.** Status `14` is the one on that list
+that catches people out, because it is caused by a *declaration* rather than by
+anything the program does. The width of the `RELATIVE KEY` PICTURE decides how
+large a record number can be reported, so a `PIC 99` key over a 500-record file
+walks happily to record 99 and then cannot say where it is:
+
+```cobol
+       01  CUST-SLOT PIC 99.      *> reads 1-99, then status 14
+```
+
+`14` is an at-end class condition like `10`, so the `AT END` phrase is what
+handles it — which means a loop that only checks `AT END` will stop early and
+look, from the outside, as though the file simply ended.
+
+Storage follows the same `STORAGE [MODE] IS MEMORY | DISK` clause as indexed
+files (see §14), and the two containers are required to answer identically — a
+program must not be able to tell which one it is running on. `RECORD IS
+VARYING` works as it does elsewhere: each slot stores its record's own length,
+so a short record is not padded into ambiguity.
+
+> ⚠️ **Caveat.** Slot numbers start at **1**, never 0, and a random `WRITE`
+> beyond the current end of the file is legal — the slots it skips over become
+> part of the file and read as empty. A file whose highest slot is 10 000 with
+> three records in it is a perfectly ordinary relative file, so size your
+> numbering deliberately rather than using, say, a customer number directly.
+
 ### Printed reports with page control: `LINAGE`
 
 If you have been counting lines by hand to decide when to print a page trailer,
@@ -5780,6 +5886,51 @@ the key of reference:
   changes for the ordinary case of one key per name.
 - The same applies to `START … KEY IS`.
 
+### Positioning on part of a key: generic `START`
+
+`START` does not have to name the whole key. It may name a **subordinate item**
+of it — the leftmost part — and the file is then positioned on that *prefix*.
+This is the generic-key form, and it is how you scan a family of related
+records without knowing the rest of the key:
+
+```cobol
+       FD  ORDER-FILE.
+       01  ORDER-RECORD.
+           05  ORDER-KEY.
+               10  ORDER-BRANCH  PIC X(5).
+               10  ORDER-SEQ     PIC X(8).
+           05  ORDER-DETAIL      PIC X(60).
+      *
+       MOVE SPACES  TO ORDER-KEY.
+       MOVE "LONDN" TO ORDER-BRANCH.
+       START ORDER-FILE KEY IS EQUAL TO ORDER-BRANCH
+           INVALID KEY DISPLAY "no orders for that branch"
+       END-START.
+       PERFORM UNTIL FINISHED
+           READ ORDER-FILE NEXT AT END EXIT PERFORM END-READ
+           IF ORDER-BRANCH NOT = "LONDN" EXIT PERFORM END-IF
+           DISPLAY ORDER-DETAIL
+       END-PERFORM.
+```
+
+**Notes.**
+
+- `EQUAL TO` positions on the **first** record whose key begins with the value,
+  not on an exact whole-key match.
+- `GREATER THAN` passes **every** record sharing the prefix and lands on the
+  first one beyond them — so the example above could jump straight to the next
+  branch with `KEY IS GREATER THAN ORDER-BRANCH`.
+- `NOT LESS THAN` behaves as `GREATER THAN OR EQUAL`, positioning on the first
+  record whose prefix reaches the value.
+- The item must start at the same character position as the key. Naming an item
+  in the middle of the key is not a generic key.
+- The same applies to an `ALTERNATE RECORD KEY`.
+- Naming the whole key is just the special case where the prefix is the entire
+  key, so ordinary `START` is unaffected.
+
+> **Note.** Only `START` reads a key generically. `READ … KEY IS` addresses one
+> record and needs the complete key value.
+
 ### Crash-safe transactions
 
 The COBOL verbs **`COMMIT`** and **`ROLLBACK`** apply to your *open indexed
@@ -6412,8 +6563,18 @@ flowchart LR
 > drivers. You do not have to declare anything; the point is only that a plain
 > program no longer pays for a database it never opens.
 >
-> ⚠️ On **Linux**, `COBOL-HTTP-*` and the Maps control still reach OpenSSL, so a
-> program using those needs the system TLS development package regardless.
+> The same applies to the network. `COBOL-HTTP-*` reaches the operating
+> system's TLS stack, which on **Linux** is OpenSSL — another C library, and
+> another development package to install. A console program that calls no HTTP
+> verb is built without it. The Maps client is separate again, and is linked
+> when a form in your project actually carries a **Maps** or **WebSearch**
+> control; a project without one does not pay for it.
+>
+> ⚠️ A **form** application always links TLS, whatever its COBOL does: the map
+> basemap is fetched over HTTPS by the Form Designer's own renderer, so the
+> stack is there regardless. On Linux, that means a form application still wants
+> the system TLS development package. It is the **console** programs that build
+> with nothing but Rust.
 - **`dist/`** is reserved for a future "bundle everything needed to run on a
   machine without PowerRustCOBOL" feature (binary + assets + any libraries +
   launcher). For now, ship `bin/` and the copied assets.

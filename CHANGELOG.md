@@ -1,5 +1,2234 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.129] — 2026-08-31
+
+### The NIST CCVS85 grind closes at 100 %
+
+By operator ruling, DB205A — DB by name, COMMUNICATION by content
+(DISABLE/ENABLE with CD-name under USE FOR DEBUGGING) — joins the CM
+scope exclusion and is scored under CM. The census reads **420 / 420,
+100.0 % of the in-scope suite, 0 FAIL**, and DB completes its compile
+axis 14/14.
+
+Final standings across the suite: NC, SQ, IX, RL, IF, IC, ST and SM
+all at 100 % on both axes — **8362 assertions PASS, 0 FAIL, 3 DELETED**
+(the distribution's own commented-out tests). Every exclusion is an
+operator ruling on record in NIST/progress.json.
+
+## [PowerRustCOBOL 1.62.128] — 2026-08-31
+
+### `GO-TO` is a name, not a verb
+
+The lexer mapped the single hyphenated word `GO-TO` to the GO TO verb.
+It is a legal user-defined word — CCVS85 DB101A names a SECTION
+`GO-TO` — so `GO-TO SECTION.` parsed as a GO TO statement. One line
+removed: the verb is the two words `GO TO`.
+
+DB101A, DB102A and DB103M compile; **whole-suite compile 417 → 420 of
+421 (99.8%)**. The one remaining in-scope failure is DB205A, whose
+content is the COMMUNICATION machinery the scope ruling excludes — a
+proposed extension of that ruling is recorded for the operator. Full
+gate: all eight protected modules exact.
+
+## [PowerRustCOBOL 1.62.127] — 2026-08-31
+
+### SM (Source text manipulation) FINISHED
+
+The last round of REPLACING operand semantics, in one landing: a
+string-literal operand keeps its quotes; an identifier operand spans
+its IN/OF qualification chain and parenthesized subscript; all pairs
+apply in ONE pass, first match wins, and a replacement is never
+rescanned (`==1== BY ==5== ==5== BY ==7==` stops at 5); the `:TAG:`
+partial-word idiom is a substring pre-pass; and a debugging line in
+library text participates in matching, so the REPLACING that is meant
+to remove it can.
+
+**SM is complete on both axes: 17/17 compile, 16/16 execution
+(SM301M excluded by the standing 301M ruling), 311 PASS / 0 FAIL /
+3 DELETED — all three deletes are the distribution's own commented-out
+tests.** From 14/17 · 4/17 · 32 PASS / 9 FAIL at baseline. Whole-suite
+compile: 415 → 417 of 421 (99.0%). Full gate: NC, SQ, IX, RL, IF, IC,
+ST all exact. The only in-scope compile gap left in the entire suite
+is DB's four members.
+
+## [PowerRustCOBOL 1.62.126] — 2026-08-31
+
+### SM's flagging members settle
+
+`flag_high_subset` now emits NON-CONFORMING STANDARD for `COPY …
+REPLACING` and for the `REPLACE` statement — SM401M's two
+expectations match. SM301M tests intermediate-subset flagging of plain
+COPY, the same unreachable-by-design class as IX301M/RL301M/ST301M,
+and joins their exclusion under the standing ruling (SM scores out of
+16).
+
+SM (Source text manipulation): **288 PASS / 0 FAIL, 14 of 16** — the
+only remaining gap is the compile axis (SM202A, SM206A). Full gate:
+NC, SQ, IX, RL, IF, IC, ST all exact.
+
+## [PowerRustCOBOL 1.62.125] — 2026-08-31
+
+### Separators are interchangeable in pseudo-text
+
+A standalone comma or semicolon is a separator, not a text word, so
+`REPLACE ==MOVE;  "FAIL"  , TO==` must match `MOVE  , "FAIL";  TO` —
+XII-7 3.4 GR6(b), CCVS85 SM208A REP-TEST-8. Matching now drops
+standalone `,`/`;` from both sequences; the period stays significant.
+
+SM208A: 11 of 11. SM (Source text manipulation): 12 → 13 of 17,
+286 PASS / 3 FAIL. Full gate: NC, SQ, IX, RL, IF, IC, ST all exact.
+
+## [PowerRustCOBOL 1.62.124] — 2026-08-31
+
+### A top-level `01 FILLER REDEFINES` shares its storage
+
+An unnamed redefinition was wired into the overlay machinery only when
+it had a parent to key its synthetic slot under — a level-01 FILLER
+has none, so the whole redefinition was silently dropped and its
+children read spaces regardless of what the redefined item held.
+CCVS85 SM208A reads its 322-byte REPLACE result back through exactly
+this shape.
+
+SM (Source text manipulation): assertions 286 PASS / 5 FAIL → 286 / 4.
+Full gate: NC, SQ, IX, RL, IF, IC, ST all exact; runtime sweep clean.
+
+## [PowerRustCOBOL 1.62.123] — 2026-08-31
+
+### COPY reads from the library it names
+
+`COPY member OF library` selects which library supplies the text —
+CCVS85 SM207A keeps the same member name in two libraries with
+different contents, and the expander ignored the qualifier and fetched
+the same text for both. The qualifier now resolves to a subdirectory
+of the copybook path (flat lookup unchanged when absent), and the
+harness plants the suite's two alternate libraries under the X-47 and
+X-48 card names its programs use.
+
+SM (Source text manipulation): 11 → 12 of 17 clean; 285 PASS / 6 FAIL
+→ 286 / 5. Full gate: NC, SQ, IX, RL, IF, IC, ST all exact.
+
+## [PowerRustCOBOL 1.62.122] — 2026-08-31
+
+### Harness — SM204A runs after its builder
+
+SM204A checks the file SM203A writes (the same builder/checker pair as
+SM103A/SM104A), but the chain was never declared: it opened a file no
+one had written and every COPY-TEST read zeros. With the producer
+declared, SM204A reports no failures — the runtime was never wrong.
+
+SM (Source text manipulation): 10 → 11 of 17 clean; assertions
+281 PASS / 10 FAIL → 285 / 6.
+
+## [PowerRustCOBOL 1.62.121] — 2026-08-31
+
+### Pseudo-text matches by text words
+
+`COPY … REPLACING ==a== BY ==b==` (and `REPLACE`) matched pseudo-text
+with a verbatim string compare, but the operand and the copybook wrap
+their lines differently, so a multi-word operand could never match.
+Matching is now by whitespace-normalized text-word sequences,
+case-insensitive, with trailing separators detached as words of their
+own (`…X(115)` matches the copybook's glued `X(115).`).
+
+SM (Source text manipulation): 9 → 10 of 17 clean (SM201A), 271 → 281
+PASS / 10 FAIL; SM208A compiles — whole-suite compile 414 → 415 of 421
+(98.6%). Full gate: NC, SQ, IX, RL, IF, IC, ST all exact.
+
+## [PowerRustCOBOL 1.62.120] — 2026-08-31
+
+### SM — the copybooks speak the same cards as the members
+
+Two harness-fidelity repairs, no runtime change: copybook text now goes
+through the same X-card canonicalization as member source (SM103A wrote
+`XXXXP001`, SM104A read `XXXXD001` — five checks against a file that
+was never there), and the execution pass expands `COPY` against the
+suite's library before judging compilability, as the census always did
+(eleven of seventeen SM members were "did not compile" on the
+execution axis while fourteen compiled in the census).
+
+SM (Source text manipulation): 4 → 9 of 17 clean; assertions 32 PASS /
+9 FAIL → 271 / 9. Full gate after (the compile gate touches every
+module): NC, SQ, IX, RL, IF, IC, ST all exact.
+
+## [PowerRustCOBOL 1.62.119] — 2026-08-31
+
+### ST (Sort/Merge) FINISHED — and SORT learns COLLATING SEQUENCE
+
+`SORT/MERGE … [COLLATING] SEQUENCE [IS] alphabet-name` now parses in
+both CCVS85 spellings (`SEQUENCE` is a lexer keyword, so the clause is
+token-matched and the key list stops at it) and orders the sort's
+alphanumeric keys by the named SPECIAL-NAMES alphabet; numeric keys
+compare numerically under any sequence, and NATIVE/STANDARD-1 need no
+table. ST139A and ST140A compile and run clean on first try.
+
+**ST (Sort/Merge) is complete on both axes: 40/40 compile, 39/39
+execution, 735 PASS / 0 FAIL / 0 DELETED** — from 29/39 and 683/86 at
+the start of the session. Whole-suite compile: 412 → 414 of 421
+(98.3%). Full finish gate: NC, SQ, IX, RL, IF, IC all exact. Next
+module in flight: SM (Source text manipulation).
+
+## [PowerRustCOBOL 1.62.118] — 2026-08-31
+
+### Harness — the native collating sequence card (X-63)
+
+`XXXXX063` is the installation's statement of its machine's native
+collating order, a quoted 51-character literal ST137A and ST147A
+compare sorted output against. Unfilled, the expected sequences were
+spaces — and the computed sequences were already exactly ASCII. Filled
+with the ASCII sample card the members themselves document, boundary-
+anchored because IX106A carries the same eight bytes inside an X-run
+in its test data.
+
+ST (Sort/Merge): 36 → 37 of 39, assertions 709 PASS / 3 FAIL →
+**711 / 0** — everything that compiles runs clean. The two remaining
+members are the compile-axis gap (SORT … COLLATING SEQUENCE IS
+alphabet-name). IX re-checked exact (574/0); compile 412/421.
+
+## [PowerRustCOBOL 1.62.117] — 2026-08-31
+
+### The phantom sign byte in group images
+
+A negative signed (non-SEPARATE) numeric rendered its group-image
+bytes with a leading `-` — one byte the item has no character position
+for — so any group move across a negative field shifted every later
+field right by one. CCVS85 ST127A snapshots its sort record across
+three signed fields and compared the shifted copy: all 61 of its
+failures were this. Negative values now render at PICTURE width with
+the sign overpunched on the trailing digit (the record-image
+convention), widths agree, and the receiving side decodes that shape
+back to the value; every other slice still lands verbatim.
+
+ST127A: 61 FAIL → 0 (27 of 27). ST133A, ST134A, ST136A follow — the
+"record-area family" was mostly this same byte. ST (Sort/Merge):
+32 → 36 of 39; assertions 707 PASS / 70 FAIL → 709 / 3. Full gate:
+NC, SQ, IX, RL, IF, IC all exact; whole-suite compile 412/421.
+
+## [PowerRustCOBOL 1.62.116] — 2026-08-31
+
+### ST131A's shared record area — three defects, and a harness repair
+
+CCVS85 ST131A (`SAME RECORD AREA FOR SORT3 FILE3`) failed 6 assertions
+through three unrelated defects: the I-O-CONTROL paragraph is ONE
+sentence and the `SAME` file-name list ate the next clause's `SAME` as
+a file name, silently dropping the second group; `RELEASE` materialized
+named fields only, so bytes covered by FILLER — the third sort's
+low-order key digits — went to disk as spaces; and `RETURN … INTO` was
+a lossy whole-string set nothing reads back, now the same
+bytes-distributing contract as `READ … INTO` (which also clears
+ST144A). ST131A: 15 of 15. ST (Sort/Merge): 30 → 32 of 39; assertions
+696 PASS / 77 FAIL → 707 / 70.
+
+The full protected gate (parser touched) caught two things: a rejected
+variant of the RETURN fix that stored the raw image under the record's
+group name displaced ST127A's group reads (61 → 68; reverted, recorded
+as a dead end), and 1.62.114's global `XXXXX065` substitution had
+corrupted IX106A's alternate-key test data (`…XXXXXXXXXX065ALTKEY1…`).
+X-card substitution is now boundary-anchored. IX restored to 41/41,
+574 PASS / 0 FAIL; NC, SQ, RL, IF, IC exact; compile 412/421.
+
+## [PowerRustCOBOL 1.62.115] — 2026-08-31
+
+### A sort procedure follows GO TO out of its range — and back
+
+CCVS85 ST119A's INPUT PROCEDURE jumps to "external code" outside its
+`IN-1 THRU IN-EXIT` range, which jumps straight back in (XI-19 4.4.4
+GR(10)). The ordinary PERFORM-range runner escapes on an out-of-range
+GO TO, and that escape unwound through the SORT statement itself: the
+sort ran on an empty buffer, the released records arrived later by
+top-level fall-through, and every ordering test read back the release
+order. A sort INPUT/OUTPUT PROCEDURE now follows a GO TO wherever it
+goes and ends when its last paragraph completes; ordinary PERFORM THRU
+keeps its escape semantics.
+
+ST119A: 9 FAIL → 0 (27 of 27, five never-reached tests now execute).
+ST (Sort/Merge): 29 → 30 of 39 clean; assertions 683 PASS / 86 FAIL →
+696 / 77. Whole-suite compile unchanged at 412/421.
+
+## [PowerRustCOBOL 1.62.114] — 2026-08-30
+
+### Harness — the big-sort record count (X-65) is filled in
+
+`XXXXX065` is the record count for ST115A's big sort file, a size the
+distribution leaves for the installation. Unfilled, it is an undeclared
+identifier: the `MOVE` into `RECORDS-IN-FILE` no-ops, the build loop's bound
+compares against nothing and exits after ONE 507-byte record, ST116A sorts a
+one-record file, and ST117A's BIG-SORT reports `ERROR AT RECORD 1`. One
+hundred keeps "big" meaningful and the sweep fast — padded to the card's
+eight columns, or the sequence stamp slides into the code area (the first
+attempt crashed both members exactly that way).
+
+Sort/Merge (ST), execution: **28 → 29 of 39 clean** (683 PASS / 86 FAIL);
+ST115A and ST117A both run clean. Whole-suite compile **412 / 421**.
+
+## [PowerRustCOBOL 1.62.113] — 2026-08-30
+
+### Harness — ST301M joins the intermediate-subset-flagging exclusion
+
+"The following program tests the flagging of intermediate subset features that
+are used in sort-merge functions" — ST301M's own header. Its expectations are
+the `SD`, `SAME SORT-MERGE AREA`, `MERGE` and `SORT … GIVING` this
+implementation runs every day, and a compiler validating at the high subset
+must not flag features it supports. The same operator ruling that took IX301M
+and RL301M out of scope covers it; Sort/Merge is scored out of **39**.
+
+Sort/Merge (ST): **28 of 39 clean, 682 PASS / 87 FAIL** of 769 scored
+assertions. Whole-suite compile **412 / 421** unchanged.
+
+## [PowerRustCOBOL 1.62.112] — 2026-08-30
+
+### Fixed — a signed DISPLAY field keeps its sign in the record image
+
+`field_bytes` rendered a signed numeric with `unsigned_abs()` and `distribute`
+mapped every non-digit byte to `'0'` before parsing unsigned, so a record
+round-trip erased signs entirely: CCVS85 **ST127A**'s eight-key sort ordered
+−5432 after +501, and eighty of its assertions failed with
+`COMPUTED= 000005432` against `CORRECT = -000005432`.
+
+A signed picture (`S9…`, sign not SEPARATE) now renders its trailing digit as
+the standard overpunch — `{`/A–I for +0…+9, `}`/J–R for −0…−9 — and
+`distribute` reads the same convention back, honouring a leading `-` from
+separate-sign writers too. The layout walk records signedness per field.
+
+Sort/Merge (ST), execution: **660 PASS / 127 FAIL → 683 PASS / 92 FAIL**, clean
+programs **26 → 28 of 40**. Record images are shared ground, so the full
+protected gate ran: NC 95/95 (4614/0), SQ 85/85 (624/0), IX 41/41 (574/0), RL
+34/34 (354/0), IF 45/45 (841/0), IC 25/25 (309/0), compile **412/421**, 104
+runtime suites at 0 failed.
+
+## [PowerRustCOBOL 1.62.111] — 2026-08-30
+
+### Fixed — `INPUT/OUTPUT PROCEDURE a THRU b` performs the range
+
+The parser read the `THRU` end of a SORT/MERGE procedure and threw it away, so
+the interpreter performed only the first section of the range. CCVS85
+**ST106A** writes `INPUT PROCEDURE INPROC THRU INPROC-EXIT`, and its RELEASE
+loop — spanning the range — released nothing: the GIVING file came out empty
+and every verifier downstream reported premature EOF. The AST now carries the
+pair, and `exec_sort` performs a `THRU` range exactly as `PERFORM a THRU b`
+does.
+
+Sort/Merge (ST), execution: **601 PASS / 44 FAIL → 660 PASS / 127 FAIL**, clean
+programs **24 → 26 of 40**. The FAIL growth is the honest kind: ST127A stopped
+timing out and its output procedure now runs 101 assertions (80 currently
+failing), and ST119A's input range opened 25 more. Parser change, so the full
+gate ran immediately: NC 95/95 (4614/0), SQ 85/85 (624/0), IX 41/41 (574/0), RL
+34/34 (354/0), IF 45/45 (841/0), IC 25/25 (309/0), compile **412/421**, 104
+runtime suites and the parser suite at 0 failed.
+
+## [PowerRustCOBOL 1.62.110] — 2026-08-30
+
+### Fixed — SORT honours the variable-length record contract
+
+`SORT … USING/GIVING` read its input with a fixed-size bulk reader and wrote
+its output raw, while every other READ and WRITE of a varying file speaks the
+length-prefix contract. On CCVS85 **ST110A**'s 50-to-100-byte records the
+reader sheared each record off its neighbours and fed the sorter garbage, and
+the chain verifiers reported premature EOF on the GIVING file. Both sides of
+the sort now check `is_varying()` and use the prefix.
+
+Sort/Merge (ST), execution: **588 PASS / 44 FAIL → 601 PASS / 44 FAIL**, clean
+programs **22 → 24 of 40** — the ST109A and ST112M chains cleared. ST137A's
+failures moved 1 → 3 as previously unreachable assertions began to run.
+Whole-suite compile **412 / 421**; 104 runtime suites, 0 failed.
+
+## [PowerRustCOBOL 1.62.109] — 2026-08-30
+
+### Harness — reporting is driving PRINT-DETAIL, not naming the printer
+
+ST110A declares `PRINT-FILE` on the X-55 card and never opens it, so the
+1.62.108 predicate — "names the printer card" — still called three working
+sorters failures. The true signal is the CCVS machinery itself: every member
+that reports drives it through `PRINT-DETAIL`, and a sorter has none to drive.
+
+Sort/Merge (ST), execution: **19 → 22 of 40 clean** (assertions unchanged at
+588 / 44). What remains is real: five chain verifiers each at exactly one
+failure, ST103A at four, ST127A's timeout, two larger members (ST131A 6,
+ST133A 15), and the two `COLLATING SEQUENCE` compile failures.
+
+## [PowerRustCOBOL 1.62.108] — 2026-08-30
+
+### Harness — ST's eight producer chains, and reportless-by-design members
+
+Two measurement fixes, no runtime change. The Sort/Merge module is built as
+eight creator → sorter → verifier chains, written in the suite's own member
+headers (`*HEADER,COBOL,ST101A,SUBPRG,ST102A`); the fifteen `inherits_from`
+entries now mirror them, so every member runs after its producer in the same
+directory. And a member that never names the X-55 printer card **cannot**
+report: ST102A is seventy-eight lines — SELECTs, an SD, one SORT, STOP RUN —
+and is verified by the next program in its chain. Exit 0 with no report is
+exactly what such a member looks like when it works, and it now scores that
+way.
+
+Sort/Merge (ST), execution: **157 PASS / 99 FAIL → 588 PASS / 44 FAIL**, clean
+programs **13 → 19 of 40** — hundreds of previously unreachable assertions now
+run, a measurement-fidelity gain in the sense the ledger's gate rule records.
+Still open: three sorters that reference the printer yet print nothing, one
+new 20-second timeout (ST127A), and the two `COLLATING SEQUENCE` compile
+failures. All six protected modules re-verified exact under the changed
+harness, IC's 309/0 among them for the first time; whole-suite compile
+**412 / 421**.
+
+## [PowerRustCOBOL 1.62.107] — 2026-08-30
+
+### IC (Inter-program communication) is FINISHED — 25/25, 309 PASS / 0 FAIL
+
+The final member fell to the activation-scope primitive's last application: an
+**elementary BY CONTENT parameter is a private copy**. The old alias-and-restore
+treatment broke the moment the same argument also travelled by reference —
+CCVS85 **IC225A** CALL-TEST-02-03 passes `DN1` once CONTENT and once REFERENCE
+in one CALL, the callee's ADD reaches the caller through the reference, and the
+content restore then put the old value back. A copy on an activation key has no
+restore to clobber anything, and a write through the content parameter reaches
+only the copy — the clause's whole meaning. Groups keep the alias treatment;
+their subordinates resolve to the caller's storage by design.
+
+**The module-closing gate, in full:** IC **25 of 25** programs run clean, 309
+of 309 scored assertions PASS (DELETED 4, tracked all module). NC 95/95 (4614
+assertions), SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354), IF 45/45 (841) —
+all exact; whole-suite compile 412/421; 104 runtime suites, 0 failed; all six
+activation-scope tests green, including both load-bearing negatives.
+
+IC entered the ledger at 1.62.81 as the weakest module ever baselined: 6 of 25
+clean, 134 PASS / 129 FAIL. Twenty-six versions later it is the sixth finished
+module and joins the protected baselines. **ST (Sort-Merge) is now in flight**,
+baselined at 157 PASS / 99 FAIL, 13 of 40 clean, with four members producing
+no CCVS report at all — the first bucket to read.
+
+## [PowerRustCOBOL 1.62.106] — 2026-08-30
+
+### Fixed — a record view survives colliding names, and its groups are readable
+
+Two completions of the 1.62.102 record view, both surfaced by CCVS85 **IC112A**
+LINK-TEST-08 and found with a per-record probe:
+
+The view's fields are the callee's **private window** over the argument's
+bytes — they pair with nothing by design — so a field whose name collides with
+something the caller declares now takes an activation key and a divert, exactly
+as private data does, with its declared capacities mirrored onto the view key.
+The old inserted-only guard starved the view whenever the callee's field names
+met the caller's CCVS boilerplate (`XRECORD-NUMBER` against the
+`FILE-RECORD-INFO` tree): 649 of 649 records "in error".
+
+And a view's named **groups** join it for reading: IC113A checks
+`REELUNIT-NUMBER-GROUP`, a two-byte group over `/0`, and a view that diverts
+only elementary leaves sent that name to the caller's same-named table. Groups
+are diverted and sliced in; the copy-out still patches from the elementary
+leaves.
+
+Inter-program communication (IC), execution: **307 PASS / 2 FAIL → 308 PASS /
+1 FAIL**, clean programs **23 → 24 of 25** — 99.7%. IC112A runs clean. One
+member remains: IC225A. Whole-suite compile **412 / 421**; 104 runtime suites,
+0 failed.
+
+## [PowerRustCOBOL 1.62.105] — 2026-08-30
+
+### Fixed — an edited LINKAGE parameter edits
+
+`MOVE "ABCD" TO EDITED-FIELD`, where `EDITED-FIELD PIC XXBX0X` is a LINKAGE
+description of the caller's plain `ALPHA-EDITED PIC X(6)`, stored the four
+characters raw. The write follows the parameter alias to the caller's key and
+asked for THAT key's edit template — which rightly does not exist, since
+outside the call the item is a plain X(6). The edit belongs to the description
+written **through**, not the one written to.
+
+The parameter now **lends** its template to the argument for exactly the length
+of the binding, and takes it back at exit. Sound because only the activation's
+statements execute while it is lent; the regression test's second half writes
+the same slot after the call and requires it unedited — a leaked template would
+fail precisely there.
+
+Three parts had to align, each found by measurement: `pic_char_width` accepts
+the alphanumeric-insertion characters `B`, `0` and `/` (each occupies a stored
+position — that is what makes `XXBX0X` six wide), so the offset pairing can lay
+the callee's differently-shaped tree over the caller's bytes at all; and the
+alphanumeric-edit templates live in their own map, separate from the numeric
+ones, which the construction-time descriptive install and the lend now both
+carry.
+
+Inter-program communication (IC), execution: **305 PASS / 4 FAIL → 307 PASS /
+2 FAIL**, clean programs **21 → 23 of 25** — 99.4% of the module's scored
+assertions. IC103A and IC235A run clean. Whole-suite compile **412 / 421**; NC
+95/95 (4614), SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354), IF 45/45 (841)
+all exact; 104 runtime suites, 0 failed.
+
+## [PowerRustCOBOL 1.62.104] — 2026-08-30
+
+### Fixed — a called program's own data is its own: the activation scope
+
+Every one of IC's eight remaining failures had reduced, each with its own
+measured proof, to one missing primitive: a nested program's private
+WORKING-STORAGE was merged into a single shared environment, so a callee's
+`77 DN2` call counter WAS the caller's `DN2`, a callee's save-into-work-area
+destroyed the caller's argument before reading it, and a callee's numeric item
+compared as text because its declared capacity belonged to somebody else's name.
+
+The primitive, built from three reverted attempts' constraints:
+
+- **Registration-time qualification.** Everything a program privately declares
+  (WS/LS; not GLOBAL, not EXTERNAL, not OBJECT REFERENCE — each of those is a
+  run-unit-shared binding) moves onto program-qualified keys, `PROG` + `\u{4}`
+  + name, with symbols' internal key lists, condition-name hosts and REDEFINES
+  classes rewritten through the same map. The shared environment cannot collide
+  them with anyone, by construction.
+- **Per-activation diverts.** At CALL, an alias `name → qualified` rides the
+  existing `resolve_name` path and the existing save/restore vec. It wins
+  BEFORE canonicalization: while an activation runs, only its own statements
+  execute, so a bare leaf carrying a divert is that program's own item whatever
+  same-named tree the caller declared. Only diverts take the early path — their
+  targets carry the separator no `SET ADDRESS` target can contain.
+- **Descriptive state under qualified keys, installed once.** The wholesale
+  carry was reverted at raw keys because siblings could see it; qualified keys
+  cannot collide, so capacities, edit templates and BLANK WHEN ZERO now install
+  at construction and never unwind. Without them a private `PIC 9(6)` had no
+  capacity and `IF X (1) EQUAL TO 649` compared `"000649"` to `"649   "` — the
+  create loop wrote thirty megabytes before it was killed.
+
+Inter-program communication (IC), execution: **303 PASS / 8 FAIL → 305 PASS /
+4 FAIL**, clean programs **17 → 21 of 25**. IC101A, IC114A, IC203A, IC226A and
+IC227A all run clean — three of them for the first time ever. All four
+acceptance tests pass, including the guard that a group parameter's fields
+still reach the caller. Two test expectations were updated where values were
+correct and only rendering changed: a nested program's `PIC 9(4)` now displays
+`0001` exactly as an outer program's always has, because the item finally has
+its capacity. Whole-suite compile **412 / 421**; NC 95/95 (4614), SQ 85/85
+(624), IX 41/41 (574), RL 34/34 (354), IF 45/45 (841) all exact; runtime
+suites 0 failed.
+
+## [PowerRustCOBOL 1.62.103] — 2026-08-30
+
+### Fixed — a nested program's own files did not exist
+
+`build_file_specs` walked the outer program only, so a `SELECT`/`FD` declared
+inside a subprogram was never registered: `OPEN`, `READ` and `WRITE` on it hit
+`unknown file` and silently did nothing. CCVS85 **IC115A** creates, verifies
+and re-reads a 649-record file entirely from inside a subprogram; a 40-line
+repro showed `READ: unknown file`.
+
+Registration now recurses through the nested programs, **outermost first** — a
+name the run unit already knows is left alone. That policy is load-bearing for
+the one file every CCVS85 program declares: each subprogram's PRINT-FILE keeps
+resolving to the outer program's report file, exactly as FILE STATUS falls
+through. The read cursor persists across activations, and the regression test
+pins all three behaviours: registration, cursor persistence, and AT END.
+
+### Fixed — symbols travelled only where values did
+
+`push_local_scope` inserted a nested program's symbol only when a store key of
+the same name existed. A group and a table's base name own no storage slot, so
+exactly the metadata every structured walk needs — `dims`, `layout_keys`,
+PICTUREs — never arrived. Symbols are now carried on their own, first-wins,
+removed exactly on pop.
+
+Inter-program communication (IC), execution: **302 → 303 PASS / 8 FAIL** (an
+IC114A file test); every one of the eight remaining failing programs is at
+exactly one failure. IC114A's own LINK-TEST-12 stays red with a byte-level
+diagnosis recorded in the ledger: the subprogram's boilerplate field names are
+the caller's record field names, and the written records interleave the two
+programs' fields — the activation-scope collision at the symbol level. Seven of
+the eight remaining failures now sit in that bucket. Whole-suite compile
+**412 / 421**; runtime suites 0 failed; all prior repros re-verified; 15 probe
+tests green.
+
+## [PowerRustCOBOL 1.62.102] — 2026-08-30
+
+### Fixed — a record passed BY REFERENCE is a view over its bytes
+
+A caller can pass a record the callee describes with a completely different
+tree — including the extreme where the caller has no items in it at all. CCVS85
+**IC112A** passes its FD's `01 SQ-FS3R1-F-G-120. 02 FILLER PIC X(120).` and
+IC113A lays a fully named 120-byte tree over it, checking `XRECORD-NUMBER` at
+offset 34. No item-to-item pairing can bind those: there is nothing on the
+caller's side to alias.
+
+When a group parameter's pairing binds nothing below the 01 itself, the
+argument's bytes are now sliced into the callee's leaves at entry and the named
+leaves are patched back over the argument's bytes at exit, FILLER positions
+keeping what the caller had. The offsets come from `compute_layout`, the same
+walk FD records already trust. Three guards make the path purely additive: it
+fires only when zero children paired, writes only slots this call inserted, and
+requires the declared and actual widths to agree byte for byte.
+
+### Fixed — a callee's name could be aliased onto a FILLER slot
+
+The positional pairing zipped raw layout keys, and those include synthetic
+FILLER slots. A callee's first leaf paired onto a caller's FILLER was a
+corruption bug: `MOVE "BYE" TO HEAD` through that alias wrote the FILLER slot
+at the FILLER's own width and wiped a 20-byte record to `"BYE"` + spaces. No
+program can reference a synthetic FILLER key — its separator cannot appear in a
+COBOL name — so such an alias can only ever misfire. Both sides of the pairing
+now exclude them.
+
+**The CCVS score did not move — IC stays 302 PASS / 8 FAIL — and IC112A's
+diagnosis is the finding.** With the view in place, its failure is `RECORDS-IN-
+ERROR = 649`: every record fails the callee's checks, because IC113A's leaf
+names (`XRECORD-NUMBER`, `XFILE-NAME`, `XLABEL-TYPE`) all collide with the
+caller's CCVS boilerplate table `FILE-RECORD-INFO-P1-120`. They are never
+inserted, the inserted-only guard rightly refuses to write them, and the
+callee's reads resolve to the caller's boilerplate instead of its own record.
+One key, two meanings: IC112A joins the activation-scope-blocked bucket, which
+now holds six of the eight remaining failures. Whole-suite compile **412 /
+421**; runtime suites 0 failed; every prior repro re-verified.
+
+## [PowerRustCOBOL 1.62.101] — 2026-08-30
+
+### Fixed — a subscripted `CALL` argument bound the whole table
+
+`CALL … USING SUBSCRIPTED-DATA (4)` bound the parameter to the bare table name:
+`expr_to_name` drops a subscript, and a write to a bare table name is the whole
+table since 1.62.99 — so the callee's value landed in occurrence 1 while CCVS85
+**IC235A** CALL-TEST-06-08 reads occurrence 4.
+
+The subscript is now evaluated at binding time, exactly as BY REFERENCE fixes
+the argument's identity at the CALL, and the subscripted key rides as the alias
+*target* — targets are followed verbatim; only alias KEYS are base-name
+lookups. The regression test asserts both halves: occurrence 4 receives the
+callee's write, and occurrence 1 stays untouched — the second assertion is what
+separates the fix from the whole-table accident that made `S1=[1A]`.
+
+Inter-program communication (IC), execution: **301 PASS / 9 FAIL → 302 PASS /
+8 FAIL**, clean programs 17 of 25; IC235A 2 → 1, keeping only its
+activation-scope-blocked `.06`. Whole-suite compile **412 / 421**; runtime
+suites 0 failed; 13 probe tests green.
+
+## [PowerRustCOBOL 1.62.100] — 2026-08-30
+
+### Fixed — a colliding record name left a group parameter's children unbound
+
+CCVS85 **IC203A** and **IC205A** both call their record `TABLE-2`. The caller's
+is `02 DN6 PIC X OCCURS 2`; the callee's is `02 TV-1 PIC X. 02 TV-2 PIC X.`
+Because the names collide, `push_local_scope` never installs the callee's 01 —
+the caller's wins, correctly — but the group-parameter pairing then walked the
+shared environment's symbol for BOTH sides and read the caller's tree twice.
+The callee's `TV-1` and `TV-2` never bound to anything: IC205A's `MOVE "B" TO
+TV-2` wrote a private slot nothing reads, and CNCL-TEST-05 reported `COMPUTED=`
+empty.
+
+Two changes, one mechanism. The **parameter** side of the pairing is now walked
+over the callee's own symbol table (`register_nested` already carries it), with
+widths read from the PICTURE alone. The **argument** side expands a fixed
+table's occurrences as alias *targets* — `TV-2 -> DN6(2)` — which is the
+consultable direction: an alias KEY is only ever looked up by base name
+(`a_subscripted_alias_key_is_never_consulted`), but a target is stored and
+followed verbatim. An OCCURS DEPENDING ON table still refuses; its extent at
+binding time is not its extent for the whole call.
+
+**The CCVS score is unchanged at 301 PASS / 9 FAIL, and the reason is recorded
+with proof.** The binding fix moved CNCL-TEST-05's `COMPUTED=` from empty to
+`XY` — the writes now arrive — but the member stays red on a second, separate
+defect: an instrumented run of the faithful chain shows the IC206A call counter
+reaching exactly 3, and exactly 1 after `CANCEL`, yet both `IF DN2` tests
+misdecide. IC205A's private `77 DN2 COMP` is really the caller's `PIC XXX`
+child (the name-collision defect measured at 1.62.98's shadowing dead end), so
+a numeric comparison runs as alphanumeric — `"  3"` against `"3  "`. IC203A is
+therefore moved to the activation-scope-blocked bucket alongside IC101A and
+IC225A. Comparison semantics were deliberately left alone: bending them to
+paper over a scoping defect is the word-heuristic path this project refuses.
+
+Whole-suite compile **412 / 421**; runtime suites 0 failed; NC/SQ/IX/RL/IF
+untouched by this path (the binding loop only runs for nested-program calls,
+and the per-change checks cover it) — full gate at the module boundary per the
+operator ruling.
+
+## [PowerRustCOBOL 1.62.99] — 2026-08-30
+
+### Fixed — a `CALL … USING` alias onto a table wrote to a slot nothing reads
+
+A table's occurrences are separate storage slots in the runtime, and its base
+name owns none of them: every reader addresses `DN2 (n)`. That is invisible to
+a program, which must subscript a table item anyway — but a `CALL … USING`
+alias can land on the bare name, and then the write went nowhere.
+
+CCVS85 **IC106A** passes `01 TABLE-2. 02 DN2 PIC X OCCURS 10.` to **IC107A**,
+which describes those same ten bytes as a **group** with an overlay:
+
+```text
+01  GROUP-2.
+    02    GROUP-21.
+        06 DN2 PIC X OCCURS 10 TIMES.
+    02     GROUP-2-1 REDEFINES GROUP-21.
+        03  FILLER  PICTURE X(7).
+        03  DN3     PICTURE XXX.
+```
+
+`MOVE AL-CON TO DN3` has to overlay the table's last three positions. The
+parameter binding pairs the callee's `GROUP-21` with the caller's `DN2`, so the
+`REDEFINES` refresh asked to store ten bytes into `DN2` — the base name — and
+`set_group_bytes` refused it as elementary. `DN2 (8)`, `(9)` and `(10)` came
+back blank against the expected `X`, `Y` and `Z`.
+
+An unsubscripted reference to a table is now the group of its own occurrences,
+for reading (`group_value`, `group_bytes`), writing (`set_group_bytes`,
+`set_from_bytes`) and measuring (`item_width`). The new
+`CobolEnvironment::table_extent_keys` recognises exactly that case and nothing
+else: a fully subscripted key still names one occurrence, and a group still
+reads and writes through its own `layout_keys`. `occurrence_keys`' per-child
+expansion moved into `expand_occurrences` so both walks share one definition of
+what an occurrence is, `OCCURS … DEPENDING ON` included.
+
+Regression test: `a_redefines_over_a_linkage_table_reaches_the_callers_occurrences`
+in `crates/cobolt-runtime/tests/test_linkage_redefines.rs`.
+
+**NIST CCVS85 — Inter-program communication (IC):** execution 16 → **17 of 25**
+programs clean, 299 → **301** assertions PASS and 12 → **9** FAIL. Compile
+conformance unchanged at 47/47 for the module and **412 / 421** for the
+whole in-scope suite.
+
+## [PowerRustCOBOL 1.62.98] — 2026-08-30
+
+### Fixed — a nested program's `FILLER` items did not exist
+
+A nested program's storage is snapshotted into the shared environment when it is
+called. That snapshot came from `CobolEnvironment::iter()`, which deliberately
+hides unnamed `FILLER` keys — right for showing storage, wrong for copying it.
+A `FILLER` occupies bytes, so every item declared after one in a nested program
+sat at the wrong offset.
+
+CCVS85 **IC107** declares, in its LINKAGE SECTION:
+
+```text
+01  GROUP-2.
+    02    GROUP-21.
+        06 DN2 PIC X OCCURS 10 TIMES.
+    02     GROUP-2-1 REDEFINES GROUP-21.
+        03  FILLER  PICTURE X(7).
+        03  DN3     PICTURE XXX.
+```
+
+`MOVE … TO DN3` must overlay the table's last three bytes. The seven-byte
+`FILLER` was absent from the environment entirely — no value, no symbol — so it
+reported width 0 and the write landed at the front: `0ABC456789` where
+`0123456ABC` was required.
+
+`all_entries()` supplies the unfiltered snapshot; `iter()` is unchanged for the
+callers that want a readable view.
+
+**The CCVS score did not move, and that is the honest result.** Inter-program
+communication (IC) stays at **299 PASS / 12 FAIL**, 16 of 25 clean, and IC106A
+keeps its 3 failures — LINK-TEST-06 has a
+further cause this does not reach. What this buys is the defect above, which
+reaches past the suite: a `FILLER` is ordinary COBOL and every RAD form event
+handler is a nested program. Whole-suite compile **412 / 421**; NC 95/95 (4614),
+SQ 85/85 (624), IX 41/41 (574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
+## [PowerRustCOBOL 1.62.97] — 2026-08-30
+
+### Fixed — a group parameter's fields are paired by byte offset, not tree position
+
+COBOL-85 gives a LINKAGE item a **view over the caller's storage**: the callee
+lays its own description over the caller's bytes, and neither the names nor the
+shape of the tree has to match. The subordinate items of a group parameter were
+paired with the argument's by position in the declaration tree, so a callee that
+described the same bytes with a different tree bound only its first field.
+
+CCVS85 **IC103A** states the case in its own header — "THE ITEM DESCRIPTIONS ARE
+DIFFERENT IN THE SUBPROGRAM FROM THE MAIN PROGRAM, BUT THE NUMBER OF CHARACTERS
+IS IDENTICAL". Ten bytes are two top-level children in the caller and three in
+the callee. Reduced to a repro, the callee's `NUM-DISPLAY PIC 99` received the
+caller's whole five-byte `GROUP-LEV2` (`"42XYZ"`) and its `A-FIELD` received
+nothing at all.
+
+Where **both** descriptions are flat and agree on total width, leaves are now
+paired by the bytes each covers. Anything else keeps the positional pairing, and
+that restriction is the point rather than a shortcut: an alias is only ever
+looked up by base name — `resolve_name` resolves the unsubscripted leaf and the
+subscript is applied afterwards — so an entry written `DN6(1) -> TV-1` is never
+consulted by anything. A per-occurrence offset mapping binds strictly *less*
+than the pairing it replaces, which is exactly the reverted 1.62.90 attempt that
+took IC203A from 1 failure to 7. That property is now pinned by a test.
+
+### Fixed — a layout walk measured rendered values instead of declared PICTUREs
+
+The mapping above landed and moved nothing, because it never fired. The two
+descriptions disagreed on their total width — 9 against 10 — since `item_width`
+measures whatever is in the slot and an unwritten LINKAGE `PIC 99` renders as
+`0`, reporting width 1. Layout now reads the declared PICTURE.
+
+The kept probe `no_leaf_reports_a_zero_width` was written to catch this class
+and passed throughout: it asserted no leaf reported *zero* width, and this width
+was *wrong*, not zero.
+
+Underneath sits a wider defect, recorded in the ledger rather than fixed here: a
+nested program's `field_caps` never reach the shared environment, because
+`push_local_scope` carries `store` and `symbols` and nothing else. `field_caps`
+is what numeric truncation consults, so every numeric LINKAGE item in a nested
+program is currently missing its declared capacity.
+
+Inter-program communication (IC), execution: **295 PASS / 18 FAIL → 299 PASS /
+12 FAIL**. IC103A 4 failures → 1, IC235A 5 → 2. The two that remain in each are
+`CALL-TEST-06 .06` (ALPHANUMERIC EDITED) and `.08` (SUBSCRIPTED LINKAGE DATA
+ITEM) — precisely the two shapes the walk refuses, an edited PICTURE and a
+table. Clean programs unchanged at 16 of 25; the scored denominator moved 313 →
+311 as those programs stopped emitting the extra lines a failure produces.
+Whole-suite compile **412 / 421**; NC 95/95 (4614), SQ 85/85 (624), IX 41/41
+(574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
+## [PowerRustCOBOL 1.62.96] — 2026-08-30
+
+### Fixed — reading through a `REDEFINES` of a LINKAGE item saw an empty slot
+
+A subprogram that reads a redefinition of one of its parameters got the
+redefining item's own untouched storage rather than the caller's bytes.
+
+The redefinition refresh is **write-driven**: it re-renders a description into
+the others sharing its area when something writes to it. For a LINKAGE class
+that is too late. The caller fills the argument *before* the CALL, so by the
+time the class exists and the parameter alias points at the caller's storage,
+the write that would have propagated those bytes has already happened — and the
+redefining description was never populated at all.
+
+Adopted classes are now primed once at entry, from whichever member actually
+resolves through a parameter alias. A class with no aliased member is left
+alone: it is the callee's own storage and has nothing to inherit.
+
+CCVS85 **IC237A-1** declares `01 L-A PIC 9.` and `01 L-A1 REDEFINES L-A PIC 9.`
+in its LINKAGE SECTION and does `MOVE L-A1 TO L-C`; the caller then checks
+`WS-C = WS-A`. Reduced to 25 lines, `L-A` read 1 while `L-A1` read 0.
+
+This is the fifth appearance of one root shape — two resolution paths, each
+correct alone, that do not compose — after FILE STATUS (1.62.89), the LINKAGE
+condition-name (1.62.94) and the REDEFINES refresh (1.62.95). The ledger now
+carries it as a candidate for a single general fix rather than a sixth patch.
+
+Inter-program communication (IC), execution: **294 PASS / 19 FAIL → 295 PASS /
+18 FAIL**, clean programs **15 → 16 of 25**; IC237A runs clean. Whole-suite
+compile unchanged at **412 / 421**; NC 95/95 (4614 assertions), SQ 85/85 (624),
+IX 41/41 (574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
+## [PowerRustCOBOL 1.62.95] — 2026-08-30
+
+### Fixed — a `REDEFINES` inside a nested program was inert
+
+Two descriptions of one storage area did not share it. `push_local_scope`
+inserts a nested program's items into the store and the symbol table and does
+nothing else: the redefinition machinery — the equivalence classes and the
+refresh that keeps them in step — is built when an environment is analysed from
+a DATA DIVISION, and a nested program's items arrive by a path that never built
+any of it. Its redefining item was simply an independent slot.
+
+**This reaches past the conformance suite.** Every RAD form event handler is a
+nested program, so a developer writing `REDEFINES` in a handler's
+WORKING-STORAGE got two unrelated slots and silently wrong data.
+
+`register_nested` now carries the program's refresh classes and the CALL adopts
+them for its duration, merging with the same *append, never replace, never
+duplicate* rule the original build uses. The dedup is what makes it safe for
+CCVS85's boilerplate report area: `COMPUTED-N REDEFINES COMPUTED-A` and its
+neighbours are declared in the outer program **and** in every nested one under
+the same names, so the pairs are identical and adopting them is a no-op rather
+than a second live overlay over the same twenty bytes. `pop_local_scope` removes
+exactly what was added — a leak here would corrupt an unrelated program's
+storage on a later call.
+
+### Fixed — the `REDEFINES` refresh wrote through raw keys
+
+`refresh_redefine_peers` re-renders one description of an area into the others
+on every write. It did so by raw key, and a class member can be a LINKAGE item
+whose storage is the **caller's** — so the refresh read and wrote the callee's
+own untouched slot instead. Both sides now follow the parameter alias.
+
+This is why the first fix could not land alone. Adopting the classes without it
+took CCVS85 **IC106A** from 3 failures to 6: its LINK-TEST-06 still failed and
+three unrelated assertions — INDEX IN LINKAGE SECTION, INDEX DATA ITEM SET IN
+SUBPROG, TABLES DEFINED IN LINKAGE SEC — broke, because IC107 redefines a
+`GROUP-21` holding an indexed `DN2 PIC X OCCURS 10` in its LINKAGE SECTION. With
+the alias followed, the regression disappears entirely.
+
+It is the same composition failure as the FILE STATUS defect (1.62.89) and the
+LINKAGE condition-name (1.62.94): two resolution paths, each correct alone, that
+do not compose. Fourth instance, and now recorded in the ledger as a candidate
+for one general fix rather than a fifth patch.
+
+**Scores are unchanged and that is the honest result.** Inter-program
+communication (IC) stays at **294 PASS / 19 FAIL**, 15 of 25 clean; IC106A keeps
+its 3 failures, whose cause is separate and still open. What this change buys is
+the product defect above, covered by two repros — one with no LINKAGE and no
+parameter at all, so the cause is proven to be the nested program rather than
+the binding. Whole-suite compile **412 / 421**; NC 95/95 (4614 assertions), SQ
+85/85 (624), IX 41/41 (574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
+## [PowerRustCOBOL 1.62.94] — 2026-08-30
+
+### Fixed — an 88-level over a LINKAGE item tested the callee's own slot
+
+A condition-name declared in a subprogram's LINKAGE SECTION was always false,
+whatever the caller had put in the storage it names. Two independent faults, and
+the first hid the second.
+
+A nested program's 88-levels were **never registered**. `cond_names` is built
+when an environment is analysed from a DATA DIVISION, and a nested program's
+items reach the shared environment through `push_local_scope`, which carried
+values and symbols and nothing else. `IF 88-name` then found no condition-name
+at all and fell back to "the slot holds something non-zero" — false for a
+LINKAGE item the callee has not written. `register_nested` now harvests the
+condition-names from the analysis it already performs, and the CALL installs
+them for the duration of the call. A name the environment already knows is left
+alone, exactly as an existing data item is: this can only supply a resolution
+where there was none, never change one that already worked.
+
+Once registered, the host was still read by **raw key**. A LINKAGE host *is* the
+caller's storage — `CALL … USING` aliases the parameter onto the argument — and
+only an alias-following lookup reaches it. The subscript survives the
+substitution and stays a subscript, so `L-ITM(2)` under the alias `L-ITM → ITM`
+is `ITM(2)`, one occurrence, never the whole table.
+
+This is the same composition failure as the FILE STATUS defect fixed at 1.62.89:
+two resolution paths, each correct alone, that do not compose.
+
+CCVS85 **IC207A** LINK-TEST-03 says what it checks — "THIS TEST VERIFIES THAT
+THE CONDITION NAMES DEFINED IN THE LINKAGE SECTION OF THE SUBPROGRAM WERE
+PROCESSED CORRECTLY".
+
+Inter-program communication (IC), execution: **292 PASS / 21 FAIL → 294 PASS /
+19 FAIL**, clean programs **12 → 15 of 25**, DELETED 4. Whole-suite compile
+unchanged at **412 / 421**; NC 95/95 (4614 assertions), SQ 85/85 (624), IX 41/41
+(574), RL 34/34 (354) and IF 45/45 (841) all exact.
+
+### Fixed — the paired acceptance test could not fail correctly
+
+`test_linkage_condition_name.rs` extracted a displayed value by stripping the
+`MISS=[` prefix and left the closing bracket on it, so `trim().is_empty()` was
+never true and the negative test failed identically whether the answer was right
+or wrong. It is recorded in the NIST ledger as having caught a wrong answer in a
+reverted 1.62.93 attempt; it could not have. Both delimiters now come off, and
+the fix above is verified against observed behaviour instead.
+
+## [PowerRustCOBOL 1.62.93] — 2026-08-30
+
+### Fixed — a successful `CALL` ran its own overflow handler
+
+`ON` is optional before a `CALL`'s `OVERFLOW` and `EXCEPTION` phrases. Written
+without it, the phrase was not recognised: `USING` collects operands for as long
+as the next token can begin one, a bare `OVERFLOW` is just a word, so the
+argument list swallowed it and everything after became ordinary statements
+following the `CALL`. A call that **succeeded** then ran the handler written for
+the case where it fails.
+
+`ON OVERFLOW` never had the problem — `Token::On` cannot begin an expression, so
+the argument list stopped by itself. That is why this survived: the spelling
+everyone writes is the safe one.
+
+CCVS85 **IC201A** writes both in one paragraph, CALL-TEST-03-01 with the `ON`
+and -03-02 without, and reported `OVERFLOW SHOULD NOT OCCUR` for the second.
+Neither word can be a data-name — both are reserved — so stopping the argument
+list on them costs nothing.
+
+**IC goes 231 → 292 assertions passing, 25 → 21 failing.** The scored total rises
+256 → 313: sixty assertions that previously could not be reached now run, because
+a program that jumped into its own failure branch never got to them.
+
+**The whole-suite compile census rises 410 → 412 of 421** (97.4% → 97.9%). Two
+programs that never parsed now do — the same argument list was consuming the
+phrase keyword and leaving the rest of the statement unreadable.
+
+Every protected baseline re-measured exact: NC 95/95 with 4614 PASS / 0 FAIL,
+SQ 85/85 with 624/0, IX 41/41 with 574/0, RL 34/34 with 354/0, IF 45/45 with
+841/0. A parser change is gated immediately rather than at module completion,
+and this is why.
+
+## [PowerRustCOBOL 1.62.92] — 2026-08-30
+
+### Known defect recorded — `REDEFINES` inside a nested program does nothing
+
+No fix yet; two repros and an accurate description of a defect that turns out to
+be wider than the conformance failure that found it.
+
+Chasing CCVS85 IC106A's three `REDEFINES`-in-LINKAGE failures produced a
+narrower explanation first — that the CALL pairing skips redefinitions, which is
+true — and then a second repro that has **no LINKAGE, no parameter and no CALL
+pairing at all**: a nested program redefines its own WORKING-STORAGE, writes the
+parts and reads the whole. It fails identically. So the cause is not about how
+parameters are bound.
+
+`push_local_scope` inserts a nested program's items into the store and the
+symbol table and does nothing else. The redefinition machinery — the equivalence
+classes, the aliases for over-budget layout-identical members, the refresh that
+keeps small classes in step — is built when the environment is constructed from
+the **outer** program's DATA DIVISION. A nested program's items arrive by a path
+that builds none of it, so its redefining item is an independent slot and the
+two descriptions never share storage.
+
+⚠️ **This reaches past the test suite.** Every RAD form event handler is a
+nested program, so `REDEFINES` in a handler's WORKING-STORAGE silently gives two
+unrelated fields rather than two views of one. Treat it as a product defect that
+NIST happened to find.
+
+Both repros live in `test_linkage_redefines.rs`, marked `#[ignore]` with the
+reason so the suite stays green — run them with `--ignored`. They are written as
+the fix's acceptance criterion: removing the attributes is what says it is done.
+
+## [PowerRustCOBOL 1.62.91] — 2026-08-30
+
+### Added — probes pinning what a group's storage guarantees
+
+No behaviour change. Five tests in `test_linkage_layout_probe.rs` assert the
+storage properties that binding a LINKAGE parameter by byte offset depends on,
+because an attempt at that binding failed for reasons reading the code did not
+settle and guessing twice would have been worse than measuring once.
+
+For the shape CCVS85 IC203A and IC205A disagree about — two bytes declared as
+`02 DN6 PIC X OCCURS 2 TIMES` on one side and as `02 TV-1 PIC X` plus
+`02 TV-2 PIC X` on the other — they establish that both descriptions report the
+same width, that no item reports a width of zero (the unsubscripted name of an
+OCCURS item included), that each occurrence is addressable and holds its own
+byte, and that **writing an occurrence surfaces in the group**, which is the
+direction a called program writes in.
+
+All five hold. That is worth recording as tests rather than as a note: they were
+the two leading explanations for the failure, both are now excluded, and the
+next person to touch this would otherwise re-derive them.
+
+## [PowerRustCOBOL 1.62.90] — 2026-08-30
+
+### Fixed — the inter-program facility is flagged as above the high subset
+
+A COBOL-85 compiler validating at the high subset must say so when a program
+uses something above it. The whole nested-source and separately-compiled
+facility is above that line — a program containing another, the clauses that let
+data and procedures cross the boundary, and the phrases that say how an argument
+is passed — and none of it was flagged.
+
+CCVS85 **IC401M** declares eleven such constructs in seventy-four lines and
+matched two: `END PROGRAM`, which another member had already motivated. The nine
+now added are `IS INITIAL` and `IS COMMON` on PROGRAM-ID, the `GLOBAL` and
+`EXTERNAL` data clauses, `USE GLOBAL`, `CANCEL`, the `BY REFERENCE` and
+`BY CONTENT` phrases, and a contained source program.
+
+**IC401M: 11 of 11 matched, 0 wrong.** Across every flagging member in the suite
+the wrong-count falls 34 → 25, and no other member moved — the thirteen that
+already scored perfectly still do, NC401M's forty included.
+
+Two things were worth the care they took. `USE GLOBAL` and the `GLOBAL` data
+clause share a keyword and are separate messages, so they are told apart by what
+precedes the word. And `INITIAL`, `COMMON` and `CONTENT` are not keywords at
+all: the lexer has no mapping for any of them, so they arrive as ordinary words
+— `Token::Content_` exists but nothing produces it, and matching on it flagged
+nothing at all. Each is pinned to the word before it so a data item happening to
+be called `CONTENT` is not mistaken for the phrase.
+
+The first version of the contained-program rule flagged `VALUE OF ID IS "X"` in
+a file description, because `ID` abbreviates `IDENTIFICATION` and lexes to the
+same token. Requiring `DIVISION` to follow is what separates them; the existing
+`fd_clauses_above_the_subset` test caught it before it left the crate.
+
+IC goes 222 → 231 assertions passing, 34 → 25 failing, 86.7% → 90.2%, and 10 →
+**11 of 25** programs clean. NC re-measured exact at 95/95 and 4614 PASS / 0
+FAIL; the compile census held at 410/421. `flag_high_subset` is reached only by
+the conformance harness's scorer — never by compilation or execution — so the
+whole blast radius is the flagging members, and all twenty-four were measured.
+
+## [PowerRustCOBOL 1.62.89] — 2026-08-30
+
+### Fixed — a subprogram's file status was reported into the caller's storage
+
+A file can be shared between programs — that is what `IS EXTERNAL` on an FD
+means, and its open state and position genuinely are one thing across the run
+unit. **Its `FILE STATUS` item is not.** That item is named by each program's
+own `SELECT`, out of that program's own storage, and an operation reports into
+the item belonging to the program that performed it.
+
+Two defects sat on top of each other, and CCVS85 **IC227A** failed ten
+assertions across five statements — WRITE, CLOSE, OPEN, READ and EOF — as the
+same swapped pair each time.
+
+`build_file_specs` reads the outermost program only and never walks
+`nested_programs`, so a file's status item was permanently the outer program's.
+Every operation, by either program, reported into the caller's item: IC227A
+seeds its own with the sentinel `<>`, does no I/O of its own, and found it
+overwritten — `MAIN PROGRAM FILE STATUS UPDATED`. A `NestedProgram` now carries
+its own bindings, swapped in around the call and out after, so nesting unwinds
+in order. A file the running program did **not** itself `SELECT` still falls
+back, which is what a nested program referencing a `GLOBAL` file needs.
+
+With that fixed the status went to the right *name* and still not to the right
+*storage*. `set_file_status` wrote through `set_str`, which keys by
+`storage_key` — that follows REDEFINES but not the parameter aliases
+`resolve_name` owns. A status item can be a LINKAGE item, and then it **is** the
+caller's storage rather than a slot of its own: IC227A-1 declares `FILE STATUS
+IS LINKAGE-FS`, its caller's third argument. The write filled a slot nobody
+reads and the argument never moved — `UNEXPECTED FILE STATUS VALUE RETURNED`.
+It resolves the name the way every other statement does.
+
+**IC227A: 11 failures → 1**, and 8 of its 23 tests executing successfully → 18.
+The module goes 212 → 222 assertions passing, 44 → 34 failing, 82.8% → 86.7%.
+The clean-program count stays 10 of 25: IC227A's last failure is a different
+cause, the EXTERNAL *record area* rather than the status item.
+
+Runtime suite 99 binaries green; the whole-suite compile census held exactly at
+410/421. The full protected-baseline gate runs at module completion, per the
+2026-08-29 ruling — this change is in the runtime, not the front end.
+
+## [PowerRustCOBOL 1.62.88] — 2026-08-29
+
+**NIST CCVS85 Source Text Manipulation (SM) is baselined: 0 → 4 of 17**, with
+assertions going 8 PASS / 15 FAIL to **25 PASS / 9 FAIL** (34.8 % → 73.5 %).
+
+Nothing in the compiler or runtime changed — both fixes are in the conformance
+harness, which was measuring the module unfairly. Every finished module is
+unmoved: NC 95/95 with 4 614 assertions, SQ 85/85 with 624, IX 41/41 with 574,
+IF 45/45 with 841, RL 34/34 with 354, all at zero failures, and the whole-suite
+compile census unchanged at 410 of 421.
+
+### Fixed — the execution pass never supplied the suite's copybooks
+
+The **compile** pass has expanded `COPY` against the CCVS85 copybook library
+since the harness gained it. The **execution** pass never did. `rcrun` resolves
+a copybook against the source file's own directory, so the library is now
+mirrored there before each program runs.
+
+The Source Text Manipulation module is *about* `COPY`, and it proves a copybook
+by using one: SM101A builds a data file out of `COPY`-supplied record
+declarations, and SM102A reads the records back. Without the library SM101A
+expanded to nothing, wrote a zero-byte file, and SM102A reported `EOF
+PREMATURELY FOUND` — a missing input that reads exactly like a runtime defect.
+
+### Fixed — SM's builder/checker pairs declare their producers
+
+Three SM members read a file an earlier member wrote and say so in their own
+header, so they join the chained-member table: SM102A ← SM101A, SM104A ←
+SM103A, SM202A ← SM201A. Each entry is quoted from the consumer's header
+("PROGRAM SM102A TESTS THE OUTPUT FILE PRODUCED BY SM101A"), never inferred
+from an X-card two programs happen to share.
+
+ST102A and ST120A read the same card that ST101A writes, and are deliberately
+**not** chained: no ST member declares a producer, and ST102A has no
+`PRINT-FILE` at all, so a producer's report would be left behind and scored as
+ST102A's own. That is pinned as a negative test with the reason.
+
+## [PowerRustCOBOL 1.62.87] — 2026-08-29
+
+### Fixed — a console program no longer builds a TLS stack it never uses
+
+The companion to 1.62.9, one platform down. That change stopped every
+application compiling SQLite; this one stops a console program linking the
+network.
+
+`ureq` and `native-tls` were unconditional dependencies of `cobolt-runtime`, and
+`native-tls` on **Linux** is OpenSSL — so building any application there needed
+`libssl-dev` and a C compiler for `openssl-sys`, whether or not the program had
+ever heard of HTTP. `google_maps` was unconditional too: `reqwest` plus `tokio`,
+the largest single dependency the runtime carries, compiled into programs with
+no Maps control anywhere.
+
+Both are now features, on by default, and the generated manifest turns them off
+for a program that provably reaches neither. `openssl-sys` and `tokio` leave the
+dependency graph outright — verified with `cargo tree --target
+x86_64-unknown-linux-gnu`, since on macOS `native-tls` uses Security.framework
+and the problem is invisible.
+
+**Maps is decided by the form, not the COBOL.** `MAPS-1::Geocode` is a method
+call on a control id, and nothing in the AST distinguishes it from any other
+method call — `GET` on a RestClient reads exactly like `GET` on anything else.
+So the `.cfrm` is what gets read: a project with a Maps or WebSearch control
+links the client, one without it does not. That is the change that saves the
+most, because an ordinary form application has no Maps control at all.
+
+**HTTP is linked for every form application on purpose**, without inspecting
+anything. `cobolt-forms`'s `render` feature fetches OSM basemap tiles with its
+own `ureq`, so a form application links the platform TLS stack whatever this
+decides — there is nothing to win by being clever and a working program to lose.
+Console programs are the ones that can actually shed OpenSSL, they own no
+controls, and their HTTP arrives as a `CALL` the build can read.
+
+A `CALL` whose target is a data item rather than a literal now links **all
+three** bridges rather than just SQL: the name is only known at run time, so it
+could be any verb. The earlier version conceded that for SQL and quietly assumed
+it about the others.
+
+Off-builds report through each bridge's existing failure channel — HTTP through
+`(body, status 0)`, exactly where a refused connection lands, Maps through the
+`Err` its own API failures use — and each message names the build decision and
+how to reverse it, rather than reading as an ordinary network fault.
+
+⚠️ Every optional bridge is now separable, and none of them changes what a
+default build of this workspace links: `rcrun`, the IDE and every test keep the
+full surface.
+
+## [PowerRustCOBOL 1.62.86] — 2026-08-29
+
+**`BY CONTENT` hands over the value, not the storage** — and the `BY` phrase
+governs every operand that follows it, not just the next one.
+
+Two defects, one visible symptom. `BY CONTENT` copied the argument into the
+parameter *by name*, so when the parameter's name was one the caller also used,
+the copy landed in the caller's own storage and every write went straight
+through. And the phrase was read per operand:
+
+```cobol
+           CALL "IC225A-1" USING BY REFERENCE DN1, DN2,
+                                    CONTENT   DN3, DN4
+           END-CALL.
+```
+
+passes two operands each way; read per-operand, only `DN3` was `BY CONTENT` and
+`DN4` fell back to `BY REFERENCE`. The suite checks exactly that — *"VALUE OF
+DN4 HAS BEEN CHANGED"*.
+
+`BY CONTENT` now binds like `BY REFERENCE` and the caller's storage — the
+argument and each of its fields — is put back when the call returns. In a
+single run unit that is indistinguishable from a private copy, and it inherits
+the aliasing that already makes a group parameter's fields reachable.
+
+**IC (Inter-program Communication) goes from 206 to 212 passing assertions**
+(80.5 % → 82.8 %), 50 → 44 failures.
+
+## [PowerRustCOBOL 1.62.85] — 2026-08-29
+
+**A group parameter's fields are paired with the argument's by position.** The
+two programs need not use the same names for them, and until now only the group
+itself was bound — so a called program wrote its own LINKAGE slots and the
+caller saw nothing change.
+
+```cobol
+      *    the caller
+       01  TABLE-1.
+           02  DN2 PICTURE XXX.
+           02  DN3 PICTURE 99.
+           02  DN4 PICTURE X(5).
+...
+           CALL "IC204A" USING TABLE-1, DN1.
+
+      *    the called program
+       01  SUB-TABLE-1.
+           02  SUB-DN2 PIC XXX.
+           02  SUB-DN3 PIC 99.
+           02  SUB-DN4 PIC X(5).
+       PROCEDURE DIVISION USING SUB-TABLE-1, SUB-DN1.
+```
+
+The same bytes under different names. Matching by name reaches nothing, so the
+subordinate items are paired in declaration order — there is nothing else to
+pair them by — and each is aliased onto the caller's, alongside the group.
+
+**IC (Inter-program Communication) goes from 194 to 206 passing assertions**
+(75.8 % → 80.5 %), 62 → 50 failures. IC203A alone went from 13 failures to 1.
+
+## [PowerRustCOBOL 1.62.84] — 2026-08-29
+
+**`CALL … USING` binds the caller's storage, not a copy of it.** A `BY
+REFERENCE` parameter is now an alias onto its argument, so which storage a
+parameter names is decided by the *argument*, not by what the called program
+happens to call it.
+
+Binding by name meant a callee's parameter was whatever the caller had under
+that name:
+
+```cobol
+           CALL "IC202A" USING DN1, DN2, DN1, DN4.
+```
+
+The third argument is `DN1`. `IC202A` calls its third parameter `DN3` and writes
+through it — and the caller's own unrelated `DN3` was overwritten, because the
+two were the same slot. The CCVS85 report says so in as many words: *"DN3 VALUE
+CHANGED BY CALL"*.
+
+Only the parameter is aliased, deliberately. A group parameter's **subordinate
+items** keep resolving by name to the caller's, which is how a called program
+reads the fields of a record it was handed; giving those their own slots
+instead cut IC from 10 clean programs to 5. `BY CONTENT` is unchanged — a copy
+taken at entry, with no write-back — and the alias is released when the call
+returns, so a program called from inside another that aliased the same name
+gets its own binding back.
+
+**IC (Inter-program Communication) goes from 187 to 194 passing assertions**
+(72.5 % → 75.8 %), 71 → 62 failures.
+
+**The NIST regression gate moves to once per module** (operator ruling). Running
+every finished module after every change caught four problems across the whole
+grind, which does not pay for re-measuring 7000+ assertions each time. The full
+gate now runs when the last failing assertion of a module is done, before it is
+called finished; per change, only the module in flight and the compile census.
+A **lexer or parser** change is still gated immediately — a front-end change has
+no module boundary, and two of the four catches were exactly that.
+
+## [PowerRustCOBOL 1.62.83] — 2026-08-29
+
+**Segmentation leaves the NIST scope** (operator ruling). SG joins CM, RW, the
+`OB*` obsolete-element tests and EXEC85 as a module RustCOBOL does not measure.
+
+Segmentation exists to fit a program into a machine too small to hold it:
+`SECTION` headers carry a segment-number and the runtime overlays the
+independent segments over one another. RustCOBOL is a 64-bit solution running
+on 64-bit systems, with more address space than any COBOL program can exhaust —
+so a segment-number **compiles and has no effect at all**. There is no
+behaviour for the module to exercise, and scoring it would score a mechanism
+that will never exist.
+
+Its 13 programs still compile and are reported `N-A` rather than dropped, so
+the exclusion stays visible in the census. **The in-scope suite is 421
+programs, not 434**, and compilation conformance reads **410 of 421 (97.4 %)**
+where it read 423 of 434 (97.5 %).
+
+## [PowerRustCOBOL 1.62.82] — 2026-08-29
+
+**A NIST harness change, with no compiler or runtime change behind it.** The
+Inter-program Communication module is *about* `CALL`, and its callees are
+separate members of the distribution — `IC101A` calls `IC102A`, `IC108A` calls
+`IC109A`, `IC110A` and `IC111A`. The harness ran one source file at a time, so
+a caller had nothing to call.
+
+The suite says so on its own control cards, in a word the splitter did not
+know:
+
+```text
+*HEADER,COBOL,IC101A,SUBRTN,IC102A
+```
+
+**`SUBPRG` and `SUBRTN` are not synonyms**, and the difference decides whether
+a member is a test at all. `SUBPRG` names the next program of the same *group*
+— every one is a full test with its own report, and `IX101A,SUBPRG,IX102A` is
+exactly the chain the producer table already describes. `SUBRTN` names a
+program the test **calls**; all 24 are in IC and OBIC, and each answers a
+literal `CALL`. Folding the two together cost `SQ203A` its place and took SQ
+from 85 of 85 to 84 of 84, which is how the distinction was found.
+
+A caller now runs with its callees concatenated into one run unit, and a callee
+is no longer scored as a test that failed to produce a report. **IC goes from
+6 to 10 of its 25 tests running clean**, 134 → 187 passing assertions
+(51.0 % → 72.5 %). The compile census is unchanged at 423 of 434: a callee is
+ordinary COBOL and still counts there.
+
+> **Note.** IC's execution denominator changes from 47 to 25 with this release.
+> The 47 counted the 22 callees as tests; they have no CCVS report, so running
+> one alone could only ever fail. The comparable figures are **6 → 10 of 25**.
+
+## [PowerRustCOBOL 1.62.81] — 2026-08-29
+
+**A sign glued to a literal is a sign, not an operator. The Conditional module
+is finished: 45 of 45 on both axes, 841 assertions, 0 failures.**
+
+COBOL-85 tells the two apart by the space that *follows*: a binary operator
+must have a space on both sides, so `10.2 -0.2` is two operands and
+`10.2 - 0.2` is one subtraction. The suite writes
+
+```cobol
+           COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).
+```
+
+with no comma between the first two arguments at all, and expects four of them:
+25.8 is 10.2 minus −15.6. Read as a subtraction it was three arguments and
+25.6.
+
+**The guard is deliberately narrower than the rule.** It fires only when the
+token before the sign is a numeric literal or a closing parenthesis. An
+*identifier* before it cannot be told from a keyword at the lexical level, and
+`PICTURE -9(9).9(9)` and `VARYING … BY -1` are both "operand, gap, glued sign,
+digits" — neither is a place to change anything. Widening it is a decision for
+the whole-suite gate, not a guess.
+
+## [PowerRustCOBOL 1.62.80] — 2026-08-29
+
+**A quotient no longer loses its decimals to a long divisor**, and the
+argument-list intrinsics compare the way COBOL compares. **IF (Conditional)
+goes from 37 to 44 of 45 running clean**, 824 → 841 passing assertions
+(97.7 % → 99.9 %).
+
+**Division.** Giving a quotient its guard digits means shifting the dividend,
+and that shift has to fit in the working integer. A divisor with many decimals
+makes it large on its own — `1 / SQRT3`, where `SQRT3 PIC S9V9(17)`, asks for
+43 digits — and the overflow path then fell back to floating point **at the
+dividend's own scale**. The dividend is the integer `1`, so 0.577 was rounded
+into a value with no decimal places at all and came back as **1**:
+
+```cobol
+       01  SQRT3  PIC S9V9(17) VALUE 1.732050808.
+...
+           COMPUTE WS-NUM = FUNCTION ATAN(1 / SQRT3).
+```
+
+answered atan(1) — a quarter turn instead of a sixth of one. The quotient now
+drops guard digits until the shift fits, which keeps the exact integer path;
+only a genuinely enormous magnitude reaches floating point, and it does so at
+the working precision. **Nothing that fitted before changes**: the search
+starts at the precision division always used.
+
+**`MAX`, `MIN`, `ORD-MAX`, `ORD-MIN`.** All four read every argument as a
+floating-point number, which is wrong twice over:
+
+* The result of `MAX`/`MIN` is the **argument itself**. When the arguments are
+  alphanumeric the comparison is by the collating sequence and the answer is a
+  character string — `FUNCTION MAX("R", I, "I", "a")` is `"a"`. Read as floats
+  all four arguments were zero.
+* The **first** of several equal arguments wins. `ORD-MAX` and `ORD-MIN` return
+  a *position*, so ties are visible: `FUNCTION ORD-MAX(A, 5, 5, A)` is 1 when
+  `A` is the greatest, where the old code answered 4.
+
+The comparison is now `cob_ordering` — the same ordering `SORT` and every
+relation use.
+
+**A separator comma before `(` is kept**, for the same reason as one before a
+sign (1.62.78): dropping it from `FUNCTION MAX(A * B, (C + 1) / 2, 3 + 4)`
+leaves `B (C + 1)`, which is the syntax of a *subscripted reference*. The first
+two arguments merged into one and MAX returned 17.5 where the answer is 35.
+
+## [PowerRustCOBOL 1.62.79] — 2026-08-29
+
+**`NUMVAL` and `NUMVAL-C` read the forms COBOL-85 actually allows**, and
+intrinsic functions are flagged as above the high subset. **IF (Conditional)
+goes from 32 to 37 of 45 running clean**, 776 → 824 passing assertions
+(91.9 % → 97.7 %).
+
+**NUMVAL.** The argument is not a Rust float literal, and reading it as one
+returned **zero** for most of what the standard permits. The sign may sit at
+either end and does not have to touch the digits; `CR` and `DB` are the
+credit-debit spelling of a trailing minus; NUMVAL-C additionally allows a
+currency string and digit-group separators, and its optional second argument —
+the currency string to ignore — was not read at all.
+
+```cobol
+           COMPUTE WS-NUM = FUNCTION NUMVAL ("   -  4929.0323").
+           COMPUTE WS-NUM = FUNCTION NUMVAL ("   200.0002   - ").
+           COMPUTE WS-NUM = FUNCTION NUMVAL-C ("  $  90.54 -  ", "$").
+```
+
+All three used to be zero. With no second argument, NUMVAL-C now uses the
+`SPECIAL-NAMES. CURRENCY SIGN`, and `DECIMAL-POINT IS COMMA` swaps the roles of
+`.` and `,` as it does everywhere else.
+
+**Intrinsic functions are above the COBOL-85 high subset.** They arrived with
+the 1989 addendum, so a compiler validating at the high subset reports each use
+as non-conforming — whether or not it implements the function. `flag_high_subset`
+did not cover them, which is the whole of what IF401M, IF402M and IF403M ask
+for: 44 expectations across the three, now all matched.
+
+**Two false positives went with it.** A function's argument list is neither a
+subscript list nor a source of operators for an enclosing relation, so
+
+```cobol
+           IF FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1) = ...      *> not 6 subscripts
+           IF FUNCTION MEAN (5, -2, -14, 0) = ...            *> no arithmetic
+```
+
+each drew a second, wrong flag. Seven of IF402M's statements were affected and
+the scorer's greedy matching hid it — the spurious flags stood in for the
+intrinsic-function ones, so the totals looked right. Both detectors still fire
+on the genuine constructs, which is now unit-tested in both directions.
+
+**An intrinsic called with too few arguments is reported, not fatal** — the
+guard added at 1.62.78 now also covers `ANNUITY`.
+
+## [PowerRustCOBOL 1.62.78] — 2026-08-29
+
+**A separator comma before a sign is no longer discarded**, and two programs
+that crashed the interpreter now run. **IF (Conditional) goes from 24 to 32 of
+45 running clean**, 702 → 776 passing assertions (87.4 % → 91.9 %), with no
+crashes left in the module.
+
+A comma followed by a space is a COBOL-85 *separator*: it may stand anywhere a
+space may and means exactly what a space means, so the lexer dropped it.
+There is one place where that is not true. The standard tells a **sign** from a
+**binary operator** by the space that follows it — `A -3` is two operands,
+`A - 3` is one subtraction — so dropping the comma from
+
+```cobol
+           COMPUTE WS-NUM = FUNCTION MOD(A, -3).
+```
+
+leaves `A -3`, which read as a single subtraction. `MOD` was then called with
+one argument and the interpreter panicked reading the second. The comma is now
+kept when the next token is a `+` or `-`, which is enough for the parser to
+tell the two apart without teaching it the spacing rule.
+
+**The semicolon keeps no such exception.** It is never a list separator, only
+decoration, and no parser eats one — `MOVE ELEM3( +3; +5, +10) TO TEMP` is a
+subscript list the suite writes precisely to prove it. Applying the exception
+to both punctuations cost a program that had been passing, which is how the
+distinction was found.
+
+**An intrinsic called with too few arguments is now reported, not fatal.**
+`FUNCTION MOD needs 2 arguments, 1 given` is something a developer can act on;
+an index-out-of-bounds panic is not. A COBOL program must never be able to
+crash the interpreter, whatever it says.
+
+## [PowerRustCOBOL 1.62.77] — 2026-08-29
+
+**Relative I/O is finished: 35 of 35 compiling, 34 of 34 running clean, 354
+PASS / 0 FAIL.** Three fixes, none of them in the engine itself.
+
+**`RELATIVE data-name` names the record number, with or without the word
+`KEY`.** The clause is written `RELATIVE KEY IS RK`, `RELATIVE KEY RK` and
+plain `RELATIVE RK`, and only the first two were understood. The third was read
+as a bare organization clause, so the key was consumed and silently dropped —
+the file then had no record number at all and every random `WRITE` came back
+**24**, a boundary violation on slot zero. What tells the two apart is simply
+what follows: an organization clause is complete on its own, so a data-name
+after `RELATIVE` can only be the key. This closed eight programs at once.
+
+**File status `14` — a relative record number too large for its key item.** The
+width of the `RELATIVE KEY` item's PICTURE is part of the file's behaviour, not
+just its storage:
+
+```cobol
+       SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+           ORGANIZATION IS RELATIVE
+           ACCESS MODE IS SEQUENTIAL
+           RELATIVE KEY IS CUST-SLOT.
+...
+       01  CUST-SLOT PIC 99.
+```
+
+Reading that file sequentially works up to record 99 and then cannot report
+where it is. COBOL-85 has a status for exactly that, and it is an at-end class
+condition like `10`, so the `AT END` phrase is what handles it.
+
+**An unterminated conditional phrase now stops at the enclosing `ELSE`.** A
+phrase written without its scope terminator —
+
+```cobol
+           IF  WS-N < 201
+                   WRITE REC-A
+                   INVALID KEY GO TO BAD
+           ELSE
+                   WRITE REC-B
+                   INVALID KEY GO TO BAD.
+```
+
+— read straight through `ELSE`, and the program did not parse at all. A
+phrase's own stop set cannot know what the phrase is nested in, so the rule is
+now applied once for every scoped body: `ELSE`, `END-IF`, `WHEN`,
+`END-EVALUATE`, `END-PERFORM` and `END-SEARCH` close a construct the body may
+be nested inside, and no imperative list may read past one. **Whole-suite
+compile conformance 422 → 423 of 434.**
+
+`RL301M` is excluded from execution scoring, the same ruling `IX301M` already
+carries: it asks a high-subset implementation to flag `ORGANIZATION IS
+RELATIVE`, `ACCESS MODE IS RANDOM`, `RELATIVE KEY IS` and the `NOT INVALID KEY`
+phrases as non-conforming, and those are all features PowerRustCOBOL supports.
+It still counts in the compile census, where it passes.
+
+## [PowerRustCOBOL 1.62.76] — 2026-08-29
+
+**`ORGANIZATION IS RELATIVE` runs.** Relative I/O was accepted by the parser
+and then silently ignored by the runtime — a program declaring it compiled
+cleanly and misbehaved. It now has an engine, and every file verb dispatches to
+it. **RL goes from 14 to 24 of 35 running clean**, 326 PASS / 38 FAIL (89.6 %
+of its assertions, up from 58.3 %), and the four members that used to time out
+no longer do. **IX reaches 42 of 42 compiling and 41 of 41 running clean, 574
+PASS / 0 FAIL** — IX106A's last four failures were the relative file it shares
+with the indexed ones.
+
+A relative file is a table of **numbered slots**, not a list of records. Slot
+*n* either holds a record or is empty, and an empty slot keeps its number:
+deleting record 7 does not renumber record 8. The number lives in the
+`RELATIVE KEY` item in WORKING-STORAGE rather than inside the record, which is
+why this could not be a mode of the indexed engines — those read their keys out
+of the record bytes.
+
+```cobol
+SELECT CUSTOMER-FILE ASSIGN TO "customers.rel"
+    ORGANIZATION IS RELATIVE
+    ACCESS MODE IS DYNAMIC
+    RELATIVE KEY IS CUST-SLOT
+    FILE STATUS IS CUST-STATUS.
+```
+
+* **`WRITE`** — in the sequential access mode the engine assigns the next slot
+  and puts the number in the `RELATIVE KEY` item, which is how a program that
+  creates a file learns its own record numbers. Under `RANDOM` or `DYNAMIC` the
+  program sets the number first; a slot that is already occupied is status
+  **22**, and slot zero is **24**.
+* **`READ`** — random by `RELATIVE KEY`, or `NEXT` / `PREVIOUS` in slot order,
+  skipping the empty ones. A sequential read reports the slot it delivered.
+* **`START`** — positions on the first slot matching `EQUAL` / `GREATER` /
+  `NOT LESS` (and the `LESS` forms) without delivering a record, so the next
+  `READ NEXT` returns it.
+* **`REWRITE` / `DELETE`** — by number under random or dynamic access, or on
+  the record the last `READ` delivered. Without that read the status is **43**.
+  `DELETE` empties the slot and leaves the number addressable.
+
+Two containers, chosen by `STORAGE [MODE] IS MEMORY | DISK` exactly as the
+indexed engines choose theirs, and required to answer identically: a `BTreeMap`
+in RAM, or the `PRCREL1` container — a fixed header followed by equal-sized
+slots, so slot *n* is one seek away and the file needs no in-RAM directory.
+Each slot carries a presence flag and the record's own length, so a
+`RECORD IS VARYING` file stores a short record without padding it into
+ambiguity.
+
+**The harness also learned RL's chained members.** Four of RL's series are a
+creator, an updater and a verifier over one file, and the four programs that
+timed out were consumers running where their producer never had: the file was
+missing, `OPEN` returned 35, and every `READ` returned 47 inside a `GO TO`
+loop. Ten members now declare their producers, the way IX's already do.
+
+## [PowerRustCOBOL 1.62.75] — 2026-08-29
+
+**`RELATIVE KEY IS` is parsed and carried into the runtime**, and Relative I/O
+is baselined. First step of the RL build; **no score movement yet**, because
+nothing consumes the key.
+
+`RELATIVE KEY IS data-name` names the integer record number a relative file is
+addressed by. Unlike a `RECORD KEY` it is not part of the record: the program
+sets it before a random `READ`/`WRITE`, and the runtime fills it in on a
+sequential read. It now reaches `FileControl` and the runtime's file registry.
+
+**This also repairs a defect introduced in 1.62.60.** Making `ORGANIZATION IS`
+optional added a clause arm for a bare `RELATIVE`, and that arm swallowed
+`RELATIVE KEY IS RL-KEY` as an organization clause, dropping the key entirely.
+The word `KEY` after `RELATIVE` is what tells the two apart.
+
+**RL baseline, measured for the first time: 14 of 35 running clean**, 196 PASS
+/ 140 FAIL (58.3 %). Four members — RL102A, RL109A, RL202A and RL207A — time
+out rather than fail, which is the spin already recorded: a `READ` that errors
+inside the ordinary `GO TO` loop repeats forever, and with no RELATIVE engine
+every read errors.
+
+Nucleus, Sequential I/O and Indexed I/O are unmoved: **NC 95/95, SQ 85/85, IX
+40/41**, with 4 614, 624 and 570 assertions passing. Whole-suite compile stays
+422 of 434.
+
+
+## [PowerRustCOBOL 1.62.74] — 2026-08-29
+
+**A `REWRITE` that changes an alternate key joins the end of its new duplicate
+set.** NIST CCVS85 Indexed I/O reaches **40 of 41** — assertions **570 PASS /
+4 FAIL**, **99.3 %**. The only member still failing is IX106A, which needs a
+RELATIVE engine.
+
+A record whose alternate value changes leaves one duplicate set and enters
+another. It cannot hold a position in a set it has only just joined, so it takes
+its place at the end. The engine reused the record's original insertion
+sequence, which put it wherever its *file* insertion had fallen.
+
+IX215A turns on exactly this. One test rewrites record 176 into a duplicate
+value; the next rewrites record 4 into the same one; a `START` on that value
+must then deliver **176**, whose entry joined first — even though record 4 was
+written to the file earlier. It delivered 4.
+
+One sequence is stored per record rather than per alternate, and removal
+reconstructs the multimap value from it, so when any alternate changes the
+record takes a fresh sequence and **every** one of its entries is re-pointed to
+it. The cost is that an unchanged alternate also moves to the end of its own
+set; a per-alternate sequence would avoid that, at the price of scanning the
+multimap to recover each entry's value on removal. Nothing in the suite
+observes the difference.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434;
+132 runtime lib tests and 95 integration suites green.
+
+
+## [PowerRustCOBOL 1.62.73] — 2026-08-29
+
+**redb becomes the default indexed-file engine for `STORAGE IS DISK`**
+(operator ruling), and two record-length defects in it are fixed. NIST CCVS85
+Indexed I/O goes from **38 to 39 of 41**, assertions 566 PASS / 8 FAIL →
+**568 PASS / 6 FAIL** — **99.0 %**.
+
+The switch was made to settle duplicate-retrieval ordering. When a `REWRITE`
+changes an alternate key value the record leaves one duplicate set and joins
+another, and must take its place at the end of the new one. PRCIDXD1 orders
+duplicates by RecordId, which is permanently the original write order, so
+getting this right there would have meant a container format change. **redb
+already keeps a `seq` table for exactly this**, and IX211A goes clean on it.
+
+**Measuring the switch before making it found two defects of its own**, both a
+single word:
+
+- `fit` resized every record to the FD's declared width, **truncating** any
+  longer one. The disk engine has always used `record_len.max(rec.len())` —
+  the declared width is a floor, not a ceiling, and a file whose records vary
+  stores each at its own length.
+- `decode_value` did the same on the way back, so a record stored whole was
+  still handed back short.
+
+IX105A writes long records and reads them back checking the length; it reported
+"WRONG LENGTH OR WRONG RECORD" four times under redb and passed under PRCIDXD1.
+Both engines now agree.
+
+The `default` engine alias follows the default rather than staying pinned to
+`rust`, and `rcrun --indexed-engine rust` still selects PRCIDXD1 for anyone who
+wants it.
+
+**Nucleus and Sequential I/O are exact on the new default**: NC 95/95 with
+4 614 PASS / 0 FAIL, SQ 85/85 with 624 PASS / 0 FAIL. Whole-suite compile stays
+422 of 434; 132 runtime lib tests and 95 integration suites green.
+
+
+## [PowerRustCOBOL 1.62.72] — 2026-08-29
+
+**IX301M is excluded from execution scoring** (operator ruling). NIST CCVS85
+Indexed I/O is now scored out of 41 and stands at **38 of 41**, assertions
+**566 PASS / 8 FAIL** — **98.6 %**.
+
+IX301M's own header says what it is: *"TESTS THE FLAGGING OF INTERMEDIATE
+SUBSET FEATURES THAT ARE USED IN LEVEL 1 INDEXED INPUT-OUTPUT."* Every
+construct it expects flagged — `ORGANIZATION IS INDEXED`, `ACCESS MODE IS
+RANDOM`, `RECORD KEY IS`, and the `NOT INVALID KEY` phrases — is one
+PowerRustCOBOL implements. A compiler validating at the **high** subset must
+not flag a feature it supports, so those seven expectations are unreachable by
+design rather than by defect. Only a minimum-subset validation would satisfy
+them. Compare IX401M, which asks for *high*-subset flagging and scores 10 of 10.
+
+**The exclusion is from the execution score only.** IX301M is perfectly good
+COBOL, compiles clean, and still counts in the `strict` census — which stays at
+**422 of 434**, unmoved.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing.
+
+Two further operator rulings are recorded in the ledger and take effect next:
+Relative I/O starts now rather than after IX, and redb becomes the default disk
+engine so duplicate-retrieval ordering can be fixed there instead of by a
+PRCIDXD1 format change.
+
+
+## [PowerRustCOBOL 1.62.71] — 2026-08-29
+
+**The compiler flags the Indexed I/O constructs that sit above the high
+subset.** NIST CCVS85 Indexed I/O goes from **37 to 38 of 42** programs running
+clean; assertions 561 PASS / 20 FAIL → **567 PASS / 14 FAIL** (96.6 % →
+**97.6 %**). IX401M goes from five wrong to none.
+
+A CCVS85 `4nn` member has no PASS/FAIL machinery: its verdict is the
+diagnostics the compiler emits. IX401M lists ten constructs it expects flagged
+as above the high subset, and five were being missed:
+
+- `ACCESS MODE IS DYNAMIC` — the mode allowing a file to be read both ways in
+  one open, where the subset has only SEQUENTIAL and RANDOM.
+- `ALTERNATE RECORD KEY` — a second key on the file.
+- `RECORD IS VARYING IN SIZE` — see below.
+- `READ … KEY IS` and `START … KEY IS` — naming the key of reference, which
+  only a file with more than one key needs.
+
+**`RECORD VARYING` was already flagged, but only when written without `IS`.**
+SQ401M writes `RECORD VARYING`, IX401M writes `RECORD IS VARYING IN SIZE FROM
+18 TO 36 CHARACTERS`, and the word between them is optional. Adding a second
+rule for the longer form emitted **two** flags on SQ401M's one clause, which
+consumed an extra expectation and pushed its last flag out of alignment — the
+existing rule now accepts the optional `IS` instead.
+
+Nucleus and Sequential I/O are unmoved on both axes and in their own flagging:
+**NC 51 flags matched / 0 wrong, SQ 24 / 0**, NC 95/95 with 4 614 PASS / 0 FAIL,
+SQ 85/85 with 624 PASS / 0 FAIL. Whole-suite compile stays 422 of 434.
+
+IX301M is left failing on purpose and recorded as a scoping question: it tests
+flagging of the **intermediate** subset, and every construct it names —
+`ORGANIZATION IS INDEXED`, `ACCESS MODE IS RANDOM`, `RECORD KEY IS`, the
+`NOT INVALID KEY` phrases — is one PowerRustCOBOL implements. A high-subset
+compiler must not flag them.
+
+
+## [PowerRustCOBOL 1.62.70] — 2026-08-29
+
+**CCVS85's `T` and `U` opt-codes are mutually exclusive, and the harness now
+selects `T`.** NIST CCVS85 Indexed I/O goes from **35 to 37 of 42** programs
+running clean; assertions 550 PASS / 33 FAIL → **561 PASS / 20 FAIL** (94.3 % →
+**96.6 %**). IX207A and IX208A both go clean.
+
+A CCVS85 line may carry an opt-code letter in the indicator column, and the
+installation's `*OPT` card says which are active. Most letters mark additions
+that are harmless to include, and the harness took them all. **`T` and `U` are
+different: they are alternatives**, and taking both makes a record longer than
+either reading intends.
+
+IX208A's `IX-FS2R1-F-G-240` is the clearest case. Its own name says 240
+characters; with `T` alone it is 240, with `U` alone it is 240, and with both it
+is **250** — every field after the first key displaced by five, which is why
+`START` on its alternate key ran off the end of the file and eight assertions
+failed.
+
+**`T` is the reading these programs are written for.** IX208A builds
+`WRK-IX-FS2-ALTKEY` from a `T` line plus a five-digit number, making it ten
+characters — the same shape as `IX-FS2-ALTKEY1` under `T` and not under `U`. The
+program moves one into the other before every `START`, so they have to agree.
+
+There are exactly **ten** `U` lines in the whole suite, in IX107A, IX207A and
+IX208A. No member of any other module carries one, so a finished module cannot
+be disturbed — and neither was. The letter is replaced by `*` rather than
+removed, so every column after it stays where it was.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.69] — 2026-08-29
+
+**`AT END` makes a `READ` sequential even where the access mode would not.**
+
+`AT END` belongs to the sequential `READ` and `INVALID KEY` to the keyed one,
+and `NEXT` is optional in the sequential format. A `READ … AT END` under
+`ACCESS MODE IS DYNAMIC` is therefore sequential: it continues from wherever a
+`START` left the file, rather than re-reading by `RECORD KEY`. `KEY IS` still
+forces the keyed form outright.
+
+**No NIST score movement, and that is worth saying plainly.** The program that
+prompted the change, IX208A, declares `ACCESS MODE IS SEQUENTIAL`, so its reads
+were already sequential and this does not touch them. The fix is kept because
+it is validated on its own terms — a `START … KEY IS GREATER` followed by
+`READ … AT END` under DYNAMIC now walks to the next two records where it
+previously re-delivered the record the key still named.
+
+IX208A's real defect is recorded instead, with three causes ruled out by
+evidence: not the READ format, not a missing producer, and not the simple form
+of the construct, which a repro walks correctly.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. IX holds at 35 of 42, 550 PASS / 33
+FAIL. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.68] — 2026-08-29
+
+**A generic `START` key may name a subordinate item of an *alternate* key.**
+NIST CCVS85 Indexed I/O goes from **32 to 35 of 42** programs running clean;
+assertions 528 PASS / 58 FAIL → **550 PASS / 33 FAIL** (90.1 % → **94.3 %**).
+IX209A, IX210A and IX214A all go clean, and IX215A falls from eight failures to
+two.
+
+The operand of `START … KEY IS` need not be the key itself. An item that begins
+where a key begins and is shorter than it names that key and searches on the
+prefix — the generic form, implemented for the primary key in 1.62.55. IX209A's
+`START-TEST-GF-23` states it outright: *"AN OPERAND IN THE KEY PHRASE WHICH IS
+NOT THE NAME OF AN ALTERNATE KEY BUT IS THE NAME OF A DATA ITEM WHICH IS
+SUBORDINATE TO THE ALTERNATE KEY."*
+
+Selecting the key of reference matched only an **exact** byte extent, which is
+right for a `REDEFINES` of a key but wrong for a subordinate item: being
+shorter, it matched nothing and fell back to key 0, searching the **primary**
+index for an alternate key's characters. Every such `START` took the
+`INVALID KEY` path.
+
+An exact extent still wins where there is one, so a key that happens to be the
+leftmost part of a longer key resolves to itself rather than to its container.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.67] — 2026-08-29
+
+**Two numeric operands compare algebraically, however their slots were
+filled.** NIST CCVS85 Indexed I/O goes from **30 to 32 of 42** programs running
+clean and past ninety per cent of assertions — 528 PASS / 60 FAIL → **528 PASS
+/ 58 FAIL**, 89.8 % → **90.1 %**.
+
+A group `MOVE` is an alphanumeric move: it transfers characters and converts
+nothing, so a `PIC 9(6)` child legitimately ends up holding the string
+`"000007"`. The item is still numeric and a relation between two numeric
+operands is still algebraic — but nothing put the value back into numeric form.
+When **both** sides of a comparison had been filled that way, neither looked
+numeric, the pseudo-move did not apply, and the two display strings were
+compared: `"000000007"` against `"000007"`, unequal.
+
+One side against a literal-valued numeric was always correct, which is why this
+went unnoticed. IX103A and IX203A both check a record number against the digits
+embedded in that record's key, and saw **every one of 500 records as a
+mismatch**.
+
+A numeric operand is now read back through its own PICTURE before the
+comparison. **The item's scale decides the value** — the same six characters are
+123456 in a `PIC 9(6)` and 1234.56 in a `PIC 9(4)V99` — so the declared decimal
+places are carried on the symbol and used here. A slot holding something that is
+not a run of digits is left exactly as it is; inventing a number would be worse
+than comparing what is there.
+
+This is the expression core that Nucleus runs through, and it was the first
+change in this run with real reach beyond indexed files. **Both protected
+baselines are exact: NC 95/95 with 4 614 PASS / 0 FAIL, SQ 85/85 with 624 PASS
+/ 0 FAIL.** Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.66] — 2026-08-29
+
+**A delete-resume keys on *which* record leaves, not how it was addressed** —
+and a `START` or keyed `READ` discards one that is pending. NIST CCVS85 Indexed
+I/O goes from **29 to 30 of 42** programs running clean; assertions 521 PASS /
+67 FAIL → **528 PASS / 60 FAIL** (88.6 % → **89.8 %**). IX203A falls from six
+failures to one, and IX212A and IX213A both go clean.
+
+Two corrections to the cursor work of 1.62.58.
+
+**The guard tested the wrong thing.** A scan under `ACCESS MODE IS DYNAMIC`
+reads with `READ NEXT` and then deletes, and that delete is addressed by key —
+but the record leaving is still the one the cursor sits on, so the B+tree slot
+shifts underneath it exactly as in the sequential form. Guarding on "was this a
+keyed delete" missed it entirely: IX203A's scan lost **96 of 500 records and 24
+of its 125 deletions**. The condition is now whether the record being deleted is
+the cursor's current one, which covers both forms and still leaves a keyed
+delete of some *other* record alone.
+
+**A pending resume outlived its welcome.** The resume says "carry on after the
+record that just went"; a `START` says where the file is *now*, and must win.
+Nothing cleared it, so IX213A's `START … KEY IS EQUAL` was overridden and the
+following `READ` reported `FILE IS AT END` instead of the record it had
+positioned on. `START` and a keyed `READ` both discard it now.
+
+The in-memory and redb engines key their cursors and are unaffected by any of
+this.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.65] — 2026-08-29
+
+**IX203A declares its producer, completing the IX2xx chain.** Test-harness
+fidelity; no runtime change. NIST CCVS85 Indexed I/O assertions go 518 PASS /
+70 FAIL → **521 PASS / 67 FAIL**, with IX203A itself falling from 9 failures to
+6. Programs running clean stay at 29 of 42.
+
+IX203A's header says *"THE FILE USED IS THAT RESULTING FROM IX202"* — the IX2xx
+series mirrors IX1xx, one member creating the file and the next two processing
+it. Only IX202A ← IX201A had been recorded, so IX203A ran in an empty directory
+and every `READ … NEXT RECORD` failed for want of a file.
+
+**This corrects a diagnosis, not just a score.** The previous release recorded
+"IX203A's READ NEXT never succeeds" as the largest remaining runtime defect,
+reasoning from a scan that counted 502 records it never received. The symptom
+was real and the cause was wrong: there was no `READ NEXT` bug, only a missing
+file. The ledger now says so explicitly, so no future session goes looking for
+one.
+
+What remains in IX203A is the `DELETE-TEST-GF` family — six failures citing
+IX-21 4.3.2, including a key mismatch and an incorrect record found.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.64] — 2026-08-29
+
+**A statement's conditional phrase covers one condition, not every failure.**
+NIST CCVS85 Indexed I/O goes from **28 to 29 of 42** programs running clean.
+
+A sequential `READ` has `AT END`, which is status **10** and nothing else; a
+keyed one has `INVALID KEY`, statuses **21–24**. Any other error — 30, 47, 48,
+49, 92 — is one the statement cannot handle: neither phrase runs, and the file's
+`USE` declarative deals with it.
+
+The failure phrase was being run for *any* non-zero status, and running it also
+counted as handling the condition, which suppressed the declarative. So a `READ`
+of a file that was never opened took the `AT END` path and IX114A never saw its
+handler for status 47. The `46` case had already been special-cased ahead of
+this; it is the same rule, now stated once.
+
+**One assertion moved the other way, and it is worth being plain about.**
+IX203A went from 8 failures to 9. Its scan loop is
+`READ IX-FD1 NEXT RECORD AT END GO TO …` with a safety valve after 501
+iterations, and its `READ NEXT` **fails on every call** — the record area is
+never filled. The `AT END` phrase was catching that first failure and leaving
+the loop early; with the masking gone the loop runs to its valve and counts 502
+records it never received. The defect was always there and was already failing
+three assertions; a fourth now reports it truthfully. It is recorded as the top
+work item, and it is the largest remaining cluster — the same `READ NEXT` family
+accounts for nine failures each in IX208A and IX209A.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.63] — 2026-08-29
+
+**A sequential `REWRITE` may not change the record's key.** NIST CCVS85 Indexed
+I/O goes from **27 to 28 of 42** programs running clean; assertions 517 PASS /
+71 FAIL → **518 PASS / 70 FAIL**.
+
+In the sequential access mode a `REWRITE` replaces the record the last `READ`
+delivered, so the key it carries must still be that record's key. A different
+one raises the **INVALID KEY** condition with status **21**. It was reported as
+**92**, a logic error — a class-9 implementor code that no `INVALID KEY` phrase
+handles and that IX119A, expecting 21 or 22, could not accept.
+
+Under `RANDOM` or `DYNAMIC` access the record is addressed by the key it
+carries, so there is nothing to disagree with and the rule does not apply; a
+keyed `REWRITE` is unaffected.
+
+Corrected in all three indexed engines — the in-memory store, the PRCIDXD1
+B+tree and the redb store — since each checks the key itself.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.62] — 2026-08-29
+
+**`SELECT OPTIONAL` applies to keyed files too.** NIST CCVS85 Indexed I/O goes
+from **24 to 27 of 42** programs running clean; assertions 512 PASS / 79 FAIL →
+**517 PASS / 71 FAIL** (86.6 % → **87.9 %**).
+
+A file declared `SELECT OPTIONAL` need not exist when the program runs: it opens
+anyway and the program is told so with status **05**. That rule had been written
+only for the sequential branch of `OPEN`. The INDEXED branch passed the engine's
+own status straight through, so `OPEN EXTEND` of a file that was not there
+reported a plain **00** and a program could not tell the two cases apart —
+IX216A checks exactly that distinction.
+
+`OPEN INPUT` is included: the engine would otherwise refuse a missing file with
+35, so the container is materialised by opening it I-O and reads then find it
+empty and raise `AT END` — the same answer the sequential branch already gives,
+where `INPUT` on an OPTIONAL file uses `create(true)`.
+
+A file that *is* present still opens with a plain 00; 05 means absent-and-created
+and nothing else.
+
+**Three programs went clean, where one was predicted** — IX216A, IX217A and
+IX218A. The other two were failing on the same rule without it having been
+separately diagnosed.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.61] — 2026-08-29
+
+**`SAME RECORD AREA` is implemented.** NIST CCVS85 Indexed I/O goes from **22
+to 24 of 42** programs running clean; failures 81 → 79.
+
+Files named together in an I-O-CONTROL `SAME [RECORD] AREA` clause share one
+record area: their `01`s describe the same storage, so a `READ` of any one of
+them is visible through the record names of all of them. IX205A states the
+expectation in its own note — *"IN TESTING THE SAME AREA CLAUSE THE RECORD AREA
+SHOULD BE SHARED BY BOTH FILES IX-FD1 AND IX-FD2, THEREFORE FILE IX-FD2 IS READ
+AND THE RECORD IDENTIFIED FOR IX-FD1 IS ACCESSED"* — and IX206A tests the same
+thing.
+
+The clause was not modelled anywhere: the parser read FILE-CONTROL and left the
+rest of INPUT-OUTPUT SECTION to a catch-all, so the whole `I-O-CONTROL`
+paragraph was skipped and the clause did nothing. As with the optional words in
+1.62.60, **this never failed a compile** — the programs built cleanly and
+quietly did the wrong thing.
+
+Now: the AST carries the groups, the parser reads an `I-O-CONTROL` paragraph
+and its `SAME` clauses, and a successful `READ` lays the record image into the
+record descriptions of every file sharing the area. The qualifying words are
+all optional in any combination — IX205A writes it at its most abbreviated,
+`SAME RECORD IX-FD1 IX-FD2.`, with neither `AREA` nor `FOR`. `RERUN` and the
+other I-O-CONTROL clauses are still consumed and ignored, as before.
+
+Plain `SAME AREA` also shares the files' buffers and restricts which may be
+open at once; the members here use the `RECORD` form with both files open, so
+only that is implemented.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.60] — 2026-08-29
+
+**`ORGANIZATION IS` and the word `KEY` are optional words.** NIST CCVS85
+Indexed I/O jumps from **19 to 22 of 42** programs running clean, assertions
+483 PASS / 113 FAIL → **512 PASS / 81 FAIL** (81.0 % → **86.3 %**) — the
+largest single gain of this run.
+
+COBOL-85 writes the two clauses as `[ORGANIZATION IS] {SEQUENTIAL | LINE
+SEQUENTIAL | RELATIVE | INDEXED}` and `RECORD [KEY] [IS] data-name`. Both
+bracketed parts may be omitted, and IX103A omits both — its header says so
+outright: *"SELECT … INDEXED … (WITHOUT THE OPTIONAL WORD `<ORGANIZATION>`)"*.
+
+**Neither omission failed the compile, which is what made this expensive to
+find.** A bare `INDEXED` fell through the clause dispatch and was discarded, so
+the file kept the default `SEQUENTIAL` organization and an indexed file was
+opened as a plain stream of bytes: a scan of a 500-record file delivered **870**
+newline-delimited "records". A bare `RECORD data-name` was likewise dropped,
+leaving the file with no key at all, so the engine indexed the whole record and
+an `OPEN` of a file written with a real key reported the schema mismatch 39.
+
+`RECORD DELIMITER IS …` opens with the same word and is explicitly excluded, so
+its operand is not mistaken for a key.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434 —
+these programs always compiled; they simply did the wrong thing.
+
+
+## [PowerRustCOBOL 1.62.59] — 2026-08-29
+
+**A producer chain runs in the consumer's own directory.** Test-harness
+fidelity; no runtime change. NIST CCVS85 Indexed I/O goes 482 PASS / 114 FAIL →
+**483 PASS / 113 FAIL**.
+
+`run_producers` recursed with each producer as the new target and derived the
+work directory from *that* name, so every generation landed somewhere
+different. IX103A inherits from IX102A, which inherits from IX101A: IX102A ran
+in a directory where IX101A had never run, processed an empty file, and left a
+short one behind. IX103A's scan then reached 35 records of 500 — while IX101A
+and IX102A both reported perfectly clean, because each did exactly what it was
+asked in the directory it was given.
+
+The chain is now flat and oldest-first, and every member of it runs in the one
+directory that belongs to the consumer. The harness's figures for IX103A now
+match a by-hand run of IX101A → IX102A → IX103A exactly.
+
+**This isolates a real runtime defect that was hidden behind the harness one.**
+IX103A reads its 500-record file sequentially and counts **502** records; a
+by-hand reader over the same file counts exactly 500. The scan over-delivers by
+two. That is now the top runtime item, recorded with three causes already ruled
+out by evidence: not the file, not the delete cursor fixed in 1.62.58, and no
+longer the chain.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.58] — 2026-08-29
+
+**Deleting during a sequential scan no longer skips the next record.** A
+COBOL-85 conformance fix in the `STORAGE IS DISK` engine, proven by a reduced
+repro and pinned by a regression test.
+
+The disk engine's read cursor was a `(leaf page, entry index)` **slot**, and
+`DELETE` removed the entry without touching it. A B+tree leaf shifts its
+entries left on removal, so the record that was at `idx + 1` lands on `idx`
+and the next `READ` steps straight over it. A scan deleting every fourth of
+20 records saw only **16 of them**; each delete cost one unread record.
+
+The scan now resumes from the **key** it had reached, captured before the
+indexes move: whatever the delete rearranges, "the entry at or after this key"
+names the same record afterwards as it did before, which a slot index does not.
+
+Two details the measurement forced, both worth stating:
+
+- The resume compares the **whole stored key**, not its leading key-length
+  bytes. An alternate `WITH DUPLICATES` carries a trailing record id, and a
+  prefix comparison stepped past *every* record sharing the alternate value
+  instead of past the one deleted entry — six IX215A assertions stopped running
+  when this first went in.
+- It arms only for the **sequential** form, where the record deleted is the one
+  the scan just read. A keyed `DELETE` removes some other record while the
+  cursor sits elsewhere; that entry still exists and stepping from its slot
+  remains correct.
+
+The in-memory and redb engines key their cursors and were never affected.
+
+**NIST scores are unchanged** at IX 482 PASS / 114 FAIL, 19 of 42 — the
+programs that would show this gain still stop earlier for other reasons
+(IX103A's inherited file is short, which is the next thing to chase). This is a
+real defect fixed on its own evidence, not a score movement.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.57] — 2026-08-29
+
+**An X-card is identified by its number, not by the letter in position 5.**
+Test-harness fidelity; no runtime change.
+
+The CCVS85 deck spells card 24 three ways — `XXXXX024` (43 times), `XXXXP024`
+(6) and `XXXXD024` (2) — and IX103A's own header lists it once, as *"X-24
+INDEXED FILE IMPLEMENTOR-NAME IN ASSGN TO CLAUSE FOR DATA FILE IX-FS1"*. A
+validating installation replaces each card with one implementor name, so all
+three spellings are one file. The harness left them as three, which silently
+broke a chain the suite declares: IX102A creates IX-FS1 as `XXXXP024`, IX103A
+processes *"THE FILE USED IS THAT RESULTING FROM IX102"* as `XXXXD024`, and
+every sequential read hit `AT END` on the first call because the file it opened
+had never been written.
+
+The `P` and `D` spellings now collapse onto the canonical `XXXXX nnn` — same
+eight characters, since a shorter operand would drag the sequence area in
+columns 73-80 into the content area of a fixed-format deck. `XXXXY382` and
+`XXXXY066` are left alone: their numbers match no other card. IX103A also joins
+the producer table, quoting its own header.
+
+**IX assertions went 484 PASS / 112 FAIL → 482 PASS / 114 FAIL, and that is a
+gain, not a loss.** IX103A's delete scan now reaches 35 records instead of
+dying on the first `READ`, and two assertions that had never executed at all
+now run — and fail truthfully. A test that never ran was never passing. The
+remaining IX103A failures are real and are the next thing to fix.
+
+The ledger records the rule this settles: the regression gate is **absolute**
+for finished modules and the compile census, but the module in flight may
+legitimately score lower when the measurement becomes more honest — and that
+must be stated, never hidden and never reverted to protect a number.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434.
+
+
+## [PowerRustCOBOL 1.62.56] — 2026-08-29
+
+**A key of reference may be named through a `REDEFINES`.** NIST CCVS85 Indexed
+I/O assertions go 481 PASS / 115 FAIL → **484 PASS / 112 FAIL**, 80.7 % →
+**81.2 %**.
+
+A key is the **storage** it names, not the name itself, and `REDEFINES` gives
+the same bytes a second name. IX215A declares `ALTERNATE RECORD KEY IS
+IX-FD1-ALTKEY1` and then starts on `IX-REDF-ALTKEY1 REDEFINES IX-FD1-ALTKEY1`.
+Matching the `START`/`READ` operand against the declared names alone left that
+statement on key of reference 0 — searching the **primary** index for an
+alternate key's characters — so it took the `INVALID KEY` path every time.
+
+When the operand is not one of the declared key names, its byte range in the
+record is now compared against each declared key's extent, and an item covering
+exactly a key's bytes *is* that key. Naming a declared key directly still
+matches by name first, so nothing that worked before changes.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
+## [PowerRustCOBOL 1.62.55] — 2026-08-29
+
+**`START` accepts a generic (partial) key.** NIST CCVS85 Indexed I/O assertions
+go 475 PASS / 122 FAIL → **481 PASS / 115 FAIL**, 79.6 % → **80.7 %**.
+
+COBOL-85 lets `START … KEY IS <op> data-name` name a **subordinate item** of
+the record key — its leftmost part — and the file is then positioned on that
+*prefix*. The key was space-padded to the full width instead, which broke both
+relations:
+
+- `EQUAL TO` on a five-character item searched for a thirteen-byte key ending
+  in eight blanks. No record has one, so it returned **23** every time, and the
+  `READ` after it delivered whatever record the cursor happened to be on.
+- `GREATER THAN` compared against those blanks and stopped on the first record
+  **sharing** the prefix instead of passing them all.
+
+Positioning now uses the prefix: `EQUAL` lands on the first record whose key
+begins with the value, `GREATER THAN` on the first record past every record
+sharing it, and `NOT LESS THAN` on the first whose prefix reaches it. Naming
+the whole key is the special case where the prefix is the entire key, so
+ordinary `START` is unchanged. `READ … KEY IS` is untouched — only `START`
+reads a key generically.
+
+Fixed in **all three indexed engines** — the in-memory store, the PRCIDXD1
+B+tree and the redb store — since each implements positioning itself.
+
+This is what IX214A's `START-INITIALIZE-RECORD` depends on; failing it made the
+program delete its own tests rather than report them.
+
+The Developer's Guide gains a *Positioning on part of a key* section.
+
+Nucleus and Sequential I/O are unmoved: **NC 95/95 and SQ 85/85 on both axes**,
+4 614 and 624 assertions, none failing. Whole-suite compile stays 422 of 434,
+and the `cobolt-runtime` suite is green.
+
+
+## [PowerRustCOBOL 1.62.54] — 2026-08-29
+
+**The NIST conformance work becomes a resumable loop instead of a per-session
+hand-off.** No runtime change; this is process infrastructure.
+
+Two new artefacts:
+
+- **`NIST/progress.json`** — the committed conformance ledger, and from now on
+  the single source of truth for where the suite stands. It carries each
+  module's compile and execution figures, the protected baselines every future
+  change must preserve, a ranked `work_queue` with the evidence and fix sketch
+  for each item, a `dead_ends` list so a fresh session never retries a failed
+  approach, and the version history. It replaces the hand-written
+  `HANDOFF-*.md` files, which were re-derived from scratch each session and
+  drifted.
+- **`.claude/skills/nist-grind/SKILL.md`** — the loop protocol, so every
+  session and every subagent starts identically: orient from the ledger, pick
+  the top work item, diagnose (fan-out allowed, read-only), reduce to a minimal
+  repro, fix one thing, test, run the **full** regression, gate on the
+  protected baselines, add a regression test, bump, changelog, update the
+  ledger, commit, push, repeat.
+
+The gate is what makes it safe to run unattended: NC 95/95 with 4 614 PASS /
+0 FAIL and SQ 85/85 with 624 PASS / 0 FAIL must hold after every change, and a
+fix that breaks one is reverted and recorded as a dead end rather than chased
+forward.
+
+The skill encodes the traps this suite has already sprung — separate `cargo`
+invocations for `rcrun` and the harness, `zsh` not word-splitting unquoted
+variables, a deleted test not being a passing one, and harness limitations
+looking exactly like runtime regressions.
+
+Merging to `main` and posting to the forum remain outside the loop: both need
+an explicit ask.
+
+
 ## [PowerRustCOBOL 1.62.53] — 2026-08-29
 
 **A `RECORD KEY` that names a group now indexes that group's bytes.** NIST

@@ -210,9 +210,38 @@ impl<'src> Lexer<'src> {
             // comma (`1,5`, glued between digits, under `DECIMAL-POINT IS
             // COMMA`) and the PICTURE editing comma (`PIC ZZ,ZZ9`, glued
             // inside the template). Both keep their token untouched.
-            if matches!(result, Ok(RawToken::Comma) | Ok(RawToken::Semicolon))
-                && self.is_separator_punctuation(range.end)
-            {
+            //
+            // **Two cases where a COMMA does not mean what a space means**,
+            // both of them a following token that would otherwise attach
+            // itself to the operand before the comma:
+            //
+            // * a `+` or `-`. COBOL-85 tells a sign from a binary operator by
+            //   the space after it — `A -3` is two operands and `A - 3` is one
+            //   subtraction — so dropping the comma from `FUNCTION MOD(A, -3)`
+            //   leaves `A -3`, read as a single subtraction. The function was
+            //   called with one argument and the interpreter panicked on the
+            //   second (IF124A, IF133A).
+            // * a `(`. Dropping the comma from
+            //   `FUNCTION MAX(A * B, (C + 1) / 2, 3 + 4)` leaves `B (C + 1)`,
+            //   which is the syntax of a *subscripted reference*: the first two
+            //   arguments merged into one and MAX returned 17.5 where the
+            //   answer is 35 (IF119A, IF123A, IF130A).
+            //
+            // Every one of the suite's comma-then-sign and comma-then-paren
+            // sites is a list — a function's arguments or an item's subscripts
+            // — and both parsers already eat a comma between elements, so
+            // keeping it costs nothing.
+            //
+            // The **semicolon** is excluded from that exception. It is never a
+            // list separator in COBOL, only decoration, and no parser eats one:
+            // NC245A writes `MOVE ELEM3( +3; +5, +10)` to prove a semicolon may
+            // stand wherever a space may, and keeping it there is a parse error.
+            let dropped_separator = match result {
+                Ok(RawToken::Comma) => !self.next_raw_binds_leftwards(),
+                Ok(RawToken::Semicolon) => true,
+                _ => false,
+            };
+            if dropped_separator && self.is_separator_punctuation(range.end) {
                 continue;
             }
 
@@ -302,6 +331,15 @@ impl<'src> Lexer<'src> {
             if let Token::IntegerLiteral(..) | Token::LevelNumber(_) = token {
                 if let Some(joined) = self.try_join_digit_leading_word(span) {
                     return Some(joined);
+                }
+            }
+
+            // ── A sign glued to a literal is a sign, not an operator ────────
+            if let Token::Plus | Token::Minus = token {
+                if let Some(signed) =
+                    self.try_join_signed_literal(span, matches!(token, Token::Minus))
+                {
+                    return Some(signed);
                 }
             }
 
@@ -530,6 +568,69 @@ impl<'src> Lexer<'src> {
         Some(SpannedToken::new(Token::Identifier(joined), span))
     }
 
+    /// Join a `+`/`-` and the numeric literal glued to it into one **signed
+    /// literal**, when the sign follows an operand it is separated from.
+    ///
+    /// COBOL-85 tells a sign from a binary operator by the space *after* it: a
+    /// binary operator must have a space on both sides, so `10.2 -0.2` is two
+    /// operands and `10.2 - 0.2` is one subtraction. IF132A writes
+    ///
+    /// ```text
+    ///     COMPUTE WS-NUM = FUNCTION RANGE(10.2 -0.2, 5.6, -15.6).
+    /// ```
+    ///
+    /// with no comma between the first two arguments at all, and expects four
+    /// of them — 25.8 is 10.2 minus −15.6. Read as a subtraction it is three,
+    /// and the answer is 25.6.
+    ///
+    /// **The guard is deliberately narrower than the rule.** It fires only when
+    /// the token before the sign is a numeric literal or a closing
+    /// parenthesis, because an *identifier* before it cannot be told from a
+    /// keyword at this level: `PICTURE -9(9).9(9)` and `VARYING … BY -1` are
+    /// both "operand, gap, glued sign, digits" and neither is a place to change
+    /// anything. Widen it only against the whole-suite gate.
+    fn try_join_signed_literal(&mut self, sign_span: Span, negative: bool) -> Option<SpannedToken> {
+        // What precedes the sign must be an operand, and separated from it —
+        // `5-3` is a name and `5 - 3` is a subtraction; only `5 -3` is this.
+        let (prev, prev_range) = self.raw_tokens.get(self.pos.checked_sub(2)?)?.clone();
+        if !matches!(
+            prev,
+            Ok(RawToken::Integer(_)) | Ok(RawToken::Float(_)) | Ok(RawToken::RParen)
+        ) || prev_range.end == sign_span.start
+        {
+            return None;
+        }
+        // …and the literal must be glued to the sign.
+        let (lit, lit_range) = self.raw_tokens.get(self.pos)?.clone();
+        if lit_range.start != sign_span.end {
+            return None;
+        }
+        let token = match lit {
+            Ok(RawToken::Integer(Some(n))) => {
+                let digits = lit_range.len().min(u8::MAX as usize) as u8;
+                let v = n as i64;
+                Token::IntegerLiteral(if negative { -v } else { v }, digits)
+            }
+            Ok(RawToken::Float(Some(text))) => {
+                let (mantissa, scale) = parse_decimal_token(&text)?;
+                Token::DecimalLiteral {
+                    mantissa: if negative { -mantissa } else { mantissa },
+                    scale,
+                }
+            }
+            _ => return None,
+        };
+        let span = Span::new(
+            sign_span.start,
+            lit_range.end,
+            sign_span.line,
+            sign_span.col,
+        );
+        self.pos += 1;
+        self.at_line_start = false;
+        Some(SpannedToken::new(token, span))
+    }
+
     /// Capture a **block literal**: the lines between a pair of ``` fences.
     ///
     /// ```text
@@ -641,6 +742,22 @@ impl<'src> Lexer<'src> {
             None => true,
             Some(c) => c.is_whitespace(),
         }
+    }
+
+    /// Whether the token after the one being examined would attach itself to
+    /// the operand *before* it if the separator between them were dropped.
+    ///
+    /// This is where a separator comma carries meaning. `A, -3` is two operands
+    /// but `A -3` reads as one subtraction, because COBOL-85 distinguishes a
+    /// sign from a binary operator by the space that follows it; and `B, (C+1)`
+    /// is two operands but `B (C+1)` is the syntax of a subscripted reference.
+    /// Keeping the comma is what lets the parser tell each pair apart without
+    /// teaching it either rule.
+    fn next_raw_binds_leftwards(&self) -> bool {
+        matches!(
+            self.raw_tokens.get(self.pos).map(|(t, _)| t),
+            Some(Ok(RawToken::Plus)) | Some(Ok(RawToken::Minus)) | Some(Ok(RawToken::LParen))
+        )
     }
 }
 

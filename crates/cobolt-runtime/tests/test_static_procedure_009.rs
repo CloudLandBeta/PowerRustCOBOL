@@ -67,7 +67,11 @@ fn local_ws_is_static_across_calls_and_resets_on_cancel() {
     let out = run_capture(SRC);
     assert_eq!(
         out,
-        vec!["1", "2", "3", "1"],
+        // Field-form rendering: the activation-scope primitive carries the
+        // counter's PIC 9(4) capacity, so it displays zero-padded exactly as
+        // an outer program's item would. Persistence and CANCEL semantics are
+        // what this asserts, and they are unchanged.
+        vec!["0001", "0002", "0003", "0001"],
         "procedure locals must persist across calls (static) and reset on CANCEL"
     );
 }
@@ -112,7 +116,9 @@ fn initialize_resets_each_call_developer_choice() {
     let out = run_capture(SRC_INIT);
     assert_eq!(
         out,
-        vec!["1", "1"],
+        // Field form, as above — kept current so un-ignoring this someday
+        // fails on INITIALIZE's behaviour, not on rendering.
+        vec!["0001", "0001"],
         "INITIALIZE should reset the local each call"
     );
 }

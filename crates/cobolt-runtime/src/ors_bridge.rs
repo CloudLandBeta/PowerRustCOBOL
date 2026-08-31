@@ -41,6 +41,9 @@
 //! developer declared, and a line that overflows it is truncated into a route
 //! that stops in the middle of nowhere.
 
+// OpenStreetMap's routing door, reached over plain HTTP rather than through the
+// `google_maps` client — so it rides the `http` feature, not `maps`.
+#[cfg(feature = "http")]
 use cobolt_forms::map_geometry::{decode_polyline, encode_polyline_within};
 
 /// Where the request goes. The `driving-car` profile is the road network a
@@ -56,6 +59,7 @@ pub const GEOMETRY_BUDGET: usize = 4_000;
 ///
 /// Blocking: called from the background worker thread the interpreter already
 /// spawns for async Maps operations, never from the interpreter's own thread.
+#[cfg(feature = "http")]
 pub fn trace_road(
     api_key: &str,
     from_lat: &str,
@@ -95,6 +99,23 @@ pub fn trace_road(
 }
 
 /// One coordinate pair, or a message naming which end was wrong.
+/// TraceRoad was left out of the build — it is an HTTP call like any other.
+#[cfg(not(feature = "http"))]
+pub fn trace_road(
+    _api_key: &str,
+    _from_lat: &str,
+    _from_lng: &str,
+    _to_lat: &str,
+    _to_lng: &str,
+    _timeout_ms: u64,
+) -> Result<String, String> {
+    Err("TraceRoad is not linked into this program: it reaches OpenRouteService \
+         over HTTP, and the build found nothing in this program that uses the \
+         HTTP bridge"
+        .to_owned())
+}
+
+#[cfg(feature = "http")]
 fn point(lat: &str, lng: &str, which: &str) -> Result<(f64, f64), String> {
     let lat: f64 = lat
         .trim()
@@ -112,6 +133,7 @@ fn point(lat: &str, lng: &str, which: &str) -> Result<(f64, f64), String> {
 /// every COBOL program a developer writes) says a position. Getting it backwards
 /// asks for a route between two points in the sea, so it is done in exactly one
 /// place.
+#[cfg(feature = "http")]
 fn request_body(from: (f64, f64), to: (f64, f64)) -> String {
     format!(
         "{{\"coordinates\":[[{},{}],[{},{}]],\"elevation\":false,\"instructions\":false}}",
@@ -120,6 +142,7 @@ fn request_body(from: (f64, f64), to: (f64, f64)) -> String {
 }
 
 /// ORS's own words for a failure, when the body carries them.
+#[cfg(feature = "http")]
 fn error_message(body: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(body).ok()?;
     let error = parsed.get("error")?;
@@ -136,6 +159,7 @@ fn error_message(body: &str) -> Option<String> {
 /// `elevation: false` keeps the geometry a plain 2-D encoded polyline at the
 /// same 1e-5 precision Google uses, so the platform's own decoder reads it and
 /// `AddRoute` traces it with no conversion at all.
+#[cfg(feature = "http")]
 fn parse_route(body: &str) -> Result<String, String> {
     let parsed: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("TraceRoad: unreadable answer ({e})"))?;
@@ -171,7 +195,7 @@ fn parse_route(body: &str) -> Result<String, String> {
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "http"))]
 mod tests {
     use super::*;
 

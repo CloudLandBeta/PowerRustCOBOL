@@ -330,6 +330,25 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
         }
         let line = st.span.line;
 
+        // ── source-text manipulation, division-agnostic ────────────────────
+        // `COPY` alone is an intermediate-subset feature (SM301M's business,
+        // out of scope by ruling); the `REPLACING` phrase and the `REPLACE`
+        // statement are above the high subset, and SM401M expects one flag
+        // for each. Neither word is a lexer keyword — the preprocessor owns
+        // them — so they arrive as identifiers here, where the raw member is
+        // tokenized unexpanded.
+        if is_word(&st.token, "COPY")
+            && tokens[i + 1..]
+                .iter()
+                .take_while(|t| !matches!(t.token, Token::Period))
+                .any(|t| matches!(t.token, Token::Replacing))
+        {
+            emit(&mut flags, &mut once, "COPY ... REPLACING", line);
+        }
+        if is_word(&st.token, "REPLACE") && at_start {
+            emit(&mut flags, &mut once, "REPLACE statement", line);
+        }
+
         if matches!(next, Some(Token::Division)) {
             match st.token {
                 Token::Identification => division = Division::Identification,
@@ -376,6 +395,22 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
                 }
                 if is_word(&st.token, "PADDING") {
                     emit(&mut flags, &mut once, "PADDING CHARACTER clause", line);
+                }
+                // ── Indexed I-O above the high subset (IX401M) ──────────────
+                // `ACCESS MODE IS DYNAMIC` — the mode that allows a file to be
+                // read both ways in one open. SEQUENTIAL and RANDOM are inside
+                // the subset; DYNAMIC is not.
+                if matches!(st.token, Token::Access)
+                    && tokens[i..]
+                        .iter()
+                        .take_while(|t| !matches!(t.token, Token::Period))
+                        .any(|t| matches!(t.token, Token::Dynamic))
+                {
+                    emit(&mut flags, &mut once, "ACCESS MODE IS DYNAMIC", line);
+                }
+                // A second key on the file.
+                if is_word(&st.token, "ALTERNATE") {
+                    emit(&mut flags, &mut once, "ALTERNATE RECORD KEY clause", line);
                 }
                 if matches!(st.token, Token::Record) && is_word_opt(next, "DELIMITER") {
                     emit(&mut flags, &mut once, "RECORD DELIMITER clause", line);
@@ -452,7 +487,18 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
                 {
                     emit(&mut flags, &mut once, "BLOCK CONTAINS n TO m", line);
                 }
-                if matches!(st.token, Token::Record) && matches!(next, Some(Token::Varying)) {
+                // `RECORD [IS] VARYING [IN SIZE] …` — `IS` is optional, and
+                // IX401M writes it (`RECORD IS VARYING IN SIZE FROM 18 TO 36
+                // CHARACTERS`) where SQ401M does not. Matching only the
+                // adjacent form missed IX401M's entirely.
+                if matches!(st.token, Token::Record)
+                    && matches!(next, Some(Token::Varying))
+                    || matches!(st.token, Token::Record)
+                        && matches!(next, Some(Token::Is))
+                        && tokens
+                            .get(i + 2)
+                            .is_some_and(|t| matches!(t.token, Token::Varying))
+                {
                     emit(&mut flags, &mut once, "RECORD VARYING clause", line);
                 }
                 if is_word(&st.token, "LINAGE") {
@@ -480,6 +526,73 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
         }
     }
 
+    // ── inter-program communication (IC401M) ────────────────────────────────
+    // The whole nested-source and separately-compiled facility sits above the
+    // high subset: a program that contains another, the clauses that let data
+    // and procedures cross the boundary, and the phrases that say how an
+    // argument is passed. `END PROGRAM` above is part of the same family and
+    // was already flagged; these are the rest of what IC401M declares.
+    //
+    // Each is emitted once per occurrence rather than through `emit`'s
+    // per-sentence dedup: IC401M writes one construct per sentence and expects
+    // one message for each, and two `END PROGRAM`s already rely on that.
+    let mut seen_id_division = false;
+    for (i, st) in tokens.iter().enumerate() {
+        let prev = i.checked_sub(1).and_then(|p| tokens.get(p)).map(|t| &t.token);
+        let line = st.span.line;
+        match &st.token {
+            // A second IDENTIFICATION DIVISION in one compilation unit opens a
+            // CONTAINED program. The first one is the ordinary program header
+            // and is not flagged — which is why this counts rather than matches.
+            //
+            // `DIVISION` must follow. `ID` is the standard abbreviation and
+            // lexes to this same token, so a bare match also fired on
+            // `VALUE OF ID IS "X"` in an FD — caught by
+            // `fd_clauses_above_the_subset`.
+            Token::Identification
+                if matches!(tokens.get(i + 1).map(|t| &t.token), Some(Token::Division)) =>
+            {
+                if seen_id_division {
+                    flags.push(Flag::above_subset("contained source program", line));
+                }
+                seen_id_division = true;
+            }
+            // `USE GLOBAL AFTER STANDARD ERROR` shares its keyword with the
+            // GLOBAL data clause, so the two are told apart by what precedes
+            // it. Both are above the subset, and IC401M expects a message for
+            // each, separately.
+            Token::Global => {
+                if matches!(prev, Some(Token::Use)) {
+                    flags.push(Flag::above_subset("USE GLOBAL declarative", line));
+                } else {
+                    flags.push(Flag::above_subset("GLOBAL clause", line));
+                }
+            }
+            Token::External => flags.push(Flag::above_subset("EXTERNAL clause", line)),
+            Token::Cancel => flags.push(Flag::above_subset("CANCEL statement", line)),
+            Token::Reference => flags.push(Flag::above_subset("BY REFERENCE phrase", line)),
+            // `INITIAL`, `COMMON` and `CONTENT` are not keywords — the lexer
+            // has no mapping for any of them, so they arrive as words and are
+            // recognised by text. (`Token::Content_` exists but nothing ever
+            // produces it; matching on it silently flagged nothing.) Each is
+            // pinned to the word before it so an ordinary data item called
+            // `CONTENT` or `INITIAL` is not mistaken for the clause.
+            Token::Identifier(w) => match (w.to_ascii_uppercase().as_str(), prev) {
+                ("INITIAL", Some(Token::Is)) => {
+                    flags.push(Flag::above_subset("INITIAL program", line))
+                }
+                ("COMMON", Some(Token::Is)) => {
+                    flags.push(Flag::above_subset("COMMON program", line))
+                }
+                ("CONTENT", Some(Token::By)) => {
+                    flags.push(Flag::above_subset("BY CONTENT phrase", line))
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
     flags.sort_by_key(|f| f.line);
     flags
 }
@@ -487,6 +600,18 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
 /// The PROCEDURE DIVISION half of [`flag_high_subset`], split out to keep one
 /// function from running to three screens.
 #[allow(clippy::too_many_arguments)]
+/// Whether the `(` at `i` opens an intrinsic function's argument list.
+///
+/// `FUNCTION name (` — the name is exactly one token whatever it lexes as, so
+/// the test is the token two back. Two subset detectors need it: a function's
+/// arguments are neither a subscript list nor operators of an enclosing
+/// relation, and reading them as either flagged seven of IF402M's statements a
+/// second time. The greedy scorer hid that by letting the spurious flags stand
+/// in for the intrinsic-function ones, which is why the counts looked right.
+fn opens_function_arguments(tokens: &[SpannedToken], i: usize) -> bool {
+    i >= 2 && matches!(tokens[i - 2].token, Token::Function)
+}
+
 fn subset_procedure_flags(
     tokens: &[SpannedToken],
     i: usize,
@@ -497,6 +622,21 @@ fn subset_procedure_flags(
     once: &mut Vec<&'static str>,
     emit: &mut impl FnMut(&mut Vec<Flag>, &mut Vec<&'static str>, &'static str, u32),
 ) {
+    // ── intrinsic functions ─────────────────────────────────────────────────
+    // Every `FUNCTION name (…)` reference is above the COBOL-85 high subset:
+    // intrinsic functions arrived with the 1989 addendum, not with the 1985
+    // standard, so a compiler validating at the high subset reports each use as
+    // non-conforming — whether or not it implements the function.
+    //
+    // IF401M, IF402M and IF403M are nothing but this: forty-odd paragraphs,
+    // each one statement using one intrinsic, each followed by its own
+    // `MESSAGE EXPECTED`. One flag per *sentence* is what they ask for, which
+    // is what `emit` already gives — `IF FUNCTION ACOS (1.0) = FUNCTION ACOS
+    // (1.0)` names the function twice and expects a single message.
+    if matches!(st.token, Token::Function) {
+        emit(flags, once, "intrinsic function reference", line);
+    }
+
     // ── file-verb phrases above the subset ──────────────────────────────────
     // Each is a *phrase* of `OPEN` or `CLOSE` whose word is not a keyword, so
     // the statement it belongs to is what qualifies it: `LOCK` and `REMOVAL`
@@ -540,6 +680,21 @@ fn subset_procedure_flags(
             .any(|t| is_word(&t.token, "NEXT"))
     {
         emit(flags, once, "READ … NEXT RECORD", line);
+    }
+    // `READ … KEY IS` and `START … KEY IS` name the key of reference, which
+    // only a file with more than one key needs (IX401M L77, L82).
+    if matches!(st.token, Token::Read | Token::Start)
+        && tokens[i..]
+            .iter()
+            .take_while(|t| !matches!(t.token, Token::Period))
+            .any(|t| matches!(t.token, Token::Key))
+    {
+        let element = if matches!(st.token, Token::Read) {
+            "READ … KEY IS"
+        } else {
+            "START … KEY IS"
+        };
+        emit(flags, once, element, line);
     }
     // `WRITE … AT END-OF-PAGE` — the page-overflow phrase, which exists only
     // for a LINAGE file.
@@ -628,7 +783,11 @@ fn subset_procedure_flags(
     // Operands are counted instead, less the binary operators among them: each
     // operator joins two operands into one subscript, so `(IN1 + 3)` is one and
     // `(IN1 - 1  3)` is two.
-    if matches!(st.token, Token::LParen) {
+    //
+    // **A function's argument list is not a subscript list.** `FUNCTION ORD-MAX
+    // (5, 3, 2, 8, 3, 1)` is one operand with six arguments, and counting them
+    // as subscripts flagged four of IF402M's statements twice.
+    if matches!(st.token, Token::LParen) && !opens_function_arguments(tokens, i) {
         let mut depth = 0i32;
         let (mut operands, mut operators, mut colon) = (0usize, 0usize, false);
         for t in &tokens[i..] {
@@ -657,11 +816,38 @@ fn subset_procedure_flags(
 
     // ── conditions ──────────────────────────────────────────────────────────
     if matches!(st.token, Token::If) {
-        let rest = tokens[i..]
-            .iter()
-            .take_while(|t| !matches!(t.token, Token::Period));
         let (mut arith, mut logical) = (false, false);
-        for t in rest {
+        // An operator **inside a function's argument list** belongs to the
+        // argument, not to the relation: `IF FUNCTION MEAN (5, -2, -14, 0) = …`
+        // has no arithmetic expression in it, and reading its signs as
+        // operators flagged three more of IF402M's statements twice.
+        let mut depth = 0i32;
+        let mut fn_open: Option<i32> = None;
+        for (k, t) in tokens[i..]
+            .iter()
+            .enumerate()
+            .take_while(|(_, t)| !matches!(t.token, Token::Period))
+        {
+            match t.token {
+                Token::LParen => {
+                    depth += 1;
+                    if fn_open.is_none() && opens_function_arguments(tokens, i + k) {
+                        fn_open = Some(depth);
+                    }
+                    continue;
+                }
+                Token::RParen => {
+                    if fn_open == Some(depth) {
+                        fn_open = None;
+                    }
+                    depth -= 1;
+                    continue;
+                }
+                _ => {}
+            }
+            if fn_open.is_some() {
+                continue;
+            }
             match t.token {
                 Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Power => {
                     arith = true
@@ -813,6 +999,99 @@ mod tests {
             .into_iter()
             .map(|f| f.element)
             .collect()
+    }
+
+    /// The inter-program facility is above the high subset, and CCVS85
+    /// **IC401M** declares all eleven of its constructs in one 74-line program.
+    ///
+    /// It scored 2 of 11 — only `END PROGRAM`, which another member had already
+    /// motivated. This is that program's shape, reduced but complete.
+    #[test]
+    fn inter_program_constructs_are_above_the_subset() {
+        let got = subset_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. OUTER IS INITIAL.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 GLOB IS GLOBAL PIC X(2).
+       01 EXTE IS EXTERNAL PIC X(5).
+       PROCEDURE DIVISION.
+       DECLARATIVES.
+       D-SECT SECTION.
+           USE GLOBAL AFTER STANDARD ERROR PROCEDURE ON I-O.
+       END DECLARATIVES.
+       MAIN SECTION.
+       M-PARA.
+           CANCEL \"INNER\".
+           CALL \"INNER\" USING BY REFERENCE GLOB.
+           CALL \"OTHER\" USING BY CONTENT GLOB.
+           STOP RUN.
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. INNER IS COMMON.
+       PROCEDURE DIVISION.
+       I-PARA.
+           DISPLAY \"HI\".
+       END PROGRAM INNER.
+       END PROGRAM OUTER.
+",
+        );
+        for want in [
+            "INITIAL program",
+            "GLOBAL clause",
+            "EXTERNAL clause",
+            "USE GLOBAL declarative",
+            "CANCEL statement",
+            "BY REFERENCE phrase",
+            "BY CONTENT phrase",
+            "contained source program",
+            "COMMON program",
+            "END PROGRAM header",
+        ] {
+            assert!(got.contains(&want), "{want} should be flagged: {got:?}");
+        }
+        // Both `END PROGRAM`s are flagged — IC401M expects a message for each,
+        // and the second is the one it announces as "for **following**
+        // statement".
+        assert_eq!(
+            got.iter().filter(|e| **e == "END PROGRAM header").count(),
+            2,
+            "one message per END PROGRAM: {got:?}"
+        );
+        // The OUTER program's own header is not a contained program.
+        assert_eq!(
+            got.iter().filter(|e| **e == "contained source program").count(),
+            1,
+            "only the second IDENTIFICATION DIVISION is contained: {got:?}"
+        );
+    }
+
+    /// `ID` abbreviates `IDENTIFICATION` and lexes to the same token, so an FD's
+    /// `VALUE OF ID IS "X"` looked like a second program header and was flagged
+    /// as a contained one. Requiring `DIVISION` to follow is what tells them
+    /// apart; `fd_clauses_above_the_subset` caught this.
+    #[test]
+    fn value_of_id_is_not_a_contained_program() {
+        let got = subset_of(
+            "       IDENTIFICATION DIVISION.
+       PROGRAM-ID. IDSUB.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT TFIL ASSIGN TO \"t.dat\".
+       DATA DIVISION.
+       FILE SECTION.
+       FD TFIL
+           VALUE OF ID IS \"X\".
+       01 FREC PIC X(8).
+       PROCEDURE DIVISION.
+       MAIN.
+           STOP RUN.
+",
+        );
+        assert!(
+            !got.contains(&"contained source program"),
+            "`VALUE OF ID` is a file clause, not a program header: {got:?}"
+        );
     }
 
     /// Wrap a PROCEDURE DIVISION body in the smallest complete program.
@@ -1391,6 +1670,62 @@ mod tests {
                 "READ … NEXT RECORD",
                 "WRITE … AT END-OF-PAGE",
             ]
+        );
+    }
+
+    /// Every intrinsic function reference is above the high subset — they came
+    /// with the 1989 addendum, not the 1985 standard — and one statement earns
+    /// one flag however many times it names a function.
+    #[test]
+    fn an_intrinsic_function_reference_is_above_the_subset() {
+        let got = subset_of(&proc(
+            "           IF FUNCTION ACOS (1.0) = FUNCTION ACOS (1.0)
+                       CONTINUE.",
+        ));
+        assert_eq!(got, vec!["intrinsic function reference"], "{got:?}");
+    }
+
+    /// A function's argument list is not a subscript list.
+    ///
+    /// `FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1)` is one operand with six
+    /// arguments. Counting them as subscripts flagged four of IF402M's
+    /// statements twice, and the greedy scorer hid it by letting the spurious
+    /// flag stand in for the intrinsic-function one.
+    #[test]
+    fn a_function_argument_list_is_not_a_subscript_list() {
+        let got = subset_of(&proc(
+            "           IF FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1) =
+                          FUNCTION ORD-MAX (5, 3, 2, 8, 3, 1)
+                       CONTINUE.",
+        ));
+        assert_eq!(got, vec!["intrinsic function reference"], "{got:?}");
+    }
+
+    /// A sign inside a function's argument list belongs to the argument, not
+    /// to the enclosing relation.
+    #[test]
+    fn a_sign_in_a_function_argument_is_not_arithmetic_in_a_relation() {
+        let got = subset_of(&proc(
+            "           IF FUNCTION MEAN (5, -2, -14, 0) =
+                          FUNCTION MEAN (5, -2, -14, 0)
+                       CONTINUE.",
+        ));
+        assert_eq!(got, vec!["intrinsic function reference"], "{got:?}");
+    }
+
+    /// Neither exception weakens the two detectors themselves: a genuine deep
+    /// subscript list and a genuine arithmetic relation still flag.
+    #[test]
+    fn the_subscript_and_relation_detectors_still_fire() {
+        let subs = subset_of(&proc("           MOVE TBL (A, B, C, D, 1) TO WS-X."));
+        assert!(subs.contains(&"more than three subscripts"), "{subs:?}");
+
+        let arith = subset_of(&proc(
+            "           IF BOX-A + 1 IS NOT GREATER THAN BOX-B + 2 DISPLAY \"X\".",
+        ));
+        assert!(
+            arith.contains(&"arithmetic expression in a relation"),
+            "{arith:?}"
         );
     }
 

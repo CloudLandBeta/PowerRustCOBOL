@@ -67,6 +67,13 @@ pub struct SpecialName {
 pub struct InputOutputSection {
     /// FILE-CONTROL paragraph entries.
     pub file_controls: Vec<FileControl>,
+    /// I-O-CONTROL `SAME [RECORD] [AREA]` groups — one entry per clause, each
+    /// listing the files that share one record area.
+    ///
+    /// Files in a group are described by several `01`s over the *same* storage,
+    /// so a `READ` of one is visible through the record name of the others.
+    #[serde(default)]
+    pub same_areas: Vec<Vec<String>>,
     pub span: Span,
 }
 
@@ -87,6 +94,14 @@ pub struct FileControl {
     /// first. See [`AlternateKey::quals`].
     #[serde(default)]
     pub record_key_quals: Vec<String>,
+    /// `RELATIVE KEY IS data-name` — the integer record number a RELATIVE file
+    /// is addressed by.
+    ///
+    /// Unlike a RECORD KEY this is **not** part of the record: it is an
+    /// ordinary data item the program sets before a random `READ`/`WRITE`, and
+    /// that the runtime fills in on a sequential read.
+    #[serde(default)]
+    pub relative_key: Option<String>,
     /// ALTERNATE RECORD KEY entries.
     pub alternate_keys: Vec<AlternateKey>,
     /// FILE STATUS data-item name.

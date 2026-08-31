@@ -92,6 +92,9 @@ fn main() {
 fn expand_copy(path: &PathBuf, source: &str, fmt: SourceFormat) -> String {
     let base = path.parent().unwrap_or_else(|| std::path::Path::new("."));
     let expansion = cobolt_lexer::expand_copybooks(source, base, fmt);
+    if std::env::var_os("COBOLT_DUMP_EXPANSION").is_some() {
+        eprintln!("=== EXPANSION BEGIN ===\n{}\n=== EXPANSION END ===", expansion.text);
+    }
     for e in &expansion.errors {
         eprintln!("{}: copybook error: {e}", path.display());
     }
@@ -871,12 +874,12 @@ fn resolve_indexed_engine(args: &[String]) -> IndexedEngine {
             None => {
                 eprintln!(
                     "cobolt: unknown indexed engine '{name}' \
-                     (expected: rust | rm-cobol85 | fujitsu | redb); using rust"
+                     (expected: rust | rm-cobol85 | fujitsu | redb); using redb"
                 );
-                IndexedEngine::Rust
+                IndexedEngine::Redb
             }
         },
-        None => IndexedEngine::Rust,
+        None => IndexedEngine::Redb,
     }
 }
 

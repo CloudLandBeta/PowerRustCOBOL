@@ -11,26 +11,73 @@ See the LICENSE file in the project root for full license information.
 Operational rules every agent on this repo must follow. (Architecture and crate
 layout live in `AGENTS.md`; this file is the do/don't list.)
 
-## PRIME DIRECTIVE — this project is Rust, and Rust only
+## PRIME DIRECTIVE — the project is Rust and Rust only; the tools that edit it need not be
 
-- **Never author or run code in any language other than Rust, for any
-  purpose.** No Python, no shell scripts, no Node, no awk/sed programs — not
-  in the repository, not as a "throwaway" helper in a scratch directory, not
-  to inspect, diff, count, generate or bulk-edit anything, not even once.
-- A mechanical, repetitive edit is **not** a licence to reach for a scripting
-  language. Do it with the editing tools, however tedious, or — when it
-  genuinely warrants automation — write it in Rust, as a test, an `examples/`
-  binary or a small crate, so it lives in the language the rest of the project
-  is reviewed in.
-- Invoking the toolchain (`cargo …`, `git …`, `ls`, `grep`) is using a tool,
-  not authoring code, and stays fine. Stringing those into a script — a
-  heredoc, a `python3 - <<EOF`, a multi-statement pipeline written to do a
-  job — is not.
-- The only non-Rust code that legitimately exists here is what the product
-  itself is made of: COBOL (the language served), and the markdown/TOML/XML
-  that configure and document it.
-- This rule outranks convenience and outranks speed. If a task looks like it
-  needs a script, say so and ask.
+*Revised by operator ruling 2026-08-30. The earlier blanket ban — "never author
+or run code in another language, for any purpose, not even once" — is no longer
+in force; what replaced it is below.*
+
+**What the rule protects: no foreign code or dependency ever ships.** Everything
+in this repository is Rust — every committed line, every helper, every test,
+every `examples/` binary. The only non-Rust code that legitimately *lives here*
+is what the product itself is made of: COBOL (the language served), and the
+markdown/TOML/XML that configure and document it, plus tracked tooling that
+predates this ruling (`tools/check_bugs.sh`). **No new language is ever added to
+the project.**
+
+**What is allowed:** writing and running a **throwaway script in whatever
+language fits** (Python, shell, Node, awk/sed, jq …) purely to **automate edits
+to this repository's Rust sources when the edit is repetitive, tedious, or hard
+to express in Rust alone** — a rename across 300 call sites, a mechanical
+signature change, a bulk import rewrite, a census of what needs touching. The
+script is a *power tool for the editing tools*, not a project artifact, and it
+is disposable. Three conditions bind it; **all three are mandatory**, and
+failing any one means doing the edit by hand instead.
+
+1. **It lives outside the repository — always.** Create and run it anywhere
+   *but* this repo and its subfolders; the session scratchpad and
+   `~/Documents/PowerRustCOBOL-local-settings/` are the obvious homes. It reads
+   and writes repo files by absolute path, but it is never *in* the tree, so it
+   can never be staged, committed or shipped by accident. Writing one inside the
+   repo "just for a second" is precisely the failure this condition prevents.
+2. **Sweep before every commit and every push — for executable scripts, and
+   nothing else.** Before `git commit` and before `git push`, scan the working
+   tree for **untracked program source in a language other than Rust or
+   COBOL**: `.py`, `.sh`, `.bash`, `.zsh`, `.js`, `.mjs`, `.cjs`, `.ts`, `.rb`,
+   `.pl`, `.php`, `.lua`, `.awk`, `.jq`, `.ps1`, `.bat`, `.cmd`, and any
+   untracked text file carrying a `#!` shebang or the executable bit. **Anything
+   found is MOVED — never deleted — into**
+   `~/Documents/PowerRustCOBOL-local-settings/quarantine` (create the folder if
+   missing), and **every move is reported to the operator by name**. Deleting is
+   never the answer: the *user code is sacred* rule applies here too, and a
+   quarantined file may well be the operator's own. Commit only once the sweep
+   comes back clean.
+
+   **Two hard limits on the sweep — it exists to stop foreign code shipping,
+   never to strip the project of files it needs:**
+   - **Tracked files are never touched.** `git ls-files` is the authority on
+     what legitimately belongs; a file already in the index is *in the project
+     by decision* (`tools/check_bugs.sh` is exactly that case).
+   - **Data, configuration, documentation and assets are never in scope, at any
+     extension** — `.json`, `.toml`, `.yaml`/`.yml`, `.xml`, `.md`,
+     `.csv`/`.tsv`, `.txt`, `.cfrm`, `.cidx`, `.data`, `.lock`, fonts, images,
+     fixtures, test inputs, binary blobs. These are *inputs to* Rust and COBOL,
+     not code in another language, and quarantining one breaks the build for no
+     gain. **Ship-blocking foreign code is the target; a file a crate reads is
+     not.** If a file is ambiguous, **leave it and ask** — a false positive here
+     cripples the project, a false negative is caught at review.
+3. **The output is reviewed as Rust.** A scripted pass is finished when
+   `cargo build` and `cargo test` are green on every crate it touched **and**
+   `git diff` has been *read*, not skimmed. A script that made 300 correct edits
+   and one wrong one is a script that failed. If a pass cannot be verified that
+   way, it does not get run.
+
+Invoking the toolchain (`cargo …`, `git …`, `ls`, `grep`) was never in scope and
+still is not — that is using a tool, not authoring code.
+
+- **Corollary (unchanged): never run a `perl -pe 's/\x{..}/'`-style pass over a
+  source file** — it re-encodes every non-ASCII byte in the file. Use the
+  editing tools, and check `git diff --numstat` after any scripted edit.
 
 ## Versioning — `crates/cobolt-ide/src/version.rs` (`x.y.z`)
 

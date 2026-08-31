@@ -248,3 +248,45 @@ fn a_byte_image_does_not_cost_the_item_its_numeric_category() {
     // An unsigned item has nowhere to keep a sign, so it stores the magnitude.
     assert_eq!(out[1], "UNSGN=[011]", "{out:#?}");
 }
+
+/// CCVS85 **ST127A**: a group whose children include signed COMP and
+/// `SV9(16)` items is snapshot with `MOVE SORT-1 TO WS-SORTFILE-REC`. A
+/// negative value's display form spends a byte on the leading `-` that the
+/// item has no character position for, so the byte image ran one wide per
+/// negative field and every child after it landed shifted — `WS-1` read
+/// −5432 for −54321, `WS-7` read 150 for 501, and all 61 of the member's
+/// CHK failures were this. A negative signed (non-SEPARATE) numeric now
+/// renders its group-image bytes at PICTURE width with the sign overpunched
+/// on the trailing digit — the record-image convention — and the receiving
+/// side decodes exactly that shape back to the value.
+#[test]
+fn group_move_keeps_alignment_across_negative_signed_fields() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. GMOVE.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 G1.
+          02 A1 PIC S99 COMPUTATIONAL VALUE +99.
+          02 B1 PIC S9(6) COMPUTATIONAL VALUE -54321.
+          02 C1 PIC 999 VALUE 501.
+          02 D1 PIC SV9(16) VALUE -.1234567890123456.
+          02 E1 PIC X(3) VALUE "END".
+       01 G2.
+          02 A2 PIC S99 COMPUTATIONAL.
+          02 B2 PIC S9(6) COMPUTATIONAL.
+          02 C2 PIC 999.
+          02 D2 PIC SV9(16).
+          02 E2 PIC X(3).
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE G1 TO G2.
+           IF B2 = B1 AND C2 = C1 AND D2 = D1 AND E2 = E1
+               DISPLAY "ALIGNED"
+           ELSE
+               DISPLAY "SHIFTED B=" B2 " C=" C2 " E=" E2
+           END-IF.
+           STOP RUN.
+    "#;
+    assert_eq!(run(src), vec!["ALIGNED"]);
+}

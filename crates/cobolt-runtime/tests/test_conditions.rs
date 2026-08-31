@@ -292,3 +292,71 @@ fn evaluate_matches_the_last_branch_of_a_long_nested_chain() {
     src.push_str("           END-EVALUATE.\n           STOP RUN.\n");
     assert_eq!(run_capture(&src), vec!["HIT-40"]);
 }
+
+/// Two numeric operands compare algebraically even when both slots hold
+/// characters put there by a group `MOVE`.
+///
+/// A group MOVE is an alphanumeric move: it transfers characters and converts
+/// nothing, so a `PIC 9(6)` child legitimately holds `"000007"`. The item is
+/// still numeric and the relation is still algebraic — but nothing put the
+/// value back into numeric form, so when *both* sides had been filled that way
+/// the comparison fell through to comparing display strings, and `"000000007"`
+/// against `"000007"` is unequal. One side against a literal-valued numeric was
+/// always fine, which is why it survived.
+///
+/// IX103A and IX203A both check a record number against the digits embedded in
+/// that record's key, and saw every one of 500 records as a mismatch.
+#[test]
+fn two_group_moved_numerics_compare_algebraically() {
+    let out = run_capture(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01  IMG6.\n\
+         \x20          03 FILLER PIC 9(6) VALUE 000007.\n\
+         \x20          03 FILLER PIC X(4) VALUE \"ABCD\".\n\
+         \x20      01  SRCKEY PIC X(29) VALUE \"ABCDLKJXYZ000000007ZIF,.$-+CD\".\n\
+         \x20      01  TBL.\n\
+         \x20          03 ELEM OCCURS 3 TIMES.\n\
+         \x20             05 E-NUM6 PIC 9(6).\n\
+         \x20             05 E-PAD  PIC X(4).\n\
+         \x20      01  WK.\n\
+         \x20          03 FILLER PIC X(10).\n\
+         \x20          03 WK-NUM PIC 9(9).\n\
+         \x20          03 FILLER PIC X(10).\n\
+         \x20      01  SCALED.\n\
+         \x20          03 S-NUM  PIC 9(4)V99.\n\
+         \x20      01  PLAIN6 PIC 9(6).\n\
+         \x20      01  SRC6   PIC X(6) VALUE \"123456\".\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          MOVE IMG6   TO ELEM (1)\n\
+         \x20          MOVE SRCKEY TO WK\n\
+         \x20          IF WK-NUM = E-NUM6 (1)\n\
+         \x20             DISPLAY \"BOTH-EQ\" ELSE DISPLAY \"BOTH-NE\" END-IF\n\
+         \x20          IF WK-NUM > E-NUM6 (1)\n\
+         \x20             DISPLAY \"BOTH-GT\" ELSE DISPLAY \"BOTH-NOTGT\" END-IF\n\
+         \x20          MOVE SRC6 TO SCALED\n\
+         \x20          MOVE SRC6 TO PLAIN6\n\
+         \x20          IF S-NUM = PLAIN6\n\
+         \x20             DISPLAY \"SCALE-EQ\" ELSE DISPLAY \"SCALE-NE\" END-IF\n\
+         \x20          STOP RUN.\n",
+    );
+    let joined = out.join("\n");
+    assert!(
+        joined.contains("BOTH-EQ"),
+        "9(9) holding 7 equals 9(6) holding 7, however they were filled:\n{joined}"
+    );
+    assert!(
+        joined.contains("BOTH-NOTGT"),
+        "and neither is greater than the other:\n{joined}"
+    );
+    // The item's own scale decides the value: the same six characters are
+    // 1234.56 in a 9(4)V99 and 123456 in a 9(6). Reading both as raw digits
+    // would wrongly call them equal.
+    assert!(
+        joined.contains("SCALE-NE"),
+        "a scaled item must be read through its own PICTURE:\n{joined}"
+    );
+}

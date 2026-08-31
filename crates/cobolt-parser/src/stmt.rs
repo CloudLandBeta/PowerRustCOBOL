@@ -96,6 +96,38 @@ pub(crate) fn parse_sentences(p: &mut Parser, stop: &dyn Fn(&Token) -> bool) -> 
     parse_stmt_list(p, stop, false)
 }
 
+/// Words that close a construct the body being parsed may be *nested inside*.
+///
+/// COBOL-85 ends an imperative statement list at the first word that cannot
+/// continue it, and each of these can only belong to an enclosing statement.
+/// They matter because a conditional phrase is usually written without its own
+/// scope terminator. RL210A has
+///
+/// ```text
+///     IF      XRECORD-NUMBER (1) < 201
+///             WRITE  RL-VS1R1-F-G-120
+///             INVALID KEY GO TO REL-FAIL-001
+///     ELSE
+///             ...
+/// ```
+///
+/// and with no `END-WRITE` the `INVALID KEY` list read straight through `ELSE`,
+/// so the program did not parse at all. A phrase's own stop set cannot know
+/// what the phrase is nested in, so the rule belongs here — once, for every
+/// scoped body — rather than being repeated in each verb's closure and
+/// forgotten in the next one.
+fn closes_enclosing_scope(tok: &Token) -> bool {
+    matches!(
+        tok,
+        Token::Else
+            | Token::EndIf
+            | Token::When
+            | Token::EndEvaluate
+            | Token::EndPerform
+            | Token::EndSearch
+    )
+}
+
 /// Parse all statements until `stop(peek)` returns true or EOF.
 /// Periods between sentences are consumed and ignored.
 /// Paragraph/section headers are detected and break the loop without consuming.
@@ -110,6 +142,11 @@ fn parse_stmt_list(
         // enclosing sentence list sees the boundary. A sentence list (a
         // paragraph) reads straight through it.
         if p.at(&Token::Period) && (scoped || stop(&Token::Period)) {
+            break;
+        }
+        // The same for a word that closes an enclosing construct: a scoped body
+        // may not read past it, whatever its own stop set says.
+        if scoped && closes_enclosing_scope(p.peek()) {
             break;
         }
         // Consume optional sentence-terminating periods, remembering whether one
@@ -2825,6 +2862,32 @@ fn parse_replace_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::ReplaceSpec> {
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
 
+/// `[COLLATING] SEQUENCE [IS] alphabet-name` on SORT/MERGE — `None` when the
+/// clause is absent. CCVS85 writes both spellings: ST140A the full form,
+/// ST139A the bare `SEQUENCE MY-FAVORITE-ALPHABET`. Neither word is a lexer
+/// keyword, so they are matched by name.
+fn parse_collating_sequence(p: &mut Parser) -> Option<String> {
+    let collating = |t: &Token| matches!(t, Token::Identifier(s) if s.eq_ignore_ascii_case("COLLATING"));
+    if collating(p.peek()) {
+        p.advance();
+        p.eat(&Token::Sequence);
+    } else if p.at(&Token::Sequence) {
+        p.advance();
+    } else {
+        return None;
+    }
+    p.eat(&Token::Is);
+    p.eat_identifier().map(|(n, _)| n)
+}
+
+/// True when the next token begins the `[COLLATING] SEQUENCE` clause — the
+/// key-field list must stop there rather than eat the word as a key name.
+/// `SEQUENCE` is a lexer keyword; `COLLATING` arrives as an identifier.
+fn at_collating_sequence(p: &Parser) -> bool {
+    p.at(&Token::Sequence)
+        || matches!(p.peek(), Token::Identifier(s) if s.eq_ignore_ascii_case("COLLATING"))
+}
+
 fn parse_sort(p: &mut Parser) -> Stmt {
     use cobolt_ast::stmt::SortKey;
     let span = p.peek_span();
@@ -2846,11 +2909,14 @@ fn parse_sort(p: &mut Parser) -> Stmt {
             && !p.at(&Token::Ascending)
             && !p.at(&Token::Descending)
             && !p.at(&Token::On)
+            && !at_collating_sequence(p)
         {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
     }
+
+    let collating = parse_collating_sequence(p);
 
     // WITH DUPLICATES IN ORDER — ignored
     let duplicates = if p.at(&Token::With) {
@@ -2879,11 +2945,13 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("INPUT PROCEDURE name");
-        if p.at(&Token::Through) {
+        let thru = if p.at(&Token::Through) {
             p.advance();
-            p.eat_identifier();
-        }
-        Some(name)
+            p.eat_identifier().map(|(n, _)| n)
+        } else {
+            None
+        };
+        Some((name, thru))
     } else if p.eat(&Token::Using) {
         using = parse_file_name_list(p);
         None
@@ -2898,11 +2966,13 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
-        if p.at(&Token::Through) {
+        let thru = if p.at(&Token::Through) {
             p.advance();
-            p.eat_identifier();
-        }
-        Some(name)
+            p.eat_identifier().map(|(n, _)| n)
+        } else {
+            None
+        };
+        Some((name, thru))
     } else if p.eat(&Token::Giving) {
         giving = parse_file_name_list(p);
         None
@@ -2916,6 +2986,7 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         file,
         keys,
         duplicates,
+        collating,
         using,
         giving,
         input_proc,
@@ -2960,11 +3031,14 @@ fn parse_merge(p: &mut Parser) -> Stmt {
             && !p.at(&Token::Ascending)
             && !p.at(&Token::Descending)
             && !p.at(&Token::On)
+            && !at_collating_sequence(p)
         {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
     }
+
+    let collating = parse_collating_sequence(p);
 
     let using = if p.eat(&Token::Using) {
         parse_file_name_list(p)
@@ -2978,11 +3052,13 @@ fn parse_merge(p: &mut Parser) -> Stmt {
         p.eat(&Token::Procedure);
         p.eat(&Token::Is);
         let name = p.expect_identifier("OUTPUT PROCEDURE name");
-        if p.at(&Token::Through) {
+        let thru = if p.at(&Token::Through) {
             p.advance();
-            p.eat_identifier();
-        }
-        Some(name)
+            p.eat_identifier().map(|(n, _)| n)
+        } else {
+            None
+        };
+        Some((name, thru))
     } else if p.eat(&Token::Giving) {
         giving = parse_file_name_list(p);
         None
@@ -2994,6 +3070,7 @@ fn parse_merge(p: &mut Parser) -> Stmt {
     Stmt::Merge {
         file,
         keys,
+        collating,
         using,
         giving,
         output_proc,
@@ -3055,33 +3132,59 @@ fn parse_call(p: &mut Parser) -> Stmt {
     let program = parse_expr(p);
 
     // USING [BY {REFERENCE|CONTENT|VALUE}] args…
+    //
+    // **The phrase governs every operand that follows it**, until another one
+    // appears — it is not repeated per argument. IC225A writes
+    //
+    //     CALL "IC225A-1" USING BY REFERENCE DN1, DN2,
+    //                              CONTENT   DN3, DN4
+    //
+    // which passes two operands each way. Read per-operand, only the first
+    // after each phrase got its mode and the rest fell back to BY REFERENCE —
+    // so `DN4` was written straight back to the caller, which is what the test
+    // checks ("VALUE OF DN4 HAS BEEN CHANGED"). `BY` itself is optional, and
+    // the suite writes the phrase both ways.
     let mut using = Vec::new();
     if p.eat(&Token::Using) {
+        let (reference, content, value) = (0u8, 1u8, 2u8);
+        let mut mode = reference;
         loop {
-            // BY comes first, then the mode keyword (all optional)
             p.eat(&Token::By);
-            let by_ref = p.eat(&Token::Reference);
-            let by_val = !by_ref && p.eat(&Token::Value);
-            let by_cont = !by_ref && !by_val && {
-                let is_content = matches!(ident_upper(p).as_deref(), Some("CONTENT"));
-                if is_content {
-                    p.advance();
-                }
-                is_content
-            };
+            if p.eat(&Token::Reference) {
+                mode = reference;
+            } else if p.eat(&Token::Value) {
+                mode = value;
+            } else if matches!(ident_upper(p).as_deref(), Some("CONTENT")) {
+                p.advance();
+                mode = content;
+            }
 
+            // `ON` is optional before `OVERFLOW` / `EXCEPTION`, and without it
+            // the phrase's keyword is just a word — which `is_expr_start`
+            // accepts, so the argument list swallowed it and the phrase became
+            // unconditional statements after the CALL. A *successful* call then
+            // ran its own overflow handler.
+            //
+            // `ON OVERFLOW` never had the problem: `Token::On` is not an
+            // expression start, so the list stopped on its own. CCVS85 IC201A
+            // writes both spellings in one paragraph — CALL-TEST-03-01 with the
+            // `ON`, -03-02 without it — and only the second failed.
+            //
+            // Neither word can be a data-name: both are reserved.
+            if matches!(p.peek(), Token::Exception) || is_word(p.peek(), "OVERFLOW") {
+                break;
+            }
             if !is_expr_start(p) {
                 break;
             }
             let arg = parse_expr(p);
-            let call_arg = if by_val {
+            using.push(if mode == value {
                 CallArg::ByValue(arg)
-            } else if by_cont {
+            } else if mode == content {
                 CallArg::ByContent(arg)
             } else {
                 CallArg::ByReference(arg)
-            };
-            using.push(call_arg);
+            });
         }
     }
 

@@ -18,8 +18,10 @@ repository.workspace   = true
 # built form application that asks `cobolt-runtime` for no SQL would get it back
 # the moment THIS crate asked for the default — and the SQLite C amalgamation
 # with it. The generated manifest turns both off together.
-default = ["sql"]
+default = ["sql", "http", "maps"]
 sql = ["cobolt-runtime/sql"]
+http = ["cobolt-runtime/http"]
+maps = ["cobolt-runtime/maps"]
 
 [dependencies]
 cobolt-ast     = { path = "../cobolt-ast" }

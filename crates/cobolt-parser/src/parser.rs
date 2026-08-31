@@ -1238,8 +1238,10 @@ fn parse_environment_division(p: &mut Parser) -> Option<EnvironmentDivision> {
                         }
                     }
                 }
+                let same_areas = parse_io_control(p);
                 input_output = Some(InputOutputSection {
                     file_controls,
+                    same_areas,
                     span: io_span,
                 });
             }
@@ -1266,6 +1268,95 @@ fn is_persistence(tok: &cobolt_lexer::Token) -> bool {
 }
 
 /// Parse a single `SELECT … ASSIGN …` entry in FILE-CONTROL.
+/// The `I-O-CONTROL` paragraph, returning its `SAME … AREA` groups.
+///
+/// Only the `SAME` clause is modelled. `RERUN`, `MULTIPLE FILE TAPE` and the
+/// rest are consumed and discarded, exactly as the whole paragraph was before.
+///
+/// Form: `SAME [RECORD] [SORT] [SORT-MERGE] [AREA] [FOR] file-1 file-2 … .`
+/// IX205A writes it at its most abbreviated — `SAME RECORD IX-FD1 IX-FD2.` —
+/// with neither `AREA` nor `FOR`, so every one of those words is optional here.
+///
+/// `SAME`, `AREA`, `FOR` and `I-O-CONTROL` are not lexer keywords; they arrive
+/// as identifiers and are matched by name.
+fn parse_io_control(p: &mut Parser) -> Vec<Vec<String>> {
+    let mut groups = Vec::new();
+    let is_word = |t: &Token, w: &str| matches!(t, Token::Identifier(s) if s.eq_ignore_ascii_case(w));
+    if !is_word(p.peek(), "I-O-CONTROL") {
+        return groups;
+    }
+    p.advance();
+    p.expect_period();
+    while is_word(p.peek(), "SAME") {
+        p.advance();
+        // Consume the qualifying words in whatever combination was written,
+        // then the file names. `RECORD` is a lexer keyword; the rest are not.
+        loop {
+            if p.eat(&Token::Record) {
+                continue;
+            }
+            if ["SORT", "SORT-MERGE", "AREA", "FOR"]
+                .iter()
+                .any(|w| is_word(p.peek(), w))
+            {
+                p.advance();
+                continue;
+            }
+            break;
+        }
+        let mut files = Vec::new();
+        // The I-O-CONTROL paragraph is ONE sentence: its clauses follow each
+        // other with the period only at the end. `SAME` (and the clauses this
+        // parser discards) must therefore end the file list rather than be
+        // eaten as a file name — CCVS85 ST131A writes `SAME RECORD AREA FOR
+        // SORT1 SORT2 SAME RECORD AREA FOR SORT3 FILE3.` and the second
+        // group vanished, so a READ of FILE3 was invisible through SORT3's
+        // record and the third sort released 100 blank records.
+        while p.at_identifier()
+            && !["SAME", "RERUN", "MULTIPLE"]
+                .iter()
+                .any(|w| is_word(p.peek(), w))
+        {
+            match p.eat_identifier() {
+                Some((f, _)) => files.push(f.to_ascii_uppercase()),
+                None => break,
+            }
+        }
+        // A period here ends the I-O-CONTROL sentence; its absence means
+        // another clause follows in the same sentence — `SAME` re-enters the
+        // loop, anything else is left for the caller's discard arm.
+        if p.at(&Token::Period) {
+            p.advance();
+        }
+        // A group of one shares nothing.
+        if files.len() > 1 {
+            groups.push(files);
+        }
+    }
+    groups
+}
+
+/// The organization itself, after any optional `ORGANIZATION IS`.
+///
+/// `LINE SEQUENTIAL` is two words and must be tried before bare `SEQUENTIAL`.
+fn parse_organization(p: &mut Parser) -> Option<FileOrganization> {
+    if p.at(&Token::Line) {
+        p.advance();
+        p.eat(&Token::Sequential);
+        return Some(FileOrganization::LineSequential);
+    }
+    if p.eat(&Token::Sequential) {
+        return Some(FileOrganization::Sequential);
+    }
+    if p.eat(&Token::Relative) {
+        return Some(FileOrganization::Relative);
+    }
+    if p.eat(&Token::Indexed) {
+        return Some(FileOrganization::Indexed);
+    }
+    None
+}
+
 /// The `OF`/`IN` chain that may follow a `RECORD KEY` / `ALTERNATE RECORD KEY`
 /// data-name, returned innermost first.
 ///
@@ -1306,6 +1397,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut organization = FileOrganization::Sequential;
     let mut access = AccessMode::Sequential;
     let mut record_key: Option<String> = None;
+    let mut relative_key: Option<String> = None;
     let mut record_key_quals: Vec<String> = Vec::new();
     let mut file_status: Option<String> = None;
     let mut alternate_keys: Vec<AlternateKey> = Vec::new();
@@ -1396,18 +1488,50 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                     p.advance();
                 }
             }
+            // `[ORGANIZATION IS] {SEQUENTIAL | LINE SEQUENTIAL | RELATIVE |
+            // INDEXED}` — **the words `ORGANIZATION IS` are optional**, so the
+            // organization may be written bare. IX103A does exactly that and
+            // says so in its own header: "SELECT ... INDEXED ... (WITHOUT THE
+            // OPTIONAL WORD <ORGANIZATION>)".
+            //
+            // Ignoring the bare form did not fail the compile — it silently
+            // left the file SEQUENTIAL, so an indexed file was opened as a
+            // stream of bytes and a scan of 500 records delivered 870 "lines".
             Token::Organization => {
                 p.advance();
                 p.eat(&Token::Is);
-                if p.eat(&Token::Line) {
-                    p.eat(&Token::Sequential);
-                    organization = FileOrganization::LineSequential;
-                } else if p.eat(&Token::Sequential) {
-                    organization = FileOrganization::Sequential;
-                } else if p.eat(&Token::Relative) {
-                    organization = FileOrganization::Relative;
-                } else if p.eat(&Token::Indexed) {
-                    organization = FileOrganization::Indexed;
+                organization = parse_organization(p).unwrap_or(organization);
+            }
+            // `RELATIVE [KEY] [IS] data-name` names the integer record number a
+            // RELATIVE file is addressed by. The word also introduces the bare
+            // organization clause, so what follows it is what tells the two
+            // apart: an organization clause is complete on its own and can only
+            // be followed by another clause keyword or the period, so a
+            // data-name after `RELATIVE` can only be the key.
+            //
+            // **`KEY` is written both ways in practice.** Ten CCVS85 members
+            // spell the clause `RELATIVE RL-FD2-KEY` with no `KEY` at all,
+            // fourteen times over. Read as an organization the key was consumed
+            // and silently dropped, the file had no record number, and every
+            // random WRITE came back 24 — seven of RL's programs failed on it.
+            Token::Relative
+                if matches!(p.peek_at(1), Token::Key)
+                    || matches!(p.peek_at(1), Token::Identifier(_)) =>
+            {
+                p.advance(); // RELATIVE
+                p.eat(&Token::Key);
+                p.eat(&Token::Is);
+                if p.at_identifier() {
+                    relative_key = p.eat_identifier().map(|(n, _)| n);
+                }
+            }
+            Token::Line | Token::Sequential | Token::Relative | Token::Indexed => {
+                match parse_organization(p) {
+                    Some(o) => organization = o,
+                    // Not an organization after all; do not spin on the token.
+                    None => {
+                        p.advance();
+                    }
                 }
             }
             Token::Access => {
@@ -1443,7 +1567,19 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
             // RECORD KEY [IS] data-name
             Token::Record => {
                 p.advance();
-                if p.eat(&Token::Key) {
+                // `RECORD [KEY] [IS] data-name`. IX103A writes it as plain
+                // `RECORD IX-FS1-KEY`, and dropping the key on the floor left
+                // the file with none: the engine then indexed the whole record
+                // and an OPEN of a file written with a real key reported the
+                // schema mismatch 39.
+                //
+                // `RECORD DELIMITER IS …` is a different clause that also
+                // opens with `RECORD`; without this guard its `DELIMITER`
+                // would be read as the key's data-name.
+                let is_delimiter = matches!(p.peek(), Token::Identifier(w)
+                    if w.eq_ignore_ascii_case("DELIMITER"));
+                if !is_delimiter {
+                    p.eat(&Token::Key);
                     p.eat(&Token::Is);
                     if p.at_identifier() {
                         record_key = p.eat_identifier().map(|(n, _)| n);
@@ -1464,6 +1600,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         organization,
         access,
         record_key,
+        relative_key,
         record_key_quals,
         alternate_keys,
         file_status,
