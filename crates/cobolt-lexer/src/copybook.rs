@@ -210,9 +210,16 @@ fn expand_text(
             // Emit the gap before COPY (REPLACE-rewritten).
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
             match parse_copy(&toks, i) {
-                Some((name, replacing, end_idx, end_byte)) => {
+                Some((name, library, replacing, end_idx, end_byte)) => {
+                    // A qualified COPY looks in `base_dir/<library>/` first,
+                    // falling back to the flat directory.
+                    let lib_dir = library.as_deref().map(|l| base_dir.join(l));
+                    let dir = match &lib_dir {
+                        Some(d) if d.is_dir() => d.as_path(),
+                        _ => base_dir,
+                    };
                     let copy =
-                        load_and_expand(&name, &replacing, base_dir, format, errors, stack, depth);
+                        load_and_expand(&name, &replacing, dir, format, errors, stack, depth);
                     out.push_str(&apply_pairs(&copy, &active));
                     out.push('\n');
                     prev_end = end_byte;
@@ -252,7 +259,11 @@ fn expand_text(
 /// Parse a `COPY name [OF/IN lib] [REPLACING op BY op …] .` directive.
 /// `i` indexes the `COPY` word. Returns (name, replacing-pairs, last-tok-index,
 /// byte offset just past the terminating `.`).
-fn parse_copy(toks: &[PTok], i: usize) -> Option<(String, Vec<(String, String)>, usize, usize)> {
+#[allow(clippy::type_complexity)]
+fn parse_copy(
+    toks: &[PTok],
+    i: usize,
+) -> Option<(String, Option<String>, Vec<(String, String)>, usize, usize)> {
     let mut j = i + 1;
     let name_tok = toks.get(j)?;
     if !matches!(name_tok.kind, PKind::Word | PKind::Str) {
@@ -260,9 +271,14 @@ fn parse_copy(toks: &[PTok], i: usize) -> Option<(String, Vec<(String, String)>,
     }
     let name = name_tok.text.clone();
     j += 1;
-    // optional OF/IN library
+    // Optional OF/IN library — the qualifier selects WHICH library the text
+    // comes from. CCVS85 SM207A keeps a member named ALTLB in two libraries
+    // with different contents; skipping the qualifier fetched the same text
+    // for both and QUAL-TEST-02 reported TEXT COPIED FROM WRONG LIBRARY.
+    let mut library = None;
     if let Some(t) = toks.get(j) {
         if t.kind == PKind::Word && (eqi(&t.text, "OF") || eqi(&t.text, "IN")) {
+            library = toks.get(j + 1).map(|l| l.text.clone());
             j += 2; // skip OF + library word
         }
     }
@@ -294,7 +310,7 @@ fn parse_copy(toks: &[PTok], i: usize) -> Option<(String, Vec<(String, String)>,
     if dot.kind != PKind::Dot {
         return None;
     }
-    Some((name, replacing, j, dot.end))
+    Some((name, library, replacing, j, dot.end))
 }
 
 /// Parse `REPLACE op BY op … .` or `REPLACE OFF.`.
@@ -705,6 +721,35 @@ mod tests {
         assert!(
             !r.text.contains("TST-FLD-1"),
             "the matched text words were left behind:
+{}",
+            r.text
+        );
+    }
+
+    /// CCVS85 **SM207A**: `COPY ALTLB OF <library>` — the same member name
+    /// in two libraries with different contents. The qualifier selects the
+    /// subdirectory; ignoring it fetched the same text for both.
+    #[test]
+    fn a_qualified_copy_reads_from_that_library() {
+        let d = tmp();
+        write(&d, "ALTLB", "FLAT-TEXT.
+");
+        std::fs::create_dir_all(d.join("LIB2")).unwrap();
+        write(&d.join("LIB2"), "ALTLB", "LIB2-TEXT.
+");
+        let src = "COPY ALTLB IN LIB2.
+COPY ALTLB.
+";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(
+            r.text.contains("LIB2-TEXT"),
+            "the qualified COPY did not read its library:
+{}",
+            r.text
+        );
+        assert!(
+            r.text.contains("FLAT-TEXT"),
+            "the unqualified COPY lost the flat lookup:
 {}",
             r.text
         );

@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.123] — 2026-08-31
+
+### COPY reads from the library it names
+
+`COPY member OF library` selects which library supplies the text —
+CCVS85 SM207A keeps the same member name in two libraries with
+different contents, and the expander ignored the qualifier and fetched
+the same text for both. The qualifier now resolves to a subdirectory
+of the copybook path (flat lookup unchanged when absent), and the
+harness plants the suite's two alternate libraries under the X-47 and
+X-48 card names its programs use.
+
+SM (Source text manipulation): 11 → 12 of 17 clean; 285 PASS / 6 FAIL
+→ 286 / 5. Full gate: NC, SQ, IX, RL, IF, IC, ST all exact.
+
 ## [PowerRustCOBOL 1.62.122] — 2026-08-31
 
 ### Harness — SM204A runs after its builder

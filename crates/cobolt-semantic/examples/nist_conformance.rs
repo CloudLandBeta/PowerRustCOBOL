@@ -189,10 +189,24 @@ fn copy_library_dir(members: &[Member]) -> Option<PathBuf> {
         }
     }
     if written == 0 {
-        None
-    } else {
-        Some(dir)
+        return None;
     }
+    // SM207A's two alternate libraries: the member `ALTLB` exists in BOTH,
+    // with different contents. The distribution stores library 1's copy under
+    // its own name and library 2's copy under `ALTL1`, and each text names
+    // its home in its first comment line: ALTLB belongs to the library the
+    // X-47 card equates, ALTL1 to the X-48 one. The program leaves those
+    // cards unfilled, so the library word reaches the expander literally —
+    // `COPY ALTLB OF XXXXX047.` — and a subdirectory of that name holds the
+    // right text.
+    for (lib, member, src) in [("XXXXX047", "ALTLB", "ALTLB"), ("XXXXX048", "ALTLB", "ALTL1")] {
+        let sub = dir.join(lib);
+        let _ = std::fs::create_dir_all(&sub);
+        if let Ok(body) = std::fs::read_to_string(dir.join(src)) {
+            let _ = std::fs::write(sub.join(member), body);
+        }
+    }
+    Some(dir)
 }
 
 fn prepare(pass: &str, text: &str) -> (String, SourceFormat) {
@@ -1668,8 +1682,20 @@ fn plant_copy_library(dir: &std::path::Path) {
         return;
     };
     for e in entries.flatten() {
-        if e.path().is_file() {
-            let _ = std::fs::copy(e.path(), dir.join(e.file_name()));
+        let p = e.path();
+        if p.is_file() {
+            let _ = std::fs::copy(&p, dir.join(e.file_name()));
+        } else if p.is_dir() {
+            // The alternate-library subdirectories (SM207A) travel too.
+            let sub = dir.join(e.file_name());
+            let _ = std::fs::create_dir_all(&sub);
+            if let Ok(inner) = std::fs::read_dir(&p) {
+                for f in inner.flatten() {
+                    if f.path().is_file() {
+                        let _ = std::fs::copy(f.path(), sub.join(f.file_name()));
+                    }
+                }
+            }
         }
     }
 }
