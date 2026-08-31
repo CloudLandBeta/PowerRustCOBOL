@@ -353,6 +353,24 @@ fn module_of(name: &str) -> String {
     name[..cut].to_string()
 }
 
+/// The module a member is SCORED under — the letters of its name, with one
+/// member-level ruling folded in.
+///
+/// **DB205A is DB by name and COMMUNICATION by content**: its body is
+/// `DISABLE`/`ENABLE` with CD-name and the communication queues, exercised
+/// under `USE FOR DEBUGGING`. The 2026-08-29 scope ruling excludes the CM
+/// module; the 2026-08-31 operator ruling extends that exclusion to this
+/// member (ledger `parked: db205a-communication-debug-scope`, ratified) —
+/// under FIPS, an installation without the optional communication facility
+/// does not run it at all. Scoring it under CM sends it to N-A on every
+/// axis at once.
+fn scoring_module_of(name: &str) -> String {
+    if name.eq_ignore_ascii_case("DB205A") {
+        return "CM".to_string();
+    }
+    module_of(name)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let pass = args.first().cloned().unwrap_or_else(|| "col72".to_string());
@@ -685,7 +703,7 @@ fn main() {
         if m.kind != "COBOL" {
             continue;
         }
-        let module = module_of(&m.name);
+        let module = scoring_module_of(&m.name);
         if !filter.is_empty() && !m.name.starts_with(&filter) {
             continue;
         }
@@ -1271,7 +1289,7 @@ fn run_pass(members: &[Member], filter: &str) {
     let mut outcomes: Vec<(String, String, RunOutcome)> = Vec::new();
 
     for (i, m) in programs.iter().enumerate() {
-        let module = module_of(&m.name);
+        let module = scoring_module_of(&m.name);
         if is_out_of_scope(&module) || verdict_does_not_apply(&m.name) {
             continue;
         }
@@ -1352,7 +1370,7 @@ fn fails_pass(members: &[Member], filter: &str) {
         if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
             continue;
         }
-        if is_out_of_scope(&module_of(&m.name)) {
+        if is_out_of_scope(&scoring_module_of(&m.name)) {
             continue;
         }
         let (outcome, report) = run_one(&rcrun, &workroot, members, &m.name, &m.text);
@@ -2099,7 +2117,7 @@ fn flag_pass(members: &[Member], filter: &str) {
         if !filter.is_empty() && !m.name.to_uppercase().starts_with(&filter.to_uppercase()) {
             continue;
         }
-        if is_out_of_scope(&module_of(&m.name)) || !is_flagging_member(&m.text) {
+        if is_out_of_scope(&scoring_module_of(&m.name)) || !is_flagging_member(&m.text) {
             continue;
         }
         let (p, f, detail) = score_flagging(&m.text);

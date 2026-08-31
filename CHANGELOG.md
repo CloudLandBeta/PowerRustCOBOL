@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.129] — 2026-08-31
+
+### The NIST CCVS85 grind closes at 100 %
+
+By operator ruling, DB205A — DB by name, COMMUNICATION by content
+(DISABLE/ENABLE with CD-name under USE FOR DEBUGGING) — joins the CM
+scope exclusion and is scored under CM. The census reads **420 / 420,
+100.0 % of the in-scope suite, 0 FAIL**, and DB completes its compile
+axis 14/14.
+
+Final standings across the suite: NC, SQ, IX, RL, IF, IC, ST and SM
+all at 100 % on both axes — **8362 assertions PASS, 0 FAIL, 3 DELETED**
+(the distribution's own commented-out tests). Every exclusion is an
+operator ruling on record in NIST/progress.json.
+
 ## [PowerRustCOBOL 1.62.128] — 2026-08-31
 
 ### `GO-TO` is a name, not a verb

@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.128",
+ "measured_at_version": "1.62.129",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -15,7 +15,8 @@
   "two_axes_never_conflated": "Compile is the strictly weaker claim. Never quote it as if it meant the programs work.",
   "full_regression_after_every_change": "Re-run the whole-suite strict census AND the execution pass for every finished module, not just the one in flight. The runtime is shared.",
   "deleted_is_not_passed": "`***** ****TEST DELETED****` means the program failed its own setup and skipped the case. Track the DELETED count: it fell 108 -> 1 at 1.62.53 while the clean-program count barely moved, and that was real progress a failures-only reading would have missed.",
-  "gate_protects_finished_modules_absolutely": "The regression gate is ABSOLUTE for finished modules (NC, SQ) and for the whole-suite compile census: those figures must match exactly or the change is reverted. For the module IN FLIGHT the score may legitimately FALL when a harness-fidelity change makes the measurement more honest \u2014 assertions that were unreachable start running and start failing. That happened at 1.62.57: IX went 484 -> 482 PASS because IX103A finally found the file IX102A writes, so its scan ran 35 records deep instead of dying on the first READ, and two assertions that had never executed began to fail truthfully. When this happens, SAY SO explicitly with the reason; never revert a fidelity gain to protect a number, and never let a fidelity loss hide behind one."
+  "gate_protects_finished_modules_absolutely": "The regression gate is ABSOLUTE for finished modules (NC, SQ) and for the whole-suite compile census: those figures must match exactly or the change is reverted. For the module IN FLIGHT the score may legitimately FALL when a harness-fidelity change makes the measurement more honest \u2014 assertions that were unreachable start running and start failing. That happened at 1.62.57: IX went 484 -> 482 PASS because IX103A finally found the file IX102A writes, so its scan ran 35 records deep instead of dying on the first READ, and two assertions that had never executed began to fail truthfully. When this happens, SAY SO explicitly with the reason; never revert a fidelity gain to protect a number, and never let a fidelity loss hide behind one.",
+  "db205a_joins_the_cm_exclusion": "OPERATOR RULING, 2026-08-31 (\"close by Extending the CM exclusion to DB205A\"): DB205A is DB by name and COMMUNICATION by content \u2014 DISABLE/ENABLE with CD-name under USE FOR DEBUGGING. The CM exclusion extends to it; scoring_module_of() scores it under CM (N-A on every axis). Census denominator 421 -> 420."
  },
  "module_order": [
   "NC",
@@ -46,8 +47,8 @@
  },
  "whole_suite_compile": {
   "pass": 420,
-  "in_scope": 421,
-  "note": "99.8% at 1.62.128; DB101A/DB102A/DB103M joined when GO-TO stopped being a keyword"
+  "in_scope": 420,
+  "note": "100.0% at 1.62.129 \u2014 the DB205A ruling closed the census. FAIL 0/420."
  },
  "modules": {
   "NC": {
@@ -216,14 +217,14 @@
   },
   "DB": {
    "name": "Debug",
-   "state": "compile_only_terminal",
+   "state": "finished",
    "compile": [
     14,
-    15
+    14
    ],
    "execution": null,
    "assertions": null,
-   "note": "14/15 at 1.62.128. DB205A parked on the communication-scope question (see parked db205a-communication-debug-scope) \u2014 the grind\u2019s last open item, operator to ratify. Execution axis remains out of scope for DB."
+   "note": "Compile axis complete 14/14 at 1.62.129 (DB205A scored under CM by ruling). Execution axis remains out of scope for DB."
   },
   "RL": {
    "name": "Relative I/O",
@@ -676,7 +677,8 @@
    "id": "db205a-communication-debug-scope",
    "module": "DB",
    "question": "DB205A is DB by name but COMMUNICATION by content: USE FOR DEBUGGING over DISABLE/ENABLE with CD-name \u2014 the CM module machinery, which the 2026-08-29 scope ruling excludes (CM, RW, OB*, EXEC85). Under FIPS, an installation without the optional communication facility does not run DB205A at all. PROPOSED: extend the CM exclusion to DB205A (moves it to N-A; census denominator 421 -> 420, and the suite stands at 420/420 = 100% of in-scope). Alternative: implement parse-only CM grammar, which invariant 5 (never invent grammar to make a test pass) argues against. OPERATOR TO RATIFY \u2014 the denominator is not the grind\u2019s to change.",
-   "evidence": "strictB census: DB205A parse=18, first error L311 DISABLE INPUT CM-INQUE WITH KEY. DB101A/102A/103M/201A/202A/203A/204A and the rest of DB compile clean at 1.62.128."
+   "evidence": "strictB census: DB205A parse=18, first error L311 DISABLE INPUT CM-INQUE WITH KEY. DB101A/102A/103M/201A/202A/203A/204A and the rest of DB compile clean at 1.62.128.",
+   "ratified": "2026-08-31, option 1 \u2014 see rules.db205a_joins_the_cm_exclusion. Applied at 1.62.129."
   }
  ],
  "protected_baselines": {
@@ -784,9 +786,15 @@
     "fail": 0,
     "deleted": 3
    }
-  }
+  },
+  "whole_suite_compile_in_scope": 420
  },
  "history": [
+  {
+   "version": "1.62.129",
+   "change": "THE GRIND CLOSES \u2014 operator ratifies the DB205A ruling: census 420/420 (100.0%), FAIL 0",
+   "effect": "scoring_module_of() scores DB205A under CM per the 2026-08-31 ruling; DB finishes 14/14 on the compile axis. Final standings: compile 420/420, execution 8362 PASS / 0 FAIL / 3 DELETED-by-design across NC, SQ, IX, RL, IF, IC, ST, SM. Eight-module gate exact after the change. Every module in module_order is now finished; every exclusion is an operator ruling on record."
+  },
   {
    "version": "1.62.128",
    "change": "GO-TO is not a reserved word \u2014 DB101A, DB102A, DB103M compile: whole-suite 417 -> 420/421 (99.8%)",
@@ -1209,7 +1217,7 @@
   }
  ],
  "grind_state": {
-  "as_of": "1.62.128 \u2014 2026-08-31 03:33",
-  "summary": "ALL modules in module_order are finished or ruled. Execution: NC 95/95 4614/0, SQ 85/85 624/0, IX 41/41 574/0, RL 34/34 354/0, IF 45/45 841/0, IC 25/25 309/0, ST 39/39 735/0, SM 16/16 311/0 \u2014 8362 PASS / 0 FAIL / 3 DELETED-by-design across every module the suite can score. Compile: 420/421 (99.8%); the single failure, DB205A, is COMMUNICATION machinery under a proposed scope-ruling extension. Autonomous work remaining: the IX robustness item (unhandled-read-error-spins, no score impact) and the flaky env::set_var test serialization."
+  "as_of": "1.62.129 \u2014 2026-08-31 06:05",
+  "summary": "THE GRIND IS CLOSED. Compile: 420/420 (100.0%), FAIL 0. Execution: every scorable module 100% \u2014 NC 95/95 4614/0, SQ 85/85 624/0, IX 41/41 574/0, RL 34/34 354/0, IF 45/45 841/0, IC 25/25 309/0, ST 39/39 735/0, SM 16/16 311/0 \u2014 8362 PASS / 0 FAIL / 3 DELETED-by-design. All exclusions are operator rulings on record: CM/RW/OB*/SG/EXEC85 modules, DB205A (CM by content), IX301M/RL301M/ST301M/SM301M (intermediate-subset flagging). DB execution axis out of scope. Nothing remains in the work queue but the someday flaky-test serialization."
  }
 }
