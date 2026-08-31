@@ -224,8 +224,12 @@
                 TO TEST-NAME.
            MOVE SPACES TO ACTUAL-RESULT EXPECTED-RESULT.
 
+      *    The FIELD NAME is replaced (BASE -> CLIENT), but a literal is
+      *    ONE text word including its quotes, so the word operand BASE
+      *    does not match the literal "BASE" and the VALUE stays - the
+      *    rule CCVS85 SM206A leans on when it quotes literal operands.
            MOVE CLIENT TO ACTUAL-RESULT.
-           MOVE "CLIENT" TO EXPECTED-RESULT.
+           MOVE "BASE" TO EXPECTED-RESULT.
            PERFORM ASSERT-RESULT.
 
            MOVE "T009B" TO TEST-ID.

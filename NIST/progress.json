@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.126",
+ "measured_at_version": "1.62.127",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -28,8 +28,8 @@
   "DB",
   "RL"
  ],
- "current_module": "SM",
- "_current_module_note": "SM (Source text manipulation) \u2014 baselined at 1.62.88: 14/17 compile, 4/17 execution, 25 PASS / 9 FAIL. Re-baseline FIRST: the group-image and RELEASE/RETURN fixes of 1.62.116-117 may already have moved it. Then bucket the failures. After SM: DB (compile_only), and RL is already finished \u2014 the run-unit modules SG/OB/CM/RW stay out of scope.",
+ "current_module": "DB",
+ "_current_module_note": "DB (Debug) \u2014 compile axis only (execution out of scope: the debug module\u2019s runtime semantics are not implemented and the operator has not ruled them in). 11/15 on the census. This is the WHOLE remaining compile gap: DB\u2019s 4 members are the only in-scope failures left; 15/15 would put the suite at 421/421 (100%). After DB, module_order is exhausted \u2014 every module finished or ruled.",
  "out_of_scope": {
   "modules": [
    "CM",
@@ -45,9 +45,9 @@
   "effect": "38 programs excluded from every score. The in-scope suite is 421, not 434."
  },
  "whole_suite_compile": {
-  "pass": 415,
+  "pass": 417,
   "in_scope": 421,
-  "note": "98.6% at 1.62.121; SM208A joined via text-word pseudo-text matching"
+  "note": "99.0% at 1.62.127; SM202A and SM206A joined via the operand-semantics round"
  },
  "modules": {
   "NC": {
@@ -180,25 +180,28 @@
   },
   "SM": {
    "name": "Source text manipulation",
-   "state": "in_flight",
+   "state": "finished",
    "compile": [
-    15,
+    17,
     17
    ],
    "execution": [
-    14,
+    16,
     16
    ],
    "assertions": {
-    "pass": 288,
+    "pass": 311,
     "fail": 0,
-    "deleted": 0
+    "deleted": 3
    },
    "baselined_at": "1.62.88 \u2014 measured for the first time while answering a question about the XXXXD001 data card. Before this run it was 0 of 17 with 8 PASS / 15 FAIL; two harness-fidelity fixes took it to 4 of 17 and 25 PASS / 9 FAIL (73.5%) with no runtime change at all.",
    "what_changed": "(1) The execution pass never planted the suite's copybook library \u2014 only the COMPILE pass expanded COPY. rcrun resolves a copybook against the source file's own directory, so SM101A expanded to nothing, wrote a zero-byte file, and SM102A read it and reported EOF PREMATURELY FOUND: a missing input that reads exactly like a runtime defect. (2) SM's three builder/checker pairs now declare their producers in `inherits_from`, quoted from the consumers' own headers.",
    "remaining": "SM104A 5 FAIL (DECIMAL-POINT IS COMMA and ENVIRONMENT DIVISION entries supplied by COPY) and SM204A 4 FAIL. Eleven members still do not compile: SM202A (L470 expected To, found Error(\"$\")), SM206A (L371 unexpected token PST-TEST-002), SM208A (L472 expected To, found AO) are the three the strict census names; the rest are SUBRTN-style callees or fail earlier.",
    "note_for_st": "ST102A/ST120A read the same card 1 that ST101A writes, and ST103A checks the result \u2014 but NO ST member declares a producer (their headers list only X-55, X-82, X-83). Chaining them on the shared card alone is the inference `inherits_from` exists to refuse, and it would also be unsafe: ST102A has no PRINT-FILE, so a producer's report would be left in XXXXX055 and scored as ST102A's own. Decide when ST is baselined, with the real failure in hand.",
-   "sm301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim, fourth application (IX301M, RL301M, ST301M before it): intermediate-subset flagging of the COPY feature we implement as standard is unreachable by design. Scored out of 16."
+   "sm301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim, fourth application (IX301M, RL301M, ST301M before it): intermediate-subset flagging of the COPY feature we implement as standard is unreachable by design. Scored out of 16.",
+   "protected": true,
+   "deleted_by_design": "The 3 DELETED are the distribution\u2019s own: SM206A PST-TEST-008 (whole test commented out, active flow is the DE-LETE) and PST-TEST-11 (same), SM208A REP-TEST-7 (embedded debug lines commented, GO TO to the check commented). A conforming run of the shipped source reports exactly these three.",
+   "finished_at": "1.62.127 \u2014 2026-08-31. Both axes 100%: compile 17/17, execution 16/16 (SM301M excluded by the standing 301M ruling), 311 PASS / 0 FAIL / 3 DELETED-by-design. The final round: string-literal operands keep their quotes (SM202A), identifier operands span their IN/OF chain and subscript (SM206A PST-TEST-002), pairs apply in ONE pass with no rescan of replacements (PST-TEST-005), and a library-text debugging line participates in matching (PST-TEST-009). In-repo fixture tcpyrep.cbl T009 updated to the conforming rule its old expectation contradicted (a literal is one text word, quotes included)."
   },
   "SG": {
    "name": "Segmentation",
@@ -734,7 +737,7 @@
    "assertions_pass": 309,
    "assertions_fail": 0
   },
-  "whole_suite_compile_pass": 415,
+  "whole_suite_compile_pass": 417,
   "ST": {
    "compile": [
     40,
@@ -749,9 +752,29 @@
     "fail": 0,
     "deleted": 0
    }
+  },
+  "SM": {
+   "compile": [
+    17,
+    17
+   ],
+   "execution": [
+    16,
+    16
+   ],
+   "assertions": {
+    "pass": 311,
+    "fail": 0,
+    "deleted": 3
+   }
   }
  },
  "history": [
+  {
+   "version": "1.62.127",
+   "change": "SM (Source text manipulation) FINISHED \u2014 16/16 and 17/17, 311 PASS / 0 FAIL / 3 DELETED-by-design; current_module advances to DB, the last module",
+   "effect": "Final round in one landing: (1) string-literal operands keep their quotes \u2014 take_operand slices the SOURCE, not the token\u2019s inner text (SM202A\u2019s BY \" TWO$\" reached the parser as a bare $); (2) an identifier operand spans its IN/OF qualification chain and parenthesized subscript, read across token gaps (SM206A PST-TEST-002); (3) apply_pairs is ONE pass, all pairs together, first match wins, replacements never rescanned \u2014 sequential application cascaded ==1==BY==5== ==5==BY==7== into 7 (PST-TEST-005, XII-6 3.3 GR12); the :TAG: partial-word idiom is a substring pre-pass; (4) a debugging line in LIBRARY TEXT participates in matching \u2014 the D indicator is blanked in the copybook path only (PST-TEST-009). Four lexer regression tests + tcpyrep T009 updated to the conforming literal rule. FULL GATE: NC 4614/0, SQ 624/0, IX 574/0, RL 354/0, IF 841/0, IC 309/0, ST 735/0 \u2014 all exact; runtime, semantic, lexer sweeps clean. Whole-suite compile 415 -> 417/421 (99.0%). SM joins protected_baselines. Session arc for SM: 4/17 \u00b7 32 PASS / 9 FAIL at baseline -> 16/16 \u00b7 311/0."
+  },
   {
    "version": "1.62.126",
    "change": "SM401M\u2019s high-subset flags exist (COPY \u2026 REPLACING, REPLACE statement) and SM301M joins the 301M exclusion \u2014 SM 288 PASS / 0 FAIL, 14/16",

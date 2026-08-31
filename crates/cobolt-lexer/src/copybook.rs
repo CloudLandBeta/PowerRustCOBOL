@@ -209,7 +209,7 @@ fn expand_text(
             }
             // Emit the gap before COPY (REPLACE-rewritten).
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
-            match parse_copy(&toks, i) {
+            match parse_copy(&toks, i, text) {
                 Some((name, library, replacing, end_idx, end_byte)) => {
                     // A qualified COPY looks in `base_dir/<library>/` first,
                     // falling back to the flat directory.
@@ -237,7 +237,7 @@ fn expand_text(
                 continue;
             }
             out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
-            match parse_replace(&toks, i) {
+            match parse_replace(&toks, i, text) {
                 Some((pairs, end_idx, end_byte)) => {
                     active = pairs; // REPLACE … replaces the active set; OFF clears it
                     prev_end = end_byte;
@@ -259,10 +259,62 @@ fn expand_text(
 /// Parse a `COPY name [OF/IN lib] [REPLACING op BY op …] .` directive.
 /// `i` indexes the `COPY` word. Returns (name, replacing-pairs, last-tok-index,
 /// byte offset just past the terminating `.`).
+/// One REPLACING/REPLACE operand starting at token `j`: pseudo-text keeps its
+/// inner text; a **string literal keeps its quotes** (the pair text is spliced
+/// into source, and `FALSE-DATA-2 BY " TWO$"` must land quoted or the `$`
+/// reaches the parser bare — SM202A COPY-TEST-16); an identifier extends
+/// through its `IN`/`OF` qualification chain and a parenthesized subscript
+/// (SM206A's `BY WRK-DS-05V00-O005-001 IN … IN GRP-001 (1)`), all as one
+/// source slice. Returns the operand text and the index just past it.
+fn take_operand(toks: &[PTok], j: usize, src: &str) -> (String, usize) {
+    let t = &toks[j];
+    match t.kind {
+        PKind::Pseudo => (t.text.clone(), j + 1),
+        PKind::Str => (src[t.start..t.end].to_string(), j + 1),
+        _ => {
+            let mut end = t.end;
+            let mut jj = j + 1;
+            loop {
+                // IN/OF qualification chain.
+                if let (Some(a), Some(b)) = (toks.get(jj), toks.get(jj + 1)) {
+                    if a.kind == PKind::Word
+                        && (eqi(&a.text, "IN") || eqi(&a.text, "OF"))
+                        && b.kind == PKind::Word
+                    {
+                        end = b.end;
+                        jj += 2;
+                        continue;
+                    }
+                }
+                // Parenthesized subscript — the parens live in the gaps
+                // between tokens, so they are read from the source.
+                if let Some(n) = toks.get(jj) {
+                    if src[end..n.start].contains('(') {
+                        let mut k = jj;
+                        while let Some(tk2) = toks.get(k) {
+                            let gap_end = toks.get(k + 1).map(|t| t.start).unwrap_or(src.len());
+                            if let Some(p) = src[tk2.end..gap_end].find(')') {
+                                end = tk2.end + p + 1;
+                                jj = k + 1;
+                                break;
+                            }
+                            k += 1;
+                        }
+                        continue;
+                    }
+                }
+                break;
+            }
+            (src[t.start..end].to_string(), jj)
+        }
+    }
+}
+
 #[allow(clippy::type_complexity)]
 fn parse_copy(
     toks: &[PTok],
     i: usize,
+    src: &str,
 ) -> Option<(String, Option<String>, Vec<(String, String)>, usize, usize)> {
     let mut j = i + 1;
     let name_tok = toks.get(j)?;
@@ -290,17 +342,18 @@ fn parse_copy(
                 if tk.kind == PKind::Dot {
                     break;
                 }
-                // operand BY operand
-                let from = tk.text.clone();
-                j += 1;
-                // expect BY
+                let (from, nj) = take_operand(toks, j, src);
+                j = nj;
                 if let Some(by) = toks.get(j) {
                     if by.kind == PKind::Word && eqi(&by.text, "BY") {
                         j += 1;
                     }
                 }
-                let to = toks.get(j).map(|t| t.text.clone()).unwrap_or_default();
-                j += 1;
+                let (to, nj) = match toks.get(j) {
+                    Some(_) => take_operand(toks, j, src),
+                    None => (String::new(), j),
+                };
+                j = nj;
                 replacing.push((from, to));
             }
         }
@@ -314,7 +367,11 @@ fn parse_copy(
 }
 
 /// Parse `REPLACE op BY op … .` or `REPLACE OFF.`.
-fn parse_replace(toks: &[PTok], i: usize) -> Option<(Vec<(String, String)>, usize, usize)> {
+fn parse_replace(
+    toks: &[PTok],
+    i: usize,
+    src: &str,
+) -> Option<(Vec<(String, String)>, usize, usize)> {
     let mut j = i + 1;
     // REPLACE OFF.
     if let Some(t) = toks.get(j) {
@@ -332,15 +389,18 @@ fn parse_replace(toks: &[PTok], i: usize) -> Option<(Vec<(String, String)>, usiz
         if tk.kind == PKind::Dot {
             break;
         }
-        let from = tk.text.clone();
-        j += 1;
+        let (from, nj) = take_operand(toks, j, src);
+        j = nj;
         if let Some(by) = toks.get(j) {
             if by.kind == PKind::Word && eqi(&by.text, "BY") {
                 j += 1;
             }
         }
-        let to = toks.get(j).map(|t| t.text.clone()).unwrap_or_default();
-        j += 1;
+        let (to, nj) = match toks.get(j) {
+            Some(_) => take_operand(toks, j, src),
+            None => (String::new(), j),
+        };
+        j = nj;
         pairs.push((from, to));
     }
     let dot = toks.get(j)?;
@@ -382,6 +442,27 @@ fn load_and_expand(
             errors.push(format!("cannot read copybook '{name}': {e}"));
             return String::new();
         }
+    };
+    // A debugging line in LIBRARY TEXT participates in COPY/REPLACING
+    // matching as ordinary text — the comment-or-source decision belongs to a
+    // later phase, and the REPLACING is frequently what removes it: CCVS85
+    // SM206A PST-TEST-009's KP008 is `PERFORM FAIL. / D THIS IS GARBAGE. /
+    // SUBTRACT 1 FROM ERROR-COUNTER.` with the whole tail replaced by
+    // `PASS. `. Flattened as a comment, the operand could never match. The
+    // indicator is blanked here, in the copybook path only.
+    let raw = if matches!(format, SourceFormat::Fixed | SourceFormat::FixedStrict) {
+        raw.lines()
+            .map(|l| {
+                let mut cs: Vec<char> = l.chars().collect();
+                if matches!(cs.get(6), Some('D') | Some('d')) {
+                    cs[6] = ' ';
+                }
+                cs.into_iter().collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        raw
     };
     let flat = flatten(&raw, format);
     let replaced = apply_pairs(&flat, replacing);
@@ -425,35 +506,78 @@ fn resolve(name: &str, base_dir: &Path) -> Option<PathBuf> {
 
 /// Apply REPLACING / REPLACE substitutions to `text`. A single COBOL word is
 /// replaced on word boundaries; multi-token pseudo-text is replaced literally.
+/// Apply every pair in ONE pass over the text, matching by TEXT WORDS.
+///
+/// * By text words, not bytes: the operand and the copybook wrap their lines
+///   differently, so a verbatim compare never matched a multi-word operand
+///   (SM201A COPY-TEST-11); and a whole word `001` must NOT match inside
+///   `1005` (SM206A PST-TEST-006).
+/// * One pass, all pairs together, first match wins, and the replacement is
+///   never rescanned: `==1== BY ==5== ==5== BY ==7==` turns `1` into `5` and
+///   STOPS — applying the pairs sequentially over the whole text cascaded it
+///   to `7` (SM206A PST-TEST-005, XII-6 3.3 GR12).
+/// * A standalone `,`/`;` is a separator, interchangeable with space
+///   (SM208A REP-TEST-8); the period stays a text word of its own.
 fn apply_pairs(text: &str, pairs: &[(String, String)]) -> String {
     if pairs.is_empty() {
         return text.to_string();
     }
-    let mut out = text.to_string();
-    for (from, to) in pairs {
-        if from.is_empty() {
-            continue;
-        }
-        if is_single_word(from) {
-            out = replace_word(&out, from, to);
-        } else {
-            // A multi-word operand is pseudo-text, and pseudo-text matches by
-            // TEXT WORDS, not by bytes: the operand and the copybook wrap
-            // their lines differently, so a verbatim `str::replace` can never
-            // find `==02 TST-FLD-1  PICTURE 9(5). 02 FILLER\n PICTURE
-            // X(115)==` inside K101A (CCVS85 SM201A COPY-TEST-11 — the
-            // replacement silently never applied and TXT-FLD-1 stayed
-            // undeclared). Compare whitespace-normalized word sequences,
-            // case-insensitively; fall back to the verbatim replace only if
-            // no sequence matched.
-            let (replaced, n) = replace_token_seq(&out, from, to);
-            out = if n > 0 {
-                replaced
-            } else {
-                out.replace(from.as_str(), to)
-            };
+    // The `:TAG:` idiom replaces INSIDE words — `==:PFX:== BY ==WS==` turns
+    // `:PFX:-NAME` into `WS-NAME` — so those pairs are substring passes, run
+    // before the word walk (they cannot cascade with it: a tag never equals a
+    // text word).
+    let mut text_owned;
+    let mut text = text;
+    for (f, t) in pairs {
+        let f = f.trim();
+        if f.len() > 2 && f.starts_with(':') && f.ends_with(':') && text.contains(f) {
+            text_owned = text.replace(f, t.trim());
+            text = &text_owned;
         }
     }
+    let separator = |w: &str| w == "," || w == ";";
+    let fw: Vec<(Vec<&str>, &str)> = pairs
+        .iter()
+        .map(|(f, t)| {
+            (
+                seq_words(f)
+                    .into_iter()
+                    .map(|(s, e)| &f[s..e])
+                    .filter(|w| !separator(w))
+                    .collect(),
+                t.as_str(),
+            )
+        })
+        .collect();
+    let words: Vec<(usize, usize)> = seq_words(text)
+        .into_iter()
+        .filter(|&(s, e)| !separator(&text[s..e]))
+        .collect();
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0usize;
+    let mut w = 0usize;
+    'outer: while w < words.len() {
+        for (fwords, to) in &fw {
+            if fwords.is_empty() || w + fwords.len() > words.len() {
+                continue;
+            }
+            let matched = fwords.iter().enumerate().all(|(k, f)| {
+                let (s, e) = words[w + k];
+                text[s..e].eq_ignore_ascii_case(f)
+            });
+            if matched {
+                let (s, _) = words[w];
+                let (_, e) = words[w + fwords.len() - 1];
+                out.push_str(&text[copied..s]);
+                out.push_str(to);
+                copied = e;
+                w += fwords.len();
+                continue 'outer;
+            }
+        }
+        w += 1;
+    }
+    out.push_str(&text[copied..]);
     out
 }
 
@@ -492,82 +616,8 @@ fn seq_words(s: &str) -> Vec<(usize, usize)> {
     words
 }
 
-/// Replace every occurrence of the text-word sequence `from` (compared
-/// case-insensitively word by word, whitespace- and line-break-insensitive)
-/// with `to`, returning the new text and how many sequences were replaced.
-fn replace_token_seq(text: &str, from: &str, to: &str) -> (String, usize) {
-    // A standalone comma or semicolon is a SEPARATOR, not a text word —
-    // interchangeable with space for matching (XII-7 3.4 GR6(b); CCVS85
-    // SM208A REP-TEST-8 replaces `MOVE;  "FAIL"  , TO` and expects it to
-    // match `MOVE  , "FAIL";      TO`). Both sides drop them; the matched
-    // span still covers the ones between matched words. A period stays — it
-    // ends sentences and is matched deliberately.
-    let separator = |w: &str| w == "," || w == ";";
-    let fpos: Vec<(usize, usize)> = seq_words(from)
-        .into_iter()
-        .filter(|&(s, e)| !separator(&from[s..e]))
-        .collect();
-    if fpos.is_empty() {
-        return (text.to_string(), 0);
-    }
-    let fwords: Vec<&str> = fpos.iter().map(|&(s, e)| &from[s..e]).collect();
-    let words: Vec<(usize, usize)> = seq_words(text)
-        .into_iter()
-        .filter(|&(s, e)| !separator(&text[s..e]))
-        .collect();
-    let mut out = String::with_capacity(text.len());
-    let mut copied = 0usize;
-    let mut n = 0usize;
-    let mut w = 0usize;
-    while w + fwords.len() <= words.len() {
-        let matched = fwords.iter().enumerate().all(|(k, fw)| {
-            let (s, e) = words[w + k];
-            text[s..e].eq_ignore_ascii_case(fw)
-        });
-        if matched {
-            let (s, _) = words[w];
-            let (_, e) = words[w + fwords.len() - 1];
-            out.push_str(&text[copied..s]);
-            out.push_str(to);
-            copied = e;
-            n += 1;
-            w += fwords.len();
-        } else {
-            w += 1;
-        }
-    }
-    out.push_str(&text[copied..]);
-    (out, n)
-}
 
-fn is_single_word(s: &str) -> bool {
-    !s.is_empty()
-        && s.bytes()
-            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
-}
 
-/// Whole-word (COBOL word) case-insensitive replacement.
-fn replace_word(text: &str, from: &str, to: &str) -> String {
-    let is_word = |c: u8| c.is_ascii_alphanumeric() || c == b'-' || c == b'_';
-    let b = text.as_bytes();
-    let fb = from.as_bytes();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0usize;
-    while i < b.len() {
-        if i + fb.len() <= b.len()
-            && text[i..i + fb.len()].eq_ignore_ascii_case(from)
-            && (i == 0 || !is_word(b[i - 1]))
-            && (i + fb.len() == b.len() || !is_word(b[i + fb.len()]))
-        {
-            out.push_str(to);
-            i += fb.len();
-        } else {
-            out.push(b[i] as char);
-            i += 1;
-        }
-    }
-    out
-}
 
 #[cfg(test)]
 mod tests {
@@ -785,6 +835,81 @@ COPY ALTLB.
         assert!(
             !r.text.contains("\"FAIL\""),
             "the original text words were left behind:\n{}",
+            r.text
+        );
+    }
+
+    /// CCVS85 **SM206A** PST-TEST-005 (XII-6 3.3 GR12): pairs apply in ONE
+    /// pass and a replacement is never rescanned — `==1== BY ==5== ==5== BY
+    /// ==7==` turns `1` into `5` and stops; sequential application cascaded
+    /// it to `7`.
+    #[test]
+    fn replacement_output_is_never_rescanned() {
+        let d = tmp();
+        write(&d, "KP005", "ADD 1 TO W.\n");
+        let r = expand_copybooks(
+            "COPY KP005 REPLACING == 1 == BY == 5 == == 5 == BY == 7 ==.\n",
+            &d,
+            SourceFormat::Free,
+        );
+        assert!(r.text.contains("ADD 5 TO W"), "cascaded: {}", r.text);
+    }
+
+    /// CCVS85 **SM202A** COPY-TEST-16: a string-literal operand keeps its
+    /// quotes — `FALSE-DATA-2 BY " TWO$"` splices the QUOTED literal, or the
+    /// `$` reaches the parser bare.
+    #[test]
+    fn a_literal_operand_keeps_its_quotes() {
+        let d = tmp();
+        write(&d, "K2PRA", "MOVE FALSE-DATA-2 TO OUT-1.\n");
+        let r = expand_copybooks(
+            "COPY K2PRA REPLACING FALSE-DATA-2 BY \" TWO$\".\n",
+            &d,
+            SourceFormat::Free,
+        );
+        assert!(
+            r.text.contains("MOVE \" TWO$\" TO OUT-1"),
+            "unquoted splice: {}",
+            r.text
+        );
+    }
+
+    /// CCVS85 **SM206A** PST-TEST-002: a replacement operand that is an
+    /// identifier extends through its IN/OF chain and subscript.
+    #[test]
+    fn an_identifier_operand_spans_its_qualification() {
+        let d = tmp();
+        write(&d, "KP002", "ADD 1 TO OLD-NAME.\n");
+        let r = expand_copybooks(
+            "COPY KP002 REPLACING ==OLD-NAME== BY NEW-NAME IN GRP-A OF GRP-B (1).\n",
+            &d,
+            SourceFormat::Free,
+        );
+        assert!(
+            r.text.contains("ADD 1 TO NEW-NAME IN GRP-A OF GRP-B (1)"),
+            "chain cut short: {}",
+            r.text
+        );
+    }
+
+    /// CCVS85 **SM206A** PST-TEST-009: a debugging line in library text
+    /// participates in matching as ordinary text — the REPLACING is what
+    /// removes it.
+    #[test]
+    fn a_copybook_debugging_line_participates_in_matching() {
+        let d = tmp();
+        // Column-true fixed format: 6-char sequence area, then the indicator.
+        write(
+            &d,
+            "KP008",
+            "000100     PERFORM FAIL.\n000200D    GARBAGE.\n000300     ADD 1 TO C1.\n",
+        );
+        let src = "000400     COPY KP008 REPLACING\n\
+                   000500     ==FAIL. GARBAGE. ADD 1 TO C1. == BY ==PASS. ==.\n";
+        let r = expand_copybooks(src, &d, SourceFormat::Fixed);
+        assert!(
+            r.text.contains("PERFORM PASS"),
+            "the debug line did not participate: {}",
             r.text
         );
     }

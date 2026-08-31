@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.127] — 2026-08-31
+
+### SM (Source text manipulation) FINISHED
+
+The last round of REPLACING operand semantics, in one landing: a
+string-literal operand keeps its quotes; an identifier operand spans
+its IN/OF qualification chain and parenthesized subscript; all pairs
+apply in ONE pass, first match wins, and a replacement is never
+rescanned (`==1== BY ==5== ==5== BY ==7==` stops at 5); the `:TAG:`
+partial-word idiom is a substring pre-pass; and a debugging line in
+library text participates in matching, so the REPLACING that is meant
+to remove it can.
+
+**SM is complete on both axes: 17/17 compile, 16/16 execution
+(SM301M excluded by the standing 301M ruling), 311 PASS / 0 FAIL /
+3 DELETED — all three deletes are the distribution's own commented-out
+tests.** From 14/17 · 4/17 · 32 PASS / 9 FAIL at baseline. Whole-suite
+compile: 415 → 417 of 421 (99.0%). Full gate: NC, SQ, IX, RL, IF, IC,
+ST all exact. The only in-scope compile gap left in the entire suite
+is DB's four members.
+
 ## [PowerRustCOBOL 1.62.126] — 2026-08-31
 
 ### SM's flagging members settle
