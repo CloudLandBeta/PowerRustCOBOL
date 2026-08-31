@@ -228,3 +228,50 @@ fn release_from_keeps_bytes_only_filler_covers() {
     // release and come back in sorted order.
     assert_eq!(run_capture(src), vec!["10/ABC", "20/XYZ"]);
 }
+
+/// CCVS85 **ST139A/ST140A**: `SORT … [COLLATING] SEQUENCE [IS] alphabet-name`
+/// orders the sort's alphanumeric keys by a SPECIAL-NAMES alphabet. A literal
+/// alphabet listing "C" "B" "A" puts C lowest, so an ASCENDING sort on that
+/// sequence returns C, B, A.
+#[test]
+fn sort_collating_sequence_orders_keys_by_the_named_alphabet() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SRTCOLL.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       SPECIAL-NAMES.
+           ALPHABET BACKWARDS IS "C" "B" "A".
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SORT-FILE ASSIGN TO "sortwork4".
+       DATA DIVISION.
+       FILE SECTION.
+       SD SORT-FILE.
+       01 S-REC.
+          05 S-KEY  PIC X.
+          05 S-TAG  PIC X(2).
+       WORKING-STORAGE SECTION.
+       01 DONE-FLAG PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           SORT SORT-FILE ON ASCENDING KEY S-KEY
+               COLLATING SEQUENCE IS BACKWARDS
+               INPUT PROCEDURE IS FILL-PROC
+               OUTPUT PROCEDURE IS SHOW-PROC
+           STOP RUN.
+       FILL-PROC.
+           MOVE "A" TO S-KEY MOVE "1A" TO S-TAG RELEASE S-REC
+           MOVE "C" TO S-KEY MOVE "3C" TO S-TAG RELEASE S-REC
+           MOVE "B" TO S-KEY MOVE "2B" TO S-TAG RELEASE S-REC.
+       SHOW-PROC.
+           PERFORM UNTIL DONE-FLAG = 1
+               RETURN SORT-FILE
+                   AT END MOVE 1 TO DONE-FLAG
+                   NOT AT END DISPLAY S-KEY "/" S-TAG
+               END-RETURN
+           END-PERFORM.
+    "#;
+    // ASCENDING under the BACKWARDS alphabet: C first, then B, then A.
+    assert_eq!(run_capture(src), vec!["C/3C", "B/2B", "A/1A"]);
+}

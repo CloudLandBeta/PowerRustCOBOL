@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.119] — 2026-08-31
+
+### ST (Sort/Merge) FINISHED — and SORT learns COLLATING SEQUENCE
+
+`SORT/MERGE … [COLLATING] SEQUENCE [IS] alphabet-name` now parses in
+both CCVS85 spellings (`SEQUENCE` is a lexer keyword, so the clause is
+token-matched and the key list stops at it) and orders the sort's
+alphanumeric keys by the named SPECIAL-NAMES alphabet; numeric keys
+compare numerically under any sequence, and NATIVE/STANDARD-1 need no
+table. ST139A and ST140A compile and run clean on first try.
+
+**ST (Sort/Merge) is complete on both axes: 40/40 compile, 39/39
+execution, 735 PASS / 0 FAIL / 0 DELETED** — from 29/39 and 683/86 at
+the start of the session. Whole-suite compile: 412 → 414 of 421
+(98.3%). Full finish gate: NC, SQ, IX, RL, IF, IC all exact. Next
+module in flight: SM (Source text manipulation).
+
 ## [PowerRustCOBOL 1.62.118] — 2026-08-31
 
 ### Harness — the native collating sequence card (X-63)

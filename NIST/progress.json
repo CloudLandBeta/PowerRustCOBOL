@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.118",
+ "measured_at_version": "1.62.119",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -28,8 +28,8 @@
   "DB",
   "RL"
  ],
- "current_module": "ST",
- "_current_module_note": "IF finished at 1.62.81. Next in `module_order` is IC (Inter-program communication), baselined at 1.62.81: 6 of 47 clean, 134 PASS / 129 FAIL \u2014 by far the weakest module measured so far, and the first whose subject is a whole language area (CALL / nested programs / LINKAGE) rather than a set of functions. Two members also fail to compile.",
+ "current_module": "SM",
+ "_current_module_note": "SM (Source text manipulation) \u2014 baselined at 1.62.88: 14/17 compile, 4/17 execution, 25 PASS / 9 FAIL. Re-baseline FIRST: the group-image and RELEASE/RETURN fixes of 1.62.116-117 may already have moved it. Then bucket the failures. After SM: DB (compile_only), and RL is already finished \u2014 the run-unit modules SG/OB/CM/RW stay out of scope.",
  "out_of_scope": {
   "modules": [
    "CM",
@@ -45,9 +45,9 @@
   "effect": "38 programs excluded from every score. The in-scope suite is 421, not 434."
  },
  "whole_suite_compile": {
-  "pass": 412,
-  "total": 421,
-  "pct": 97.9
+  "pass": 414,
+  "in_scope": 421,
+  "note": "98.3% at 1.62.119; ST139A/ST140A joined with the COLLATING SEQUENCE clause"
  },
  "modules": {
   "NC": {
@@ -159,22 +159,24 @@
   },
   "ST": {
    "name": "Sort/Merge",
-   "state": "in_flight",
+   "state": "finished",
    "compile": [
-    38,
+    40,
     40
    ],
    "execution": [
-    37,
+    39,
     39
    ],
    "assertions": {
-    "pass": 711,
+    "pass": 735,
     "fail": 0,
     "deleted": 0
    },
    "st301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim: intermediate-subset flagging of features we implement (SD, SAME SORT-MERGE AREA, MERGE, SORT GIVING) is unreachable by design. Scored out of 39, like IX out of 41 and RL out of 34.",
-   "baselined_at": "1.62.107 \u2014 13 of 40 clean, 157 PASS / 99 FAIL (61.3%), DELETED 0. FOUR MEMBERS PRINT NO CCVS REPORT AT ALL (ST102A, ST110A, ST113M, ST116A) \u2014 read that bucket first; a missing report usually means a crash or a file the harness must plant. Two members do not compile (ST139A/ST140A: `SEQUENCE MY-FAVORITE-ALPHABET`, a COLLATING SEQUENCE alphabet-name in SORT \u2014 visible in the census)."
+   "baselined_at": "1.62.107 \u2014 13 of 40 clean, 157 PASS / 99 FAIL (61.3%), DELETED 0. FOUR MEMBERS PRINT NO CCVS REPORT AT ALL (ST102A, ST110A, ST113M, ST116A) \u2014 read that bucket first; a missing report usually means a crash or a file the harness must plant. Two members do not compile (ST139A/ST140A: `SEQUENCE MY-FAVORITE-ALPHABET`, a COLLATING SEQUENCE alphabet-name in SORT \u2014 visible in the census).",
+   "protected": true,
+   "finished_at": "1.62.119 \u2014 2026-08-31. Both axes 100%: compile 40/40, execution 39/39, 735 PASS / 0 FAIL / 0 DELETED. The final step was SORT/MERGE `[COLLATING] SEQUENCE [IS] alphabet-name` (ST139A bare form, ST140A full form): SEQUENCE is a lexer keyword so the clause is token-matched, the key-field list stops at it, and sort_records orders alphanumeric keys by the named SPECIAL-NAMES alphabet via collation::Collation (numeric keys stay numeric; NATIVE/STANDARD-1 need no table). Both members ran clean on first compile."
   },
   "SM": {
    "name": "Source text manipulation",
@@ -722,9 +724,29 @@
    "assertions_pass": 309,
    "assertions_fail": 0
   },
-  "whole_suite_compile_pass": 412
+  "whole_suite_compile_pass": 414,
+  "ST": {
+   "compile": [
+    40,
+    40
+   ],
+   "execution": [
+    39,
+    39
+   ],
+   "assertions": {
+    "pass": 735,
+    "fail": 0,
+    "deleted": 0
+   }
+  }
  },
  "history": [
+  {
+   "version": "1.62.119",
+   "change": "ST (Sort/Merge) FINISHED \u2014 39/39 and 40/40, 735 PASS / 0 FAIL. SORT/MERGE COLLATING SEQUENCE lands; current_module advances to SM",
+   "effect": "The clause was the last gap on either axis. Whole-suite compile 412 -> 414 of 421 (98.3%). Full gate at the finish: NC 4614/0, SQ 624/0, IX 574/0, RL 354/0, IF 841/0, IC 309/0 \u2014 every protected baseline exact; runtime and parser sweeps 0 failures. ST joins protected_baselines. Session arc 1.62.115 -> 1.62.119: ST went 683 PASS / 86 FAIL (29/39) to 735 / 0 (39/39) in five landings \u2014 sort-procedure GO TO semantics, the SAME-clause sentence bug + whole-image RELEASE + byte-true RETURN INTO, the phantom sign byte in group images, the X-63 native collating card, and the COLLATING SEQUENCE grammar."
+  },
   {
    "version": "1.62.118",
    "change": "Harness: the native collating sequence card (X-63) is filled with the ASCII sample the members document \u2014 ST137A clean, ST 711 PASS / 0 FAIL",

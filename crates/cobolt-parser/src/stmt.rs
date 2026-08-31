@@ -2862,6 +2862,32 @@ fn parse_replace_specs(p: &mut Parser) -> Vec<cobolt_ast::stmt::ReplaceSpec> {
 
 // ── SORT ──────────────────────────────────────────────────────────────────────
 
+/// `[COLLATING] SEQUENCE [IS] alphabet-name` on SORT/MERGE — `None` when the
+/// clause is absent. CCVS85 writes both spellings: ST140A the full form,
+/// ST139A the bare `SEQUENCE MY-FAVORITE-ALPHABET`. Neither word is a lexer
+/// keyword, so they are matched by name.
+fn parse_collating_sequence(p: &mut Parser) -> Option<String> {
+    let collating = |t: &Token| matches!(t, Token::Identifier(s) if s.eq_ignore_ascii_case("COLLATING"));
+    if collating(p.peek()) {
+        p.advance();
+        p.eat(&Token::Sequence);
+    } else if p.at(&Token::Sequence) {
+        p.advance();
+    } else {
+        return None;
+    }
+    p.eat(&Token::Is);
+    p.eat_identifier().map(|(n, _)| n)
+}
+
+/// True when the next token begins the `[COLLATING] SEQUENCE` clause — the
+/// key-field list must stop there rather than eat the word as a key name.
+/// `SEQUENCE` is a lexer keyword; `COLLATING` arrives as an identifier.
+fn at_collating_sequence(p: &Parser) -> bool {
+    p.at(&Token::Sequence)
+        || matches!(p.peek(), Token::Identifier(s) if s.eq_ignore_ascii_case("COLLATING"))
+}
+
 fn parse_sort(p: &mut Parser) -> Stmt {
     use cobolt_ast::stmt::SortKey;
     let span = p.peek_span();
@@ -2883,11 +2909,14 @@ fn parse_sort(p: &mut Parser) -> Stmt {
             && !p.at(&Token::Ascending)
             && !p.at(&Token::Descending)
             && !p.at(&Token::On)
+            && !at_collating_sequence(p)
         {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
     }
+
+    let collating = parse_collating_sequence(p);
 
     // WITH DUPLICATES IN ORDER — ignored
     let duplicates = if p.at(&Token::With) {
@@ -2957,6 +2986,7 @@ fn parse_sort(p: &mut Parser) -> Stmt {
         file,
         keys,
         duplicates,
+        collating,
         using,
         giving,
         input_proc,
@@ -3001,11 +3031,14 @@ fn parse_merge(p: &mut Parser) -> Stmt {
             && !p.at(&Token::Ascending)
             && !p.at(&Token::Descending)
             && !p.at(&Token::On)
+            && !at_collating_sequence(p)
         {
             fields.push(parse_expr(p));
         }
         keys.push(SortKey { ascending, fields });
     }
+
+    let collating = parse_collating_sequence(p);
 
     let using = if p.eat(&Token::Using) {
         parse_file_name_list(p)
@@ -3037,6 +3070,7 @@ fn parse_merge(p: &mut Parser) -> Stmt {
     Stmt::Merge {
         file,
         keys,
+        collating,
         using,
         giving,
         output_proc,

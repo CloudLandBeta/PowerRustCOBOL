@@ -1533,6 +1533,9 @@ pub struct Interpreter {
     /// `IX-FD2` and then asserts that `IX-FD1`'s record shows IX-FD2's
     /// contents.
     same_area_peers: HashMap<String, Vec<String>>,
+    /// SPECIAL-NAMES `ALPHABET` definitions, for `SORT/MERGE … COLLATING
+    /// SEQUENCE IS alphabet-name` to resolve against.
+    alphabets: Vec<(String, cobolt_ast::program::AlphabetSpec)>,
 }
 
 /// Where a sequential `READ` found the record it delivered.
@@ -1655,6 +1658,7 @@ impl Interpreter {
 
         let (file_specs, record_to_file) = build_file_specs(&program);
         let same_area_peers = build_same_area_peers(&program);
+        let alphabets = program.alphabets.clone();
 
         // Build the DECLARATIVES' own paragraph space and locate each handler's
         // section inside it.
@@ -1740,6 +1744,7 @@ impl Interpreter {
             read_established: std::collections::HashSet::new(),
             last_write_key: HashMap::new(),
             same_area_peers,
+            alphabets,
         }
     }
 
@@ -3538,11 +3543,13 @@ impl Interpreter {
                 giving,
                 input_proc,
                 output_proc,
+                collating,
                 duplicates: _,
                 span,
             } => self.exec_sort(
                 file,
                 keys,
+                collating.as_deref(),
                 using,
                 giving,
                 input_proc.as_ref(),
@@ -3552,6 +3559,7 @@ impl Interpreter {
             Stmt::Merge {
                 file,
                 keys,
+                collating,
                 using,
                 giving,
                 output_proc,
@@ -3559,6 +3567,7 @@ impl Interpreter {
             } => self.exec_sort(
                 file,
                 keys,
+                collating.as_deref(),
                 using,
                 giving,
                 None,
@@ -6850,6 +6859,7 @@ impl Interpreter {
         &mut self,
         file: &str,
         keys: &[cobolt_ast::stmt::SortKey],
+        collating: Option<&str>,
         using: &[String],
         giving: &[String],
         input_proc: Option<&(String, Option<String>)>,
@@ -6874,7 +6884,7 @@ impl Interpreter {
         }
 
         // ── Phase 2: sort by keys ─────────────────────────────────────────
-        self.sort_records(&fkey, keys, span)?;
+        self.sort_records(&fkey, keys, collating, span)?;
 
         // ── Phase 3: deliver records ──────────────────────────────────────
         if let Some((name, thru)) = output_proc {
@@ -6895,11 +6905,23 @@ impl Interpreter {
         &mut self,
         fkey: &str,
         keys: &[cobolt_ast::stmt::SortKey],
+        collating: Option<&str>,
         span: Span,
     ) -> Result<(), RuntimeError> {
         let Some(spec) = self.file_specs.get(fkey).cloned() else {
             return Ok(());
         };
+        // `[COLLATING] SEQUENCE IS alphabet-name` orders THIS sort's
+        // alphanumeric keys by that alphabet (CCVS85 ST139A/ST140A). The
+        // standard sequences and NATIVE are the machine order and need no
+        // table — `from_spec` returns `None` and the ordinary comparison
+        // stands, which is also what an unknown name degrades to.
+        let coll = collating.and_then(|name| {
+            self.alphabets
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                .and_then(|(_, spec)| crate::collation::Collation::from_spec(spec))
+        });
         let recs = self.sort_buffers.remove(fkey).unwrap_or_default();
         // Precompute each record's (key-value, ascending) vector.
         let mut keyed: Vec<(Vec<(CobolValue, bool)>, Vec<u8>)> = Vec::with_capacity(recs.len());
@@ -6915,7 +6937,14 @@ impl Interpreter {
         }
         keyed.sort_by(|a, b| {
             for ((av, asc), (bv, _)) in a.0.iter().zip(b.0.iter()) {
-                let ord = cob_ordering(av, bv);
+                // A named sequence orders alphanumeric keys; numeric keys
+                // compare by value under any sequence.
+                let ord = match (&coll, av, bv) {
+                    (Some(c), CobolValue::String { .. }, CobolValue::String { .. }) => {
+                        c.compare(&av.as_display_string(), &bv.as_display_string())
+                    }
+                    _ => cob_ordering(av, bv),
+                };
                 if ord != std::cmp::Ordering::Equal {
                     return if *asc { ord } else { ord.reverse() };
                 }

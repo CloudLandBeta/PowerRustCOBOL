@@ -448,3 +448,30 @@ fn two_same_clauses_in_one_io_control_sentence_are_two_groups() {
         "each SAME clause is its own group"
     );
 }
+
+/// `SORT/MERGE … [COLLATING] SEQUENCE [IS] alphabet-name` — CCVS85 ST140A
+/// writes the full form and ST139A the bare `SEQUENCE MY-FAVORITE-ALPHABET`.
+/// `SEQUENCE` is a lexer keyword, so the clause must be matched as a token,
+/// and the key-field list must stop at it rather than eat it as a key name.
+#[test]
+fn sort_and_merge_accept_a_collating_sequence_clause() {
+    let stmts = all_stmts(&prog(
+        "MAIN.\n    SORT SF ON ASCENDING KEY K1\n        SEQUENCE MY-ALPHA\n\
+         \x20       USING F1 GIVING F2.\n\
+         \x20   MERGE MF ON DESCENDING KEY K2\n        COLLATING SEQUENCE IS OTHER-ALPHA\n\
+         \x20       USING F1 F2 GIVING F3.\n    STOP RUN.\n",
+    ));
+    let Some(Stmt::Sort { keys, collating, .. }) =
+        stmts.iter().find(|s| matches!(s, Stmt::Sort { .. }))
+    else {
+        panic!("no SORT parsed: {stmts:?}");
+    };
+    assert_eq!(keys.len(), 1, "SEQUENCE must not be eaten as a key field");
+    assert_eq!(collating.as_deref(), Some("MY-ALPHA"));
+    let Some(Stmt::Merge { collating, .. }) =
+        stmts.iter().find(|s| matches!(s, Stmt::Merge { .. }))
+    else {
+        panic!("no MERGE parsed: {stmts:?}");
+    };
+    assert_eq!(collating.as_deref(), Some("OTHER-ALPHA"));
+}
