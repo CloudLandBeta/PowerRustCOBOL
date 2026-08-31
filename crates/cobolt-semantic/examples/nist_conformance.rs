@@ -1040,6 +1040,9 @@ fn inherits_from(name: &str) -> Option<&'static str> {
         "SM104A" => "SM103A",
         // "PROGRAM SM202A READS THE FILE PRODUCED BY SM201A"
         "SM202A" => "SM201A",
+        // "ALL TESTS IN SM204A CHECK OUTPUT OF SM203A." — the same
+        // builder/checker shape as SM103A/SM104A, on card 002.
+        "SM204A" => "SM203A",
         _ => return None,
     })
 }

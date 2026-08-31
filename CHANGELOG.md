@@ -1,5 +1,17 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.122] — 2026-08-31
+
+### Harness — SM204A runs after its builder
+
+SM204A checks the file SM203A writes (the same builder/checker pair as
+SM103A/SM104A), but the chain was never declared: it opened a file no
+one had written and every COPY-TEST read zeros. With the producer
+declared, SM204A reports no failures — the runtime was never wrong.
+
+SM (Source text manipulation): 10 → 11 of 17 clean; assertions
+281 PASS / 10 FAIL → 285 / 6.
+
 ## [PowerRustCOBOL 1.62.121] — 2026-08-31
 
 ### Pseudo-text matches by text words

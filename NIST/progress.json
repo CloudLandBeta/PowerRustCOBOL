@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.121",
+ "measured_at_version": "1.62.122",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -186,12 +186,12 @@
     17
    ],
    "execution": [
-    10,
+    11,
     17
    ],
    "assertions": {
-    "pass": 281,
-    "fail": 10,
+    "pass": 285,
+    "fail": 6,
     "deleted": 0
    },
    "baselined_at": "1.62.88 \u2014 measured for the first time while answering a question about the XXXXD001 data card. Before this run it was 0 of 17 with 8 PASS / 15 FAIL; two harness-fidelity fixes took it to 4 of 17 and 25 PASS / 9 FAIL (73.5%) with no runtime change at all.",
@@ -751,6 +751,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.122",
+   "change": "SM204A declares its producer (SM203A) \u2014 SM 10/17 281/10 -> 11/17 285/6",
+   "effect": "The same builder/checker shape as SM103A/SM104A on card 002, never declared in inherits_from: SM204A opened a file no one had written and read zeros through every COPY-TEST. By hand, producer-first in one directory, it reports NO TEST(S) FAILED \u2014 the runtime was never wrong. Remaining: SM207A 1, SM208A 2, SM301M 1, SM401M 2; compile SM202A/SM206A."
+  },
   {
    "version": "1.62.121",
    "change": "Pseudo-text REPLACING matches by TEXT WORDS \u2014 SM201A clean, SM208A compiles: SM 9/17 271/10 -> 10/17 281/10, compile 414 -> 415/421",
