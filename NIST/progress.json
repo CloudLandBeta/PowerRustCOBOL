@@ -216,13 +216,14 @@
   },
   "DB": {
    "name": "Debug",
-   "state": "compile_only",
+   "state": "compile_only_terminal",
    "compile": [
     14,
     15
    ],
    "execution": null,
-   "assertions": null
+   "assertions": null,
+   "note": "14/15 at 1.62.128. DB205A parked on the communication-scope question (see parked db205a-communication-debug-scope) \u2014 the grind\u2019s last open item, operator to ratify. Execution axis remains out of scope for DB."
   },
   "RL": {
    "name": "Relative I/O",
@@ -262,11 +263,12 @@
   {
    "id": "sm-remaining",
    "module": "SM",
-   "priority": 9,
-   "title": "SM: 9 failing assertions across five members, three REPLACE-grammar compile fails",
+   "priority": 99,
+   "title": "RESOLVED \u2014 SM: 9 failing assertions across five members, three REPLACE-grammar compile fails",
    "runtime_failures": "SM201A 1 (TXT-FLD-1 undeclared warning at L641 \u2014 COPY REPLACING id?), SM204A 4 (chain SM203A->SM204A; check the chain in-harness first), SM207A 1, SM301M 1 + SM401M 2 (obsolete/flagging members \u2014 read their expectation model before touching the runtime).",
    "compile_failures": "SM202A L470 expected To found Error(\"$\") \u2014 pseudo-text ==$==; SM206A L371 unexpected PST-TEST-002; SM208A L472 expected To found \"AO\". All three are COPY \u2026 REPLACING / REPLACE pseudo-text shapes the front end does not accept yet.",
-   "watch_out": "Diagnose in per-member directories with the freshly built /tmp/nist-copy-library planted (canonicalized since 1.62.120). SM301M/SM401M print no XXXXX055 when run bare by hand."
+   "watch_out": "Diagnose in per-member directories with the freshly built /tmp/nist-copy-library planted (canonicalized since 1.62.120). SM301M/SM401M print no XXXXX055 when run bare by hand.",
+   "resolved_at": "1.62.127 \u2014 every item closed: SM201A (text-word matching), SM204A (producer chain), SM207A (library-qualified COPY), SM208A (top-level FILLER REDEFINES + separator rule), SM301M (ruling), SM401M (high-subset flags), SM202A/SM206A (operand semantics round). SM finished 16/16, 311/0."
   },
   {
    "id": "st131a-same-record-area",
@@ -1197,5 +1199,9 @@
    "change": "X-card letter variants (XXXXP/XXXXD nnn) collapse onto one card; IX103A declares its producer",
    "effect": "IX103A's scan reaches 35 records instead of dying on the first READ. Assertions went 484 -> 482 PASS: two that had never executed now run and fail truthfully. A fidelity gain that shows as a score dip \u2014 see rules.gate_protects_finished_modules_absolutely."
   }
- ]
+ ],
+ "grind_state": {
+  "as_of": "1.62.128 \u2014 2026-08-31 03:33",
+  "summary": "ALL modules in module_order are finished or ruled. Execution: NC 95/95 4614/0, SQ 85/85 624/0, IX 41/41 574/0, RL 34/34 354/0, IF 45/45 841/0, IC 25/25 309/0, ST 39/39 735/0, SM 16/16 311/0 \u2014 8362 PASS / 0 FAIL / 3 DELETED-by-design across every module the suite can score. Compile: 420/421 (99.8%); the single failure, DB205A, is COMMUNICATION machinery under a proposed scope-ruling extension. Autonomous work remaining: the IX robustness item (unhandled-read-error-spins, no score impact) and the flaky env::set_var test serialization."
+ }
 }
