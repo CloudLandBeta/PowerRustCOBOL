@@ -1,6 +1,6 @@
 {
  "_readme": "The NIST CCVS85 conformance ledger. Machine-readable, committed, and the single source of truth for where the work stands. Read it before doing anything; update it after every verified change. It replaces the hand-written HANDOFF-*.md files, which were re-derived from scratch each session and drifted. Protocol: .claude/skills/nist-grind/SKILL.md",
- "measured_at_version": "1.62.125",
+ "measured_at_version": "1.62.126",
  "measured_at": "2026-08-31",
  "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
  "rules": {
@@ -186,18 +186,19 @@
     17
    ],
    "execution": [
-    13,
-    17
+    14,
+    16
    ],
    "assertions": {
-    "pass": 286,
-    "fail": 3,
+    "pass": 288,
+    "fail": 0,
     "deleted": 0
    },
    "baselined_at": "1.62.88 \u2014 measured for the first time while answering a question about the XXXXD001 data card. Before this run it was 0 of 17 with 8 PASS / 15 FAIL; two harness-fidelity fixes took it to 4 of 17 and 25 PASS / 9 FAIL (73.5%) with no runtime change at all.",
    "what_changed": "(1) The execution pass never planted the suite's copybook library \u2014 only the COMPILE pass expanded COPY. rcrun resolves a copybook against the source file's own directory, so SM101A expanded to nothing, wrote a zero-byte file, and SM102A read it and reported EOF PREMATURELY FOUND: a missing input that reads exactly like a runtime defect. (2) SM's three builder/checker pairs now declare their producers in `inherits_from`, quoted from the consumers' own headers.",
    "remaining": "SM104A 5 FAIL (DECIMAL-POINT IS COMMA and ENVIRONMENT DIVISION entries supplied by COPY) and SM204A 4 FAIL. Eleven members still do not compile: SM202A (L470 expected To, found Error(\"$\")), SM206A (L371 unexpected token PST-TEST-002), SM208A (L472 expected To, found AO) are the three the strict census names; the rest are SUBRTN-style callees or fail earlier.",
-   "note_for_st": "ST102A/ST120A read the same card 1 that ST101A writes, and ST103A checks the result \u2014 but NO ST member declares a producer (their headers list only X-55, X-82, X-83). Chaining them on the shared card alone is the inference `inherits_from` exists to refuse, and it would also be unsafe: ST102A has no PRINT-FILE, so a producer's report would be left in XXXXX055 and scored as ST102A's own. Decide when ST is baselined, with the real failure in hand."
+   "note_for_st": "ST102A/ST120A read the same card 1 that ST101A writes, and ST103A checks the result \u2014 but NO ST member declares a producer (their headers list only X-55, X-82, X-83). Chaining them on the shared card alone is the inference `inherits_from` exists to refuse, and it would also be unsafe: ST102A has no PRINT-FILE, so a producer's report would be left in XXXXX055 and scored as ST102A's own. Decide when ST is baselined, with the real failure in hand.",
+   "sm301m_out_of_scope": "Extends the 2026-08-29 operator ruling verbatim, fourth application (IX301M, RL301M, ST301M before it): intermediate-subset flagging of the COPY feature we implement as standard is unreachable by design. Scored out of 16."
   },
   "SG": {
    "name": "Segmentation",
@@ -751,6 +752,11 @@
   }
  },
  "history": [
+  {
+   "version": "1.62.126",
+   "change": "SM401M\u2019s high-subset flags exist (COPY \u2026 REPLACING, REPLACE statement) and SM301M joins the 301M exclusion \u2014 SM 288 PASS / 0 FAIL, 14/16",
+   "effect": "flag_high_subset now emits NON-CONFORMING STANDARD for a COPY carrying REPLACING and for a sentence-initial REPLACE \u2014 neither word is a lexer keyword, so they are matched as identifiers over the raw member exactly where score_flagging tokenizes. SM401M matches its two expectations. SM301M tests INTERMEDIATE-subset flagging of plain COPY \u2014 the same unreachable-by-design class as IX301M/RL301M/ST301M, excluded under the standing ruling; SM scores out of 16. FULL GATE (flagging touches every 401M member): NC/SQ/IX/RL/IF/IC/ST exact, compile 415/421. SM\u2019s only remaining gap is the compile axis: SM202A and SM206A."
+  },
   {
    "version": "1.62.125",
    "change": "Separators are interchangeable in pseudo-text matching \u2014 SM208A 11/11: SM 12/17 286/4 -> 13/17 286/3",

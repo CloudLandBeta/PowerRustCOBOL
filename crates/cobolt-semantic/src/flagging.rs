@@ -330,6 +330,25 @@ pub fn flag_high_subset(tokens: &[SpannedToken], source: &str) -> Vec<Flag> {
         }
         let line = st.span.line;
 
+        // ── source-text manipulation, division-agnostic ────────────────────
+        // `COPY` alone is an intermediate-subset feature (SM301M's business,
+        // out of scope by ruling); the `REPLACING` phrase and the `REPLACE`
+        // statement are above the high subset, and SM401M expects one flag
+        // for each. Neither word is a lexer keyword — the preprocessor owns
+        // them — so they arrive as identifiers here, where the raw member is
+        // tokenized unexpanded.
+        if is_word(&st.token, "COPY")
+            && tokens[i + 1..]
+                .iter()
+                .take_while(|t| !matches!(t.token, Token::Period))
+                .any(|t| matches!(t.token, Token::Replacing))
+        {
+            emit(&mut flags, &mut once, "COPY ... REPLACING", line);
+        }
+        if is_word(&st.token, "REPLACE") && at_start {
+            emit(&mut flags, &mut once, "REPLACE statement", line);
+        }
+
         if matches!(next, Some(Token::Division)) {
             match st.token {
                 Token::Identification => division = Division::Identification,

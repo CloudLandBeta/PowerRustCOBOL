@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.126] — 2026-08-31
+
+### SM's flagging members settle
+
+`flag_high_subset` now emits NON-CONFORMING STANDARD for `COPY …
+REPLACING` and for the `REPLACE` statement — SM401M's two
+expectations match. SM301M tests intermediate-subset flagging of plain
+COPY, the same unreachable-by-design class as IX301M/RL301M/ST301M,
+and joins their exclusion under the standing ruling (SM scores out of
+16).
+
+SM (Source text manipulation): **288 PASS / 0 FAIL, 14 of 16** — the
+only remaining gap is the compile axis (SM202A, SM206A). Full gate:
+NC, SQ, IX, RL, IF, IC, ST all exact.
+
 ## [PowerRustCOBOL 1.62.125] — 2026-08-31
 
 ### Separators are interchangeable in pseudo-text

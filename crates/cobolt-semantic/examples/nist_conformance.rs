@@ -341,7 +341,7 @@ fn is_out_of_scope(module: &str) -> bool {
 /// Operator ruling, 2026-08-29. Compare `IX401M`, which asks for *high*-subset
 /// flagging and scores 10 of 10.
 fn verdict_does_not_apply(name: &str) -> bool {
-    matches!(name, "IX301M" | "RL301M" | "ST301M")
+    matches!(name, "IX301M" | "RL301M" | "ST301M" | "SM301M")
 }
 
 fn module_of(name: &str) -> String {
