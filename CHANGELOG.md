@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.115] — 2026-08-31
+
+### A sort procedure follows GO TO out of its range — and back
+
+CCVS85 ST119A's INPUT PROCEDURE jumps to "external code" outside its
+`IN-1 THRU IN-EXIT` range, which jumps straight back in (XI-19 4.4.4
+GR(10)). The ordinary PERFORM-range runner escapes on an out-of-range
+GO TO, and that escape unwound through the SORT statement itself: the
+sort ran on an empty buffer, the released records arrived later by
+top-level fall-through, and every ordering test read back the release
+order. A sort INPUT/OUTPUT PROCEDURE now follows a GO TO wherever it
+goes and ends when its last paragraph completes; ordinary PERFORM THRU
+keeps its escape semantics.
+
+ST119A: 9 FAIL → 0 (27 of 27, five never-reached tests now execute).
+ST (Sort/Merge): 29 → 30 of 39 clean; assertions 683 PASS / 86 FAIL →
+696 / 77. Whole-suite compile unchanged at 412/421.
+
 ## [PowerRustCOBOL 1.62.114] — 2026-08-30
 
 ### Harness — the big-sort record count (X-65) is filled in

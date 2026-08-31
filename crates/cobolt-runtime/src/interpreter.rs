@@ -6835,24 +6835,13 @@ impl Interpreter {
         output_proc: Option<&(String, Option<String>)>,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        // `INPUT PROCEDURE a THRU b` is a RANGE — CCVS85 ST106A's RELEASE
-        // loop needs every section of it, and performing only the first
-        // released nothing.
-        let as_target = |(name, thru): &(String, Option<String>)| match thru {
-            Some(t) => PerformTarget::Thru {
-                from: name.clone(),
-                to: t.clone(),
-                span,
-            },
-            None => PerformTarget::Section(name.clone(), span),
-        };
         let fkey = file.to_ascii_uppercase();
         self.sort_buffers.insert(fkey.clone(), Vec::new());
         self.sort_cursors.insert(fkey.clone(), 0);
 
         // ── Phase 1: collect records ──────────────────────────────────────
-        if let Some(ip) = input_proc {
-            self.exec_perform(&as_target(ip), span)?;
+        if let Some((name, thru)) = input_proc {
+            self.exec_sort_procedure(name, thru.as_deref(), span)?;
         } else {
             for uf in using {
                 let recs = self.read_all_records(uf);
@@ -6867,9 +6856,9 @@ impl Interpreter {
         self.sort_records(&fkey, keys, span)?;
 
         // ── Phase 3: deliver records ──────────────────────────────────────
-        if let Some(op) = output_proc {
+        if let Some((name, thru)) = output_proc {
             self.sort_cursors.insert(fkey.clone(), 0);
-            self.exec_perform(&as_target(op), span)?;
+            self.exec_sort_procedure(name, thru.as_deref(), span)?;
         } else {
             let recs = self.sort_buffers.get(&fkey).cloned().unwrap_or_default();
             for gf in giving {
@@ -12433,6 +12422,99 @@ impl Interpreter {
     ///
     /// A `GO TO` that leaves the range still propagates, which is what COBOL
     /// requires.
+    /// Run a SORT/MERGE `INPUT PROCEDURE` / `OUTPUT PROCEDURE` range.
+    ///
+    /// Unlike an ordinary `PERFORM a THRU b`, a sort procedure's range is
+    /// bounded by *where it ends*, not by *which paragraphs it may visit*:
+    /// CCVS85 ST119A's input procedure does `GO TO` a paragraph outside the
+    /// range ("external code") which jumps straight back in — XI-19 4.4.4
+    /// GR(10). The ordinary range runner escapes on an out-of-range jump, and
+    /// that escape unwound through `exec_sort` itself: the sort was abandoned
+    /// with an empty buffer, the released records landed later by top-level
+    /// fall-through, and every ordering test read back the *release order*.
+    /// Here a `GO TO` is followed wherever it goes, and the procedure is over
+    /// when its last paragraph completes normally.
+    fn exec_sort_procedure(
+        &mut self,
+        name: &str,
+        thru: Option<&str>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let from_u = name.to_ascii_uppercase();
+        let from_pos = self
+            .para_order
+            .iter()
+            .position(|p| p == &from_u)
+            .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                name: from_u.clone(),
+                span,
+            })?;
+        // A section-form procedure spans that section; a paragraph-form one is
+        // just itself. `THRU x` extends the end to x — or to x's last
+        // paragraph when x names a section.
+        let mut to_pos = match self.section_span(&from_u) {
+            Some((_, last)) => last,
+            None => from_pos,
+        };
+        if let Some(t) = thru {
+            let to_u = t.to_ascii_uppercase();
+            let tp = self
+                .para_order
+                .iter()
+                .position(|p| p == &to_u)
+                .ok_or_else(|| RuntimeError::UndefinedParagraph {
+                    name: to_u.clone(),
+                    span,
+                })?;
+            to_pos = match self.section_span(&to_u) {
+                Some((_, last)) => last.max(tp),
+                None => tp,
+            };
+        }
+        let to_pos = to_pos.max(from_pos);
+        let outer = self.current_paragraph.clone();
+        let mut idx = from_pos;
+        let result = loop {
+            if idx >= self.para_order.len() {
+                break Ok(());
+            }
+            let pname = self.para_order[idx].clone();
+            self.current_paragraph = pname;
+            let stmts = match self.para_bodies.get(idx) {
+                Some(s) => s.clone(),
+                None => {
+                    if idx == to_pos {
+                        break Ok(());
+                    }
+                    idx += 1;
+                    continue;
+                }
+            };
+            match self.exec_stmts(&stmts) {
+                Ok(())
+                | Err(RuntimeError::ExitParagraph)
+                | Err(RuntimeError::ExitSection)
+                | Err(RuntimeError::NextSentence) => {
+                    // The range ends when its LAST paragraph completes —
+                    // wherever control has wandered in between.
+                    if idx == to_pos {
+                        break Ok(());
+                    }
+                    idx += 1;
+                }
+                Err(RuntimeError::GoTo { target, section }) => {
+                    match self.goto_index(&target, section.as_deref()) {
+                        Some(pos) => idx = pos,
+                        None => break Err(RuntimeError::GoTo { target, section }),
+                    }
+                }
+                Err(e) => break Err(e),
+            }
+        };
+        self.current_paragraph = outer;
+        result
+    }
+
     fn exec_para_range(&mut self, from: &str, to: &str, span: Span) -> Result<(), RuntimeError> {
         let from_u = from.to_ascii_uppercase();
         let to_u = to.to_ascii_uppercase();

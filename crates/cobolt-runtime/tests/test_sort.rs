@@ -123,3 +123,58 @@ fn sort_using_giving_files() {
     );
     assert_eq!(run_capture(&src), vec!["10AAA", "20BBB", "30CCC"]);
 }
+
+/// CCVS85 **ST119A** (XI-19 4.4.4 GR(10)): a sort's INPUT PROCEDURE may
+/// `GO TO` a paragraph *outside* its THRU range ("external code") which
+/// jumps straight back in. The ordinary range runner escapes on such a jump,
+/// and the escape unwound through the SORT itself: the sort ran on an empty
+/// buffer, the releases landed later by top-level fall-through, and every
+/// ordering test read back the release order. The procedure must instead
+/// follow the jump and end when its last paragraph completes.
+#[test]
+fn sort_input_procedure_goto_external_code_and_back() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SRTGO.
+       ENVIRONMENT DIVISION.
+       INPUT-OUTPUT SECTION.
+       FILE-CONTROL.
+           SELECT SORT-FILE ASSIGN TO "sortwork2".
+       DATA DIVISION.
+       FILE SECTION.
+       SD SORT-FILE.
+       01 SORT-REC.
+          05 SORT-KEY  PIC 9(2).
+          05 SORT-DATA PIC X(3).
+       WORKING-STORAGE SECTION.
+       01 DONE-FLAG PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           SORT SORT-FILE ON ASCENDING KEY SORT-KEY
+               INPUT PROCEDURE IS IN-1 THRU IN-EXIT
+               OUTPUT PROCEDURE IS SHOW-PROC
+           STOP RUN.
+       IN-1.
+           MOVE 30 TO SORT-KEY MOVE "CCC" TO SORT-DATA RELEASE SORT-REC
+           GO TO EXTERNAL-CODE.
+       IN-2.
+           MOVE 10 TO SORT-KEY MOVE "AAA" TO SORT-DATA RELEASE SORT-REC.
+       IN-EXIT.
+           EXIT.
+       SHOW-PROC.
+           PERFORM UNTIL DONE-FLAG = 1
+               RETURN SORT-FILE
+                   AT END MOVE 1 TO DONE-FLAG
+                   NOT AT END DISPLAY SORT-DATA
+               END-RETURN
+           END-PERFORM.
+       NEVER-HERE.
+           DISPLAY "WRONG".
+       EXTERNAL-CODE.
+           MOVE 20 TO SORT-KEY MOVE "BBB" TO SORT-DATA RELEASE SORT-REC
+           GO TO IN-2.
+    "#;
+    // All three releases belong to the input procedure — including the one
+    // made in the "external" paragraph — and the sort must see them all.
+    assert_eq!(run_capture(src), vec!["AAA", "BBB", "CCC"]);
+}
