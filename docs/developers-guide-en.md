@@ -1246,10 +1246,19 @@ Designer toolbar essentials: **Save & Generate**, **Generate only**, **Preview**
 > window, so the gradient (or the background image) covers the whole thing
 > instead of stopping at the form's edge. Dragging the window *smaller* than
 > the form does not crop the background: it stays at the form's size, and the
-> form scrolls inside it. The designer canvas and the Preview always show the
-> backdrop at the form's size, so the designed extent stays visible while you
-> edit. Window entrance effects animate this same picture, background
-> included.
+> form scrolls inside it. Window entrance effects animate this same picture,
+> background included.
+>
+> **In the Preview the colour follows the window, the picture does not.** The
+> Preview is a real window you can drag wider than the form, and its background
+> **colour** (or gradient) covers all of it — so a form larger than its picture
+> looks larger, not sliced off. The background **image** stays pinned to the
+> size you designed and keeps obeying its Mode *there*: Fit still letterboxes
+> inside the form, Fill still crops to it, Tile still stops at its edge. What
+> lies past the picture is simply background colour — which is also how you can
+> still see where the designed extent ends while you edit. Before 1.62.135 that
+> area was not painted at all: the title bar kept growing while the form below
+> it stopped dead, and the IDE showed through the gap.
 >
 > **The background follows the SURFACE, which is not always the window.** A
 > form loaded into a shell's ContentPane occupies part of the window, not all
@@ -1824,6 +1833,53 @@ background/foreground).
 When binding, advanced metadata (widths, styles, order, filters…) is preserved
 for matching fields; the Data Binding Guardian prevents drift. See the
 properties pane for the complete set.
+
+#### Colouring the DataGrid's filter row
+
+Switch `ShowColumnFilters` on and every column gains a small entry field under
+its heading; what the operator types there filters the grid. That field sits
+*inside* the header band, so it needs colours of its own — the header's text
+colour belongs to the heading, not to an input.
+
+Two properties carry them:
+
+| Property | What it colours |
+|---|---|
+| `FilterBackgroundColor` | The fill of the filter entry field |
+| `FilterForegroundColor` | The text the operator types into it |
+
+Both are in the DataGrid styling panel beside `HeaderBackgroundColor` and
+`HeaderForegroundColor`, and both are **empty by default**. Empty does not mean
+black — it means *let the form theme decide*. An untouched grid therefore draws
+its filter row from the same palette entries a TextBox uses (the input well and
+the body text), so it stays readable whichever theme the form is wearing, and
+it changes with the theme instead of pinning one theme's colours onto all of
+them.
+
+Set either one and yours is used exactly as given:
+
+```cobol
+           MOVE "#0B1F2A" TO GRID-ACTORS::FilterBackgroundColor.
+           MOVE "#E8F4F8" TO GRID-ACTORS::FilterForegroundColor.
+```
+
+They can equally be set once in the designer and never mentioned in code.
+
+> **Note — a deliberately quiet filter row is respected.** When you choose the
+> colours, they are used as written, even if the pair is very low contrast.
+> Only the *theme-derived* default is checked for legibility, so a palette can
+> never hand you an unreadable filter field; your own choice is never
+> second-guessed.
+
+> ⚠️ **Caveat — the placeholder is not the text.** The greyed `Filter...` prompt
+> shown in an empty field is drawn as a dimmed form of `FilterForegroundColor`,
+> not as a separate colour. If you pick a foreground very close to the
+> background, the prompt fades before the typed text does — pick the pair by
+> looking at an empty column, not a filled one.
+
+Coming from PowerCOBOL, the instinct is to look for a nested "filter control"
+with its own property sheet. There is none: the filter row is part of the
+DataGrid, and these two properties are the whole of its styling.
 
 #### Colouring a Slider
 

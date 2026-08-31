@@ -4704,6 +4704,15 @@ impl PropertiesPanel {
                                 ui.end_row();
                                 datagrid_color_modal_row(ui, id, "HeaderForegroundColor", "Header text", ctrl, action, "#000000");
                                 ui.end_row();
+                                // The filter row sits inside the header band, so its two
+                                // colours belong beside the header's. Both default to EMPTY
+                                // ("" = let the form theme decide) rather than to a concrete
+                                // colour, so an untouched grid stays readable on all 32
+                                // palettes instead of inheriting one palette's choice.
+                                datagrid_color_modal_row(ui, id, "FilterBackgroundColor", "Filter background", ctrl, action, "#1A203A");
+                                ui.end_row();
+                                datagrid_color_modal_row(ui, id, "FilterForegroundColor", "Filter text", ctrl, action, "#EBEEFA");
+                                ui.end_row();
                                 datagrid_color_modal_row(ui, id, "AlternatingRowColor", "Alternating color", ctrl, action, "#F0F8FF");
                                 ui.end_row();
                                 datagrid_int_modal_row(ui, id, "AlternatingRowOpacity", "Alternating opacity %", ctrl, action, 0..=100, 20);
@@ -10175,9 +10184,14 @@ fn datagrid_color_modal_row(
     fallback: &str,
 ) {
     ui.label(label);
+    // An EMPTY value means "unset — the form theme decides", which is not the
+    // same as absent and must not fall through to `hex_to_color32`'s generic
+    // grey: the swatch would claim #F0F0F0 for a field the renderer actually
+    // draws from the palette. Show the renderer's own fallback instead.
     let hex = ctrl
         .get_prop(key)
         .map(|v| v.as_str().to_owned())
+        .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| fallback.to_owned());
     let mut color = hex_to_color32(&hex);
     ui.horizontal(|ui| {

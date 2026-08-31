@@ -4271,6 +4271,20 @@ impl Control {
                     "HeaderForegroundColor".into(),
                     PropValue::String("#000000".into()),
                 );
+                // The column-filter row (`ShowColumnFilters`). Empty means the
+                // surface theme decides, so the field stays readable on all 32
+                // palettes; an explicit colour always wins. Before these
+                // existed the well was hardcoded black at 47% alpha with no ink
+                // colour at all, which on a dark theme is unreadable text in an
+                // unreadable box and nothing the developer could do about it.
+                props.insert(
+                    "FilterForegroundColor".into(),
+                    PropValue::String("".into()),
+                );
+                props.insert(
+                    "FilterBackgroundColor".into(),
+                    PropValue::String("".into()),
+                );
                 props.insert("GridLineColor".into(), PropValue::String("#CCCCCC".into()));
                 props.insert("GridBackgroundImage".into(), PropValue::String("".into()));
                 props.insert(

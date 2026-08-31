@@ -1,5 +1,85 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.135] — 2026-08-31
+
+### A form wider than its background image no longer looks cut off
+
+Drag the Preview window wider than the form and everything past the form's
+right edge was **never painted at all**. The title bar kept growing while the
+form below it simply stopped, with the IDE showing through the gap — the form
+looked sliced off rather than merely larger than its picture (operator,
+2026-08-31).
+
+The preview pinned its whole backdrop to the form (`window_size: None`), which
+was deliberate — it keeps the designed extent visible while editing — but it
+answered two different questions with one rectangle: how far the **colour**
+reaches, and how far the **image** reaches.
+
+They are now separate. `Backdrop::image_extent` says how far the image lays
+itself out; the colour and gradient always cover the whole backdrop. In the
+preview the colour fills the viewport while the image stays pinned to the
+**designed extent** and keeps obeying its Mode there — Fit still letterboxes
+inside the form, Fill still crops to it, Tile still stops at its edge. The
+picture does not grow with the window, and everything beyond it is background
+instead of a hole.
+
+`image_extent` defaults to `None`, which lays the image across the whole
+backdrop exactly as before, so the run form, the compiled binary and the
+shell's ContentPane are untouched — pinned by a test that asserts Stretch still
+covers the entire backdrop when no extent is given.
+
+Tests: `test_backdrop_fills_beyond_image` — 4 cases covering the colour
+covering the whole window while the image does not, Fit letterboxing against
+the form rather than the window, tiles stopping at the designed extent, and the
+no-extent path being unchanged.
+
+## [PowerRustCOBOL 1.62.134] — 2026-08-31
+
+### The DataGrid's filter row is readable, and its colours are yours to set
+
+Turn `ShowColumnFilters` on and each column gets a filter field in the header
+band. Its text was very nearly invisible, and nothing in the properties panel
+could correct it (operator, 2026-08-31: *"I can barely read the filter text and
+there are no properties to control the filter data entry field
+foreground/background colors"*).
+
+Two faults with one cause — the filter row styled itself instead of asking the
+theme:
+
+- the well was painted with a hardcoded `rgba(0, 0, 0, 120)`, so on a dark
+  header it was a near-black box;
+- the input was built with **no text colour at all**, so its ink came from
+  whatever ambient egui visuals happened to be — dark, under every glass theme.
+
+Dark text in a black box. The hint (`Filter...`) was fainter still: egui draws
+it from `weak_text_color` at 0.6 alpha and does not let a widget override that
+per-atom, so it faded into the well.
+
+**Now:** the filter field takes the same two tokens a TextBox does — `InputBg`
+for its well, `Text` for its ink — so it follows all 32 palettes, and the hint
+is set explicitly rather than left to egui's weak default.
+
+**Two new DataGrid properties**, `FilterBackgroundColor` and
+`FilterForegroundColor`, both in the DataGrid styling modal beside the header's
+own colours. Both default to **empty**, which means *the form theme decides* —
+a concrete default would have pinned one palette's choice onto all 32.
+
+A colour the developer sets is used exactly as given, including a deliberately
+quiet one. Only the theme-derived default is held to the 4.5:1 WCAG AA asks of
+text (`paint::readable_ink_on`), so no palette can ship an unreadable filter row
+the way a hardcoded pair could. Nothing else about the grid moved: geometry,
+padding, layer order, clipping, frozen panes, selection and binding are
+untouched.
+
+**Also fixed:** an empty colour property in the DataGrid styling modal showed
+the generic `#F0F0F0` grey, claiming a colour the renderer was not using. Empty
+now displays the renderer's own fallback, so the swatch tells the truth.
+
+Tests: `test_datagrid_filter_colors` — 5 cases covering the seeded properties,
+the exact unreadable pair from the report, the light-well mirror, an explicit
+choice being left alone, and a luminance sweep proving no well can leave the
+filter unreadable.
+
 ## [PowerRustCOBOL 1.62.133] — 2026-08-31
 
 ### The Form Designer warns when an Embedded form is wider than its ContentPane

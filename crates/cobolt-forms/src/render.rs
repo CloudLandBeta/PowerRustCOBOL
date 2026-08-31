@@ -240,6 +240,19 @@ pub struct Backdrop {
     /// `None` keeps the ambient fallback, which is right for the designer canvas
     /// — there the IDE owns the ambient visuals and they really are the canvas.
     pub behind_fill: Option<Color32>,
+    /// The area the background IMAGE lays itself out in, when that is smaller
+    /// than the backdrop as a whole. `None` — the default — lays it out across
+    /// the whole backdrop, which is what a real window wants: there the picture
+    /// and the colour cover the same rectangle.
+    ///
+    /// The preview is the case that needs them apart. Its backdrop was pinned
+    /// to the FORM, so dragging the window wider left everything past the
+    /// form's edge unpainted — the form looked cut off while the title bar kept
+    /// growing over nothing (operator, 2026-08-31). Filling the window with the
+    /// form's colour is the fix, but the image must NOT grow with it: it keeps
+    /// obeying its Mode against the designed extent, and the colour fills
+    /// whatever it does not cover.
+    pub image_extent: Option<Vec2>,
 }
 
 impl Backdrop {
@@ -275,6 +288,7 @@ impl Default for Backdrop {
             use_theme_background: false,
             window_size: None,
             behind_fill: None,
+            image_extent: None,
         }
     }
 }
@@ -457,11 +471,19 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
         backdrop.use_theme_background,
         alpha_mul,
     );
+    // The colour and the gradient above filled the WHOLE backdrop. The image
+    // may be confined to a smaller area — see `Backdrop::image_extent` — in
+    // which case every mode is evaluated against that area and the colour shows
+    // through everywhere the picture does not reach.
+    let image_area = backdrop
+        .image_extent
+        .map(|e| Rect::from_min_size(rect.min, e.min(rect.size())))
+        .unwrap_or(rect);
     let mut image_tile = None;
     let image = backdrop.image.filter(|_| !themed).map(|(tex, tsize)| {
         let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         let tint = Color32::from_white_alpha(image_alpha);
-        let clipped = painter.with_clip_rect(rect);
+        let clipped = painter.with_clip_rect(image_area);
         if matches!(backdrop.image_mode, BgImageMode::Tile) {
             // TILE repeats the image at its own size across the area. It used
             // to fall through to the `_ => area` arm of `image_dest` — the same
@@ -474,9 +496,9 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
             // caller loaded; `Backdrop::image` is handed in already resolved,
             // by hosts that need not have chosen that wrap mode. The grid
             // tiles correctly whatever the texture's wrap mode is.
-            for (i, j) in tile_grid(rect, tsize) {
+            for (i, j) in tile_grid(image_area, tsize) {
                 let dest = Rect::from_min_size(
-                    rect.min + Vec2::new(tsize.x * i as f32, tsize.y * j as f32),
+                    image_area.min + Vec2::new(tsize.x * i as f32, tsize.y * j as f32),
                     tsize,
                 );
                 clipped.image(tex, dest, uv, tint);
@@ -484,9 +506,9 @@ pub fn paint_backdrop(painter: &egui::Painter, rect: Rect, backdrop: &Backdrop) 
             image_tile = Some(tsize);
             // The first tile: it fixes the grid's phase, which is what the
             // notch mask needs to find the tile under any given corner.
-            (tex, Rect::from_min_size(rect.min, tsize))
+            (tex, Rect::from_min_size(image_area.min, tsize))
         } else {
-            let dest = image_dest(rect, tsize, backdrop.image_mode);
+            let dest = image_dest(image_area, tsize, backdrop.image_mode);
             clipped.image(tex, dest, uv, tint);
             (tex, dest)
         }
@@ -5796,6 +5818,33 @@ fn render_interactive(
                         .unwrap_or(Color32::from_rgb(235, 238, 250))
                 },
             );
+            // The column-filter row is an INPUT sitting on the header band, so
+            // its well takes InputBg and its ink takes Text — the same tokens a
+            // TextBox uses. Both are overridable (`FilterBackgroundColor` /
+            // `FilterForegroundColor`); unset means the theme decides.
+            let filter_bg_explicit = paint::parse_hex(&sv(ctrl, "FilterBackgroundColor"));
+            let filter_fg_explicit = paint::parse_hex(&sv(ctrl, "FilterForegroundColor"));
+            let filter_bg = filter_bg_explicit.unwrap_or_else(|| {
+                paint::theme_token(painter.ctx(), Tok::InputBg)
+                    .unwrap_or(Color32::from_rgb(26, 32, 58))
+            });
+            // An explicitly chosen ink always wins (R8) — the developer may want
+            // a quiet filter row. Only the THEME-DERIVED default is held to WCAG
+            // AA against the well it sits in, so no palette can ship an
+            // unreadable filter the way the old hardcoded pair did.
+            let filter_fg = paint::readable_ink_on(
+                filter_fg_explicit,
+                paint::theme_token(painter.ctx(), Tok::Text)
+                    .unwrap_or(Color32::from_rgb(235, 238, 250)),
+                filter_bg,
+            );
+            // egui draws a hint from `weak_text_color` and does not let a widget
+            // override it per-atom, so it is set around the input itself. Its own
+            // weak alpha is 0.6, which is what made "Filter..." barely visible;
+            // 0.75 keeps it clearly a hint while staying legible.
+            let filter_hint = paint::theme_token(painter.ctx(), Tok::DimText)
+                .filter(|c| paint::contrast_ratio(*c, filter_bg) >= 3.0)
+                .unwrap_or_else(|| filter_fg.gamma_multiply(0.75));
             // The DataGrid is the one control that supports a solid grid background
             // (grid/column/row/cell fine control). A user-chosen colour paints solid
             // beneath the glass; a grid still on the default sentinel stays fully
@@ -6433,11 +6482,7 @@ fn render_interactive(
                         pos2(x + col.width * 0.5, header_rect.min.y + header_h * 0.72),
                         vec2((col.width - 12.0).max(16.0), (row_h * 0.68).max(14.0)),
                     );
-                    painter.rect_filled(
-                        filter_rect,
-                        3.0,
-                        Color32::from_rgba_unmultiplied(0, 0, 0, 120),
-                    );
+                    painter.rect_filled(filter_rect, 3.0, filter_bg);
                     let mut filter_text = filter_value.to_owned();
                     // The filter input is an egui widget (not painter-drawn), so it
                     // isn't covered by the header painter clip. For a scrollable
@@ -6458,14 +6503,18 @@ fn render_interactive(
                         );
                         ui.set_clip_rect(prev_clip.intersect(scrollable));
                     }
+                    let saved_weak = ui.visuals().weak_text_color;
+                    ui.visuals_mut().weak_text_color = Some(filter_hint);
                     let filter_response = ui.put(
                         filter_rect.shrink2(vec2(4.0, 1.0)),
                         egui::TextEdit::singleline(&mut filter_text)
                             .hint_text("Filter...")
+                            .text_color(filter_fg)
                             .font(FontId::proportional((font_size - 1.0).max(8.0)))
                             .desired_width((col.width - 18.0).max(16.0))
                             .frame(egui::Frame::NONE),
                     );
+                    ui.visuals_mut().weak_text_color = saved_weak;
                     if !col.frozen {
                         ui.set_clip_rect(prev_clip);
                     }
@@ -15439,6 +15488,7 @@ mod shape_dump {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15510,6 +15560,7 @@ mod shape_dump {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15585,6 +15636,7 @@ mod shape_dump {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15660,6 +15712,7 @@ mod shape_dump {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -15883,6 +15936,7 @@ mod shape_dump {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -16065,6 +16119,7 @@ mod shape_dump {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -16355,6 +16410,7 @@ mod maps_corner_tests {
                             use_theme_background: false,
                             window_size: None,
                             behind_fill: None,
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);
@@ -16848,6 +16904,7 @@ mod notch_ambient_tests {
                             window_size: None,
                             // What the pane painted, which the engine cannot see.
                             behind_fill: Some(BEHIND),
+                            image_extent: None,
                         },
                     };
                     let _ = render_form(ui, &rin);

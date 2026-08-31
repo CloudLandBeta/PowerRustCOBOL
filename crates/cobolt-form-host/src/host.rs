@@ -1337,6 +1337,7 @@ impl FormBody {
             // that properly. The pane is where this matters, and the pane sets
             // it: see the `Surface::Pane` branch in `ui_impl`.
             behind_fill: None,
+            image_extent: None,
         }
     }
 
@@ -3206,6 +3207,7 @@ impl FormHost {
                             // 2026-08-23). We painted the pane backdrop two
                             // lines above; tell the engine what it says.
                             behind_fill: Some(painted.bg),
+                            image_extent: None,
                         }
                     } else {
                         backdrop

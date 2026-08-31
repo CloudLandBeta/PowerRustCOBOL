@@ -13529,14 +13529,16 @@ impl CoboltApp {
                 image,
                 image_mode: d.form.bg_image_mode,
                 use_theme_background: d.form.use_theme_background,
-                // Preview panel: the backdrop stays pinned to the FORM, so the
-                // designed extent is still visible while editing. Only a real
-                // window (run form, compiled binary) stretches it.
+                // Filled in below, once the viewport size is known: the
+                // preview is a real resizable window, and its COLOUR has to
+                // cover all of it. The IMAGE does not — see `image_extent`.
                 window_size: None,
                 // The IDE owns its own ambient visuals and renders the preview
                 // into them, so the ambient panel fill really is what the form
                 // sits on here — the one surface where the fallback is right.
                 behind_fill: None,
+                // Filled in below, with the DESIGNED extent.
+                image_extent: None,
             }
         };
         let active_tabs: cobolt_forms::containers::ActiveTabs = controls
@@ -13628,6 +13630,22 @@ impl CoboltApp {
                 egui::ScrollArea::both()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
+                        // The preview window is resizable, and dragging it wider
+                        // than the form used to leave everything past the form's
+                        // edge unpainted — the form looked cut off while the title
+                        // bar kept growing over nothing (operator, 2026-08-31).
+                        //
+                        // The form's own background colour (and gradient) now
+                        // covers the whole viewport, while the background IMAGE
+                        // stays pinned to the DESIGNED extent and keeps obeying its
+                        // Mode there. So the picture does not grow with the window
+                        // — Fit still letterboxes inside the form, Fill still crops
+                        // to it — and everything beyond it is simply background
+                        // instead of a hole. Read `available_size()` BEFORE
+                        // `set_min_size`, which is what makes it the viewport.
+                        let mut backdrop = backdrop;
+                        backdrop.window_size = Some(ui.available_size());
+                        backdrop.image_extent = Some(egui::vec2(form_w, form_h));
                         ui.set_min_size(egui::vec2(form_w, form_h));
                         let input = cobolt_forms::render::RenderInput {
                             controls: &controls,

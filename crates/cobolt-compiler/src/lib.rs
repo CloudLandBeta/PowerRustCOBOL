@@ -3872,6 +3872,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "AdvancedGrid" => ("internal serialized settings; leave empty", "Advanced designer-managed grid settings."),
         "ShowRowNumbers" => (BOOL_DOMAIN, "Shows a row-number gutter."),
         "ShowColumnFilters" => (BOOL_DOMAIN, "Shows the per-column filter row."),
+        "FilterForegroundColor" => (COLOR_DOMAIN, "Filter row text color. Empty = the form theme decides."),
+        "FilterBackgroundColor" => (COLOR_DOMAIN, "Filter row field fill. Empty = the form theme decides."),
         "ColumnFilters" => ("`column=value` pairs, one per line", "Active column filters (runtime)."),
         "ExportCSV" => (BOOL_DOMAIN, "Enables CSV export."),
         "ShowCSVExportButton" => (BOOL_DOMAIN, "Shows the built-in export button."),

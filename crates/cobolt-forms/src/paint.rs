@@ -9391,6 +9391,29 @@ pub fn contrast_ratio(a: Color32, b: Color32) -> f32 {
     (hi + 0.05) / (lo + 0.05)
 }
 
+/// The ink to actually draw text with on `well`.
+///
+/// `explicit` — a colour the developer chose — is returned untouched, always:
+/// styling is theirs, including a deliberately quiet one (R8). Only a
+/// theme-DERIVED `derived` is held to the 4.5:1 WCAG AA asks of text, and when
+/// it falls short it is replaced by whichever of black or white actually reads
+/// on that well.
+///
+/// This exists because a control that hardcodes its own pair cannot follow a
+/// palette: the DataGrid's filter row painted a black well and never set an ink
+/// colour at all, so on any dark theme it was unreadable text in an unreadable
+/// box — and no property existed to correct it.
+pub fn readable_ink_on(explicit: Option<Color32>, derived: Color32, well: Color32) -> Color32 {
+    match explicit {
+        Some(chosen) => chosen,
+        None if contrast_ratio(derived, well) >= 4.5 => derived,
+        None if contrast_ratio(Color32::WHITE, well) >= contrast_ratio(Color32::BLACK, well) => {
+            Color32::WHITE
+        }
+        None => Color32::BLACK,
+    }
+}
+
 /// The BackgroundColor the developer explicitly chose for a control, if any.
 /// The universal seeded default and the values the Neumorphic style appliers
 /// stamp on every control all mean "not chosen" — the renderer-wide "still on
