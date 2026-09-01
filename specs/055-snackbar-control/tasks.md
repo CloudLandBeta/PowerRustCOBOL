@@ -1,6 +1,6 @@
 # Tasks — Snackbar control
 
-- **Status:** draft → in progress → done
+- **Status:** done (1.62.141, 2026-09-01)
 - **Plan:** ./plan.md   **Date:** 2026-09-01
 
 Ordered so the tree stays green after every task. The sequence is deliberate:
@@ -181,7 +181,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
   - Verify: `cargo test -p cobolt-ide i18n`; guide passes
         `iconv -f UTF-8 -t UTF-8` with zero double-encoded bytes.
 
-- [ ] **T19 — Finalize**
+- [x] **T19 — Finalize**
   - Do: bump `z` in `version.rs` + `CHANGELOG.md` entry.
   - Verify: `cargo test -p cobolt-forms --features render --no-fail-fast`,
         `-p cobolt-form-host`, `-p cobolt-runtime`, `-p cobolt-ide --bins`,
