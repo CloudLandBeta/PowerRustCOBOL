@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.138] — 2026-08-31
+
+### The radios were never missing: designer/run parity, pinned by a test
+
+*"Radio buttons when the form is liquid glass/classic still does not appear in
+run form, only in the form designer"* (operator, 2026-08-31). Investigated by
+measurement rather than reading, and the measurement says the engine is not at
+fault — so what ships here is the proof, not a change to the painter.
+
+A headless frame renders the operator's own RadioButton-1 — property for
+property, `Transparency = 56` included — through **both** engine paths under
+**both** themes whose toggle handling actually differs. The results are
+identical:
+
+| Theme | Surface | rects | circles | caption | body alpha |
+|---|---|---|---|---|---|
+| Liquid Glass | designer / run | 51 / 51 | 3 / 3 | 1 / 1 | 112 |
+| Elegance | designer / run | 4 / 4 | 3 / 3 | 1 / 1 | 112 |
+
+Not shape counts — fills, compared colour by colour. Counting proves nothing
+here: a control painted off-surface and a control never painted are
+indistinguishable that way, which is most of why this took three attempts.
+
+Two things the measurement settled:
+
+- **The translucency is the form's own.** `Transparency = 56` on the radios and
+  `65` on `Label-2` is what makes a near-black body read faintly over a busy
+  backdrop. Body alpha 112 is that property being honoured, not the control
+  being lost.
+- **What "Run Form" was actually showing was a different form.** `PowerDemo3`
+  contains `EXEC RUST`, so every Run Form there took the build path, and until
+  1.62.137 the built binary opened the project's main form — `sidebar-form`,
+  not `datagrid-form`. Both remaining reports were observed against that.
+
+Test: `test_radio_designer_run_parity`, which pins the claim so it need not be
+re-litigated a fourth time.
+
 ## [PowerRustCOBOL 1.62.137] — 2026-08-31
 
 ### Run Form runs the form you pressed it on, and Stop stops it
