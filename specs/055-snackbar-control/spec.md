@@ -334,10 +334,10 @@ vocabulary for the same concept is the cost this avoids.
 - **Q3 — Should `Text` support the interpreter's own value substitution**, or is
   the developer expected to build the string in COBOL first? The latter is
   simpler and matches every other caption.
-- **Q4 — Are the hand-drawn icons new catalogue entries or a new style?** Five
-  category icons plus ~11 button icons are ~16 additions; the catalogue's
-  existing style is a single 1.5-unit stroke on a 24-unit grid, which is not the
-  same thing as "deliberately imperfect". Confirm they are new entries in the
-  existing style, or that a new stroke treatment is wanted.
+- **Q4 — icon style?** *Resolved (operator, 2026-09-01):* **new catalogue
+  entries in the EXISTING treatment** — 24-unit grid, single 1.5-unit stroke,
+  fills as accents. The "hand-drawn" quality comes from the PATH SHAPES — an
+  octagon that is deliberately not regular, a circle that does not quite close —
+  never from a second stroke style. One treatment holds across all 1110+ icons.
 - **Q5 — What is the diagnostic for a fourth button** — a designer-time warning,
   a semantic error, or silently showing the first three?
