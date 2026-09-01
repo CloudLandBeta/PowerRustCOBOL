@@ -1,5 +1,58 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.142] — 2026-09-01
+
+### The Forms list's delete button asked in a window nobody was looking at
+
+Pressing the trashcan beside a form in the Forms list did nothing (operator,
+2026-09-01). Not "sometimes", and not only for a form whose file had gone —
+nothing, ever.
+
+**The confirmation was being built in the wrong window.** The Forms list lives in
+the Form Designer, which is its own OS viewport (multi-viewport, spec 027). The
+trash button set `pending_form_delete` from there, but
+`show_form_delete_confirm` was only ever called from the IDE MAIN window's
+`ui()` — so the Yes/Cancel prompt opened *behind* the designer the operator was
+looking at. Nothing confirmed it, so `delete_form_path` never ran, and the button
+read as dead.
+
+This is the same bug, in the same shape, as one already fixed for the build
+modal — whose comment in `app.rs` says so in as many words: "a modal in the main
+window behind it goes unseen (the exact complaint that motivated this)". The
+build modal got `build_modal_host`; the delete prompt never got its equivalent.
+
+- `form_delete_modal_host` records WHICH designer asked, so the prompt renders in
+  that designer's own viewport. The project tree in the main window still asks
+  there, unchanged.
+- A designer closed while its prompt is up hands the prompt back to the main
+  window rather than orphaning it — a prompt owned by a window that no longer
+  exists is one nobody can answer.
+- `modal_hosted_by_open_designer` is the one rule both halves read, free-standing
+  so the routing can be tested without an eframe context. Routing WAS the defect;
+  it earns a test that cannot be skipped for want of a window.
+
+**A form whose file is already gone** is removed from the project either way:
+`delete_form_path` calls `do_remove_file_from_project` (which clears
+`files.forms` and saves) *before* touching the filesystem, and treats
+`NotFound` as success with its own status line. That path was correct all along —
+it was simply unreachable while the prompt was invisible.
+
+### The shipped Knowledge Base store was stale for the Snackbar
+
+1.62.141 added `LastButtonId` and `LastButtonIndex` to the compiler's property
+doc tables but shipped `assets/knowledge/chunked.data` as it stood before them,
+so `prebuilt_chunked_kb_matches_the_published_documentation` was red on `main`
+and Grace's System KB was missing the two properties the Developer's Guide tells
+a developer to read. Regenerated: 1390 → 1392 records, which is exactly the two.
+
+The gate did what it exists to do; it was run under a name filter that excluded
+it, which is why the staleness reached `main`.
+
+Tests: `the_designer_that_asked_hosts_its_own_delete_prompt`,
+`closing_the_designer_hands_the_prompt_back_to_the_main_window` and
+`exactly_one_surface_hosts_the_prompt` (`cobolt-ide`), plus the KB freshness gate
+back to green — 941 passed, 0 failed across `cobolt-ide`.
+
 ## [PowerRustCOBOL 1.62.141] — 2026-09-01
 
 ### The Snackbar: a message that does not stop the operator

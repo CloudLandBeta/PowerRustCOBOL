@@ -507,6 +507,17 @@ pub struct CoboltApp {
     show_external_crates: bool,
     external_crates_panel: crate::panels::external_crates::ExternalCratesPanel,
     pending_form_delete: Option<PathBuf>,
+    /// The DESIGNER window that asked to delete a form, when the trash button
+    /// was pressed in that designer's Forms list. `None` = the IDE main window
+    /// asked (project tree). Exactly one surface shows the confirmation.
+    ///
+    /// Without this the dialog was only ever built in the main window's `ui()`,
+    /// while the operator was looking at the designer — so it opened BEHIND that
+    /// window, nobody confirmed it, and the trash button read as doing nothing
+    /// at all (operator, 2026-09-01). The `build_modal_host` comment beside
+    /// `show_building_modal` records the identical complaint about the build
+    /// modal; this is the same bug in the same shape.
+    form_delete_modal_host: Option<PathBuf>,
     pending_generated_delete: Option<PathBuf>,
     pending_asset_delete: Option<PathBuf>,
     knowledge_folder_parent: Option<PathBuf>,
@@ -1467,6 +1478,7 @@ impl CoboltApp {
             show_external_crates: false,
             external_crates_panel: crate::panels::external_crates::ExternalCratesPanel::new(),
             pending_form_delete: None,
+            form_delete_modal_host: None,
             pending_generated_delete: None,
             pending_asset_delete: None,
             knowledge_folder_parent: None,
@@ -12987,7 +12999,13 @@ impl eframe::App for CoboltApp {
             }
         }
 
-        self.show_form_delete_confirm(ctx, &tr);
+        // Only when no OPEN designer owns the prompt — otherwise it renders in
+        // that designer's own viewport, below. A designer closed mid-prompt
+        // falls back here rather than orphaning the dialog, the same rule
+        // `build_hosted_by_open_designer` applies to the build modal.
+        if !self.form_delete_hosted_by_open_designer() {
+            self.show_form_delete_confirm(ctx, &tr);
+        }
         self.show_paste_form_conflict(ctx, &tr);
         self.show_generated_delete_confirm(ctx, &tr);
         self.show_asset_delete_confirm(ctx, &tr);
@@ -13057,6 +13075,15 @@ impl eframe::App for CoboltApp {
                     // Form started the build — the operator is looking at this
                     // window, and a modal in the main window behind it goes
                     // unseen (the exact complaint that motivated this).
+                    // Deleting a form is asked for in the Forms list of THIS
+                    // window, so the confirmation belongs here too — in the main
+                    // window it opened behind this one and the trash button read
+                    // as doing nothing (operator, 2026-09-01).
+                    if self.form_delete_modal_host.as_deref()
+                        == Some(self.designers[idx].0.as_path())
+                    {
+                        self.show_form_delete_confirm(vp_ctx, &tr);
+                    }
                     if self.build_modal_host.as_deref()
                         == Some(self.designers[idx].0.as_path())
                     {
@@ -14876,6 +14903,17 @@ impl CoboltApp {
         }
     }
 
+    /// Whether a still-open designer owns the delete prompt. A designer closed
+    /// while the prompt is up hands it back to the main window instead of
+    /// leaving it unreachable — the rule `build_hosted_by_open_designer` uses.
+    /// See [`modal_hosted_by_open_designer`].
+    fn form_delete_hosted_by_open_designer(&self) -> bool {
+        modal_hosted_by_open_designer(
+            self.form_delete_modal_host.as_deref(),
+            self.designers.iter().map(|(p, _)| p.as_path()),
+        )
+    }
+
     fn show_form_delete_confirm(&mut self, ctx: &Context, tr: &Tr) {
         let Some(path) = self.pending_form_delete.clone() else {
             return;
@@ -14904,9 +14942,11 @@ impl CoboltApp {
 
         if cancel {
             self.pending_form_delete = None;
+            self.form_delete_modal_host = None;
         }
         if confirm {
             self.pending_form_delete = None;
+            self.form_delete_modal_host = None;
             self.delete_form_path(path);
         }
     }
@@ -15368,6 +15408,8 @@ impl CoboltApp {
                 }
                 FormsListAction::Delete(path) => {
                     self.pending_form_delete = Some(path);
+                    // Ask in the window the operator is actually looking at.
+                    self.form_delete_modal_host = Some(self.designers[idx].0.clone());
                 }
             }
         }
@@ -17073,6 +17115,104 @@ fn tracked_generated_rel(
                 == Some(file_name)
         })
         .cloned()
+}
+
+
+/// Whether a modal claimed by `host` should render in that designer's viewport
+/// rather than in the IDE main window.
+///
+/// Free-standing so the rule can be tested without building a whole
+/// `CoboltApp`: this routing IS the bug that made the Forms-list trash button
+/// look dead (operator, 2026-09-01) — the prompt was only ever built in the main
+/// window, so it opened behind the designer the operator was looking at and
+/// nobody could confirm it. A rule that caused a silent failure deserves a test
+/// that cannot be skipped for want of an eframe context.
+///
+/// `None` — nobody claimed it — means the main window hosts it. A host whose
+/// designer has since CLOSED also falls back to the main window: a prompt owned
+/// by a window that no longer exists is a prompt nobody can answer.
+fn modal_hosted_by_open_designer<'a>(
+    host: Option<&std::path::Path>,
+    mut open: impl Iterator<Item = &'a std::path::Path>,
+) -> bool {
+    match host {
+        None => false,
+        Some(h) => open.any(|p| p == h),
+    }
+}
+
+
+#[cfg(test)]
+mod form_delete_routing_tests {
+    use super::modal_hosted_by_open_designer as hosted;
+    use std::path::{Path, PathBuf};
+
+    fn open(paths: &[&str]) -> Vec<PathBuf> {
+        paths.iter().map(PathBuf::from).collect()
+    }
+
+    /// The regression itself. The Forms list lives in the DESIGNER window, so a
+    /// trash click there must be confirmed in that same window. Building the
+    /// prompt only in the main window put it behind the one the operator was
+    /// looking at, and the button read as doing nothing at all.
+    #[test]
+    fn the_designer_that_asked_hosts_its_own_delete_prompt() {
+        let designers = open(&["/p/forms/a.cfrm", "/p/forms/b.cfrm"]);
+        let iter = || designers.iter().map(|p| p.as_path());
+
+        // Asked from designer b → b hosts it, and the main window must not.
+        assert!(
+            hosted(Some(Path::new("/p/forms/b.cfrm")), iter()),
+            "the designer that asked must host the prompt"
+        );
+
+        // Nobody claimed it (the project tree in the main window asked) → main.
+        assert!(
+            !hosted(None, iter()),
+            "an unclaimed prompt belongs to the main window"
+        );
+
+        eprintln!(
+            "\n  routing — 2 designers open; claimed by b → designer hosts, unclaimed → main\n"
+        );
+    }
+
+    /// A prompt owned by a window that no longer exists is a prompt nobody can
+    /// answer. Closing the designer mid-prompt must hand it back rather than
+    /// orphan it — which would be the same invisible-dialog failure again, just
+    /// reached a different way.
+    #[test]
+    fn closing_the_designer_hands_the_prompt_back_to_the_main_window() {
+        let designers = open(&["/p/forms/a.cfrm"]);
+        let host = Some(Path::new("/p/forms/b.cfrm")); // b was closed
+
+        assert!(
+            !hosted(host, designers.iter().map(|p| p.as_path())),
+            "a host that is no longer open must fall back to the main window"
+        );
+        // And with nothing open at all.
+        assert!(!hosted(host, std::iter::empty()));
+
+        eprintln!("\n  orphan guard — host b closed → falls back to main (never unreachable)\n");
+    }
+
+    /// Exactly one surface shows it. Both halves of the decision are the same
+    /// predicate, so they cannot disagree and show it twice or not at all.
+    #[test]
+    fn exactly_one_surface_hosts_the_prompt() {
+        let designers = open(&["/p/forms/a.cfrm", "/p/forms/b.cfrm"]);
+        for (label, host) in [
+            ("unclaimed", None),
+            ("claimed by an open designer", Some(Path::new("/p/forms/a.cfrm"))),
+            ("claimed by a closed designer", Some(Path::new("/p/forms/gone.cfrm"))),
+        ] {
+            let in_designer = hosted(host, designers.iter().map(|p| p.as_path()));
+            let in_main = !in_designer; // the main window's own condition
+            assert_ne!(in_designer, in_main, "{label}: exactly one surface must host it");
+            eprintln!("  {label:<28} → {}", if in_designer { "designer" } else { "main window" });
+        }
+        eprintln!("  → 3 cases, exactly one host each\n");
+    }
 }
 
 #[cfg(test)]
