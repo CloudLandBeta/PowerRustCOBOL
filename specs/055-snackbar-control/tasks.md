@@ -15,7 +15,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
 
 ## Stage A — the control exists
 
-- [ ] **T1 — Add `ControlType::Snackbar`** (R1)
+- [x] **T1 — Add `ControlType::Snackbar`** (R1)
   - Files: `crates/cobolt-forms/src/model.rs`
   - Do: the variant, `as_str()`/`from_str()` round-trip, `ControlType::ALL`.
         **Add it last** in the enum — appended, never inserted.
@@ -24,7 +24,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         `cargo test -p cobolt-forms` shows `every_control_type_has_an_icon`
         failing (expected until T3).
 
-- [ ] **T2 — Satisfy every match the compiler named** (R1)
+- [x] **T2 — Satisfy every match the compiler named** (R1)
   - Files: whatever T1's build listed — expect `render.rs`, `anim.rs`,
         `host.rs`, `toolbox.rs`, `properties.rs`, `designer.rs`,
         `codegen/src/lib.rs`, `compiler/src/lib.rs`, `examples/list_controls.rs`
@@ -32,13 +32,13 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         compiles and draws nothing.
   - Verify: `cargo build --workspace --all-targets` clean.
 
-- [ ] **T3 — The `control-snackbar` icon** (R2, AC1)
+- [x] **T3 — The `control-snackbar` icon** (R2, AC1)
   - Files: `crates/cobolt-forms/src/icons.rs`
   - Do: one icon, existing treatment — 24-unit grid, single 1.5-unit stroke.
   - Verify: `cargo test -p cobolt-forms --features render every_control_type_has_an_icon`
         green. **AC1 covered.**
 
-- [ ] **T4 — Non-visual, and seeded properties** (R1, R3, AC2)
+- [x] **T4 — Non-visual, and seeded properties** (R1, R3, AC2)
   - Files: `crates/cobolt-forms/src/model.rs`
   - Do: add to `is_non_visual()`; seed all 35 properties from spec §6 with the
         documented defaults. Colours/icon/timeout default **empty/0 = "the
@@ -51,7 +51,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
 
 ## Stage B — one notification, shown and expiring
 
-- [ ] **T5 — `snackbar.rs`: the pure parts** (R18, R19, R22, AC8, AC14)
+- [x] **T5 — `snackbar.rs`: the pure parts** (R18, R19, R22, AC8, AC14)
   - Files: `crates/cobolt-forms/src/snackbar.rs` (new), `src/lib.rs`
   - Do: size classes → dimensions; `Category` → defaults; `Buttons` parsing;
         content layout (icon → gap → text → flex → buttons) with vertical
@@ -61,7 +61,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         ellipsized (**AC14**); `Buttons` parses with omitted trailing fields;
         a 4th button yields a diagnostic, not a silent drop (spec Q5).
 
-- [ ] **T6 — `paint::draw_snackbar`** (R20, R21, R23, R24)
+- [x] **T6 — `paint::draw_snackbar`** (R20, R21, R23, R24)
   - Files: `crates/cobolt-forms/src/paint.rs`
   - Do: paint order background colour → background image → content. Reuse
         `draw_glass_auto*`, `paint_background_gradient`, **`face_color`** (the
@@ -71,7 +71,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         content (**R21**). Category defaults applied when unset, overridden when
         set (**AC10**).
 
-- [ ] **T7 — `SnackbarStack`: raise and expire** (R4, R5, R6, R7)
+- [x] **T7 — `SnackbarStack`: raise and expire** (R4, R5, R6, R7)
   - Files: `crates/cobolt-form-host/src/snackbar_stack.rs` (new), `src/lib.rs`,
         `src/host.rs` (own one per `FormBody`, tick + draw per frame)
   - Do: `raise()`, `tick(now: Instant, pointer: Option<Pos2>)`, timeout,
@@ -83,7 +83,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
 
 ## Stage C — COBOL reaches it
 
-- [ ] **T8 — `Show()` / `DismissAll()`** (R4, R9, AC3)
+- [x] **T8 — `Show()` / `DismissAll()`** (R4, R9, AC3)
   - Files: `crates/cobolt-runtime/src/interpreter.rs` (method table ~10949 and
         the known-method list ~13730), `src/form_host.rs` (the request)
   - Do: dispatch both; `Show()` mints from the control's CURRENT property values.
@@ -91,7 +91,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         notifications (**AC3**); `DismissAll()` clears with reason
         `Programmatic`. **Every property read defaults — no `unwrap()`** (plan §5).
 
-- [ ] **T9 — Events** (R8, AC7)
+- [x] **T9 — Events** (R8, AC7)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`,
         `crates/cobolt-forms/src/model.rs` (`SUPPORTED_EVENTS`)
   - Do: `onShown`, `onClosing`, `onClosed`, `onTimeout`, `onButtonClick`
@@ -102,7 +102,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
 
 ## Stage D — the stack
 
-- [ ] **T10 — Stacking and growth direction** (R11, R12, R13, AC4)
+- [x] **T10 — Stacking and growth direction** (R11, R12, R13, AC4)
   - Files: `crates/cobolt-forms/src/snackbar.rs`
   - Do: `stack_layout()` — vertical only, `StackSpacing` apart; Top grows down,
         Bottom grows up, newest nearest the anchor; Centre defaults
@@ -110,7 +110,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
   - Verify: `cargo test -p cobolt-forms` — for each of the nine anchors, print
         the y-order produced and assert the direction (**AC4**).
 
-- [ ] **T11 — Reflow and overflow** (R14, R15, AC5, AC11)
+- [x] **T11 — Reflow and overflow** (R14, R15, AC5, AC11)
   - Files: `crates/cobolt-form-host/src/snackbar_stack.rs`
   - Do: recompute on dismiss; `MaximumVisible` + `OverflowBehavior`
         (Queue / DiscardOldest / DiscardNewest).
@@ -119,7 +119,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         policy reports **which ids survived and what was dropped** — no silent
         truncation (**AC11**).
 
-- [ ] **T12 — Anchored to the form's SURFACE** (R16, R17, R26, AC9, AC13)
+- [x] **T12 — Anchored to the form's SURFACE** (R16, R17, R26, AC9, AC13)
   - Files: `crates/cobolt-form-host/src/host.rs`
   - Do: resolve `Anchor` + `Margin` against the occupant's pane rect for an
         Embedded form, the window for a standalone one (D3).
@@ -130,7 +130,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
 
 ## Stage E — surfaces, icons, docs
 
-- [ ] **T13 — IDE: toolbox, tray, property editors** (R1, R3, AC2)
+- [x] **T13 — IDE: toolbox, tray, property editors** (R1, R3, AC2)
   - Files: `crates/cobolt-ide/src/panels/toolbox.rs`, `properties.rs`,
         `designer.rs`
   - Do: toolbox entry; non-visual tray rendering; grouped editors, with a
@@ -138,7 +138,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
   - Verify: `cargo test -p cobolt-ide --bins`; **manual:** drop a Snackbar —
         it appears in the tray and paints nothing on the canvas (**AC2**).
 
-- [ ] **T14 — Category + button icons** (R24)
+- [x] **T14 — Category + button icons** (R24)
   - Files: `crates/cobolt-forms/src/icons.rs`
   - Do: 5 category icons + ~11 button icons in the **existing treatment** —
         24-unit grid, single 1.5-unit stroke, fills as accents (operator,
@@ -149,13 +149,13 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         drawable, every shape on the 24-unit grid (the existing icon suite
         already asserts all three).
 
-- [ ] **T15 — Codegen** (R1)
+- [x] **T15 — Codegen** (R1)
   - Files: `crates/cobolt-codegen/src/lib.rs`
   - Do: emit the declaration and `onButtonClick` handler stubs; banner intact.
   - Verify: `cargo test -p cobolt-codegen`; generated `.cbl` parses under
         `cobolt-parser` and checks clean under `cobolt-semantic`.
 
-- [ ] **T16 — Engine parity** (R25, AC12)
+- [x] **T16 — Engine parity** (R25, AC12)
   - Files: `crates/cobolt-forms/tests/`
   - Do: a parity test in the shape of
         `engine_reference_form_parity_static_vs_faces`.
@@ -163,7 +163,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         fills on both paths (**AC12**). *Both* paths — this is the split that
         cost a day on the caption shadow.
 
-- [ ] **T17 — System KB** (steering: hard constraint)
+- [x] **T17 — System KB** (steering: hard constraint)
   - Files: `crates/cobolt-compiler/src/lib.rs`, `assets/knowledge/chunked.data`
   - Do: property/method/event doc tables for the Snackbar, then
         `cargo run -p cobolt-ide --example build_chunked_kb`.
@@ -171,7 +171,7 @@ verifiable — plan §5 flags scope as the main risk, and this is the mitigation
         wrong source was edited); `cargo test -p cobolt-ide --bins
         prebuilt_chunked_kb` green.
 
-- [ ] **T18 — Docs & i18n**
+- [x] **T18 — Docs & i18n**
   - Files: `docs/developers-guide-en.md`, `crates/cobolt-ide/src/i18n.rs`
   - Do: a Snackbar section for a PowerCOBOL/isCOBOL reader — COBOL examples
         only, Notes + ⚠️ Caveats, no host-language explanations. Every new IDE

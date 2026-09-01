@@ -7329,6 +7329,198 @@ impl PropertiesPanel {
             // ── Timer ─────────────────────────────────────────────────────────
             // Non-visual: the inspector stops after type-specific, so both
             // passes are adjacent and Basic is the natural home.
+            // ── Snackbar (spec 055) ───────────────────────────────────────────
+            // The dropped control is the TEMPLATE (D1/D2): everything here is
+            // what the next `Show()` will mint from. The colour rows start empty
+            // on purpose — empty means "the Category decides" (R23), so changing
+            // Category moves the whole look, and setting one colour overrides
+            // that one alone.
+            ControlType::Snackbar if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_snackbar_message);
+                {
+                    let cur = ctrl
+                        .get_prop("Text")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let buf_key = format!("{id}-SnackText");
+                    let wid = egui::Id::new(&buf_key);
+                    let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur;
+                    }
+                    property_row(ui, "Text", |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(2)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "Text".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
+                    });
+                }
+                combo_row_inline(
+                    ui,
+                    id,
+                    "Category",
+                    ctrl,
+                    action,
+                    &["Info", "Question", "Warning", "Error", "Critical"],
+                );
+                combo_row_inline(ui, id, "Size", ctrl, action, &["Small", "Medium", "Large"]);
+                // -1 = "from the Category" (§7); 0 = never expires (R6). Both
+                // are inside the range on purpose — the sentinel has to be
+                // reachable, or a developer can never get the default back.
+                int_prop_row(
+                    ui,
+                    id,
+                    "Timeout",
+                    "Timeout (ms, -1 = category, 0 = never)",
+                    ctrl,
+                    action,
+                    -1..=600_000,
+                    None,
+                    -1,
+                );
+                bool_row_inline(
+                    ui,
+                    id,
+                    "PauseTimeoutOnHover",
+                    "Pause timeout on hover",
+                    ctrl,
+                    action,
+                );
+                bool_row_inline(ui, id, "ShowCategoryIcon", "Show category icon", ctrl, action);
+                ui.add_space(4.0);
+            }
+
+            ControlType::Snackbar if phase == TypeSection::Rest => {
+                section_header(ui, tr.sec_snackbar_stack);
+                combo_row_inline(
+                    ui,
+                    id,
+                    "StackAnchor",
+                    ctrl,
+                    action,
+                    &[
+                        "TopLeft", "TopCenter", "TopRight",
+                        "CenterLeft", "Center", "CenterRight",
+                        "BottomLeft", "BottomCenter", "BottomRight",
+                    ],
+                );
+                int_prop_row(ui, id, "Margin", "Margin", ctrl, action, 0..=200, None, 16);
+                int_prop_row(
+                    ui, id, "StackSpacing", "StackSpacing", ctrl, action, 0..=100, None, 8,
+                );
+                combo_row_inline(
+                    ui, id, "StackOrder", ctrl, action,
+                    &["Auto", "NewestFirst", "NewestLast"],
+                );
+                int_prop_row(
+                    ui, id, "MaximumVisible", "MaximumVisible", ctrl, action, 1..=20, None, 5,
+                );
+                combo_row_inline(
+                    ui, id, "OverflowBehavior", ctrl, action,
+                    &["Queue", "DiscardOldest", "DiscardNewest"],
+                );
+                ui.add_space(6.0);
+
+                // The `Buttons` collection — a line per button, the catalogue's
+                // established shape for a collection (§6). The FIELD names in
+                // the hint stay English in every UI language: they are values
+                // COBOL compares against, not labels.
+                section_header(ui, tr.sec_items);
+                {
+                    let cur = ctrl
+                        .get_prop("Buttons")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let buf_key = format!("{id}-SnackButtons");
+                    let wid = egui::Id::new(&buf_key);
+                    let buf = self.text_bufs.entry(buf_key).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur.clone();
+                    }
+                    let label = tr.snackbar_buttons_label;
+                    property_row(ui, label, |ui| {
+                        let resp = ui.add(
+                            egui::TextEdit::multiline(buf)
+                                .id(wid)
+                                .desired_rows(3)
+                                .desired_width(ui.available_width()),
+                        );
+                        if resp.lost_focus() {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "Buttons".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
+                    });
+                    // Spec Q5 — a designer-time WARNING naming what will not be
+                    // shown, decided while the choice is still the developer's.
+                    // The same discipline as the 1.62.133 ContentPane warning:
+                    // tell them, do not fail a build over a layout preference,
+                    // and never truncate in silence.
+                    let (_, diag) = cobolt_forms::snackbar::parse_buttons(&cur);
+                    if let Some(cobolt_forms::snackbar::ButtonsDiagnostic::TooMany {
+                        declared,
+                        dropped,
+                    }) = diag
+                    {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0xE0, 0xA0, 0x30),
+                            format!(
+                                "⚠ {}  ({declared} → {}: {})",
+                                tr.warn_snackbar_too_many_buttons,
+                                cobolt_forms::snackbar::MAX_BUTTONS,
+                                dropped.join(", ")
+                            ),
+                        );
+                    }
+                }
+                ui.add_space(6.0);
+
+                section_header(ui, tr.sec_appearance);
+                color_row_labeled(ui, id, "BackgroundColor", "BackgroundColor", ctrl, action);
+                color_row_labeled(ui, id, "ForegroundColor", "ForegroundColor", ctrl, action);
+                color_row_labeled(ui, id, "CategoryIconColor", "CategoryIconColor", ctrl, action);
+                int_prop_row(
+                    ui, id, "CategoryIconSize", "CategoryIconSize (0 = auto)", ctrl, action,
+                    0..=128, None, 0,
+                );
+                int_prop_row(ui, id, "FontSize", "FontSize", ctrl, action, 6..=72, None, 14);
+                bool_row_inline(ui, id, "Bold", "Bold", ctrl, action);
+                bool_row_inline(ui, id, "TextWrap", "TextWrap", ctrl, action);
+                int_prop_row(
+                    ui, id, "CornerRadius", "CornerRadius", ctrl, action, 0..=64, None, 12,
+                );
+                combo_row_inline(
+                    ui, id, "BorderStyle", ctrl, action,
+                    &["None", "Solid", "Dash", "Dot", "DashDot"],
+                );
+                int_prop_row(ui, id, "BorderWidth", "BorderWidth", ctrl, action, 0..=16, None, 1);
+                color_row_labeled(ui, id, "BorderColor", "BorderColor", ctrl, action);
+                bool_row_inline(ui, id, "ShadowEnabled", "ShadowEnabled", ctrl, action);
+                int_prop_row(
+                    ui, id, "ShadowOpacity", "ShadowOpacity (%)", ctrl, action, 0..=100, None, 25,
+                );
+                int_prop_row(ui, id, "ShadowBlur", "ShadowBlur", ctrl, action, 0..=64, None, 12);
+                int_prop_row(
+                    ui, id, "ShadowDirection", "ShadowDirection (°)", ctrl, action,
+                    0..=359, None, 270,
+                );
+                int_prop_row(
+                    ui, id, "ShadowDistance", "ShadowDistance", ctrl, action, 0..=64, None, 4,
+                );
+                ui.add_space(4.0);
+            }
+
             ControlType::Timer if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 int_prop_row(

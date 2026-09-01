@@ -328,6 +328,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "info-circle",
             "warning-triangle",
             "error-circle",
+            "critical-octagon",
             "help-circle",
             "check-circle",
             "x-circle",
@@ -1013,6 +1014,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-maps",
             "control-web-search",
             "control-side-menu",
+            "control-snackbar",
             "control-custom",
         ],
     ),
@@ -2735,6 +2737,24 @@ fn system_commerce_shapes(name: &str) -> Option<Vec<IconShape>> {
             d(12.0, 17.2, 1.2),
         ],
         "error-circle" => vec![badge(), p(&[(12.0, 7.5), (12.0, 13.5)]), d(12.0, 16.8, 1.2)],
+        // The stop-sign octagon, for a Snackbar's `Critical` category (055 §7)
+        // — the one category the catalogue did not already name, where Info,
+        // Warning, Error and Question reuse the four beside it rather than
+        // adding near-duplicates.
+        //
+        // Deliberately NOT a regular octagon (operator, 2026-09-01): the flats
+        // are 6.4 wide at top and bottom but 6.8 at the sides, and the corners
+        // are cut at slightly unequal depths. It reads as drawn by a hand at a
+        // glance and as a stop sign immediately, which is the whole treatment —
+        // the quality is in the path, never in a second stroke style.
+        "critical-octagon" => vec![
+            pc(&[
+                (8.6, 2.6), (15.2, 2.6), (21.3, 8.5), (21.3, 15.4),
+                (15.4, 21.3), (8.5, 21.3), (2.6, 15.2), (2.6, 8.6),
+            ]),
+            p(&[(12.0, 7.4), (12.0, 13.6)]),
+            d(12.0, 16.8, 1.25),
+        ],
         "help-circle" => vec![
             badge(),
             path(vec![
@@ -7241,6 +7261,20 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             v
         }
         // A lens over a page of results — a SEARCH of the web, not a lens.
+        // The toast itself: the message pill that rises over the form, its
+        // category dot, its line of text and the action at the end. The two
+        // short rules beneath say TRANSIENT — it was not there a moment ago and
+        // will not be there in a moment, which is the whole of what a Snackbar
+        // is. Deliberately unlike `control-status-bar` (a rail fixed to an
+        // edge) and `control-tool-bar` (a rail of buttons): this one floats.
+        "control-snackbar" => vec![
+            rr(2.0, 7.6, 20.0, 9.0, 3.0),
+            d(6.2, 12.1, 1.5),
+            p(&[(9.4, 12.1), (14.2, 12.1)]),
+            rrf(16.2, 10.0, 4.0, 4.2, 0.9),
+            p(&[(6.0, 19.6), (10.4, 19.6)]),
+            p(&[(13.0, 19.6), (18.0, 19.6)]),
+        ],
         "control-web-search" => vec![
             rr(2.5, 4.5, 19.0, 15.0, 1.5),
             p(&[(2.5, 8.4), (21.5, 8.4)]),
@@ -9520,7 +9554,7 @@ mod tests {
         let controls = count("PowerRustCOBOL Controls");
         let cs = count("Computer Science");
         let ui = count("User Interface");
-        assert_eq!(controls, 43, "42 ControlType::ALL entries + Custom");
+        assert_eq!(controls, 44, "43 ControlType::ALL entries + Custom");
         assert!(cs >= 79, "computer-science set, got {cs}");
         assert!(ui >= 49, "user-interface set, got {ui}");
 

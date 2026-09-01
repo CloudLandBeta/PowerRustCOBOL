@@ -1897,6 +1897,37 @@ pub fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
 /// (`nv_icon_database`) nested inside — matching the toolbox's IndexedFile
 /// icon so the same control looks identical whether it's still in the
 /// toolbox or already placed on the form.
+/// The Snackbar's tray glyph (055): the toast pill with its category dot, its
+/// line of text and the action at the end — the same drawing as the catalogue's
+/// `control-snackbar`, in the tray card's own painter calls like its siblings.
+pub fn nv_icon_snackbar(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    let (w, h) = (s * 1.6, s * 0.72);
+    let pill = egui::Rect::from_center_size(c, egui::Vec2::new(w * 2.0, h * 2.0));
+    painter.rect_stroke(
+        pill,
+        egui::CornerRadius::same((h * 0.8) as u8),
+        st,
+        egui::StrokeKind::Middle,
+    );
+    // Category dot, message rule, action block — left to right.
+    painter.circle_filled(Pos2::new(c.x - w * 0.62, c.y), s * 0.17, st.color);
+    painter.line_segment(
+        [
+            Pos2::new(c.x - w * 0.30, c.y),
+            Pos2::new(c.x + w * 0.18, c.y),
+        ],
+        st,
+    );
+    painter.rect_filled(
+        egui::Rect::from_center_size(
+            Pos2::new(c.x + w * 0.56, c.y),
+            egui::Vec2::splat(s * 0.44),
+        ),
+        egui::CornerRadius::same(1),
+        st.color,
+    );
+}
+
 pub fn nv_icon_indexed_file(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     let pts = [
         Pos2::new(c.x - s * 0.75, c.y - s * 0.95),
@@ -2552,7 +2583,12 @@ fn draw_control_body(
     // ── Non-visual controls — standardised glass card + stroke icon + label ─────
     if matches!(
         ctrl.control_type,
-        CT::Timer | CT::AgentObject | CT::RestClient | CT::SqlDatabase | CT::IndexedFile
+        CT::Timer
+            | CT::AgentObject
+            | CT::RestClient
+            | CT::SqlDatabase
+            | CT::IndexedFile
+            | CT::Snackbar
     ) {
         nv_card(painter, rect, selected, glass, alpha_mul, a);
         let (cen, s, st) = nv_icon_geom(rect, a);
@@ -2574,9 +2610,16 @@ fn draw_control_body(
                 nv_icon_database(painter, cen, s, st);
                 ctrl.get_prop("Driver").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "sqlite".into())
             }
-            _ /* IndexedFile */ => {
+            CT::IndexedFile => {
                 nv_icon_indexed_file(painter, cen, s, st);
                 ctrl.get_prop("OpenMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "INPUT".into())
+            }
+            // 055 R3 — the tray badge, NOT the notification. The card reports
+            // the category the next `Show()` will mint from, the way the Timer's
+            // reports its interval; the message itself only exists at run time.
+            _ /* Snackbar */ => {
+                nv_icon_snackbar(painter, cen, s, st);
+                crate::snackbar::category_of(ctrl).as_str().to_owned()
             }
         };
         nv_label(painter, rect, &label, a);
@@ -16588,4 +16631,307 @@ mod gauge_zone_tests {
         );
         println!("\n  Gauge — a radial gauge at 88 with marks at 70/90 paints green AND amber, no red\n");
     }
+}
+
+// ── Snackbar (spec 055) ──────────────────────────────────────────────────────
+
+/// Where a painted notification put things the caller must hit-test.
+///
+/// The host needs the button rects to dispatch `onButtonClick`, and the whole
+/// rect to decide whether the pointer is over the notification for the
+/// hover-pause (R7). Returning them from the painter — rather than recomputing
+/// them in the host — is the same discipline `control_rects` already follows:
+/// two computations of one rectangle are two chances to disagree.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SnackbarPaint {
+    pub rect: egui::Rect,
+    /// One per button, in `Buttons` order.
+    pub buttons: Vec<egui::Rect>,
+}
+
+/// Paint one notification (spec 055 R18–R24).
+///
+/// **Paint order is R20's, exactly**: background colour, then background image,
+/// then content. The image is drawn *over* the colour and clipped to the
+/// notification's rounded rect, and it never participates in layout (R21) —
+/// `layout_content` is not given it and cannot see it.
+///
+/// This is a painter, not a widget: it draws on the surface's own painter, the
+/// way every other control does. There is deliberately no `egui::Area` per
+/// notification — that would be a second renderer with its own id and ordering
+/// rules, which is the class of bug that cost this project a day on the DataGrid
+/// clip leak (plan §4).
+pub fn draw_snackbar(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    v: &crate::snackbar::SnackVisual,
+    bg_tex: Option<(egui::TextureId, egui::Vec2)>,
+    alpha_mul: f32,
+) -> SnackbarPaint {
+    use crate::snackbar::{layout_content, ButtonIconPosition};
+
+    let m = v.size.metrics();
+    let cr = egui::CornerRadius {
+        nw: v.corner_radius[0].round().clamp(0.0, 255.0) as u8,
+        ne: v.corner_radius[1].round().clamp(0.0, 255.0) as u8,
+        se: v.corner_radius[2].round().clamp(0.0, 255.0) as u8,
+        sw: v.corner_radius[3].round().clamp(0.0, 255.0) as u8,
+    };
+
+    // The face owes its own alpha (the 1.62.140 rule): every fill this function
+    // lays down is scaled by `alpha_mul`, so a notification fading in or out
+    // fades as ONE thing rather than leaving an opaque face under faded ink.
+    let fade = |c: Color32| {
+        Color32::from_rgba_premultiplied(
+            c.r(),
+            c.g(),
+            c.b(),
+            ((c.a() as f32) * alpha_mul).round().clamp(0.0, 255.0) as u8,
+        )
+    };
+
+    // ── 0. Shadow, under everything ──────────────────────────────────────────
+    // Polar, as the catalogue's shadows are (§8): direction in degrees measured
+    // clockwise from "up", distance in points.
+    if let Some(sh) = &v.shadow {
+        if sh.distance > 0.0 || sh.blur > 0.0 {
+            let rad = (sh.direction - 90.0).to_radians();
+            let off = egui::Vec2::new(rad.cos() * sh.distance, rad.sin() * sh.distance);
+            let base = parse_color(&sh.color);
+            let a = (sh.opacity as f32 / 100.0 * 255.0).round().clamp(0.0, 255.0) as u8;
+            let shadow_col = fade(Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a));
+            // A cheap blur: concentric expanded rects with falling alpha. The
+            // real one belongs to the glass painters; a notification is a small
+            // transient card and does not earn an offscreen pass.
+            let steps = (sh.blur / 3.0).ceil().max(1.0) as i32;
+            for i in (0..steps).rev() {
+                let grow = sh.blur * (i as f32 / steps as f32);
+                let a2 = (shadow_col.a() as f32 / (steps as f32)).round().clamp(0.0, 255.0) as u8;
+                painter.rect_filled(
+                    rect.translate(off).expand(grow),
+                    cr,
+                    Color32::from_rgba_unmultiplied(shadow_col.r(), shadow_col.g(), shadow_col.b(), a2),
+                );
+            }
+        }
+    }
+
+    // ── 1. Background COLOUR ─────────────────────────────────────────────────
+    let bg = fade(parse_color(&v.background));
+    painter.rect_filled(rect, cr, bg);
+
+    // ── 2. Background IMAGE, over the colour, clipped to the same shape ───────
+    // R21 — this cannot move content: layout is computed from `rect` alone and
+    // never sees the image.
+    if let Some((tex, tsize)) = bg_tex {
+        if !v.background_image.trim().is_empty() && v.background_image_opacity > 0 {
+            let dest = crate::render::image_dest(rect, tsize, v.background_image_mode);
+            let tint_a = (v.background_image_opacity as f32 / 100.0 * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8;
+            let tint = fade(Color32::from_rgba_unmultiplied(255, 255, 255, tint_a));
+            let clipped = painter.with_clip_rect(rect.intersect(painter.clip_rect()));
+            if matches!(v.background_image_mode, crate::model::BgImageMode::Tile) {
+                let (tw, th) = (tsize.x.max(1.0), tsize.y.max(1.0));
+                let cols = (rect.width() / tw).ceil() as i32;
+                let rows = (rect.height() / th).ceil() as i32;
+                for r in 0..rows {
+                    for c in 0..cols {
+                        let at = egui::Rect::from_min_size(
+                            rect.min + egui::Vec2::new(c as f32 * tw, r as f32 * th),
+                            egui::Vec2::new(tw, th),
+                        );
+                        clipped.image(
+                            tex,
+                            at,
+                            egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            tint,
+                        );
+                    }
+                }
+            } else {
+                clipped.image(
+                    tex,
+                    dest,
+                    egui::Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    tint,
+                );
+            }
+        }
+    }
+
+    // ── 3. Border ────────────────────────────────────────────────────────────
+    // `BorderStyle = None` already means "no border" — there is no separate
+    // `BorderVisible`, by the RadioButton precedent (§8).
+    if !v.border_style.eq_ignore_ascii_case("None") && v.border_width > 0.0 {
+        let bc = fade(parse_color(&v.border_color));
+        if bc.a() > 0 {
+            painter.rect_stroke(
+                rect,
+                cr,
+                egui::Stroke::new(v.border_width, bc),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
+
+    // ── 4. Content ───────────────────────────────────────────────────────────
+    let ink_explicit = parse_color(&v.foreground);
+    let ink = readable_ink_on(
+        (ink_explicit.a() > 0).then_some(ink_explicit),
+        ink_explicit,
+        parse_color(&v.background),
+    );
+    let ink = fade(ink);
+
+    let font = egui::FontId::new(
+        v.font_size,
+        if v.bold {
+            egui::FontFamily::Name("bold".into())
+        } else {
+            egui::FontFamily::Proportional
+        },
+    );
+    // Fall back to the proportional family when no bold face is registered —
+    // a missing family panics epaint, and a Snackbar must never take the form
+    // down over a font.
+    let font = if painter.ctx().fonts(|f| f.families()).contains(&font.family) {
+        font
+    } else {
+        egui::FontId::proportional(v.font_size)
+    };
+
+    // Measured through the painter, the way every other caption in this file
+    // is — so a Snackbar's idea of "how wide is this string" is the renderer's,
+    // not a second approximation that drifts from it.
+    let measure = |s: &str| -> f32 {
+        if s.is_empty() {
+            0.0
+        } else {
+            painter
+                .layout_no_wrap(s.to_owned(), font.clone(), Color32::WHITE)
+                .size()
+                .x
+        }
+    };
+
+    // Button widths: icon + caption + padding, measured in the same font.
+    let button_widths: Vec<f32> = v
+        .buttons
+        .iter()
+        .map(|b| {
+            let icon_w = if b.icon.is_empty() || matches!(b.position, ButtonIconPosition::None) {
+                0.0
+            } else {
+                m.icon * 0.8 + m.gap * 0.5
+            };
+            (measure(&b.text) + icon_w + m.pad_x * 1.5).max(m.button_h)
+        })
+        .collect();
+
+    let icon_side = v.icon.as_ref().map(|_| v.icon_size);
+    let l = layout_content(
+        crate::model::Rect::new(
+            rect.min.x.round() as i32,
+            rect.min.y.round() as i32,
+            rect.width().round() as i32,
+            rect.height().round() as i32,
+        ),
+        v.size,
+        icon_side,
+        &v.text,
+        &button_widths,
+        &measure,
+        v.text_wrap,
+    );
+
+    let to_egui = |r: crate::model::Rect| {
+        egui::Rect::from_min_size(
+            Pos2::new(r.x as f32, r.y as f32),
+            egui::Vec2::new(r.w as f32, r.h as f32),
+        )
+    };
+
+    // The category icon, in the catalogue's own artwork (R24).
+    if let (Some(name), Some(ir)) = (v.icon.as_ref(), l.icon) {
+        let icon_col = {
+            let c = parse_color(&v.icon_color);
+            if v.icon_color.trim().is_empty() || c.a() == 0 {
+                ink
+            } else {
+                fade(c)
+            }
+        };
+        crate::icons::draw_menu_icon(painter, to_egui(ir), name, icon_col);
+    }
+
+    // The message. Ellipsized at the size class's line budget (R22), and
+    // vertically centred within its own band, which `layout_content` already
+    // centred on the notification (R18).
+    let text_rect = to_egui(l.text);
+    let job = {
+        let mut j = egui::text::LayoutJob::simple(
+            v.text.clone(),
+            font.clone(),
+            ink,
+            if v.text_wrap { text_rect.width() } else { f32::INFINITY },
+        );
+        j.wrap.max_rows = m.line_budget;
+        j.wrap.break_anywhere = false;
+        j.halign = egui::Align::Min;
+        j
+    };
+    let galley = painter.layout_job(job);
+    painter.galley(
+        Pos2::new(text_rect.min.x, text_rect.center().y - galley.size().y / 2.0),
+        galley,
+        ink,
+    );
+
+    // The buttons: a subtle well in the ink's own colour, then caption + icon.
+    let mut button_rects = Vec::with_capacity(l.buttons.len());
+    for (i, br) in l.buttons.iter().enumerate() {
+        let r = to_egui(*br);
+        button_rects.push(r);
+        let Some(b) = v.buttons.get(i) else { continue };
+        let well = Color32::from_rgba_unmultiplied(ink.r(), ink.g(), ink.b(), 38);
+        painter.rect_filled(r, egui::CornerRadius::same((m.button_h / 3.0) as u8), fade(well));
+
+        let icon_w = if b.icon.is_empty() || matches!(b.position, ButtonIconPosition::None) {
+            0.0
+        } else {
+            m.icon * 0.8
+        };
+        let text_w = measure(&b.text);
+        let content_w = icon_w + if icon_w > 0.0 && text_w > 0.0 { m.gap * 0.5 } else { 0.0 } + text_w;
+        let mut x = r.center().x - content_w / 2.0;
+
+        if icon_w > 0.0 && matches!(b.position, ButtonIconPosition::Left) {
+            let ir = egui::Rect::from_center_size(
+                Pos2::new(x + icon_w / 2.0, r.center().y),
+                egui::Vec2::splat(icon_w),
+            );
+            crate::icons::draw_menu_icon(painter, ir, &b.icon, ink);
+            x += icon_w + m.gap * 0.5;
+        }
+        if text_w > 0.0 {
+            painter.text(
+                Pos2::new(x, r.center().y),
+                egui::Align2::LEFT_CENTER,
+                &b.text,
+                font.clone(),
+                ink,
+            );
+            x += text_w + m.gap * 0.5;
+        }
+        if icon_w > 0.0 && matches!(b.position, ButtonIconPosition::Right) {
+            let ir = egui::Rect::from_center_size(
+                Pos2::new(x + icon_w / 2.0, r.center().y),
+                egui::Vec2::splat(icon_w),
+            );
+            crate::icons::draw_menu_icon(painter, ir, &b.icon, ink);
+        }
+    }
+
+    SnackbarPaint { rect, buttons: button_rects }
 }

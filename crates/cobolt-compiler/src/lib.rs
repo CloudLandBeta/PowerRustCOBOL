@@ -4136,6 +4136,65 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "serialised toolbar definition (edited in the Toolbar Editor, not by hand)",
             "A ToolBar's groups of buttons: each group's frame (border style/colour/width, corner radius, padding, background, separator), the DEFAULT appearance for that group's buttons, and each button's label-or-icon, tooltip, enabled state, action and its own appearance overrides. A group's appearance settings are the defaults for every button in it, and a button's own values win field by field — so an icon size set once on the group dresses all six buttons. A button carries a label OR an icon, never both: setting one clears the other. Adding a button in the editor copies the previous button's appearance (never its icon, tooltip or action). Set it all through the designer's Toolbar Editor. Absent, a populated `Items` is read as one unframed group of labelled buttons, so a toolbar built before groups existed still works. Corner radius defaults to 10; every colour defaults to unset, meaning the group, then the theme, decides.",
         ),
+        // ── Snackbar (spec 055) ──
+        // Only the names this control INTRODUCES. `Text`, `FontName`,
+        // `FontSize`, `Bold`, `BorderStyle`, `CornerRadius` and the shadow set
+        // are the catalogue's existing vocabulary and are documented once,
+        // where they already were — spec §8 renamed the draft's spellings onto
+        // them precisely so there would not be a second entry here saying the
+        // same thing in different words.
+        "Category" => (
+            "Info | Question | Warning | Error | Critical",
+            "What the notification is ABOUT. Supplies the background, the ink, the icon and the timeout for everything you did not set yourself: Info 4000 ms, Question 6000 ms, Warning 6000 ms, Error 8000 ms, and Critical 0 — Critical stays until it is dismissed. These are DEFAULTS, not a fixed appearance: any property you set explicitly wins, and it wins alone, so a chosen `BackgroundColor` still leaves the category's icon and ink in place.",
+        ),
+        "ShowCategoryIcon" => (
+            BOOL_DOMAIN,
+            "Draw the category's icon at the head of the notification. Off leaves the message hard against the left margin.",
+        ),
+        "CategoryIconSize" => (
+            "pixels > 0, or 0 = from the Size class",
+            "The category icon's square side. 0 takes the size class's own (Small 18, Medium 22, Large 26).",
+        ),
+        "CategoryIconColor" => (
+            "#RRGGBB[AA], empty = the category's",
+            "The category icon's colour. Empty means the category decides — which is what keeps changing `Category` able to move the whole look at once.",
+        ),
+        "PauseTimeoutOnHover" => (
+            BOOL_DOMAIN,
+            "Hold the timeout while the pointer is over the notification or one of its buttons, and resume it — with exactly what was left — when the pointer leaves. On by default: a message the operator is still reading should not vanish under the cursor.",
+        ),
+        "StackAnchor" => (
+            "TopLeft | TopCenter | TopRight | CenterLeft | Center | CenterRight | BottomLeft | BottomCenter | BottomRight",
+            "Where the stack sits on the FORM'S OWN SURFACE — the ContentPane for an Embedded form, the window for a standalone one, never the desktop. A Top anchor grows the stack DOWNWARD and a Bottom anchor grows it UPWARD, in both cases with the newest nearest the anchor; the Centre row places the newest first and grows down.",
+        ),
+        "StackSpacing" => (
+            "pixels >= 0",
+            "The gap between two stacked notifications. The stack is vertical only — there is no horizontal stacking, by contract.",
+        ),
+        "StackOrder" => (
+            "Auto | NewestFirst | NewestLast",
+            "Which end of the stack the newest notification takes. `Auto` follows the anchor (newest nearest it); the other two override that rule — `NewestFirst` nearest the anchor, `NewestLast` furthest from it.",
+        ),
+        "MaximumVisible" => (
+            "integer >= 1",
+            "How many of THIS control's notifications may be up at once. Reaching it hands the next `Show()` to `OverflowBehavior`.",
+        ),
+        "OverflowBehavior" => (
+            "Queue | DiscardOldest | DiscardNewest",
+            "What a `Show()` does once `MaximumVisible` are already up. `Queue` holds the new one back and raises it when a slot frees — its timeout then counts from the moment it BECAME VISIBLE, not from the call. `DiscardOldest` closes the oldest to make room (reason `Overflow`). `DiscardNewest` drops the arrival, which never appears at all.",
+        ),
+        "LastButtonId" => (
+            "button id (runtime-only, never a design-time default)",
+            "Which of the notification's buttons was pressed. Written before `onButtonClick` fires, so ONE handler can serve every button on the message: `EVALUATE SNACK-1::LastButtonId`. It holds the `id` field from the `Buttons` line — your own English name for the button.",
+        ),
+        "LastButtonIndex" => (
+            "0-based integer (runtime-only, never a design-time default)",
+            "The 0-based position of the button that was pressed, in `Buttons` order. Written alongside `LastButtonId`, for a handler that would rather switch on the position than the name.",
+        ),
+        "Buttons" => (
+            "one button per line: id|text|icon|position|dismiss",
+            "The notification's action buttons, at most THREE — a fourth is reported in the designer, never silently dropped. Fields are `|`-separated and trailing ones may be omitted: **id** is what `onButtonClick` reports (English, your own choice — a value COBOL compares against, not a label); **text** is the caption, empty for an icon-only button; **icon** is a catalogue icon name (`refresh`, `x-mark`, `undo`, `check`, …) or empty; **position** is None | Left | Right, defaulting to Left when an icon is given; **dismiss** is true | false, default true — true closes the notification after `onButtonClick` fires, false leaves it up.",
+        ),
         "LastButton" => (
             "toolbar button id (runtime-only, never a design-time default)",
             "Which toolbar button was pressed last. Written before `onClick` fires, so ONE handler can serve a whole toolbar: `EVALUATE TOOLBAR-1::LastButton`.",
@@ -4328,6 +4387,7 @@ fn control_purpose(name: &str) -> &'static str {
         "DateTimePicker" => "Date/time input with calendar or spinner.",
         "NumericUpDown" => "Integer input with spinner arrows.",
         "TreeView" => "Hierarchical node list. `Items` IS the tree: one node per line, TWO SPACES (or one tab) of indent per level. It is drawn by one renderer on the designer canvas and in the running form, so what you lay out is what runs — before 1.61.153 the canvas showed only a `[TreeView]` placeholder and the running form a flat bulleted list. The tree writes its nodes in the control's own FontName/FontSize/ForegroundColor, draws its connector lines per `ShowLines`/`ShowRootLines` in `LineColor`, ticks per `CheckBoxes`/`CheckedNodes`, and highlights per `HotTracking`. A click selects (`SelectedNode`, `onNodeClick`/`onNodeSelect`); a click on a tick box checks (`CheckedNodes`, `onNodeCheck`). EXPAND/COLLAPSE (1.61.157): a node with children draws a disclosure arrow — right when shut, down when open — and clicking it writes `CollapsedNodes` and fires `onNodeCollapse`/`onNodeExpand`. The arrow's slot is reserved on every row, so labels line up whether or not a node folds. ICONS: on by default from the platform's catalogue, a node naming its own after a TAB in its `Items` line and the rest taking `ParentIcon`/`ParentIconOpen`/`LeafIcon`. Every metric is a property — `RowHeight`, `IndentWidth`, `IconSize`, `CheckBoxSize` — and so are `SelectionColor`, `HotTrackColor` and `IconColor`. A NODE'S OWN DRESS (1.61.159): an `Items` line is `label`, then up to three TAB-separated fields of its own — `label\\ticon\\tcolour\\tbackground` — so `Overdue\\t\\t#C81E1E` is a node written in red with its icon left to the tree; an empty field means 'as the tree draws it', and the row colour paints UNDER the selection band so a coloured row still shows that it is selected. TICK BOX (1.61.159): it wears the CheckBox's own five properties — `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth`, `CheckColor`, `CheckSize` — and draws the same tick mark; before that it was a black-alpha well, a 1px rim and a tick at 28 % of the box, none of them reachable. WALKING THE TREE (1.61.159): `NodeParent`, `NodeFirstChild`/`NodeLastChild`, `NodeNextSibling`/`NodePrevSibling`, `NodeChildCount`, plus `NodeText`/`NodePath`/`NodeLevel`/`NodeIcon`/`NodeColor`/`NodeBackColor`/`NodeChecked`/`NodeCollapsed` and `NodeCount`/`NodeIndexOf` — every one keyed by the node INDEX the event already hands the handler, and the traversal calls return an index so they chain. Build a tree from COBOL with `AddNode(level, text)`, NOT `AddItem` (which trims its argument, so an indented literal cannot make a child). SCROLLING (1.61.160): a tree taller than its control scrolls — the wheel while the pointer is over it, a DRAG anywhere on it, and Up/Down/Home/End once it has focus (a click gives it focus), with the view following a keyboard selection only as far as it must. Before that the overflow was simply dropped and those nodes could not be reached at all. How far it scrolls is measured against the rows it SHOWS, so folding a tree shortens it. There is no scroll property: the offset is view state and is deliberately NOT saved in the `.cfrm`.",
+        "Snackbar" => "Non-visual: a transient, NON-MODAL notification — a short message, an optional category icon and up to three action buttons, shown over the form for a few seconds and then gone. It never blocks the program and never demands an answer: a handler raises one and carries straight on. The control you drop is the TEMPLATE, not the notification — it carries the defaults and paints nothing where it sits; every `Show()` mints a NEW notification from the values current at that moment and adds it to the stack, so two calls in one handler put up two messages. Several live at once, stacked VERTICALLY (never horizontally) against one of nine `Anchor` positions, reflowing the instant one leaves. The anchor is resolved against the FORM'S OWN SURFACE — an Embedded form's messages stay inside its ContentPane and never cover the shell's rail or breadcrumb. `Category` (Info | Question | Warning | Error | Critical) supplies the colours, the icon and the timeout; every one of those is overridable, and setting one overrides that one alone. Leave a colour EMPTY to mean \"the category decides\". `Timeout` is milliseconds: `-1` takes the category's own (4000/6000/6000/8000, and Critical's 0), and `0` means it stays until dismissed. Build the message in COBOL with STRING or MOVE before `Show()` — `Text` is data, not a format string.",
         "Timer" => "Non-visual: fires `onTick` every Interval ms. Steady cadence — each tick schedules the next ONE INTERVAL on, so the rate does not drift with frame timing — and it never repays missed time: a handler slower than the interval, or a stalled form, gets ONE tick on return, not a burst. A handler eight events behind has its ticks coalesced until it catches up; a click, an edit or a focus change is never coalesced. `Enabled` is the timer's OWN property — the on/off switch the runtime reads and the one codegen seeds `WS-<timer>-ENABLED` from — and it is settable at design time (inspector: `Enabled at start`) and from COBOL at run time (`SET TIMER-1::Enabled TO 0` stops it). It is NOT the chrome enabled flag every control has; before 1.61.164 both spellings landed on the chrome flag and the timer could not be stopped at all.",
         "Splitter" => "A themed PANEL divided in two by a draggable line — as of 1.61.164 it IS a container, and the two halves are real controls. Dropping one creates `<id>-Pane1` and `<id>-Pane2`: borderless, transparent Panels parented to the splitter, which you drop controls into exactly like any other Panel. Their geometry is DERIVED from the division and is not editable — moving the line moves them. `Orientation` names how the PANES sit, not the line: `Horizontal` = pane 1 LEFT, pane 2 RIGHT, divided by a vertical line; `Vertical` = pane 1 TOP, pane 2 BOTTOM. (This is the opposite of what `Orientation` meant before 1.61.164, when the control was a bar between two neighbouring controls; a form saved earlier opens with its panes the other way round.) `SplitPosition` is a PERCENTAGE 0–100 of the inner span, not a pixel offset, so it survives the splitter being resized; 0 and 100 are legal and close one pane completely, and the grip is clipped by the splitter's edge so half of it stays visible there. Drag the line (or its grip) to redistribute, double-click it to go back to 50 %, and the pointer becomes a grab hand over it — on the designer canvas and in the running form alike. Style it with `LineColor`, `LineSize`, `GripStyle` (FilledPill | HollowPill | FilledCircle | HollowCircle), `GripSize` and `GripColor`; the panel itself follows the form theme until `BackgroundColor` / `BorderStyle` / `BorderColor` say otherwise. Each pane also carries `ResizeBehavior` — what it does with the controls inside it when the line moves (Translate with divider by default, or Scale within the pane, or Anchor to the outer edge), set per pane so the two halves can differ; dragging the division in the RAD rewrites those children's X/Y for real, as one undo step. A CONTAINER inside a pane (Panel, GroupBox, TabControl) carries its whole subtree: the container reflows per the pane's ResizeBehavior and its contents travel rigidly with it — under Scale too, where spreading a container's contents by their own fractions would tear them out of it — on the canvas, in preview and at run time alike. This holds to ANY depth, a SPLITTER INSIDE A PANE included: the inner splitter travels with the outer division, and its own panes and their contents travel with it. A PANE NEVER RESIZES WHAT IS IN IT: moving the division changes the pane's own rectangle and the POSITIONS of its contents, never their Width or Height — the pane is a viewport, and a control too big for it is clipped by the pane's edge, not shrunk to fit. STILL NOT: `AllowEdit` (no in-place rename surface) — never tell a developer it works.",
         "Shape" => "Decorative rectangle / circle / triangle.",
@@ -4475,6 +4535,20 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             "CommitFiles() → String",
             "Copy the files a staged drop is holding into DestinationFolder, and return the summary (`7 of 8 copied, 24.310 MB`). Only meaningful with StageOnly on: call it when the operator has finished reviewing the list. Files whose row was unticked are skipped and stay listed. Afterwards DroppedFiles is the included files at their new paths, each row carries `✓` and its new path or `✗` and the reason, and CommitSummary is the returned line.",
         )],
+        // 055 — both take no arguments. `Show()` is a FACTORY, not a visibility
+        // toggle: on every OTHER control `Show()` still means "make this
+        // control appear", and only a Snackbar — which is non-visual and has no
+        // `Visible` to set — diverts it.
+        "Snackbar" => vec![
+            (
+                "Show()",
+                "Raise a NEW notification from the control's CURRENT property values and add it to the stack. Call it twice and two messages appear; it is not a visibility toggle and it never blocks. Set `Text` (and anything else you want changed) immediately before it — the notification is a snapshot, so editing the template afterwards does not rewrite a message already on screen.",
+            ),
+            (
+                "DismissAll()",
+                "Dismiss every live notification RAISED BY THIS CONTROL, with reason `Programmatic`; anything this control had queued is discarded too. Other Snackbar controls on the form are untouched. There is no `Hide()` — under `Show()`-as-factory it could not say WHICH notification it meant.",
+            ),
+        ],
         "Timer" => vec![
             ("Start()", "Set Enabled = 1 (ticks resume)."),
             ("Stop()", "Set Enabled = 0 (ticks stop)."),

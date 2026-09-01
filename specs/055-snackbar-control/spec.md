@@ -187,9 +187,9 @@ why).
 | `ShadowBlur` | pixels ≥ 0 | `12` |
 | `ShadowDirection` | degrees 0–359 | `270` |
 | `ShadowDistance` | pixels ≥ 0 | `4` |
-| `Timeout` | milliseconds ≥ 0; `0` = never | from `Category` |
+| `Timeout` | milliseconds ≥ 0; `0` = never; `-1` = from `Category` | `-1` |
 | `PauseTimeoutOnHover` | boolean | `true` |
-| `Anchor` | one of: `TopLeft` \| `TopCenter` \| `TopRight` \| `CenterLeft` \| `Center` \| `CenterRight` \| `BottomLeft` \| `BottomCenter` \| `BottomRight` | `BottomRight` |
+| `StackAnchor` | one of: `TopLeft` \| `TopCenter` \| `TopRight` \| `CenterLeft` \| `Center` \| `CenterRight` \| `BottomLeft` \| `BottomCenter` \| `BottomRight` | `BottomRight` |
 | `Margin` | pixels ≥ 0 | `16` |
 | `StackSpacing` | pixels ≥ 0 | `8` |
 | `StackOrder` | one of: `Auto` \| `NewestFirst` \| `NewestLast` | `Auto` |
@@ -266,7 +266,7 @@ vocabulary for the same concept is the cost this avoids.
 | `DropShadow` | `ShadowEnabled` | The existing shadow property set. |
 | `ShadowOffsetX/Y` | `ShadowDirection` + `ShadowDistance` | The catalogue's shadows are polar, not cartesian. |
 | `TTL` / `PauseTTLOnHover` | `Timeout` / `PauseTimeoutOnHover` | Plain English for a COBOL audience; `Interval` is the sibling. |
-| `Position` | `Anchor` | `Position` reads as the designer X/Y a non-visual control does not have. |
+| `Position` | `Anchor` → **`StackAnchor`** | `Position` reads as the designer X/Y a non-visual control does not have. **Corrected during /implement (2026-09-01):** `Anchor` was already taken — it is a BASE property on every control, a boolean locking X/Y against mouse dragging on the canvas (`Control::is_anchored`). Two meanings on one key in one property map: the designer's lock checkbox (non-visual controls still show geometry) would have written `Anchor: Bool(false)` over the notification's placement. `StackAnchor` joins `StackSpacing`/`StackOrder` as one family and cannot collide. Guarded by `the_stack_anchor_does_not_collide_with_the_canvas_anchor_lock`. |
 | `WindowMargin` / `Margin*` | `Margin` | One value; per-side margins are not needed for an anchored surface. |
 | `PositionRelativeTo` | *(dropped)* | D3 settles it: always the form's surface. |
 | `Buttons : Collection` | `Buttons` multi-line string | The catalogue's collection shape. |

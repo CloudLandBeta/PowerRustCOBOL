@@ -9772,6 +9772,19 @@ impl Interpreter {
         }
     }
 
+    /// Whether `obj` is a Snackbar (spec 055).
+    ///
+    /// The host registers every control under its real `ControlType`, so this
+    /// is the same test `SideMenu` and `ToolbarButton` already use. It matters
+    /// only where a method name is shared with the universal verb set —
+    /// `Show()` — and nowhere else.
+    fn is_snackbar(&self, obj: &str) -> bool {
+        self.objects
+            .get(obj.trim())
+            .map(|o| o.class == "Snackbar")
+            .unwrap_or(false)
+    }
+
     fn obj_set(&mut self, obj: &str, prop: &str, val: String) {
         if !self.objects.contains(obj) {
             self.objects.register(obj, "Control");
@@ -10553,7 +10566,22 @@ impl Interpreter {
         match m.as_str() {
             // ── Universal lifecycle / visibility ──
             "SHOW" => {
-                self.obj_set(obj, "Visible", "1".into());
+                // 055 — a Snackbar is NON-VISUAL: it has no `Visible` to set,
+                // and `Show()` on it means "raise a notification" (§6), not
+                // "make this control appear". The universal verb keeps its
+                // meaning for every control that HAS a visible presence; only
+                // the one type for which it would be meaningless is diverted.
+                //
+                // Dispatching on the class is what the host's own seed makes
+                // possible — it registers each object under its real
+                // `ControlType`, which is also how `SideMenu` and
+                // `ToolbarButton` are already told apart here.
+                if self.is_snackbar(obj) {
+                    let n = parse_i(self.obj_get(obj, "_ShowSnackbar")) + 1;
+                    self.obj_set(obj, "_ShowSnackbar", n.to_string());
+                } else {
+                    self.obj_set(obj, "Visible", "1".into());
+                }
                 none
             }
             "HIDE" => {
@@ -10951,6 +10979,18 @@ impl Interpreter {
                 tracing::debug!(target: "databinding", "RUN-FORM {} REFRESHBINDING", obj);
                 let n = self.refresh_binding(obj);
                 val(n.to_string())
+            }
+            // ── Snackbar (spec 055) ──
+            // `Show()` is a FACTORY (D2): each call raises a NEW notification
+            // from the control's current property values, which is the only
+            // shape under which MaximumVisible, OverflowBehavior and reflow mean
+            // anything. The counter is what makes two calls two notifications —
+            // a bare flag would coalesce them, and `Show()` twice in one handler
+            // would put up one message (AC3).
+            "DISMISSALL" => {
+                let n = parse_i(self.obj_get(obj, "_DismissAllSnackbar")) + 1;
+                self.obj_set(obj, "_DismissAllSnackbar", n.to_string());
+                none
             }
             // ── Timer ──
             "START" => {
@@ -13745,6 +13785,10 @@ fn is_known_method(name: &str) -> bool {
             | "REFRESHBINDING"
         // Charts (AddPoint appends one label/value point; Clear/Refresh above)
             | "ADDPOINT" | "ADD-POINT"
+        // Snackbar (055) — `Show()` mints a notification, `DismissAll()` clears
+        // this control's. Both take no arguments, but they must still be listed:
+        // an unlisted name parses its parens as a collection subscript.
+            | "SHOW" | "DISMISSALL"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"

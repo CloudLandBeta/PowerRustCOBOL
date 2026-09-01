@@ -2525,7 +2525,11 @@ pub fn render_faces(
 /// [`paint_backdrop`] does, or a UV past 1.0 on a REPEAT-wrapped texture, as
 /// the DataGrid background does). Returning `area` and stopping there is what
 /// made Tile a synonym for Stretch on both surfaces.
-fn image_dest(area: Rect, tsize: Vec2, mode: BgImageMode) -> Rect {
+// `pub(crate)` so `paint::draw_snackbar` places a notification's background
+// image by the SAME arithmetic the form backdrop uses (055 R20/R21). A second
+// copy of the five modes is exactly the drift the "controls are drawn by two
+// paths" trap describes.
+pub(crate) fn image_dest(area: Rect, tsize: Vec2, mode: BgImageMode) -> Rect {
     match mode {
         BgImageMode::Fill | BgImageMode::Fit => {
             let sx = area.width() / tsize.x.max(1.0);

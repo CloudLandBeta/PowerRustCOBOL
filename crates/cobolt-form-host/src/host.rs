@@ -498,6 +498,7 @@ impl FormHost {
                 toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
                 action_notice: None,
                 last_control_rects: HashMap::new(),
+                snackbars: Default::default(),
             },
             children: Vec::new(),
             occupants: HashMap::new(),
@@ -647,6 +648,11 @@ pub(crate) struct FormBody {
     /// the ContentPane placement test asserts against (operator, 2026-08-31:
     /// radios missing from an embedded form).
     pub(crate) last_control_rects: HashMap<String, egui::Rect>,
+    /// 055 — this surface's live notifications. One stack per FormBody, which
+    /// is what "the stack belongs to the surface" means (spec Q1/Q2): a child
+    /// form's messages stack in that child, and navigating away disposes them
+    /// rather than carrying a message about screen A onto screen B.
+    pub(crate) snackbars: crate::snackbar_stack::SnackbarStack,
 }
 
 impl FormBody {
@@ -742,6 +748,197 @@ impl FormBody {
             pre_focus,
         );
         self.forward_interaction(&out.prop_updates, out.events);
+    }
+
+    // ── Snackbar (spec 055) ─────────────────────────────────────────────────
+
+    /// The pseudo-properties `Show()` and `DismissAll()` arrive as.
+    ///
+    /// The interpreter cannot call into this crate, so a control method reaches
+    /// the host the way `PlayAnimation` already does: `obj_set` writes a
+    /// pseudo-property, the `StateUpdate` crosses the channel, and the host acts
+    /// on it here. No new channel, no new message type.
+    ///
+    /// Returns true when the write was a Snackbar command and must NOT be
+    /// stored as ordinary control state.
+    pub(crate) fn snackbar_command(&mut self, ctrl_id: &str, prop: &str, value: &str) -> bool {
+        if prop.eq_ignore_ascii_case("_ShowSnackbar") {
+            // Mint from the control's CURRENT property values (D2). The state
+            // map carries the live values a handler has been writing, so the
+            // snapshot is what the developer set *by the time Show() ran*.
+            let Some(ctrl) = self.snackbar_template(ctrl_id) else {
+                return true;
+            };
+            let (visual, diag) = cobolt_forms::snackbar::mint(&ctrl);
+            if let Some(d) = diag {
+                // Never a silent truncation (spec Q5). At run time the designer
+                // warning is not visible, so it goes to the diagnostics trace.
+                cobolt_forms::diagnostics::trace_display(&format!(
+                    "[snackbar] {ctrl_id}: {d:?} — the first {} are shown",
+                    cobolt_forms::snackbar::MAX_BUTTONS
+                ));
+            }
+            self.snackbars.raise(ctrl_id, visual, std::time::Instant::now());
+            let _ = value;
+            return true;
+        }
+        if prop.eq_ignore_ascii_case("_DismissAllSnackbar") {
+            self.snackbars.dismiss_all(ctrl_id);
+            return true;
+        }
+        false
+    }
+
+    /// The designed Snackbar control, with every live property write applied —
+    /// the template as it stands right now.
+    fn snackbar_template(&self, ctrl_id: &str) -> Option<cobolt_forms::Control> {
+        let base = self
+            .controls
+            .iter()
+            .find(|c| c.id.eq_ignore_ascii_case(ctrl_id))?;
+        let mut ctrl = base.clone();
+        if let Some((_, st)) = self.state.iter().find(|(k, _)| k.eq_ignore_ascii_case(ctrl_id)) {
+            for (k, v) in &st.props {
+                ctrl.set_prop(k.clone(), cobolt_forms::model::PropValue::String(v.clone()));
+            }
+        }
+        Some(ctrl)
+    }
+
+    /// Tick the stack, lay it out on `surface` and paint it — then forward
+    /// everything it reported as COBOL events.
+    ///
+    /// `surface` is the pane this body was drawn into, **origin included** (D3
+    /// / R16): the ContentPane for an Embedded form, the viewport for a
+    /// standalone one. That is the rect `child_frame` already computed for the
+    /// backdrop, so the two cannot disagree about where this form lives.
+    ///
+    /// Nothing here can change the surface's size — the rects are computed
+    /// *inside* it and painted on the caller's painter (R26/AC13).
+    pub(crate) fn draw_snackbars(&mut self, ui: &mut egui::Ui, surface: egui::Rect) {
+        if self.snackbars.is_empty() {
+            return;
+        }
+        let now = std::time::Instant::now();
+        let pointer = ui
+            .ctx()
+            .pointer_latest_pos()
+            .map(|p| (p.x, p.y));
+        self.snackbars.tick(now, pointer);
+
+        let painter = ui.painter().clone();
+        let surf = cobolt_forms::model::Rect::new(
+            surface.min.x.round() as i32,
+            surface.min.y.round() as i32,
+            surface.width().round() as i32,
+            surface.height().round() as i32,
+        );
+        // Measure through the same painter that will draw it, so the width a
+        // notification is GIVEN is the width its text was measured against.
+        let measure = |v: &cobolt_forms::snackbar::SnackVisual| {
+            let font = egui::FontId::proportional(v.font_size);
+            let text_w = |s: &str| -> f32 {
+                if s.is_empty() {
+                    0.0
+                } else {
+                    painter
+                        .layout_no_wrap(s.to_owned(), font.clone(), egui::Color32::WHITE)
+                        .size()
+                        .x
+                }
+            };
+            let widths: Vec<f32> = v
+                .buttons
+                .iter()
+                .map(|b| (text_w(&b.text) + v.size.metrics().pad_x * 1.5).max(v.size.metrics().button_h))
+                .collect();
+            cobolt_forms::snackbar::notification_size(
+                v.size,
+                v.icon.as_ref().map(|_| v.icon_size),
+                &v.text,
+                &widths,
+                &text_w,
+                v.text_wrap,
+                surf,
+            )
+        };
+        let placed = self.snackbars.layout(surf, &measure);
+
+        // Paint newest LAST so it sits over its neighbours, and collect the
+        // button rects for hit-testing.
+        let mut hits: Vec<(u64, Vec<egui::Rect>)> = Vec::new();
+        for (id, r) in &placed {
+            let Some(n) = self.snackbars.live().iter().find(|n| n.id == *id) else {
+                continue;
+            };
+            let rect = egui::Rect::from_min_size(
+                egui::Pos2::new(r.x as f32, r.y as f32),
+                egui::Vec2::new(r.w as f32, r.h as f32),
+            );
+            let out = cobolt_forms::paint::draw_snackbar(&painter, rect, &n.visual, None, 1.0);
+            hits.push((*id, out.buttons));
+        }
+
+        // A click on a button. The notification is not a control, so this is not
+        // an `interact` on a widget id — it is a hit test against the rects the
+        // painter just reported, which is the same thing the toolbar does.
+        if ui.input(|i| i.pointer.primary_clicked()) {
+            if let Some(pos) = ui.ctx().pointer_interact_pos() {
+                'outer: for (id, buttons) in hits.iter().rev() {
+                    for (idx, br) in buttons.iter().enumerate() {
+                        if br.contains(pos) {
+                            self.snackbars.click_button(*id, idx);
+                            break 'outer;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Report. A notification is raised BY a control, so its events are that
+        // control's — a handler binds them in the designer like any other.
+        for ev in self.snackbars.drain_events() {
+            use crate::snackbar_stack::SnackEvent as E;
+            let (ctrl_id, name, value) = match ev {
+                E::Shown { ctrl_id, .. } => (ctrl_id, "onShown", String::new()),
+                E::Timeout { ctrl_id, .. } => (ctrl_id, "onTimeout", String::new()),
+                E::Closing { ctrl_id, reason, .. } => {
+                    (ctrl_id, "onClosing", reason.as_str().to_owned())
+                }
+                E::Closed { ctrl_id, reason, .. } => {
+                    (ctrl_id, "onClosed", reason.as_str().to_owned())
+                }
+                // WHICH button was pressed arrives as `LastButtonId` /
+                // `LastButtonIndex` on the Snackbar, written BEFORE the event so
+                // a handler reading `SNACK-1::LastButtonId` already sees this
+                // press — exactly the rule a ToolBar's `LastButton` follows. The
+                // event also carries id and index TAB-separated as its value,
+                // the encoding a TreeView node event uses.
+                E::ButtonClick { ctrl_id, button_id, index, .. } => {
+                    for (k, v) in [
+                        ("LastButtonId", button_id.clone()),
+                        ("LastButtonIndex", index.to_string()),
+                    ] {
+                        self.state_entry_mut(&ctrl_id).set(k, v.clone());
+                        let _ = self.input_tx.send(cobolt_runtime::channels::StateUpdate::new(
+                            ctrl_id.clone(),
+                            k.to_string(),
+                            v,
+                        ));
+                    }
+                    (ctrl_id, "onButtonClick", format!("{button_id}\t{index}"))
+                }
+            };
+            let mut fe = FormEvent::new(ctrl_id, name);
+            fe.value = value;
+            self.send_event(fe);
+        }
+
+        // A live notification is a reason to keep painting: its timeout has to
+        // elapse even when nothing else on the form is moving.
+        if !self.snackbars.is_empty() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
     }
 
     pub(crate) fn send_event(&mut self, ev: FormEvent) {
@@ -1134,6 +1331,14 @@ impl FormBody {
         if self.apply_toolbar_button_write(&key, &u.prop, &u.value) {
             return;
         }
+        // 055 — `Show()` and `DismissAll()` reach the host as pseudo-property
+        // writes, the way `PlayAnimation` already does. They are COMMANDS, not
+        // state: storing them would leave `_ShowSnackbar` sitting in the control's
+        // property map, where the next `mint` would read it back as if the
+        // developer had set it.
+        if self.snackbar_command(&key, &u.prop, &u.value) {
+            return;
+        }
         // An OBSERVER event reports that a value is now different, whoever made it
         // different — so a Timer handler doing `MOVE 5 TO KNOB-1::Value` has to
         // fire the Knob's `onValueChanged` exactly as a drag does.
@@ -1520,6 +1725,13 @@ impl FormBody {
         // Where the engine actually put every control this frame — see
         // `FormBody::last_control_rects`.
         self.last_control_rects = output.control_rects.clone();
+
+        // 055 — notifications, over the controls and inside THIS body's pane
+        // (D3/R16). `panel_rect` is the pane the shell carved out for an
+        // Embedded occupant and the viewport for a child window, so a message
+        // lands where the operator is looking and never over the rail or the
+        // breadcrumb.
+        self.draw_snackbars(panel_ui, panel_rect);
 
         // …and, once the entrance has settled, say so out loud. A control that
         // arrives visible at its designed rect and still does not appear is
@@ -2461,6 +2673,7 @@ impl FormHost {
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             action_notice: None,
             last_control_rects: HashMap::new(),
+                snackbars: Default::default(),
         };
         Ok((body, form))
     }
@@ -3141,6 +3354,13 @@ impl FormHost {
         let mut content_scroll = egui::Vec2::ZERO;
         // Focus BEFORE this frame's widgets see the click — see child_frame.
         let pre_focus = ctx.memory(|m| m.focused());
+        // 055 D3/R16 — this body's surface, taken BEFORE the CentralPanel
+        // consumes it. In a plain form window it is the whole viewport; in Pane
+        // mode it is what the rail and the breadcrumb left, which is exactly the
+        // region the shell records as its content rect. Taken afterwards it
+        // would be the already-consumed remainder, and every notification would
+        // anchor to the wrong rectangle.
+        let snack_surface = root_ui.available_rect_before_wrap();
         let output = {
             let controls = self.root.controls.clone();
             let st = LiveState {
@@ -3266,6 +3486,12 @@ impl FormHost {
         // Where the engine actually put every control this frame — see
         // `FormBody::last_control_rects`.
         self.root.last_control_rects = output.control_rects.clone();
+
+        // 055 — notifications, over the controls and inside this form's own
+        // surface (D3/R16). Nothing here resizes anything: the rects were
+        // computed inside `snack_surface` and painted on the caller's painter
+        // (R26/AC13).
+        self.root.draw_snackbars(root_ui, snack_surface);
 
 
         // ── Animation triggers from this frame's interaction ─────────────────
@@ -4680,6 +4906,7 @@ mod parity {
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             action_notice: None,
             last_control_rects: HashMap::new(),
+                snackbars: Default::default(),
         }
     }
 

@@ -211,6 +211,14 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::WebSearch,
         category: "NonVisual",
     },
+    // 055 D1 — the dropped Snackbar is a TEMPLATE, not a notification, so it
+    // belongs in the tray beside the other config objects rather than on the
+    // canvas. It paints nothing where it sits (R3).
+    ToolEntry {
+        label: "Snackbar",
+        ct: ControlType::Snackbar,
+        category: "NonVisual",
+    },
     // ── Charts ─────────────────────────────────────────────────────────────────
     ToolEntry {
         label: "BarChart",

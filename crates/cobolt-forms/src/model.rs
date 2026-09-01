@@ -1285,9 +1285,19 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
         "HoveredMarkerId",
         "HoveredRegionId",
     ];
+    // 055 — which button was pressed, written by the host BEFORE `onButtonClick`
+    // fires so a handler reading `SNACK-1::LastButtonId` already sees this press.
+    // Runtime-only: there is no design-time default, because until a button is
+    // clicked there is no answer.
+    //
+    // Listing it here is what keeps the handler lint from calling a correct
+    // reference a hallucination — the failure `TOOLBAR-1::LastButton` still has
+    // (operator, 2026-09-01), which is tracked separately as a fix.
+    const SNACKBAR: &[&str] = &["LastButtonId", "LastButtonIndex"];
     match ControlType::from_str(type_name) {
         ControlType::Maps => MAPS,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
+        ControlType::Snackbar => SNACKBAR,
         _ => &[],
     }
 }
@@ -2341,6 +2351,10 @@ pub enum ControlType {
     // MenuBar must keep opening in its own window, so the shell can only be
     // triggered by a control that no existing project has (049 R3, R45).
     SideMenu,
+    // Spec 055: a transient, non-modal notification. The dropped control is a
+    // TEMPLATE carrying the defaults, never the notification itself — each
+    // `Show()` mints a new one into the surface's stack (spec 055 D1/D2).
+    Snackbar,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -2460,6 +2474,7 @@ impl ControlType {
         ControlType::FileDropZone,
         ControlType::Maps,
         ControlType::WebSearch,
+        ControlType::Snackbar,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -2506,6 +2521,7 @@ impl ControlType {
             ControlType::FileDropZone => "FileDropZone",
             ControlType::Maps => "Maps",
             ControlType::WebSearch => "WebSearch",
+            ControlType::Snackbar => "Snackbar",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -2557,6 +2573,7 @@ impl ControlType {
             "FileDropZone" => ControlType::FileDropZone,
             "Maps" => ControlType::Maps,
             "WebSearch" => ControlType::WebSearch,
+            "Snackbar" => ControlType::Snackbar,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -2626,6 +2643,10 @@ impl ControlType {
             ControlType::FileDropZone => (220, 100),
             ControlType::Maps => (320, 240),
             ControlType::WebSearch => (56, 56),
+            // Non-visual (055 D1/R3): the tray badge's footprint, never a
+            // designed rect — a notification is sized at run time from its
+            // `Size` class, not from anything the designer placed.
+            ControlType::Snackbar => (56, 56),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -2658,6 +2679,7 @@ impl ControlType {
             ControlType::FileDropZone => "onFilesDropped",
             ControlType::Maps => "onMapClick",
             ControlType::WebSearch => "onResultsReceived",
+            ControlType::Snackbar => "onButtonClick",
             // Gauge is read-only (no interactive primary event, R10); the
             // catch-all below applies but is functionally inert since
             // Gauge's supported_events() never lists onClick.
@@ -3175,6 +3197,16 @@ impl ControlType {
                 "onLoad",
             ],
             ControlType::Timer => &["onTick"],
+            // 055 §6 — the notification's own lifecycle. No mouse/focus/geometry
+            // group: the TEMPLATE is never on the canvas, and the notification
+            // it mints is not a control the developer can address.
+            ControlType::Snackbar => &[
+                "onShown",
+                "onClosing",
+                "onClosed",
+                "onTimeout",
+                "onButtonClick",
+            ],
             ControlType::PictureBox => &[
                 "onClick",
                 "onDblClick",
@@ -3481,6 +3513,7 @@ impl ControlType {
                 | ControlType::SqlDatabase
                 | ControlType::IndexedFile
                 | ControlType::WebSearch
+                | ControlType::Snackbar
         )
     }
 }
@@ -4901,6 +4934,71 @@ impl Control {
                 props.insert("Mode".into(), PropValue::String("Sync".into())); // Sync | Async
                 props.insert("Busy".into(), PropValue::Bool(false));
                 props.insert("TimeoutMs".into(), PropValue::Int(0));
+            }
+
+            // ── Snackbar (spec 055) ───────────────────────────────────────────
+            // The dropped control is the TEMPLATE, never the notification: every
+            // value here is what the next `Show()` will mint from (D2).
+            //
+            // Colours, the icon and the timeout seed EMPTY / 0 on purpose —
+            // empty means "the Category decides", so changing Category moves all
+            // of them together, and setting one explicitly wins over the
+            // category for that one alone (R23). Seeding a concrete colour here
+            // would make every notification permanently Info-coloured and the
+            // category inert.
+            ControlType::Snackbar => {
+                props.insert("Text".into(), PropValue::String("".into()));
+                props.insert("Category".into(), PropValue::String("Info".into()));
+                props.insert("Size".into(), PropValue::String("Medium".into()));
+                props.insert("ShowCategoryIcon".into(), PropValue::Bool(true));
+                props.insert("CategoryIconSize".into(), PropValue::Int(0));
+                props.insert("CategoryIconColor".into(), PropValue::String("".into()));
+                props.insert("BackgroundColor".into(), PropValue::String("".into()));
+                props.insert("BackgroundImage".into(), PropValue::String("".into()));
+                props.insert("BackgroundImageMode".into(), PropValue::String("Fill".into()));
+                props.insert("BackgroundImageOpacity".into(), PropValue::Int(15));
+                props.insert("ForegroundColor".into(), PropValue::String("".into()));
+                props.insert("FontName".into(), PropValue::String("".into()));
+                props.insert("FontSize".into(), PropValue::Int(14));
+                props.insert("Bold".into(), PropValue::Bool(false));
+                props.insert("TextWrap".into(), PropValue::Bool(true));
+                props.insert("CornerRadius".into(), PropValue::Int(12));
+                props.insert("CornerRadiusTopLeft".into(), PropValue::Int(-1));
+                props.insert("CornerRadiusTopRight".into(), PropValue::Int(-1));
+                props.insert("CornerRadiusBottomLeft".into(), PropValue::Int(-1));
+                props.insert("CornerRadiusBottomRight".into(), PropValue::Int(-1));
+                props.insert("BorderStyle".into(), PropValue::String("None".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
+                props.insert("BorderColor".into(), PropValue::String("#00000000".into()));
+                props.insert("ShadowEnabled".into(), PropValue::Bool(true));
+                props.insert("ShadowColor".into(), PropValue::String("#000000".into()));
+                props.insert("ShadowOpacity".into(), PropValue::Int(25));
+                props.insert("ShadowBlur".into(), PropValue::Int(12));
+                props.insert("ShadowDirection".into(), PropValue::Int(270));
+                props.insert("ShadowDistance".into(), PropValue::Int(4));
+                // `-1`, not `0`: spec §6 wants the default to come from the
+                // Category, and R6 makes `0` mean "never expires". Seeding 0
+                // would have collided the two — every default Snackbar would
+                // have stayed up forever and §7's 4000/6000/8000 ms would have
+                // been dead values. `-1` is the catalogue's own "ask the other
+                // one" sentinel (`CornerRadiusTopLeft`), so `0` keeps meaning
+                // exactly what R6 says. Read only through
+                // `crate::snackbar::effective_timeout_ms`.
+                props.insert("Timeout".into(), PropValue::Int(-1));
+                props.insert("PauseTimeoutOnHover".into(), PropValue::Bool(true));
+                // `StackAnchor`, NOT `Anchor`: every control already has a base
+                // `Anchor` — a BOOLEAN that locks its X/Y against mouse dragging
+                // on the canvas (`Control::is_anchored`). Same name, different
+                // meaning, one property map: the designer's lock checkbox would
+                // have overwritten the notification's placement with `false`.
+                // It joins `StackSpacing`/`StackOrder` as one family instead.
+                props.insert("StackAnchor".into(), PropValue::String("BottomRight".into()));
+                props.insert("Margin".into(), PropValue::Int(16));
+                props.insert("StackSpacing".into(), PropValue::Int(8));
+                props.insert("StackOrder".into(), PropValue::String("Auto".into()));
+                props.insert("MaximumVisible".into(), PropValue::Int(5));
+                props.insert("OverflowBehavior".into(), PropValue::String("Queue".into()));
+                props.insert("Buttons".into(), PropValue::String("".into()));
             }
 
             // ── Charts ────────────────────────────────────────────────────────

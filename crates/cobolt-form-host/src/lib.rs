@@ -39,6 +39,11 @@ pub mod file_dialog;
 pub mod host;
 pub mod seeding;
 pub mod shell;
+/// The Snackbar's live stack (spec 055) — raise, expire, hover-pause, reflow and
+/// overflow. It lives here rather than in `cobolt-forms` because a notification
+/// has a LIFETIME, and the engine owns nothing that outlives a frame. Both live
+/// surfaces consume this crate, so they cannot drift (R25).
+pub mod snackbar_stack;
 pub mod state;
 
 pub use host::{

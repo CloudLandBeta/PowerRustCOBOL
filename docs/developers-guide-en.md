@@ -2983,6 +2983,175 @@ INVOKE MENU1 'SetItemEnabled'
 SET WS-RESULT TO MENU1::GetItemEnabled('file-save')
 ```
 
+### Snackbar (transient notifications)
+
+A **Snackbar** tells the operator something without stopping them. It is a short
+message that appears over the form, waits a few seconds, and leaves by itself —
+no OK button to dismiss, no modal loop, no answer expected.
+
+If you have reached for a message box to say *"Record saved"* or *"Could not
+reach the server"*, this is what you wanted. A message box demands a click
+before the operator can carry on; a Snackbar does not interrupt them at all.
+Keep the message box for a question you genuinely need answered.
+
+**The control you drop is a template, not a message.** This is the one idea to
+get right, and it is different from most controls. A Snackbar lives in the
+designer's non-visual tray, beside `Timer` and `IndexedFile` — it has no size
+and no position on the canvas, and it paints nothing there. What it holds are
+the *defaults*. Every `Show()` mints a **new** notification from whatever those
+values are at that moment:
+
+```cobol
+       MOVE "Record saved" TO SNACK-1::Text
+       INVOKE SNACK-1::Show()
+       MOVE "Index rebuilt" TO SNACK-1::Text
+       INVOKE SNACK-1::Show()
+```
+
+That puts **two** messages on screen, stacked one above the other. The first one
+still says `Record saved` — a notification is a snapshot, so changing `Text`
+afterwards never rewrites a message already showing.
+
+> **Note.** On every other control `Show()` means "make this control visible".
+> A Snackbar is non-visual and has nothing to make visible, so `Show()` there
+> means "raise a notification". Nothing changes for your existing forms:
+> `BTN-OK::Show()` still shows the button.
+
+**Categories do the styling for you.** Set `Category` and the colours, the icon
+and the timeout follow:
+
+| `Category` | Timeout | Use it for |
+|---|---|---|
+| `Info` | 4000 ms | Confirmation, progress, anything neutral |
+| `Question` | 6000 ms | Inviting a decision |
+| `Warning` | 6000 ms | Something looks wrong but the work continued |
+| `Error` | 8000 ms | An operation failed |
+| `Critical` | stays until dismissed | Severe; must be acknowledged |
+
+These are defaults, not a fixed look. Set any property yourself and yours wins —
+and it wins *alone*, so choosing a `BackgroundColor` leaves the category's icon
+and ink in place. Leave a colour **empty** to mean "the category decides", which
+is what lets one `MOVE` to `Category` restyle the whole message:
+
+```cobol
+       MOVE "Cannot reach the server" TO SNACK-1::Text
+       MOVE "Error" TO SNACK-1::Category
+       INVOKE SNACK-1::Show()
+```
+
+**Timeout** is in milliseconds. `-1` — the default — means "use the category's".
+`0` means it stays until something dismisses it. Anything above 0 is that many
+milliseconds:
+
+```cobol
+       MOVE 2500 TO SNACK-1::Timeout      *> two and a half seconds
+       MOVE 0    TO SNACK-1::Timeout      *> stays until dismissed
+       MOVE -1   TO SNACK-1::Timeout      *> back to the category default
+```
+
+While the pointer rests on a notification its timeout is **held**, and resumes
+with exactly what was left when the pointer moves away — an operator reading a
+message never has it vanish under the cursor. Turn that off with
+`PauseTimeoutOnHover`.
+
+**Buttons.** Up to three, one per line in the `Buttons` property, fields
+separated by `|`. Trailing fields may be left off:
+
+```
+retry|Retry|refresh|Left|true
+later|Later|||false
+```
+
+The fields are `id|text|icon|position|dismiss`. The **id** is what your handler
+reads — it is your own name for the button and stays in English, like every
+other COBOL identifier. **icon** is any catalogue icon name (`refresh`,
+`x-mark`, `undo`, `check`), **position** is `None`, `Left` or `Right`, and
+**dismiss** decides whether clicking closes the notification (default `true`).
+
+Bind `onButtonClick` and read which one was pressed:
+
+```cobol
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SNACK-1--ONBUTTONCLICK.
+       PROCEDURE DIVISION.
+           EVALUATE SNACK-1::LastButtonId
+               WHEN "retry"
+                   PERFORM SEND-THE-RECORD-AGAIN
+               WHEN "later"
+                   CONTINUE
+           END-EVALUATE.
+```
+
+**Where they appear.** `StackAnchor` picks one of nine positions —
+`TopLeft`, `TopCenter`, `TopRight`, `CenterLeft`, `Center`, `CenterRight`,
+`BottomLeft`, `BottomCenter`, `BottomRight` — and `Margin` sets the gap from
+the edge. The stack is **vertical only**: a Top anchor grows downward, a Bottom
+anchor grows upward, and in both cases the newest message is the one nearest the
+anchor. Dismiss one from the middle and the rest close the gap immediately.
+
+The anchor is measured against **your form's own surface**, not the screen. In
+an application shell an `Embedded` form's messages appear inside its ContentPane
+— never over the shell's rail or breadcrumb — so they land where the operator is
+already looking.
+
+> ⚠️ **`StackAnchor`, not `Anchor`.** Every control already has an `Anchor`
+> property, and it is a different thing entirely: a tick box that locks the
+> control against being dragged on the design canvas. The Snackbar's placement
+> is `StackAnchor`, which sits with `StackSpacing` and `StackOrder`.
+
+**When several arrive at once.** `MaximumVisible` (default 5) caps how many of
+one Snackbar's messages are up together, and `OverflowBehavior` decides what a
+further `Show()` does:
+
+- `Queue` — hold it back and raise it when a slot frees. Its timeout then starts
+  when it *becomes visible*, so a queued message is still seen in full.
+- `DiscardOldest` — close the oldest to make room.
+- `DiscardNewest` — drop the arrival.
+
+**Clearing them.** `DismissAll()` closes every notification **this** control
+raised, and discards anything it had queued. Other Snackbar controls on the form
+are untouched:
+
+```cobol
+       INVOKE SNACK-1::DismissAll()
+```
+
+There is no `Hide()`. With `Show()` minting a new notification each time, `Hide()`
+could not say *which* one it meant.
+
+**Events.** `onShown` when a message appears, `onTimeout` when its time runs out,
+then `onClosing` and `onClosed` as it leaves — both carrying the reason
+(`Timeout`, `User`, `Action`, `Programmatic`, `Overflow`) — and `onButtonClick`
+when a button is pressed. A button whose `dismiss` is `true` fires
+`onButtonClick` **first** and closes afterwards, so your handler can still read
+the notification it was clicked on.
+
+> **Note.** `Text` is data, not a format string — nothing is substituted into it.
+> Build the message in COBOL first, the way you would any other caption:
+>
+> ```cobol
+>        STRING "Saved " DELIMITED BY SIZE
+>               FUNCTION TRIM(WS-CUSTOMER-NAME) DELIMITED BY SIZE
+>               INTO WS-MESSAGE
+>        MOVE FUNCTION TRIM(WS-MESSAGE) TO SNACK-1::Text
+>        INVOKE SNACK-1::Show()
+> ```
+
+> ⚠️ **Caveat — a notification is not a dialogue.** It never blocks, never takes
+> focus and never waits. If your program must not continue until the operator
+> answers, a Snackbar is the wrong control: the next statement after `Show()`
+> runs immediately, while the message is still on screen.
+
+> ⚠️ **Caveat — `Size` caps the text.** `Small`, `Medium` and `Large` allow one,
+> two and three lines respectively; anything longer is ellipsized rather than
+> growing the notification. A window never resizes itself to fit a message.
+
+📷 Screenshot needed — `snackbar-stack.png`. Run a form with a Snackbar anchored
+`BottomRight`, raise three notifications of different categories (Info, Warning,
+Error) from one button handler, and capture the window while all three are
+stacked, so the vertical stacking, the category colours and the icons are all
+visible.
+
 ---
 
 ## 9. Properties

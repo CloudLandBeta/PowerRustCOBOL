@@ -2845,6 +2845,55 @@ mod tests {
     }
 
     #[test]
+    fn a_snackbar_gets_handler_stubs_and_dispatch_like_any_other_control() {
+        // 055 T15. Codegen needs NO Snackbar-specific arm: it walks `ctrl.events`
+        // for every control whatever its type, and `Show()` is an ordinary
+        // `Stmt::Invoke` with no AST change behind it. What this pins is that the
+        // generic path really does cover a non-visual control's own lifecycle
+        // events — the claim is worth a test precisely because it is a claim
+        // about code that was never written.
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        let mut snack = Control::new("SNACK-1", ControlType::Snackbar, 0, 0);
+        snack.set_prop("Category", PropValue::String("Error".into()));
+        snack.set_prop("Buttons", PropValue::String("retry|Retry|refresh|Left|true".into()));
+        let mut shown = EventBinding::for_control("SNACK-1", "onShown");
+        shown.code = "           DISPLAY \"UP\".".to_string();
+        snack.events.push(shown);
+        let mut clicked = EventBinding::for_control("SNACK-1", "onButtonClick");
+        clicked.code = "           DISPLAY \"PRESSED\".".to_string();
+        snack.events.push(clicked);
+        form.controls.push(snack);
+
+        let src = generate(&form);
+
+        // A nested program per bound event — named the way every other control's
+        // handler is, and COMMON so the event loop can CALL it.
+        for prog in ["SNACK-1--ONSHOWN", "SNACK-1--ONBUTTONCLICK"] {
+            assert!(
+                src.contains(&format!("PROGRAM-ID. {prog} IS COMMON PROGRAM.")),
+                "missing the nested program {prog} in:\n{src}"
+            );
+            assert!(src.contains(&format!("END PROGRAM {prog}.")), "unterminated {prog}");
+            assert!(src.contains(&format!("CALL \"{prog}\"")), "{prog} is never dispatched");
+        }
+        // …dispatched from the event loop under the control's own id.
+        assert!(src.contains("WHEN \"SNACK-1\""), "no dispatch arm for the Snackbar");
+        assert!(src.contains("WHEN \"onShown\""));
+        assert!(src.contains("WHEN \"onButtonClick\""));
+        // …carrying the developer's own code.
+        assert!(src.contains("DISPLAY \"UP\""));
+        assert!(src.contains("DISPLAY \"PRESSED\""));
+
+        // Generated COBOL stays ENGLISH, and the developer banner survives (the
+        // regenerate-on-Build contract).
+        assert!(src.contains("IDENTIFICATION DIVISION."));
+        eprintln!(
+            "\n  055 codegen — 2 bound events → 2 nested programs + dispatch, {} lines generated\n",
+            src.lines().count()
+        );
+    }
+
+    #[test]
     fn user_line_map_covers_authored_handler_body_only() {
         // A handler WITH real user code + one with none.
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);

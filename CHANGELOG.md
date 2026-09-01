@@ -1,5 +1,86 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.141] — 2026-09-01
+
+### The Snackbar: a message that does not stop the operator
+
+Spec 055. Telling someone a record saved, or that the server could not be
+reached, meant a message box: a modal that has to be clicked before the work can
+continue. The **Snackbar** is the other half of that vocabulary — a short message
+that appears over the form, waits, and leaves by itself. It never blocks the
+interpreter, never takes focus and never asks for an answer.
+
+The 43rd control, and a **non-visual** one. What the developer drops is the
+**template**, not the message: it sits in the designer's tray beside `Timer` and
+`IndexedFile`, has no designed rect and paints nothing on the canvas. Each
+`Show()` mints a NEW notification from the template's values *at that moment*, so
+two calls in one handler put up two messages and the first still says what it
+said. That factory reading is the only one under which `MaximumVisible`,
+`OverflowBehavior` and reflow mean anything.
+
+```cobol
+       MOVE "Record saved" TO SNACK-1::Text
+       INVOKE SNACK-1::Show()
+```
+
+`Category` (Info | Question | Warning | Error | Critical) supplies the colours,
+the icon and the timeout — 4000/6000/6000/8000 ms, and Critical stays until
+dismissed. They are defaults, not a fixed look: an explicitly set property wins,
+and wins alone, so a chosen background leaves the category's icon and ink in
+place. A colour left EMPTY means "the category decides", which is what lets one
+`MOVE` to `Category` restyle the whole message.
+
+Several live at once, stacked **vertically** against one of nine `StackAnchor`
+positions — a Top anchor grows downward, a Bottom anchor upward, newest nearest
+the anchor either way — and the run reflows the instant one leaves. The anchor is
+resolved against the **form's own surface**, so an Embedded form's messages land
+inside its ContentPane and never over the shell's rail or breadcrumb.
+
+- `cobolt-forms::snackbar` — the PURE part: size classes, category defaults,
+  `Buttons` parsing, content layout and `stack_layout`. No clock, no state, not
+  behind the `render` feature, so the host and the runtime read one copy of the
+  arithmetic.
+- `cobolt-forms::paint::draw_snackbar` — the ONE painter, on the surface's own
+  painter. No `egui::Area` per notification: that would be a second renderer with
+  its own id and ordering rules.
+- `cobolt-form-host::snackbar_stack` — the LIFETIME: raise, expire, hover-pause,
+  reflow, overflow. `tick(now, pointer)` takes the clock as a parameter and
+  nothing sleeps, so a whole notification life is played out deterministically in
+  microseconds. Both live surfaces consume this crate, so they cannot drift.
+- `cobolt-runtime` — `Show()` / `DismissAll()`. **`Show()` was already the
+  universal "make this control visible" verb**; it keeps that meaning for every
+  control that HAS a visible presence and is diverted only for the one type where
+  it would be meaningless. `BTN-OK::Show()` is unchanged, and a test says so.
+- Icons — `control-snackbar` for the toolbox, and `critical-octagon` for the one
+  category the catalogue did not already name. Info, Question, Warning and Error
+  reuse `info-circle`, `help-circle`, `warning-triangle` and `error-circle`
+  rather than adding five near-duplicates beside them.
+
+Two corrections the spec did not anticipate, both found by building it:
+
+- **`StackAnchor`, not `Anchor`.** `Anchor` is already a base property on every
+  control — a boolean locking X/Y against mouse dragging on the design canvas
+  (`Control::is_anchored`). Two meanings on one key in one property map: since a
+  non-visual control still shows the geometry section, toggling that lock would
+  have written `Anchor: Bool(false)` straight over the notification's placement.
+  It joins `StackSpacing`/`StackOrder` as one family instead.
+- **`Timeout` seeds `-1`, not `0`.** Spec §6 wanted the default to come from the
+  Category while R6 gives `0` the meaning "never expires". Seeding `0` collapsed
+  the two — every default Snackbar would have stayed up forever and the category
+  timeouts would have been unreachable. `-1` is the catalogue's own "ask the
+  other one" sentinel, so `0` keeps meaning exactly what R6 says.
+
+Tests: 10 in `snackbar.rs` (size classes, centring, ellipsis, `Buttons` parsing
+including the reported fourth button); 8 in `snackbar_template` (the 38 documented
+defaults as a printed table, the `.cfrm` round trip proving `ControlType` is
+name-keyed, the `Anchor`/`StackAnchor` collision guard); 7 in
+`snackbar_stack_layout` (all nine anchors, growth direction, reflow); 5 in
+`snackbar_paint_order`; 4 in `snackbar_engine_parity`; 10 in `cobolt-form-host`
+(fabricated clock — expiry, `Timeout = 0`, hover hold/resume, three overflow
+policies reporting which ids survived and what was dropped, all five dismiss
+reasons); 5 in `cobolt-runtime` including the `Show()` collision guard; 1 in
+`cobolt-codegen`.
+
 ## [PowerRustCOBOL 1.62.140] — 2026-09-01
 
 ### Transparency works with a background gradient, not just without one

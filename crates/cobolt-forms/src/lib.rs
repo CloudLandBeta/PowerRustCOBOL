@@ -37,6 +37,13 @@ pub mod model;
 // unchanged and there is exactly one implementation.
 pub mod numedit;
 pub mod picture;
+/// The Snackbar's pure parts (spec 055) — size classes, category defaults,
+/// `Buttons` parsing, content layout and stack geometry. Deliberately NOT behind
+/// `render`, for the reason `splitter` is not: the host and the runtime read
+/// this arithmetic, and a second copy behind a feature gate would be free to
+/// disagree with it. The notification's LIFETIME lives in `cobolt-form-host` —
+/// there is no clock in here.
+pub mod snackbar;
 pub mod theme;
 pub mod theme_pack;
 pub mod xml;
