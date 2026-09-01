@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.140] — 2026-09-01
+
+### Transparency works with a background gradient, not just without one
+
+Switch a control's **Background gradient** on and its `Transparency` stopped
+doing anything at all; switch the gradient off and transparency worked again
+(operator, 2026-09-01: *"it should work with or without background gradients"*).
+
+Every control resolves two alphas. `alpha_mul` is the INHERITED one — a faded
+container dimming its subtree — and is what borders, strokes and overlays owe.
+`face_alpha` is that same alpha folded together with the control's OWN
+`Transparency`, and is what a FACE owes. The flat and frosted faces used
+`face_alpha`. The background gradient went through `alpha_color`, which carries
+only `alpha_mul`, so the gradient mesh was painted at full opacity however
+transparent the control was set to be.
+
+The face now takes `face_alpha` everywhere it is painted — the generic frame's
+gradient, the Shape silhouettes' gradient fan, and all four
+`paint_background_gradient` call sites, which were passing `alpha_mul` too. A
+new `face_color` helper sits beside `alpha_color` so the distinction is named
+rather than remembered: ancestor alpha for anything drawn ON the control, face
+alpha for the control's own face.
+
+Measured on a Label at `Transparency = 60`, peak face alpha:
+
+| | Transparency 0 | Transparency 60 |
+|---|---|---|
+| flat face | 255 | 101 |
+| gradient face — before | 255 | **255** |
+| gradient face — after | 255 | 102 |
+
+Tests: `transparency_applies_with_and_without_a_background_gradient`, verified
+to FAIL without the fix (gradient stuck at 255).
+
 ## [PowerRustCOBOL 1.62.139] — 2026-09-01
 
 ### A DataGrid's filter row no longer erases the controls above it

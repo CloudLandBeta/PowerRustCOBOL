@@ -2117,6 +2117,24 @@ fn draw_control_body(
     let c_scale = |c: u8| -> u8 { ((c as f32) * alpha_mul) as u8 };
     let alpha_color =
         |c: Color32| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), c_scale(c.a()));
+    // The same, but carrying the control's OWN `Transparency` as well.
+    //
+    // `alpha_color` folds in only `alpha_mul` — the inherited/ancestor alpha —
+    // which is right for borders, strokes and overlays. A FACE also owes its
+    // own transparency, and that lives in `face_alpha` (via `face_opacity_of`).
+    // The flat and frosted faces already used it; the background GRADIENT did
+    // not, so a control with a gradient ignored `Transparency` completely while
+    // the same control without one honoured it (operator, 2026-09-01: "any
+    // control that applies Background gradient ignores the transparency
+    // setting… it should work with or without background gradients").
+    let face_color = |c: Color32| {
+        Color32::from_rgba_premultiplied(
+            c.r(),
+            c.g(),
+            c.b(),
+            ((c.a() as f32) * face_alpha).round().clamp(0.0, 255.0) as u8,
+        )
+    };
 
     // Composite-frame diagnostics overlay (spec 017 corner-bleed hunt): traces every
     // frame a container draws — shadow, face, border, notch mask, restored outline —
@@ -2335,7 +2353,7 @@ fn draw_control_body(
                 .unwrap_or(false)
                 .then(|| {
                     let colour = |key: &str| {
-                        alpha_color(
+                        face_color(
                             ctrl.get_prop(key)
                                 .map(|v| parse_color(v.as_str()))
                                 .unwrap_or(fill_color),
@@ -2575,7 +2593,7 @@ fn draw_control_body(
             rect,
             themed_corner_radius(painter.ctx(), ctrl).into(),
             ctrl,
-            alpha_mul,
+            face_alpha,
         );
         let min_v = ctrl.get_prop("Minimum").map(|v| v.as_i64()).unwrap_or(0) as f32;
         let max_v = ctrl
@@ -3093,7 +3111,7 @@ fn draw_control_body(
             rect,
             themed_corner_radius(painter.ctx(), ctrl).into(),
             ctrl,
-            alpha_mul,
+            face_alpha,
         );
         // Under Elegance these read from the REAL palette — it turns out to be
         // public and constructible without a `Ui`/`Context`, so the designer
@@ -3608,7 +3626,7 @@ fn draw_control_body(
             rect,
             themed_corner_radius(painter.ctx(), ctrl).into(),
             ctrl,
-            alpha_mul,
+            face_alpha,
         );
         // A caller drawing the LIVE map (the run form, which pans, zooms and
         // shows its own info window) wants this face and not the canvas's
@@ -3777,7 +3795,7 @@ fn draw_control_body(
         // paints it exactly as a designed Back colour does. Without this the
         // gradient rows sat in the inspector doing nothing, because the bar
         // returns long before the generic frame code that reads them.
-        if !paint_background_gradient(painter, rect, corner.into(), ctrl, alpha_mul) {
+        if !paint_background_gradient(painter, rect, corner.into(), ctrl, face_alpha) {
             painter.rect_filled(rect, corner, bg_c);
         }
         // A vertical bar fills bottom → top, the way a column of liquid rises;
@@ -4109,12 +4127,12 @@ fn draw_control_body(
             .get_prop("BackgroundGradientDirection")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| "South".into());
-        let start = alpha_color(
+        let start = face_color(
             ctrl.get_prop("BackgroundGradientStartColor")
                 .map(|v| parse_color(v.as_str()))
                 .unwrap_or(fill),
         );
-        let end = alpha_color(
+        let end = face_color(
             ctrl.get_prop("BackgroundGradientEndColor")
                 .map(|v| parse_color(v.as_str()))
                 .unwrap_or(fill),
