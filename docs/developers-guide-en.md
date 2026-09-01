@@ -5512,6 +5512,45 @@ item starts it from.
 - **Errors are reported in your terms.** A Rust type error inside a block fails
   the build at *your* `EXEC RUST` line and column, not at generated code.
 
+#### Debugging a program that contains a block
+
+You can debug it. Press **Debug** exactly as you would for any other form.
+
+There is one thing to know, and it explains everything else: a program with a
+block is always **built** before it runs, and Debug is no exception. The IDE
+says so in the Output pane, builds, and then attaches the debugger to the
+application the build produced. That is not a limitation being worked around —
+it is the only arrangement in which your Rust actually executes while you step,
+which is what you want from a debugger.
+
+**A block is one step.** Stepping stops on the `EXEC RUST` line, because that is
+where the statement is. One step from there runs the *whole* block and lands on
+the next COBOL sentence. There is no stepping line-by-line through the Rust:
+those lines are not being interpreted at all — they were compiled into machine
+code before the program started.
+
+**Breakpoints.** Set them anywhere in your COBOL, including on the `EXEC RUST`
+line itself. Try to set one on a line *inside* a block and the IDE declines it
+and tells you why, rather than accepting a breakpoint it could never honour.
+
+Everything else is the ordinary debugger: Continue, Step, Pause, the variable
+snapshot at each stop, and **Only my code** for skipping generated scaffolding.
+Your COBOL data items read exactly as they do in any other session — including
+items a block wrote to, since the block runs for real before the next stop.
+
+> **Note — coming from PowerCOBOL or isCOBOL.** The instinct is that "compiled"
+> and "debuggable" are opposites, because the debugger you are used to steps
+> interpreted code. Here the built application *is* the debuggee: it speaks the
+> debugger's protocol itself, so building buys you working Rust without costing
+> you the session.
+
+> ⚠️ **Caveat — the build happens first, and takes as long as a build takes.**
+> Pressing Debug on a program with a block is not instant the way it is for a
+> pure-COBOL form. The Output pane says a build has started; the debugger window
+> opens, paused at line 1, once it finishes. A build that fails reports the
+> failure and starts nothing — you are not left waiting on a session that will
+> never arrive.
+
 #### A worked example: a dialog from COBOL
 
 This builds and runs as a console program. It defines an `eframe` application in

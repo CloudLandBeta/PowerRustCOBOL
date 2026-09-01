@@ -198,6 +198,26 @@ struct PendingFolderDelete {
 
 /// What the developer was trying to start when the version stamp was found
 /// stale — so the same action can be resumed after a full build.
+/// What the developer pressed, when a build had to happen first.
+///
+/// A program containing `EXEC RUST` is always built before it runs — its blocks
+/// are native code the interpreter has no registry for — and since 1.62.136 the
+/// same is true for DEBUG. The intent rides with the pending build so the
+/// completion handler knows whether to launch the binary or attach to it.
+///
+/// Deliberately NOT `PartialEq`/`Eq`: it carries a whole `Form`, and nothing
+/// compares two pending launches.
+enum BuildThenLaunch {
+    /// Launch the built application and stream its output.
+    Run,
+    /// Launch it as a debuggee and attach the IDE debugger.
+    ///
+    /// The form travels with the intent because the session needs its generated
+    /// user-line ranges, and re-reading it after the build could pick up an
+    /// edit made while the build was running.
+    Debug(Box<Form>),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum StaleBuildIntent {
     /// The IDE toolbar's Run.
@@ -719,7 +739,11 @@ pub struct CoboltApp {
     /// execute one. Run therefore builds first and starts the built binary. The
     /// build is asynchronous, so the intent to run has to survive until its
     /// result arrives; `None` means the build was a plain Build.
-    pending_build_then_run: Option<PathBuf>,
+    /// A launch waiting on a build that had to happen first, and WHICH launch.
+    ///
+    /// One field, two intents. A parallel `pending_build_then_debug` would be a
+    /// second thing to keep in step with this one, and the two would drift.
+    pending_build_then_run: Option<(PathBuf, BuildThenLaunch)>,
     /// Manual KB reindex (File menu): progress/done messages from the worker
     /// thread, drained each frame. `Some` = running, which disables the menu
     /// item and shows the progress modal.
@@ -1886,7 +1910,128 @@ impl CoboltApp {
     /// the compiled blocks, and needs no toolchain. It is started detached, the
     /// way a developer would start it from a file manager — the IDE does not
     /// own its window, and closing the IDE does not close it.
-    fn launch_built_binary(&mut self, binary: &Path, form_path: &Path) {
+    /// Point the IDE debugger at a freshly spawned debuggee.
+    ///
+    /// Shared by both debuggees — the `rcrun run-form --debug` child and a
+    /// BUILT binary launched for a program containing `EXEC RUST`. They speak
+    /// the same `@DBG` protocol, so the session is set up identically; forking
+    /// this would be how the two quietly stopped behaving the same.
+    ///
+    /// The debuggee starts paused at line 1.
+    fn attach_debug_session(
+        &mut self,
+        run: &crate::form_runtime::ExternalFormRun,
+        form: &Form,
+        form_path: &Path,
+        cbl_path: &Path,
+        notice: &str,
+    ) {
+        // Show the generated source in the debugger window, push the initial
+        // breakpoint set, and take ownership of the session.
+        let source = std::fs::read_to_string(cbl_path).unwrap_or_default();
+        // A breakpoint inside an `EXEC RUST` block can never be honoured — the
+        // block is one step, and in a built binary its lines are native code
+        // that was compiled before the program ran. Drop those before the set
+        // is sent, so the debuggee is never asked for a stop it cannot make.
+        let blocks = crate::exec_rust_run::block_line_ranges(&source);
+        let all_lines = self.editor.breakpoints_for(&cbl_path.to_path_buf());
+        let bp_lines: Vec<u32> = all_lines
+            .iter()
+            .copied()
+            .filter(|l| !crate::exec_rust_run::line_is_inside_block(&blocks, *l))
+            .collect();
+        if bp_lines.len() != all_lines.len() {
+            let tr = self.lang.tr();
+            self.output
+                .push_status(tr.status_exec_rust_bp_in_block.to_owned());
+        }
+        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
+        self.debugger.reset();
+        self.debugger
+            .set_source(cbl_path.display().to_string(), &source, &bp_set);
+        run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
+        self.debug_sent_breakpoints = bp_set;
+        // "Only my code": the generated `.cbl` is mostly scaffolding — the
+        // `COBOL-EVENT-LOOP` and its plumbing — so hand the child the ranges
+        // that hold the developer's own handler and procedure bodies.
+        // `generate_with_user_lines` reports them from the same recording path
+        // that produced the file, so the two cannot drift.
+        let (_, ranges) = cobolt_codegen::generate_with_user_lines(form);
+        self.debug_user_lines = ranges
+            .into_iter()
+            .flat_map(|(from, to)| from..=to)
+            .collect();
+        self.debug_sent_user_only = None; // force the first push
+        self.debug_active = true;
+        self.debug_external = true;
+        self.debug_owner_form = Some(form_path.to_path_buf());
+        self.debugger_vp_sized = false; // fresh window → default size
+        self.output.push_status(notice.to_owned());
+    }
+
+    /// Launch what the build produced — as an application, or as a debuggee.
+    fn launch_built_binary(&mut self, binary: &Path, form_path: &Path, intent: BuildThenLaunch) {
+        match intent {
+            BuildThenLaunch::Run => self.run_built_binary(binary, form_path),
+            BuildThenLaunch::Debug(form) => self.debug_built_binary(binary, form_path, *form),
+        }
+    }
+
+    /// Attach the debugger to the built binary (the `EXEC RUST` route).
+    ///
+    /// The binary is spawned as an [`ExternalFormRun`] rather than a
+    /// [`BuiltAppRun`] precisely so every existing piece of the debug session —
+    /// event routing, `send_debug`, exit handling — applies unchanged. It is
+    /// the same debuggee the debugger has always driven, running a different
+    /// program.
+    ///
+    /// [`ExternalFormRun`]: crate::form_runtime::ExternalFormRun
+    /// [`BuiltAppRun`]: crate::form_runtime::BuiltAppRun
+    fn debug_built_binary(&mut self, binary: &Path, form_path: &Path, form: Form) {
+        // A re-Debug replaces the previous instance, exactly as a re-Run does.
+        for run in &mut self.built_runs {
+            run.stop();
+        }
+        self.built_runs.clear();
+        self.external_runs.retain_mut(|r| {
+            if r.form_path == form_path {
+                r.stop();
+                false
+            } else {
+                true
+            }
+        });
+        let cbl_path = self.generated_cbl_path(form_path);
+        match crate::form_runtime::ExternalFormRun::spawn_built(
+            binary,
+            form_path.to_path_buf(),
+            form.name.clone(),
+            true,
+            self.debug.child_env(),
+        ) {
+            Ok(run) => {
+                self.attach_debug_session(
+                    &run,
+                    &form,
+                    form_path,
+                    &cbl_path,
+                    "Debugging the built application — EXEC RUST blocks run for real, \
+                     and a block is one step. Paused at line 1.",
+                );
+                self.external_runs.push(run);
+                self.set_element_status(form_path, ElementStatus::Tested);
+            }
+            Err(e) => {
+                let msg = format!("Error starting {} for debugging: {e}", binary.display());
+                self.output.push_status(msg.clone());
+                self.set_element_status(form_path, ElementStatus::Failed);
+                self.set_form_error(msg);
+                self.build_modal_closed = true;
+            }
+        }
+    }
+
+    fn run_built_binary(&mut self, binary: &Path, form_path: &Path) {
         let tr = self.lang.tr();
         // A re-Run replaces the previous instance — before this, every Run
         // left the last binary running, and a stale window could mask a new
@@ -2175,15 +2320,23 @@ impl CoboltApp {
         let run_cbl_paths = self.run_program_paths(&form_path);
         if crate::exec_rust_run::any_has_blocks(run_cbl_paths.iter().map(PathBuf::as_path)) {
             let tr = self.lang.tr();
-            if debug {
-                // The debugger drives the interpreter over `@DBG` lines; a
-                // compiled block is native code with no such protocol. Say so
-                // rather than starting a session that cannot step into it.
-                let msg = tr.status_exec_rust_debug_unsupported.to_owned();
-                self.output.push_status(msg.clone());
-                self.set_form_error(msg);
-                return;
-            }
+            // Debug takes the SAME route as Run: build, then attach the
+            // debugger to what the build produced.
+            //
+            // This used to refuse outright, and the refusal was honest as far
+            // as it went — the debugger drives an interpreter, and a block is
+            // native code. What it got wrong is which process to drive. The
+            // blocks are compiled into the built binary and the plain
+            // interpreter's registry is empty, so the built binary is the only
+            // process that can execute a block AND the only one worth
+            // debugging. It now speaks the same `@DBG` protocol
+            // `rcrun run-form --debug` does (the link is shared, in
+            // `cobolt-form-host`), so the session is the ordinary one.
+            let intent = if debug {
+                BuildThenLaunch::Debug(Box::new(form.clone()))
+            } else {
+                BuildThenLaunch::Run
+            };
             if self.cobolt_project.is_none() {
                 // Building needs a project manifest; a single form has none.
                 self.output.push_status(
@@ -2192,14 +2345,18 @@ impl CoboltApp {
                 );
                 return;
             }
-            let building = tr.status_exec_rust_building.to_owned();
+            let building = if debug {
+                tr.status_exec_rust_building_debug.to_owned()
+            } else {
+                tr.status_exec_rust_building.to_owned()
+            };
             // `do_build_binary` clears the run output and may refuse (no
             // project, forms with errors), so the notice goes in afterwards and
             // the pending intent is only recorded once a build really started.
             self.do_build_binary();
             if self.pending_build_rx.is_some() {
                 self.output.push_status(building);
-                self.pending_build_then_run = Some(form_path.clone());
+                self.pending_build_then_run = Some((form_path.clone(), intent));
             } else {
                 // The build refused to start (guardian gate, missing manifest,
                 // form errors — each already reported its own reason). Without
@@ -2258,35 +2415,11 @@ impl CoboltApp {
         ) {
             Ok(run) => {
                 if debug {
-                    // Wire the IDE debugger to the child: show the generated
-                    // source in the debugger window, push the initial
-                    // breakpoint set, and take ownership of the session. The
-                    // child starts paused at line 1.
-                    let source = std::fs::read_to_string(&cbl_path).unwrap_or_default();
-                    let bp_lines = self.editor.breakpoints_for(&cbl_path);
-                    let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
-                    self.debugger.reset();
-                    self.debugger
-                        .set_source(cbl_path.display().to_string(), &source, &bp_set);
-                    run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
-                    self.debug_sent_breakpoints = bp_set;
-                    // "Only my code": the generated `.cbl` is mostly scaffolding
-                    // — the `COBOL-EVENT-LOOP` and its plumbing — so hand the
-                    // child the ranges that hold the developer's own handler and
-                    // procedure bodies. `generate_with_user_lines` reports them
-                    // from the same recording path that produced the file, so
-                    // the two cannot drift.
-                    let (_, ranges) = cobolt_codegen::generate_with_user_lines(&form);
-                    self.debug_user_lines = ranges
-                        .into_iter()
-                        .flat_map(|(from, to)| from..=to)
-                        .collect();
-                    self.debug_sent_user_only = None; // force the first push
-                    self.debug_active = true;
-                    self.debug_external = true;
-                    self.debug_owner_form = Some(form_path.clone());
-                    self.debugger_vp_sized = false; // fresh window → default size
-                    self.output.push_status(
+                    self.attach_debug_session(
+                        &run,
+                        &form,
+                        &form_path,
+                        &cbl_path,
                         "Debugging form in a separate rcrun process — paused at line 1.",
                     );
                 } else {
@@ -2432,6 +2565,19 @@ impl CoboltApp {
         if let DebugAction::ToggleBreakpoint(line) = action {
             let path = PathBuf::from(self.debugger.source_path());
             if !path.as_os_str().is_empty() {
+                // Refuse a breakpoint inside an `EXEC RUST` block HERE, at set
+                // time, with a reason. Accepting it and silently never
+                // honouring it is the worse failure: the developer sees a red
+                // dot, runs, sails straight past it, and concludes the debugger
+                // is broken. The block is ONE step, and in the built binary its
+                // lines are native code compiled before the program ran.
+                let blocks = crate::exec_rust_run::file_block_line_ranges(&path);
+                if crate::exec_rust_run::line_is_inside_block(&blocks, line) {
+                    let tr = self.lang.tr();
+                    self.output
+                        .push_status(tr.status_exec_rust_bp_in_block.to_owned());
+                    return;
+                }
                 self.editor.toggle_breakpoint_at(&path, line);
                 self.sync_breakpoints_to_debuggee();
             }
@@ -12165,8 +12311,8 @@ impl eframe::App for CoboltApp {
                     }
                     // Run started this build because the program contains
                     // EXEC RUST (spec 041 T13) — start what it produced.
-                    if let Some(form_path) = self.pending_build_then_run.take() {
-                        self.launch_built_binary(&result.binary_path, &form_path);
+                    if let Some((form_path, intent)) = self.pending_build_then_run.take() {
+                        self.launch_built_binary(&result.binary_path, &form_path, intent);
                         // The operator pressed Run, not Build: the launched
                         // application is the outcome they asked for, and it
                         // opens *behind* this modal — which never self-dismisses
@@ -12188,7 +12334,7 @@ impl eframe::App for CoboltApp {
                     self.build_outcome = Some(Err(e.clone()));
                     self.pending_build_rx = None;
                     self.pending_build_progress = None;
-                    if let Some(form_path) = self.pending_build_then_run.take() {
+                    if let Some((form_path, _)) = self.pending_build_then_run.take() {
                         let tr = self.lang.tr();
                         // A build the developer did not ask for failed, so say
                         // plainly that nothing was started, and — when the
@@ -12216,7 +12362,7 @@ impl eframe::App for CoboltApp {
                     self.pending_build_progress = None;
                     // A Run intent dies with the build thread — say so, and
                     // mark the form, instead of dropping it in silence.
-                    if let Some(form_path) = self.pending_build_then_run.take() {
+                    if let Some((form_path, _)) = self.pending_build_then_run.take() {
                         let tr = self.lang.tr();
                         self.output
                             .push_status(tr.status_run_not_started.to_owned());
@@ -15248,7 +15394,11 @@ impl CoboltApp {
                 );
                 // Building the form's binary, or that binary still running —
                 // the Run button reads as engaged for the whole stretch.
-                let run_busy = self.pending_build_then_run.as_deref() == Some(form_path.as_path())
+                let run_busy = self
+                    .pending_build_then_run
+                    .as_ref()
+                    .map(|(p, _)| p.as_path())
+                    == Some(form_path.as_path())
                     || self.built_runs.iter().any(|r| r.form_path == form_path);
                 ui.horizontal_centered(|ui| {
                     action = draw_icon_toolbar(

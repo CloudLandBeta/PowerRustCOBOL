@@ -260,6 +260,52 @@ impl ExternalFormRun {
                      IDE executable or in PATH."
                 )
             })?;
+        Ok(Self::from_child(child, form_path, form_name, debug))
+    }
+
+    /// Spawn a BUILT application as the debuggee instead of `rcrun run-form`.
+    ///
+    /// A program containing `EXEC RUST` can only be debugged this way. Its
+    /// blocks are compiled into the binary and the plain interpreter's registry
+    /// is empty, so the process that CAN execute a block is the built one — and
+    /// it speaks the same `@DBG` stdio protocol (the link lives in
+    /// `cobolt-form-host`, shared by both). Everything downstream — the event
+    /// routing, `send_debug`, exit handling — is therefore unchanged: this is
+    /// the same `ExternalFormRun` the debugger has always driven, running a
+    /// different program.
+    ///
+    /// `debug` is what turns the link on in the child (`COBOLT_DEBUG_SESSION`);
+    /// without it a compiled application must not touch stdin, or `ACCEPT`
+    /// would find the debugger's reader thread holding it.
+    pub fn spawn_built(
+        binary: &std::path::Path,
+        form_path: PathBuf,
+        form_name: String,
+        debug: bool,
+        envs: Vec<(&'static str, String)>,
+    ) -> std::io::Result<Self> {
+        let mut cmd = Command::new(binary);
+        cmd.current_dir(binary.parent().unwrap_or(Path::new(".")))
+            .envs(envs);
+        if debug {
+            cmd.env(cobolt_runtime::DEBUG_SESSION_ENV, "1");
+        }
+        let child = cmd
+            .stdin(if debug { Stdio::piped() } else { Stdio::null() })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        Ok(Self::from_child(child, form_path, form_name, debug))
+    }
+
+    /// Attach the reader threads and build the run record. Shared by both
+    /// spawns so the two debuggees cannot drift in how their output is handled.
+    fn from_child(
+        mut child: Child,
+        form_path: PathBuf,
+        form_name: String,
+        debug: bool,
+    ) -> Self {
         let child_stdin = child.stdin.take().map(Mutex::new);
 
         // stdout → line channel (drained into the Output pane each frame).
@@ -291,7 +337,7 @@ impl ExternalFormRun {
             });
         }
 
-        Ok(Self {
+        Self {
             form_path,
             form_name,
             debug,
@@ -300,7 +346,7 @@ impl ExternalFormRun {
             stdout_rx,
             stderr_buf,
             exit_status: None,
-        })
+        }
     }
 
     /// Send a debug command to the process as an `@DBG <json>` stdin line

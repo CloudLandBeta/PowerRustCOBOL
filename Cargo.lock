@@ -1371,6 +1371,7 @@ dependencies = [
  "pollster 0.3.0",
  "pretty_assertions",
  "rfd",
+ "serde_json",
 ]
 
 [[package]]

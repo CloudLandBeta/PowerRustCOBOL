@@ -2435,6 +2435,12 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // in any form resolves the same handles (spec 041 R9, now per process
     // rather than per lone interpreter).
     let (bridge_tx, bridge_rx) = mpsc::channel();
+    // A debug session, when the launching host asked for one. Opened HERE, on
+    // the main thread, and moved into the interpreter thread below: it takes
+    // stdin, so it must happen once and only when asked — a released
+    // application must leave stdin to `ACCEPT`.
+    let debug_wiring = cobolt_form_host::debug_link::debug_session_requested()
+        .then(cobolt_form_host::debug_link::stdio_debug_wiring);
     {
         let finished = Arc::clone(&finished);
         let pending = Arc::clone(&pending);
@@ -2460,6 +2466,16 @@ fn run_form_app(program: cobolt_ast::program::Program) {
                 closed_rx,
             );
             interp.seed_objects(seed);
+            // The same `@DBG` stdio protocol `rcrun run-form --debug` speaks,
+            // from the same shared implementation — so the IDE debugger drives
+            // THIS binary exactly as it drives the interpreter. That is what
+            // makes a program containing `EXEC RUST` debuggable at all: the
+            // blocks registered above are native code compiled into this
+            // executable, and this is the only process that can call them.
+            if let Some((cmd_rx, ev_tx, bps, scope)) = debug_wiring {
+                interp.attach_debug_channels(cmd_rx, ev_tx, bps);
+                interp.set_debug_user_scope(scope);
+            }
             // This thread IS the program. When it ends — STOP RUN or an error —
             // the window closes (through the exit effect when one is
             // configured, 042 R15) instead of staying open and answering
