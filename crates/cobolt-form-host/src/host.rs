@@ -461,6 +461,7 @@ impl FormHost {
 
         let host = FormHost {
             root: FormBody {
+                drawn_reported: false,
                 form_name: form.name.clone(),
                 footer_ids: footer_ids.clone(),
                 theme_pack,
@@ -565,6 +566,9 @@ impl FormHost {
 /// all rendered through the same frame path — one renderer, N forms.
 pub(crate) struct FormBody {
     pub(crate) form_name: String,
+    /// `drawn_rects` has already been reported for this body — it is printed
+    /// ONCE, on the first frame that actually placed controls, not per frame.
+    pub(crate) drawn_reported: bool,
     /// 049 — ids the CONTENT pass must not draw because the RAIL draws them:
     /// the SideMenu footer Panel and whatever was dropped into it. Empty in a
     /// window host, where the rail is an ordinary control.
@@ -1416,6 +1420,10 @@ impl FormBody {
         // ContentPane occupant it is the pane rect the shell carved out. The
         // backdrop is laid out against this — see `FormBody::backdrop`.
         let panel_extent = panel_ui.max_rect().size();
+        // The pane's real screen rect, ORIGIN included: comparing drawn rects
+        // against a rect at (0,0) reports every control off-surface and means
+        // nothing.
+        let panel_rect = panel_ui.max_rect();
         // Theme state for the unified painter — this viewport's own context.
         cobolt_forms::paint::set_active_theme(ctx, self.theme_pack.clone());
         cobolt_forms::paint::set_glass_style(ctx, self.glass_style);
@@ -1513,6 +1521,21 @@ impl FormBody {
         // `FormBody::last_control_rects`.
         self.last_control_rects = output.control_rects.clone();
 
+        // …and, once the entrance has settled, say so out loud. A control that
+        // arrives visible at its designed rect and still does not appear is
+        // being drawn somewhere unexpected, and nothing reported that.
+        if !self.drawn_reported
+            && !self.last_control_rects.is_empty()
+            && crate::diagnostics::frame_diagnostics_enabled()
+        {
+            self.drawn_reported = true;
+            crate::diagnostics::drawn_rects(
+                &self.form_name,
+                panel_rect,
+                &self.controls,
+                &self.last_control_rects,
+            );
+        }
         let mut platform_acted = false;
         if armed && !blocked {
             // Animation triggers from this frame's interaction — the root's
@@ -2398,6 +2421,7 @@ impl FormHost {
 
         let (fw, fh) = (form.width as f32, form.height as f32);
         let body = FormBody {
+            drawn_reported: false,
             form_name: form.name.clone(),
             // An occupant is a form INSIDE the pane; the rail belongs to the
             // shell's main form, so an occupant has no footer band of its own
@@ -3242,6 +3266,7 @@ impl FormHost {
         // Where the engine actually put every control this frame — see
         // `FormBody::last_control_rects`.
         self.root.last_control_rects = output.control_rects.clone();
+
 
         // ── Animation triggers from this frame's interaction ─────────────────
         // Pointer triggers come from the rendered rects: the engine only emits
@@ -4618,6 +4643,7 @@ mod parity {
         let (_display_tx, display_rx) = mpsc::channel();
         let timer = cobolt_forms::Control::new("TMR-1", cobolt_forms::ControlType::Timer, 0, 0);
         FormBody {
+            drawn_reported: false,
             form_name: "TIMER-FORM".to_owned(),
             footer_ids: std::collections::HashSet::new(),
             theme_pack: None,

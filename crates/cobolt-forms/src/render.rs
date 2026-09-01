@@ -6492,7 +6492,19 @@ fn render_interactive(
                     // …and the container's clip, which the Ui's own does not carry:
                     // a grid in a Panel or a Splitter pane must not paint its
                     // filter inputs outside it.
-                    let prev_clip = ui.clip_rect().intersect(clip);
+                    // The Ui's REAL clip, kept so it can be put back exactly.
+                    //
+                    // `narrowed` below is this intersected with the GRID's own
+                    // clip — its container's content area — and restoring that
+                    // instead left the shared `Ui` clipped to the grid for
+                    // everything drawn afterwards. By z-order that is every
+                    // control above the grid in the form: they were painted,
+                    // recorded at the right rects, and clipped away unseen
+                    // (operator, 2026-09-01: radios and a Label's face missing
+                    // from a form whose DataGrid had ShowColumnFilters on —
+                    // turning the filters off brought them back).
+                    let ui_clip = ui.clip_rect();
+                    let prev_clip = ui_clip.intersect(clip);
                     if !col.frozen {
                         let scrollable = Rect::from_min_max(
                             pos2(
@@ -6516,7 +6528,8 @@ fn render_interactive(
                     );
                     ui.visuals_mut().weak_text_color = saved_weak;
                     if !col.frozen {
-                        ui.set_clip_rect(prev_clip);
+                        // …the REAL clip, not the narrowed one.
+                        ui.set_clip_rect(ui_clip);
                     }
                     if filter_response.changed() {
                         let mut updated = advanced_grid.clone();

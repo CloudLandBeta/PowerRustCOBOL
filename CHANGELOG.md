@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.139] — 2026-09-01
+
+### A DataGrid's filter row no longer erases the controls above it
+
+Turn `ShowColumnFilters` on and every control drawn AFTER that grid disappeared
+— painted, positioned correctly, and clipped away unseen. On the operator's
+form that was three RadioButtons and a Label's whole face; turning the filters
+off on that one grid brought them all back (operator, 2026-09-01).
+
+The filter inputs are egui widgets, so they go through the shared `Ui` rather
+than the painter, and the grid narrows that `Ui`'s clip so a scrolling column
+cannot paint over the frozen band. It then restored the wrong rectangle: not
+the clip it found, but that clip **intersected with the grid's own** — its
+container's content area. Everything drawn after the grid inherited the
+narrower one, and by z-order that is every control stacked above it.
+
+A top-level grid hid the bug completely: its clip is the whole surface, so
+narrowing to it changes nothing. It needs a grid inside a container, which is
+why it survived so long and why the regression test puts one in a Panel.
+
+**What made this expensive to find:** every measurement said the controls were
+fine. They arrive at the host with `visible=true`, the host places them at the
+right screen coordinates, and the engine emits their shapes — because a clipped
+shape is still *emitted*. `egui::ClippedShape` carries its own `clip_rect`, and
+a probe that walks `shape` while ignoring `clip_rect` cannot tell a painted
+control from an erased one. The first version of this regression test had
+exactly that flaw and passed against the bug; it now intersects the probe with
+each shape's clip, and fails without the fix.
+
+**Also new — `drawn_rects` diagnostics.** Under `COBOLT_FRAME_DIAGNOSTICS` the
+host now reports, once per form, where every control was ACTUALLY drawn and
+whether that lands inside the surface it was given. `embedded_preamble` already
+answered "did it arrive, and is it visible"; its own doc named a third case it
+could not answer — *it arrived, is visible, and is drawn somewhere unexpected*
+— and that is the case this was. The trio is now complete.
+
+Tests: `a_filtered_datagrid_does_not_clip_the_controls_drawn_after_it` — a
+control above a Panel-hosted filtered grid is painted identically with the
+filter row on and off, verified to FAIL without the fix.
+
 ## [PowerRustCOBOL 1.62.138] — 2026-08-31
 
 ### The radios were never missing: designer/run parity, pinned by a test

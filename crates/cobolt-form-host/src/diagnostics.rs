@@ -135,6 +135,64 @@ pub fn trace_state_update(
     }
 }
 
+/// Where every control was ACTUALLY drawn, once, after the entrance effect.
+///
+/// `embedded_preamble` answers "did the control reach the host, and is it
+/// visible" — and for a form whose controls arrive correct and still do not
+/// appear, that is the wrong half of the question. Its own doc names three
+/// cases; this is the third, which had no instrument: *it arrived, is visible,
+/// and is being drawn somewhere unexpected* (operator, 2026-09-01: radios and a
+/// Label's face missing from an embedded form whose controls all arrive with
+/// `visible=true` at their designed rects).
+///
+/// Printed ONCE, after the entrance effect settles, because that is when the
+/// operator sees the loss — during the effect the controls are not drawn at all
+/// and every rect would be absent for a reason that is not the bug.
+///
+/// `surface` is the rect the occupant was given, so a control drawn outside it
+/// is visible as such in the log rather than having to be inferred: a rect that
+/// lies beyond the surface reads as "painted off-surface", which looks exactly
+/// like "never painted" on screen.
+pub fn drawn_rects(
+    handle: &str,
+    surface: egui::Rect,
+    designed: &[cobolt_forms::Control],
+    drawn: &std::collections::HashMap<String, egui::Rect>,
+) {
+    eprintln!(
+        "[prc] DRAWN handle={} surface=({:.0},{:.0} {:.0}x{:.0}) — {} of {} controls placed",
+        handle,
+        surface.min.x,
+        surface.min.y,
+        surface.width(),
+        surface.height(),
+        drawn.len(),
+        designed.len()
+    );
+    for c in designed {
+        match drawn.get(&c.id) {
+            Some(r) => {
+                let inside = surface.contains_rect(*r);
+                eprintln!(
+                    "[prc]   {} {} drawn=({:.0},{:.0} {:.0}x{:.0}) inside_surface={}{}",
+                    c.id,
+                    c.control_type.as_str(),
+                    r.min.x,
+                    r.min.y,
+                    r.width(),
+                    r.height(),
+                    inside,
+                    if inside { "" } else { "   <<< OFF-SURFACE" }
+                );
+            }
+            None => eprintln!(
+                "[prc]   {} {} *** NOT DRAWN AT ALL *** (designed at {},{} {}x{})",
+                c.id, c.control_type.as_str(), c.rect.x, c.rect.y, c.rect.w, c.rect.h
+            ),
+        }
+    }
+}
+
 /// Sanitize a project name into a safe file stem (no path separators / oddities).
 pub fn sanitize_stem(name: &str) -> String {
     let s: String = name
