@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.143] — 2026-09-01
+
+### Non-visual controls no longer show their designer badge in the running form
+
+A Snackbar dropped on a form painted a permanent glass card — icon, and the word
+"Info" — in the corner of the RUNNING application (operator, 2026-09-01). It was
+never the Snackbar's bug alone: **every** non-visual control did this, and had
+since each was added. A Timer's clock face, a RestClient's globe, a
+SqlDatabase's cylinder, an IndexedFile's page — all of them, at whatever x/y they
+happened to be dropped at. The Snackbar is simply the one whose badge nobody
+could rationalise.
+
+That badge is a DESIGNER affordance: something to select, drag and inspect while
+building the form. In the running application it is chrome the operator never
+asked for.
+
+**Three hand-maintained lists, all disagreeing with the catalogue.** The
+`ControlType` model has published `is_non_visual()` all along; the renderer
+carried its own copies, frozen at whatever the catalogue held on the day each was
+written. `render_interactive`'s event gate listed four types, its draw match
+listed three, and both had been overtaken by `IndexedFile`, `WebSearch` and
+`Snackbar`. Both now ask the model.
+
+The obvious-looking fix — skipping non-visual controls at the top of the render
+loop — is wrong, and the suite said so within seconds: `onTick` is driven from
+that same loop body, so it stops every Timer in the application
+(`a_timer_keeps_ticking_for_hundreds_of_intervals`,
+`engine_timer_ticks_on_interval`,
+`engine_timer_ticks_governed_by_enabled_property_not_chrome_flag`). A non-visual
+control still RUNS; it just does not show. Only the paint is suppressed.
+
+Measured, per type, designer vs running form: Timer 64 → 0, AgentObject 66 → 0,
+RestClient 65 → 0, SqlDatabase 65 → 0, IndexedFile 72 → 0, WebSearch 60 → 0,
+Snackbar 73 → 0. The designer canvas still draws all of them (209 shapes across
+three), and Button, Label and Panel still paint at run time.
+
+Tests: `non_visual_controls_stay_in_the_designer` — three cases, asserting zero
+shapes over the control's own rect in the running form rather than comparing
+counts between paths, because a control painted off-surface and a control never
+painted look identical that way.
+
 ## [PowerRustCOBOL 1.62.142] — 2026-09-01
 
 ### The Forms list's delete button asked in a window nobody was looking at

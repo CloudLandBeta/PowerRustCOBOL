@@ -3743,10 +3743,17 @@ fn render_interactive(
     let painter = ui.painter_at(clip);
 
     // Universal pointer/gesture/geometry events for every visual control.
-    let non_visual = matches!(
-        ct,
-        CT::Timer | CT::AgentObject | CT::SqlDatabase | CT::RestClient
-    );
+    //
+    // `ControlType::is_non_visual()` — the catalogue's own answer — rather than
+    // a list repeated here. This was a hand-maintained `matches!` of four types,
+    // and the catalogue had grown to seven: `IndexedFile`, `WebSearch` and
+    // `Snackbar` were all missing, so each of them drew its designer tray badge
+    // in the RUNNING form and took pointer events there (operator, 2026-09-01:
+    // the Snackbar's "Info" card showing in the running form).
+    //
+    // A second copy of a list that the model already publishes will always drift
+    // from it; the only question is which control notices first.
+    let non_visual = ct.is_non_visual();
     let bound: Vec<&str> = ctrl.events.iter().map(|e| e.event.as_str()).collect();
     if !non_visual {
         // The onHoverEnter threshold is the control's HoverDelayMs property
@@ -8354,7 +8361,25 @@ fn render_interactive(
                 }
             }
         }
-        CT::AgentObject | CT::SqlDatabase | CT::RestClient => {
+        // Every NON-VISUAL control - nothing to draw in a running form.
+        //
+        // Their glass tray badge is a DESIGNER affordance: something to select,
+        // drag and inspect while building the form. In the running application
+        // it is chrome the operator never asked for, parked at whatever x/y it
+        // was dropped at.
+        //
+        // This arm listed three types by hand while the catalogue had grown to
+        // seven, so `IndexedFile`, `WebSearch` and `Snackbar` fell through to
+        // the default below and were painted - a Snackbar showing a permanent
+        // "Info" card in the corner of a running form is what finally made it
+        // visible (operator, 2026-09-01). `CT::Timer` keeps its own arm above:
+        // it draws nothing either, but it also drives `onTick`, which is not
+        // something a "nothing to draw" arm can be allowed to swallow.
+        //
+        // `is_non_visual()` is the catalogue's own answer, so a new non-visual
+        // control is covered the day it is added rather than the day someone
+        // notices its badge in a screenshot.
+        other if other.is_non_visual() => {
             // Non-visual â nothing to draw.
         }
         CT::ProgressBar => {
