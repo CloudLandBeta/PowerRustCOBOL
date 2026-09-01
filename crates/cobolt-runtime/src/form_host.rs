@@ -27,6 +27,35 @@ use std::sync::mpsc::Sender;
 /// The handle of the form the process was started with.
 pub const ROOT_HANDLE: &str = "W0";
 
+/// The environment variable the IDE sets to make a COMPILED application start
+/// at a form OTHER than its main one.
+///
+/// A built application normally starts at its designated main form, and refuses
+/// anything else — that refusal guards a *distributed* binary whose form table
+/// has been tampered with. But it also made **Run Form unusable on a secondary
+/// form** in any project containing one `EXEC RUST` block: such a project always
+/// takes the build path, so pressing Run on any form opened the main form
+/// instead (operator, 2026-08-31: "cannot start a standalone form by run form,
+/// it will always start with the main form instead").
+///
+/// `rcrun run-form --designer` already draws exactly this distinction — running
+/// any form on demand is the point *under the designer* — and this is the same
+/// permission for the built binary. The tamper check is unchanged for every
+/// launch that does not carry it, and the named form must still be one the
+/// build embedded: this opens a door into the application's own forms, not an
+/// arbitrary one.
+pub const DESIGNER_FORM_ENV: &str = "COBOLT_DESIGNER_FORM";
+
+/// The form id the launching designer asked this process to start at, if any.
+///
+/// Trimmed and upper-cased, matching how the embedded form table is keyed.
+pub fn designer_form() -> Option<String> {
+    std::env::var(DESIGNER_FORM_ENV)
+        .ok()
+        .map(|v| v.trim().to_ascii_uppercase())
+        .filter(|v| !v.is_empty())
+}
+
 /// A request from an interpreter thread to the window supervisor.
 #[derive(Debug)]
 pub enum FormRequest {
@@ -1086,5 +1115,39 @@ mod tests {
             "main close-all: {} handles down ({gone:?}) + Exit — occupants included",
             gone.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod designer_form_tests {
+    use super::*;
+
+    /// One test, not several: they share the process environment and cargo runs
+    /// a file's tests on separate threads.
+    #[test]
+    fn the_designer_form_switch_is_absent_unless_a_designer_sets_it() {
+        unsafe { std::env::remove_var(DESIGNER_FORM_ENV) };
+        assert_eq!(
+            designer_form(),
+            None,
+            "a distributed application must start at its MAIN form; the switch \
+             is the designer's, and absent is the normal case"
+        );
+
+        // Keyed like the embedded table: trimmed and upper-cased.
+        unsafe { std::env::set_var(DESIGNER_FORM_ENV, "  datagrid-form  ") };
+        assert_eq!(
+            designer_form().as_deref(),
+            Some("DATAGRID-FORM"),
+            "the id must arrive in the same shape the build keys its table with, \
+             or the binary refuses a form it really does contain"
+        );
+
+        // Empty means "not asked", not "a form with no name".
+        for blank in ["", "   "] {
+            unsafe { std::env::set_var(DESIGNER_FORM_ENV, blank) };
+            assert_eq!(designer_form(), None, "{blank:?} is not a request");
+        }
+        unsafe { std::env::remove_var(DESIGNER_FORM_ENV) };
     }
 }

@@ -2331,21 +2331,63 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // honest thing is to stop rather than open a door the developer never put
     // there. There is nothing on disk to edit — the forms live inside this
     // binary — so reaching here means the binary itself was patched.
-    let first_form = if let Some(&(id, bytes)) = FORMS.first() {
-        if !id.eq_ignore_ascii_case(MAIN_FORM) {
-            eprintln!(
-                "CORRUPTED APPLICATION — this application starts at form {}, but its form \
-                 table now begins with {}. It will not run. Reinstall it from its original \
-                 distribution.",
-                MAIN_FORM, id
-            );
-            std::process::exit(3);
+    // Which form does this launch start at, and whose program does it run?
+    //
+    // Normally the main one, and anything else is a tampered binary (below).
+    // But a DESIGNER launch may name another of this application's own forms:
+    // `rcrun run-form --designer` has always allowed exactly that, and a project
+    // containing one `EXEC RUST` block anywhere can only Run through a built
+    // binary — so without this, Run Form on a secondary form silently opened the
+    // main form instead (operator, 2026-08-31).
+    //
+    // The named form must still be one this build embedded, so the door opens
+    // onto the application's own forms and nowhere else.
+    let (first_form, program) = match cobolt_runtime::form_host::designer_form() {
+        Some(want) => {
+            let Some(&(_, bytes)) = FORMS
+                .iter()
+                .find(|(fid, _)| fid.eq_ignore_ascii_case(want.as_str()))
+            else {
+                eprintln!(
+                    "This application has no form named '{}'. It embeds: {}.",
+                    want,
+                    FORMS.iter().map(|(f, _)| *f).collect::<Vec<_>>().join(", ")
+                );
+                std::process::exit(4);
+            };
+            let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
+            let form = load_form_from_str(xml).expect("parse embedded form");
+            // …and ITS program. Running the main form's code behind another
+            // form's face is worse than refusing: every handler would be wrong.
+            let prog = load_program_by_id(&want).unwrap_or(program);
+            (form, prog)
         }
-        let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
-        load_form_from_str(xml).expect("parse embedded form")
-    } else {
-        run_headless(program);
-        return;
+        None => {
+            if let Some(&(id, bytes)) = FORMS.first() {
+                // Only the main form starts an application. Which form that is
+                // was decided when this executable was built, and MAIN_FORM
+                // records it independently of the table: if the two no longer
+                // agree, this copy has been altered and the honest thing is to
+                // stop rather than open a door the developer never put there.
+                if !id.eq_ignore_ascii_case(MAIN_FORM) {
+                    eprintln!(
+                        "CORRUPTED APPLICATION — this application starts at form {}, but its \
+                         form table now begins with {}. It will not run. Reinstall it from its \
+                         original distribution.",
+                        MAIN_FORM, id
+                    );
+                    std::process::exit(3);
+                }
+                let xml = std::str::from_utf8(bytes).expect("form XML is valid UTF-8");
+                (
+                    load_form_from_str(xml).expect("parse embedded form"),
+                    program,
+                )
+            } else {
+                run_headless(program);
+                return;
+            }
+        }
     };
 
     // Flatten + z-order the controls and build the initial control state.
@@ -5559,6 +5601,52 @@ mod resolve_main_tests {
             "<Form name=\"{name}\" title=\"{name}\" width=\"400\" height=\"300\"{attr}></Form>"
         )
         .into_bytes()
+    }
+
+    /// A DESIGNER launch may start the built application at a form other than
+    /// the main one — and must run THAT form's program, not the main one's.
+    ///
+    /// Without this, Run Form on a secondary form opened the main form instead,
+    /// in every project containing an `EXEC RUST` block anywhere (such a project
+    /// can only Run through the built binary). The tamper check that refuses a
+    /// reordered form table has to survive alongside it: it guards a
+    /// *distributed* binary, which is a different situation from the designer
+    /// asking for one of the application's own forms.
+    #[test]
+    fn a_designer_launch_can_start_at_another_embedded_form() {
+        let src = generate_main_rs(
+            "Demo",
+            "1.0.0",
+            true,
+            &["MAIN", "CRM"],
+            "MAIN",
+            &[],
+            &[],
+            &[],
+            cobolt_forms::theme::ELEGANCE,
+            "none:600:ease-out",
+            "none:600:ease-out",
+            false,
+        );
+        assert!(
+            src.contains("form_host::designer_form()"),
+            "the generated startup must consult the designer-form switch"
+        );
+        assert!(
+            src.contains("load_program_by_id(&want)"),
+            "a form opened by name must run ITS program — the main form's code \
+             behind another form's face would make every handler wrong"
+        );
+        assert!(
+            src.contains("CORRUPTED APPLICATION"),
+            "the tamper check must survive: it guards a DISTRIBUTED binary, \
+             which is not the same situation as a designer launch"
+        );
+        assert!(
+            src.contains("has no form named"),
+            "a name this build did not embed must be refused by name, not \
+             silently fall back to the main form"
+        );
     }
 
     /// 051 R1/R2 — the generated glue embeds one PROGRAM per openable

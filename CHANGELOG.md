@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.137] — 2026-08-31
+
+### Run Form runs the form you pressed it on, and Stop stops it
+
+Two faults with one origin, both reported by the operator on 2026-08-31: *"Run
+form does not stop a running form if I click on it again"* and *"cannot start a
+standalone form by run form, it will always start with the main form instead"*.
+
+A program containing `EXEC RUST` must be built before it runs — its blocks are
+native code the interpreter has no registry for — and that question is asked of
+**every form in the project**, not just the one being run. That breadth is
+deliberate and correct: a block in a *child* form's handler used to fail at the
+button click instead of at Run. But it means one block anywhere sends **every**
+Run Form in the project down the build path, including forms with no block at
+all. Both symptoms followed from there.
+
+**Run Form on a secondary form opened the main form.** A built application
+starts at its designated main form and refuses any other — a check that exists
+to catch a *distributed* binary whose form table has been tampered with. It also
+made Run Form meaningless on every form but one. A designer launch now names the
+form it wants (`COBOLT_DESIGNER_FORM`), and the binary opens that embedded form
+**and runs its program** — the main form's code behind another form's face would
+make every handler wrong. The tamper check is untouched for any launch that does
+not carry the switch, and a name the build did not embed is refused by name
+rather than silently falling back. The IDE calls
+`main_form_guard::form_id` — the very function the build keys its table with —
+rather than re-deriving "uppercased stem", because a second spelling would fail
+silently as a binary refusing a form it really contains.
+
+**A built run could not be stopped.** `form_running` inspected only
+`external_runs`, so a form hosted by a built binary showed the *disabled*
+"building/running…" button instead of Stop, and clicking it did nothing.
+`built_runs` now counts as running, `run_busy` narrows to the build alone so the
+two states stay disjoint, and Stop stops both kinds of process.
+
+Tests: `designer_form_tests` (the switch's shape, and that absent means the main
+form) and `a_designer_launch_can_start_at_another_embedded_form` (the generated
+startup consults the switch, runs the named form's own program, still refuses an
+unknown name, and keeps the tamper check).
+
 ## [PowerRustCOBOL 1.62.135] — 2026-08-31
 
 ### A form wider than its background image no longer looks cut off

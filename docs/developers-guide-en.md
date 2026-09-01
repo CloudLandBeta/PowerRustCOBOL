@@ -5368,6 +5368,21 @@ produce does not**: it runs on machines with no Rust installed. Builds target th
 host operating system only, so build a Windows application on Windows and a macOS
 one on macOS.
 
+> **The build question is asked of the WHOLE project, and that matters for Run
+> Form.** One block anywhere — even in a form you are not running — means every
+> Run Form in that project takes the build path. It has to: an application opens
+> child forms, each runs its own program, and all of them share one compiled
+> block registry, so asking only about the form you pressed Run on let a block in
+> a child form's handler fail at the button click instead of at Run.
+>
+> What follows from that is worth knowing. **Run Form still runs the form you
+> pressed it on**, not the application's main form — the IDE names the form it
+> wants and the built application opens that one, running *its* program. (Before
+> 1.62.137 it opened the main form instead, because a built application normally
+> refuses to start anywhere else; that refusal still guards an application you
+> have distributed.) And **Stop stops it**: the toolbar's Run button becomes Stop
+> while a built application is up, exactly as it does for an interpreted form.
+
 #### Two kinds of block
 
 | Kind | Where | What it holds |

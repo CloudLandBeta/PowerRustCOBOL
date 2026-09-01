@@ -1895,11 +1895,24 @@ impl CoboltApp {
             run.stop();
         }
         self.built_runs.clear();
-        match crate::form_runtime::BuiltAppRun::spawn(
-            binary,
-            form_path.to_path_buf(),
-            self.debug.child_env(),
-        ) {
+        // Run Form means THIS form, not the application's main one. A built
+        // binary starts at its main form and refuses any other — which is right
+        // for a distributed application, but made Run Form on a secondary form
+        // open the wrong window in any project containing one `EXEC RUST` block,
+        // because such a project can only Run through the build path (operator,
+        // 2026-08-31). Name the form the developer actually pressed Run on; the
+        // id is the uppercased `.cfrm` stem, exactly how the build keys its
+        // embedded table.
+        // `main_form_guard::form_id` is the SAME function the build keys its
+        // embedded table with, called rather than re-derived: a second spelling
+        // of "uppercased stem" here would fail silently, as the binary refusing
+        // a form it really does contain.
+        let mut envs = self.debug.child_env();
+        let form_id = cobolt_compiler::main_form_guard::form_id(form_path);
+        if !form_id.is_empty() {
+            envs.push((cobolt_runtime::form_host::DESIGNER_FORM_ENV, form_id));
+        }
+        match crate::form_runtime::BuiltAppRun::spawn(binary, form_path.to_path_buf(), envs) {
             Ok(run) => {
                 // The pid is the operator's proof that something started; the
                 // old message alone was also the last thing they ever heard.
@@ -15231,10 +15244,18 @@ impl CoboltApp {
                 let form_path = self.designers[idx].0.clone();
                 // Exited external runs are reaped every frame in update(), so
                 // presence in the list means the process is alive.
+                // A running form is a running form whichever process hosts it.
+                // `built_runs` was missing here, so a form launched through the
+                // BUILD path — which is every form in a project containing one
+                // `EXEC RUST` block anywhere — showed the disabled
+                // "building/running…" button instead of Stop, and clicking it
+                // did nothing (operator, 2026-08-31: "Run form does not stop a
+                // running form if I click on it again").
                 let form_running = self
                     .external_runs
                     .iter()
-                    .any(|run| run.form_path == form_path);
+                    .any(|run| run.form_path == form_path)
+                    || self.built_runs.iter().any(|run| run.form_path == form_path);
 
                 // Icons (left) + language selector (right) on a SINGLE centred row.
                 // They must share one row: two stacked rows (icon row + a separate
@@ -15248,8 +15269,12 @@ impl CoboltApp {
                 );
                 // Building the form's binary, or that binary still running —
                 // the Run button reads as engaged for the whole stretch.
-                let run_busy = self.pending_build_then_run.as_deref() == Some(form_path.as_path())
-                    || self.built_runs.iter().any(|r| r.form_path == form_path);
+                // Only the BUILD leaves the button engaged-but-disabled. Once
+                // the binary is up, `form_running` above owns the state and the
+                // button becomes Stop — the two must stay disjoint, or a running
+                // built app is unreachable.
+                let run_busy =
+                    self.pending_build_then_run.as_deref() == Some(form_path.as_path());
                 ui.horizontal_centered(|ui| {
                     action = draw_icon_toolbar(
                         ui,
@@ -15336,6 +15361,17 @@ impl CoboltApp {
                     DesignerToolbarAction::StopForm => {
                         let fp = self.designers[idx].0.clone();
                         self.external_runs.retain_mut(|run| {
+                            if run.form_path == fp {
+                                run.stop();
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                        // …and the built application, if that is what Run
+                        // started. Stopping only the interpreter process left a
+                        // built app running with nothing able to reach it.
+                        self.built_runs.retain_mut(|run| {
                             if run.form_path == fp {
                                 run.stop();
                                 false
