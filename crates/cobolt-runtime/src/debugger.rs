@@ -95,6 +95,32 @@ pub enum DebugEvent {
 /// A thread-safe set of source line numbers that are active breakpoints.
 ///
 /// Wrap in `Arc::clone()` to share between the IDE thread and the interpreter.
+/// The environment variable a host sets to ask a COMPILED application to open
+/// a debug session on its own stdio (`@DBG` lines, same protocol as
+/// `rcrun run-form --debug`).
+///
+/// It lives here, with the rest of the protocol, because BOTH ends need the
+/// name and they are in different crates: the IDE sets it when it launches a
+/// built binary as a debuggee, and `cobolt-form-host` reads it inside that
+/// binary. A second spelling in either place is a session that silently never
+/// starts.
+///
+/// A compiled application is a normal desktop program and must not read stdin
+/// uninvited, or a COBOL `ACCEPT` would find the debugger's reader thread
+/// already holding it — so the link is off unless this says otherwise, and a
+/// released binary behaves exactly as it did before it could be debugged.
+pub const DEBUG_SESSION_ENV: &str = "COBOLT_DEBUG_SESSION";
+
+/// Did the launching host ask this process for a debug session?
+pub fn debug_session_requested() -> bool {
+    std::env::var(DEBUG_SESSION_ENV)
+        .map(|v| {
+            let v = v.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false)
+}
+
 pub type Breakpoints = Arc<Mutex<HashSet<u32>>>;
 
 /// Create an empty, shared breakpoint set.
@@ -120,4 +146,33 @@ pub type DebugUserScope = Arc<Mutex<UserScope>>;
 /// Create a shared, empty scope (defaults to `user_only = false` = debug everything).
 pub fn new_user_scope() -> DebugUserScope {
     Arc::new(Mutex::new(UserScope::default()))
+}
+
+#[cfg(test)]
+mod debug_session_env_tests {
+    use super::*;
+
+    /// The switch is OFF unless a host asks — the case that matters, because a
+    /// released application must leave stdin to `ACCEPT`.
+    ///
+    /// One test, not several: they share the process environment, and cargo
+    /// runs tests in a file on separate threads.
+    #[test]
+    fn the_debug_session_switch_is_off_unless_asked() {
+        unsafe { std::env::remove_var(DEBUG_SESSION_ENV) };
+        assert!(
+            !debug_session_requested(),
+            "absent must mean no session — a compiled app that grabs stdin \
+             uninvited breaks ACCEPT"
+        );
+        for on in ["1", "true", "TRUE", "yes", " 1 "] {
+            unsafe { std::env::set_var(DEBUG_SESSION_ENV, on) };
+            assert!(debug_session_requested(), "{on:?} asks for a session");
+        }
+        for off in ["0", "", "no", "off", "please"] {
+            unsafe { std::env::set_var(DEBUG_SESSION_ENV, off) };
+            assert!(!debug_session_requested(), "{off:?} does not");
+        }
+        unsafe { std::env::remove_var(DEBUG_SESSION_ENV) };
+    }
 }

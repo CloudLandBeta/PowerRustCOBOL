@@ -33,6 +33,7 @@
 //! | compiled glue | `cobolt_windows` replay ([`HostHooks::per_frame`]), compiled-block registration, headless fallback |
 //! | both glues | theme-pack *source* (disk discovery vs embedded art) and interpreter-thread spawn |
 
+pub mod debug_link;
 pub mod diagnostics;
 pub mod file_dialog;
 pub mod host;

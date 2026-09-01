@@ -330,75 +330,13 @@ pub fn cmd_run_form(args: &[String]) {
     // stdin `@DBG <json RemoteDebugCmd>` lines → interpreter debug channels;
     // interpreter DebugEvents → stdout `@DBG <json DebugEvent>` lines. The
     // same line protocol can later ride adb/ssh for Android/iOS debuggees.
-    let debug_wiring = if debug_mode {
-        use cobolt_runtime::{new_breakpoints, new_user_scope, DebugEvent, RemoteDebugCmd};
-
-        let (dbg_cmd_tx, dbg_cmd_rx) = mpsc::channel::<cobolt_runtime::DebugCmd>();
-        let (dbg_ev_tx, dbg_ev_rx) = mpsc::channel::<DebugEvent>();
-        let breakpoints = new_breakpoints();
-        let user_scope = new_user_scope();
-
-        // stdin reader: parse and dispatch remote debug commands.
-        {
-            let bps = Arc::clone(&breakpoints);
-            let scope = Arc::clone(&user_scope);
-            std::thread::spawn(move || {
-                use std::io::BufRead;
-                let stdin = std::io::stdin();
-                for line in stdin.lock().lines().map_while(Result::ok) {
-                    let Some(json) = line.strip_prefix("@DBG ") else {
-                        continue;
-                    };
-                    match serde_json::from_str::<RemoteDebugCmd>(json) {
-                        Ok(RemoteDebugCmd::Cmd(c)) => {
-                            if dbg_cmd_tx.send(c).is_err() {
-                                break;
-                            }
-                        }
-                        Ok(RemoteDebugCmd::SetBreakpoints(lines)) => {
-                            if let Ok(mut guard) = bps.lock() {
-                                *guard = lines.into_iter().collect();
-                            }
-                        }
-                        // "Only my code": the IDE hands over the generated
-                        // `.cbl` lines that hold the developer's own handler and
-                        // procedure bodies, and stepping crosses everything else
-                        // without stopping. Shared, so the toggle takes effect
-                        // mid-session without restarting the form.
-                        Ok(RemoteDebugCmd::SetUserScope {
-                            user_only,
-                            user_lines,
-                        }) => {
-                            if let Ok(mut guard) = scope.lock() {
-                                guard.user_only = user_only;
-                                guard.user_lines = user_lines.into_iter().collect();
-                            }
-                        }
-                        Err(e) => eprintln!("run-form: bad @DBG command: {e}"),
-                    }
-                }
-            });
-        }
-
-        // event pump: interpreter → stdout (whole lines; println! locks stdout,
-        // so interleaving with DISPLAY output stays line-atomic).
-        std::thread::spawn(move || {
-            use std::io::Write;
-            for ev in dbg_ev_rx.iter() {
-                match serde_json::to_string(&ev) {
-                    Ok(json) => {
-                        println!("@DBG {json}");
-                        let _ = std::io::stdout().flush();
-                    }
-                    Err(e) => eprintln!("run-form: cannot serialize DebugEvent: {e}"),
-                }
-            }
-        });
-
-        Some((dbg_cmd_rx, dbg_ev_tx, breakpoints, user_scope))
-    } else {
-        None
-    };
+    //
+    // The link itself lives in `cobolt-form-host` (spec 042: one form host,
+    // shared by this and by every compiled application). It moved there so a
+    // BUILT binary could be the debuggee too — which is the only way to debug
+    // a program containing `EXEC RUST`, whose blocks are native code this
+    // interpreter has no registry for.
+    let debug_wiring = debug_mode.then(cobolt_form_host::debug_link::stdio_debug_wiring);
 
     // ── 037/051 window supervisor ─────────────────────────────────────────────
     // The interpreter's OpenForm*/handle/window methods talk to a real

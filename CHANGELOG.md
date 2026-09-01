@@ -39,6 +39,54 @@ Tests: `designer_form_tests` (the switch's shape, and that absent means the main
 form) and `a_designer_launch_can_start_at_another_embedded_form` (the generated
 startup consults the switch, runs the named form's own program, still refuses an
 unknown name, and keeps the tamper check).
+## [PowerRustCOBOL 1.62.136] — 2026-08-31
+
+### A program with EXEC RUST can be debugged
+
+Pressing Debug on a program containing an `EXEC RUST` block used to be refused
+outright. The refusal was honest as far as it went — the debugger drives an
+interpreter, and a block is native code — but it was answering the wrong
+question. The blocks are compiled into the **built binary**, and the plain
+interpreter's block registry is empty, so the built binary is both the only
+process that can execute a block and the only one worth debugging.
+
+Debug now takes the same route Run already took for these programs: **build
+first, then attach the debugger to what the build produced.** The Rust really
+runs while you step.
+
+**The block is one step.** The debugger stops on the `EXEC RUST` line — that is
+where the statement is — executes the whole block, and lands on the next COBOL
+sentence. There is no stepping into it: its lines are not interpreted at all,
+having been compiled into a native function before the program ran.
+
+**A breakpoint inside a block is refused when you set it**, naming the reason
+and where to put it instead. Accepting it silently and never stopping on it is
+the worse failure: a red dot, a run that sails past, and a debugger that looks
+broken.
+
+Under the hood the `@DBG` line protocol moved out of `rcrun run-form` into
+`cobolt-form-host` — the crate `rcrun` and every compiled application already
+share (spec 042) — so both debuggees speak one implementation. The built binary
+is spawned as the same `ExternalFormRun` the debugger has always driven, which
+is why event routing, stepping, breakpoints and exit handling needed no second
+copy.
+
+**No debug build flavour, and no `BuildOptions` change.** The blocks are in
+every binary already, so a second kind of build would only mean rebuilding to
+change your mind about debugging, and two artefacts that could drift. The link
+is a *run*-time switch (`COBOLT_DEBUG_SESSION`, set by the IDE when it launches
+a debuggee), and it stays off otherwise: a released application must not read
+stdin uninvited, or a COBOL `ACCEPT` would find the debugger's reader thread
+holding it.
+
+i18n: the old "debugging is not available" string is retired; the
+build-before-debugging notice and the breakpoint refusal are new, in all six
+languages.
+
+Tests: `test_debug_exec_rust` (2) proves a block is one step, is never stopped
+inside, lands on the next sentence, and really executes — under StepOver and
+StepIn alike; `exec_rust_run` gains 2 covering the block line range at both
+ends; the runtime gains 1 for the session switch.
 
 ## [PowerRustCOBOL 1.62.135] — 2026-08-31
 
