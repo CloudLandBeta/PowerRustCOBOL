@@ -7433,8 +7433,11 @@ fn render_interactive(
                     pos2(screen.max.x - 5.0, body_rect.min.y + 2.0),
                     pos2(screen.max.x - 2.0, track_bottom),
                 );
-                let thumb_h = (body_rect.height() / layout.total_rows_height * track.height())
-                    .clamp(12.0, track.height());
+                let thumb_h = paint::fit_clamp(
+                    body_rect.height() / layout.total_rows_height * track.height(),
+                    12.0,
+                    track.height(),
+                );
                 let thumb_y =
                     track.min.y + (track.height() - thumb_h) * (scroll_y / layout.max_scroll_y);
                 let thumb =
@@ -8362,7 +8365,12 @@ fn render_interactive(
                 // Between ticks the form sleeps, so a heavy form no longer
                 // re-renders at ~14 fps merely to poll a 250 ms timer (that pegged
                 // the CPU). A small floor avoids a zero-delay spin.
-                let remaining = (interval_s - (now - last)).clamp(0.005, interval_s);
+                // The floor yields to the interval, the same rule `fit_clamp`
+                // applies for sizes — a Timer set faster than 5 ms would
+                // otherwise clamp with `min > max` and panic. `f64` here, so it
+                // is spelled out rather than routed through the `f32` helper.
+                let floor = 0.005_f64.min(interval_s);
+                let remaining = (interval_s - (now - last)).clamp(floor, interval_s);
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_secs_f64(remaining));
             } else {

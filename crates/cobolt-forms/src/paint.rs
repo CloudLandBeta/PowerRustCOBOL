@@ -10172,8 +10172,27 @@ fn lighten(c: Color32, t: f32) -> Color32 {
 /// radio's caption stands exactly as far from its selection circle as a check
 /// box's caption stands from its box. They were computed twice from the same
 /// constants, which is a coincidence, not a rule.
+/// Clamp `v` into `[lo, hi]`, yielding to `hi` when the two bounds cross.
+///
+/// `f32::clamp` **panics** when `lo > hi`, and these bounds are computed from a
+/// control's size: a legibility floor against the room actually available. On a
+/// control small enough that the floor exceeds the room, the two cross and the
+/// program dies — `min > max, or either was NaN. min = 12, max = 10` is what a
+/// 15-pixel-tall check box produced (operator, 2026-09-02).
+///
+/// The room wins. A floor says "no smaller than this if you can help it", and it
+/// cannot be honoured inside a box that has less; drawing something that fits is
+/// the only answer that is not a crash. NaN yields `hi` as well, since a NaN
+/// bound means the size it came from was never computed.
+pub fn fit_clamp(v: f32, lo: f32, hi: f32) -> f32 {
+    if !(lo <= hi) {
+        return hi;
+    }
+    v.clamp(lo, hi)
+}
+
 fn toggle_indicator_metrics(rect: egui::Rect, ctrl: &Control) -> (f32, f32, f32) {
-    let d = (ctrl_font_size(ctrl) * 1.25).clamp(12.0, (rect.height() - 4.0).max(10.0));
+    let d = fit_clamp(ctrl_font_size(ctrl) * 1.25, 12.0, (rect.height() - 4.0).max(10.0));
     let pad = 4.0_f32.min(rect.width() * 0.08);
     let gap = 6.0_f32.min(rect.width() * 0.08);
     (d, pad, gap)
@@ -13168,6 +13187,45 @@ mod theme_render_tests {
                 contrast_ratio(ink, ground)
             );
         }
+    }
+
+    /// The panic, reduced: `min = 12, max = 10`.
+    ///
+    /// A toggle indicator is clamped between a legibility floor and the room
+    /// the control actually has. On a control shorter than 16 px the two cross,
+    /// and `f32::clamp` does not return a compromise — it panics, taking the
+    /// IDE with it (operator, 2026-09-02).
+    #[test]
+    fn a_control_too_short_for_its_own_floor_does_not_panic() {
+        let ctrl = Control::new("C", crate::model::ControlType::CheckBox, 0, 0);
+        for h in [0.0_f32, 1.0, 8.0, 14.0, 15.0, 16.0, 22.0, 100.0] {
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(120.0, h));
+            let (d, _, _) = toggle_indicator_metrics(rect, &ctrl);
+            assert!(d.is_finite() && d > 0.0, "height {h} gave {d}");
+            // The room wins: an indicator must never be drawn larger than the
+            // control that holds it, whatever the floor asks for.
+            if h > 4.0 {
+                assert!(d <= (h - 4.0).max(10.0) + f32::EPSILON, "height {h} gave {d}");
+            }
+        }
+    }
+
+    /// The rule the helper encodes, on its own: when the bounds cross, the
+    /// upper bound wins, because a floor cannot be honoured inside a box with
+    /// less room than the floor asks for.
+    #[test]
+    fn fit_clamp_yields_to_the_upper_bound_when_the_bounds_cross() {
+        assert_eq!(fit_clamp(20.0, 12.0, 10.0), 10.0, "crossed: hi wins");
+        assert_eq!(fit_clamp(5.0, 12.0, 10.0), 10.0);
+        // Ordinary bounds behave exactly like `clamp`.
+        assert_eq!(fit_clamp(5.0, 12.0, 20.0), 12.0);
+        assert_eq!(fit_clamp(25.0, 12.0, 20.0), 20.0);
+        assert_eq!(fit_clamp(15.0, 12.0, 20.0), 15.0);
+        assert_eq!(fit_clamp(15.0, 15.0, 15.0), 15.0, "equal bounds are legal");
+        // A NaN bound means the size it came from was never computed; yielding
+        // to `hi` keeps the caller drawing instead of dying.
+        assert_eq!(fit_clamp(5.0, f32::NAN, 10.0), 10.0);
+        assert!(fit_clamp(5.0, 1.0, f32::NAN).is_nan());
     }
 
     /// A Switch paints its own pill; the generic card drew a rectangular rim

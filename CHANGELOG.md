@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.10] — 2026-09-02
+
+### A control too small for its own minimum no longer kills the IDE
+
+`min > max, or either was NaN. min = 12, max = 10`.
+
+A toggle indicator is clamped between a legibility floor and the room the
+control actually has. On a control shorter than 16 px those two bounds cross,
+and `f32::clamp` does not return a compromise — it panics, taking the whole IDE
+with it. A 15-pixel check box was enough.
+
+`fit_clamp` yields to the upper bound when the bounds cross: a floor says "no
+smaller than this if you can help it", and it cannot be honoured inside a box
+with less room. Drawing something that fits is the only answer that is not a
+crash.
+
+Two siblings had the same defect and are fixed with it: a DataGrid scrollbar
+thumb clamped to a minimum of 12 in a track that can be shorter, and a Timer
+whose interval is clamped against a 5 ms floor that a faster interval crosses.
+
 ## [PowerRustCOBOL 1.63.9] — 2026-09-02
 
 ### Debug was disabled exactly when it would have worked
