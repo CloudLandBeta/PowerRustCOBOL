@@ -15,7 +15,13 @@ use std::time::{Duration, Instant};
 
 use cobolt_forms::model::{Control, ControlType, PropValue, Rect};
 use cobolt_forms::snackbar::{mint, DismissReason, SnackVisual};
-use cobolt_form_host::snackbar_stack::{SnackEvent, SnackbarStack, ANIM_MS};
+use cobolt_form_host::snackbar_stack::{
+    SnackEvent, SnackbarStack, ANIM_MS, CRITICAL_ENTRANCE_MS, ENTRANCE_MS,
+};
+
+/// The longest a single arrival can take: the glide that makes room for it,
+/// then its own entrance.
+const ARRIVAL_MS: u64 = ANIM_MS + ENTRANCE_MS;
 
 /// A template with the given property overrides, already minted.
 fn visual(set: &[(&str, PropValue)]) -> SnackVisual {
@@ -37,6 +43,31 @@ fn fixed_size(_: &SnackVisual) -> (f32, f32) {
 
 fn at(base: Instant, ms: u64) -> Instant {
     base + Duration::from_millis(ms)
+}
+
+/// Raise `n` notifications and let each one land before the next starts.
+///
+/// The stack admits **one arrival at a time** (operator, 2026-09-01), so a test
+/// that wants three up can no longer raise three in the same instant and lay
+/// them out — the second and third would still be waiting their turn. Returns
+/// the ids and the instant by which all of them are up and still.
+fn raise_settled(
+    s: &mut SnackbarStack,
+    ctrl: &str,
+    v: impl Fn() -> SnackVisual,
+    t0: Instant,
+    n: usize,
+) -> (Vec<u64>, Instant) {
+    let mut ids = Vec::new();
+    let mut t = t0;
+    for _ in 0..n {
+        ids.push(s.raise(ctrl, v(), t).expect("raised"));
+        // The frame that admits it, then one after its arrival has played out.
+        s.layout(SURFACE, &fixed_size, t);
+        t = at(t, ARRIVAL_MS);
+        s.layout(SURFACE, &fixed_size, t);
+    }
+    (ids, t)
 }
 
 #[test]
@@ -190,22 +221,23 @@ fn dismissing_the_middle_of_three_closes_the_gap() {
     let t0 = Instant::now();
     let mut s = SnackbarStack::new();
     let v = || visual(&[("Timeout", PropValue::Int(0))]);
-    let a = s.raise("SNACK-1", v(), t0).unwrap();
-    let b = s.raise("SNACK-1", v(), at(t0, 10)).unwrap();
-    let c = s.raise("SNACK-1", v(), at(t0, 20)).unwrap();
+    // One arrival at a time, so each has to land before the next is raised.
+    let (ids, t) = raise_settled(&mut s, "SNACK-1", v, t0, 3);
+    let (a, b, c) = (ids[0], ids[1], ids[2]);
 
-    let before = s.layout(SURFACE, &fixed_size, t0);
+    let before = s.layout(SURFACE, &fixed_size, t);
     eprintln!("\n  before — {:?}", before.iter().map(|(i, r)| (*i, r.y)).collect::<Vec<_>>());
+    assert_eq!(before.len(), 3, "all three are up before the dismissal");
 
     assert!(s.dismiss(b, DismissReason::User), "the middle one goes");
 
     // The survivors GLIDE into the gap now (operator, 2026-09-01) rather than
     // snapping into it, so at the instant of the dismissal they have not moved
     // yet. The hole is closed by the layout, not by the first frame after it.
-    let instant = s.layout(SURFACE, &fixed_size, t0);
+    let instant = s.layout(SURFACE, &fixed_size, t);
     let moved_at_once = instant.iter().map(|(_, r)| r.y).collect::<Vec<_>>();
 
-    let after = s.layout(SURFACE, &fixed_size, at(t0, ANIM_MS));
+    let after = s.layout(SURFACE, &fixed_size, at(t, ANIM_MS));
     eprintln!("  after  — {:?}", after.iter().map(|(i, r)| (*i, r.y)).collect::<Vec<_>>());
     assert_ne!(
         moved_at_once,
@@ -378,6 +410,9 @@ fn every_dismiss_reason_is_reported_verbatim() {
     // Timeout
     let mut s = SnackbarStack::new();
     s.raise("S", visual(&[("Timeout", PropValue::Int(100))]), t0);
+    // The first frame after the raise is where it is admitted, and a timeout
+    // counts from there — the host ticks every frame, so that is the next one.
+    s.tick(t0, None);
     s.tick(at(t0, 100), None);
     assert!(s.drain_events().iter().any(|e| matches!(e, SnackEvent::Closed { reason: DismissReason::Timeout, .. })));
     seen.push("Timeout");
@@ -432,11 +467,19 @@ fn two_controls_with_different_anchors_get_their_own_runs() {
     let mut s = SnackbarStack::new();
     let bottom = visual(&[("Timeout", PropValue::Int(0)), ("StackAnchor", PropValue::String("BottomRight".into()))]);
     let top = visual(&[("Timeout", PropValue::Int(0)), ("StackAnchor", PropValue::String("TopLeft".into()))]);
+    // The arrival queue is per RUN: two anchors are two stacks that cannot
+    // overlap, so neither waits for the other and both of these come in at once.
     s.raise("SNACK-BOTTOM", bottom.clone(), t0);
     s.raise("SNACK-TOP", top.clone(), at(t0, 10));
-    s.raise("SNACK-BOTTOM", bottom, at(t0, 20));
+    s.layout(SURFACE, &fixed_size, at(t0, 10));
 
-    let rects = s.layout(SURFACE, &fixed_size, t0);
+    // The BottomRight run's second one does wait for the first one to land.
+    let t = at(t0, 10 + ARRIVAL_MS);
+    s.raise("SNACK-BOTTOM", bottom, t);
+    s.layout(SURFACE, &fixed_size, t);
+    let t = at(t, ARRIVAL_MS);
+
+    let rects = s.layout(SURFACE, &fixed_size, t);
     let by_id: std::collections::HashMap<u64, Rect> = rects.iter().copied().collect();
     // The two BottomRight ones stack together at the bottom right; the TopLeft
     // one is on its own at the top left — not interleaved into one column.
@@ -473,32 +516,96 @@ fn y_of(id: u64, rects: &[(u64, Rect)]) -> i32 {
 }
 
 #[test]
-fn a_lone_raise_zooms_and_fades_in_over_300ms() {
+fn a_lone_raise_zooms_and_fades_in_over_600ms() {
     let t0 = Instant::now();
     let mut s = SnackbarStack::new();
     let id = s
         .raise("SNACK-1", visual(&[("Timeout", PropValue::Int(0))]), t0)
         .expect("raised");
+    // Nothing is up, so nothing has to glide clear: it enters straight away.
     s.layout(SURFACE, &fixed_size, t0);
 
     let (s0, a0) = effect(&s, id, t0);
-    let (s1, a1) = effect(&s, id, at(t0, ANIM_MS / 2));
-    let (s2, a2) = effect(&s, id, at(t0, ANIM_MS));
+    let (s1, a1) = effect(&s, id, at(t0, ENTRANCE_MS / 2));
+    let (s2, a2) = effect(&s, id, at(t0, ENTRANCE_MS));
 
     eprintln!("\n  t(ms)   scale   alpha");
     eprintln!("  -----   -----   -----");
-    for (ms, sc, al) in [(0, s0, a0), (ANIM_MS / 2, s1, a1), (ANIM_MS, s2, a2)] {
+    for (ms, sc, al) in [(0, s0, a0), (ENTRANCE_MS / 2, s1, a1), (ENTRANCE_MS, s2, a2)] {
         eprintln!("  {ms:>5}   {sc:>5.3}   {al:>5.3}");
     }
 
     assert!(s0 < 1.0 && a0 < 0.01, "it starts under size and invisible");
     assert!(s1 > s0 && a1 > a0, "it is part-way in at half time");
     assert!(s1 < 1.0 && a1 < 1.0, "and not finished at half time");
+    // Still going at what used to be the whole effect: the entrance was
+    // doubled, and the other two effects were not.
+    let (_, a_old) = effect(&s, id, at(t0, ANIM_MS));
+    assert!(a_old < 1.0, "still arriving at {ANIM_MS} ms — the old duration");
     assert!(
         (s2 - 1.0).abs() < 1e-6 && (a2 - 1.0).abs() < 1e-6,
-        "full size and opaque at exactly {ANIM_MS} ms: scale {s2}, alpha {a2}"
+        "full size and opaque at exactly {ENTRANCE_MS} ms: scale {s2}, alpha {a2}"
     );
-    eprintln!("  → zoom + fade in, complete at {ANIM_MS} ms\n");
+    eprintln!("  → zoom + fade in, {a_old:.3} opaque at {ANIM_MS} ms, complete at {ENTRANCE_MS} ms\n");
+}
+
+#[test]
+fn a_critical_notification_enters_faster_than_the_rest() {
+    // The one place a Category changes an effect (operator, 2026-09-01): the
+    // most urgent message should already be there when the reader looks up.
+    let t0 = Instant::now();
+    eprintln!("\n  category     entrance(ms)   alpha @200ms   alpha @600ms");
+    eprintln!("  ----------   ------------   ------------   ------------");
+    let mut measured: Vec<(&str, u64)> = Vec::new();
+    for (name, want) in [
+        ("Critical", CRITICAL_ENTRANCE_MS),
+        ("Info", ENTRANCE_MS),
+        ("Warning", ENTRANCE_MS),
+        ("Error", ENTRANCE_MS),
+        ("Question", ENTRANCE_MS),
+    ] {
+        let mut s = SnackbarStack::new();
+        let id = s
+            .raise(
+                "SNACK-1",
+                visual(&[
+                    ("Category", PropValue::String(name.into())),
+                    ("Timeout", PropValue::Int(0)),
+                ]),
+                t0,
+            )
+            .expect("raised");
+        s.layout(SURFACE, &fixed_size, t0);
+
+        // Walk the clock forward until it is fully opaque; that IS its
+        // duration, to within the millisecond where the cubic ease saturates
+        // an f32 a hair early.
+        let mut ms = 0u64;
+        while ms <= ARRIVAL_MS && effect(&s, id, at(t0, ms)).1 < 1.0 {
+            ms += 1;
+        }
+        eprintln!(
+            "  {name:<10}   {ms:>12}   {:>12.3}   {:>12.3}",
+            effect(&s, id, at(t0, CRITICAL_ENTRANCE_MS)).1,
+            effect(&s, id, at(t0, ENTRANCE_MS)).1
+        );
+        assert!(ms.abs_diff(want) <= 1, "{name} must take {want} ms to arrive, took {ms}");
+        assert!(
+            effect(&s, id, at(t0, want / 2)).1 < 1.0,
+            "{name} must still be arriving at half of {want} ms"
+        );
+        assert!(
+            (effect(&s, id, at(t0, want)).1 - 1.0).abs() < 1e-6,
+            "{name} must be fully in at exactly {want} ms"
+        );
+        measured.push((name, want));
+    }
+    assert_eq!(measured[0].1, CRITICAL_ENTRANCE_MS);
+    assert!(
+        measured[1..].iter().all(|(_, ms)| *ms == ENTRANCE_MS),
+        "only Critical is quicker: {measured:?}"
+    );
+    eprintln!("  → 5/5 categories measured; Critical {CRITICAL_ENTRANCE_MS} ms, the other four {ENTRANCE_MS} ms\n");
 }
 
 #[test]
@@ -511,7 +618,8 @@ fn only_the_newest_zooms_in() {
     let first = s.raise("SNACK-1", v(), t0).unwrap();
     s.layout(SURFACE, &fixed_size, t0);
 
-    let later = at(t0, ANIM_MS * 2);
+    // Raised the instant the first one has landed, so it is admitted at once.
+    let later = at(t0, ENTRANCE_MS);
     let second = s.raise("SNACK-1", v(), later).unwrap();
     s.layout(SURFACE, &fixed_size, later);
 
@@ -522,7 +630,13 @@ fn only_the_newest_zooms_in() {
         "the settled one must not re-zoom when a newer arrives: scale {fs}, alpha {fa}"
     );
     assert!(ss < 1.0 && sa < 0.01, "the newest is mid-entrance: scale {ss}, alpha {sa}");
-    eprintln!("\n  → only the newest zooms: settled {fs:.3}, newest {ss:.3}\n");
+    // And it is STILL invisible for the whole glide that makes room for it —
+    // that is what stops it being painted over a neighbour still moving.
+    let (_, mid_room) = effect(&s, second, at(later, ANIM_MS / 2));
+    assert!(mid_room < 0.01, "still holding its slot unseen: alpha {mid_room}");
+    let (_, entered) = effect(&s, second, at(later, ANIM_MS + ENTRANCE_MS));
+    assert!((entered - 1.0).abs() < 1e-6, "in by {ANIM_MS} + {ENTRANCE_MS} ms: alpha {entered}");
+    eprintln!("\n  → only the newest zooms: settled {fs:.3}, newest {ss:.3} → {entered:.3}\n");
 }
 
 #[test]
@@ -536,13 +650,16 @@ fn a_second_raise_moves_the_first_one_progressively() {
         ])
     };
     let first = s.raise("SNACK-1", v(), t0).unwrap();
-    let start = y_of(first, &s.layout(SURFACE, &fixed_size, t0));
+    s.layout(SURFACE, &fixed_size, t0);
+    let landed = at(t0, ENTRANCE_MS);
+    let start = y_of(first, &s.layout(SURFACE, &fixed_size, landed));
 
-    // A second one takes the slot, so the first has somewhere to go.
-    s.raise("SNACK-1", v(), t0).unwrap();
-    let at_once = y_of(first, &s.layout(SURFACE, &fixed_size, t0));
-    let midway = y_of(first, &s.layout(SURFACE, &fixed_size, at(t0, ANIM_MS / 2)));
-    let settled = y_of(first, &s.layout(SURFACE, &fixed_size, at(t0, ANIM_MS)));
+    // A second one takes the slot, so the first has somewhere to go. It glides
+    // during the newcomer's room-making window, which is ANIM_MS long.
+    s.raise("SNACK-1", v(), landed).unwrap();
+    let at_once = y_of(first, &s.layout(SURFACE, &fixed_size, landed));
+    let midway = y_of(first, &s.layout(SURFACE, &fixed_size, at(landed, ANIM_MS / 2)));
+    let settled = y_of(first, &s.layout(SURFACE, &fixed_size, at(landed, ANIM_MS)));
 
     eprintln!("\n  first notification y — start {start}, at once {at_once}, midway {midway}, settled {settled}");
     assert_ne!(start, settled, "the arrival of a second one must move the first");
@@ -555,6 +672,123 @@ fn a_second_raise_moves_the_first_one_progressively() {
     let hi = start.max(settled);
     assert!(midway > lo && midway < hi, "midway {midway} must lie inside {lo}..{hi}");
     eprintln!("  → the reflow is glided, not jumped\n");
+}
+
+#[test]
+fn three_raised_at_once_arrive_one_at_a_time() {
+    // Request 1 (operator, 2026-09-01): raising three in a handler used to put
+    // three entrances on screen together, all playing over each other. They
+    // queue — a notification starts entering only once the one before it is in.
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let v = || visual(&[("Timeout", PropValue::Int(0))]);
+    let ids: Vec<u64> = (0..3).map(|_| s.raise("SNACK-1", v(), t0).expect("raised")).collect();
+    assert_eq!(s.live().len(), 3, "all three are live immediately — only the picture queues");
+
+    // Sample every frame and record, for each, what it was doing.
+    let mut first_visible: Vec<Option<u64>> = vec![None; 3];
+    let mut arrived: Vec<Option<u64>> = vec![None; 3];
+    let mut most_entering_at_once = 0usize;
+    for ms in (0..=3 * ARRIVAL_MS).step_by(16) {
+        let now = at(t0, ms);
+        s.tick(now, None);
+        s.layout(SURFACE, &fixed_size, now);
+        let mut entering = 0;
+        for (k, id) in ids.iter().enumerate() {
+            let Some(d) = s.to_draw(now).into_iter().find(|d| d.id == *id) else {
+                continue;
+            };
+            if d.alpha > 0.0 {
+                first_visible[k].get_or_insert(ms);
+                if d.alpha < 1.0 {
+                    entering += 1;
+                } else {
+                    arrived[k].get_or_insert(ms);
+                }
+            }
+        }
+        most_entering_at_once = most_entering_at_once.max(entering);
+    }
+
+    eprintln!("\n  #   first visible (ms)   fully in (ms)");
+    eprintln!("  -   ------------------   -------------");
+    for k in 0..3 {
+        eprintln!(
+            "  {}   {:>18}   {:>13}",
+            k + 1,
+            first_visible[k].expect("every one of them arrives"),
+            arrived[k].expect("and lands")
+        );
+    }
+    assert_eq!(most_entering_at_once, 1, "at most ONE may be entering in any frame");
+    for k in 1..3 {
+        assert!(
+            first_visible[k].unwrap() >= arrived[k - 1].unwrap(),
+            "#{} started entering at {} ms, before #{} had landed at {} ms",
+            k + 1,
+            first_visible[k].unwrap(),
+            k,
+            arrived[k - 1].unwrap()
+        );
+    }
+    eprintln!(
+        "  → 3 raised in the same instant, {most_entering_at_once} entering at a time, all in by {} ms\n",
+        arrived[2].unwrap()
+    );
+}
+
+#[test]
+fn an_arriving_notification_never_overlaps_one_still_moving() {
+    // Request 2 (operator, 2026-09-01): "as a new enters, the existing glides to
+    // create room to the newcomer (there should be no overlaps)". The newcomer
+    // takes its slot INVISIBLY first — which is what sets the others gliding —
+    // and only starts to appear once that room has actually been made.
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let v = || visual(&[("Timeout", PropValue::Int(0))]);
+    for _ in 0..3 {
+        s.raise("SNACK-1", v(), t0).expect("raised");
+    }
+
+    let mut frames = 0usize;
+    let mut worst: Option<(u64, u64, u64)> = None; // ms, id, id
+    let mut moving_while_visible = 0usize;
+    for ms in (0..=3 * ARRIVAL_MS).step_by(8) {
+        let now = at(t0, ms);
+        s.tick(now, None);
+        s.layout(SURFACE, &fixed_size, now);
+        // Only what the reader can actually see can overlap for the reader.
+        let seen: Vec<_> = s.to_draw(now).into_iter().filter(|d| d.alpha > 0.0).collect();
+        frames += 1;
+        for (i, a) in seen.iter().enumerate() {
+            for b in &seen[i + 1..] {
+                let (ra, rb) = (drawn_rect(a), drawn_rect(b));
+                if ra.0 < rb.1 && rb.0 < ra.1 {
+                    worst.get_or_insert((ms, a.id, b.id));
+                    moving_while_visible += 1;
+                }
+            }
+        }
+    }
+
+    eprintln!("\n  frames sampled   overlapping pairs   first overlap");
+    eprintln!("  --------------   -----------------   -------------");
+    eprintln!(
+        "  {frames:>14}   {moving_while_visible:>17}   {}",
+        worst.map(|(ms, a, b)| format!("{ms} ms, #{a}/#{b}")).unwrap_or_else(|| "none".into())
+    );
+    assert_eq!(
+        moving_while_visible, 0,
+        "two visible notifications overlapped: {worst:?}"
+    );
+    eprintln!("  → {frames} frames across three arrivals, no visible pair ever overlapped\n");
+}
+
+/// A draw's vertical extent, scaled about its centre the way the host paints it.
+fn drawn_rect(d: &cobolt_form_host::snackbar_stack::SnackDraw<'_>) -> (f32, f32) {
+    let cy = d.rect.y as f32 + d.rect.h as f32 / 2.0;
+    let half = d.rect.h as f32 * d.scale / 2.0;
+    (cy - half, cy + half)
 }
 
 #[test]
@@ -633,8 +867,8 @@ fn a_fading_remnant_is_neither_clickable_nor_counted() {
 
 #[test]
 fn the_stack_reports_when_an_effect_is_in_flight() {
-    // The host paces repaints off this: at 50 ms a 300 ms effect would be drawn
-    // six times and step instead of moving.
+    // The host paces repaints off this: at 50 ms a 600 ms effect would be drawn
+    // a dozen times and step instead of moving.
     let t0 = Instant::now();
     let mut s = SnackbarStack::new();
     let id = s
@@ -643,21 +877,31 @@ fn the_stack_reports_when_an_effect_is_in_flight() {
     s.layout(SURFACE, &fixed_size, t0);
 
     assert!(s.is_animating(t0), "an entrance is an effect in flight");
+    assert!(s.is_animating(at(t0, ANIM_MS)), "and still is at {ANIM_MS} ms");
+    let landed = at(t0, ENTRANCE_MS);
     assert!(
-        !s.is_animating(at(t0, ANIM_MS)),
+        !s.is_animating(landed),
         "a settled, idle stack must not ask for screen-rate repaints"
     );
 
-    // A dismissal starts a fade, so painting must resume...
-    s.dismiss(id, DismissReason::User);
-    assert!(s.is_animating(at(t0, ANIM_MS)), "a fade is an effect in flight");
+    // One waiting its turn counts too — its turn comes during a frame, so the
+    // frames have to keep coming.
+    s.raise("SNACK-1", visual(&[("Timeout", PropValue::Int(0))]), landed);
+    assert!(s.is_animating(landed), "a notification waiting its turn is an effect pending");
 
-    // ...and stop once the remnant has been reaped.
-    s.tick(at(t0, ANIM_MS * 3), None);
+    // A dismissal starts a fade, so painting must resume...
+    s.tick(landed, None);
+    s.dismiss(id, DismissReason::User);
+    assert!(s.is_animating(landed), "a fade is an effect in flight");
+
+    // ...and stop once every remnant has been reaped and the newcomer is in.
+    let quiet = at(landed, ARRIVAL_MS);
+    s.tick(quiet, None);
+    s.layout(SURFACE, &fixed_size, quiet);
     assert!(s.fading().is_empty(), "reaped");
     assert!(
-        !s.is_animating(at(t0, ANIM_MS * 3)),
-        "nothing left to animate once the remnant is gone"
+        !s.is_animating(quiet),
+        "nothing left to animate once the remnant is gone and the newcomer is in"
     );
-    eprintln!("\n  → screen-rate only while an effect is running\n");
+    eprintln!("\n  → screen-rate only while an effect is running or pending\n");
 }

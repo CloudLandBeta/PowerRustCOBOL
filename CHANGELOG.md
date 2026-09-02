@@ -1,5 +1,53 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.146] — 2026-09-01
+
+### Notifications queue instead of piling in
+
+1.62.145 gave the Snackbar its three effects but let them all play at once:
+three `Show()` calls in one handler put three entrances on screen together,
+overlapping each other and whatever was already up. Two corrections from the
+operator, both classified as **fixes** for the same reason 1.62.145 was — the
+yardstick is what a competent notification control already does.
+
+**They arrive one at a time.** A notification is admitted only once every older
+one in its run has finished entering. Admission is not the entrance: it is the
+moment the newcomer joins the layout, which is what gives the ones already up a
+new destination and sets them gliding. Its own entrance starts 300 ms later —
+once that room has actually been made — so an arriving message is never painted
+over a neighbour still in motion. With its run empty there is nothing to move
+and it enters immediately. The queue is **per anchor**: two Snackbars in
+opposite corners are separate stacks that cannot overlap, and making one wait
+for the other would be a delay with no visible cause.
+
+**The entrance is 600 ms, and 200 ms for `Critical`.** 300 ms was too brief to
+read as an arrival. Movement and fade-out keep their 300 ms — arriving is the
+one moment the reader is meant to notice. `Critical` is the exception in the
+other direction and the only place a category changes an effect: the most
+urgent message should already be there when the operator looks up.
+
+**A `Timeout` now counts from when the message becomes visible**, not from the
+`Show()` that raised it. With arrivals queued, a message third in line can be
+raised a second before it is on screen; a timeout running all that while would
+give its reader less than the `Timeout` asked for, or — on a short one — expire
+it before it had ever been drawn.
+
+One holding its slot while the others glide clear is not on screen: it is
+painted at alpha zero, is not hit-tested, cannot be hovered, and leaves no
+fading remnant if it is closed before its turn comes.
+
+Two new tests pin the two requests directly, both driven by a fabricated clock:
+`three_raised_at_once_arrive_one_at_a_time` samples every frame of three
+arrivals and reports when each became visible and when it landed (16/608,
+912/1520, 1824/2432 ms) with at most **one** entering in any frame, and
+`an_arriving_notification_never_overlaps_one_still_moving` checks all 338
+frames of those arrivals for a visible pair whose drawn rects intersect and
+finds none. `a_critical_notification_enters_faster_than_the_rest` measures all
+five categories.
+
+Documented in the Developer's Guide and in the System KB's Snackbar and
+`Show()` entries; `assets/knowledge/chunked.data` regenerated.
+
 ## [PowerRustCOBOL 1.62.145] — 2026-09-01
 
 ### Notifications move instead of jumping

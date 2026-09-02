@@ -26,11 +26,30 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use cobolt_forms::model::Rect;
-use cobolt_forms::snackbar::{stack_layout, DismissReason, SnackAnchor, SnackVisual};
+use cobolt_forms::snackbar::{
+    stack_layout, DismissReason, SnackAnchor, SnackCategory, SnackVisual,
+};
 
-/// How long every notification effect runs — entrance, movement and fade-out
-/// alike (operator, 2026-09-01).
+/// How long a **movement** or a **fade-out** runs (operator, 2026-09-01).
 pub const ANIM_MS: u64 = 300;
+
+/// How long an **entrance** runs (operator, 2026-09-01: 300 ms was too brief to
+/// read as an arrival). Twice the length of the other two effects on purpose —
+/// arriving is the one moment the reader is meant to notice.
+pub const ENTRANCE_MS: u64 = 600;
+
+/// What a `Critical` notification enters in instead. The most urgent category is
+/// the one that should already be there when the reader looks up, so it snaps in
+/// rather than easing in — the only place a category changes an effect.
+pub const CRITICAL_ENTRANCE_MS: u64 = 200;
+
+/// How long *this* notification's entrance runs.
+fn entrance_ms(visual: &SnackVisual) -> u64 {
+    match visual.category {
+        SnackCategory::Critical => CRITICAL_ENTRANCE_MS,
+        _ => ENTRANCE_MS,
+    }
+}
 
 /// A notification enters from slightly under size, so it reads as arriving
 /// rather than being pasted on. It never zooms *out*: leaving is a fade.
@@ -43,10 +62,14 @@ fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
-/// How far through a 300 ms effect `now` is, in `0.0..=1.0`.
-fn progress(now: Instant, since: Instant) -> f32 {
-    let ms = now.saturating_duration_since(since).as_millis() as f32;
-    (ms / ANIM_MS as f32).clamp(0.0, 1.0)
+/// How far through an effect lasting `ms` `now` is, in `0.0..=1.0`.
+///
+/// Each effect passes its own length: the three no longer share one number, and
+/// a hard-wired constant here is how a Critical entrance would silently inherit
+/// somebody else's duration.
+fn progress(now: Instant, since: Instant, ms: u64) -> f32 {
+    let elapsed = now.saturating_duration_since(since).as_millis() as f32;
+    (elapsed / ms.max(1) as f32).clamp(0.0, 1.0)
 }
 
 fn lerp_i32(a: i32, b: i32, t: f32) -> i32 {
@@ -74,6 +97,19 @@ pub struct LiveNotification {
     /// not rewrite a message already on screen.
     pub visual: SnackVisual,
     pub raised_at: Instant,
+    /// When its **entrance** begins; `None` while it is still waiting its turn.
+    ///
+    /// One notification arrives at a time (operator, 2026-09-01). A raise while
+    /// another is still coming in waits, and when its turn comes it takes its
+    /// slot *silently* first — that is what sets the ones already up gliding —
+    /// and only starts entering [`ANIM_MS`] later, into the room they made. A
+    /// newcomer is therefore never painted over a neighbour still in motion.
+    /// With its run empty there is nothing to move and this is the raise itself.
+    ///
+    /// It is also the moment the timeout starts counting: a notification is
+    /// given its full `Timeout` from when it becomes visible, exactly as a
+    /// queued one already was.
+    enters_at: Option<Instant>,
     /// Time spent paused under the pointer, already banked.
     paused_total: Duration,
     /// When the current pause began; `None` when not paused.
@@ -89,10 +125,19 @@ pub struct LiveNotification {
 }
 
 impl LiveNotification {
-    /// How long this notification has been *counting* — wall time since it was
-    /// raised, less every moment the pointer held it (R7).
+    /// How long this notification has been *counting* — wall time since it
+    /// began entering, less every moment the pointer held it (R7).
+    ///
+    /// Not since it was *raised*: with arrivals queued one at a time, a message
+    /// third in line can be raised a second before it is on screen, and a
+    /// timeout that had been running all that while would give its reader less
+    /// than the `Timeout` asked for — or, on a short one, expire it before it
+    /// was ever drawn. It is zero until it starts entering.
     pub fn elapsed(&self, now: Instant) -> Duration {
-        let wall = now.saturating_duration_since(self.raised_at);
+        let Some(enters_at) = self.enters_at else {
+            return Duration::ZERO;
+        };
+        let wall = now.saturating_duration_since(enters_at);
         let paused = self.paused_total
             + self
                 .paused_since
@@ -115,13 +160,30 @@ impl LiveNotification {
         self.paused_since.is_some()
     }
 
-    /// How far through its entrance it is.
+    /// How far through its entrance it is; `0.0` while it is still waiting its
+    /// turn or making room.
     ///
-    /// Wall time since it was raised — deliberately **not** [`elapsed`], which
-    /// stops for a hover. Pausing a timeout is a promise to the reader; freezing
-    /// a half-played entrance under the pointer is a glitch.
+    /// Wall time since it started entering — deliberately **not** [`elapsed`],
+    /// which stops for a hover. Pausing a timeout is a promise to the reader;
+    /// freezing a half-played entrance under the pointer is a glitch.
     fn entrance(&self, now: Instant) -> f32 {
-        progress(now, self.raised_at)
+        match self.enters_at {
+            Some(enters_at) => progress(now, enters_at, entrance_ms(&self.visual)),
+            None => 0.0,
+        }
+    }
+
+    /// Has it started entering? Until it has, it holds a slot so the others can
+    /// glide clear of it, but it is not painted, not hit-tested and leaves no
+    /// remnant if it is closed — it was never on screen to leave one.
+    fn is_visible(&self, now: Instant) -> bool {
+        self.enters_at.map(|e| now >= e).unwrap_or(false)
+    }
+
+    /// Has it finished arriving? The next notification in its run waits for
+    /// this.
+    fn has_arrived(&self, now: Instant) -> bool {
+        self.enters_at.is_some() && self.entrance(now) >= 1.0
     }
 
     /// Where to draw it this frame: its target, or a point along the glide
@@ -132,7 +194,7 @@ impl LiveNotification {
         let target = self.target?;
         match self.move_from {
             Some((from, since)) => {
-                let t = progress(now, since);
+                let t = progress(now, since, ANIM_MS);
                 if t >= 1.0 {
                     Some(target)
                 } else {
@@ -239,18 +301,21 @@ impl SnackbarStack {
         &self.fading
     }
 
-    /// Is any effect in flight — an entrance, a glide or a fade?
+    /// Is any effect in flight — an entrance, a glide, a fade, or a notification
+    /// still queued behind one of them?
     ///
     /// The host paces its repaints off this. A stack merely waiting for a
     /// timeout needs a frame occasionally; one mid-animation needs them at
-    /// screen rate, or a 300 ms effect is drawn half a dozen times and steps
-    /// instead of moving.
+    /// screen rate, or an effect is drawn half a dozen times and steps instead
+    /// of moving. A notification waiting its turn counts too: its turn comes
+    /// during a frame, so the frames have to keep arriving.
     pub fn is_animating(&self, now: Instant) -> bool {
         !self.fading.is_empty()
             || self.live.iter().any(|n| {
-                n.entrance(now) < 1.0
+                n.enters_at.is_none()
+                    || n.entrance(now) < 1.0
                     || n.move_from
-                        .map(|(_, since)| progress(now, since) < 1.0)
+                        .map(|(_, since)| progress(now, since, ANIM_MS) < 1.0)
                         .unwrap_or(false)
             })
     }
@@ -308,6 +373,9 @@ impl SnackbarStack {
             ctrl_id: ctrl_id.to_owned(),
             visual,
             raised_at: now,
+            // It arrives when its run is free, which [`admit`](Self::admit)
+            // decides — the same tick when nothing else is coming in.
+            enters_at: None,
             paused_total: Duration::ZERO,
             paused_since: None,
             rect: None,
@@ -327,7 +395,11 @@ impl SnackbarStack {
     /// 300 ms where it stood ([`FadingNotification`]).
     fn close_at(&mut self, pos: usize, reason: DismissReason) {
         let n = self.live.remove(pos);
-        if let Some(rect) = n.rect {
+        // A notification closed before its entrance began was never drawn, so
+        // there is nothing to fade — a remnant of it would be the reader's
+        // first and only sight of a message that is already gone.
+        let now = self.last_tick.unwrap_or(n.raised_at);
+        if let Some(rect) = n.rect.filter(|_| n.is_visible(now)) {
             self.fading.push(FadingNotification {
                 id: n.id,
                 visual: n.visual.clone(),
@@ -399,6 +471,61 @@ impl SnackbarStack {
         true
     }
 
+    /// Let the next notification in each run start arriving — **one at a time**
+    /// (operator, 2026-09-01).
+    ///
+    /// Raising three in a handler used to put three entrances on screen at once,
+    /// all playing over each other. They queue instead: a notification is
+    /// admitted only once every older one in its run has finished entering.
+    ///
+    /// Admission is not the entrance. It is the moment the newcomer joins the
+    /// layout, which is what gives the ones already up a new destination and
+    /// sets them gliding. Its own entrance starts [`ANIM_MS`] later — once that
+    /// room has actually been made — so it is never drawn on top of a neighbour
+    /// still moving. With the run empty there is nothing to move out of the way
+    /// and it enters immediately.
+    ///
+    /// A **run** is one anchor's column: two Snackbars anchored to opposite
+    /// corners are separate stacks that never overlap, and making one wait for
+    /// the other would be a queue nobody could see the reason for.
+    ///
+    /// Called from both [`tick`](Self::tick) and [`layout`](Self::layout), so
+    /// admission does not depend on which the caller reaches first.
+    fn admit(&mut self, now: Instant) {
+        let mut anchors: Vec<SnackAnchor> = Vec::new();
+        for n in &self.live {
+            if n.enters_at.is_none() && !anchors.contains(&n.visual.anchor) {
+                anchors.push(n.visual.anchor);
+            }
+        }
+        for anchor in anchors {
+            let idxs: Vec<usize> = self
+                .live
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.visual.anchor == anchor)
+                .map(|(i, _)| i)
+                .collect();
+            // `live` is in raise order, so this walks the run oldest first.
+            let mut occupied = 0usize;
+            for i in idxs {
+                if self.live[i].enters_at.is_some() {
+                    // Already on its way in — and if it has not landed yet,
+                    // nobody behind it may start.
+                    occupied += 1;
+                    if !self.live[i].has_arrived(now) {
+                        break;
+                    }
+                    continue;
+                }
+                // Its turn. Anything already up has to glide clear first.
+                let room = if occupied == 0 { 0 } else { ANIM_MS };
+                self.live[i].enters_at = Some(now + Duration::from_millis(room));
+                break;
+            }
+        }
+    }
+
     /// Advance the stack to `now`.
     ///
     /// `pointer` is the pointer position in the same coordinate space as the
@@ -407,10 +534,11 @@ impl SnackbarStack {
     /// the room that freed.
     pub fn tick(&mut self, now: Instant, pointer: Option<(f32, f32)>) {
         self.last_tick = Some(now);
+        self.admit(now);
 
         // 0. Reap remnants whose fade has finished. They are already closed —
         //    this only stops drawing them.
-        self.fading.retain(|f| progress(now, f.started) < 1.0);
+        self.fading.retain(|f| progress(now, f.started, ANIM_MS) < 1.0);
 
         // 1. Hover pause/resume (R7), before expiry — a notification the pointer
         //    is over must not expire in the same tick that noticed the hover.
@@ -418,8 +546,13 @@ impl SnackbarStack {
             if !n.visual.pause_on_hover {
                 continue;
             }
+            // One holding its slot while the others glide clear is not on
+            // screen yet, so the pointer cannot be over it however much its
+            // rect says otherwise.
             let hovered = match (pointer, n.rect) {
-                (Some((px, py)), Some(r)) => r.contains(px.round() as i32, py.round() as i32),
+                (Some((px, py)), Some(r)) if n.is_visible(now) => {
+                    r.contains(px.round() as i32, py.round() as i32)
+                }
                 _ => false,
             };
             match (hovered, n.paused_since) {
@@ -469,16 +602,21 @@ impl SnackbarStack {
     /// a survivor gliding into the gap passes over the ghost, then the live
     /// ones oldest-first (the newest lands on top).
     ///
-    /// The three effects, all 300 ms (operator, 2026-09-01):
+    /// The three effects (operator, 2026-09-01):
     ///
-    /// * **entrance** — the notification just raised zooms up from
-    ///   [`ENTRANCE_SCALE`] and fades in, *at its destination*. Older ones are
-    ///   long past their own entrance window, which is what makes "only the
-    ///   newest zooms in" true without anyone tracking who is newest.
-    /// * **movement** — handled in [`layout`](Self::layout): a changed
-    ///   destination is glided to, never jumped to.
-    /// * **exit** — a closed notification fades where it stood. It does **not**
-    ///   zoom out.
+    /// * **entrance**, [`ENTRANCE_MS`] — the notification whose turn it is zooms
+    ///   up from [`ENTRANCE_SCALE`] and fades in, *at its destination*. Older
+    ///   ones are long past their own entrance window, which is what makes "only
+    ///   one is ever entering" true without anyone tracking who is newest. A
+    ///   `Critical` one takes [`CRITICAL_ENTRANCE_MS`] instead.
+    /// * **movement**, [`ANIM_MS`] — handled in [`layout`](Self::layout): a
+    ///   changed destination is glided to, never jumped to.
+    /// * **exit**, [`ANIM_MS`] — a closed notification fades where it stood. It
+    ///   does **not** zoom out.
+    ///
+    /// One admitted but still waiting out that movement is emitted here at
+    /// alpha zero and **not** interactive: it is holding its slot so the others
+    /// can glide clear, and a button nobody can see must not be clickable.
     pub fn to_draw(&self, now: Instant) -> Vec<SnackDraw<'_>> {
         let mut out = Vec::with_capacity(self.fading.len() + self.live.len());
         for f in &self.fading {
@@ -493,7 +631,7 @@ impl SnackbarStack {
                 // departure throws away 87% of the opacity in the first half
                 // and then crawls, which reads as a blink rather than a fade.
                 // A notification leaving should dim evenly.
-                alpha: 1.0 - progress(now, f.started),
+                alpha: 1.0 - progress(now, f.started, ANIM_MS),
                 interactive: false,
             });
         }
@@ -506,7 +644,7 @@ impl SnackbarStack {
                 rect,
                 scale: ENTRANCE_SCALE + (1.0 - ENTRANCE_SCALE) * t,
                 alpha: t,
-                interactive: true,
+                interactive: n.is_visible(now),
             });
         }
         out
@@ -521,17 +659,22 @@ impl SnackbarStack {
     /// painter. Notifications are grouped by `Anchor`, so two Snackbar controls
     /// anchored differently each get their own run rather than one interleaved
     /// column.
+    ///
+    /// Only **admitted** notifications are laid out. One still waiting its turn
+    /// has no place in the stack yet — giving it one would open a gap for a
+    /// message that is not coming for another half second.
     pub fn layout(
         &mut self,
         surface: Rect,
         measure: &dyn Fn(&SnackVisual) -> (f32, f32),
         now: Instant,
     ) -> Vec<(u64, Rect)> {
+        self.admit(now);
         let mut out = Vec::with_capacity(self.live.len());
         let anchors: Vec<SnackAnchor> = {
             let mut seen: Vec<SnackAnchor> = Vec::new();
             for n in &self.live {
-                if !seen.contains(&n.visual.anchor) {
+                if n.enters_at.is_some() && !seen.contains(&n.visual.anchor) {
                     seen.push(n.visual.anchor);
                 }
             }
@@ -542,7 +685,7 @@ impl SnackbarStack {
                 .live
                 .iter()
                 .enumerate()
-                .filter(|(_, n)| n.visual.anchor == anchor)
+                .filter(|(_, n)| n.visual.anchor == anchor && n.enters_at.is_some())
                 .map(|(i, _)| i)
                 .collect();
             let sizes: Vec<(f32, f32)> = idxs.iter().map(|&i| measure(&self.live[i].visual)).collect();

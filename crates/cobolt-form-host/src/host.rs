@@ -955,8 +955,9 @@ impl FormBody {
 
         // A live notification is a reason to keep painting: its timeout has to
         // elapse even when nothing else on the form is moving. An effect in
-        // flight is a reason to paint at screen rate — 50 ms would draw a
-        // 300 ms animation six times, which steps rather than moves.
+        // flight — or one queued behind it — is a reason to paint at screen
+        // rate: 50 ms would draw a 300 ms glide six times, which steps rather
+        // than moves, and would let each queued arrival start up to a frame late.
         if !self.snackbars.is_empty() {
             let interval = if self.snackbars.is_animating(now) { 16 } else { 50 };
             ui.ctx()

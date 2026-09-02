@@ -3112,18 +3112,32 @@ further `Show()` does:
 - `DiscardOldest` — close the oldest to make room.
 - `DiscardNewest` — drop the arrival.
 
-**How they move.** Notifications are animated, and every effect takes the same
-300 ms:
+**How they move.** Notifications are animated, and the effects run to fixed
+durations:
 
-- The one just raised **zooms up and fades in** at the place it will occupy —
-  it does not fly in from off-screen. Only the newest does this; the ones
-  already up never re-animate when a new message arrives.
+- The one arriving **zooms up and fades in** over **600 ms** at the place it
+  will occupy — it does not fly in from off-screen. A `Critical` message takes
+  **200 ms** instead: the most urgent category is the one that should already be
+  there when the operator looks up. Nothing else about an effect depends on the
+  category.
 - Existing notifications **glide** up or down (whichever way the anchor stacks)
-  to make room, and glide back to close the gap when one leaves. They never
-  jump.
+  over **300 ms** to make room, and glide back to close the gap when one leaves.
+  They never jump.
 - A notification that leaves — expired, dismissed, or pushed out by
-  `OverflowBehavior` — **fades out** where it stood. It does not zoom out, and
-  the survivors close the gap around it while it goes.
+  `OverflowBehavior` — **fades out** where it stood over **300 ms**. It does not
+  zoom out, and the survivors close the gap around it while it goes.
+
+**They arrive one at a time.** Two `Show()` calls in the same handler put up two
+messages, but they do not come in together: the second waits until the first has
+finished arriving, then the ones already up glide clear, and only into that room
+does it start to appear. So three raised at once take about two and a half
+seconds to all be on screen, entering in the order they were raised. Messages
+anchored to *different* corners are separate stacks and never wait for each
+other — the queue is per anchor.
+
+A message's `Timeout` counts from the moment it **becomes visible**, not from the
+`Show()` that raised it, so one third in the queue is still read for its full
+duration.
 
 Nothing about this is yours to drive: the effects are automatic, and a
 notification's events do **not** wait for them. `onClosing` and `onClosed` fire
@@ -3141,12 +3155,19 @@ are untouched:
 There is no `Hide()`. With `Show()` minting a new notification each time, `Hide()`
 could not say *which* one it meant.
 
-**Events.** `onShown` when a message appears, `onTimeout` when its time runs out,
-then `onClosing` and `onClosed` as it leaves — both carrying the reason
+**Events.** `onShown` when a message joins the stack, `onTimeout` when its time
+runs out, then `onClosing` and `onClosed` as it leaves — both carrying the reason
 (`Timeout`, `User`, `Action`, `Programmatic`, `Overflow`) — and `onButtonClick`
 when a button is pressed. A button whose `dismiss` is `true` fires
 `onButtonClick` **first** and closes afterwards, so your handler can still read
 the notification it was clicked on.
+
+> ⚠️ **`onShown` is the `Show()`, not the picture.** It fires when the message
+> is accepted onto the stack, which is before it has waited its turn in the
+> arrival queue and before it has finished zooming in. That is deliberate: no
+> event ever waits on an animation. If you need to act when a message is
+> genuinely on screen, `onShown` plus the arrival time above is what you have —
+> there is no separate "finished arriving" event.
 
 > **Note.** `Text` is data, not a format string — nothing is substituted into it.
 > Build the message in COBOL first, the way you would any other caption:
