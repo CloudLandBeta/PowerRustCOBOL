@@ -27,6 +27,8 @@
 //! ```
 
 use cobolt_forms::menu::{load_menu, save_menu, BadgeStyle, MenuItem, MenuItemType};
+use cobolt_forms::{load_form, save_form};
+use cobolt_forms::model::FormFormat;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -116,6 +118,32 @@ const GENERAL: &[(&str, &str, &str)] = &[
     ("ferris-says-form", "COBOL + Rust", "plugin"),
 ];
 
+/// A form's declared `form-format`, read straight from the attribute.
+///
+/// A menu item loads its form into the shell's ContentPane, and spec 049 R17
+/// only permits that for `Embedded` or `Both`. A **missing** attribute is a form
+/// written before 049 and counts as `Standalone` — which is how three demos
+/// came to be added to the menu and then rejected by the build.
+///
+/// Read as text rather than by parsing the whole form: this asks the question of
+/// every candidate, and a full parse each is not worth one attribute.
+fn form_format(path: &Path) -> FormFormat {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return FormFormat::Standalone;
+    };
+    let mut cut = text.len().min(4096);
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    match text[..cut].find("form-format=\"") {
+        Some(at) => {
+            let rest = &text[at + 13..];
+            FormFormat::from_str(rest.split('"').next().unwrap_or(""))
+        }
+        None => FormFormat::Standalone,
+    }
+}
+
 fn stem(p: &Path) -> String {
     p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
 }
@@ -123,6 +151,10 @@ fn stem(p: &Path) -> String {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let dry_run = args.iter().any(|a| a == "--dry-run");
+    // Opt-in, never implicit: promoting a form's `form-format` edits the
+    // developer's form, not the menu, and that is a different decision from
+    // "arrange the samples".
+    let make_loadable = args.iter().any(|a| a == "--make-loadable");
     let Some(root) = args.iter().find(|a| !a.starts_with("--")) else {
         eprintln!("usage: rebuild_samples_menu <forms-dir> [--dry-run]");
         std::process::exit(2);
@@ -133,6 +165,39 @@ fn main() {
     let mut forms: Vec<PathBuf> = Vec::new();
     collect(&root, &mut forms);
     let stems: Vec<String> = forms.iter().map(|p| stem(p)).collect();
+    // Only a form the shell can actually load may be a menu target. Refusing
+    // here — with a reason — beats writing a menu the build then rejects.
+    let mut refused: Vec<String> = Vec::new();
+
+    // Promote the demos that cannot be loaded, when asked. `Both` is strictly
+    // more permissive than `Standalone` — the form still opens in its own
+    // window — and it is what every other demo in this project already
+    // declares; these three simply predate the attribute.
+    if make_loadable {
+        let shell = |s: &str| s.starts_with("sidebar-form") || s.ends_with(".recovered");
+        for path in forms.iter().filter(|p| !shell(&stem(p))) {
+            if !matches!(form_format(path), FormFormat::Standalone) {
+                continue;
+            }
+            match load_form(path) {
+                Ok(mut form) => {
+                    form.form_format = FormFormat::Both;
+                    match save_form(&form, path) {
+                        Ok(()) => println!("  ~ {} form-format -> Both", stem(path)),
+                        Err(e) => eprintln!("  ! {} could not be written: {e}", stem(path)),
+                    }
+                }
+                Err(e) => eprintln!("  ! {} could not be read: {e}", stem(path)),
+            }
+        }
+    }
+
+    // Re-read AFTER any promotion above, so a form just made loadable counts.
+    let loadable: std::collections::BTreeSet<String> = forms
+        .iter()
+        .filter(|p| !matches!(form_format(p), FormFormat::Standalone))
+        .map(|p| stem(p))
+        .collect();
 
     // Which menu file to rewrite: the SideMenu beside the shell form.
     let menu_path = root.join("SideMenu-1.menu.yaml");
@@ -165,6 +230,10 @@ fn main() {
     'form: for s in &stems {
         // The shell itself is not a sample of anything.
         if s.starts_with("sidebar-form") || s.ends_with(".recovered") {
+            continue;
+        }
+        if !loadable.contains(s) {
+            refused.push(s.clone());
             continue;
         }
         for (form, sec, ctl, label) in SPECIAL {
@@ -331,6 +400,15 @@ fn main() {
             badge: None,
             badge_style: BadgeStyle::default(),
         });
+    }
+    if !refused.is_empty() {
+        println!("\n  NOT added — a menu load needs Embedded or Both (049 R17):");
+        for r in &refused {
+            println!("    ! {r}  (form-format is Standalone, or absent)");
+        }
+        if !make_loadable {
+            println!("    (pass --make-loadable to set these to Both and include them)");
+        }
     }
     if !unclaimed.is_empty() {
         println!("\n  forms not matched to a toolbox control (left out):");

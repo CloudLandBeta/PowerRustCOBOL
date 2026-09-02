@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.8] — 2026-09-02
+
+### A menu entry now has to prove its form can be loaded
+
+`rebuild_samples_menu` added every demo it found and left the build to discover
+that three of them could not be loaded at all: a menu item loads its form into
+the shell's ContentPane, and 049 R17 permits that only for `Embedded` or `Both`.
+A **missing** `form-format` is a form written before 049 and counts as
+`Standalone` — which is exactly what `charts-form`, `checkboxes-form` and
+`snackbar-form` were, while their 34 siblings all declare `Both`.
+
+The tool now reads each candidate's format and refuses an unloadable one with
+the reason, rather than writing a menu the build rejects. `--make-loadable`
+promotes those forms to `Both` — strictly more permissive, so the form still
+opens in its own window — and it is opt-in, because editing a developer's form
+is a different decision from arranging their menu.
+
+All 42 sample targets now declare a loadable format.
+
 ## [PowerRustCOBOL 1.63.7] — 2026-09-02
 
 ### A menu of three levels fits in a limit of three
