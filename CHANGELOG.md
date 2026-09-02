@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.6] — 2026-09-02
+
+### A Switch stops drawing a frame around itself
+
+A Switch paints a complete control — a pill track and its knob — and the generic
+card behind it was adding a rectangular rim around that pill. Unlike a
+RadioButton there was no way to switch it off: a Switch has **no `BorderStyle`
+property at all**, seeding only `Checked` and `Accent`, so the border style fell
+to its `Single` default and nothing in the properties pane could say otherwise.
+
+It had always been drawn. It was invisible while the control carried a black
+foreground on a dark form, and restoring the `#FFFFFF` "not chosen" sentinel in
+1.63.4 turned the same wrong rim white and made it obvious (operator screenshot).
+The rim was the defect; its colour only ever decided whether anyone could see it.
+
+The Switch joins the frameless list beside Label, PictureBox, the charts, the
+containers, CheckBox, RadioButton and SideMenu — the controls that paint their
+own complete face. Pinned by a shape COUNT rather than an impression: a Switch
+must emit strictly fewer shapes than a control that does take the card, and the
+difference is the card and its rim.
+
 ## [PowerRustCOBOL 1.63.5] — 2026-09-02
 
 ### The IDE no longer crashes on a form that is not all ASCII

@@ -4080,6 +4080,19 @@ fn draw_control_body(
     // transparency.)
     let radio_frameless = matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
 
+    // A Switch paints a COMPLETE control: a pill track and its knob. The
+    // generic card behind it added a rectangular rim around that pill, and
+    // unlike a RadioButton there is no way to turn it off — a Switch has no
+    // `BorderStyle` property at all (it seeds `Checked` and `Accent`, nothing
+    // else), so the border style defaulted to `Single` and nothing in the
+    // properties pane could say otherwise.
+    //
+    // It had always been drawn; it was invisible while the control carried a
+    // black foreground on a dark form. Restoring the `#FFFFFF` "not chosen"
+    // sentinel turned the same wrong rim white and made it obvious (operator
+    // screenshot, 2026-09-02). The rim is the defect, not its colour.
+    let switch_frameless = matches!(ctrl.control_type, CT::Switch);
+
     let label_frameless = is_label && !background_gradient && user_bg.is_none();
 
     if label_frameless
@@ -4088,6 +4101,7 @@ fn draw_control_body(
         || container_frameless
         || checkbox_frameless
         || radio_frameless
+        || switch_frameless
         || sidemenu_frameless
     {
         // No visible frame. When selected, show a lightweight selection outline.
@@ -13154,6 +13168,61 @@ mod theme_render_tests {
                 contrast_ratio(ink, ground)
             );
         }
+    }
+
+    /// A Switch paints its own pill; the generic card drew a rectangular rim
+    /// around it, and there is no property that could turn that off — a Switch
+    /// seeds `Checked` and `Accent` and nothing else (operator, 2026-09-02).
+    ///
+    /// Counted in SHAPES, because the rim and the track are both rectangles and
+    /// "it looks right" is not a test. A frameless control emits the shapes its
+    /// own painter draws and no card behind them.
+    #[test]
+    fn a_switch_draws_no_frame_around_its_own_pill() {
+        fn shapes(kind: crate::model::ControlType) -> usize {
+            let ctx = egui::Context::default();
+            let mut c = Control::new("S", kind, 0, 0);
+            c.rect = crate::model::Rect::new(10, 10, 52, 28);
+            // The state the operator's form was in: no BorderStyle (a Switch
+            // has none to set) and the "not chosen" foreground sentinel.
+            c.set_prop(
+                "ForegroundColor",
+                crate::model::PropValue::String(
+                    crate::model::DEFAULT_FOREGROUND_COLOR.into(),
+                ),
+            );
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                Vec2::new(300.0, 120.0),
+            ));
+            let mut n = 0usize;
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root, |ui| {
+                        let painter = ui.painter().clone();
+                        let before = painter.add(egui::Shape::Noop).0;
+                        draw_control(&painter, egui::Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                        let after = painter.add(egui::Shape::Noop).0;
+                        n = (after - before).saturating_sub(1);
+                    });
+            });
+            // epaint panics if a texture delta is dropped unapplied; this test
+            // paints but never presents a frame.
+            full.textures_delta.clear();
+            n
+        }
+
+        // A Switch must emit strictly fewer shapes than a control that DOES
+        // take the generic card — the difference is the card and its rim.
+        let sw = shapes(crate::model::ControlType::Switch);
+        let boxed = shapes(crate::model::ControlType::TextBox);
+        assert!(
+            sw < boxed,
+            "a Switch ({sw} shapes) must draw less chrome than a TextBox \
+             ({boxed}) — the extra is the card and rim it should not have"
+        );
     }
 
     /// Elegance rendered an input's value BLACK on its own dark field
