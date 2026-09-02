@@ -869,28 +869,33 @@ impl FormBody {
                 surf,
             )
         };
-        let placed = self.snackbars.layout(surf, &measure);
+        self.snackbars.layout(surf, &measure, now);
 
         // Paint newest LAST so it sits over its neighbours, and collect the
-        // button rects for hit-testing.
+        // button rects for hit-testing. The stack decides what is drawn and how
+        // far through its entrance, movement or fade it is; the host only turns
+        // that into a rect and an alpha.
         let mut hits: Vec<(u64, Vec<egui::Rect>)> = Vec::new();
-        for (id, r) in &placed {
-            let Some(n) = self.snackbars.live().iter().find(|n| n.id == *id) else {
-                continue;
-            };
+        for d in self.snackbars.to_draw(now) {
             let rect = egui::Rect::from_min_size(
-                egui::Pos2::new(r.x as f32, r.y as f32),
-                egui::Vec2::new(r.w as f32, r.h as f32),
+                egui::Pos2::new(d.rect.x as f32, d.rect.y as f32),
+                egui::Vec2::new(d.rect.w as f32, d.rect.h as f32),
             );
+            // The entrance zoom is about the notification's own centre, so it
+            // grows in place rather than sliding out of its slot.
+            let rect = egui::Rect::from_center_size(rect.center(), rect.size() * d.scale);
             let out = cobolt_forms::paint::draw_snackbar(
                 &painter,
                 rect,
-                &n.visual,
+                d.visual,
                 None,
-                1.0,
+                d.alpha,
                 snack_pointer,
             );
-            hits.push((*id, out.buttons));
+            // A remnant is already closed: its buttons are not clickable.
+            if d.interactive {
+                hits.push((d.id, out.buttons));
+            }
         }
 
         // A click on a button. The notification is not a control, so this is not
@@ -949,9 +954,13 @@ impl FormBody {
         }
 
         // A live notification is a reason to keep painting: its timeout has to
-        // elapse even when nothing else on the form is moving.
+        // elapse even when nothing else on the form is moving. An effect in
+        // flight is a reason to paint at screen rate — 50 ms would draw a
+        // 300 ms animation six times, which steps rather than moves.
         if !self.snackbars.is_empty() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            let interval = if self.snackbars.is_animating(now) { 16 } else { 50 };
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(interval));
         }
     }
 

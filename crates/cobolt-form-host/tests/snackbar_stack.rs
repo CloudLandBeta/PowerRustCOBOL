@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use cobolt_forms::model::{Control, ControlType, PropValue, Rect};
 use cobolt_forms::snackbar::{mint, DismissReason, SnackVisual};
-use cobolt_form_host::snackbar_stack::{SnackEvent, SnackbarStack};
+use cobolt_form_host::snackbar_stack::{SnackEvent, SnackbarStack, ANIM_MS};
 
 /// A template with the given property overrides, already minted.
 fn visual(set: &[(&str, PropValue)]) -> SnackVisual {
@@ -116,7 +116,7 @@ fn hover_holds_the_timeout_and_leaving_resumes_it() {
     let mut s = SnackbarStack::new();
     let id = s.raise("SNACK-1", visual(&[("Timeout", PropValue::Int(3000))]), t0).expect("raised");
     // Lay it out so there is a rect to hover.
-    let rects = s.layout(SURFACE, &fixed_size);
+    let rects = s.layout(SURFACE, &fixed_size, t0);
     let (_, r) = rects[0];
     let inside = ((r.x + r.w / 2) as f32, (r.y + r.h / 2) as f32);
     let outside = (5.0, 5.0);
@@ -175,7 +175,7 @@ fn pause_on_hover_off_means_the_pointer_is_ignored() {
         t0,
     )
     .expect("raised");
-    let rects = s.layout(SURFACE, &fixed_size);
+    let rects = s.layout(SURFACE, &fixed_size, t0);
     let (_, r) = rects[0];
     let inside = ((r.x + r.w / 2) as f32, (r.y + r.h / 2) as f32);
     s.tick(at(t0, 1000), Some(inside));
@@ -186,7 +186,7 @@ fn pause_on_hover_off_means_the_pointer_is_ignored() {
 }
 
 #[test]
-fn dismissing_the_middle_of_three_closes_the_gap_immediately() {
+fn dismissing_the_middle_of_three_closes_the_gap() {
     let t0 = Instant::now();
     let mut s = SnackbarStack::new();
     let v = || visual(&[("Timeout", PropValue::Int(0))]);
@@ -194,22 +194,34 @@ fn dismissing_the_middle_of_three_closes_the_gap_immediately() {
     let b = s.raise("SNACK-1", v(), at(t0, 10)).unwrap();
     let c = s.raise("SNACK-1", v(), at(t0, 20)).unwrap();
 
-    let before = s.layout(SURFACE, &fixed_size);
+    let before = s.layout(SURFACE, &fixed_size, t0);
     eprintln!("\n  before — {:?}", before.iter().map(|(i, r)| (*i, r.y)).collect::<Vec<_>>());
 
     assert!(s.dismiss(b, DismissReason::User), "the middle one goes");
-    let after = s.layout(SURFACE, &fixed_size);
+
+    // The survivors GLIDE into the gap now (operator, 2026-09-01) rather than
+    // snapping into it, so at the instant of the dismissal they have not moved
+    // yet. The hole is closed by the layout, not by the first frame after it.
+    let instant = s.layout(SURFACE, &fixed_size, t0);
+    let moved_at_once = instant.iter().map(|(_, r)| r.y).collect::<Vec<_>>();
+
+    let after = s.layout(SURFACE, &fixed_size, at(t0, ANIM_MS));
     eprintln!("  after  — {:?}", after.iter().map(|(i, r)| (*i, r.y)).collect::<Vec<_>>());
+    assert_ne!(
+        moved_at_once,
+        after.iter().map(|(_, r)| r.y).collect::<Vec<_>>(),
+        "the reflow must be animated, not instantaneous"
+    );
 
     assert_eq!(after.len(), 2);
     let ys: Vec<i32> = after.iter().map(|(_, r)| r.y).collect();
     let gap = (ys[1] - ys[0]).abs() - 56;
-    assert_eq!(gap, 8, "AC5/R14: survivors exactly StackSpacing apart — no hole left behind");
+    assert_eq!(gap, 8, "AC5/R14: once settled, survivors are exactly StackSpacing apart — no hole left behind");
     assert!(after.iter().any(|(i, _)| *i == a) && after.iter().any(|(i, _)| *i == c));
 
     let evs: Vec<String> = s.drain_events().iter().map(describe).collect();
     assert!(evs.contains(&format!("Closed({b},User)")), "reported verbatim: {evs:?}");
-    eprintln!("  → AC5: middle dismissed, gap {gap} pt (= StackSpacing 8), 2 survivors reflowed\n");
+    eprintln!("  → AC5: middle dismissed, gap {gap} pt (= StackSpacing 8), 2 survivors reflowed over {ANIM_MS} ms\n");
 }
 
 #[test]
@@ -424,7 +436,7 @@ fn two_controls_with_different_anchors_get_their_own_runs() {
     s.raise("SNACK-TOP", top.clone(), at(t0, 10));
     s.raise("SNACK-BOTTOM", bottom, at(t0, 20));
 
-    let rects = s.layout(SURFACE, &fixed_size);
+    let rects = s.layout(SURFACE, &fixed_size, t0);
     let by_id: std::collections::HashMap<u64, Rect> = rects.iter().copied().collect();
     // The two BottomRight ones stack together at the bottom right; the TopLeft
     // one is on its own at the top left — not interleaved into one column.
@@ -438,4 +450,214 @@ fn two_controls_with_different_anchors_get_their_own_runs() {
         "\n  two anchors — BottomRight ids 1,3 at y {} / {}; TopLeft id 2 at ({}, {})\n",
         by_id[&1].y, by_id[&3].y, by_id[&2].x, by_id[&2].y
     );
+}
+
+// ── Entrance, movement and exit (operator, 2026-09-01) ───────────────────────
+//
+// The Snackbar shipped without animation: notifications appeared, jumped and
+// vanished. Every effect below runs for exactly ANIM_MS, and every assertion
+// here drives a fabricated clock — nothing sleeps, so a whole animation plays
+// out in microseconds and always reaches the same answer.
+
+/// The scale and alpha the stack wants for one notification this frame.
+fn effect(s: &SnackbarStack, id: u64, now: Instant) -> (f32, f32) {
+    s.to_draw(now)
+        .into_iter()
+        .find(|d| d.id == id)
+        .map(|d| (d.scale, d.alpha))
+        .unwrap_or_else(|| panic!("nothing to draw for {id}"))
+}
+
+fn y_of(id: u64, rects: &[(u64, Rect)]) -> i32 {
+    rects.iter().find(|(i, _)| *i == id).expect("laid out").1.y
+}
+
+#[test]
+fn a_lone_raise_zooms_and_fades_in_over_300ms() {
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let id = s
+        .raise("SNACK-1", visual(&[("Timeout", PropValue::Int(0))]), t0)
+        .expect("raised");
+    s.layout(SURFACE, &fixed_size, t0);
+
+    let (s0, a0) = effect(&s, id, t0);
+    let (s1, a1) = effect(&s, id, at(t0, ANIM_MS / 2));
+    let (s2, a2) = effect(&s, id, at(t0, ANIM_MS));
+
+    eprintln!("\n  t(ms)   scale   alpha");
+    eprintln!("  -----   -----   -----");
+    for (ms, sc, al) in [(0, s0, a0), (ANIM_MS / 2, s1, a1), (ANIM_MS, s2, a2)] {
+        eprintln!("  {ms:>5}   {sc:>5.3}   {al:>5.3}");
+    }
+
+    assert!(s0 < 1.0 && a0 < 0.01, "it starts under size and invisible");
+    assert!(s1 > s0 && a1 > a0, "it is part-way in at half time");
+    assert!(s1 < 1.0 && a1 < 1.0, "and not finished at half time");
+    assert!(
+        (s2 - 1.0).abs() < 1e-6 && (a2 - 1.0).abs() < 1e-6,
+        "full size and opaque at exactly {ANIM_MS} ms: scale {s2}, alpha {a2}"
+    );
+    eprintln!("  → zoom + fade in, complete at {ANIM_MS} ms\n");
+}
+
+#[test]
+fn only_the_newest_zooms_in() {
+    // The older one is long past its own entrance window, so nothing has to
+    // track which is newest — the effect is per notification, from its raise.
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let v = || visual(&[("Timeout", PropValue::Int(0))]);
+    let first = s.raise("SNACK-1", v(), t0).unwrap();
+    s.layout(SURFACE, &fixed_size, t0);
+
+    let later = at(t0, ANIM_MS * 2);
+    let second = s.raise("SNACK-1", v(), later).unwrap();
+    s.layout(SURFACE, &fixed_size, later);
+
+    let (fs, fa) = effect(&s, first, later);
+    let (ss, sa) = effect(&s, second, later);
+    assert!(
+        (fs - 1.0).abs() < 1e-6 && (fa - 1.0).abs() < 1e-6,
+        "the settled one must not re-zoom when a newer arrives: scale {fs}, alpha {fa}"
+    );
+    assert!(ss < 1.0 && sa < 0.01, "the newest is mid-entrance: scale {ss}, alpha {sa}");
+    eprintln!("\n  → only the newest zooms: settled {fs:.3}, newest {ss:.3}\n");
+}
+
+#[test]
+fn a_second_raise_moves_the_first_one_progressively() {
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let v = || {
+        visual(&[
+            ("Timeout", PropValue::Int(0)),
+            ("StackAnchor", PropValue::String("BottomRight".into())),
+        ])
+    };
+    let first = s.raise("SNACK-1", v(), t0).unwrap();
+    let start = y_of(first, &s.layout(SURFACE, &fixed_size, t0));
+
+    // A second one takes the slot, so the first has somewhere to go.
+    s.raise("SNACK-1", v(), t0).unwrap();
+    let at_once = y_of(first, &s.layout(SURFACE, &fixed_size, t0));
+    let midway = y_of(first, &s.layout(SURFACE, &fixed_size, at(t0, ANIM_MS / 2)));
+    let settled = y_of(first, &s.layout(SURFACE, &fixed_size, at(t0, ANIM_MS)));
+
+    eprintln!("\n  first notification y — start {start}, at once {at_once}, midway {midway}, settled {settled}");
+    assert_ne!(start, settled, "the arrival of a second one must move the first");
+    assert_eq!(at_once, start, "it must not jump the instant the second arrives");
+    assert!(
+        (midway - start).abs() > 0 && (midway - settled).abs() > 0,
+        "midway {midway} must be between {start} and {settled}, not at either end"
+    );
+    let lo = start.min(settled);
+    let hi = start.max(settled);
+    assert!(midway > lo && midway < hi, "midway {midway} must lie inside {lo}..{hi}");
+    eprintln!("  → the reflow is glided, not jumped\n");
+}
+
+#[test]
+fn a_timeout_fade_changes_alpha_but_never_scale() {
+    // Leaving is a fade. It is explicitly NOT a zoom out (operator).
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let id = s
+        .raise("SNACK-1", visual(&[("Timeout", PropValue::Int(1000))]), t0)
+        .expect("raised");
+    s.layout(SURFACE, &fixed_size, t0);
+
+    let expiry = at(t0, 1000);
+    s.tick(expiry, None);
+    assert!(s.live().is_empty(), "it expired");
+    assert_eq!(s.fading().len(), 1, "and left a remnant to fade");
+
+    let (s0, a0) = effect(&s, id, expiry);
+    let (s1, a1) = effect(&s, id, at(t0, 1000 + ANIM_MS / 2));
+    let (s2, a2) = effect(&s, id, at(t0, 1000 + ANIM_MS));
+
+    eprintln!("\n  fading — t+0 alpha {a0:.3}, t+{} alpha {a1:.3}, t+{ANIM_MS} alpha {a2:.3}", ANIM_MS / 2);
+    for (label, sc) in [("start", s0), ("mid", s1), ("end", s2)] {
+        assert!((sc - 1.0).abs() < 1e-6, "{label}: scale must stay 1.0, got {sc}");
+    }
+    assert!(a0 > a1 && a1 > a2, "alpha must fall: {a0} > {a1} > {a2}");
+    // Evenly, too: an exit that dumps most of its opacity in the first half
+    // reads as a blink. Half the time is half the fade, within rounding.
+    assert!(
+        (a1 - 0.5).abs() < 0.05,
+        "the fade must be even — expected ~0.5 half-way, got {a1}"
+    );
+    assert!(a2.abs() < 1e-6, "fully transparent at exactly {ANIM_MS} ms, got {a2}");
+
+    // And the remnant is reaped once its fade is done, not before.
+    s.tick(at(t0, 1000 + ANIM_MS - 1), None);
+    assert_eq!(s.fading().len(), 1, "still fading a millisecond short of the end");
+    s.tick(at(t0, 1000 + ANIM_MS), None);
+    assert!(s.fading().is_empty(), "reaped at {ANIM_MS} ms");
+    eprintln!("  → fade out with no zoom, reaped at {ANIM_MS} ms\n");
+}
+
+#[test]
+fn a_fading_remnant_is_neither_clickable_nor_counted() {
+    // The whole difficulty in one test. A remnant must not vanish instantly —
+    // but it must stop occupying a slot the moment it closes, or `MaximumVisible`
+    // would stall for the length of an animation.
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let v = || {
+        visual(&[
+            ("Timeout", PropValue::Int(0)),
+            ("MaximumVisible", PropValue::Int(1)),
+        ])
+    };
+    let first = s.raise("SNACK-1", v(), t0).expect("raised");
+    s.layout(SURFACE, &fixed_size, t0);
+    assert!(s.dismiss(first, DismissReason::User), "dismissed");
+
+    // Still being drawn...
+    assert_eq!(s.fading().len(), 1, "the remnant is still on screen");
+    let drawn = s.to_draw(t0);
+    assert_eq!(drawn.len(), 1);
+    assert!(!drawn[0].interactive, "a closed notification must not be clickable");
+    assert!(!s.is_empty(), "the host must keep drawing while a fade runs");
+
+    // ...and yet the slot is free immediately.
+    let second = s.raise("SNACK-1", v(), t0);
+    assert!(
+        second.is_some(),
+        "MaximumVisible must not be held by something that has already closed"
+    );
+    assert_eq!(s.live().len(), 1, "the newcomer is up");
+    eprintln!("\n  → remnant still painted, slot already free\n");
+}
+
+#[test]
+fn the_stack_reports_when_an_effect_is_in_flight() {
+    // The host paces repaints off this: at 50 ms a 300 ms effect would be drawn
+    // six times and step instead of moving.
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let id = s
+        .raise("SNACK-1", visual(&[("Timeout", PropValue::Int(0))]), t0)
+        .expect("raised");
+    s.layout(SURFACE, &fixed_size, t0);
+
+    assert!(s.is_animating(t0), "an entrance is an effect in flight");
+    assert!(
+        !s.is_animating(at(t0, ANIM_MS)),
+        "a settled, idle stack must not ask for screen-rate repaints"
+    );
+
+    // A dismissal starts a fade, so painting must resume...
+    s.dismiss(id, DismissReason::User);
+    assert!(s.is_animating(at(t0, ANIM_MS)), "a fade is an effect in flight");
+
+    // ...and stop once the remnant has been reaped.
+    s.tick(at(t0, ANIM_MS * 3), None);
+    assert!(s.fading().is_empty(), "reaped");
+    assert!(
+        !s.is_animating(at(t0, ANIM_MS * 3)),
+        "nothing left to animate once the remnant is gone"
+    );
+    eprintln!("\n  → screen-rate only while an effect is running\n");
 }

@@ -3112,6 +3112,24 @@ further `Show()` does:
 - `DiscardOldest` — close the oldest to make room.
 - `DiscardNewest` — drop the arrival.
 
+**How they move.** Notifications are animated, and every effect takes the same
+300 ms:
+
+- The one just raised **zooms up and fades in** at the place it will occupy —
+  it does not fly in from off-screen. Only the newest does this; the ones
+  already up never re-animate when a new message arrives.
+- Existing notifications **glide** up or down (whichever way the anchor stacks)
+  to make room, and glide back to close the gap when one leaves. They never
+  jump.
+- A notification that leaves — expired, dismissed, or pushed out by
+  `OverflowBehavior` — **fades out** where it stood. It does not zoom out, and
+  the survivors close the gap around it while it goes.
+
+Nothing about this is yours to drive: the effects are automatic, and a
+notification's events do **not** wait for them. `onClosing` and `onClosed` fire
+the moment it closes, and the slot it held is free for the next `Show()`
+immediately — what lingers for 300 ms is the picture, not the notification.
+
 **Clearing them.** `DismissAll()` closes every notification **this** control
 raised, and discards anything it had queued. Other Snackbar controls on the form
 are untouched:

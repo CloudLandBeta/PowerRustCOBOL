@@ -28,6 +28,40 @@ use std::time::{Duration, Instant};
 use cobolt_forms::model::Rect;
 use cobolt_forms::snackbar::{stack_layout, DismissReason, SnackAnchor, SnackVisual};
 
+/// How long every notification effect runs — entrance, movement and fade-out
+/// alike (operator, 2026-09-01).
+pub const ANIM_MS: u64 = 300;
+
+/// A notification enters from slightly under size, so it reads as arriving
+/// rather than being pasted on. It never zooms *out*: leaving is a fade.
+const ENTRANCE_SCALE: f32 = 0.85;
+
+/// Decelerating ease. Motion that starts fast and settles reads as physical;
+/// a linear slide reads as a scripted animation of itself.
+fn ease_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
+/// How far through a 300 ms effect `now` is, in `0.0..=1.0`.
+fn progress(now: Instant, since: Instant) -> f32 {
+    let ms = now.saturating_duration_since(since).as_millis() as f32;
+    (ms / ANIM_MS as f32).clamp(0.0, 1.0)
+}
+
+fn lerp_i32(a: i32, b: i32, t: f32) -> i32 {
+    (a as f32 + (b as f32 - a as f32) * t).round() as i32
+}
+
+fn lerp_rect(a: Rect, b: Rect, t: f32) -> Rect {
+    Rect::new(
+        lerp_i32(a.x, b.x, t),
+        lerp_i32(a.y, b.y, t),
+        lerp_i32(a.w, b.w, t),
+        lerp_i32(a.h, b.h, t),
+    )
+}
+
 /// One notification that is actually up.
 #[derive(Debug, Clone)]
 pub struct LiveNotification {
@@ -44,8 +78,14 @@ pub struct LiveNotification {
     paused_total: Duration,
     /// When the current pause began; `None` when not paused.
     paused_since: Option<Instant>,
-    /// Where it was last laid out — the host hit-tests the pointer against this.
+    /// Where it was last **drawn** — the host hit-tests the pointer against
+    /// this, so while it is gliding you click what you can see, not where the
+    /// layout intends to put it.
     pub rect: Option<Rect>,
+    /// Where the layout wants it, which is where it is gliding to.
+    target: Option<Rect>,
+    /// The rect it is gliding *from*, and when that glide began.
+    move_from: Option<(Rect, Instant)>,
 }
 
 impl LiveNotification {
@@ -74,6 +114,68 @@ impl LiveNotification {
     pub fn is_paused(&self) -> bool {
         self.paused_since.is_some()
     }
+
+    /// How far through its entrance it is.
+    ///
+    /// Wall time since it was raised — deliberately **not** [`elapsed`], which
+    /// stops for a hover. Pausing a timeout is a promise to the reader; freezing
+    /// a half-played entrance under the pointer is a glitch.
+    fn entrance(&self, now: Instant) -> f32 {
+        progress(now, self.raised_at)
+    }
+
+    /// Where to draw it this frame: its target, or a point along the glide
+    /// towards it. Only movement is interpolated — the entrance zoom is a
+    /// scale about the centre, not a change of rect, so a notification arrives
+    /// AT its destination rather than flying in from somewhere.
+    fn drawn_rect(&self, now: Instant) -> Option<Rect> {
+        let target = self.target?;
+        match self.move_from {
+            Some((from, since)) => {
+                let t = progress(now, since);
+                if t >= 1.0 {
+                    Some(target)
+                } else {
+                    Some(lerp_rect(from, target, ease_out(t)))
+                }
+            }
+            None => Some(target),
+        }
+    }
+}
+
+/// A notification that has already closed, kept only so it can fade out.
+///
+/// It is **not live**: `onClosing`/`onClosed` have already fired, it counts
+/// towards no `MaximumVisible`, it is laid out no more and it cannot be
+/// clicked. All that survives is 300 ms of fade where it last stood.
+///
+/// Keeping it out of `live` is the whole trick. Leaving it in — so it could
+/// "finish leaving" before removal — would stall overflow for the length of its
+/// own animation and defer the events a handler is waiting on. A dismissal is
+/// instantaneous in every respect except the picture.
+#[derive(Debug, Clone)]
+pub struct FadingNotification {
+    pub id: u64,
+    pub visual: SnackVisual,
+    /// Frozen where it was last drawn: survivors close the gap around it.
+    pub rect: Rect,
+    started: Instant,
+}
+
+/// One thing to paint this frame, live or fading.
+#[derive(Debug, Clone, Copy)]
+pub struct SnackDraw<'a> {
+    pub id: u64,
+    pub visual: &'a SnackVisual,
+    pub rect: Rect,
+    /// Scale about the rect's centre. Below `1.0` only during an entrance.
+    pub scale: f32,
+    /// `1.0` is opaque.
+    pub alpha: f32,
+    /// False for a fading remnant — it is already closed, so its buttons must
+    /// not be hit-tested.
+    pub interactive: bool,
 }
 
 /// What the stack did, for the host to turn into COBOL events.
@@ -96,6 +198,15 @@ pub enum SnackEvent {
 pub struct SnackbarStack {
     /// Live notifications, **oldest first**.
     live: Vec<LiveNotification>,
+    /// Closed, but still fading out. Not live in any sense that counts.
+    fading: Vec<FadingNotification>,
+    /// The last instant the stack was told about.
+    ///
+    /// `dismiss`, `click_button` and `DismissAll()` are answers to something the
+    /// operator just did, and none of them carries a clock. A fade has to start
+    /// somewhere, so it starts from the most recent tick — at worst one frame
+    /// stale, since the host ticks before it draws.
+    last_tick: Option<Instant>,
     /// Held back by `OverflowBehavior::Queue`, oldest first.
     queued: VecDeque<(String, SnackVisual)>,
     next_id: u64,
@@ -116,8 +227,32 @@ impl SnackbarStack {
         self.queued.len()
     }
 
+    /// Nothing to show and nothing pending — including no fade still running,
+    /// because the host skips the whole draw when this is true and a remnant
+    /// would blink out instead of fading.
     pub fn is_empty(&self) -> bool {
-        self.live.is_empty() && self.queued.is_empty()
+        self.live.is_empty() && self.queued.is_empty() && self.fading.is_empty()
+    }
+
+    /// The remnants still fading out.
+    pub fn fading(&self) -> &[FadingNotification] {
+        &self.fading
+    }
+
+    /// Is any effect in flight — an entrance, a glide or a fade?
+    ///
+    /// The host paces its repaints off this. A stack merely waiting for a
+    /// timeout needs a frame occasionally; one mid-animation needs them at
+    /// screen rate, or a 300 ms effect is drawn half a dozen times and steps
+    /// instead of moving.
+    pub fn is_animating(&self, now: Instant) -> bool {
+        !self.fading.is_empty()
+            || self.live.iter().any(|n| {
+                n.entrance(now) < 1.0
+                    || n.move_from
+                        .map(|(_, since)| progress(now, since) < 1.0)
+                        .unwrap_or(false)
+            })
     }
 
     /// Take everything that happened since the last call.
@@ -176,14 +311,30 @@ impl SnackbarStack {
             paused_total: Duration::ZERO,
             paused_since: None,
             rect: None,
+            target: None,
+            move_from: None,
         });
         self.events.push(SnackEvent::Shown { id, ctrl_id: ctrl_id.to_owned() });
         id
     }
 
     /// Remove the notification at `pos`, emitting `Closing` then `Closed`.
+    ///
+    /// Both events fire **now**, and it stops being live **now** — a handler
+    /// waiting on `onClosed` is not made to wait out an animation, and the slot
+    /// it freed is available to the next notification immediately. What lingers
+    /// is a picture: if it had been drawn, it leaves a remnant that fades over
+    /// 300 ms where it stood ([`FadingNotification`]).
     fn close_at(&mut self, pos: usize, reason: DismissReason) {
         let n = self.live.remove(pos);
+        if let Some(rect) = n.rect {
+            self.fading.push(FadingNotification {
+                id: n.id,
+                visual: n.visual.clone(),
+                rect,
+                started: self.last_tick.unwrap_or(n.raised_at),
+            });
+        }
         self.events.push(SnackEvent::Closing { id: n.id, ctrl_id: n.ctrl_id.clone(), reason });
         self.events.push(SnackEvent::Closed { id: n.id, ctrl_id: n.ctrl_id, reason });
     }
@@ -220,6 +371,8 @@ impl SnackbarStack {
             self.close_at(0, DismissReason::Programmatic);
         }
         self.queued.clear();
+        // The surface itself is going: there is nothing left to fade against.
+        self.fading.clear();
         n
     }
 
@@ -253,6 +406,12 @@ impl SnackbarStack {
     /// surface. Expires whatever ran out, then promotes anything queued into
     /// the room that freed.
     pub fn tick(&mut self, now: Instant, pointer: Option<(f32, f32)>) {
+        self.last_tick = Some(now);
+
+        // 0. Reap remnants whose fade has finished. They are already closed —
+        //    this only stops drawing them.
+        self.fading.retain(|f| progress(now, f.started) < 1.0);
+
         // 1. Hover pause/resume (R7), before expiry — a notification the pointer
         //    is over must not expire in the same tick that noticed the hover.
         for n in &mut self.live {
@@ -306,6 +465,53 @@ impl SnackbarStack {
         }
     }
 
+    /// Everything to paint this frame, in paint order: fading remnants first so
+    /// a survivor gliding into the gap passes over the ghost, then the live
+    /// ones oldest-first (the newest lands on top).
+    ///
+    /// The three effects, all 300 ms (operator, 2026-09-01):
+    ///
+    /// * **entrance** — the notification just raised zooms up from
+    ///   [`ENTRANCE_SCALE`] and fades in, *at its destination*. Older ones are
+    ///   long past their own entrance window, which is what makes "only the
+    ///   newest zooms in" true without anyone tracking who is newest.
+    /// * **movement** — handled in [`layout`](Self::layout): a changed
+    ///   destination is glided to, never jumped to.
+    /// * **exit** — a closed notification fades where it stood. It does **not**
+    ///   zoom out.
+    pub fn to_draw(&self, now: Instant) -> Vec<SnackDraw<'_>> {
+        let mut out = Vec::with_capacity(self.fading.len() + self.live.len());
+        for f in &self.fading {
+            out.push(SnackDraw {
+                id: f.id,
+                visual: &f.visual,
+                rect: f.rect,
+                // Leaving is a fade, never a zoom out.
+                scale: 1.0,
+                // Linear, deliberately. `ease_out` is right for an arrival —
+                // it decelerates into place — but running it backwards on a
+                // departure throws away 87% of the opacity in the first half
+                // and then crawls, which reads as a blink rather than a fade.
+                // A notification leaving should dim evenly.
+                alpha: 1.0 - progress(now, f.started),
+                interactive: false,
+            });
+        }
+        for n in &self.live {
+            let Some(rect) = n.rect.or(n.target) else { continue };
+            let t = ease_out(n.entrance(now));
+            out.push(SnackDraw {
+                id: n.id,
+                visual: &n.visual,
+                rect,
+                scale: ENTRANCE_SCALE + (1.0 - ENTRANCE_SCALE) * t,
+                alpha: t,
+                interactive: true,
+            });
+        }
+        out
+    }
+
     /// Lay the live notifications out on `surface`, and remember where each
     /// went so [`tick`](Self::tick) can hover-test them (R14 — recomputed every
     /// frame, so a dismissal closes the gap with nothing to clean up).
@@ -319,6 +525,7 @@ impl SnackbarStack {
         &mut self,
         surface: Rect,
         measure: &dyn Fn(&SnackVisual) -> (f32, f32),
+        now: Instant,
     ) -> Vec<(u64, Rect)> {
         let mut out = Vec::with_capacity(self.live.len());
         let anchors: Vec<SnackAnchor> = {
@@ -346,8 +553,19 @@ impl SnackbarStack {
             let v = &self.live[newest].visual;
             let rects = stack_layout(anchor, v.margin, v.stack_spacing, v.stack_order, surface, &sizes);
             for (&i, r) in idxs.iter().zip(rects) {
-                self.live[i].rect = Some(r);
-                out.push((self.live[i].id, r));
+                let n = &mut self.live[i];
+                // A destination that changed starts a glide from wherever it is
+                // being drawn right now — which is what makes a dismissal close
+                // the gap smoothly instead of snapping the survivors up. A
+                // notification seeing its target for the first time has nowhere
+                // to glide from and simply appears there.
+                if n.target != Some(r) {
+                    n.move_from = n.rect.map(|from| (from, now));
+                    n.target = Some(r);
+                }
+                let shown = n.drawn_rect(now).unwrap_or(r);
+                n.rect = Some(shown);
+                out.push((n.id, shown));
             }
         }
         out

@@ -1,5 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.145] — 2026-09-01
+
+### Notifications move instead of jumping
+
+The Snackbar shipped without animation: a message appeared abruptly, its
+neighbours snapped to new positions, and one leaving blinked out of existence.
+Classified as a **fix** rather than a feature (operator, 2026-09-01) — "the
+snackbar implementation was too basic, any snackbar out there implements
+animations" — so the yardstick is what a competent implementation of the
+control already does, not what spec 055 happened to list.
+
+Three effects, each **300 ms**:
+
+- **Entrance** — the notification just raised zooms up from 85 % and fades in
+  **at its destination**, decelerating into place. It does not fly in from
+  off-screen.
+- **Movement** — a notification whose slot changed *glides* to it. Making room
+  for an arrival and closing the gap after a departure are the same mechanism:
+  the layout names a destination, and the stack travels there rather than
+  teleporting.
+- **Exit** — a notification that leaves fades where it stood, and does **not**
+  zoom out. The fade is linear on purpose: running the entrance's decelerating
+  curve backwards throws away 87 % of the opacity in the first half and then
+  crawls, which reads as a blink rather than a fade.
+
+Only the newest ever zooms in, and nothing tracks which one that is — the
+entrance is measured from each notification's own raise, so the ones already up
+are long past their window.
+
+**A departure is instantaneous in everything except the picture.** This is the
+whole difficulty of the change. A remnant that stayed *live* until its fade
+finished would hold a `MaximumVisible` slot for 300 ms and defer the
+`onClosing`/`onClosed` a handler is waiting on; one removed outright would
+vanish with nothing to fade. So a closed notification leaves `live` at once —
+events fired, slot freed, no longer clickable — and leaves behind a purely
+visual remnant that fades where it stood while the survivors close the gap
+around it.
+
+The host now repaints at screen rate while an effect is in flight. The standing
+50 ms cadence is right for a stack merely waiting out a timeout, and would have
+drawn a 300 ms animation six times — stepping rather than moving.
+
+`AC5`'s guarantee is unchanged and still tested: once settled, survivors sit
+exactly `StackSpacing` apart with no hole left behind. What changed is that they
+arrive there over 300 ms, so the test that asserted the reflow was
+*instantaneous* now asserts that it is animated and lands exactly on target.
+
 ## [PowerRustCOBOL 1.62.144] — 2026-09-01
 
 ### The REST Client read its own configuration for the first time
