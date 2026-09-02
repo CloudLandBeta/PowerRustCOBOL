@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.7] — 2026-09-02
+
+### A menu of three levels fits in a limit of three
+
+`MAX_DEPTH` is 3, and three levels did not fit. `check_depth` recursed into a
+LEAF's empty child list at `current + 1` and tripped the limit there — so the
+constant said three and the code allowed two. Nobody had noticed while menus
+were one level of items under one top-level entry; grouping samples into section
+folders, which is the third level the constant permits, is what found it.
+
+An empty list at any depth is not a violation: there is nothing there. A fourth
+level is still refused, pinned by a test either way.
+
 ## [PowerRustCOBOL 1.63.6] — 2026-09-02
 
 ### A Switch stops drawing a frame around itself

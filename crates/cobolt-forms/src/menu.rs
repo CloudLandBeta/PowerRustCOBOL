@@ -261,6 +261,16 @@ pub enum MenuError {
 }
 
 fn check_depth(items: &[MenuItem], current: usize, max: usize) -> Result<(), MenuError> {
+    // An EMPTY list at any depth is not a violation: there is nothing there.
+    //
+    // Without this the recursion into a leaf's empty `items` reported depth
+    // `current + 1` and tripped the limit, so `MAX_DEPTH = 3` in fact permitted
+    // only two levels. Nobody noticed while menus were one level of items under
+    // one top-level entry; grouping samples into section folders — the third
+    // level the constant says is allowed — is what found it.
+    if items.is_empty() {
+        return Ok(());
+    }
     if current > max {
         return Err(MenuError::DepthExceeded(max));
     }
@@ -889,5 +899,74 @@ mod tests {
     fn accelerator_no_modifier_rejected() {
         assert!(parse_accelerator("N").is_none());
         assert!(parse_accelerator("").is_none());
+    }
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::*;
+
+    fn leaf(id: &str) -> MenuItem {
+        MenuItem {
+            id: id.into(),
+            label: id.into(),
+            item_type: MenuItemType::Action,
+            icon: None,
+            accelerator: None,
+            action: None,
+            enabled: true,
+            preserve_previous_form: false,
+            badge: None,
+            badge_style: BadgeStyle::default(),
+            items: Vec::new(),
+        }
+    }
+
+    fn parent(id: &str, kids: Vec<MenuItem>) -> MenuItem {
+        let mut m = leaf(id);
+        m.items = kids;
+        m
+    }
+
+    /// `MAX_DEPTH` is 3, and three levels must actually fit — a top entry, a
+    /// folder, and the items in it. The recursion into a LEAF's empty child
+    /// list used to report depth 4 and refuse the menu, so the constant said
+    /// three and the code allowed two.
+    #[test]
+    fn three_levels_fit_in_a_limit_of_three() {
+        let def = MenuDefinition {
+            menu: vec![parent(
+                "samples",
+                vec![parent("common", vec![leaf("button"), leaf("label")])],
+            )],
+            hash: String::new(),
+        };
+        assert!(validate_depth(&def).is_ok(), "three levels must be allowed");
+    }
+
+    /// And a fourth level is still refused — the fix must not loosen the limit,
+    /// only stop it firing on nothing.
+    #[test]
+    fn a_fourth_level_is_still_refused() {
+        let def = MenuDefinition {
+            menu: vec![parent(
+                "a",
+                vec![parent("b", vec![parent("c", vec![leaf("d")])])],
+            )],
+            hash: String::new(),
+        };
+        assert!(matches!(
+            validate_depth(&def),
+            Err(MenuError::DepthExceeded(3))
+        ));
+    }
+
+    #[test]
+    fn an_empty_menu_is_valid() {
+        let def = MenuDefinition {
+            menu: Vec::new(),
+            hash: String::new(),
+        };
+        assert!(validate_depth(&def).is_ok());
     }
 }
