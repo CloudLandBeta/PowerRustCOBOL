@@ -5031,6 +5031,16 @@ impl Control {
                 props.insert("ShowYAxis".into(), PropValue::Bool(true));
                 props.insert("ShowTooltips".into(), PropValue::Bool(true));
                 props.insert("AnimateOnLoad".into(), PropValue::Bool(true));
+                // Value animation (operator, 2026-09-02): when on, a chart whose
+                // data changes TRAVELS from the values it is showing to the new
+                // ones instead of cutting to them. Off by default — a chart that
+                // is filled once should not spend two seconds arriving.
+                props.insert("AnimateValues".into(), PropValue::Bool(false));
+                // Milliseconds for that travel, whatever the series length: the
+                // whole set moves together, so the chart takes the same time to
+                // settle with four points or forty. Floored at 250 ms in
+                // `chart::value_anim_ms` — below that the eye reads a jump.
+                props.insert("AnimationDuration".into(), PropValue::Int(2000));
                 // When true, the panel background fill and border frame are not
                 // drawn — only the chart content (grid, axes, labels, data) shows,
                 // letting the chart sit transparently on the form.

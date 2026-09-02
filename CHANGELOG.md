@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.153] — 2026-09-02
+
+### Charts travel between data sets
+
+**New: `AnimateValues` and `AnimationDuration`** on all six chart types
+(operator, 2026-09-02). With `AnimateValues` on, a chart whose data changes
+*travels* from the values it is showing to the new ones instead of cutting to
+them. The **whole series moves together** over `AnimationDuration`, so a chart
+settles in the same time with four points or forty. Default 2000 ms; anything
+below **250 ms** is raised to it — under that the eye reads a jump, and the
+property would be honoured in name only. The duration row appears in the
+property pane only while the animation is ticked.
+
+A point the new set added rises from zero while the others move; one it dropped
+stops being drawn; and the labels are the new set's from the first frame, so a
+half-played move never shows a point under the name it used to have. Retargeting
+mid-move continues **from the frame on screen**, not from the set it was heading
+for, so the chart never jumps backwards to set off again.
+
+**The first fill is not animated, and could not be.** This was implemented as
+"grow from zero", and the wiring test then measured three identical frames while
+the tween ran correctly at t = 0, 0.2, 0.4. A plot auto-scales to its own
+largest value, so multiplying every value by the same rising factor leaves the
+bars exactly where they were. Only a change in how the values relate to *each
+other* is visible, so that is the only thing that travels — and a chart filled
+once on load now appears immediately, which is what it should have done anyway.
+
+The tween is pure and lives in the new `cobolt_forms::chart` module with the
+`__ChartData` wire format, which the painter now shares rather than parsing a
+second time. The animation itself lives in the run-form renderer, in egui's
+per-frame memory: the painter has no clock and no cross-frame state, and the
+designer canvas has no data changes to animate. What the painter receives is an
+ordinary control whose `__ChartData` holds this frame's interpolated series, so
+it needed no changes at all.
+
+`drive_painted` was generalised to allow the controls to differ per frame — a
+transition cannot be driven any other way, since it only exists between two
+different `__ChartData` values.
+
+Documented in the Developer's Guide and the System KB;
+`assets/knowledge/chunked.data` regenerated. The Charts demo form now ships with
+the animation on and a button that cycles it off / 400 / 2000 / 5000 ms.
+
 ## [PowerRustCOBOL 1.62.152] — 2026-09-02
 
 ### A donut has a hole again, and chart type is legible

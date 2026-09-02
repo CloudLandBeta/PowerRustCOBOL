@@ -1690,6 +1690,19 @@ fn panel_content_size(
 
 /// Render a whole form into `ui` at its content origin. The caller sets up the
 /// `CentralPanel` / `ScrollArea` and `ui.set_min_size(form_size)` first.
+/// One chart's value animation in flight: the series it set off from, the one
+/// it is heading for, and when it started (`ui.input().time`, the same clock a
+/// Timer reads).
+///
+/// Lives in egui's per-frame memory rather than in the form model — it is view
+/// state, it must not be saved into a `.cfrm`, and it dies with the window.
+#[derive(Clone, PartialEq)]
+struct ChartTween {
+    from: Vec<crate::chart::Point>,
+    to: Vec<crate::chart::Point>,
+    started: f64,
+}
+
 pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
     render_form_with_chrome(ui, input, None)
 }
@@ -8338,7 +8351,80 @@ fn render_interactive(
         | CT::DonutChart => {
             // Charts render through the SAME path as the designer (draw_control â
             // chart painter) so the running chart matches the canvas (spec 017).
-            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            // `AnimateValues` (operator, 2026-09-02) puts a tween in front of
+            // that: the chart TRAVELS from the values it is showing to the ones
+            // just pushed instead of cutting to them. The whole set moves
+            // together over `AnimationDuration`, so a chart settles in the same
+            // time with four points or forty.
+            //
+            // The tween is a run-time thing and lives here rather than in the
+            // painter, which owns no clock and no cross-frame state; the
+            // designer canvas has no data changes to animate. What the painter
+            // receives is an ordinary control whose `__ChartData` happens to
+            // hold this frame's interpolated series, so it needs no knowledge of
+            // any of this.
+            let tweened_owner;
+            let mut chart_ctrl = ctrl;
+            if let Some(anim_ms) = crate::chart::value_anim_ms(ctrl) {
+                let target = crate::chart::parse_chart_data(
+                    &ctrl
+                        .get_prop("__ChartData")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default(),
+                );
+                let key = ctrl_id.with("chart_tween");
+                let now = ui.input(|i| i.time);
+                let secs = anim_ms as f64 / 1000.0;
+                let prior: Option<ChartTween> =
+                    ui.ctx().memory(|m| m.data.get_temp::<ChartTween>(key));
+                let restart = prior.as_ref().map(|s| s.to != target).unwrap_or(true);
+                let state = if restart {
+                    // `from` is the frame being SHOWN, not the previous target:
+                    // retargeting mid-flight has to carry on from what the eye
+                    // can see, or the chart snaps back to the old set before
+                    // setting off again.
+                    let from = match &prior {
+                        Some(s) if now - s.started < secs => {
+                            let t = ((now - s.started) / secs) as f32;
+                            crate::chart::tween_series(&s.from, &s.to, t)
+                        }
+                        Some(s) => s.to.clone(),
+                        // The FIRST data a chart is given is not animated at
+                        // all. Growing it from zero looks like an animation and
+                        // is not one: the plot auto-scales to its own maximum,
+                        // so multiplying every value by the same rising factor
+                        // leaves the bars exactly where they were. Measured —
+                        // the tween ran correctly at t = 0, 0.2, 0.4 and painted
+                        // three identical frames. Only a change in the values'
+                        // relation to each other can be seen, so that is the
+                        // only thing that travels.
+                        None => target.clone(),
+                    };
+                    let next = ChartTween { from, to: target.clone(), started: now };
+                    ui.ctx().memory_mut(|m| m.data.insert_temp(key, next.clone()));
+                    next
+                } else {
+                    prior.expect("not a restart, so a state exists")
+                };
+                let t = ((now - state.started) / secs).clamp(0.0, 1.0) as f32;
+                if t < 1.0 {
+                    let mut c = ctrl.clone();
+                    c.set_prop(
+                        "__ChartData",
+                        crate::model::PropValue::String(crate::chart::format_chart_data(
+                            &crate::chart::tween_series(&state.from, &state.to, t),
+                        )),
+                    );
+                    tweened_owner = c;
+                    chart_ctrl = &tweened_owner;
+                    // Screen rate while it moves, and nothing once it lands.
+                    ui.ctx()
+                        .request_repaint_after(std::time::Duration::from_millis(16));
+                }
+            }
+            paint::draw_control(
+                &painter, screen.min, chart_ctrl, false, glass, alpha, 1.0, None,
+            );
             // spec 021: onDataChanged when the chart's data-bearing properties
             // change (COBOL AddPoint/Clear/DataSource writes land here).
             if bound.contains(&"onDataChanged") {
@@ -10851,7 +10937,21 @@ mod tests {
         placed: Map<String, Rect>,
     }
 
+    /// [`drive_painted`] with the CONTROLS allowed to differ per frame.
+    ///
+    /// A chart that animates a change of data cannot be driven any other way:
+    /// the transition only exists between two different `__ChartData` values,
+    /// and the fixed-control driver has no way to deliver the second one.
+    fn drive_painted_series(per_frame: &[&[Control]]) -> Painted {
+        drive_painted_inner(per_frame, per_frame.iter().map(|_| Vec::new()).collect())
+    }
+
     fn drive_painted(controls: &[Control], frames: Vec<(f64, Vec<Event>)>) -> Painted {
+        let lists: Vec<&[Control]> = frames.iter().map(|_| controls).collect();
+        drive_painted_inner(&lists, frames.into_iter().map(|(_, e)| e).collect())
+    }
+
+    fn drive_painted_inner(per_frame: &[&[Control]], events: Vec<Vec<Event>>) -> Painted {
         fn collect_faces(
             shape: &egui::Shape,
             fills: &mut Vec<(Rect, Color32)>,
@@ -10919,7 +11019,8 @@ mod tests {
         let mut meshes: Vec<Rect> = Vec::new();
         let mut mesh_colors: Vec<(Rect, Vec<Color32>)> = Vec::new();
 
-        for (i, (_time, evs)) in frames.into_iter().enumerate() {
+        for (i, evs) in events.into_iter().enumerate() {
+            let controls: &[Control] = per_frame[i.min(per_frame.len() - 1)];
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(Rect::from_min_size(
                 pos2(0.0, 0.0),
@@ -14151,6 +14252,107 @@ mod tests {
              still shows it; MaximumLength 8 stops at SecretXY; PasswordCharacter paints \
              ********* and ######### while the value stays SecretXYZ\n"
         );
+    }
+
+    /// `AnimateValues` actually reaches the picture (operator, 2026-09-02).
+    ///
+    /// The tween arithmetic is proved in `chart::tests`; what is proved here is
+    /// the WIRING — that the renderer puts the interpolated series in front of
+    /// the painter, that the clock advances it, and that a chart with the
+    /// property off is not quietly animated anyway.
+    ///
+    /// It has to be a change of data, not a first fill. A plot auto-scales to
+    /// its own maximum, so a series rising uniformly from zero paints exactly
+    /// the same bars at every t — the tween runs and nothing moves. Only the
+    /// values' relation to each other is visible, so the test changes that:
+    /// B is the tall bar to begin with and A is the tall bar afterwards, and
+    /// the short bar's height is followed across the swap.
+    ///
+    /// `drive_painted_series` runs its frames at `index * 0.05 s`, so the
+    /// duration is the 250 ms floor and the frame COUNT moves the clock.
+    #[test]
+    fn animate_values_travels_between_two_data_sets() {
+        let bar = |data: &str, animate: bool| -> Vec<Control> {
+            vec![ctrlp(
+                "Ch",
+                ControlType::BarChart,
+                20,
+                20,
+                320,
+                240,
+                &[
+                    ("__ChartData", data),
+                    ("ShowLegend", "false"),
+                    ("ShowGridLines", "false"),
+                    ("Title", ""),
+                    ("AnimationDuration", "250"),
+                    ("AnimateValues", if animate { "true" } else { "false" }),
+                ],
+            )]
+        };
+        // A is short, then A is tall. Under auto-scale the SHORT bar's height
+        // is the whole signal: 40 % of the plot, then 100 % of it.
+        let first = bar("A\t40\nB\t100", true);
+        let second = bar("A\t100\nB\t40", true);
+        let plain_second = bar("A\t100\nB\t40", false);
+
+        // The leftmost bar's height, which is A's.
+        let a_height = |p: &Painted| -> f32 {
+            let frame = *p.placed.get("Ch").expect("placed");
+            let mut bars: Vec<(Rect, Color32)> = p
+                .fills
+                .iter()
+                .filter(|(r, _)| frame.contains_rect(*r) && r.width() < frame.width() * 0.5)
+                .cloned()
+                .collect();
+            bars.sort_by(|a, b| a.0.min.x.partial_cmp(&b.0.min.x).unwrap());
+            bars.first().map(|(r, _)| r.height()).unwrap_or(0.0)
+        };
+
+        // Frame 0 establishes the first set (never animated — nothing to travel
+        // from); every frame after it asks for the second.
+        let run = |n: usize, target: &[Control]| -> f32 {
+            let mut lists: Vec<&[Control]> = vec![&first];
+            for _ in 1..n {
+                lists.push(target);
+            }
+            a_height(&drive_painted_series(&lists))
+        };
+
+        eprintln!("\n  frames   t     A height (pt)   what it shows");
+        eprintln!("  ------   ---   -------------   -------------");
+        let before = run(1, &second);
+        eprintln!("  {:>6}   {:<3}   {before:>13.1}   the first set, A short", 1, "-");
+        let retarget = run(2, &second);
+        eprintln!("  {:>6}   {:<3}   {retarget:>13.1}   the move begins", 2, "0.0");
+        let mid = run(3, &second);
+        eprintln!("  {:>6}   {:<3}   {mid:>13.1}   part way", 3, "0.2");
+        let settled = run(8, &second);
+        eprintln!("  {:>6}   {:<3}   {settled:>13.1}   landed, A tall", 8, "1.0");
+        let unanimated = run(2, &plain_second);
+        eprintln!("  {:>6}   {:<3}   {unanimated:>13.1}   AnimateValues off", 2, "-");
+
+        assert!(
+            before > 0.0 && settled > before,
+            "A must end taller than it began: {before} -> {settled}"
+        );
+        // The frame that RETARGETS is t = 0 by definition, and t = 0 is the
+        // series that was on screen. That is the property worth pinning: a
+        // retarget continues from what the eye can see rather than snapping to
+        // the new set and animating from there.
+        assert!(
+            (retarget - before).abs() < 1.0,
+            "the move must START from what was showing: {before} vs {retarget}"
+        );
+        assert!(
+            mid > before && mid < settled,
+            "one frame later it must be PART WAY, at neither end: {before} -> {mid} -> {settled}"
+        );
+        assert!(
+            (unanimated - settled).abs() < 1.0,
+            "with the property off the new set is drawn at once: {unanimated} vs {settled}"
+        );
+        eprintln!("  -> A travels {before:.1} to {mid:.1} to {settled:.1} pt; off it jumps straight to {unanimated:.1}\n");
     }
 
     /// A chart honours its own visual properties. All were seeded, shown in the

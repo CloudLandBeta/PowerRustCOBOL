@@ -8377,16 +8377,7 @@ pub fn draw_chart_preview(
         .get_prop("__ChartData")
         .map(|v| v.as_str().to_owned())
         .filter(|s| !s.trim().is_empty())
-        .map(|s| {
-            s.lines()
-                .filter_map(|ln| {
-                    let mut it = ln.splitn(2, '\t');
-                    let label = it.next()?.to_owned();
-                    let value: f32 = it.next()?.trim().parse().ok()?;
-                    Some((label, value))
-                })
-                .collect()
-        })
+        .map(|s| crate::chart::parse_chart_data(&s))
         .unwrap_or_default();
 
     // Sample fallback (normalised Y for 5 points, 2 series).

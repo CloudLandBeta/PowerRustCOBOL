@@ -99,6 +99,8 @@ fn the_charts_example_generates_a_program_that_compiles() {
         ("Smooth (line/area)", "SMOOTH"),
         ("LabelFormat (pie/donut)", "LABELFORMAT"),
         ("InnerRadius (donut)", "INNERRADIUS"),
+        ("AnimateValues", "ANIMATEVALUES"),
+        ("AnimationDuration", "ANIMATIONDURATION"),
     ];
     let upper = src.to_uppercase();
     let missing: Vec<&str> = switches

@@ -1560,6 +1560,26 @@ non-visual ones are services.
   | `LabelFormat` | What that label says: `percent` (the slice's share), `value` (the number), or `label` (its name). |
   | `PointRadius` | Line and scatter marker radius, in pixels. |
   | `FillAlpha` | The opacity an area chart fills at, 0–100 %. |
+  | `AnimateValues` | Animate a **change of data**: the chart travels from the values it is showing to the new ones instead of cutting to them. Off by default. |
+  | `AnimationDuration` | How long that move takes, in milliseconds. Shown only while `AnimateValues` is ticked. Default 2000; anything under 250 is raised to 250. |
+
+  **Animating a change of data.** Tick `AnimateValues` and every later push —
+  `AddPoint`, `Clear`, a `DataSource` refresh — is *travelled to* rather than
+  jumped to. The **whole series moves together** over `AnimationDuration`, so a
+  chart settles in the same time with four points or forty; a point the new set
+  added rises from zero while the others move, and one it dropped simply stops
+  being drawn. The labels are the new set's from the first frame, so a
+  half-played move never shows a point under the name it used to have. Change
+  the data again mid-move and it re-aims **from the frame on screen**, not from
+  the set it was heading for, so the chart never jumps backwards to set off
+  again.
+
+  > **The first fill is not animated, and could not be.** A plot auto-scales to
+  > its own largest value, so a series rising uniformly from zero paints exactly
+  > the same bars the whole way up — the animation would run and nothing would
+  > move. Only a change in how the values relate to *each other* is visible, so
+  > that is the only thing that travels. A chart filled once on load therefore
+  > appears immediately, which is what you want anyway.
 
   > ⚠️ `ShowLegend` and `ShowLabels` have been ticked since charts existed and
   > did nothing until 1.61.97, so charts you built before then gain a legend and
@@ -1570,7 +1590,9 @@ non-visual ones are services.
   > from a bound table's sub-fields; a chart today receives one series, pushed
   > from COBOL as `label<TAB>value` lines, so there is nothing yet for them to
   > act on. `ShowTooltips` and `AnimateOnLoad` need a pointer and a clock, which
-  > the chart painter does not have.
+  > the chart painter does not have. (`AnimateValues` above is a different
+  > thing and *is* honoured: its clock lives in the running form, not in the
+  > painter, which is why the designer canvas never animates.)
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase, **IndexedFile**,

@@ -21,6 +21,7 @@
 //! </Form>
 //! ```
 
+pub mod chart;
 pub mod code_site;
 pub mod containers;
 pub mod datagrid;

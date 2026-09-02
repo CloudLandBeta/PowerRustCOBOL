@@ -8401,6 +8401,32 @@ impl PropertiesPanel {
                 bool_row_inline(ui, id, "ShowYAxis", "Show Y axis line", ctrl, action);
                 bool_row_inline(ui, id, "ShowTooltips", "Show tooltips", ctrl, action);
                 bool_row_inline(ui, id, "AnimateOnLoad", "Animate on load", ctrl, action);
+                // Value animation, and its duration BENEATH it — the operator
+                // asked for the duration to appear only once the animation is
+                // on (2026-09-02). A number that governs nothing is a number
+                // somebody will set and then wonder about.
+                bool_row_inline(ui, id, "AnimateValues", "Animate value changes", ctrl, action);
+                if ctrl
+                    .get_prop("AnimateValues")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    int_prop_row(
+                        ui,
+                        id,
+                        "AnimationDuration",
+                        "Animation duration (ms)",
+                        ctrl,
+                        action,
+                        // The floor is the renderer's, not the pane's: a form
+                        // written by hand or by an older build can still carry
+                        // a smaller number, and `chart::value_anim_ms` raises
+                        // it either way.
+                        cobolt_forms::chart::MIN_ANIM_MS..=10_000,
+                        None,
+                        cobolt_forms::chart::DEFAULT_ANIM_MS,
+                    );
+                }
                 bool_row_inline(ui, id, "HideBackground", "Hide background", ctrl, action);
                 bool_row_inline(ui, id, "Monochrome", "Monochrome", ctrl, action);
                 if !matches!(

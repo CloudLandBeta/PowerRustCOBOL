@@ -4052,6 +4052,14 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ShowYAxis" => (BOOL_DOMAIN, "Shows the Y axis line."),
         "ShowTooltips" => (BOOL_DOMAIN, "Hover tooltips on data points."),
         "AnimateOnLoad" => (BOOL_DOMAIN, "Animates the first draw."),
+        "AnimateValues" => (
+            BOOL_DOMAIN,
+            "Animates a CHANGE OF DATA. With it on, a chart whose points are replaced TRAVELS from the values it is showing to the new ones instead of cutting to them; a point the new set added rises from zero, and one it dropped simply stops being drawn. The labels are the new set's from the first frame, so a half-played move never shows a point under the name it used to have. Off by default: a chart filled once, on load, should not spend two seconds arriving. The whole series moves together, so the chart settles in the same time with four points or forty. Set `AnimationDuration` to say how long.",
+        ),
+        "AnimationDuration" => (
+            "milliseconds, 250 or more",
+            "How long an `AnimateValues` move takes, for the WHOLE series rather than per point. Default 2000. Anything below 250 is raised to 250 — under that the eye reads a jump rather than a movement, and the property would be honoured in name only. Ignored entirely while `AnimateValues` is off.",
+        ),
         "Monochrome" => (BOOL_DOMAIN, "Tonal single-color rendering instead of the palette."),
         "MonochromeColor" => (COLOR_DOMAIN, "Base color for monochrome mode."),
         "MonochromeGradient" => (BOOL_DOMAIN, "Diagonal light-to-dark shading in monochrome mode."),
