@@ -550,6 +550,56 @@ fn a_lone_raise_zooms_and_fades_in_over_600ms() {
 }
 
 #[test]
+fn the_entrance_grows_from_one_pixel_to_full_size() {
+    // Operator, 2026-09-01: it must "grow all the way 1 pixel to final size
+    // within the 600 ms run". 85 % of full size was barely a movement.
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+    let id = s
+        .raise("SNACK-1", visual(&[("Timeout", PropValue::Int(0))]), t0)
+        .expect("raised");
+    let rects = s.layout(SURFACE, &fixed_size, t0);
+    let full = rects[0].1;
+
+    eprintln!("\n  t(ms)   scale    drawn w x h (full {} x {})", full.w, full.h);
+    eprintln!("  -----   ------   -------------------------");
+    let mut seen: Vec<(u64, f32, f32, f32)> = Vec::new();
+    for ms in [0, ENTRANCE_MS / 4, ENTRANCE_MS / 2, ENTRANCE_MS * 3 / 4, ENTRANCE_MS] {
+        let (sc, _) = effect(&s, id, at(t0, ms));
+        let (w, h) = (full.w as f32 * sc, full.h as f32 * sc);
+        eprintln!("  {ms:>5}   {sc:>6.4}   {w:>8.2} x {h:.2}");
+        seen.push((ms, sc, w, h));
+    }
+
+    // One pixel across the longer side at the start — not 85 %, not zero.
+    let (_, s0, w0, _) = seen[0];
+    assert!(
+        (w0 - 1.0).abs() < 0.01,
+        "it must start ONE pixel across the longer side, drew {w0} pt (scale {s0})"
+    );
+    // Growing the whole way, every quarter of the run.
+    for pair in seen.windows(2) {
+        assert!(
+            pair[1].1 > pair[0].1,
+            "still growing at {} ms: {} → {}",
+            pair[1].0,
+            pair[0].1,
+            pair[1].1
+        );
+    }
+    // And exactly full size at the end, not before.
+    let (_, s_last, w_last, h_last) = *seen.last().unwrap();
+    assert!(
+        (s_last - 1.0).abs() < 1e-6,
+        "full size at exactly {ENTRANCE_MS} ms, got scale {s_last}"
+    );
+    assert!(seen[3].1 < 1.0, "not already full size three quarters through");
+    eprintln!(
+        "  → 1.00 pt → {w_last:.2} x {h_last:.2} pt across {ENTRANCE_MS} ms, growing throughout\n"
+    );
+}
+
+#[test]
 fn a_critical_notification_enters_faster_than_the_rest() {
     // The one place a Category changes an effect (operator, 2026-09-01): the
     // most urgent message should already be there when the reader looks up.

@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.147] — 2026-09-01
+
+### A notification grows from a pixel, and two button reports investigated
+
+**The entrance grows from one pixel** to full size across the whole 600 ms
+(operator, 2026-09-01). It used to start at 85 % of full size, which over that
+distance was barely a movement. The start scale is derived from the rect rather
+than fixed — a single scalar is applied to both sides, so dividing by the longer
+one puts that side at exactly a pixel and leaves the aspect undistorted on the
+way up. Pinned by `the_entrance_grows_from_one_pixel_to_full_size`, which
+measures the drawn size at every quarter of the run.
+
+**Two button reports were investigated rather than patched.** Neither turned out
+to be what it looked like, and the findings are now tests instead of prose:
+
+- *"Only the retry button closes the notification."* The demo form declares
+  `later|Later||None|false` — `dismiss = false`, which means "leave it up", and
+  is the fixture deliberately showing both modes.
+  `a_button_with_dismiss_on_click_raises_then_dismisses` already covered it.
+- *"Buttons must return which one was clicked."* For one notification at a time
+  this already works, and `a_handler_reads_which_button_was_pressed` now proves
+  the whole chain end to end — host writes `LastButtonId`/`LastButtonIndex`,
+  the interpreter folds them in before dispatch, and real COBOL reads them back
+  as members. Two genuine gaps surfaced while proving it and are recorded for a
+  ruling: nothing tells a handler **which notification** was clicked (the stack
+  knows the id; `host.rs` discards it on every one of the five events), and the
+  values travel on a side channel rather than with the event, so two clicks
+  queued inside one handler's run both read the newer one.
+
 ## [PowerRustCOBOL 1.62.146] — 2026-09-01
 
 ### Notifications queue instead of piling in

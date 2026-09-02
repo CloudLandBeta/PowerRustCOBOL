@@ -51,9 +51,18 @@ fn entrance_ms(visual: &SnackVisual) -> u64 {
     }
 }
 
-/// A notification enters from slightly under size, so it reads as arriving
-/// rather than being pasted on. It never zooms *out*: leaving is a fade.
-const ENTRANCE_SCALE: f32 = 0.85;
+/// The scale an entrance starts from: the notification **one pixel across**
+/// (operator, 2026-09-01 — 85 % of full size was barely a movement, and the
+/// growth has to fill the whole 600 ms run to read as one).
+///
+/// Derived from the rect rather than fixed, because a single scalar is applied
+/// to both sides: dividing by the longer one puts that side at exactly a pixel
+/// and the shorter one under it, so it grows from a point without its aspect
+/// distorting on the way up. It never zooms *out* — leaving is a fade.
+fn entrance_start_scale(rect: Rect) -> f32 {
+    let longest = rect.w.max(rect.h).max(1) as f32;
+    (1.0 / longest).clamp(0.0, 1.0)
+}
 
 /// Decelerating ease. Motion that starts fast and settles reads as physical;
 /// a linear slide reads as a scripted animation of itself.
@@ -604,8 +613,9 @@ impl SnackbarStack {
     ///
     /// The three effects (operator, 2026-09-01):
     ///
-    /// * **entrance**, [`ENTRANCE_MS`] — the notification whose turn it is zooms
-    ///   up from [`ENTRANCE_SCALE`] and fades in, *at its destination*. Older
+    /// * **entrance**, [`ENTRANCE_MS`] — the notification whose turn it is grows
+    ///   from [`entrance_start_scale`] — one pixel — to full size and fades in,
+    ///   *at its destination*, taking the whole run to get there. Older
     ///   ones are long past their own entrance window, which is what makes "only
     ///   one is ever entering" true without anyone tracking who is newest. A
     ///   `Critical` one takes [`CRITICAL_ENTRANCE_MS`] instead.
@@ -638,11 +648,12 @@ impl SnackbarStack {
         for n in &self.live {
             let Some(rect) = n.rect.or(n.target) else { continue };
             let t = ease_out(n.entrance(now));
+            let start = entrance_start_scale(rect);
             out.push(SnackDraw {
                 id: n.id,
                 visual: &n.visual,
                 rect,
-                scale: ENTRANCE_SCALE + (1.0 - ENTRANCE_SCALE) * t,
+                scale: start + (1.0 - start) * t,
                 alpha: t,
                 interactive: n.is_visible(now),
             });

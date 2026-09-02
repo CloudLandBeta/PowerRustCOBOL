@@ -253,3 +253,115 @@ fn show_still_means_make_visible_for_every_other_control() {
     assert_eq!(requests(&ups, "_ShowSnackbar").len(), 1);
     eprintln!("  → 2 controls kept the universal meaning; 1 Snackbar raised instead\n");
 }
+
+// ── Which button was pressed, end to end (operator, 2026-09-01) ──────────────
+//
+// The operator reported that a Snackbar's buttons "must return which one was
+// clicked". `LastButtonId` / `LastButtonIndex` are written by the HOST and are
+// runtime-only — never seeded at design time — so the whole claim rests on a
+// chain nothing tested end to end: host writes a `StateUpdate` → interpreter
+// folds it in before the handler runs → COBOL reads it as a member. This drives
+// that chain with the demo form's own two buttons, in the operator's own syntax.
+
+/// The handler shape `datagrid-form.cfrm` actually carries: read the member,
+/// branch on it, and say what came back.
+const BUTTON_HANDLER: &str = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SNACKBUTTONS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COBOL-EVENT-ID    PIC X(30).
+       01 COBOL-CONTROL-ID  PIC X(30).
+       01 COBOL-QUIT        PIC 9 VALUE 0.
+       PROCEDURE DIVISION.
+       MAIN.
+           PERFORM UNTIL COBOL-QUIT = 1
+               CALL "COBOL-WAIT-EVENT"
+                   USING COBOL-EVENT-ID COBOL-CONTROL-ID
+               EVALUATE SNACKBAR-1::LastButtonId
+                   WHEN "retry"
+                       DISPLAY "id=retry index=" SNACKBAR-1::LastButtonIndex
+                   WHEN "later"
+                       DISPLAY "id=later index=" SNACKBAR-1::LastButtonIndex
+                   WHEN OTHER
+                       DISPLAY "id=? " SNACKBAR-1::LastButtonId
+               END-EVALUATE
+           END-PERFORM.
+           STOP RUN.
+"#;
+
+#[test]
+fn a_handler_reads_which_button_was_pressed() {
+    use cobolt_runtime::FormEvent;
+
+    let result = parse(tokenize(BUTTON_HANDLER, SourceFormat::Free));
+    assert!(
+        result.diagnostics.iter().all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+
+    let (event_tx, event_rx) = mpsc::channel::<FormEvent>();
+    let (input_tx, input_rx) = mpsc::channel::<StateUpdate>();
+    let (state_tx, _state_rx) = mpsc::channel::<StateUpdate>();
+    let (display_tx, display_rx) = mpsc::channel::<String>();
+
+    let handle = std::thread::spawn(move || {
+        let mut interp =
+            Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+        interp.set_input_channel(input_rx);
+        // Seeded exactly as the host seeds it: the design-time properties only.
+        // Neither LastButtonId nor LastButtonIndex exists yet — there is no
+        // answer until a button is clicked.
+        interp.seed_objects(vec![(
+            "SNACKBAR-1".to_owned(),
+            "Snackbar".to_owned(),
+            vec![("Text".to_owned(), "Record saved".to_owned())],
+        )]);
+        let _ = interp.run();
+    });
+
+    // Press each of the demo form's buttons, one at a time and WAITING for the
+    // handler to answer before the next — a human clicking, not a burst.
+    // host.rs's ordering: both properties first, THEN the event.
+    let mut lines: Vec<String> = Vec::new();
+    for (id, index) in [("retry", 0usize), ("later", 1usize)] {
+        input_tx
+            .send(StateUpdate::new("SNACKBAR-1", "LastButtonId", id))
+            .unwrap();
+        input_tx
+            .send(StateUpdate::new("SNACKBAR-1", "LastButtonIndex", index.to_string()))
+            .unwrap();
+        event_tx
+            .send(FormEvent::new("SNACKBAR-1", "onButtonClick"))
+            .unwrap();
+        lines.push(
+            display_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("the handler must answer this click before the next is sent")
+                .trim()
+                .to_owned(),
+        );
+    }
+    event_tx.send(FormEvent::quit()).unwrap();
+    handle.join().expect("interpreter thread panicked");
+    lines.extend(display_rx.try_iter().map(|l| l.trim().to_owned()));
+    eprintln!("\n  clicked   index   what the handler read back");
+    eprintln!("  -------   -----   --------------------------");
+    for (id, index) in [("retry", 0usize), ("later", 1usize)] {
+        let want = format!("id={id} index={index}");
+        let got = lines.iter().find(|l| l.starts_with(&format!("id={id}")));
+        eprintln!("  {id:<7}   {index:>5}   {}", got.map(String::as_str).unwrap_or("NOTHING"));
+        assert_eq!(
+            got.map(String::as_str),
+            Some(want.as_str()),
+            "the handler must read back button {id} at index {index}; got {lines:?}"
+        );
+    }
+    assert!(
+        !lines.iter().any(|l| l.starts_with("id=?")),
+        "no click may fall through to WHEN OTHER: {lines:?}"
+    );
+    eprintln!("  → 2/2 buttons identified by id AND index in the handler\n");
+}
