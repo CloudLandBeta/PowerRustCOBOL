@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.150] — 2026-09-02
+
+### A worked Snackbar example, held to the same gate as the code
+
+`PowerDemo3/forms/Non-Visual/snackbar-form.cfrm` is a new standalone form with
+twelve demonstrations, one per button, covering the control's whole surface: the
+five categories and the timeouts they supply, `Clear()` + `AddButton()` for two
+and for three buttons (including the icon-only one and both icon positions), the
+three size classes, all nine `StackAnchor` positions, `StackOrder`, the three
+`OverflowBehavior` policies against `MaximumVisible` 2, colours/corners/border/
+shadow set by hand, `Critical`'s 200 ms entrance, three pinned notifications for
+the reflow and hover checks, long text against the line budget, and
+`DismissAll()`. A thirteenth button puts the template back to its designed
+defaults, and all five events — `onShown`, `onTimeout`, `onClosing`, `onClosed`,
+`onButtonClick` — are bound, the last reading `LastButtonId` / `LastButtonIndex`
+and writing them to a label.
+
+`snackbar_demo_compiles.rs` holds it to the gate `maps_demo_compiles.rs` already
+applies to the Maps example, and for the same reason: a form whose handlers do
+not compile still loads perfectly, and the developer finds out at Run. It
+generates the program exactly as the IDE does, then lexes, parses and analyses
+it — 932 lines, 0 errors — and checks that the example has not quietly stopped
+covering a capability or unbound an event. Like its sibling it **skips** when
+PowerDemo3 is absent, so a fresh clone does not fail for missing something it
+was never given.
+
+`datagrid-form.cfrm` is deliberately untouched: its Snackbar is the operator's
+manual-check fixture, and its `later|Later||None|false` is the line that
+explains why only Retry closes a notification there.
+
 ## [PowerRustCOBOL 1.62.149] — 2026-09-02
 
 ### Snackbar buttons are declared one call at a time
