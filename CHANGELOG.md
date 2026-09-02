@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.154] — 2026-09-02
+
+### A REST call, narrated
+
+`PowerDemo3/forms/Non-Visual/restapi-form.cfrm` is a new standalone form that
+says out loud what the RestClient is doing: the configuration it read at load,
+the URL and payload of every call, and which of the four lifecycle events came
+back with what. A running log sits beside the response body, with a one-line
+status.
+
+It uses the operator's own tested configuration, copied from `inner-form2.cfrm`.
+**The API key is never printed** — the form reports only *whether* one is
+configured and that it is sent as `X-API-Key`, and the credential does not
+appear anywhere in this repository.
+
+Eight buttons drive it, including the paths that were previously invisible: a
+GET on the control's own `BaseURL` with no argument, a GET on an explicit URL, a
+POST with a payload, a deliberate **404**, a host that cannot resolve, a
+one-second timeout against a slow endpoint, `Cancel()` mid-flight, and a clear.
+
+**All four events are bound** — `onComplete`, `onError`, `onTimeout`,
+`onCancelled` — and `rest_demo_compiles.rs` fails if any of them stops being
+generated. That assertion is the point of the example: the form it replaces bound
+`onComplete` alone, so a call that failed or timed out fired **nothing**, and the
+form simply sat there. That is indistinguishable from "the REST control does not
+work", and it is the first thing to rule out. The gate also requires the example
+to read `StatusCode`, `ResponseBody` and `LastError` back rather than guess.
+
+The example makes the distinction the control draws explicit: a **4xx or 5xx is
+a real response** and arrives at `onComplete` with its own status and body;
+`onError` is for a call that never produced a status at all — DNS, TLS, a refused
+connection.
+
 ## [PowerRustCOBOL 1.62.153] — 2026-09-02
 
 ### Charts travel between data sets
