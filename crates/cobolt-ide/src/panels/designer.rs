@@ -10744,7 +10744,7 @@ impl DesignerPanel {
         let Ok(text) = std::fs::read_to_string(path) else {
             return (true, true);
         };
-        let head = &text[..text.len().min(4096)];
+        let head = head_str(&text, 4096);
         match head.find("form-format=\"") {
             Some(at) => {
                 let rest = &head[at + 13..];
@@ -18677,5 +18677,82 @@ mod ai_pane_tests {
         assert!(submission.contains("- Qual arquivo?"));
         assert!(submission.contains("- UUID ou PIC 9(9)?"));
         assert!(submission.contains("aas-clientes, UUID"));
+    }
+}
+
+/// The first `max` **bytes** of `text`, cut back to a character boundary.
+///
+/// `&text[..n]` panics when `n` lands inside a multi-byte character, and the
+/// only warning is a crash on somebody else's data. It crashed the IDE at
+/// startup on `indexedfile-form.cfrm`, whose six-language comments put a CJK
+/// character across byte 4096 (operator, 2026-09-02) — a latent slice that was
+/// fine until a form contained something other than ASCII.
+///
+/// Cutting BACK rather than forward keeps the result within the caller's budget,
+/// which is what a size limit is for; at most three bytes are given up.
+pub(crate) fn head_str(text: &str, max: usize) -> &str {
+    let mut cut = text.len().min(max);
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    &text[..cut]
+}
+
+#[cfg(test)]
+mod head_str_tests {
+    use super::head_str;
+
+    /// The crash, reduced: a multi-byte character straddling the cut.
+    ///
+    /// `indexedfile-form.cfrm` put a CJK character across byte 4096 and
+    /// `&text[..4096]` panicked at IDE startup. The form was not malformed —
+    /// it simply was not all ASCII.
+    #[test]
+    fn a_cut_inside_a_character_moves_back_instead_of_panicking() {
+        // '项' is three bytes. Cutting at 4, 5 or 6 lands inside it.
+        let text = format!("{}项tail", "a".repeat(3));
+        assert_eq!(head_str(&text, 3), "aaa", "an exact boundary is kept");
+        for cut in [4, 5] {
+            assert_eq!(head_str(&text, cut), "aaa", "cut {cut} moved back");
+        }
+        assert_eq!(head_str(&text, 6), "aaa项", "the character now fits");
+    }
+
+    /// Cutting BACK, never forward: the result must stay inside the caller's
+    /// budget, which is the whole reason a limit was asked for.
+    #[test]
+    fn the_result_never_exceeds_the_budget() {
+        let text = "项项项项";
+        for max in 0..=text.len() + 4 {
+            assert!(head_str(text, max).len() <= max.min(text.len()));
+        }
+    }
+
+    #[test]
+    fn the_ordinary_cases_are_unchanged() {
+        assert_eq!(head_str("hello", 3), "hel");
+        assert_eq!(head_str("hello", 99), "hello", "a short string is whole");
+        assert_eq!(head_str("hello", 0), "");
+        assert_eq!(head_str("", 10), "");
+    }
+
+    /// The real fixture's shape: an XML head whose 4096th byte is inside a
+    /// character. It must return something usable, not panic.
+    #[test]
+    fn a_form_head_with_cjk_at_the_boundary_is_readable() {
+        let mut xml = String::from(
+            "<?xml version=\"1.0\"?>\n<Form name=\"F\" form-format=\"Both\" ",
+        );
+        while xml.len() < 4095 {
+            xml.push('x');
+        }
+        xml.push('项'); // straddles 4096
+        xml.push_str(" more=\"1\">");
+        let head = head_str(&xml, 4096);
+        assert!(head.len() <= 4096);
+        assert!(
+            head.contains("form-format=\"Both\""),
+            "the attribute the caller reads must survive the cut"
+        );
     }
 }

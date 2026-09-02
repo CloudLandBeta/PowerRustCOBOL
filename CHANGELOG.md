@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.5] — 2026-09-02
+
+### The IDE no longer crashes on a form that is not all ASCII
+
+`cfrm_load_paths` read the first 4096 bytes of a `.cfrm` to find its
+`form-format` attribute, and did it with `&text[..4096]`. That slice panics when
+byte 4096 lands inside a multi-byte character, taking the whole IDE down at
+startup — which is what `indexedfile-form.cfrm` did, its six-language comments
+putting `项` across bytes 4094–4097.
+
+The form was not malformed. It simply was not all ASCII, and a byte index into a
+`str` had been treated as if it were a character index. One of 44 demo forms
+happened to land wrong; the bug had been waiting for any of them to.
+
+`head_str` cuts **back** to a character boundary — at most three bytes given up,
+and the result stays inside the caller's budget, which is what a size limit is
+for. Four tests, including the real fixture's shape: an attribute at the head of
+the file must still be readable after the cut.
+
 ## [PowerRustCOBOL 1.63.4] — 2026-09-02
 
 ### The generated code gets out of the way
