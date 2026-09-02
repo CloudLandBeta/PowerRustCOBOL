@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.11] — 2026-09-02
+
+### The DataGrid demo loads its data
+
+The demo had its columns configured and `DataSource` set to `ACTORS / ACTORS`,
+and **no data binding at all**. `DataSource` names a source; a `DataBindingDef`
+is what moves records into the grid, and codegen only emits
+`COBOL-DATA-BINDINGS-POPULATE` when the form carries one. It carried none, so
+the grid drew its headers and stayed empty.
+
+The `actors` file also had no definition — `data/idxfiles/actors.idx` held
+3.6 MB of records with nothing describing their shape. `indexed/actors.cidx`
+now does, its layout copied from the FD of `misc/load-actors-idx.cbl`, the
+program that wrote the file: `ACTOR-ID PIC 9(9)` as the primary key, then
+`ACTOR-THUMB X(60)`, `ACTOR-CAPTION X(30)`, `ACTOR-SALARY 9(9)V99` and
+`ACTOR-AWARDS X`, 111 bytes to the record. Taking the layout from the writer
+rather than restating it is what stops the two disagreeing.
+
+The binding is read-only — the demo shows records, it is not a place to type —
+and maps each field onto the grid column of the same name. Generation now emits
+`COBOL-BINDING-LOAD` and `COBOL-BINDING-POPULATE` against `ACTORS-RECORD`.
+
 ## [PowerRustCOBOL 1.63.10] — 2026-09-02
 
 ### A control too small for its own minimum no longer kills the IDE
