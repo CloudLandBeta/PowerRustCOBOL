@@ -12631,6 +12631,23 @@ impl eframe::App for CoboltApp {
         // "Active" = a project is open or a file is being edited; gates the
         // Run / View menus (and the Save/Check toolbar buttons below).
         let menu_has_active = has_project || self.editor.active_source().is_some();
+        // Computed HERE, above the menu bar, so the pulldown and the toolbar
+        // gate their Run and Debug on the same answer. They used to be worked
+        // out further down, next to the toolbar, and the menu invented its own
+        // — which is how the two came to disagree about when Run was available.
+        let menu_compilable = match &self.cobolt_project {
+            Some(p) => p.is_compilable(),
+            None => self.editor.active_source().is_some() || !self.designers.is_empty(),
+        };
+        // Debug gates on what `do_debug` actually NEEDS: a COBOL source open in
+        // the editor, which is the file it debugs.
+        //
+        // It used to gate on the project TREE's selection being a Generated Code
+        // item — a different condition from the one the action tests. So the
+        // button was disabled while a generated `.cbl` sat open and ready in the
+        // editor, and enabled when the tree happened to point at one that was
+        // not open, whereupon Debug returned silently (operator, 2026-09-02).
+        let menu_debuggable = self.editor.active_source().is_some();
         egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.menu_file, |ui| {
@@ -12677,12 +12694,32 @@ impl eframe::App for CoboltApp {
 
                 ui.add_enabled_ui(menu_has_active, |ui| {
                     ui.menu_button(tr.menu_run, |ui| {
-                        if ui.add_enabled(!self.runner.is_running(),
-                                         egui::Button::new(tr.menu_run_btn)).clicked() {
-                            self.do_run(); ui.close();
+                        let busy = self.runner.is_running();
+                        let run = ui.add_enabled(
+                            !busy && menu_compilable,
+                            egui::Button::new(tr.menu_run_btn),
+                        );
+                        if !menu_compilable {
+                            run.clone().on_hover_text(tr.tb_need_program);
                         }
-                        if ui.add_enabled(self.runner.is_running(),
-                                         egui::Button::new(tr.menu_stop)).clicked() {
+                        if run.clicked() {
+                            self.do_run();
+                            ui.close();
+                        }
+                        // Debug was absent from this menu entirely — reachable
+                        // only from the toolbar, where it was also mis-gated.
+                        let dbg = ui.add_enabled(
+                            !busy && menu_debuggable,
+                            egui::Button::new(tr.tb_debug),
+                        );
+                        if !menu_debuggable {
+                            dbg.clone().on_hover_text(tr.tb_debug_hint);
+                        }
+                        if dbg.clicked() {
+                            self.do_debug();
+                            ui.close();
+                        }
+                        if ui.add_enabled(busy, egui::Button::new(tr.menu_stop)).clicked() {
                             self.do_stop(); ui.close();
                         }
                         ui.separator();
@@ -12729,15 +12766,10 @@ impl eframe::App for CoboltApp {
         // ── Toolbar ───────────────────────────────────────────────────────────
         // A project compiles only if it has a COBOL program or a form; with no
         // project (single-file mode) gate on an open source / designer.
-        let compilable = match &self.cobolt_project {
-            Some(p) => p.is_compilable(),
-            None => self.editor.active_source().is_some() || !self.designers.is_empty(),
-        };
-        // Debug is enabled only when a Generated Code element is selected in the tree.
-        let debuggable = match (&self.cobolt_project, self.project.selected_file()) {
-            (Some(p), Some(rel)) => p.is_generated(rel),
-            _ => false,
-        };
+        // The same two answers the menu bar used above — one computation, so the
+        // pulldown and the toolbar can never disagree about what is available.
+        let compilable = menu_compilable;
+        let debuggable = menu_debuggable;
         // "Active" = a project is open or a file is being edited. Gates Save /
         // Check (toolbar) and the Run / View menus.
         let has_active = self.cobolt_project.is_some() || self.editor.active_source().is_some();

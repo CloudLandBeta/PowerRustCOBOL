@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.9] — 2026-09-02
+
+### Debug was disabled exactly when it would have worked
+
+The Debug button gated on the project TREE's selection being a Generated Code
+item. `do_debug` needs something else entirely: a COBOL source open in the
+EDITOR, which is the file it debugs. Two different conditions, so the button was
+greyed while a generated `.cbl` sat open and ready, and enabled when the tree
+happened to point at one that was not open — whereupon Debug returned in
+silence. In practice it was always disabled (operator, 2026-09-02).
+
+It now gates on what the action actually needs, and its tooltip says so in all
+six languages: *Open a COBOL file to debug*.
+
+### The pulldown menu and the toolbar now agree
+
+The Run menu computed its own availability and had no Debug entry at all. Run
+and Debug are now decided **once**, above the menu bar, and both surfaces read
+the same answer — the menu gains Debug, and its Run carries the same
+"needs a program" gate and tooltip the toolbar has.
+
 ## [PowerRustCOBOL 1.63.8] — 2026-09-02
 
 ### A menu entry now has to prove its form can be loaded
