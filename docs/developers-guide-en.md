@@ -3072,29 +3072,49 @@ A button answers the pointer the way the toolbar's do: its well brightens under
 the pointer and deepens while the mouse button is held, so a press is
 acknowledged on screen before the handler runs.
 
-> ⚠️ **Setting more than one button from COBOL.** The separator is a *newline*,
-> and a COBOL literal cannot contain one — so `MOVE "a|A" TO SNACK-1::Buttons`
-> can only ever declare a single button. For two or three, `STRING` the lines
-> together around a line feed. `FUNCTION CHAR(11)` is ordinal 11, which is it:
->
-> ```cobol
->        01 WS-LF       PIC X.
->        01 WS-BUTTONS  PIC X(120).
->        ...
->            MOVE FUNCTION CHAR(11) TO WS-LF
->            MOVE SPACES TO WS-BUTTONS
->            STRING "undo|Undo|undo|Left|true"   DELIMITED BY SIZE
->                   WS-LF                        DELIMITED BY SIZE
->                   "later|Later||None|false"    DELIMITED BY SIZE
->                   INTO WS-BUTTONS
->            MOVE WS-BUTTONS TO SNACK-1::Buttons
->            INVOKE SNACK-1::Show()
-> ```
->
-> Trailing spaces are harmless — each line is trimmed before it is read, and a
-> line with no **id** is skipped rather than shown blank. Declaring a fourth
-> button is reported, never silently dropped: the designer flags it, and at run
-> time it goes to the diagnostics trace.
+**Declaring buttons from COBOL — `Clear()` and `AddButton()`.** The property
+above is the *designer's* way of writing a row. From a handler, do not write
+`Buttons` directly: the separator is a newline and a COBOL literal cannot
+contain one, so a `MOVE` into `Buttons` can only ever declare a **single**
+button however many `|` it carries. Declare them one call at a time instead:
+
+```cobol
+           INVOKE SNACK-1::Clear()
+           INVOKE SNACK-1::AddButton("id=undo,caption=Undo,icon=undo,position=1")
+           INVOKE SNACK-1::AddButton("id=later,caption=Later,position=2,dismiss=false")
+
+           MOVE "Saved. Undo?" TO SNACK-1::Text
+           MOVE "Warning"      TO SNACK-1::Category
+           INVOKE SNACK-1::Show()
+```
+
+`AddButton` takes `key=value` pairs separated by commas. Every key is optional
+except **`id`** — it is what `onButtonClick` reports, so a spec without one
+declares no button and says so in the diagnostics trace rather than showing a
+blank:
+
+| Key | Means |
+|---|---|
+| `id` | **Required.** Your own English name; comes back as `LastButtonId`. |
+| `caption` (or `text`) | The wording on the button. Omit for icon-only. |
+| `icon` | A catalogue icon name (`undo`, `refresh`, `x-mark`, `check`, …). |
+| `position` | The button's ordinal, **1-based, left to right**. Omitted = the end, in call order. |
+| `dismiss` | `true` (default) closes the notification on click; `false` leaves it up. |
+| `iconposition` | `None`, `Left` or `Right`. Omitted = `Left` when an icon is given. |
+
+`Clear()` on a Snackbar empties the **button row and nothing else** — the text,
+the category and the colours keep whatever they hold. That is deliberately
+unlike `Clear()` on a TextBox or a list, which wipes the content: here, clearing
+the message the handler is about to show would be a trap. It affects only the
+template, so a notification already on screen is untouched.
+
+Without `Clear()`, `AddButton` **adds to** the row the designer set, which is
+how you append one situational button to a fixed pair. `position` is an
+insertion point rather than a fixed slot, so two buttons can never both claim
+the same place. A comma inside a caption is kept (`caption=Saved, undo?` is one
+caption); a `|` is stripped, because it is the row's own separator. Declaring a
+fourth button is reported, never silently dropped: the designer flags it, and at
+run time it goes to the diagnostics trace.
 
 Bind `onButtonClick` and read which one was pressed:
 

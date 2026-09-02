@@ -598,6 +598,155 @@ pub fn parse_buttons(spec: &str) -> (Vec<SnackButton>, Option<ButtonsDiagnostic>
     }
 }
 
+// ── AddButton() — declaring a button one call at a time ──────────────────────
+//
+// The `Buttons` property is one line per button, and a COBOL literal cannot
+// contain a newline: `MOVE "a|A" TO SNACK-1::Buttons` can therefore only ever
+// declare ONE button, however many `|` it carries. A handler that wanted two had
+// to STRING them together around `FUNCTION CHAR(11)`, which is a trick, not an
+// interface (operator, 2026-09-02).
+//
+// `Clear()` and `AddButton("key=value, …")` are that interface. They are still
+// only ways of writing `Buttons` — the property stays the single source of
+// truth, so the designer, the .cfrm, `mint`, the painter and the hit test all
+// carry on reading exactly what they read before.
+
+/// What one `AddButton()` argument declares: the button, and where in the row it
+/// asked to sit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ButtonSpec {
+    pub button: SnackButton,
+    /// 1-based, left to right (operator, 2026-09-02). `None` = at the end, in
+    /// call order.
+    pub position: Option<usize>,
+}
+
+/// Split `key=value, key=value` into pairs, keys normalised.
+///
+/// A fragment with **no `=` is a comma inside a value**, not a new pair, so
+/// `caption=Saved, undo?` survives as one caption rather than becoming a pair
+/// named `undo?`. Keys lose everything but their letters and digits, which is
+/// what lets `iconposition`, `icon-position` and `Icon_Position` all be the
+/// same key.
+fn button_spec_pairs(spec: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for frag in spec.split(',') {
+        match frag.split_once('=') {
+            Some((k, v)) => {
+                let key: String = k
+                    .trim()
+                    .to_ascii_lowercase()
+                    .chars()
+                    .filter(|c| c.is_ascii_alphanumeric())
+                    .collect();
+                out.push((key, v.to_owned()));
+            }
+            None => {
+                if let Some((_, v)) = out.last_mut() {
+                    v.push(',');
+                    v.push_str(frag);
+                }
+            }
+        }
+    }
+    for (_, v) in &mut out {
+        *v = v.trim().to_owned();
+    }
+    out
+}
+
+/// Parse an `AddButton()` argument.
+///
+/// Recognised keys — `id`, `caption` (or `text`), `icon`, `position`,
+/// `dismiss`, `iconposition`. Every one is optional except **`id`**: it is what
+/// `onButtonClick` reports, and without it there would be nothing to report, so
+/// a spec that names none declares no button at all and answers `None`.
+///
+/// Defaults match the `Buttons` line exactly, because they ARE the same
+/// defaults: `dismiss` is true unless it says otherwise, and an omitted
+/// `iconposition` is `Left` when an icon was given and `None` when it was not.
+/// `|` and line breaks are stripped from every value — they are the property's
+/// own separators, and a caption carrying one would corrupt the row rather than
+/// print it.
+pub fn parse_button_spec(spec: &str) -> Option<ButtonSpec> {
+    let pairs = button_spec_pairs(spec);
+    let get = |k: &str| pairs.iter().find(|(a, _)| a == k).map(|(_, v)| v.as_str());
+    let clean = |s: &str| -> String {
+        s.chars().filter(|c| !matches!(c, '|' | '\n' | '\r')).collect::<String>().trim().to_owned()
+    };
+
+    let id = clean(get("id").unwrap_or(""));
+    if id.is_empty() {
+        return None;
+    }
+    let text = clean(get("caption").or_else(|| get("text")).unwrap_or(""));
+    let icon = clean(get("icon").unwrap_or(""));
+    let icon_position = get("iconposition").unwrap_or("").trim().to_owned();
+    let position = if icon_position.is_empty() {
+        if icon.is_empty() {
+            ButtonIconPosition::None
+        } else {
+            ButtonIconPosition::Left
+        }
+    } else {
+        ButtonIconPosition::from_prop(&icon_position)
+    };
+    let dismiss = !matches!(
+        get("dismiss").unwrap_or("").trim().to_ascii_lowercase().as_str(),
+        "false" | "no" | "0"
+    );
+    // A zero or a non-number is "no opinion", not slot zero.
+    let ordinal = get("position")
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n >= 1);
+
+    Some(ButtonSpec {
+        button: SnackButton { id, text, icon, position, dismiss },
+        position: ordinal,
+    })
+}
+
+/// Render one button back to its `Buttons` line.
+pub fn button_line(b: &SnackButton) -> String {
+    format!(
+        "{}|{}|{}|{}|{}",
+        b.id,
+        b.text,
+        b.icon,
+        b.position.as_str(),
+        if b.dismiss { "true" } else { "false" }
+    )
+}
+
+/// What `Buttons` becomes once `spec` is added to it — `None` when the spec
+/// declared no `id` and so declared no button.
+///
+/// Lines already present are carried across **verbatim**: a value the designer
+/// wrote is not round-tripped through the parser and re-rendered, so adding a
+/// button at run time cannot quietly rewrite the ones beside it.
+///
+/// `position` is an insertion point, not a fixed slot — asking for 1 twice puts
+/// the newer one first and pushes the other along, which is the only reading
+/// under which two calls cannot both claim the same place.
+pub fn add_button(existing: &str, spec: &str) -> Option<String> {
+    let parsed = parse_button_spec(spec)?;
+    let mut lines: Vec<String> = existing
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_owned)
+        .collect();
+    let line = button_line(&parsed.button);
+    match parsed.position {
+        Some(n) => {
+            let at = (n - 1).min(lines.len());
+            lines.insert(at, line);
+        }
+        None => lines.push(line),
+    }
+    Some(lines.join("\n"))
+}
+
 // ── Content layout ───────────────────────────────────────────────────────────
 
 /// Where each part of a notification's content sits, in **surface** coordinates.
@@ -1319,5 +1468,131 @@ mod tests {
             SnackAnchor::BottomRight
         );
         eprintln!("\n  bare/misspelled template — 8 reads defaulted, 0 panics\n");
+    }
+
+    #[test]
+    fn add_button_declares_one_button_per_call() {
+        // The operator's own shape (2026-09-02): Clear() then one AddButton per
+        // button, each a `key=value` list.
+        let mut spec = String::new();
+        for one in [
+            "id=button1,icon=undo,caption=Undo,position=1,dismiss=true",
+            "id=button2,icon=clock,caption=Later,position=2,dismiss=false",
+        ] {
+            spec = add_button(&spec, one).expect("declared");
+        }
+        let (buttons, diag) = parse_buttons(&spec);
+        assert!(diag.is_none());
+
+        eprintln!("\n  #   id        caption   icon    icon pos   dismiss");
+        eprintln!("  -   -------   -------   -----   --------   -------");
+        for (i, b) in buttons.iter().enumerate() {
+            eprintln!(
+                "  {i}   {:<7}   {:<7}   {:<5}   {:<8}   {}",
+                b.id, b.text, b.icon, b.position.as_str(), b.dismiss
+            );
+        }
+        assert_eq!(buttons.len(), 2, "two calls, two buttons: {spec:?}");
+        assert_eq!(buttons[0].id, "button1");
+        assert_eq!(buttons[0].text, "Undo");
+        assert_eq!(buttons[0].icon, "undo");
+        // An icon with no `iconposition` lands Left, the same rule the property
+        // line already follows.
+        assert_eq!(buttons[0].position, ButtonIconPosition::Left);
+        assert!(buttons[0].dismiss);
+        assert_eq!(buttons[1].id, "button2");
+        assert!(!buttons[1].dismiss, "dismiss=false leaves it up");
+        eprintln!("  → 2 calls → 2 buttons, in the declared order\n");
+    }
+
+    #[test]
+    fn a_button_spec_defaults_everything_but_the_id() {
+        // `id` is the one thing that cannot be defaulted — it is what
+        // onButtonClick reports.
+        assert!(parse_button_spec("caption=Undo,icon=undo").is_none(), "no id, no button");
+        assert!(parse_button_spec("").is_none());
+        assert!(parse_button_spec("id=   ").is_none(), "a blank id is no id");
+
+        eprintln!("\n  spec                          id      caption  icon   icon pos  dismiss");
+        eprintln!("  ---------------------------   -----   -------  ----   --------  -------");
+        for (spec, want_text, want_icon, want_pos, want_dismiss) in [
+            ("id=ok", "", "", ButtonIconPosition::None, true),
+            ("id=ok,caption=OK", "OK", "", ButtonIconPosition::None, true),
+            ("id=ok,text=OK", "OK", "", ButtonIconPosition::None, true),
+            ("id=ok,icon=check", "", "check", ButtonIconPosition::Left, true),
+            ("id=ok,icon=check,iconposition=Right", "", "check", ButtonIconPosition::Right, true),
+            ("id=ok,icon-position=None,icon=check", "", "check", ButtonIconPosition::None, true),
+            ("id=ok,dismiss=false", "", "", ButtonIconPosition::None, false),
+            ("ID=ok, Dismiss = NO", "", "", ButtonIconPosition::None, false),
+            ("id=ok,dismiss=maybe", "", "", ButtonIconPosition::None, true),
+        ] {
+            let b = parse_button_spec(spec).expect("has an id").button;
+            eprintln!(
+                "  {spec:<27}   {:<5}   {:<7}  {:<5}  {:<8}  {}",
+                b.id,
+                if b.text.is_empty() { "-" } else { &b.text },
+                if b.icon.is_empty() { "-" } else { &b.icon },
+                b.position.as_str(),
+                b.dismiss
+            );
+            assert_eq!(b.id, "ok", "{spec}");
+            assert_eq!(b.text, want_text, "{spec}");
+            assert_eq!(b.icon, want_icon, "{spec}");
+            assert_eq!(b.position, want_pos, "{spec}");
+            assert_eq!(b.dismiss, want_dismiss, "{spec}: an unrecognised value must NOT stick");
+        }
+        eprintln!("  → 9 specs, every field defaulted from the id alone\n");
+    }
+
+    #[test]
+    fn a_caption_may_contain_a_comma_and_never_a_pipe() {
+        // A comma inside a value is not a new pair — otherwise half the
+        // captions a developer would write would silently become junk keys.
+        let b = parse_button_spec("id=undo,caption=Saved, undo?,dismiss=false")
+            .expect("declared")
+            .button;
+        assert_eq!(b.text, "Saved, undo?", "the comma stayed in the caption");
+        assert!(!b.dismiss, "and the pair AFTER it was still read");
+
+        // `|` is the line's own separator: stripped, never allowed to corrupt
+        // the row it is written into.
+        let b = parse_button_spec("id=a|b,caption=x|y").expect("declared").button;
+        assert_eq!((b.id.as_str(), b.text.as_str()), ("ab", "xy"));
+        let (parsed, _) = parse_buttons(&add_button("", "id=a|b,caption=x|y").unwrap());
+        assert_eq!(parsed.len(), 1, "one button, not two fields' worth of wreckage");
+        eprintln!("\n  → a comma survives inside a caption; a pipe is stripped, not honoured\n");
+    }
+
+    #[test]
+    fn position_is_an_ordinal_left_to_right() {
+        // Operator: "Position is ordinal (left to right)".
+        let mut spec = String::new();
+        for one in ["id=c,position=1", "id=a,position=1", "id=b,position=2"] {
+            spec = add_button(&spec, one).unwrap();
+        }
+        let ids: Vec<String> = parse_buttons(&spec).0.into_iter().map(|b| b.id).collect();
+        eprintln!("\n  added c@1, a@1, b@2 → row reads {ids:?}");
+        assert_eq!(ids, vec!["a", "b", "c"], "each position is an insertion point");
+
+        // No position at all = the end, in call order; and out-of-range clamps
+        // rather than being dropped.
+        let mut spec = String::new();
+        for one in ["id=first", "id=second", "id=last,position=99"] {
+            spec = add_button(&spec, one).unwrap();
+        }
+        let ids: Vec<String> = parse_buttons(&spec).0.into_iter().map(|b| b.id).collect();
+        assert_eq!(ids, vec!["first", "second", "last"]);
+        eprintln!("  → no position = call order; position 99 clamps to the end, never dropped\n");
+    }
+
+    #[test]
+    fn add_button_leaves_the_lines_beside_it_alone() {
+        // A designer-written row is carried across verbatim — adding one button
+        // at run time must not re-render the others.
+        let designed = "retry|Retry|refresh|Left|true\nlater|Later||None|false";
+        let next = add_button(designed, "id=undo,caption=Undo").expect("declared");
+        assert!(next.starts_with(designed), "the designed lines are untouched: {next:?}");
+        assert_eq!(parse_buttons(&next).0.len(), 3);
+        eprintln!("\n  → 2 designed lines carried verbatim, 1 appended\n");
     }
 }

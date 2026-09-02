@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.149] — 2026-09-02
+
+### Snackbar buttons are declared one call at a time
+
+`Buttons` is one line per button and a COBOL literal cannot contain a newline,
+so `MOVE "a|A" TO SNACK-1::Buttons` could only ever declare **one** button
+however many `|` it carried. A handler that wanted two had to `STRING` the lines
+together around `FUNCTION CHAR(11)` — a trick, not an interface. The operator
+asked for a real one (2026-09-02) and classified it a **fix**: the control was
+specified to carry up to three run-time-settable buttons and could not.
+
+```cobol
+           INVOKE SNACK-1::Clear()
+           INVOKE SNACK-1::AddButton("id=undo,caption=Undo,icon=undo,position=1")
+           INVOKE SNACK-1::AddButton("id=later,caption=Later,position=2,dismiss=false")
+```
+
+**`AddButton(spec)`** takes `key=value` pairs separated by commas — `id`
+(required, and what `onButtonClick` reports), `caption` (or `text`), `icon`,
+`position` (the ordinal, **1-based left to right**), `dismiss` (default true)
+and `iconposition`. A spec with no `id` declares no button and says so in the
+diagnostics trace rather than showing a blank one. A comma inside a caption is
+kept; a `|` is stripped, because it is the row's own separator.
+
+**`Clear()`** empties the button row **and nothing else** — deliberately unlike
+`Clear()` on a TextBox or a list, which wipes the content. Clearing the message
+a handler is about to show would be a trap, so `Text`, `Category` and the colours
+survive it (operator's ruling). It affects only the template; a notification
+already on screen is a snapshot and is untouched.
+
+Both are only ways of **writing the `Buttons` property**, which stays the single
+source of truth — so the designer, the `.cfrm`, `mint`, the painter and the hit
+test all carry on reading exactly what they read before, and no host change was
+needed. Without `Clear()`, `AddButton` adds to the row the designer set.
+
+Both names are registered in `is_known_method`: an unlisted name parses its
+parentheses as a collection subscript, so `SNACK-1::AddButton("id=undo")` would
+have silently meant "element … of AddButton".
+
+Six new tests: five on the grammar in `cobolt-forms` (defaults, ordinals,
+comma-in-caption, pipe stripping, neighbouring lines left verbatim) and two in
+`cobolt-runtime` driving the operator's exact COBOL through the interpreter and
+reporting the parsed row. Documented in the Developer's Guide and the System KB;
+`assets/knowledge/chunked.data` regenerated (1399 → 1402 records).
+
 ## [PowerRustCOBOL 1.62.148] — 2026-09-01
 
 ### Declaring two Snackbar buttons from COBOL

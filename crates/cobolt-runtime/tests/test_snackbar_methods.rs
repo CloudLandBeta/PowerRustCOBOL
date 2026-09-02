@@ -415,3 +415,94 @@ fn two_buttons_can_be_built_from_cobol() {
     assert_eq!(buttons[0].icon, "undo", "field 3 is the catalogue icon name");
     eprintln!("  → 2 buttons declared from COBOL, the second one non-dismissing\n");
 }
+
+#[test]
+fn clear_then_add_button_declares_the_row_from_cobol() {
+    // The operator's own shape (2026-09-02). `Buttons` is one line per button
+    // and a COBOL literal cannot carry a newline, so a handler could previously
+    // declare exactly ONE button however it was written. Clear() empties the
+    // row, AddButton() adds to it, and both are just ways of writing that same
+    // property — which is why the designer, the .cfrm and the painter need no
+    // knowledge of them.
+    let (_out, ups) = run(
+        r##"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SNACKADDBUTTON.
+       PROCEDURE DIVISION.
+           INVOKE SNACK-1::Clear()
+           INVOKE SNACK-1::AddButton("id=button1,icon=undo,caption=Undo,position=1,dismiss=true")
+           INVOKE SNACK-1::AddButton("id=button2,icon=clock,caption=Later,position=2,dismiss=false")
+           MOVE "Saved. Undo?" TO SNACK-1::Text
+           MOVE "Warning"      TO SNACK-1::Category
+           MOVE "#2B3B55"      TO SNACK-1::BackgroundColor
+           MOVE "#E8F0FF"      TO SNACK-1::ForegroundColor
+           INVOKE SNACK-1::Show()
+           STOP RUN.
+"##,
+    );
+
+    // The LAST Buttons write is what Show() minted from.
+    let spec = requests(&ups, "Buttons")
+        .last()
+        .map(|u| u.value.clone())
+        .expect("Clear/AddButton must write the Buttons property");
+    let (buttons, diag) = cobolt_forms::snackbar::parse_buttons(&spec);
+    assert!(diag.is_none(), "two buttons is under the limit");
+
+    eprintln!("\n  #   id        caption   icon    icon pos   dismiss");
+    eprintln!("  -   -------   -------   -----   --------   -------");
+    for (i, b) in buttons.iter().enumerate() {
+        eprintln!(
+            "  {i}   {:<7}   {:<7}   {:<5}   {:<8}   {}",
+            b.id, b.text, b.icon, b.position.as_str(), b.dismiss
+        );
+    }
+    assert_eq!(buttons.len(), 2, "two AddButton calls, two buttons: {spec:?}");
+    assert_eq!(buttons[0].id, "button1");
+    assert_eq!(buttons[0].text, "Undo");
+    assert_eq!(buttons[0].icon, "undo");
+    assert!(buttons[0].dismiss);
+    assert_eq!(buttons[1].id, "button2");
+    assert_eq!(buttons[1].text, "Later");
+    assert!(!buttons[1].dismiss);
+
+    // Clear() touched the BUTTONS and nothing else — the message and the
+    // colours set afterwards are all still on their way to the host.
+    for (prop, want) in [
+        ("Text", "Saved. Undo?"),
+        ("Category", "Warning"),
+        ("BackgroundColor", "#2B3B55"),
+        ("ForegroundColor", "#E8F0FF"),
+    ] {
+        let got = requests(&ups, prop).last().map(|u| u.value.clone());
+        eprintln!("  {prop:<16} = {:?}", got.clone().unwrap_or_default());
+        assert_eq!(got.as_deref(), Some(want), "{prop} must survive Clear()");
+    }
+    assert_eq!(requests(&ups, "_ShowSnackbar").len(), 1, "one notification raised");
+    eprintln!("  → Clear + 2 AddButton + 4 properties + 1 Show, all from COBOL\n");
+}
+
+#[test]
+fn clear_empties_only_the_buttons_and_add_button_needs_an_id() {
+    // Clear() must not blank the message: on every other control Clear() wipes
+    // Text, and inheriting that here would silently erase the caption the
+    // handler is about to show.
+    let (_out, ups) = run(
+        r##"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. SNACKCLEAR.
+       PROCEDURE DIVISION.
+           MOVE "Still here" TO SNACK-1::Text
+           INVOKE SNACK-1::Clear()
+           INVOKE SNACK-1::AddButton("caption=Undo,icon=undo")
+           INVOKE SNACK-1::Show()
+           STOP RUN.
+"##,
+    );
+    let text = requests(&ups, "Text").last().map(|u| u.value.clone());
+    assert_eq!(text.as_deref(), Some("Still here"), "Clear() must not blank the message");
+    let spec = requests(&ups, "Buttons").last().map(|u| u.value.clone()).unwrap_or_default();
+    assert!(spec.trim().is_empty(), "a spec with no id declares NO button: {spec:?}");
+    eprintln!("\n  Clear() then AddButton with no id → Text {text:?}, Buttons {spec:?}");
+    eprintln!("  → the message survived; the id-less button was refused, not guessed at\n");
+}

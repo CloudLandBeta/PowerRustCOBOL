@@ -4548,6 +4548,14 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
                 "DismissAll()",
                 "Dismiss every live notification RAISED BY THIS CONTROL, with reason `Programmatic`; anything this control had queued is discarded too. Other Snackbar controls on the form are untouched. There is no `Hide()` — under `Show()`-as-factory it could not say WHICH notification it meant.",
             ),
+            (
+                "Clear()",
+                "Empty the button row so `AddButton()` can build a fresh one. It clears the BUTTONS AND NOTHING ELSE — `Text`, `Category`, the colours and every other property keep what they hold, which is the opposite of `Clear()` on a TextBox or a list. A notification already on screen is a snapshot and is not disturbed: what is being cleared is the TEMPLATE, for the next `Show()`.",
+            ),
+            (
+                "AddButton(spec: String)",
+                "Declare ONE action button on the template, as `key=value` pairs separated by commas: `INVOKE SNACK-1::AddButton(\"id=undo,caption=Undo,icon=undo,position=1,dismiss=true\")`. Call it once per button, up to three. This exists because `Buttons` is one line per button and a COBOL literal cannot contain a newline — a `MOVE` into `Buttons` can only ever declare ONE, whatever it says. Keys: **id** (REQUIRED — what `onButtonClick` reports through `LastButtonId`; a spec without one declares no button and says so in the diagnostics trace), **caption** (or `text`), **icon** (a catalogue icon name), **position** (the button's 1-based ordinal LEFT TO RIGHT; omitted = the end, in call order), **dismiss** (true | false, default true), **iconposition** (None | Left | Right; omitted = Left when an icon is given). It writes the `Buttons` property, so it composes with a row the designer already set — call `Clear()` first to replace that row instead of adding to it.",
+            ),
         ],
         "Timer" => vec![
             ("Start()", "Set Enabled = 1 (ticks resume)."),

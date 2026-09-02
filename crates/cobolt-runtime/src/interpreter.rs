@@ -10815,6 +10815,17 @@ impl Interpreter {
             }
             "SELECTALL" => none,
             "CLEAR" => {
+                // 055 — on a Snackbar, `Clear()` empties the BUTTON LIST and
+                // nothing else (operator, 2026-09-02): it is how a handler
+                // starts a fresh row before `AddButton()`. `Text`, `Category`
+                // and the colours keep whatever they hold — clearing the text
+                // here would silently blank the message the handler is about to
+                // show. A notification already on screen is a snapshot and is
+                // not touched: what is being cleared is the TEMPLATE.
+                if self.is_snackbar(obj) {
+                    self.obj_set(obj, "Buttons", String::new());
+                    return none;
+                }
                 // On a chart, Clear drops the pushed data series (same contract
                 // as CALL "COBOL-CHART-CLEAR") — the renderer falls back to its
                 // sample preview until new points arrive.
@@ -10825,6 +10836,28 @@ impl Interpreter {
                 }
                 self.obj_set(obj, "Text", String::new());
                 self.obj_set(obj, "Items", String::new());
+                none
+            }
+            // 055 — declare one notification button, `key=value` separated by
+            // commas. `Buttons` is one line per button and a COBOL literal
+            // cannot carry a newline, so the property alone could only ever
+            // express ONE button from a handler; this writes the same property
+            // a line at a time, which is why nothing downstream changes.
+            "ADDBUTTON" | "ADD-BUTTON" => {
+                if self.is_snackbar(obj) {
+                    let spec = arg(0);
+                    let existing = self.obj_get(obj, "Buttons");
+                    match cobolt_forms::snackbar::add_button(&existing, &spec) {
+                        Some(next) => self.obj_set(obj, "Buttons", next),
+                        // Never silently: a spec with no `id` has nothing for
+                        // `onButtonClick` to report, so it declares no button —
+                        // and the developer is told rather than left looking at
+                        // a row that is one short.
+                        None => cobolt_forms::diagnostics::trace_display(&format!(
+                            "[snackbar] {obj}: AddButton(\"{spec}\") declares no id — nothing added"
+                        )),
+                    }
+                }
                 none
             }
             // ── Charts (inline methods — same data path as COBOL-CHART-*) ──
@@ -13957,9 +13990,12 @@ fn is_known_method(name: &str) -> bool {
         // Charts (AddPoint appends one label/value point; Clear/Refresh above)
             | "ADDPOINT" | "ADD-POINT"
         // Snackbar (055) — `Show()` mints a notification, `DismissAll()` clears
-        // this control's. Both take no arguments, but they must still be listed:
-        // an unlisted name parses its parens as a collection subscript.
-            | "SHOW" | "DISMISSALL"
+        // this control's, `Clear()` (above) empties the button row and
+        // `AddButton()` declares one button. They must all be listed, arguments
+        // or not: an unlisted name parses its parens as a collection subscript,
+        // so `SNACK-1::AddButton("id=undo")` would silently mean "element … of
+        // AddButton" rather than a call.
+            | "SHOW" | "DISMISSALL" | "ADDBUTTON" | "ADD-BUTTON"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
