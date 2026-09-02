@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.152] — 2026-09-02
+
+### A donut has a hole again, and chart type is legible
+
+Six defects from one set of operator screenshots (2026-09-02). Only two of them
+were colour bugs.
+
+**A donut slice is not a convex polygon, and neither is a pie slice past a half
+turn.** Both were drawn with `Shape::convex_polygon`, which fans from the first
+vertex — for an annular sector that fills the hole and lays a straight chord
+across every sector, exactly what the screenshots showed. Slices are meshes now:
+the same `grad_slice_mesh` the gradient path always used, flat-shaded by passing
+one colour for both stops, with the separator as its own `closed_line`. That is
+the one geometric change, and it is why the R4 paint baseline moved by exactly
++8 on all eight rows — one extra leaf per slice, two four-slice charts in the
+fixture.
+
+**A monochrome gradient shaded every slice around the same base**, so a
+monochrome pie or donut came out one blob with no boundary anywhere. Each slice
+now shades around **its own** tone from the monochrome ramp.
+
+**Labels judged their contrast against a colour that was not painted.** On a
+gradient slice the ink was picked against the flat palette entry, so a dark
+gradient got near-black text. It is picked against what the slice actually
+carries.
+
+**Type was 8–10 pt on every chart at every size.** Doubled (`CHART_FONT_SCALE`),
+and every reserved band — caption strips, legend, the title's own top margin —
+scales with it, or the bigger text would simply be written over the plot. The
+title band is now sized against the title rather than a flat 12 % of the height.
+The chrome is held to 60 % of each side and shrinks proportionally past that: the
+bands are absolute and the chart is not, and doubling them halved the size at
+which a small chart computed an **inside-out** plot.
+
+**Chart chrome was a fixed pale blue and a fixed dark grey**, at roughly 1.8:1 on
+the light chart face. Title, axis captions, legend, the data-source hint and the
+type badge all go through `caret_color` now — they keep their colour wherever it
+reads and take the better pole where it does not.
+
+`chart_slice_geometry.rs` samples what is **painted at a point** rather than
+counting vertices: the first version of these tests counted vertices inside the
+hole and passed against the broken painter, because a convex fan covers the
+middle with triangles without putting a vertex there. Both surviving tests were
+confirmed to fail against the old painter (24/24 hole probes filled; 1/4 distinct
+tones). A third — "each donut sector owns its arc" — was written, found to pass
+against the broken painter, and **deleted rather than kept**: the spill goes
+toward the centre, so the hole test already covers it whole, and a guard that
+cannot fail reads as coverage it does not have.
+
 ## [PowerRustCOBOL 1.62.151] — 2026-09-02
 
 ### A worked Charts example

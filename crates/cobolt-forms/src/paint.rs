@@ -7943,6 +7943,15 @@ fn grad_area_mesh(
 
 /// Pie/donut slice with a radial gradient (inner `cc` → outer `ce`). `inner_r`
 /// 0 ⇒ solid pie fan; > 0 ⇒ donut ring strip (spec 013).
+/// How much bigger every piece of chart type is than the size it shipped at.
+///
+/// The charts were drawn at 8–10 pt regardless of how large the control was,
+/// which is legible in a screenshot and not on a form (operator, 2026-09-02:
+/// "double the default font size"). Every reserved band — the caption strips,
+/// the legend, the title's own top margin — scales with it, so the extra type
+/// takes room rather than overlapping the plot.
+pub(crate) const CHART_FONT_SCALE: f32 = 2.0;
+
 fn grad_slice_mesh(
     center: Pos2,
     start: f32,
@@ -8209,27 +8218,59 @@ pub fn draw_chart_preview(
         .clamp(0.0, 100.0)
         / 100.0
         * 255.0) as u8;
-    let cap_font = egui::FontId::proportional(9.0);
-    let legend_font = egui::FontId::proportional(9.0);
+    // Read before the layout: the top band has to be sized against it.
+    let title_text = chart_str("Title");
+    let cap_font = egui::FontId::proportional(9.0 * CHART_FONT_SCALE);
+    let legend_font = egui::FontId::proportional(9.0 * CHART_FONT_SCALE);
     // Room reserved for whatever the properties asked to be drawn. Reserved
     // rather than overlaid: a caption written across the plot is worse than no
     // caption at all.
-    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 };
-    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 };
+    //
+    // Every band scales with the type, or doubling the font would simply write
+    // twice the text into the same strip (operator, 2026-09-02).
+    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 * CHART_FONT_SCALE };
+    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 * CHART_FONT_SCALE };
     // A pie's legend lists its slices, so it stands beside the chart; a
     // category chart's lists its series, so it sits under it.
     let legend_w = if show_legend && is_pie {
-        (rect.width() * 0.26).min(120.0)
+        (rect.width() * 0.30).min(90.0 * CHART_FONT_SCALE)
     } else {
         0.0
     };
-    let legend_h = if show_legend && !is_pie { 13.0 } else { 0.0 };
+    let legend_h = if show_legend && !is_pie { 13.0 * CHART_FONT_SCALE } else { 0.0 };
 
-    // Inner plot area (leave margin for axes / labels)
-    let margin_l = rect.width() * 0.10 + cap_w;
-    let margin_b = rect.height() * 0.12 + cap_h + legend_h;
-    let margin_t = rect.height() * 0.12;
-    let margin_r = rect.width() * 0.04 + legend_w;
+    // Inner plot area (leave margin for axes / labels).
+    //
+    // The top band has to clear the TITLE at its own size — on a short chart
+    // 12 % of the height is less than one line, and the title would be drawn
+    // over the plot it labels.
+    let title_band = if title_text.is_empty() {
+        0.0
+    } else {
+        10.0 * CHART_FONT_SCALE * 1.5
+    };
+    let mut margin_l = rect.width() * 0.10 + cap_w;
+    let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
+    let mut margin_t = (rect.height() * 0.12).max(title_band);
+    let mut margin_r = rect.width() * 0.04 + legend_w;
+    // The bands are absolute sizes and the chart is not: on a small enough
+    // control they add up to more than there is, and the plot comes out
+    // INSIDE-OUT. Doubling the type halved the size at which that happens, so
+    // the chrome is held to 60 % of each side and shrinks proportionally past
+    // that — a cramped legend beats a chart drawn back to front.
+    let (max_v, max_h) = (rect.height() * 0.60, rect.width() * 0.60);
+    let v = margin_t + margin_b;
+    if v > max_v && v > 0.0 {
+        let k = max_v / v;
+        margin_t *= k;
+        margin_b *= k;
+    }
+    let h = margin_l + margin_r;
+    if h > max_h && h > 0.0 {
+        let k = max_h / h;
+        margin_l *= k;
+        margin_r *= k;
+    }
     let plot = egui::Rect::from_min_max(
         Pos2::new(rect.min.x + margin_l, rect.min.y + margin_t),
         Pos2::new(rect.max.x - margin_r, rect.max.y - margin_b),
@@ -8250,19 +8291,16 @@ pub fn draw_chart_preview(
             .unwrap_or(false);
 
     // title
-    let title = ctrl
-        .get_prop("Title")
-        .map(|v| v.as_str().to_owned())
-        .unwrap_or_default();
-    if !title.is_empty() {
+    if !title_text.is_empty() {
         painter.text(
             Pos2::new(rect.center().x, rect.min.y + margin_t * 0.5),
             egui::Align2::CENTER_CENTER,
-            &title,
-            egui::FontId::proportional(10.0),
-            // The design-time grid face is white — the title must be dark to
-            // be readable (it was near-white and invisible on the face).
-            Color32::DARK_GRAY,
+            &title_text,
+            egui::FontId::proportional(10.0 * CHART_FONT_SCALE),
+            // Dark grey when the face can carry it, and the readable pole when
+            // it cannot — a fixed grey was invisible on a dark `Monochrome`
+            // face and near-invisible on a white one (operator, 2026-09-02).
+            caret_color(bg, Color32::DARK_GRAY),
         );
     }
 
@@ -8608,34 +8646,54 @@ pub fn draw_chart_preview(
                 // between pastel sectors instead of the dark face colour.
                 let slice_stroke = if mono { mono_border } else { bg };
                 let sep_w = 0.8;
+                // The colour this slice actually ends up painted in — the flat
+                // fill, or the middle of its own gradient. The label's contrast
+                // is judged against THIS, not against a palette entry the
+                // gradient path never used.
+                let base_c = pal[i % pal.len()];
+                let painted: Color32;
                 if gradient {
-                    // Each slice gets its own radial gradient (light inner → dark outer).
+                    // Each slice gets its own radial gradient (light inner →
+                    // dark outer), shaded around ITS OWN tone. Shading the one
+                    // shared `mono_base` gave every slice the same gradient, so
+                    // a monochrome pie was a single blob with no boundaries
+                    // anywhere (operator, 2026-09-02).
                     painter.add(egui::Shape::mesh(grad_slice_mesh(
                         center,
                         start,
                         sweep,
                         inner_r,
                         outer_r,
-                        shade(mono_base, 0.20),
-                        shade(mono_base, -0.20),
+                        shade(base_c, 0.20),
+                        shade(base_c, -0.20),
                     )));
                     painter.add(egui::Shape::closed_line(
                         pts,
                         Stroke::new(sep_w, slice_stroke),
                     ));
+                    painted = base_c;
                 } else {
-                    let c = pal[i % pal.len()];
                     let fill = Color32::from_rgba_premultiplied(
-                        c.r(),
-                        c.g(),
-                        c.b(),
+                        base_c.r(),
+                        base_c.g(),
+                        base_c.b(),
                         (a as f32 * 0.85) as u8,
                     );
-                    painter.add(egui::Shape::convex_polygon(
+                    // A donut slice is an ANNULAR sector, and a pie slice past
+                    // a half turn is reflex: neither is convex.
+                    // `convex_polygon` fans from the first vertex, which filled
+                    // the donut's hole and laid a straight chord across every
+                    // sector (operator screenshots, 2026-09-02). The mesh the
+                    // gradient path already used is right for both shapes —
+                    // flat-shaded here by passing one colour for both stops.
+                    painter.add(egui::Shape::mesh(grad_slice_mesh(
+                        center, start, sweep, inner_r, outer_r, fill, fill,
+                    )));
+                    painter.add(egui::Shape::closed_line(
                         pts,
-                        fill,
                         Stroke::new(sep_w, slice_stroke),
                     ));
+                    painted = base_c;
                 }
                 // `ShowLabels` writes on each slice what `LabelFormat` asks
                 // for: its share, its value, or its name. Both were seeded and
@@ -8656,13 +8714,15 @@ pub fn draw_chart_preview(
                         let mid = start + sweep * 0.5;
                         let r = inner_r + (outer_r - inner_r) * 0.62;
                         let at = Pos2::new(center.x + mid.cos() * r, center.y + mid.sin() * r);
-                        let on = pal[i % pal.len()];
                         painter.text(
                             at,
                             egui::Align2::CENTER_CENTER,
                             text,
-                            egui::FontId::proportional(9.0),
-                            caret_color(on, Color32::WHITE),
+                            egui::FontId::proportional(9.0 * CHART_FONT_SCALE),
+                            // Against what the slice IS, so a dark gradient
+                            // takes white ink instead of the near-black it was
+                            // getting (operator, 2026-09-02).
+                            caret_color(painted, Color32::WHITE),
                         );
                     }
                 }
@@ -8673,12 +8733,21 @@ pub fn draw_chart_preview(
     }
 
     // -- Axis captions and the legend, in the margins reserved for them ------
-    let chrome_c = Color32::from_rgba_premultiplied(
-        (170.0 * a as f32 / 255.0) as u8,
-        (190.0 * a as f32 / 255.0) as u8,
-        (225.0 * a as f32 / 255.0) as u8,
-        a,
-    );
+    //
+    // The pale blue is kept wherever it actually reads against the face, and
+    // replaced by the better of black and white where it does not — it was a
+    // fixed colour, so on the light chart face the captions and every legend
+    // entry sat at roughly 1.8:1 (operator, 2026-09-02).
+    let chrome_c = {
+        let want = Color32::from_rgb(170, 190, 225);
+        let c = caret_color(bg, want);
+        Color32::from_rgba_premultiplied(
+            (c.r() as f32 * a as f32 / 255.0) as u8,
+            (c.g() as f32 * a as f32 / 255.0) as u8,
+            (c.b() as f32 * a as f32 / 255.0) as u8,
+            a,
+        )
+    };
     if !x_caption.is_empty() {
         chrome.text(
             Pos2::new(plot.center().x, rect.max.y - cap_h * 0.5 - legend_h),
@@ -8791,12 +8860,15 @@ pub fn draw_chart_preview(
         .map(|v| v.as_str().to_owned())
         .unwrap_or_default();
     if !ds.is_empty() {
-        let hint_c = Color32::from_rgba_premultiplied(130, 160, 220, a);
+        let hint_c = {
+            let c = caret_color(bg, Color32::from_rgb(130, 160, 220));
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), a)
+        };
         painter.text(
             Pos2::new(rect.center().x, rect.max.y - margin_b * 0.4),
             egui::Align2::CENTER_CENTER,
             format!("⬡ {ds}"),
-            egui::FontId::proportional(8.5),
+            egui::FontId::proportional(8.5 * CHART_FONT_SCALE),
             hint_c,
         );
     }
@@ -8812,12 +8884,15 @@ pub fn draw_chart_preview(
         _ => "",
     };
     if !badge.is_empty() {
-        let badge_c = Color32::from_rgba_premultiplied(80, 100, 180, a);
+        let badge_c = {
+            let c = caret_color(bg, Color32::from_rgb(80, 100, 180));
+            Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), a)
+        };
         painter.text(
             Pos2::new(rect.max.x - margin_r - 2.0, rect.min.y + margin_t * 0.45),
             egui::Align2::RIGHT_CENTER,
             badge,
-            egui::FontId::proportional(8.0),
+            egui::FontId::proportional(8.0 * CHART_FONT_SCALE),
             badge_c,
         );
     }
@@ -16176,15 +16251,26 @@ mod elegance_baseline_tests {
         // rather than the seam, and BOTH Neumorphic rows are unchanged: that
         // style paints its relief from its own shadow stack and never reaches
         // `draw_control_border`.
+        // **+8 on every row, 2026-09-02.** A pie or donut slice is drawn as a
+        // MESH now rather than a `convex_polygon`: neither shape is convex — an
+        // annular sector never, a slice past a half turn not either — and the
+        // convex fan filled the donut's hole and laid a chord across every
+        // sector. The mesh carries no stroke, so the separator became its own
+        // `closed_line`: one extra leaf per slice. The fixture holds one
+        // PieChart and one DonutChart, each drawing the four-slice sample, so
+        // the move is exactly 8 and it is the same 8 under every theme and
+        // style. Nothing else in that change is visible here — the font sizes
+        // moved glyph metrics, not glyph runs, and the contrast fixes are
+        // colour, which this proxy is deliberately blind to.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1435),
-            ("asset-pack", GS::Classic, 1257),
-            ("liquid-glass", GS::Enhanced, 1535),
-            ("asset-pack", GS::Enhanced, 1331),
-            ("liquid-glass", GS::Neumorphic, 632),
-            ("asset-pack", GS::Neumorphic, 648),
-            ("liquid-glass", GS::NeumorphicDark, 632),
-            ("asset-pack", GS::NeumorphicDark, 648),
+            ("liquid-glass", GS::Classic, 1443),
+            ("asset-pack", GS::Classic, 1265),
+            ("liquid-glass", GS::Enhanced, 1543),
+            ("asset-pack", GS::Enhanced, 1339),
+            ("liquid-glass", GS::Neumorphic, 640),
+            ("asset-pack", GS::Neumorphic, 656),
+            ("liquid-glass", GS::NeumorphicDark, 640),
+            ("asset-pack", GS::NeumorphicDark, 656),
         ];
         for (theme, gs, want) in expected {
             let got = rows
