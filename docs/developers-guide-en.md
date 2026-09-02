@@ -3072,6 +3072,30 @@ A button answers the pointer the way the toolbar's do: its well brightens under
 the pointer and deepens while the mouse button is held, so a press is
 acknowledged on screen before the handler runs.
 
+> ⚠️ **Setting more than one button from COBOL.** The separator is a *newline*,
+> and a COBOL literal cannot contain one — so `MOVE "a|A" TO SNACK-1::Buttons`
+> can only ever declare a single button. For two or three, `STRING` the lines
+> together around a line feed. `FUNCTION CHAR(11)` is ordinal 11, which is it:
+>
+> ```cobol
+>        01 WS-LF       PIC X.
+>        01 WS-BUTTONS  PIC X(120).
+>        ...
+>            MOVE FUNCTION CHAR(11) TO WS-LF
+>            MOVE SPACES TO WS-BUTTONS
+>            STRING "undo|Undo|undo|Left|true"   DELIMITED BY SIZE
+>                   WS-LF                        DELIMITED BY SIZE
+>                   "later|Later||None|false"    DELIMITED BY SIZE
+>                   INTO WS-BUTTONS
+>            MOVE WS-BUTTONS TO SNACK-1::Buttons
+>            INVOKE SNACK-1::Show()
+> ```
+>
+> Trailing spaces are harmless — each line is trimmed before it is read, and a
+> line with no **id** is skipped rather than shown blank. Declaring a fourth
+> button is reported, never silently dropped: the designer flags it, and at run
+> time it goes to the diagnostics trace.
+
 Bind `onButtonClick` and read which one was pressed:
 
 ```cobol

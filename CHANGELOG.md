@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.148] — 2026-09-01
+
+### Declaring two Snackbar buttons from COBOL
+
+`Buttons` is one line per button and a COBOL literal cannot carry a newline, so
+`MOVE "a|A" TO SNACK-1::Buttons` can only ever declare **one**. The Developer's
+Guide documented the field format and never said this, which left the run-time
+path looking like it supported three buttons when a handler could reach exactly
+one. The recipe — `STRING` the lines together around `FUNCTION CHAR(11)`, which
+is the line feed — is now in the guide, and
+`two_buttons_can_be_built_from_cobol` runs it through real COBOL and reports the
+parsed table so it cannot quietly stop working.
+
 ## [PowerRustCOBOL 1.62.147] — 2026-09-01
 
 ### A notification grows from a pixel, and two button reports investigated

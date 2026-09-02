@@ -365,3 +365,53 @@ fn a_handler_reads_which_button_was_pressed() {
     );
     eprintln!("  → 2/2 buttons identified by id AND index in the handler\n");
 }
+
+#[test]
+fn two_buttons_can_be_built_from_cobol() {
+    // `Buttons` is ONE LINE PER BUTTON, and a COBOL literal cannot carry a
+    // newline — so the only way to declare a second button at run time is to
+    // STRING the lines together around one. `FUNCTION CHAR(11)` is ordinal 11,
+    // which is LF. Without this recipe a handler can only ever set one button,
+    // and the operator asked for two per notification.
+    let (_out, ups) = run(
+        r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. TWOBUTTONS.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LF       PIC X.
+       01 WS-BUTTONS  PIC X(120).
+       PROCEDURE DIVISION.
+           MOVE FUNCTION CHAR(11) TO WS-LF
+           MOVE SPACES TO WS-BUTTONS
+           STRING "undo|Undo|undo|Left|true"   DELIMITED BY SIZE
+                  WS-LF                        DELIMITED BY SIZE
+                  "later|Later||None|false"    DELIMITED BY SIZE
+                  INTO WS-BUTTONS
+           MOVE WS-BUTTONS TO SNACK-1::Buttons
+           INVOKE SNACK-1::Show()
+           STOP RUN.
+"#,
+    );
+    let written = requests(&ups, "Buttons");
+    assert_eq!(written.len(), 1, "the handler wrote Buttons once: {ups:?}");
+    let spec = written[0].value.clone();
+
+    // What the host would mint from it.
+    let (buttons, diag) = cobolt_forms::snackbar::parse_buttons(&spec);
+    assert!(diag.is_none(), "two buttons is under the limit of {}", cobolt_forms::snackbar::MAX_BUTTONS);
+
+    eprintln!("\n  #   id      text    icon   position   dismiss");
+    eprintln!("  -   -----   -----   ----   --------   -------");
+    for (i, b) in buttons.iter().enumerate() {
+        eprintln!(
+            "  {i}   {:<5}   {:<5}   {:<4}   {:<8}   {}",
+            b.id, b.text, if b.icon.is_empty() { "-" } else { &b.icon }, format!("{:?}", b.position), b.dismiss
+        );
+    }
+    assert_eq!(buttons.len(), 2, "STRING around FUNCTION CHAR(11) yields TWO buttons, got {buttons:?}");
+    assert_eq!((buttons[0].id.as_str(), buttons[0].dismiss), ("undo", true));
+    assert_eq!((buttons[1].id.as_str(), buttons[1].dismiss), ("later", false));
+    assert_eq!(buttons[0].icon, "undo", "field 3 is the catalogue icon name");
+    eprintln!("  → 2 buttons declared from COBOL, the second one non-dismissing\n");
+}
