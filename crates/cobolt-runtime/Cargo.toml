@@ -54,6 +54,11 @@ maps = ["dep:google_maps", "dep:tokio"]
 [dependencies]
 cobolt-lexer    = { path = "../cobolt-lexer" }
 cobolt-ast      = { path = "../cobolt-ast" }
+# The debugger's expression evaluator parses what the developer types in a watch
+# or at the console prompt. It reuses the REAL parser rather than carrying a
+# second, smaller COBOL grammar that would drift from it. No cycle: the parser
+# depends only on the lexer and the AST.
+cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-indexed  = { path = "../cobolt-indexed" }
 # The form model, WITHOUT its `render` feature — no egui reaches the

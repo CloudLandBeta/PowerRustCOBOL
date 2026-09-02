@@ -3842,6 +3842,10 @@ pub const THEME_OWNED_PROPS: &[&str] = &[
     "BackgroundColor",
     "ForegroundColor",
     "CornerRadius",
+    // Stamped `None` by the neumorphic styles (operator ruling, 2026-09-02):
+    // the register's relief IS the edge. Without it here, switching back to
+    // Classic left every control borderless.
+    "BorderStyle",
     "ShadowEnabled",
     "ShadowColor",
     "ShadowLightColor",
@@ -3866,6 +3870,15 @@ pub const NEUMORPHIC_FORM_BACKGROUND: &str = "EAEBEFFF";
 pub const NEUMORPHIC_GRADIENT_START: &str = "#F8F8F8FF";
 pub const NEUMORPHIC_GRADIENT_END: &str = "#DFE0E1FF";
 pub const NEUMORPHIC_DARK_SURFACE_COLOR: &str = "#36383EFF";
+
+/// Fully transparent — a control with no face of its own. `a == 0` is what
+/// `paint::user_background_color` reads as "the developer set no background",
+/// so this is the one spelling that means transparent everywhere.
+pub const TRANSPARENT_COLOR: &str = "#00000000";
+
+/// Corner radius every control takes under Neumorphic Light (operator ruling,
+/// 2026-09-02). Was 15, which read as a pill on short controls.
+pub const NEUMORPHIC_CORNER_RADIUS: i64 = 10;
 pub const NEUMORPHIC_DARK_FORM_BACKGROUND: &str = "36383EFF";
 pub const NEUMORPHIC_DARK_LIGHT_SHADOW: &str = "#4E4E4EFF";
 pub const NEUMORPHIC_DARK_GRADIENT_START: &str = "#4E4E4EFF";
@@ -5587,11 +5600,43 @@ impl Control {
         self.animations.push(anim);
     }
 
+    /// Seed one control for **Neumorphic Light** (operator ruling, 2026-09-02).
+    ///
+    /// Four rules, and a Label is the exception to three of them:
+    ///
+    /// | | |
+    /// |---|---|
+    /// | Corner radius | **10 px**, every control |
+    /// | Drop shadow | **on**, every control **except a Label** |
+    /// | Border style | **None**, every control |
+    /// | Label | **fully transparent**, with a high-contrast ink |
+    ///
+    /// A Label is frameless by nature — its glyphs *are* its face. Giving it
+    /// the register's surface made it an opaque card sitting in the form, and
+    /// giving it a relief made that card float. Transparent with dark ink is
+    /// what a caption on a soft-UI surface should look like, and the ink is
+    /// seeded explicitly rather than left to the `#FFFFFF` sentinel so it is
+    /// visible in the property grid as a real value.
     pub fn apply_neumorphic_defaults(&mut self) {
+        let is_label = matches!(self.control_type, ControlType::Label);
         self.set_prop(
             "BackgroundColor",
-            PropValue::String(NEUMORPHIC_SURFACE_COLOR.into()),
+            PropValue::String(if is_label {
+                // Zero alpha. `paint::user_background_color` already discards a
+                // colour with `a == 0`, so this reads downstream as "no face of
+                // its own" — the Label's text then inks against the FORM's
+                // backdrop, which is what makes it high-contrast by
+                // construction rather than by a guessed constant.
+                TRANSPARENT_COLOR.into()
+            } else {
+                NEUMORPHIC_SURFACE_COLOR.into()
+            }),
         );
+        // A Label is deliberately NOT in the force-black list. Its high-contrast
+        // ink comes from the branch below, which remaps only the white default
+        // — a colour the developer actually chose survives the switch (R9), and
+        // asserting exactly that is what `dark_to_light_style_switch_keeps_
+        // label_contrast` exists for.
         if self.control_type.uses_neumorphic_black_foreground() {
             self.set_prop("ForegroundColor", PropValue::String("#000000".into()));
         } else if self
@@ -5608,15 +5653,20 @@ impl Control {
             // (red, blue, …) is left alone.
             self.set_prop("ForegroundColor", PropValue::String("#000000".into()));
         }
-        self.set_prop("CornerRadius", PropValue::Int(15));
-        self.set_prop("ShadowEnabled", PropValue::Bool(true));
+        self.set_prop("CornerRadius", PropValue::Int(NEUMORPHIC_CORNER_RADIUS));
+        // The register's relief IS the control's edge, so a drawn border on top
+        // of it reads as a seam around the shape.
+        self.set_prop("BorderStyle", PropValue::String("None".into()));
+        self.set_prop("ShadowEnabled", PropValue::Bool(!is_label));
         self.set_prop("ShadowLightColor", PropValue::String("#FFFFFFFF".into()));
         self.set_prop("ShadowOpacity", PropValue::Int(6));
         self.set_prop("ShadowDirection", PropValue::String("SouthEast".into()));
         self.set_prop("ShadowDistance", PropValue::Int(7));
         self.set_prop("ShadowBlur", PropValue::Bool(true));
         self.set_prop("ShadowBlurStrength", PropValue::Int(8));
-        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+        // A transparent Label paints no face, so a gradient on it would be a
+        // fill it has just been told not to have.
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(!is_label));
         self.set_prop(
             "BackgroundGradientStartColor",
             PropValue::String(NEUMORPHIC_GRADIENT_START.into()),
@@ -5631,14 +5681,33 @@ impl Control {
         );
     }
 
+    /// Seed one control for **Neumorphic Dark** — the same four rules as
+    /// [`apply_neumorphic_defaults`](Self::apply_neumorphic_defaults), extended
+    /// to the dark register by the operator on 2026-09-02.
+    ///
+    /// The Label's "high contrast ink" half needs nothing extra here: this
+    /// style already forces white on every control, and white on the dark form
+    /// ground (`#36383E`) measures 11.7:1. What a Label needed was the other
+    /// half — no face and no relief, so a caption stops being an opaque card
+    /// floating over the surface.
     pub fn apply_neumorphic_dark_defaults(&mut self) {
+        let is_label = matches!(self.control_type, ControlType::Label);
         self.set_prop(
             "BackgroundColor",
-            PropValue::String(NEUMORPHIC_DARK_SURFACE_COLOR.into()),
+            PropValue::String(if is_label {
+                TRANSPARENT_COLOR.into()
+            } else {
+                NEUMORPHIC_DARK_SURFACE_COLOR.into()
+            }),
         );
+        // Unconditional, unlike the light register: this style has always
+        // forced white on every control, and `dark_to_light_style_switch_keeps_
+        // label_contrast` asserts exactly that as the thing the light switch
+        // then has to remap.
         self.set_prop("ForegroundColor", PropValue::String("#FFFFFFFF".into()));
-        self.set_prop("CornerRadius", PropValue::Int(15));
-        self.set_prop("ShadowEnabled", PropValue::Bool(true));
+        self.set_prop("CornerRadius", PropValue::Int(NEUMORPHIC_CORNER_RADIUS));
+        self.set_prop("BorderStyle", PropValue::String("None".into()));
+        self.set_prop("ShadowEnabled", PropValue::Bool(!is_label));
         self.set_prop("ShadowOpacity", PropValue::Int(6));
         self.set_prop("ShadowColor", PropValue::String("#000000FF".into()));
         self.set_prop(
@@ -5649,7 +5718,9 @@ impl Control {
         self.set_prop("ShadowDistance", PropValue::Int(7));
         self.set_prop("ShadowBlur", PropValue::Bool(true));
         self.set_prop("ShadowBlurStrength", PropValue::Int(8));
-        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(true));
+        // A transparent Label paints no face, so a gradient on it would be a
+        // fill it has just been told not to have.
+        self.set_prop("BackgroundGradientEnabled", PropValue::Bool(!is_label));
         self.set_prop(
             "BackgroundGradientStartColor",
             PropValue::String(NEUMORPHIC_DARK_GRADIENT_START.into()),
@@ -7901,7 +7972,10 @@ mod tests {
             NEUMORPHIC_SURFACE_COLOR,
             "the switch must actually apply the style"
         );
-        assert_eq!(stamped.get_prop("CornerRadius").unwrap().as_i64(), 15);
+        assert_eq!(
+            stamped.get_prop("CornerRadius").unwrap().as_i64(),
+            NEUMORPHIC_CORNER_RADIUS
+        );
 
         // …and switching away puts every one of them back as new.
         form.apply_glass_style_defaults(GlassStyle::Classic);
@@ -8101,7 +8175,13 @@ mod tests {
                 NEUMORPHIC_SURFACE_COLOR
             );
             assert_eq!(c.get_prop("ForegroundColor").unwrap().as_str(), "#000000");
-            assert_eq!(c.get_prop("CornerRadius").unwrap().as_i64(), 15);
+            // Named, not literal: the operator moved this from 15 to 10 on
+            // 2026-09-02, and a second literal is a second place to forget.
+            assert_eq!(
+                c.get_prop("CornerRadius").unwrap().as_i64(),
+                NEUMORPHIC_CORNER_RADIUS
+            );
+            assert_eq!(c.get_prop("BorderStyle").unwrap().as_str(), "None");
             assert!(c.get_prop("ShadowEnabled").unwrap().as_bool());
             assert_eq!(c.get_prop("ShadowOpacity").unwrap().as_i64(), 6);
             assert_eq!(c.get_prop("ShadowDistance").unwrap().as_i64(), 7);
@@ -8113,6 +8193,132 @@ mod tests {
 
     /// The seeded values are ordinary property values the developer can edit
     /// afterwards, not painting constants — the form takes a solid background
+    /// The four rules the operator laid down (2026-09-02), and the Label
+    /// exception to three of them — held by **both** neumorphic registers.
+    ///
+    /// Parameterised rather than duplicated: the rules are the same, only the
+    /// surface and the ink differ, and two copies is how one register quietly
+    /// drifts from the other.
+    #[test]
+    fn both_neumorphic_registers_seed_the_operators_four_defaults() {
+        for (style, surface, ink) in [
+            (GlassStyle::Neumorphic, NEUMORPHIC_SURFACE_COLOR, "#000000"),
+            (
+                GlassStyle::NeumorphicDark,
+                NEUMORPHIC_DARK_SURFACE_COLOR,
+                "#FFFFFFFF",
+            ),
+        ] {
+            let mut form = Form::new("F", "Four defaults", 400, 300);
+            for (i, kind) in [
+                ControlType::Button,
+                ControlType::TextBox,
+                ControlType::GroupBox,
+                ControlType::DateTimePicker,
+                ControlType::Label,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                form.controls
+                    .push(Control::new(format!("C{i}"), kind, 10, 10 + i as i32 * 30));
+            }
+            form.apply_glass_style_defaults(style);
+
+            for c in &form.controls {
+                let is_label = matches!(c.control_type, ControlType::Label);
+                let what = format!("{style:?}/{:?}", c.control_type);
+
+                // 1 — corner radius 10, every control.
+                assert_eq!(
+                    c.get_prop("CornerRadius").map(|v| v.as_i64()),
+                    Some(NEUMORPHIC_CORNER_RADIUS),
+                    "{what} corner radius"
+                );
+                // 3 — no border, every control.
+                assert_eq!(
+                    c.get_prop("BorderStyle").map(|v| v.as_str().to_owned()),
+                    Some("None".to_owned()),
+                    "{what} border style"
+                );
+                // 2 — shadow on, except a Label.
+                assert_eq!(
+                    c.get_prop("ShadowEnabled").map(|v| v.as_bool()),
+                    Some(!is_label),
+                    "{what} shadow"
+                );
+                // 4 — a Label is transparent with a high-contrast ink;
+                // everything else takes the register's own surface.
+                let bg = c.get_prop("BackgroundColor").map(|v| v.as_str().to_owned());
+                if is_label {
+                    assert_eq!(bg, Some(TRANSPARENT_COLOR.to_owned()), "{what} background");
+                    assert_eq!(
+                        c.get_prop("ForegroundColor").map(|v| v.as_str().to_owned()),
+                        Some(ink.to_owned()),
+                        "{what} ink must be a real value, not the #FFFFFF sentinel"
+                    );
+                    assert_eq!(
+                        c.get_prop("BackgroundGradientEnabled").map(|v| v.as_bool()),
+                        Some(false),
+                        "{what}: a transparent label must not also paint a gradient"
+                    );
+                } else {
+                    assert_eq!(bg, Some(surface.to_owned()), "{what} background");
+                }
+            }
+        }
+    }
+
+    /// The Label ink each register seeds must actually be legible on the form
+    /// ground that register paints. Asserting the hex alone would pass on a
+    /// value that is simply the wrong pole for the surface.
+    #[test]
+    fn each_registers_label_ink_is_legible_on_its_own_form_ground() {
+        for (style, form_bg, ink) in [
+            (GlassStyle::Neumorphic, NEUMORPHIC_FORM_BACKGROUND, "#000000"),
+            (
+                GlassStyle::NeumorphicDark,
+                NEUMORPHIC_DARK_FORM_BACKGROUND,
+                "#FFFFFFFF",
+            ),
+        ] {
+            let mut form = Form::new("F", "T", 320, 200);
+            form.controls
+                .push(Control::new("L", ControlType::Label, 10, 10));
+            form.apply_glass_style_defaults(style);
+
+            assert_eq!(form.background_color, form_bg);
+            let ground = crate::paint::parse_color(form_bg);
+            let seeded = crate::paint::parse_color(ink);
+            let ratio = crate::paint::contrast_ratio(seeded, ground);
+            assert!(
+                ratio >= 4.5,
+                "{style:?}: label ink {ink} on form ground {form_bg} is {ratio:.2}:1"
+            );
+        }
+    }
+
+    /// A transparent Label must read downstream as "no face of its own", which
+    /// is the property the whole high-contrast story rests on: it is what makes
+    /// the ink resolve against the FORM's backdrop rather than against a card
+    /// the Label is no longer painting.
+    #[test]
+    fn a_neumorphic_label_background_is_seen_as_absent_downstream() {
+        let mut label = Control::new("L", ControlType::Label, 0, 0);
+        label.apply_neumorphic_defaults();
+        assert!(
+            crate::paint::user_background_color(&label).is_none(),
+            "zero alpha must read as no background, or the label inks against a \
+             card it does not paint"
+        );
+        let mut button = Control::new("B", ControlType::Button, 0, 0);
+        button.apply_neumorphic_defaults();
+        assert!(
+            crate::paint::user_background_color(&button).is_none(),
+            "the register's own surface is a default, not a developer choice"
+        );
+    }
+
     /// and every control takes a South gradient, mirroring Neumorphic Dark.
     #[test]
     fn neumorphic_light_seeds_the_form_colour_and_a_south_control_gradient() {

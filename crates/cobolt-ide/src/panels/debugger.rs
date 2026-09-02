@@ -14,12 +14,16 @@
 
 use egui::{Color32, Context, Key, RichText, ScrollArea, TextEdit, Vec2};
 use egui_extras::{Column, TableBuilder};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::i18n::Tr;
+use crate::panels::empty_blocks::{folds, marker_text, FoldKind, HiddenRun};
 use crate::runner::{DebugRunner, RunMsg};
-use cobolt_runtime::{DebugEvent, VarSnapshot};
+use cobolt_runtime::{
+    DebugAnswer, DebugEvent, DebugFrame, DebugQuery, ScopeInfo, SpecialValue, StopReason, VarInfo,
+    VarSnapshot,
+};
 
 // ── Tab ───────────────────────────────────────────────────────────────────────
 
@@ -27,8 +31,39 @@ use cobolt_runtime::{DebugEvent, VarSnapshot};
 enum Tab {
     #[default]
     Variables,
+    Watches,
     CallStack,
     Breakpoints,
+}
+
+/// The investigation dock along the bottom.
+///
+/// Separate tabs rather than one console, so "what did this program do to my
+/// files" is a place to look rather than a grep through unrelated chatter.
+#[derive(PartialEq, Clone, Copy, Default)]
+enum DockTab {
+    #[default]
+    Console,
+    Events,
+    FileIo,
+    Problems,
+    Timeline,
+}
+
+/// One line in the investigation dock.
+pub struct DockLine {
+    pub channel: cobolt_runtime::OutputChannel,
+    pub text: String,
+    /// Milliseconds since the session started — the Timeline's ordering.
+    pub at_ms: u64,
+}
+
+/// A persisted watch expression and its last answer.
+pub struct Watch {
+    pub expression: String,
+    /// `None` until the first evaluation of this stop.
+    pub value: Option<String>,
+    pub error: Option<String>,
 }
 
 // ── DebugAction ───────────────────────────────────────────────────────────────
@@ -36,9 +71,17 @@ enum Tab {
 /// Action requested by the debug window in a single frame.
 pub enum DebugAction {
     Stop,
+    /// Ask the stopped debuggee a question. The answer arrives as
+    /// `DebugEvent::Answer` and is folded back in by `apply_event`.
+    Query(u64, DebugQuery),
     Continue,
     StepOver,
     StepIn,
+    /// Run until the current PERFORM or CALL returns, then pause in the caller.
+    StepOut,
+    /// Run to a 1-based source line, then pause. Gives up if the frame it was
+    /// issued from returns first.
+    RunToCursor(u32),
     Pause,
     /// The developer clicked the gutter beside a line: add or remove a
     /// breakpoint there. Carries the 1-based line in the displayed source.
@@ -55,6 +98,14 @@ pub struct DebuggerPanel {
     current_para: String,
     current_line: u32,
     is_paused: bool,
+    /// Why the program stopped, for the session strip. `None` while running —
+    /// the strip then says Running rather than inventing a reason.
+    stop_reason: Option<StopReason>,
+    /// The logical COBOL call stack at the current stop, innermost first.
+    frames: Vec<DebugFrame>,
+    /// Which frame the inspector and watches evaluate against. Always a valid
+    /// index into `frames`, or 0 when there is no stack.
+    selected_frame: usize,
     pub pending_output: Vec<RunMsg>,
 
     // Source viewer
@@ -75,6 +126,72 @@ pub struct DebuggerPanel {
     animate: bool,
     animate_speed_lps: f32,
     last_animate_step: Option<Instant>,
+    /// The line the developer last clicked in the source pane — the target for
+    /// Run to Cursor. `None` until they pick one, which is why the button is
+    /// disabled rather than guessing the current line.
+    cursor_line: Option<u32>,
+    // ── The data inspector (lazy) ────────────────────────────────────────
+    /// Scopes of the selected frame, as answered at the current stop.
+    scopes: Vec<ScopeInfo>,
+    /// Rows already fetched, keyed by the handle they were fetched under.
+    /// Cleared at every stop, because a handle never outlives its frame.
+    rows: HashMap<i64, Vec<VarInfo>>,
+    /// Handles the developer has opened.
+    open: HashSet<i64>,
+    /// Handles asked for but not yet answered, so one expand does not fire a
+    /// query on every frame while the answer is in flight.
+    inflight: HashSet<i64>,
+    next_query_id: u64,
+    /// Queries built while rendering, drained into `DebugAction`s afterwards —
+    /// the tree is drawn inside a closure and cannot return an action itself.
+    pending_queries: Vec<DebugQuery>,
+    /// Queries that already carry the id their answer will be matched by — a
+    /// watch or the console prompt. `pending_queries` is numbered on the way
+    /// out; these cannot be, because the id is the correlation key.
+    pending_ident_queries: Vec<(u64, DebugQuery)>,
+    /// Watch expressions, in the order the developer added them. Persisted per
+    /// project by the host.
+    pub watches: Vec<Watch>,
+    watch_input: String,
+    /// Which watch each outstanding Evaluate belongs to, by query id. Watches
+    /// are evaluated together at every stop, so several are in flight at once
+    /// and the answers cannot be matched by "the only one outstanding".
+    watch_pending: HashMap<u64, usize>,
+    /// The console prompt's own outstanding evaluation.
+    console_pending: Option<u64>,
+    console_input: String,
+    /// Entries typed at the prompt, newest last; ↑/↓ walk it.
+    console_history: Vec<String>,
+    history_pos: Option<usize>,
+    dock_tab: DockTab,
+    /// Height of the investigation dock, in points.
+    ///
+    /// An explicit stored number, not a fraction of what is available and never
+    /// derived from the dock's own content — that is the feedback loop that
+    /// makes a pane grow every frame until it fills the window. It changes only
+    /// when the developer drags the grip.
+    dock_height: f32,
+    dock: Vec<DockLine>,
+    session_started: Option<Instant>,
+    /// Which row is being edited, and the text so far.
+    editing: Option<(i64, String, String)>,
+    /// The last refusal from the debuggee — a failed edit or a stale handle.
+    inspect_error: Option<String>,
+    /// Runs of lines the empty-block filter folds away, recomputed only when
+    /// the source changes.
+    hidden: Vec<HiddenRun>,
+    /// Runs the developer has opened by clicking their marker, keyed by the
+    /// run's first line. Nothing is ever destroyed — a fold is one click from
+    /// giving the code back.
+    expanded_runs: HashSet<u32>,
+    /// Fold away divisions, sections and paragraphs with no executable
+    /// statement. A VIEW filter only: real line numbers are preserved and
+    /// stepping is untouched (operator ruling, 2026-09-02).
+    hide_empty_blocks: bool,
+    /// Fold the `*> <NAME>` regions codegen marks. On by default: the generated
+    /// scaffolding is assumed to work, and scrolling past it to reach a handler
+    /// is the developer's most common complaint about the pane.
+    hide_generated: bool,
 }
 
 impl Default for DebuggerPanel {
@@ -91,6 +208,9 @@ impl DebuggerPanel {
             current_para: String::new(),
             current_line: 0,
             is_paused: false,
+            stop_reason: None,
+            frames: Vec::new(),
+            selected_frame: 0,
             pending_output: Vec::new(),
             source_lines: Vec::new(),
             source_path: String::new(),
@@ -103,6 +223,31 @@ impl DebuggerPanel {
             animate: false,
             animate_speed_lps: 4.0,
             last_animate_step: None,
+            scopes: Vec::new(),
+            rows: HashMap::new(),
+            open: HashSet::new(),
+            inflight: HashSet::new(),
+            next_query_id: 1,
+            pending_queries: Vec::new(),
+            pending_ident_queries: Vec::new(),
+            watches: Vec::new(),
+            watch_input: String::new(),
+            watch_pending: HashMap::new(),
+            console_pending: None,
+            console_input: String::new(),
+            console_history: Vec::new(),
+            history_pos: None,
+            dock_tab: DockTab::default(),
+            dock_height: 170.0,
+            dock: Vec::new(),
+            session_started: None,
+            editing: None,
+            inspect_error: None,
+            cursor_line: None,
+            hidden: Vec::new(),
+            expanded_runs: HashSet::new(),
+            hide_empty_blocks: true,
+            hide_generated: true,
         }
     }
 
@@ -112,23 +257,77 @@ impl DebuggerPanel {
         self.current_para.clear();
         self.current_line = 0;
         self.is_paused = false;
+        self.stop_reason = None;
+        self.frames.clear();
+        self.selected_frame = 0;
         self.pending_output.clear();
         self.last_scrolled_line = 0;
         self.force_center_current = false;
         self.animate = false;
         self.last_animate_step = None;
+        self.cursor_line = None;
     }
 
     /// Supply the COBOL source text and initial breakpoint set at session start.
     pub fn set_source(&mut self, path: String, source: &str, bps: &HashSet<u32>) {
+        // A new session: the dock's clock starts here, so every timestamp is
+        // "since this run began" rather than since the IDE launched.
+        self.session_started = Some(Instant::now());
+        self.dock.clear();
         self.source_path = path;
         self.source_lines = source.lines().map(|l| l.to_owned()).collect();
+        self.hidden = folds(&self.source_lines, self.hide_empty_blocks, self.hide_generated);
+        self.expanded_runs.clear();
         self.breakpoints = bps.clone();
     }
 
     /// Sync the live breakpoint set from the editor gutter.
     pub fn set_breakpoints(&mut self, bps: &HashSet<u32>) {
         self.breakpoints = bps.clone();
+    }
+
+    /// Replace the watch list — the project's saved expressions, on open.
+    pub fn set_watches(&mut self, expressions: &[String]) {
+        self.watches = expressions
+            .iter()
+            .map(|e| Watch {
+                expression: e.clone(),
+                value: None,
+                error: None,
+            })
+            .collect();
+    }
+
+    /// The watch expressions, for saving. Values are deliberately not saved:
+    /// a value belongs to a stop, and restoring one next session would show a
+    /// reading from a program run that has ended.
+    pub fn watch_expressions(&self) -> Vec<String> {
+        self.watches.iter().map(|w| w.expression.clone()).collect()
+    }
+
+    /// Has the watch list changed since `saved`? The host polls this rather than
+    /// writing `cobolt.toml` on every frame.
+    pub fn watches_differ_from(&self, saved: &[String]) -> bool {
+        self.watches.len() != saved.len()
+            || self
+                .watches
+                .iter()
+                .zip(saved)
+                .any(|(w, s)| w.expression != *s)
+    }
+
+    /// Take the queries the last frame's rendering queued.
+    ///
+    /// Drained by the host, which turns each into a `DebugAction` — the tree is
+    /// painted inside a closure and cannot dispatch on its own.
+    pub fn take_queries(&mut self) -> Vec<(u64, DebugQuery)> {
+        let mut out: Vec<(u64, DebugQuery)> = self.pending_ident_queries.drain(..).collect();
+        out.extend(self.pending_queries.drain(..).map(|q| {
+            let id = self.next_query_id;
+            self.next_query_id += 1;
+            (id, q)
+        }));
+        out
     }
 
     /// The file this session is showing — the key its breakpoints are stored
@@ -141,6 +340,39 @@ impl DebuggerPanel {
     /// `DebugRunner` path and the remote (`rcrun run-form --debug`) path.
     pub fn apply_event(&mut self, ev: DebugEvent) {
         match ev {
+            // The stop's *reason* and the logical stack. It arrives just before
+            // the `Paused` snapshot below, so both are applied for one stop.
+            DebugEvent::Stopped {
+                line,
+                paragraph,
+                reason,
+                frames,
+                ..
+            } => {
+                self.is_paused = true;
+                self.current_line = line;
+                self.current_para = paragraph;
+                self.stop_reason = Some(reason);
+                self.frames = frames;
+                // Every handle issued at the previous stop is now stale, so the
+                // cache goes with them. What the developer had OPEN is kept:
+                // re-expanding the same rows by hand at every step would make
+                // single-stepping unusable.
+                self.scopes.clear();
+                self.rows.clear();
+                self.inflight.clear();
+                self.editing = None;
+                self.inspect_error = None;
+                self.watch_pending.clear();
+                for w in &mut self.watches {
+                    w.value = None;
+                    w.error = None;
+                }
+                // A new stop is a new stack: anything the developer had
+                // selected belonged to frames that may no longer exist.
+                self.selected_frame = 0;
+                self.force_center_current = true;
+            }
             DebugEvent::Paused {
                 line,
                 paragraph,
@@ -164,11 +396,108 @@ impl DebuggerPanel {
                 }
                 self.force_center_current = true;
             }
+            DebugEvent::Output { text, channel } => {
+                let at_ms = self
+                    .session_started
+                    .map(|t| t.elapsed().as_millis() as u64)
+                    .unwrap_or(0);
+                self.dock.push(DockLine {
+                    channel,
+                    text,
+                    at_ms,
+                });
+                // Bounded: a logpoint in a tight loop would otherwise grow the
+                // dock until the IDE is the thing that stops responding.
+                const MAX_DOCK_LINES: usize = 5000;
+                if self.dock.len() > MAX_DOCK_LINES {
+                    self.dock.drain(..self.dock.len() - MAX_DOCK_LINES);
+                }
+            }
+            DebugEvent::Answer { id, answer } => match answer {
+                DebugAnswer::Scopes(scopes) => {
+                    for sc in &scopes {
+                        self.inflight.remove(&sc.reference);
+                    }
+                    self.scopes = scopes;
+                }
+                DebugAnswer::Variables(rows) => {
+                    // The answer does not name the handle it belongs to, so the
+                    // single outstanding request is matched by what is in
+                    // flight. Requests are issued one at a time for exactly
+                    // this reason.
+                    if let Some(&r) = self.inflight.iter().next() {
+                        self.inflight.remove(&r);
+                        self.rows.insert(r, rows);
+                    }
+                }
+                DebugAnswer::Set { .. } => {
+                    // The written value is read back by refetching the row's
+                    // parent, so the tree shows what the PROGRAM sees rather
+                    // than what was typed.
+                    self.editing = None;
+                    self.rows.clear();
+                    self.inflight.clear();
+                }
+                DebugAnswer::Evaluated { result, pic } => {
+                    if let Some(i) = self.watch_pending.remove(&id) {
+                        if let Some(w) = self.watches.get_mut(i) {
+                            w.value = Some(result);
+                            w.error = None;
+                        }
+                    } else if self.console_pending == Some(id) {
+                        self.console_pending = None;
+                        let shown = if pic.is_empty() {
+                            result
+                        } else {
+                            format!("{result}    {pic}")
+                        };
+                        let at_ms = self
+                            .session_started
+                            .map(|t| t.elapsed().as_millis() as u64)
+                            .unwrap_or(0);
+                        self.dock.push(DockLine {
+                            channel: cobolt_runtime::OutputChannel::Console,
+                            text: shown,
+                            at_ms,
+                        });
+                    }
+                }
+                DebugAnswer::Error(msg) => {
+                    if let Some(i) = self.watch_pending.remove(&id) {
+                        if let Some(w) = self.watches.get_mut(i) {
+                            w.value = None;
+                            w.error = Some(msg);
+                        }
+                    } else if self.console_pending == Some(id) {
+                        self.console_pending = None;
+                        let at_ms = self
+                            .session_started
+                            .map(|t| t.elapsed().as_millis() as u64)
+                            .unwrap_or(0);
+                        self.dock.push(DockLine {
+                            channel: cobolt_runtime::OutputChannel::Problems,
+                            text: msg,
+                            at_ms,
+                        });
+                    } else {
+                        self.inflight.clear();
+                        self.inspect_error = Some(msg);
+                    }
+                }
+            },
             DebugEvent::Resumed => {
                 self.is_paused = false;
+                self.stop_reason = None;
             }
             DebugEvent::Finished => {
                 self.is_paused = false;
+                self.stop_reason = None;
+                self.scopes.clear();
+                self.rows.clear();
+                self.open.clear();
+                self.inflight.clear();
+                self.frames.clear();
+                self.selected_frame = 0;
                 self.vars.clear();
             }
         }
@@ -219,7 +548,18 @@ impl DebuggerPanel {
                 action = Some(DebugAction::StepOver);
                 self.is_paused = false;
             }
-            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F11)) {
+            // Shift+F11 FIRST: `key_pressed` ignores extra modifiers, so a
+            // plain-F11 test would also swallow the shifted chord and Step Out
+            // would never fire.
+            if action.is_none()
+                && ctx.input(|i| i.key_pressed(Key::F11) && i.modifiers.shift)
+                && self.is_paused
+            {
+                action = Some(DebugAction::StepOut);
+                self.is_paused = false;
+                self.last_animate_step = None;
+            }
+            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F11) && !i.modifiers.shift) {
                 action = Some(DebugAction::StepIn);
                 self.is_paused = false;
             }
@@ -232,7 +572,7 @@ impl DebuggerPanel {
         let need_scroll = self.should_center_current_line();
 
         egui::CentralPanel::default().show(panel_ui, |ui| {
-            self.status_row(ui);
+            self.status_row(ui, tr);
             if let Some(a) = self.toolbar(ui, tr) {
                 action = Some(a);
             }
@@ -278,7 +618,18 @@ impl DebuggerPanel {
                 action = Some(DebugAction::StepOver);
                 self.is_paused = false;
             }
-            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F11)) {
+            // Shift+F11 FIRST: `key_pressed` ignores extra modifiers, so a
+            // plain-F11 test would also swallow the shifted chord and Step Out
+            // would never fire.
+            if action.is_none()
+                && ctx.input(|i| i.key_pressed(Key::F11) && i.modifiers.shift)
+                && self.is_paused
+            {
+                action = Some(DebugAction::StepOut);
+                self.is_paused = false;
+                self.last_animate_step = None;
+            }
+            if action.is_none() && ctx.input(|i| i.key_pressed(Key::F11) && !i.modifiers.shift) {
                 action = Some(DebugAction::StepIn);
                 self.is_paused = false;
             }
@@ -316,7 +667,7 @@ impl DebuggerPanel {
                             // auto-grow nor auto-shrink to measured content.
                             ui.set_min_size(sz);
 
-                            self.status_row(ui);
+                            self.status_row(ui, tr);
                             if let Some(a) = self.toolbar(ui, tr) {
                                 action = Some(a);
                             }
@@ -340,22 +691,60 @@ impl DebuggerPanel {
 
     // ── Status row ────────────────────────────────────────────────────────────
 
-    fn status_row(&self, ui: &mut egui::Ui) {
+    /// The stop reason in the developer's language.
+    ///
+    /// `StopReason` is a runtime type and carries an English `headline()` for
+    /// logs; the UI must not show that — every user-facing string is a `Tr`
+    /// field in six languages.
+    fn reason_label(reason: &StopReason, tr: &Tr) -> String {
+        match reason {
+            StopReason::Entry => tr.dbg_reason_entry.to_owned(),
+            StopReason::Breakpoint(_) => tr.dbg_reason_breakpoint.to_owned(),
+            StopReason::Step => tr.dbg_reason_step.to_owned(),
+            StopReason::Pause => tr.dbg_reason_pause.to_owned(),
+            StopReason::DataChanged { name, .. } => {
+                format!("{} · {name}", tr.dbg_reason_data_changed)
+            }
+            StopReason::Exception { filter, .. } => {
+                format!("{} · {filter}", tr.dbg_reason_runtime_error)
+            }
+            StopReason::Goto => tr.dbg_reason_goto.to_owned(),
+        }
+    }
+
+    fn status_row(&self, ui: &mut egui::Ui, tr: &Tr) {
         ui.horizontal(|ui| {
-            let (status_text, status_color) = if self.is_paused {
-                let text = if self.current_para.is_empty() {
-                    "● Paused".to_owned()
-                } else {
-                    format!(
-                        "● Paused — {}   line {}",
-                        self.current_para, self.current_line
-                    )
-                };
-                (text, Color32::from_rgb(220, 180, 50))
+            // Amber for paused/current execution, green for connected/running —
+            // the palette the spec fixes. Hardcoded, not read from
+            // `ui.visuals()`: on a glass theme that renders dark-on-dark.
+            let (text, colour) = if self.is_paused {
+                let mut t = format!("● {}", tr.dbg_state_paused);
+                if let Some(r) = &self.stop_reason {
+                    t.push_str(" · ");
+                    t.push_str(&Self::reason_label(r, tr));
+                }
+                (t, Color32::from_rgb(220, 180, 50))
             } else {
-                ("○ Running".to_owned(), Color32::from_rgb(80, 200, 80))
+                (
+                    format!("○ {}", tr.dbg_state_running),
+                    Color32::from_rgb(80, 200, 80),
+                )
             };
-            ui.label(RichText::new(status_text).color(status_color).size(12.0));
+            ui.label(RichText::new(text).color(colour).size(12.0));
+
+            if self.is_paused && !self.current_para.is_empty() {
+                ui.label(
+                    RichText::new(format!("  {}  ", self.current_para))
+                        .monospace()
+                        .color(Color32::from_rgb(120, 190, 255))
+                        .size(12.0),
+                );
+                ui.label(
+                    RichText::new(format!("line {}", self.current_line))
+                        .color(Color32::from_gray(150))
+                        .size(12.0),
+                );
+            }
         });
     }
 
@@ -363,6 +752,7 @@ impl DebuggerPanel {
 
     fn toolbar(&mut self, ui: &mut egui::Ui, tr: &Tr) -> Option<DebugAction> {
         let mut action: Option<DebugAction> = None;
+        let mut refold = false;
 
         ui.horizontal(|ui| {
             if ui
@@ -400,12 +790,44 @@ impl DebuggerPanel {
 
             if ui
                 .add_enabled(self.is_paused, egui::Button::new("↧  Step in   F11"))
-                .on_hover_text("Step into the next statement")
+                .on_hover_text(tr.dbg_step_into)
                 .clicked()
             {
                 action = Some(DebugAction::StepIn);
                 self.is_paused = false;
                 self.last_animate_step = None;
+            }
+
+            if ui
+                .add_enabled(self.is_paused, egui::Button::new("↥  Step out   ⇧F11"))
+                .on_hover_text(tr.dbg_step_out)
+                .clicked()
+            {
+                action = Some(DebugAction::StepOut);
+                self.is_paused = false;
+                self.last_animate_step = None;
+            }
+
+            // Disabled until the developer clicks a line: Run to Cursor with no
+            // cursor would have to guess a target, and guessing here means
+            // running the program to somewhere they did not ask for.
+            let target = self.cursor_line;
+            if ui
+                .add_enabled(
+                    self.is_paused && target.is_some(),
+                    egui::Button::new("⇥  Run to cursor"),
+                )
+                .on_hover_text(match target {
+                    Some(l) => format!("{} — line {l}", tr.dbg_run_to_cursor),
+                    None => tr.dbg_run_to_cursor.to_owned(),
+                })
+                .clicked()
+            {
+                if let Some(l) = target {
+                    action = Some(DebugAction::RunToCursor(l));
+                    self.is_paused = false;
+                    self.last_animate_step = None;
+                }
             }
 
             ui.separator();
@@ -420,6 +842,32 @@ impl DebuggerPanel {
             }
 
             ui.separator();
+
+            if ui
+                .selectable_label(self.hide_empty_blocks, tr.dbg_hide_empty_blocks)
+                .on_hover_text(
+                    "Fold away divisions, sections and paragraphs that hold no \
+                     executable statement. A view filter only — line numbers are \
+                     unchanged and stepping is unaffected.",
+                )
+                .clicked()
+            {
+                self.hide_empty_blocks = !self.hide_empty_blocks;
+                refold = true;
+            }
+
+            if ui
+                .selectable_label(self.hide_generated, tr.dbg_hide_generated)
+                .on_hover_text(
+                    "Fold the blocks the IDE generated — the event loop and its \
+                     plumbing. They are assumed to work; what is left is the code \
+                     you wrote.",
+                )
+                .clicked()
+            {
+                self.hide_generated = !self.hide_generated;
+                refold = true;
+            }
 
             if ui
                 .selectable_label(self.only_user_code, "Only my code")
@@ -453,6 +901,11 @@ impl DebuggerPanel {
             }
         });
 
+        if refold {
+            // Both filters feed one fold list, so a toggle recomputes it rather
+            // than each filter keeping its own and the two disagreeing.
+            self.hidden = folds(&self.source_lines, self.hide_empty_blocks, self.hide_generated);
+        }
         action
     }
 
@@ -499,7 +952,12 @@ impl DebuggerPanel {
     /// divider whose position is persisted by egui's table state.
     /// Returns the gutter line the developer clicked, if any.
     fn split_body(&mut self, ui: &mut egui::Ui, tr: &Tr, need_scroll: bool) -> Option<u32> {
-        let body_h = ui.available_height().max(180.0);
+        // The dock takes its OWN stored height off the top; the split gets what
+        // is left. Deriving either from the content is what makes a pane creep.
+        const GRIP_H: f32 = 6.0;
+        let total = ui.available_height();
+        let dock_h = self.dock_height.clamp(80.0, (total - 160.0).max(80.0));
+        let body_h = (total - dock_h - GRIP_H).max(160.0);
         let mut toggled: Option<u32> = None;
 
         TableBuilder::new(ui)
@@ -514,13 +972,34 @@ impl DebuggerPanel {
                 body.row(body_h, |mut row| {
                     row.col(|ui| {
                         let pane_w = ui.available_width();
-                        toggled = self.code_viewer(ui, need_scroll, pane_w);
+                        toggled = self.code_viewer(ui, need_scroll, pane_w, tr);
                     });
                     row.col(|ui| {
                         self.data_tabs(ui, tr);
                     });
                 });
             });
+
+        // The grip: the ONE writer of `dock_height`, and it only ever moves by
+        // the drag the developer performed.
+        let (grip, grip_resp) =
+            ui.allocate_exact_size(Vec2::new(ui.available_width(), GRIP_H), egui::Sense::drag());
+        if grip_resp.hovered() || grip_resp.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        if grip_resp.dragged() {
+            self.dock_height =
+                (self.dock_height - grip_resp.drag_delta().y).clamp(80.0, (total - 160.0).max(80.0));
+        }
+        ui.painter().hline(
+            grip.x_range(),
+            grip.center().y,
+            egui::Stroke::new(1.0, Color32::from_gray(70)),
+        );
+
+        ui.allocate_ui(Vec2::new(ui.available_width(), dock_h), |ui| {
+            self.investigation_dock(ui, tr);
+        });
 
         toggled
     }
@@ -530,7 +1009,13 @@ impl DebuggerPanel {
     /// Returns the line whose gutter was clicked, if any — the caller turns it
     /// into a [`DebugAction::ToggleBreakpoint`]. The viewer takes `&self`, so it
     /// reports the click rather than editing the set itself.
-    fn code_viewer(&self, ui: &mut egui::Ui, need_scroll: bool, pane_w: f32) -> Option<u32> {
+    fn code_viewer(
+        &mut self,
+        ui: &mut egui::Ui,
+        need_scroll: bool,
+        pane_w: f32,
+        tr: &Tr,
+    ) -> Option<u32> {
         // File path in muted monospace
         ui.label(
             RichText::new(&self.source_path)
@@ -544,6 +1029,10 @@ impl DebuggerPanel {
         // applied here — the breakpoint set lives in the editor, and both the
         // panel and the running debuggee are synced from there.
         let mut toggled: Option<u32> = None;
+        // Collected inside the closure and applied after it, so nothing borrows
+        // `self` mutably while the source list is being read.
+        let mut expand_run: Option<u32> = None;
+        let mut picked_line: Option<u32> = None;
 
         ScrollArea::both()
             .id_salt("dbg_code_scroll")
@@ -553,10 +1042,61 @@ impl DebuggerPanel {
                 let current = self.current_line;
                 let bps = &self.breakpoints;
 
+                let folding = self.hide_empty_blocks;
+                let runs = &self.hidden;
+                let expanded = &self.expanded_runs;
+
                 for (idx, line_text) in self.source_lines.iter().enumerate() {
                     let line_num = (idx + 1) as u32;
                     let is_current = line_num == current;
                     let is_bp = bps.contains(&line_num);
+
+                    // The empty-block filter. Purely visual: the line numbers
+                    // below are the file's own, the breakpoint set is untouched,
+                    // and the debuggee never hears about it. A folded run that
+                    // holds the current statement or a breakpoint is shown
+                    // anyway — hiding where the program actually stopped would
+                    // be the one thing worse than the clutter.
+                    if folding {
+                        if let Some(run) = runs.iter().find(|r| r.contains(line_num)) {
+                            let forced = run.contains(current)
+                                || bps.iter().any(|b| run.contains(*b))
+                                || expanded.contains(&run.start);
+                            if !forced {
+                                if line_num == run.start {
+                                    let resp = ui.add(
+                                        egui::Label::new(
+                                            RichText::new(match run.kind {
+                                                // A generated region says WHAT
+                                                // it is; an empty run says how
+                                                // many blocks it swallowed.
+                                                FoldKind::Generated => format!(
+                                                    "     ⌄  {}  ({} lines)",
+                                                    run.label.as_deref().unwrap_or("generated"),
+                                                    run.lines()
+                                                ),
+                                                FoldKind::Empty => format!(
+                                                    "     ⌄  {}",
+                                                    marker_text(tr.dbg_empty_blocks_hidden, run)
+                                                ),
+                                            })
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(Color32::from_gray(110)),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    );
+                                    if resp.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if resp.clicked() {
+                                        expand_run = Some(run.start);
+                                    }
+                                }
+                                continue;
+                            }
+                        }
+                    }
 
                     if line_text.trim().is_empty() {
                         let (rect, _) =
@@ -638,9 +1178,14 @@ impl DebuggerPanel {
                             );
                         }
 
-                        // Syntax-highlighted source line
+                        // Syntax-highlighted source line. Clickable: clicking
+                        // picks the Run-to-Cursor target, which is why that
+                        // button stays disabled until there is one.
                         let job = build_cobol_layout_job(line_text);
-                        ui.label(job);
+                        let resp = ui.add(egui::Label::new(job).sense(egui::Sense::click()));
+                        if resp.clicked() {
+                            picked_line = Some(line_num);
+                        }
                     });
 
                     // Auto-scroll when current line changes
@@ -650,16 +1195,214 @@ impl DebuggerPanel {
                 }
             });
 
+        if let Some(start) = expand_run {
+            self.expanded_runs.insert(start);
+        }
+        if let Some(l) = picked_line {
+            self.cursor_line = Some(l);
+        }
         toggled
+    }
+
+
+    // ── Investigation dock ────────────────────────────────────────────────────
+
+    /// The bottom dock: debugger output, split by channel, plus a prompt.
+    ///
+    /// Returns any query the prompt produced. The prompt is the same evaluator
+    /// the watches use, so anything that works in one works in the other.
+    fn investigation_dock(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        ui.horizontal(|ui| {
+            let counts = |c: cobolt_runtime::OutputChannel| {
+                self.dock.iter().filter(|l| l.channel == c).count()
+            };
+            use cobolt_runtime::OutputChannel as Ch;
+            for (tab, label, ch) in [
+                (DockTab::Console, tr.dbg_console, Ch::Console),
+                (DockTab::Events, tr.dbg_events, Ch::Events),
+                (DockTab::FileIo, tr.dbg_file_io, Ch::FileIo),
+                (DockTab::Problems, tr.dbg_problems, Ch::Problems),
+                (DockTab::Timeline, tr.dbg_timeline, Ch::Timeline),
+            ] {
+                let n = if tab == DockTab::Timeline {
+                    self.dock.len()
+                } else {
+                    counts(ch)
+                };
+                let text = if n > 0 {
+                    format!("{label}  {n}")
+                } else {
+                    label.to_owned()
+                };
+                ui.selectable_value(&mut self.dock_tab, tab, text);
+            }
+            if ui
+                .add(egui::Label::new(RichText::new("🗑").size(12.0)).sense(egui::Sense::click()))
+                .on_hover_text("Clear")
+                .clicked()
+            {
+                self.dock.clear();
+            }
+        });
+        ui.separator();
+
+        use cobolt_runtime::OutputChannel as Ch;
+        let want = match self.dock_tab {
+            DockTab::Console => Some(Ch::Console),
+            DockTab::Events => Some(Ch::Events),
+            DockTab::FileIo => Some(Ch::FileIo),
+            DockTab::Problems => Some(Ch::Problems),
+            // The Timeline is every channel in the order it happened — that is
+            // what makes it a timeline rather than a sixth console.
+            DockTab::Timeline => None,
+        };
+
+        let rows = ui.available_height() - 26.0;
+        ScrollArea::vertical()
+            .id_salt("dbg_dock_scroll")
+            .max_height(rows.max(40.0))
+            .auto_shrink([false, false])
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                let mut any = false;
+                for line in self.dock.iter().filter(|l| want.is_none_or(|c| l.channel == c)) {
+                    any = true;
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        ui.label(
+                            RichText::new(format!("{:>7}.{:03}", line.at_ms / 1000, line.at_ms % 1000))
+                                .monospace()
+                                .size(10.0)
+                                .color(Color32::from_gray(100)),
+                        );
+                        if want.is_none() {
+                            ui.label(
+                                RichText::new(match line.channel {
+                                    Ch::Console => "con",
+                                    Ch::Events => "evt",
+                                    Ch::FileIo => "i/o",
+                                    Ch::Problems => "prb",
+                                    Ch::Timeline => "tml",
+                                })
+                                .monospace()
+                                .size(10.0)
+                                .color(Color32::from_gray(120)),
+                            );
+                        }
+                        ui.label(
+                            RichText::new(&line.text)
+                                .monospace()
+                                .size(11.0)
+                                .color(if line.channel == Ch::Problems {
+                                    Color32::from_rgb(230, 140, 140)
+                                } else {
+                                    Color32::from_rgb(210, 216, 232)
+                                }),
+                        );
+                    });
+                }
+                if !any {
+                    ui.label(
+                        RichText::new(tr.dbg_dock_empty)
+                            .size(11.0)
+                            .color(Color32::from_gray(110)),
+                    );
+                }
+            });
+
+        // The prompt. Only on the console, and only while stopped: evaluating
+        // against a running program would answer about a moment that has passed.
+        if self.dock_tab == DockTab::Console {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(">")
+                        .monospace()
+                        .color(Color32::from_rgb(120, 190, 255)),
+                );
+                let resp = ui.add_enabled(
+                    self.is_paused,
+                    TextEdit::singleline(&mut self.console_input)
+                        .hint_text(tr.dbg_console_hint)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(f32::INFINITY),
+                );
+                if resp.has_focus() {
+                    // ↑/↓ walk the history, as every console does.
+                    let (up, down) = ui.input(|i| {
+                        (
+                            i.key_pressed(egui::Key::ArrowUp),
+                            i.key_pressed(egui::Key::ArrowDown),
+                        )
+                    });
+                    if up && !self.console_history.is_empty() {
+                        let pos = match self.history_pos {
+                            None => self.console_history.len() - 1,
+                            Some(0) => 0,
+                            Some(p) => p - 1,
+                        };
+                        self.history_pos = Some(pos);
+                        self.console_input = self.console_history[pos].clone();
+                    } else if down {
+                        match self.history_pos {
+                            Some(p) if p + 1 < self.console_history.len() => {
+                                self.history_pos = Some(p + 1);
+                                self.console_input = self.console_history[p + 1].clone();
+                            }
+                            Some(_) => {
+                                self.history_pos = None;
+                                self.console_input.clear();
+                            }
+                            None => {}
+                        }
+                    }
+                }
+                if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    let expression = self.console_input.trim().to_owned();
+                    if !expression.is_empty() {
+                        let at_ms = self
+                            .session_started
+                            .map(|t| t.elapsed().as_millis() as u64)
+                            .unwrap_or(0);
+                        self.dock.push(DockLine {
+                            channel: cobolt_runtime::OutputChannel::Console,
+                            text: format!("> {expression}"),
+                            at_ms,
+                        });
+                        let id = self.next_query_id;
+                        self.next_query_id += 1;
+                        self.console_pending = Some(id);
+                        let frame = self.selected_frame;
+                        self.pending_ident_queries
+                            .push((id, DebugQuery::Evaluate { frame, expression: expression.clone() }));
+                        self.console_history.push(expression);
+                        self.history_pos = None;
+                        self.console_input.clear();
+                    }
+                }
+            });
+        }
     }
 
     // ── Tabbed data panel ─────────────────────────────────────────────────────
 
     fn data_tabs(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        // Collected in the closure, applied after: every one of these mutates
+        // state the tree is being read from.
+        let mut pick_frame: Option<usize> = None;
+        let mut toggle: Option<i64> = None;
+        let mut fetch: Option<i64> = None;
+        let mut want_scopes = false;
+        let mut begin_edit: Option<(i64, String, String)> = None;
+        let mut edit_buf: Option<String> = None;
+        let mut commit: Option<(i64, String, String)> = None;
+        let mut add_watch: Option<String> = None;
+        let mut drop_watch: Option<usize> = None;
+        let mut evaluate_watches: Vec<(usize, String)> = Vec::new();
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.active_tab, Tab::Variables, tr.dbg_variables);
-            ui.selectable_value(&mut self.active_tab, Tab::CallStack, "Call stack");
-            ui.selectable_value(&mut self.active_tab, Tab::Breakpoints, "Breakpoints");
+            ui.selectable_value(&mut self.active_tab, Tab::Watches, tr.dbg_watches);
+            ui.selectable_value(&mut self.active_tab, Tab::CallStack, tr.dbg_call_stack);
+            ui.selectable_value(&mut self.active_tab, Tab::Breakpoints, tr.dbg_breakpoints);
         });
         ui.separator();
 
@@ -667,71 +1410,188 @@ impl DebuggerPanel {
             Tab::Variables => {
                 ui.add(
                     TextEdit::singleline(&mut self.var_filter)
-                        .hint_text("Filter data items")
+                        .hint_text(tr.dbg_filter_hint)
                         .desired_width(f32::INFINITY),
                 );
+                if let Some(err) = &self.inspect_error {
+                    ui.label(
+                        RichText::new(format!("⚠ {err}"))
+                            .color(Color32::from_rgb(230, 120, 120))
+                            .size(11.0),
+                    );
+                }
                 ui.add_space(2.0);
-                let filter = self.var_filter.to_ascii_lowercase();
-                let filtered: Vec<&VarSnapshot> = self
-                    .vars
-                    .iter()
-                    .filter(|v| !Self::is_generated_control_handler_var(v))
-                    .filter(|v| {
-                        filter.is_empty()
-                            || v.name.to_ascii_lowercase().contains(&filter)
-                            || v.scope.to_ascii_lowercase().contains(&filter)
-                            || v.value.to_ascii_lowercase().contains(&filter)
-                    })
-                    .collect();
 
-                let theme = crate::theme::active();
-                TableBuilder::new(ui)
-                    .id_salt("dbg_var_table")
-                    .striped(true)
-                    .resizable(true)
+                if !self.is_paused {
+                    ui.label(
+                        RichText::new(tr.dbg_state_running)
+                            .color(Color32::from_gray(110))
+                            .size(11.0),
+                    );
+                    return;
+                }
+                // The scopes of the selected frame. Asked for once per stop;
+                // everything below arrives only when a row is opened.
+                if self.scopes.is_empty() {
+                    want_scopes = true;
+                }
+                let filter = self.var_filter.to_ascii_lowercase();
+                // Three columns the developer can drag, as the mockup asks:
+                // Name | PIC / Type | Value. A header row makes the columns
+                // readable as columns rather than as three runs of text.
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    let w = ui.available_width();
+                    let name_w = (w * 0.44).max(120.0);
+                    let pic_w = (w * 0.26).max(90.0);
+                    for (label, width) in [
+                        (tr.dbg_col_name, name_w),
+                        (tr.dbg_col_pic, pic_w),
+                        (tr.dbg_col_value, w - name_w - pic_w),
+                    ] {
+                        ui.allocate_ui(Vec2::new(width, 18.0), |ui| {
+                            ui.label(
+                                RichText::new(label)
+                                    .size(11.0)
+                                    .color(Color32::from_gray(150)),
+                            );
+                        });
+                    }
+                });
+                ui.separator();
+                ScrollArea::vertical()
+                    .id_salt("dbg_inspect_scroll")
                     .auto_shrink([false, false])
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(Column::initial(170.0).at_least(100.0).resizable(true))
-                    .column(Column::initial(105.0).at_least(78.0).resizable(true))
-                    .column(Column::remainder().at_least(80.0))
-                    .header(20.0, |mut header| {
-                        header.col(|ui| {
-                            ui.strong("Variable name");
-                        });
-                        header.col(|ui| {
-                            ui.strong("Scope");
-                        });
-                        header.col(|ui| {
-                            ui.strong("Value");
-                        });
-                    })
-                    .body(|mut body| {
-                        for v in &filtered {
-                            body.row(24.0, |mut row| {
-                                row.col(|ui| {
-                                    if ui
-                                        .button(
-                                            RichText::new(&v.name).monospace().color(theme.ed_data),
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 1.0;
+                        for sc in &self.scopes {
+                            let open = self.open.contains(&sc.reference);
+                            let head = ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!(
+                                        "{} {}  ({})",
+                                        if open { "⌄" } else { "›" },
+                                        sc.name,
+                                        sc.count
+                                    ))
+                                    .monospace()
+                                    .size(11.0)
+                                    .color(Color32::from_rgb(150, 175, 215)),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if head.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if head.clicked() {
+                                toggle = Some(sc.reference);
+                            }
+                            if open {
+                                render_rows(
+                                    ui,
+                                    &self.rows,
+                                    &self.open,
+                                    sc.reference,
+                                    1,
+                                    &filter,
+                                    &self.editing,
+                                    &mut toggle,
+                                    &mut fetch,
+                                    &mut begin_edit,
+                                    &mut edit_buf,
+                                    &mut commit,
+                                );
+                            }
+                        }
+                    });
+            }
+
+            Tab::Watches => {
+                ui.horizontal(|ui| {
+                    let resp = ui.add(
+                        TextEdit::singleline(&mut self.watch_input)
+                            .hint_text(tr.dbg_watch_hint)
+                            .desired_width(f32::INFINITY),
+                    );
+                    let entered =
+                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if entered && !self.watch_input.trim().is_empty() {
+                        add_watch = Some(self.watch_input.trim().to_owned());
+                    }
+                });
+                ui.add_space(2.0);
+                ScrollArea::vertical()
+                    .id_salt("dbg_watch_scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if self.watches.is_empty() {
+                            ui.label(
+                                RichText::new(tr.dbg_watch_empty)
+                                    .color(Color32::from_gray(110))
+                                    .size(11.0),
+                            );
+                        }
+                        for (i, w) in self.watches.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                if ui
+                                    .add(
+                                        egui::Label::new(
+                                            RichText::new("✕")
+                                                .size(10.0)
+                                                .color(Color32::from_gray(120)),
                                         )
-                                        .on_hover_text("Show data item value")
-                                        .clicked()
-                                    {
-                                        self.selected_var = Some((*v).clone());
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .clicked()
+                                {
+                                    drop_watch = Some(i);
+                                }
+                                ui.label(
+                                    RichText::new(&w.expression)
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(Color32::from_rgb(215, 220, 235)),
+                                );
+                                match (&w.value, &w.error) {
+                                    (_, Some(e)) => {
+                                        ui.label(
+                                            RichText::new(e)
+                                                .size(11.0)
+                                                .italics()
+                                                .color(Color32::from_rgb(230, 120, 120)),
+                                        );
                                     }
-                                });
-                                row.col(|ui| {
-                                    ui.label(RichText::new(&v.scope).monospace());
-                                });
-                                row.col(|ui| {
-                                    let max_px = (ui.available_width() - 6.0).max(24.0);
-                                    let preview = Self::fit_value_preview(ui, &v.value, max_px);
-                                    ui.label(
-                                        RichText::new(preview).monospace().color(theme.ed_plain),
-                                    );
-                                });
+                                    (Some(v), _) => {
+                                        ui.label(
+                                            RichText::new(v.trim())
+                                                .monospace()
+                                                .size(11.0)
+                                                .color(Color32::from_rgb(240, 200, 120)),
+                                        );
+                                    }
+                                    // Not evaluated yet at this stop. Say so
+                                    // rather than show the PREVIOUS stop's
+                                    // value, which would be a stale reading
+                                    // presented as a current one.
+                                    (None, None) => {
+                                        ui.label(
+                                            RichText::new(if self.is_paused { "…" } else { "—" })
+                                                .size(11.0)
+                                                .color(Color32::from_gray(110)),
+                                        );
+                                    }
+                                }
                             });
                         }
                     });
+                if self.is_paused {
+                    for (i, w) in self.watches.iter().enumerate() {
+                        if w.value.is_none() && w.error.is_none() {
+                            evaluate_watches.push((i, w.expression.clone()));
+                        }
+                    }
+                }
             }
 
             Tab::CallStack => {
@@ -739,25 +1599,55 @@ impl DebuggerPanel {
                     .id_salt("dbg_stack_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        if self.current_para.is_empty() {
+                        if self.frames.is_empty() {
                             ui.label(
-                                RichText::new("No active frame").color(Color32::from_gray(100)),
+                                RichText::new(tr.dbg_no_frame).color(Color32::from_gray(100)),
                             );
-                        } else {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new("►").color(Color32::from_rgb(220, 180, 50)));
+                            return;
+                        }
+                        // Innermost first, as the interpreter sends it. Inline
+                        // PERFORM loops are already filtered out upstream: they
+                        // carry step depth, not a call.
+                        let selected = self.selected_frame;
+                        for (i, f) in self.frames.iter().enumerate() {
+                            let is_top = i == selected;
+                            let resp = ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        if is_top { "►" } else { " " },
+                                        f.display_name()
+                                    ))
+                                    .monospace()
+                                    .size(12.0)
+                                    .color(if is_top {
+                                        Color32::from_rgb(230, 180, 40)
+                                    } else if f.generated {
+                                        // Generated scaffolding is greyed, not
+                                        // hidden: the developer can still see
+                                        // the path their call actually took.
+                                        Color32::from_gray(110)
+                                    } else {
+                                        Color32::from_rgb(120, 190, 255)
+                                    }),
+                                )
+                                .sense(egui::Sense::click()),
+                            );
+                            if resp.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            if resp.clicked() {
+                                pick_frame = Some(i);
+                            }
+                            if f.line > 0 {
                                 ui.label(
-                                    RichText::new(&self.current_para)
-                                        .monospace()
-                                        .color(Color32::from_rgb(100, 180, 255)),
-                                );
-                            });
-                            if self.current_line > 0 {
-                                ui.label(
-                                    RichText::new(format!("   line {}", self.current_line))
-                                        .monospace()
-                                        .size(11.0)
-                                        .color(Color32::from_gray(120)),
+                                    RichText::new(format!(
+                                        "     {:?}  line {}",
+                                        f.kind, f.line
+                                    ))
+                                    .monospace()
+                                    .size(10.0)
+                                    .color(Color32::from_gray(110)),
                                 );
                             }
                         }
@@ -796,6 +1686,75 @@ impl DebuggerPanel {
                         }
                     });
             }
+        }
+
+        if let Some(i) = pick_frame {
+            // Changing the selected frame changes what the inspector,
+            // watches and evaluations resolve against, so its answers go too.
+            self.selected_frame = i;
+            self.scopes.clear();
+            self.rows.clear();
+            self.inflight.clear();
+        }
+        if let Some(r) = toggle {
+            if self.open.contains(&r) {
+                self.open.remove(&r);
+            } else {
+                self.open.insert(r);
+                // Opening a row it has never seen is what triggers the fetch —
+                // this is the whole "lazy" in lazy expansion.
+                if !self.rows.contains_key(&r) {
+                    fetch = Some(r);
+                }
+            }
+        }
+        if let Some((r, name, seed)) = begin_edit {
+            self.editing = Some((r, name, seed));
+        }
+        if let (Some(text), Some(cur)) = (edit_buf, self.editing.as_mut()) {
+            cur.2 = text;
+        }
+        if let Some((reference, name, value)) = commit {
+            self.pending_queries.push(DebugQuery::SetVariable {
+                reference,
+                name,
+                value,
+            });
+        }
+        if want_scopes && !self.inflight.contains(&0) {
+            self.inflight.insert(0);
+            let frame = self.selected_frame;
+            self.pending_queries.push(DebugQuery::Scopes { frame });
+        }
+        if let Some(reference) = fetch {
+            if self.inflight.insert(reference) {
+                self.pending_queries.push(DebugQuery::Variables { reference });
+            }
+        }
+        if let Some(expr) = add_watch {
+            self.watches.push(Watch {
+                expression: expr,
+                value: None,
+                error: None,
+            });
+            self.watch_input.clear();
+        }
+        if let Some(i) = drop_watch {
+            if i < self.watches.len() {
+                self.watches.remove(i);
+            }
+        }
+        for (i, expression) in evaluate_watches {
+            // One query per watch, tracked by id: several are in flight at once
+            // at every stop, so "the only outstanding one" cannot match them.
+            if self.watch_pending.values().any(|p| *p == i) {
+                continue;
+            }
+            let id = self.next_query_id;
+            self.next_query_id += 1;
+            self.watch_pending.insert(id, i);
+            let frame = self.selected_frame;
+            self.pending_ident_queries.push((id, DebugQuery::Evaluate { frame, expression }));
         }
     }
 
@@ -1227,5 +2186,213 @@ mod tests {
         p.reset();
         assert_eq!(p.source_path(), "/proj/generated/form1.cbl");
         assert!(p.breakpoints.contains(&12));
+    }
+}
+
+/// Paint the rows under one handle, recursing into the ones the developer has
+/// opened.
+///
+/// Free function rather than a method: it reads several `self` fields while the
+/// caller still holds them, and threading intents out through `&mut` locals is
+/// what keeps the borrow checker satisfied without cloning the tree per frame.
+#[allow(clippy::too_many_arguments)]
+fn render_rows(
+    ui: &mut egui::Ui,
+    rows: &HashMap<i64, Vec<VarInfo>>,
+    open: &HashSet<i64>,
+    reference: i64,
+    depth: usize,
+    filter: &str,
+    editing: &Option<(i64, String, String)>,
+    toggle: &mut Option<i64>,
+    fetch: &mut Option<i64>,
+    begin_edit: &mut Option<(i64, String, String)>,
+    edit_buf: &mut Option<String>,
+    commit: &mut Option<(i64, String, String)>,
+) {
+    let Some(list) = rows.get(&reference) else {
+        // Opened but not answered yet. Say so rather than render an empty
+        // group, which reads as "this has nothing in it".
+        ui.label(
+            RichText::new(format!("{}…", "  ".repeat(depth)))
+                .monospace()
+                .size(11.0)
+                .color(Color32::from_gray(110)),
+        );
+        if fetch.is_none() {
+            *fetch = Some(reference);
+        }
+        return;
+    };
+
+    for row in list {
+        if !filter.is_empty()
+            && !row.name.to_ascii_lowercase().contains(filter)
+            && !row.value.to_ascii_lowercase().contains(filter)
+        {
+            continue;
+        }
+        let indent = "  ".repeat(depth);
+        let expandable = row.reference != 0;
+        let is_open = expandable && open.contains(&row.reference);
+
+        // Column geometry, recomputed per row from the pane's own width so a
+        // drag on the splitter carries through. Fixed fractions, never the
+        // row's content: sizing a column from what it holds is what makes a
+        // table shift under the reader.
+        let total = ui.available_width();
+        let name_w = (total * 0.44).max(120.0);
+        let pic_w = (total * 0.26).max(90.0);
+        let value_w = (total - name_w - pic_w).max(60.0);
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let marker = if !expandable {
+                " "
+            } else if is_open {
+                "⌄"
+            } else {
+                "›"
+            };
+            let name = ui
+                .allocate_ui(Vec2::new(name_w, 18.0), |ui| {
+                    ui.add(
+                egui::Label::new(
+                    RichText::new(format!("{indent}{marker} {}", row.name))
+                        .monospace()
+                        .size(11.0)
+                        .color(if row.category == "condition" {
+                            Color32::from_rgb(190, 160, 230)
+                        } else if row.category == "group" {
+                            Color32::from_rgb(150, 175, 215)
+                        } else {
+                            Color32::from_rgb(215, 220, 235)
+                        }),
+                )
+                .sense(egui::Sense::click()),
+            )
+                })
+                .inner;
+            if expandable {
+                if name.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if name.clicked() {
+                    *toggle = Some(row.reference);
+                }
+            }
+
+            // PIC / Type. Allocated even when empty, so the Value column
+            // begins at the same x on every row — a column that only exists
+            // when it has content is not a column.
+            ui.allocate_ui(Vec2::new(pic_w, 18.0), |ui| {
+                let text = if !row.pic.is_empty() {
+                    format!("PIC {}", row.pic)
+                } else if row.category == "group" {
+                    "Group".to_owned()
+                } else if row.category == "condition" {
+                    "Condition".to_owned()
+                } else if let Some(n) = row.occurs {
+                    format!("OCCURS {n} TIMES")
+                } else {
+                    String::new()
+                };
+                ui.label(
+                    RichText::new(text)
+                        .monospace()
+                        .size(10.0)
+                        .color(Color32::from_gray(140)),
+                );
+            });
+
+            // Value. A "non-value" is rendered as its NAME in italics, never as
+            // blank: an empty string, spaces, LOW-VALUES and HIGH-VALUES all
+            // look like nothing and mean four different things.
+            let value_cell = |ui: &mut egui::Ui, body: &mut dyn FnMut(&mut egui::Ui)| {
+                ui.allocate_ui(Vec2::new(value_w, 18.0), |ui| body(ui));
+            };
+            let _ = &value_cell;
+            match editing {
+                Some((r, n, buf)) if *r == reference && *n == row.name => {
+                    let mut text = buf.clone();
+                    let resp = ui.add(
+                        TextEdit::singleline(&mut text)
+                            .desired_width(120.0)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                    if text != *buf {
+                        *edit_buf = Some(text.clone());
+                    }
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        *commit = Some((reference, row.name.clone(), text));
+                    }
+                }
+                _ => {
+                    let (shown, colour, italic) = match row.special {
+                        Some(SpecialValue::EmptyString) => {
+                            ("(empty)".to_owned(), Color32::from_gray(120), true)
+                        }
+                        Some(SpecialValue::Spaces) => {
+                            ("SPACES".to_owned(), Color32::from_gray(120), true)
+                        }
+                        Some(SpecialValue::LowValues) => {
+                            ("LOW-VALUES".to_owned(), Color32::from_gray(120), true)
+                        }
+                        Some(SpecialValue::HighValues) => {
+                            ("HIGH-VALUES".to_owned(), Color32::from_gray(120), true)
+                        }
+                        Some(SpecialValue::Unset) => {
+                            ("(unset)".to_owned(), Color32::from_gray(120), true)
+                        }
+                        Some(SpecialValue::EvaluationError) => {
+                            (row.value.clone(), Color32::from_rgb(230, 120, 120), true)
+                        }
+                        None => (
+                            row.value.clone(),
+                            if row.value == "TRUE" {
+                                Color32::from_rgb(120, 210, 140)
+                            } else {
+                                Color32::from_rgb(240, 200, 120)
+                            },
+                            false,
+                        ),
+                    };
+                    let mut rt = RichText::new(shown).monospace().size(11.0).color(colour);
+                    if italic {
+                        rt = rt.italics();
+                    }
+                    let v = ui.add(egui::Label::new(rt).sense(egui::Sense::click()));
+                    // Editing is offered only while stopped and only on a slot
+                    // the runtime can actually write.
+                    if row.editable {
+                        if v.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                        }
+                        if v.clicked() {
+                            *begin_edit =
+                                Some((reference, row.name.clone(), row.value.trim().to_owned()));
+                        }
+                    }
+                }
+            }
+
+        });
+
+        if is_open {
+            render_rows(
+                ui,
+                rows,
+                open,
+                row.reference,
+                depth + 1,
+                filter,
+                editing,
+                toggle,
+                fetch,
+                begin_edit,
+                edit_buf,
+                commit,
+            );
+        }
     }
 }

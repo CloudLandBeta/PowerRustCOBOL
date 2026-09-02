@@ -1355,6 +1355,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cobolt-dap"
+version = "0.2.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cobolt-form-host"
 version = "0.2.0"
 dependencies = [

@@ -4108,6 +4108,16 @@ fn render_interactive(
                     ui.set_clip_rect(edit_rect.intersect(clip));
                     ui.visuals_mut().text_cursor.stroke.color = caret_col;
                     egui::ScrollArea::new(scroll_dirs)
+                        // Salted with the CONTROL, like every other scroll area
+                        // in this file. An unsalted one is `ui.id().with(
+                        // "scroll_area")` — derived from the parent Ui alone,
+                        // with no counter — so two multiline TextBoxes sharing a
+                        // parent take the SAME id, and egui paints "First/Second
+                        // use of ScrollArea ID" across both of them (operator
+                        // screenshot, 2026-09-02: a log box and a response box
+                        // side by side). Scroll offsets are keyed by that id
+                        // too, so the two were also sharing a scroll position.
+                        .id_salt(ctrl_id)
                         .scroll_bar_visibility(bar_vis)
                         .auto_shrink([false, false])
                         .max_height(edit_rect.height())
@@ -5607,8 +5617,19 @@ fn render_interactive(
             }
         }
         CT::DateTimePicker => {
-            let white = Color32::from_rgb(230, 235, 255);
-            let dim = Color32::from_rgb(150, 160, 200);
+            // The calendar's ground comes from the CONTROL and its theme, and
+            // every glyph on it is inked against that ground.
+            //
+            // It used to be a hardcoded navy with two hardcoded near-white
+            // constants, and the day numbers were painted with NEITHER of them.
+            // They are `egui::Button`s, so their text came from the AMBIENT
+            // visuals, which are tuned for the IDE's palette and know nothing
+            // about this box. Under Neumorphic Light that produced the
+            // operator's screenshot (2026-09-02): a dark panel dropped into a
+            // light form, carrying dates that were barely legible on it.
+            let cal_bg = paint::popup_surface(painter.ctx(), ctrl);
+            let white = crate::map_tiles::readable_ink(cal_bg);
+            let dim = paint::muted_ink(cal_bg, white);
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
             let val = sv(ctrl, "Value");
             let resp = ui.interact(screen, ctrl_id, Sense::click());
@@ -5638,7 +5659,7 @@ fn render_interactive(
                             vec2(paint::CAL_W, paint::CAL_GRID_Y + paint::CAL_CELL * 6.0),
                         );
                         let p = ui.painter();
-                        p.rect_filled(area_rect, 6.0, Color32::from_rgb(28, 34, 60));
+                        p.rect_filled(area_rect, 6.0, cal_bg);
                         p.rect_stroke(
                             area_rect,
                             6.0,
@@ -5647,14 +5668,14 @@ fn render_interactive(
                         );
                         let prev = ui.put(
                             Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
-                            egui::Button::new("â").frame(false),
+                            egui::Button::new(egui::RichText::new("◀").color(dim)).frame(false),
                         );
                         let next = ui.put(
                             Rect::from_min_size(
                                 area_pos + vec2(paint::CAL_W - paint::CAL_CELL, 0.0),
                                 vec2(paint::CAL_CELL, paint::CAL_NAV_H),
                             ),
-                            egui::Button::new("â¶").frame(false),
+                            egui::Button::new(egui::RichText::new("▶").color(dim)).frame(false),
                         );
                         ui.painter().text(
                             area_pos + vec2(paint::CAL_W / 2.0, paint::CAL_NAV_H / 2.0),
@@ -5711,7 +5732,13 @@ fn render_interactive(
                                 vec2(paint::CAL_CELL, paint::CAL_CELL),
                             );
                             if ui
-                                .put(cell, egui::Button::new(format!("{day}")).frame(false))
+                                .put(
+                                    cell,
+                                    egui::Button::new(
+                                        egui::RichText::new(format!("{day}")).color(white),
+                                    )
+                                    .frame(false),
+                                )
                                 .clicked()
                             {
                                 picked = Some(day);

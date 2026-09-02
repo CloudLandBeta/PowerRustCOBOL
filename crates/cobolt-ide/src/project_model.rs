@@ -435,6 +435,14 @@ pub struct IdeSettings {
     /// "don't show again" checkbox.
     #[serde(default)]
     pub hide_ai_setup_prompt: bool,
+    /// Debugger watch expressions, in the order the developer added them.
+    ///
+    /// Per project, because a watch is about THIS program's data: `WS-CUSTOMER`
+    /// means nothing in the next project, and carrying it across would fill the
+    /// pane with expressions that can only fail. Empty for an old project, so
+    /// nothing needs upgrading.
+    #[serde(default)]
+    pub debug_watches: Vec<String>,
 }
 
 fn default_bg_opacity() -> u8 {
@@ -469,6 +477,7 @@ impl Default for IdeSettings {
             inspector_dump_enabled: default_true(),
             inspector_dump_path: default_inspector_dump_path(),
             hide_ai_setup_prompt: false,
+            debug_watches: Vec::new(),
         }
     }
 }

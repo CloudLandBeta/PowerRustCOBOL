@@ -16118,7 +16118,12 @@ mod text_align_tests {
         let l1 = d.form.find_control("L1").unwrap();
         assert_eq!(
             l1.get_prop("BackgroundColor").unwrap().as_str(),
-            cobolt_forms::model::NEUMORPHIC_SURFACE_COLOR,
+            // A Label, alone among controls, is seeded TRANSPARENT under
+            // Neumorphic Light (operator ruling, 2026-09-02) -- it is frameless,
+            // so the register's surface turned it into an opaque card. The
+            // subject of this test is the undo, not the colour: what matters is
+            // that whatever the switch wrote is what comes back.
+            cobolt_forms::model::TRANSPARENT_COLOR,
             "what the switch rewrote comes back"
         );
         assert_eq!(

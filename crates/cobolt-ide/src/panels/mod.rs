@@ -17,6 +17,7 @@ pub mod debugger;
 pub mod designer;
 pub mod doc_viewer;
 pub mod editor;
+pub mod empty_blocks;
 pub mod external_crates;
 pub mod forms_list;
 pub mod icon_picker;

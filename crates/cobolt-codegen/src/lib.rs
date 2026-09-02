@@ -984,10 +984,18 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
     write_event_loop(out, form);
 
     // ── Infrastructure helper paragraphs (outer program scope) ────────────
+    open_region(out, "TIMER-STUBS");
     write_timer_stubs(out, &all_controls);
+    close_region(out, "TIMER-STUBS");
+    open_region(out, "CSV-EXPORT");
     write_csv_export_stubs(out, &all_controls);
+    close_region(out, "CSV-EXPORT");
+    open_region(out, "REST-CLIENT");
     write_rest_client_stubs(out, &all_controls);
+    close_region(out, "REST-CLIENT");
+    open_region(out, "WEB-SEARCH");
     write_web_search_stubs(out, &all_controls);
+    close_region(out, "WEB-SEARCH");
     write_sql_stubs(out, &all_controls);
     write_indexed_file_stubs(out, &all_controls);
     write_agent_stubs(out, &all_controls);
@@ -2344,7 +2352,40 @@ fn toolbar_when_branches(d: &ToolbarDispatch) -> Result<Vec<(String, Vec<String>
     Ok(branches)
 }
 
+/// Open a **generated region**: a run of lines the IDE wrote, which a debugger
+/// can fold away without asking anything about their content.
+///
+/// The pair is a plain COBOL comment, so it costs the compiler nothing and the
+/// file stays self-describing — anything reading the `.cbl` can find the
+/// boundary without also holding the `SourceMap`. That matters because the
+/// generated `.cbl` is what the developer sees in the debugger, and scrolling
+/// it means scrolling hundreds of lines of scaffolding to reach the handler
+/// they actually wrote (operator, 2026-09-02).
+fn open_region(out: &mut String, name: &str) {
+    out.push_str(&format!("      *> <{name}>\n"));
+}
+
+/// Close the region `open_region` opened. The names must match: the debugger
+/// pairs them by name, so a mismatched close leaves the fold open to the end of
+/// the file.
+fn close_region(out: &mut String, name: &str) {
+    out.push_str(&format!("      *> </{name}>\n"));
+}
+
+/// The region names codegen emits. Listed once so the debugger and the
+/// generator cannot drift.
+pub const GENERATED_REGIONS: &[&str] = &[
+    "EVENT-LOOP",
+    "TIMER-STUBS",
+    "CSV-EXPORT",
+    "REST-CLIENT",
+    "WEB-SEARCH",
+    "DATA-BINDINGS",
+    "INDEXED-FILE",
+];
+
 fn write_event_loop(out: &mut String, form: &Form) {
+    open_region(out, "EVENT-LOOP");
     out.push_str("       COBOL-EVENT-LOOP.\n");
     out.push_str("           PERFORM UNTIL COBOL-QUIT = 1\n");
     out.push_str("               CALL \"COBOL-WAIT-EVENT\"\n");
@@ -2462,6 +2503,7 @@ fn write_event_loop(out: &mut String, form: &Form) {
 
     out.push_str("           END-PERFORM.\n");
     out.push('\n');
+    close_region(out, "EVENT-LOOP");
 }
 
 fn write_stub_paragraph(out: &mut String, name: &str, comment: &str) {

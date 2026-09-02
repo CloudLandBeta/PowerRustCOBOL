@@ -3968,30 +3968,7 @@ fn draw_control_body(
                 default_fill
             })
     };
-    let theme_text = theme_token(painter.ctx(), crate::surface_theme::ColorToken::Text);
-    let label_color = ctrl
-        .get_prop("ForegroundColor")
-        // 047 — a control carries the `#FFFFFF` sentinel until the developer
-        // picks a colour, so "absent" here means "still the sentinel", not
-        // "no property". A theme that supplies a text colour resolves the
-        // sentinel to it — that colour is the whole face of a frameless Label —
-        // while an actually-chosen colour still wins (R9).
-        .filter(|v| {
-            !(theme_text.is_some()
-                && v.as_str().trim().eq_ignore_ascii_case(
-                    crate::model::DEFAULT_FOREGROUND_COLOR,
-                ))
-        })
-        .map(|v| parse_color(v.as_str()))
-        .unwrap_or_else(|| {
-            if is_neumorphic {
-                neumorphic_default_ink(painter.ctx(), ctrl, fill)
-            } else if let Some(c) = theme_text {
-                c
-            } else {
-                default_text
-            }
-        });
+    let label_color = resolve_label_ink(painter.ctx(), ctrl, is_neumorphic, fill, default_text);
     let stroke_color = ctrl
         .get_prop("BorderColor")
         .map(|v| parse_color(v.as_str()))
@@ -9545,6 +9522,56 @@ pub fn readable_ink_on(explicit: Option<Color32>, derived: Color32, well: Color3
 /// The universal seeded default and the values the Neumorphic style appliers
 /// stamp on every control all mean "not chosen" — the renderer-wide "still on
 /// the default means the user has not picked" convention.
+/// The ground a control's own **popup** is painted on — a DateTimePicker's
+/// calendar, and anything else that opens its own panel over the form.
+///
+/// A popup is part of its control, so it takes its control's face and every
+/// theme decision that produced it. The calendar hardcoded
+/// `Color32::from_rgb(28, 34, 60)` instead — the Liquid Glass navy — which put
+/// a dark box inside a light Neumorphic form (operator screenshot, 2026-09-02).
+///
+/// Order: the developer's own `BackgroundColor` wins; then a theme that
+/// publishes a card or input surface; then the neumorphic register's own
+/// surface for the active style; then the historical navy, which is right for
+/// Classic and Enhanced glass and is what every existing form has always shown.
+pub fn popup_surface(ctx: &egui::Context, ctrl: &Control) -> Color32 {
+    if let Some(c) = user_background_color(ctrl) {
+        return c;
+    }
+    if let Some(c) = theme_token(ctx, crate::surface_theme::ColorToken::Card)
+        .or_else(|| theme_token(ctx, crate::surface_theme::ColorToken::InputBg))
+    {
+        return c;
+    }
+    if glass_config_applies(ctx) {
+        match active_glass_style(ctx) {
+            crate::model::GlassStyle::Neumorphic => {
+                return parse_color(crate::model::NEUMORPHIC_SURFACE_COLOR)
+            }
+            crate::model::GlassStyle::NeumorphicDark => {
+                return parse_color(crate::model::NEUMORPHIC_DARK_SURFACE_COLOR)
+            }
+            _ => {}
+        }
+    }
+    Color32::from_rgb(28, 34, 60)
+}
+
+/// A quieter companion to `ink` on `ground` — weekday headers, disabled dates.
+///
+/// Derived by mixing toward the ground rather than fixed, so it follows the
+/// surface instead of assuming one. Held at 60 % of the way to full ink, which
+/// keeps it above WCAG AA's 4.5:1 on both poles while still reading as
+/// secondary.
+pub fn muted_ink(ground: Color32, ink: Color32) -> Color32 {
+    let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * 0.6) as u8;
+    Color32::from_rgb(
+        mix(ground.r(), ink.r()),
+        mix(ground.g(), ink.g()),
+        mix(ground.b(), ink.b()),
+    )
+}
+
 pub fn user_background_color(ctrl: &Control) -> Option<Color32> {
     ctrl.get_prop("BackgroundColor")
         .map(|v| v.as_str().to_owned())
@@ -9669,6 +9696,86 @@ pub fn caption_surface_tone(
 /// Same rule as the map's info window (`map_tiles::readable_ink`): **derive the
 /// ink from the resolved background, never inherit it from somewhere else.** An
 /// explicit `ForegroundColor` still wins — this is the DEFAULT, not a clamp.
+/// The colour a control's own text is painted in, before any per-call alpha.
+///
+/// Extracted from `draw_control` so the sentinel rule can be tested directly:
+/// it is three-way, and the wrong branch is invisible until a form goes
+/// unreadable.
+///
+/// **The `#FFFFFF` sentinel** (047): every control is seeded with it and it
+/// means *the developer has not chosen a colour* — it is not a request for
+/// white. It may only be resolved away when something else can answer, and
+/// there are two such answers: a theme that publishes
+/// [`ColorToken::Text`](crate::surface_theme::ColorToken::Text), or the
+/// neumorphic register, whose [`neumorphic_default_ink`] reads against the
+/// ground the glyphs actually land on.
+///
+/// **The bug this fixes** (operator screenshot, 2026-09-02): the neumorphic
+/// answer was missing from that test — the sentinel was only dropped when a
+/// theme token existed. Liquid Glass OWNS the neumorphic glass styles and
+/// publishes no text token, so under Neumorphic Light the sentinel survived and
+/// was painted literally: white captions on a near-white soft-UI face, on every
+/// control the developer had not recoloured. `neumorphic_default_ink` was
+/// already correct and simply never reached.
+///
+/// A colour the developer actually picked still wins in every case (R9).
+pub(crate) fn resolve_label_ink(
+    ctx: &egui::Context,
+    ctrl: &Control,
+    is_neumorphic: bool,
+    fill: Color32,
+    default_text: Color32,
+) -> Color32 {
+    let theme_text = theme_token(ctx, crate::surface_theme::ColorToken::Text);
+    // Only claim the sentinel when there is a better answer to replace it with.
+    // Under Classic/Enhanced glass with no theme token there is none — a dark
+    // glass form genuinely wants white text — so the sentinel stands.
+    let sentinel_has_an_answer = theme_text.is_some() || is_neumorphic;
+    let ink = ctrl
+        .get_prop("ForegroundColor")
+        .filter(|v| {
+            !(sentinel_has_an_answer
+                && v.as_str()
+                    .trim()
+                    .eq_ignore_ascii_case(crate::model::DEFAULT_FOREGROUND_COLOR))
+        })
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or_else(|| {
+            if is_neumorphic {
+                neumorphic_default_ink(ctx, ctrl, fill)
+            } else if let Some(c) = theme_text {
+                c
+            } else {
+                default_text
+            }
+        });
+
+    // ── Legibility safety net ────────────────────────────────────────────────
+    //
+    // When the developer has NOT chosen a background, the THEME paints the
+    // surface — and then the ink and the surface are not a pair anyone chose
+    // together. A foreground left behind by a previous style lands on a face it
+    // was never meant for: Elegance repaints an input's background (because
+    // `#F0F0F0` is the recognised background sentinel) while a `#000000`
+    // stamped earlier by Neumorphic is honoured literally, because black is not
+    // the FOREGROUND sentinel. Black on Elegance's dark field, unreadable
+    // (operator screenshot, 2026-09-02).
+    //
+    // Deliberately narrow. It never touches a pairing the developer designed:
+    // if they chose the background, their ink stands whatever its contrast,
+    // because that is a decision and not an accident.
+    if user_background_color(ctrl).is_none() {
+        if let Some(surface) = theme_token(ctx, crate::surface_theme::ColorToken::InputBg)
+            .or_else(|| theme_token(ctx, crate::surface_theme::ColorToken::Card))
+        {
+            if contrast_ratio(ink, surface) < 4.5 {
+                return crate::map_tiles::readable_ink(surface);
+            }
+        }
+    }
+    ink
+}
+
 fn neumorphic_default_ink(ctx: &egui::Context, ctrl: &Control, fill: Color32) -> Color32 {
     // A Label with no background of its own paints nothing behind its text.
     // Everything else in this register paints `fill`.
@@ -12909,6 +13016,255 @@ mod theme_render_tests {
         // Unticked stays unticked, whatever the register.
         map.set_prop("ShadowEnabled", crate::model::PropValue::Bool(false));
         assert!(drop_shadow_spec(&map, false).is_none());
+    }
+
+    /// The DateTimePicker's calendar was unusable under Neumorphic Light
+    /// (operator screenshot, 2026-09-02): a hardcoded navy panel dropped into a
+    /// light form, with dates on it that were barely legible.
+    ///
+    /// The dates were the real defect, and neither of the two hardcoded
+    /// constants in that block was responsible for them: the day cells are
+    /// `egui::Button`s, so their text came from the AMBIENT visuals. Under a
+    /// light IDE palette that is roughly `#3C3C3C` on the navy ground — a
+    /// measured **1.42:1**, which is what the screenshot shows.
+    ///
+    /// The popup now takes its control's themed ground and inks every glyph
+    /// against it, so no combination of theme and palette can produce that
+    /// again.
+    #[test]
+    fn the_calendar_popup_is_legible_on_every_ground_it_can_take() {
+        let picker = Control::new("D", crate::model::ControlType::DateTimePicker, 0, 0);
+
+        for style in [
+            crate::model::GlassStyle::Classic,
+            crate::model::GlassStyle::Enhanced,
+            crate::model::GlassStyle::Neumorphic,
+            crate::model::GlassStyle::NeumorphicDark,
+        ] {
+            let ctx = egui::Context::default();
+            set_glass_style(&ctx, style);
+            let ground = popup_surface(&ctx, &picker);
+            let ink = crate::map_tiles::readable_ink(ground);
+            let muted = muted_ink(ground, ink);
+
+            // The day numbers and the month title.
+            assert!(
+                contrast_ratio(ink, ground) >= 4.5,
+                "{style:?}: date ink {ink:?} fails AA on {ground:?} ({:.2}:1)",
+                contrast_ratio(ink, ground)
+            );
+            // The weekday headers and the two nav arrows, which are quieter on
+            // purpose but must still be readable.
+            assert!(
+                contrast_ratio(muted, ground) >= 4.5,
+                "{style:?}: muted ink {muted:?} fails AA on {ground:?} ({:.2}:1)",
+                contrast_ratio(muted, ground)
+            );
+        }
+    }
+
+    /// The other half: a light form must not get a dark box dropped into it.
+    /// Under the neumorphic register the popup takes the register's own
+    /// surface, and a colour the developer chose beats both.
+    #[test]
+    fn the_calendar_ground_follows_the_theme_and_the_developer() {
+        let mut picker = Control::new("D", crate::model::ControlType::DateTimePicker, 0, 0);
+
+        let ctx = egui::Context::default();
+        set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+        let light = popup_surface(&ctx, &picker);
+        assert!(
+            relative_luminance(light) > 0.5,
+            "Neumorphic Light must not open a dark calendar: got {light:?}"
+        );
+        assert_eq!(light, parse_color(crate::model::NEUMORPHIC_SURFACE_COLOR));
+
+        set_glass_style(&ctx, crate::model::GlassStyle::NeumorphicDark);
+        let dark = popup_surface(&ctx, &picker);
+        assert!(relative_luminance(dark) < 0.5, "dark register, dark calendar");
+
+        // Classic glass keeps the navy every existing form has always shown.
+        let classic = egui::Context::default();
+        set_glass_style(&classic, crate::model::GlassStyle::Classic);
+        assert_eq!(
+            popup_surface(&classic, &picker),
+            Color32::from_rgb(28, 34, 60),
+            "Classic must be untouched by this repair"
+        );
+
+        // And the developer's own choice wins under every register.
+        picker.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String("#204030".into()),
+        );
+        assert_eq!(
+            popup_surface(&ctx, &picker),
+            Color32::from_rgb(32, 64, 48),
+            "an explicitly chosen background must survive"
+        );
+    }
+
+    /// Neumorphic Light painted every untouched caption WHITE on its own
+    /// near-white face — the operator's screenshot of four unreadable buttons
+    /// and an Event log label, 2026-09-02.
+    ///
+    /// The cause was not the ink function, which was already correct: it was
+    /// the sentinel test in front of it. `#FFFFFF` means "the developer has not
+    /// chosen", and it was only resolved away when the THEME published a text
+    /// token. Liquid Glass owns the neumorphic styles and publishes none, so
+    /// the sentinel survived and was taken as a request for white.
+    #[test]
+    fn a_seeded_caption_is_readable_under_the_neumorphic_register() {
+        let ctx = egui::Context::default();
+        let face = Color32::from_rgb(232, 237, 254); // the register's own
+        let light_form = Color32::from_rgb(240, 240, 240);
+        set_form_backdrop(&ctx, light_form);
+
+        // Exactly what the designer seeds: the white sentinel, untouched.
+        for kind in [
+            crate::model::ControlType::Button,
+            crate::model::ControlType::Label,
+            crate::model::ControlType::DateTimePicker,
+            crate::model::ControlType::TextBox,
+            crate::model::ControlType::CheckBox,
+        ] {
+            let mut c = Control::new("C", kind.clone(), 0, 0);
+            c.set_prop(
+                "ForegroundColor",
+                crate::model::PropValue::String(
+                    crate::model::DEFAULT_FOREGROUND_COLOR.into(),
+                ),
+            );
+            assert_eq!(
+                c.get_prop("ForegroundColor").map(|v| v.as_str().to_owned()),
+                Some("#FFFFFF".to_owned()),
+                "the fixture must carry the seed, or it proves nothing"
+            );
+
+            let ink = resolve_label_ink(&ctx, &c, true, face, Color32::WHITE);
+            let ground = if matches!(kind, crate::model::ControlType::Label) {
+                light_form // frameless: its glyphs land on the form
+            } else {
+                face
+            };
+            assert!(
+                contrast_ratio(ink, ground) >= 4.5,
+                "{kind:?}: seeded caption {ink:?} fails WCAG AA on {ground:?} \
+                 ({:.2}:1) — this is the unreadable screenshot",
+                contrast_ratio(ink, ground)
+            );
+        }
+    }
+
+    /// Elegance rendered an input's value BLACK on its own dark field
+    /// (operator screenshot, 2026-09-02).
+    ///
+    /// Not a colour bug: a leftover. The controls carried `#000000` stamped by
+    /// a previous Neumorphic style. Elegance replaced their BACKGROUND — because
+    /// `#F0F0F0` is the recognised background sentinel — but not their
+    /// foreground, because black is not the FOREGROUND sentinel. The theme
+    /// painted a dark field under ink chosen for a light one.
+    #[test]
+    fn a_theme_painted_surface_never_gets_an_illegible_ink() {
+        use crate::surface_theme::{ColorToken, SurfaceTheme};
+        use std::sync::Arc;
+
+        /// A theme with Elegance's shape: a dark input well and white text.
+        #[derive(Debug)]
+        struct DarkInputTheme;
+        impl SurfaceTheme for DarkInputTheme {
+            fn id(&self) -> &str {
+                "dark-input-test"
+            }
+            fn token(&self, tok: ColorToken) -> Option<Color32> {
+                Some(match tok {
+                    ColorToken::InputBg => Color32::from_rgb(0x1A, 0x22, 0x38),
+                    _ => Color32::WHITE,
+                })
+            }
+        }
+        let ctx = egui::Context::default();
+        set_surface_theme(&ctx, Arc::new(DarkInputTheme));
+        let dark_field = Color32::from_rgb(0x1A, 0x22, 0x38);
+
+        // The exact leftover pair from the operator's form.
+        let mut stale = Control::new("N", crate::model::ControlType::NumericUpDown, 0, 0);
+        stale.set_prop(
+            "ForegroundColor",
+            crate::model::PropValue::String("#000000".into()),
+        );
+        stale.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String(crate::model::DEFAULT_BACKGROUND_COLOR.into()),
+        );
+        let ink = resolve_label_ink(&ctx, &stale, false, Color32::WHITE, Color32::BLACK);
+        assert!(
+            contrast_ratio(ink, dark_field) >= 4.5,
+            "ink {ink:?} on the theme's field {dark_field:?} is only {:.2}:1",
+            contrast_ratio(ink, dark_field)
+        );
+
+        // The narrowness that makes it safe: a developer who chose the
+        // BACKGROUND chose the pairing, and their ink stands whatever its
+        // contrast. Overriding that would be the debugger deciding it knows
+        // better than the person who designed the form.
+        let mut designed = Control::new("N", crate::model::ControlType::NumericUpDown, 0, 0);
+        designed.set_prop(
+            "ForegroundColor",
+            crate::model::PropValue::String("#000000".into()),
+        );
+        designed.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String("#101010".into()),
+        );
+        assert_eq!(
+            resolve_label_ink(&ctx, &designed, false, Color32::WHITE, Color32::BLACK),
+            Color32::BLACK,
+            "a chosen pair is the developer's to get wrong"
+        );
+    }
+
+    /// The other half of the rule: a colour the developer actually PICKED is
+    /// never second-guessed, even when it is a poor one. Only the sentinel is
+    /// claimed.
+    #[test]
+    fn a_chosen_foreground_still_wins_under_every_register() {
+        let ctx = egui::Context::default();
+        set_form_backdrop(&ctx, Color32::from_rgb(240, 240, 240));
+        let chosen = Color32::from_rgb(200, 30, 90);
+        let mut c = Control::new("B", crate::model::ControlType::Button, 0, 0);
+        c.set_prop(
+            "ForegroundColor",
+            crate::model::PropValue::String("#C81E5A".into()),
+        );
+        for neumorphic in [true, false] {
+            assert_eq!(
+                resolve_label_ink(&ctx, &c, neumorphic, Color32::WHITE, Color32::BLACK),
+                chosen,
+                "the developer's own colour must survive (neumorphic={neumorphic})"
+            );
+        }
+    }
+
+    /// The regression guard on the OTHER side: a dark Classic/Enhanced glass
+    /// form publishes no text token and genuinely wants the white sentinel.
+    /// Claiming it there would flip every caption on every existing form.
+    #[test]
+    fn classic_glass_keeps_the_white_sentinel() {
+        let ctx = egui::Context::default();
+        set_form_backdrop(&ctx, Color32::from_rgb(26, 31, 53));
+        let mut c = Control::new("B", crate::model::ControlType::Button, 0, 0);
+        c.set_prop(
+            "ForegroundColor",
+            crate::model::PropValue::String(
+                crate::model::DEFAULT_FOREGROUND_COLOR.into(),
+            ),
+        );
+        assert_eq!(
+            resolve_label_ink(&ctx, &c, false, Color32::from_rgb(40, 46, 70), Color32::BLACK),
+            Color32::WHITE,
+            "no theme token and no neumorphic register ⇒ the sentinel stands"
+        );
     }
 
     /// Switching a dark form from Elegance to an asset-pack theme with the

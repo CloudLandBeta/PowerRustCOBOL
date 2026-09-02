@@ -1441,8 +1441,47 @@ pub struct Interpreter {
     /// code, when "only my code" is on. Shared with the IDE so the toggle takes
     /// effect mid-session. `None` (or `user_only` false) = stop anywhere.
     debug_user_scope: Option<crate::debugger::DebugUserScope>,
-    /// When `true`, pause before the very next statement (StepOver mode).
-    debug_stepping: bool,
+    /// What the debugger asked the interpreter to do between safepoints.
+    /// `Run` while free-running; the stepping variants each decide differently
+    /// which safepoint counts as "the next one" (see [`StepMode`]).
+    ///
+    /// [`StepMode`]: crate::debug_session::StepMode
+    debug_step: crate::debug_session::StepMode,
+    /// The logical depth the current step was issued from. Only Run-to-Cursor
+    /// reads it, to notice that its target frame has returned.
+    debug_step_origin_depth: usize,
+    /// The logical COBOL call stack — PERFORM ranges, CALLs and event handlers.
+    /// Maintained only while a session is attached; empty otherwise, so a
+    /// program running without a debugger pays nothing for it.
+    debug_frames: Vec<crate::debug_session::DebugFrame>,
+    /// Outstanding `variablesReference` handles, cleared at every stop so a
+    /// handle can never outlive the frame it points into.
+    debug_var_refs: crate::debug_session::VarRefTable,
+    /// Conditions, hit counts, logpoints and temporaries, by line.
+    debug_bp_specs: Option<crate::debugger::BreakpointSpecs>,
+    /// Enabled exception filters, by id (`runtimeError`, `fileStatus`, …).
+    debug_exception_filters: std::collections::HashSet<String>,
+    /// A condition that matched a filter, waiting for the next safepoint.
+    ///
+    /// Stopping mid-verb would leave a file half-open and the developer inside
+    /// a statement they cannot step out of; the safepoint at the next statement
+    /// boundary is the honest place to stop.
+    debug_pending_exception: Option<(String, String)>,
+    /// The I/O verb currently executing, for the File I/O channel.
+    debug_io_verb: Option<&'static str>,
+    /// Data items to stop on when they CHANGE, by canonical storage key, with
+    /// the value each was last seen holding.
+    ///
+    /// Compared at the safepoint rather than hooked into every write. The
+    /// environment is written from hundreds of places — every MOVE, arithmetic
+    /// receiver, INSPECT, STRING, READ and group operation — and a hook in each
+    /// is a hook that will be missed. One comparison per watched item per
+    /// statement catches all of them, costs nothing when the list is empty, and
+    /// reports the change at a boundary the developer can actually stand on.
+    debug_data_watch: std::collections::HashMap<String, String>,
+    /// How many times each breakpoint's line has been REACHED — counted before
+    /// any condition is applied, which is what DAP's hit condition means.
+    debug_hits: std::collections::HashMap<u32, u64>,
     /// Name of the paragraph currently being executed (for Paused events).
     current_paragraph: String,
 
@@ -1733,7 +1772,16 @@ impl Interpreter {
             debug_event_tx: None,
             breakpoints: None,
             debug_user_scope: None,
-            debug_stepping: false,
+            debug_step: crate::debug_session::StepMode::Run,
+            debug_step_origin_depth: 0,
+            debug_frames: Vec::new(),
+            debug_var_refs: crate::debug_session::VarRefTable::new(),
+            debug_bp_specs: None,
+            debug_exception_filters: std::collections::HashSet::new(),
+            debug_pending_exception: None,
+            debug_io_verb: None,
+            debug_data_watch: std::collections::HashMap::new(),
+            debug_hits: std::collections::HashMap::new(),
             current_paragraph: String::new(),
             file_specs,
             active_file_status: HashMap::new(),
@@ -2883,7 +2931,83 @@ impl Interpreter {
         self.debug_cmd_rx = Some(debug_cmd_rx);
         self.debug_event_tx = Some(debug_event_tx);
         self.breakpoints = Some(breakpoints);
-        self.debug_stepping = true; // start paused at line 1
+        // Start paused at the first statement: Into stops at the very next
+        // safepoint, whatever its depth.
+        self.debug_step = crate::debug_session::StepMode::Into;
+        self.debug_step_origin_depth = 0;
+        self.debug_frames = vec![crate::debug_session::DebugFrame::new(
+            crate::debug_session::FrameKind::Program,
+            self.program.identification.program_id.clone(),
+            String::new(),
+        )];
+    }
+
+    /// The logical COBOL depth: 0 in the program body, one more per out-of-line
+    /// PERFORM, CALL or event handler entered.
+    fn debug_depth(&self) -> usize {
+        self.debug_frames.len().saturating_sub(1)
+    }
+
+    /// Push a logical frame. A no-op without a session, so the hot path of an
+    /// undebugged program is untouched.
+    fn debug_push_frame(
+        &mut self,
+        kind: crate::debug_session::FrameKind,
+        paragraph: impl Into<String>,
+    ) -> bool {
+        if self.debug_event_tx.is_none() {
+            return false;
+        }
+        let program = self.program.identification.program_id.clone();
+        self.debug_frames
+            .push(crate::debug_session::DebugFrame::new(kind, program, paragraph));
+        true
+    }
+
+    /// Push a frame that crosses a program boundary — a CALL, or an event
+    /// handler. Unlike a PERFORM, the frame belongs to a *different*
+    /// PROGRAM-ID, and naming it after the caller would make the call stack
+    /// claim the callee's statements were the caller's.
+    fn debug_push_program_frame(
+        &mut self,
+        kind: crate::debug_session::FrameKind,
+        program: impl Into<String>,
+    ) -> bool {
+        if self.debug_event_tx.is_none() {
+            return false;
+        }
+        self.debug_frames.push(crate::debug_session::DebugFrame::new(
+            kind,
+            program,
+            String::new(),
+        ));
+        true
+    }
+
+    /// Pop a frame pushed by [`debug_push_frame`](Self::debug_push_frame).
+    ///
+    /// Never pops the base program frame: an unbalanced pop would make the
+    /// depth arithmetic — and every step decision resting on it — wrong for the
+    /// rest of the session.
+    fn debug_pop_frame(&mut self, pushed: bool) {
+        if pushed && self.debug_frames.len() > 1 {
+            self.debug_frames.pop();
+        }
+    }
+
+    /// The logical stack as the call-stack pane shows it: innermost first.
+    ///
+    /// Inline-loop levels are dropped. They exist to carry step depth — so that
+    /// Step Over crosses a whole `PERFORM UNTIL … END-PERFORM` — and listing
+    /// them would turn the call stack into a list of loops instead of the path
+    /// of calls that reached this statement.
+    pub fn debug_stack(&self) -> Vec<crate::debug_session::DebugFrame> {
+        self.debug_frames
+            .iter()
+            .rev()
+            .filter(|f| f.kind.is_call_frame())
+            .cloned()
+            .collect()
     }
 
     /// Attach the shared "only my code" scope.
@@ -2898,6 +3022,201 @@ impl Interpreter {
     /// stepping through a loop.
     pub fn set_debug_user_scope(&mut self, scope: crate::debugger::DebugUserScope) {
         self.debug_user_scope = Some(scope);
+    }
+
+    /// Emit a line into one of the debugger's investigation channels.
+    ///
+    /// Silent without a session, so an undebugged program pays one branch.
+    fn debug_out(&self, channel: crate::debugger::OutputChannel, text: String) {
+        if let Some(tx) = &self.debug_event_tx {
+            let _ = tx.send(crate::debugger::DebugEvent::Output { text, channel });
+        }
+    }
+
+    /// Stop when `name` changes. Seeded with its value now, so the first stop
+    /// is the first real change rather than the fact that it exists.
+    pub fn add_debug_data_watch(&mut self, name: &str) -> bool {
+        let key = self.env.canonical_name(&name.to_ascii_uppercase(), &[]);
+        let seen = self
+            .env
+            .get(&key)
+            .map(|v| v.as_display_string())
+            .or_else(|| self.env.group_value(&key));
+        match seen {
+            Some(v) => {
+                self.debug_data_watch.insert(key, v);
+                true
+            }
+            // Refused, not silently accepted: a data breakpoint on a name that
+            // does not exist would simply never fire.
+            None => false,
+        }
+    }
+
+    pub fn remove_debug_data_watch(&mut self, name: &str) {
+        let key = self.env.canonical_name(&name.to_ascii_uppercase(), &[]);
+        self.debug_data_watch.remove(&key);
+    }
+
+    /// The first watched item whose value has changed since the last check.
+    fn debug_changed_item(&mut self) -> Option<(String, String)> {
+        if self.debug_data_watch.is_empty() {
+            return None;
+        }
+        let keys: Vec<String> = self.debug_data_watch.keys().cloned().collect();
+        for key in keys {
+            let now = self
+                .env
+                .get(&key)
+                .map(|v| v.as_display_string())
+                .or_else(|| self.env.group_value(&key))
+                .unwrap_or_default();
+            let changed = self
+                .debug_data_watch
+                .get(&key)
+                .map(|was| *was != now)
+                .unwrap_or(false);
+            if changed {
+                self.debug_data_watch.insert(key.clone(), now.clone());
+                return Some((key, now));
+            }
+        }
+        None
+    }
+
+    /// Turn on the exception filters the developer ticked.
+    pub fn set_debug_exception_filters(&mut self, filters: Vec<String>) {
+        self.debug_exception_filters = filters.into_iter().collect();
+    }
+
+    /// Is a FILE STATUS an error worth stopping on?
+    ///
+    /// `00` is success and `02`/`04`/`05` are informational — a duplicate
+    /// alternate key, a length mismatch, an optional file created. Stopping on
+    /// those would fire on almost every successful WRITE. `10` is AT END, which
+    /// has its own filter because reaching the end of a file is usually the
+    /// normal way a read loop finishes.
+    fn file_status_is_error(code: &str) -> bool {
+        !matches!(code, "00" | "02" | "04" | "05" | "07" | "" )
+    }
+
+    /// Attach the shared conditional/hit-count/logpoint definitions.
+    pub fn set_debug_breakpoint_specs(&mut self, specs: crate::debugger::BreakpointSpecs) {
+        self.debug_bp_specs = Some(specs);
+    }
+
+    /// Decide what a breakpoint on `line` actually does.
+    ///
+    /// Order matters and is the DAP one: **count the hit first**, then the hit
+    /// condition, then the COBOL condition, then the logpoint. A hit counted
+    /// only when the condition passes would make `>= 5` mean "the 5th time the
+    /// condition held", which is not what it says.
+    ///
+    /// Returns `(stop, log)`. A logpoint never stops; that is the whole point
+    /// of it.
+    fn debug_breakpoint_outcome(&mut self, line: u32) -> (bool, Option<String>) {
+        let spec = match self.debug_bp_specs.as_ref() {
+            Some(m) => match m.lock() {
+                Ok(g) => match g.get(&line) {
+                    Some(s) if !s.is_plain() => s.clone(),
+                    // No spec, or nothing beyond "stop here".
+                    _ => return (true, None),
+                },
+                Err(_) => return (true, None),
+            },
+            None => return (true, None),
+        };
+
+        let hits = {
+            let c = self.debug_hits.entry(line).or_insert(0);
+            *c += 1;
+            *c
+        };
+
+        if let Some(text) = &spec.hit_condition {
+            match crate::debug_session::parse_hit_condition(text) {
+                Some(cond) if !cond.fires_at(hits) => return (false, None),
+                Some(_) => {}
+                // A malformed hit condition is reported, not obeyed: silently
+                // never firing looks exactly like a broken breakpoint.
+                None => {
+                    return (
+                        true,
+                        Some(format!("breakpoint at line {line}: {text:?} is not a hit count")),
+                    )
+                }
+            }
+        }
+
+        if let Some(src) = &spec.condition {
+            match crate::debug_eval::parse_condition(src) {
+                Ok(c) => match self.eval_condition(&c) {
+                    Ok(true) => {}
+                    Ok(false) => return (false, None),
+                    Err(e) => {
+                        return (
+                            true,
+                            Some(format!("breakpoint at line {line}: {src:?} could not be evaluated ({e})")),
+                        )
+                    }
+                },
+                Err(e) => {
+                    return (
+                        true,
+                        Some(format!("breakpoint at line {line}: {src:?} is not a condition ({e})")),
+                    )
+                }
+            }
+        }
+
+        if let Some(template) = &spec.log_message {
+            let text = self.debug_interpolate(template);
+            // A logpoint produces output and lets the program run on.
+            return (false, Some(text));
+        }
+
+        if spec.temporary {
+            if let Some(m) = self.debug_bp_specs.as_ref() {
+                if let Ok(mut g) = m.lock() {
+                    g.remove(&line);
+                }
+            }
+            if let Some(bp) = self.breakpoints.as_ref() {
+                if let Ok(mut g) = bp.lock() {
+                    g.remove(&line);
+                }
+            }
+        }
+        (true, None)
+    }
+
+    /// Replace every `{expression}` in a logpoint message with its value.
+    ///
+    /// An expression that cannot be read becomes `{expr=?}` rather than failing
+    /// the whole line — a logpoint that prints nothing because one of four
+    /// fields was out of scope is worse than one that says which.
+    fn debug_interpolate(&mut self, template: &str) -> String {
+        let mut out = String::with_capacity(template.len());
+        let mut rest = template;
+        while let Some(open) = rest.find('{') {
+            out.push_str(&rest[..open]);
+            let after = &rest[open + 1..];
+            let Some(close) = after.find('}') else {
+                out.push('{');
+                rest = after;
+                continue;
+            };
+            let expr = &after[..close];
+            match self.debug_evaluate(expr) {
+                crate::debugger::DebugAnswer::Evaluated { result, .. } => {
+                    out.push_str(result.trim())
+                }
+                _ => out.push_str(&format!("{{{expr}=?}}")),
+            }
+            rest = &after[close + 1..];
+        }
+        out.push_str(rest);
+        out
     }
 
     /// `true` when stepping is allowed to pause on `line`.
@@ -3055,6 +3374,10 @@ impl Interpreter {
     }
 
     fn run_inner(&mut self) -> Result<(), RuntimeError> {
+        self.debug_out(
+            crate::debugger::OutputChannel::Events,
+            format!("ENTER    {}", self.program.identification.program_id),
+        );
         let mut idx = 0usize;
         while idx < self.para_order.len() {
             let name = self.para_order[idx].clone();
@@ -3104,6 +3427,10 @@ impl Interpreter {
     }
 
     fn send_debug_finished(&self) {
+        self.debug_out(
+            crate::debugger::OutputChannel::Events,
+            format!("EXIT     {}", self.program.identification.program_id),
+        );
         if let Some(tx) = &self.debug_event_tx {
             let _ = tx.send(crate::debugger::DebugEvent::Finished);
         }
@@ -3202,51 +3529,192 @@ impl Interpreter {
         Ok(())
     }
 
-    /// Called before every statement when a debug session is active.
+    /// The safepoint. Called before every statement when a debug session is
+    /// attached, and the single place execution can stop.
     ///
-    /// Pauses execution (blocking on `debug_cmd_rx`) when:
-    ///   - `debug_stepping` is true (StepOver mode), OR
-    ///   - the statement's source line matches an active breakpoint.
+    /// A safepoint at every COBOL statement boundary — rather than at machine
+    /// instructions — is what makes stepping mean what a COBOL developer
+    /// expects. The runtime is a tree-walking interpreter, so its own Rust call
+    /// stack describes the *interpreter*; only the logical frame stack built
+    /// here describes the program.
     ///
-    /// While paused, sends `DebugEvent::Paused` with a full variable snapshot.
-    /// Resumes on `DebugCmd::Continue`, `DebugCmd::StepOver`, or `DebugCmd::StepIn`.
+    /// Whether to stop is [`StepMode::decide`]'s call, with two overrides:
+    /// a breakpoint stops wherever it sits, and "only my code" suppresses a
+    /// *step* stop on generated scaffolding.
+    ///
+    /// [`StepMode::decide`]: crate::debug_session::StepMode::decide
     fn debug_check(&mut self, stmt: &Stmt) -> Result<(), RuntimeError> {
-        // Short-circuit when no debug session is attached.
-        let (Some(cmd_rx), Some(ev_tx)) =
-            (self.debug_cmd_rx.as_ref(), self.debug_event_tx.as_ref())
-        else {
+        // Short-circuit when no debug session is attached — the common case,
+        // and it must cost one branch.
+        if self.debug_event_tx.is_none() {
+            return Ok(());
+        }
+        // Take the receiver rather than borrowing it: the body mutates `self`
+        // throughout (step mode, frames, edited data items), and a live borrow
+        // of a field would forbid all of it. `debug_check` is never reentrant —
+        // nothing runs COBOL while the program is stopped inside it — so the
+        // channel is always put back before anyone could look for it.
+        let Some(cmd_rx) = self.debug_cmd_rx.take() else {
             return Ok(());
         };
+        let Some(ev_tx) = self.debug_event_tx.clone() else {
+            self.debug_cmd_rx = Some(cmd_rx);
+            return Ok(());
+        };
+        let outcome = self.debug_check_inner(stmt, &cmd_rx, &ev_tx);
+        self.debug_cmd_rx = Some(cmd_rx);
+        outcome
+    }
+
+    fn debug_check_inner(
+        &mut self,
+        stmt: &Stmt,
+        cmd_rx: &mpsc::Receiver<crate::debugger::DebugCmd>,
+        ev_tx: &mpsc::Sender<crate::debugger::DebugEvent>,
+    ) -> Result<(), RuntimeError> {
+        use crate::debug_session::{StepDecision, StepMode, StopReason};
 
         let span = stmt_span(stmt);
         let line = span.map(|s| s.line).unwrap_or(0);
+        let col = span.map(|s| s.col).unwrap_or(0);
+        let depth = self.debug_depth();
 
-        // Decide whether to pause.
-        let hit_breakpoint = line > 0
-            && self
-                .breakpoints
+        // Keep the innermost frame pointing at the statement about to run, so
+        // the stack is already correct if we stop — and correct for the frame
+        // *below* the next PERFORM if we do not.
+        let para = self.current_paragraph.clone();
+        if let Some(top) = self.debug_frames.last_mut() {
+            top.line = line;
+            top.col = col;
+            top.paragraph = para;
+        }
+
+        let hit_ids: Vec<i64> = if line > 0 {
+            self.breakpoints
                 .as_ref()
-                .map(|bp| bp.lock().map(|set| set.contains(&line)).unwrap_or(false))
-                .unwrap_or(false);
+                .and_then(|bp| bp.lock().ok().map(|set| set.contains(&line)))
+                .unwrap_or(false)
+                .then(|| vec![i64::from(line)])
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let hit_breakpoint = !hit_ids.is_empty();
+
+        let decision = self
+            .debug_step
+            .decide(line, depth, self.debug_step_origin_depth);
+
+        // A breakpoint's line was reached — but a conditional, hit-count or
+        // logpoint breakpoint may still decline to stop.
+        let mut log_line: Option<String> = None;
+        let hit_breakpoint = if hit_breakpoint {
+            let (stop, log) = self.debug_breakpoint_outcome(line);
+            log_line = log;
+            stop
+        } else {
+            false
+        };
+        if let Some(text) = log_line {
+            let _ = ev_tx.send(crate::debugger::DebugEvent::Output {
+                text,
+                channel: crate::debugger::OutputChannel::Console,
+            });
+        }
+
+        // A watched data item that changed since the previous statement.
+        if let Some((name, value)) = self.debug_changed_item() {
+            self.debug_var_refs.clear();
+            let _ = ev_tx.send(crate::debugger::DebugEvent::Stopped {
+                line,
+                col,
+                paragraph: self.current_paragraph.clone(),
+                reason: StopReason::DataChanged {
+                    name: name.clone(),
+                    value: value.clone(),
+                },
+                frames: self.debug_stack(),
+            });
+            self.debug_out(
+                crate::debugger::OutputChannel::Events,
+                format!("CHANGED  {name} = {value}"),
+            );
+            // A data change stops even mid-step: it is why the developer set it.
+            self.debug_step = StepMode::Into;
+        }
+
+        // A condition that matched an enabled filter, raised by a file verb or
+        // a runtime error since the last safepoint. It outranks a step: the
+        // developer asked to be told when this happens.
+        if let Some((filter, detail)) = self.debug_pending_exception.take() {
+            self.debug_var_refs.clear();
+            let _ = ev_tx.send(crate::debugger::DebugEvent::Stopped {
+                line,
+                col,
+                paragraph: self.current_paragraph.clone(),
+                reason: StopReason::Exception {
+                    filter: filter.clone(),
+                    detail: detail.clone(),
+                },
+                frames: self.debug_stack(),
+            });
+            self.debug_out(
+                crate::debugger::OutputChannel::Problems,
+                format!("{filter}: {detail}"),
+            );
+        }
+
+        let mut reason = if hit_breakpoint {
+            Some(StopReason::Breakpoint(hit_ids))
+        } else {
+            match decision {
+                StepDecision::Stop => Some(StopReason::Step),
+                // A Run-to-Cursor whose frame returned: stop and say so rather
+                // than run to the end of the program.
+                StepDecision::TargetUnreachable => Some(StopReason::Goto),
+                StepDecision::Continue => None,
+            }
+        };
 
         // "Only my code": while STEPPING, run straight through IDE-generated
         // scaffolding — the `COBOL-EVENT-LOOP` above all — and pause only on
-        // lines the developer wrote. Stepping stays armed, so the very next user
-        // line stops; the loop is crossed, not disarmed. A breakpoint is honoured
-        // wherever it sits (see `set_debug_user_scope`).
-        if self.debug_stepping && !hit_breakpoint && !self.debug_line_in_scope(line) {
-            return Ok(());
+        // lines the developer wrote. The step stays armed, so the very next
+        // user line stops; the loop is crossed, not disarmed. A breakpoint is
+        // honoured wherever it sits (see `set_debug_user_scope`).
+        if matches!(reason, Some(StopReason::Step)) && !self.debug_line_in_scope(line) {
+            reason = None;
         }
 
-        if !self.debug_stepping && !hit_breakpoint {
-            // Check for async Pause command without blocking.
-            match cmd_rx.try_recv() {
-                Ok(crate::debugger::DebugCmd::Pause) => self.debug_stepping = true,
-                _ => return Ok(()),
+        if reason.is_none() {
+            // Free-running: look for an asynchronous Pause without blocking.
+            // A step in flight must NOT consume commands here — the next one is
+            // the answer to the stop we are about to report.
+            if self.debug_step.is_running() {
+                match cmd_rx.try_recv() {
+                    Ok(crate::debugger::DebugCmd::Pause) => {
+                        reason = Some(StopReason::Pause);
+                    }
+                    Ok(crate::debugger::DebugCmd::Terminate) => {
+                        return Err(RuntimeError::StopRun);
+                    }
+                    _ => return Ok(()),
+                }
+            } else {
+                return Ok(());
             }
         }
 
-        // Build variable snapshot.
+        let reason = reason.unwrap_or(StopReason::Step);
+
+        // Every handle issued at the last stop is now stale: the program moved,
+        // and a reference into a frame that has returned must resolve to
+        // nothing rather than to whatever now sits at that depth.
+        self.debug_var_refs.clear();
+
+        // The legacy `Paused` event still carries a flat snapshot, because the
+        // current IDE window consumes it. The DAP path asks for scopes and
+        // variables on demand instead, which is why the snapshot is built here
+        // and not inside the pause loop.
         let vars: Vec<crate::debugger::VarSnapshot> = self
             .env
             .iter()
@@ -3262,37 +3730,518 @@ impl Interpreter {
             })
             .collect();
 
+        let _ = ev_tx.send(crate::debugger::DebugEvent::Stopped {
+            line,
+            col,
+            paragraph: self.current_paragraph.clone(),
+            reason: reason.clone(),
+            frames: self.debug_stack(),
+        });
         let _ = ev_tx.send(crate::debugger::DebugEvent::Paused {
-            line: line,
-            col: span.map(|s| s.col).unwrap_or(0),
+            line,
+            col,
             paragraph: self.current_paragraph.clone(),
             vars,
         });
 
-        // Block until the IDE sends a command.
-        self.debug_stepping = false; // reset; StepOver re-enables it below
+        // Block until the IDE says what to do next.
         loop {
             match cmd_rx.recv() {
                 Ok(crate::debugger::DebugCmd::Continue) => {
-                    let _ = ev_tx.send(crate::debugger::DebugEvent::Resumed);
+                    self.debug_step = StepMode::Run;
                     break;
                 }
-                Ok(crate::debugger::DebugCmd::StepOver) | Ok(crate::debugger::DebugCmd::StepIn) => {
-                    self.debug_stepping = true; // pause again after this stmt
-                    let _ = ev_tx.send(crate::debugger::DebugEvent::Resumed);
+                Ok(crate::debugger::DebugCmd::StepOver) => {
+                    self.debug_step = StepMode::Over { depth };
                     break;
                 }
-                Ok(crate::debugger::DebugCmd::Pause) => {
-                    // Already paused; just re-send paused (no-op).
+                Ok(crate::debugger::DebugCmd::StepIn) => {
+                    self.debug_step = StepMode::Into;
+                    break;
                 }
+                Ok(crate::debugger::DebugCmd::StepOut) => {
+                    // At the outermost frame there is nothing to step out of;
+                    // the honest equivalent is to run on.
+                    self.debug_step = if depth == 0 {
+                        StepMode::Run
+                    } else {
+                        StepMode::Out { depth }
+                    };
+                    break;
+                }
+                Ok(crate::debugger::DebugCmd::RunToCursor { line: target }) => {
+                    self.debug_step = StepMode::ToCursor { line: target };
+                    break;
+                }
+                Ok(crate::debugger::DebugCmd::Terminate) => {
+                    return Err(RuntimeError::StopRun);
+                }
+                // Answer and STAY STOPPED. Opening a group, then a table,
+                // then an 88-level must not advance the program between
+                // clicks — which is exactly what would happen if a query
+                // broke out of this loop like a step does.
+                Ok(crate::debugger::DebugCmd::Query { id, query }) => {
+                    let answer = self.debug_answer(query);
+                    let _ = ev_tx.send(crate::debugger::DebugEvent::Answer { id, answer });
+                }
+                // Already stopped. A Pause arriving now is the developer having
+                // clicked before the stop landed; there is nothing to do.
+                Ok(crate::debugger::DebugCmd::Pause) => {}
                 Err(_) => {
-                    // Channel dropped — IDE closed. Stop the program.
+                    // Channel dropped — the IDE closed. Stop the program.
                     return Err(RuntimeError::StopRun);
                 }
             }
         }
-
+        self.debug_step_origin_depth = depth;
+        let _ = ev_tx.send(crate::debugger::DebugEvent::Resumed);
         Ok(())
+    }
+
+    // ── The query service (spec: lazy, on-demand inspection) ─────────────────
+
+    /// Answer one [`DebugQuery`]. Called only while stopped.
+    ///
+    /// [`DebugQuery`]: crate::debugger::DebugQuery
+    fn debug_answer(&mut self, query: crate::debugger::DebugQuery) -> crate::debugger::DebugAnswer {
+        use crate::debug_session::VarRef;
+        use crate::debugger::{DebugAnswer, DebugQuery};
+
+        match query {
+            DebugQuery::Scopes { frame } => DebugAnswer::Scopes(self.debug_scopes(frame)),
+            DebugQuery::Variables { reference } => match self.debug_var_refs.get(reference).cloned()
+            {
+                Some(r) => DebugAnswer::Variables(self.debug_rows(&r)),
+                // A handle from a previous stop. Saying so beats resolving it
+                // against whatever now sits at that depth.
+                None => DebugAnswer::Error(
+                    "that expansion is from an earlier stop — reopen the row".into(),
+                ),
+            },
+            DebugQuery::SetVariable {
+                reference,
+                name,
+                value,
+            } => {
+                let Some(r) = self.debug_var_refs.get(reference).cloned() else {
+                    return DebugAnswer::Error("that row is from an earlier stop".into());
+                };
+                match self.debug_set_variable(&r, &name, &value) {
+                    Ok(v) => DebugAnswer::Set { value: v },
+                    Err(e) => DebugAnswer::Error(e),
+                }
+            }
+            DebugQuery::Evaluate { expression, .. } => self.debug_evaluate(&expression),
+        }
+    }
+
+    /// The scopes of a frame, in the order a COBOL developer reads a program.
+    ///
+    /// Only scopes that actually hold something are returned — an empty
+    /// LINKAGE SECTION is a row that never opens.
+    fn debug_scopes(&mut self, frame: usize) -> Vec<crate::debugger::ScopeInfo> {
+        use crate::debug_session::{ScopeKind, VarRef};
+        let frame = frame as i64;
+        let mut out = Vec::new();
+        for kind in ScopeKind::ORDER {
+            let n = self.debug_scope_keys(kind).len() as u32;
+            if n == 0 {
+                continue;
+            }
+            let reference = self.debug_var_refs.issue(VarRef::Scope { frame, scope: kind });
+            out.push(crate::debugger::ScopeInfo {
+                kind,
+                name: kind.cobol_name().to_owned(),
+                reference,
+                count: n,
+                expensive: kind.is_expensive(),
+            });
+        }
+        out
+    }
+
+    /// The TOP-LEVEL storage keys of one scope.
+    ///
+    /// Top-level means "no ancestor group" (`quals` empty) — subordinate items
+    /// arrive by expanding their parent, not as siblings of it. Subscripted
+    /// slots are excluded too: `WS-ROW(3)` is an occurrence of `WS-ROW`, and it
+    /// belongs under the table, not beside it.
+    fn debug_scope_keys(&self, kind: crate::debug_session::ScopeKind) -> Vec<String> {
+        use crate::debug_session::ScopeKind;
+        use crate::environment::ItemScope;
+
+        let want = match kind {
+            ScopeKind::WorkingStorage => Some(ItemScope::WorkingStorage),
+            ScopeKind::LocalStorage => Some(ItemScope::LocalStorage),
+            ScopeKind::Linkage => Some(ItemScope::Linkage),
+            ScopeKind::FileSection => Some(ItemScope::FileDescription),
+            ScopeKind::ScreenState => Some(ItemScope::Screen),
+            // Not a DATA DIVISION section: the run-unit registers.
+            ScopeKind::SpecialRegisters => None,
+            // A frame's USING parameters are LINKAGE items; until the frame
+            // model records which ones, listing them twice would be worse than
+            // not listing them at all.
+            ScopeKind::Arguments => return Vec::new(),
+        };
+
+        if want.is_none() {
+            return SPECIAL_REGISTERS
+                .iter()
+                .filter(|r| self.env.raw_get(r).is_some())
+                .map(|r| (*r).to_owned())
+                .collect();
+        }
+
+        let mut keys: Vec<String> = self
+            .env
+            .symbol_entries()
+            .into_iter()
+            .filter(|(k, sym)| {
+                sym.scope == want
+                    && sym.quals.is_empty()
+                    && !k.contains('(')
+                    && !SPECIAL_REGISTERS.contains(&k.as_str())
+            })
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
+    /// The rows under one handle.
+    fn debug_rows(&mut self, r: &crate::debug_session::VarRef) -> Vec<crate::debugger::VarInfo> {
+        use crate::debug_session::VarRef;
+        match r {
+            VarRef::Scope { frame, scope } => {
+                let keys = self.debug_scope_keys(*scope);
+                keys.iter().map(|k| self.debug_row(*frame, k, k)).collect()
+            }
+            VarRef::Children { frame, key } => {
+                // A table expands into its occurrences; a group into its
+                // children. A group that is ALSO a table is a table first —
+                // you pick the row before you pick the field.
+                let sym = self.env.symbol(key).cloned();
+                let occurs = sym.as_ref().map(|s| s.occurs).unwrap_or(0);
+                if occurs > 0 {
+                    return (1..=occurs)
+                        .map(|i| {
+                            let sub = format!("{key}({i})");
+                            self.debug_row(*frame, &sub, &format!("({i})"))
+                        })
+                        .collect();
+                }
+                let children = sym.map(|s| s.child_keys).unwrap_or_default();
+                children
+                    .iter()
+                    .map(|c| {
+                        let leaf = c.rsplit(" OF ").next().unwrap_or(c).to_owned();
+                        self.debug_row(*frame, c, &leaf)
+                    })
+                    .collect()
+            }
+            VarRef::Conditions { frame, key } => self
+                .env
+                .cond_name_entries()
+                .into_iter()
+                .filter(|(_, cn)| cn.parent == *key)
+                .map(|(name, cn)| {
+                    // `condition_holds` is the same predicate `IF 88-name`
+                    // uses, so the inspector can never disagree with the
+                    // program about whether a condition is true.
+                    let truth = self
+                        .env
+                        .get(&cn.parent)
+                        .map(|pv| condition_holds(&cn, pv))
+                        .unwrap_or(false);
+                    crate::debugger::VarInfo {
+                        name: name.clone(),
+                        value: if truth { "TRUE" } else { "FALSE" }.into(),
+                        category: "condition".into(),
+                        reference: 0,
+                        pic: String::new(),
+                        length: None,
+                        occurs: None,
+                        depending_on: None,
+                        redefines: None,
+                        special: None,
+                        // An 88 is not storage. `SET name TO TRUE` writes its
+                        // HOST, which is a different operation from editing a
+                        // value and is not offered here.
+                        editable: false,
+                        evaluate_name: name,
+                        changed: false,
+                    }
+                })
+                .collect(),
+            VarRef::Redefines { frame, key } => {
+                let views = self.env.redefine_link_entries();
+                views
+                    .into_iter()
+                    .filter(|(base, _)| base == key)
+                    .flat_map(|(_, items)| items)
+                    .map(|(name, _)| self.debug_row(*frame, &name, &name))
+                    .collect()
+            }
+            VarRef::FileRecord { .. } => Vec::new(),
+        }
+    }
+
+    /// Build one row: its value, its metadata, and whether it expands.
+    fn debug_row(&mut self, frame: i64, key: &str, display: &str) -> crate::debugger::VarInfo {
+        use crate::debug_session::VarRef;
+        use crate::debugger::SpecialValue;
+
+        let sym = self.env.symbol(key).cloned();
+        let occurs = sym.as_ref().map(|s| s.occurs).unwrap_or(0);
+        let pic = sym.as_ref().map(|s| s.pic.clone()).unwrap_or_default();
+        // An item with a PICTURE is ELEMENTARY, whatever hangs below it.
+        //
+        // `ItemSym::is_group` is true for `01 WS-STATUS PIC X` with 88-levels
+        // under it, because it does have subordinate entries — but `child_keys`
+        // rightly excludes 88s (they are not data items), so trusting the flag
+        // alone produced a row that claimed to expand and then opened onto
+        // nothing. A PICTURE is the thing that settles it.
+        let is_group = sym.as_ref().map(|s| s.is_group).unwrap_or(false) && pic.is_empty();
+
+        let raw = self.env.get(key).cloned();
+        let (value, category, special) = match (&raw, is_group) {
+            (_, true) => (
+                self.env.group_value(key).unwrap_or_default(),
+                "group".to_owned(),
+                None,
+            ),
+            (Some(crate::value::CobolValue::Unset), _) | (None, _) => {
+                (String::new(), "unset".to_owned(), Some(SpecialValue::Unset))
+            }
+            (Some(v), _) => {
+                let text = v.as_display_string();
+                let cat = match v {
+                    crate::value::CobolValue::Numeric(_) => "numeric",
+                    crate::value::CobolValue::Float(_) => "float",
+                    crate::value::CobolValue::String { .. } => "alphanumeric",
+                    crate::value::CobolValue::Unset => "unset",
+                };
+                (text, cat.to_owned(), None)
+            }
+        };
+        // Classify the non-values from the BYTES, not the rendered text: an
+        // empty string, all spaces, LOW-VALUES and HIGH-VALUES all render as
+        // nothing much and mean four different things.
+        let special = special.or_else(|| classify_special(self.env.display_bytes(key).as_deref()));
+
+        let has_conditions = self
+            .env
+            .cond_name_entries()
+            .iter()
+            .any(|(_, cn)| cn.parent == key);
+        let expands = occurs > 0 || is_group || has_conditions;
+        let reference = if occurs > 0 || is_group {
+            self.debug_var_refs.issue(VarRef::Children {
+                frame,
+                key: key.to_owned(),
+            })
+        } else if has_conditions {
+            self.debug_var_refs.issue(VarRef::Conditions {
+                frame,
+                key: key.to_owned(),
+            })
+        } else {
+            0
+        };
+        let _ = expands;
+
+        crate::debugger::VarInfo {
+            name: display.to_owned(),
+            value,
+            category,
+            reference,
+            pic,
+            length: Some(self.env.stored_width(key) as u32).filter(|w| *w > 0),
+            occurs: (occurs > 0).then_some(occurs as u32),
+            depending_on: sym.as_ref().and_then(|s| s.depending_on.clone()),
+            redefines: self.env.is_redefinition(key).then(|| key.to_owned()),
+            special,
+            // A group is written through its children; a table through an
+            // occurrence. Only an elementary slot takes a direct edit.
+            editable: !is_group && occurs == 0,
+            evaluate_name: key.to_owned(),
+            changed: false,
+        }
+    }
+
+    /// Write a data item while stopped, validating against its own PICTURE.
+    ///
+    /// Returns the value as it reads back afterwards — a `PIC 9(3)` given `7`
+    /// answers `007`, so the developer sees what the PROGRAM will see rather
+    /// than what they typed.
+    fn debug_set_variable(
+        &mut self,
+        r: &crate::debug_session::VarRef,
+        name: &str,
+        value: &str,
+    ) -> Result<String, String> {
+        use crate::debug_session::VarRef;
+
+        // Resolve the row back to a storage key through the same handle it was
+        // listed under, so a name can never address a different item than the
+        // one the developer clicked.
+        let key = match r {
+            VarRef::Scope { scope, .. } => self
+                .debug_scope_keys(*scope)
+                .into_iter()
+                .find(|k| k == name)
+                .ok_or_else(|| format!("{name} is not in that scope any more"))?,
+            VarRef::Children { key, .. } => {
+                let sym = self.env.symbol(key).cloned();
+                if sym.as_ref().map(|s| s.occurs).unwrap_or(0) > 0 {
+                    format!("{key}{name}")
+                } else {
+                    sym.map(|s| s.child_keys)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .find(|c| c.rsplit(" OF ").next().unwrap_or(c) == name)
+                        .ok_or_else(|| format!("{name} is not a child of {key}"))?
+                }
+            }
+            VarRef::Redefines { .. } => name.to_owned(),
+            VarRef::Conditions { .. } => {
+                return Err("an 88-level is not storage — set its host item instead".into())
+            }
+            VarRef::FileRecord { .. } => return Err("a record buffer is not editable".into()),
+        };
+
+        let Some(sym) = self.env.symbol(&key).cloned() else {
+            return Err(format!("{name} has no storage"));
+        };
+        if sym.is_group {
+            return Err("a group is written through its children".into());
+        }
+        if sym.occurs > 0 {
+            return Err("a table is written through one of its occurrences".into());
+        }
+
+        // Validate BEFORE writing: a rejected edit must leave the program
+        // exactly as it was, not half-applied.
+        let numeric = self
+            .env
+            .get(&key)
+            .map(|v| matches!(v, crate::value::CobolValue::Numeric(_) | crate::value::CobolValue::Float(_)))
+            .unwrap_or(false);
+        let trimmed = value.trim();
+        if numeric && !trimmed.is_empty() {
+            let ok = trimmed
+                .strip_prefix(['+', '-'])
+                .unwrap_or(trimmed)
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.' || c == ',');
+            if !ok {
+                return Err(format!(
+                    "{trimmed:?} is not a number — {name} is {}",
+                    if sym.pic.is_empty() { "numeric" } else { &sym.pic }
+                ));
+            }
+        }
+        let width = self.env.stored_width(&key);
+        if !numeric && width > 0 && trimmed.len() > width {
+            return Err(format!(
+                "{} characters will not fit {name}, which holds {width}",
+                trimmed.len()
+            ));
+        }
+
+        if numeric {
+            let n: f64 = trimmed
+                .replace(',', ".")
+                .parse()
+                .map_err(|_| format!("{trimmed:?} is not a number"))?;
+            self.env.set_f64(&key, n);
+        } else {
+            self.env.set_str(&key, trimmed);
+        }
+        Ok(self
+            .env
+            .get(&key)
+            .map(|v| v.as_display_string())
+            .unwrap_or_default())
+    }
+
+    /// Evaluate a COBOL expression against the stopped program. Read-only.
+    ///
+    /// Three attempts, cheapest first: a bare data item (the overwhelmingly
+    /// common case, and the only one that can name a GROUP, which is not a
+    /// value expression); then a value expression; then a condition, so a watch
+    /// may be `WS-N > 100` and answer TRUE/FALSE.
+    ///
+    /// Read-only is enforced by what is attempted, not by inspecting the text:
+    /// none of the three can assign, open a file or call a program.
+    fn debug_evaluate(&mut self, text: &str) -> crate::debugger::DebugAnswer {
+        use crate::debugger::DebugAnswer;
+
+        let src = text.trim().trim_end_matches('.');
+        if src.is_empty() {
+            return DebugAnswer::Error("nothing to evaluate".into());
+        }
+
+        // 1 — a data item by name, including a qualified or group one.
+        let key = self.env.canonical_name(&src.to_ascii_uppercase(), &[]);
+        if let Some(v) = self.env.get(&key) {
+            let pic = self.env.symbol(&key).map(|s| s.pic.clone()).unwrap_or_default();
+            return DebugAnswer::Evaluated {
+                result: v.as_display_string(),
+                pic,
+            };
+        }
+        if let Some(g) = self.env.group_value(&key) {
+            return DebugAnswer::Evaluated {
+                result: g,
+                pic: String::new(),
+            };
+        }
+
+        // A BARE NAME that step 1 could not find is an unknown item, and must
+        // say so. The expression path below would evaluate it to ZERO — the
+        // interpreter treats an unresolved identifier as 0, which is tolerable
+        // inside a running program and actively misleading in a watch: a typo
+        // would show `0` and read as a real value.
+        let bare_word = !src.is_empty()
+            && src
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if bare_word {
+            return DebugAnswer::Error(format!("{src} is not a data item in this frame"));
+        }
+
+        // 2 — a value expression: arithmetic, subscripts, reference
+        // modification, intrinsics. Parsed by the real grammar.
+        let expr_err = match crate::debug_eval::parse_expression(src) {
+            Ok(e) => match self.eval_expr(&e, Span::dummy()) {
+                Ok(v) => {
+                    return DebugAnswer::Evaluated {
+                        result: v.as_display_string(),
+                        pic: String::new(),
+                    }
+                }
+                Err(e) => Some(e.to_string()),
+            },
+            Err(e) => Some(e),
+        };
+
+        // 3 — a condition, so `WS-N > 100` and a bare 88-level both work.
+        match crate::debug_eval::parse_condition(src) {
+            Ok(c) => match self.eval_condition(&c) {
+                Ok(truth) => DebugAnswer::Evaluated {
+                    result: if truth { "TRUE" } else { "FALSE" }.into(),
+                    pic: String::new(),
+                },
+                Err(e) => DebugAnswer::Error(e.to_string()),
+            },
+            // Report the EXPRESSION failure: someone typing `WS-COUNT +` meant
+            // an expression, and "not a condition" would send them the wrong way.
+            Err(cond_err) => {
+                DebugAnswer::Error(expr_err.unwrap_or(cond_err))
+            }
+        }
     }
 
     fn debug_var_details(&self, key: &str) -> (String, String, String) {
@@ -5341,7 +6290,43 @@ impl Interpreter {
             });
         }
         self.perform_depth += 1;
+        // EVERY form of PERFORM adds one level of step depth, because
+        // `PERFORM …` is a single COBOL statement and Step Over executes a
+        // statement whole (operator ruling, 2026-09-02). What differs is
+        // whether the level is also a **call frame**:
+        //
+        // - out-of-line (`PERFORM PARA`, a section, a THRU range) transfers
+        //   control elsewhere and returns — a frame, listed in the call stack
+        //   and something Step Out can leave;
+        // - inline (`… END-PERFORM`, `UNTIL`, `VARYING`, `n TIMES`) runs
+        //   statements written right here — depth, so Step Over crosses the
+        //   whole loop and Step Into is what goes inside, but NOT a frame: a
+        //   loop is not something the developer called.
+        use crate::debug_session::FrameKind;
+        let pushed = match target {
+            PerformTarget::Paragraph(name, _) | PerformTarget::Section(name, _) => {
+                self.debug_push_frame(FrameKind::Perform, name.to_ascii_uppercase())
+            }
+            PerformTarget::QualifiedParagraph { name, .. } => {
+                self.debug_push_frame(FrameKind::Perform, name.to_ascii_uppercase())
+            }
+            PerformTarget::Thru { from, to, .. } => self.debug_push_frame(
+                FrameKind::Perform,
+                format!("{} THRU {}", from.to_ascii_uppercase(), to.to_ascii_uppercase()),
+            ),
+            PerformTarget::Inline { .. } => self.debug_push_frame(FrameKind::InlineLoop, "PERFORM"),
+            PerformTarget::Times { .. } => {
+                self.debug_push_frame(FrameKind::InlineLoop, "PERFORM TIMES")
+            }
+            PerformTarget::Until { .. } => {
+                self.debug_push_frame(FrameKind::InlineLoop, "PERFORM UNTIL")
+            }
+            PerformTarget::Varying { .. } => {
+                self.debug_push_frame(FrameKind::InlineLoop, "PERFORM VARYING")
+            }
+        };
         let result = self.exec_perform_inner(target, span);
+        self.debug_pop_frame(pushed);
         self.perform_depth -= 1;
         // Absorb GoBack inside a PERFORM (it means "return from this PERFORM").
         match result {
@@ -6502,6 +7487,23 @@ impl Interpreter {
     /// call their status items `EXTERNAL-FILE-FS` and `LINKAGE-FS`; before this
     /// looked at the running program, every operation wrote the outer one.
     fn set_file_status(&mut self, file: &str, code: &str) {
+        // Every file verb records its status through here, so one hook feeds
+        // the File I/O channel for OPEN, CLOSE, READ, WRITE, REWRITE, DELETE
+        // and START rather than seven that can each be forgotten.
+        if self.debug_event_tx.is_some() {
+            let verb = self.debug_io_verb.unwrap_or("I/O");
+            self.debug_out(
+                crate::debugger::OutputChannel::FileIo,
+                format!("{verb:<8} {file:<24} status {code}"),
+            );
+            if Self::file_status_is_error(code) {
+                let filter = if code == "10" { "atEnd" } else { "fileStatus" };
+                if self.debug_exception_filters.contains(filter) {
+                    self.debug_pending_exception =
+                        Some((filter.to_owned(), format!("{file} status {code}")));
+                }
+            }
+        }
         if let Some(field) = self
             .active_file_status
             .get(file)
@@ -6613,6 +7615,7 @@ impl Interpreter {
         registered_user: Option<&cobolt_ast::expr::Expr>,
         span: Span,
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("OPEN");
         use std::fs::OpenOptions;
         use std::io::{BufReader, BufWriter};
 
@@ -6860,6 +7863,7 @@ impl Interpreter {
         locked: &[String],
         reel: &[String],
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("CLOSE");
         use std::io::Write as _;
         let locked: std::collections::HashSet<String> =
             locked.iter().map(|f| f.to_ascii_uppercase()).collect();
@@ -7235,6 +8239,7 @@ impl Interpreter {
         not_at_eop: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("WRITE");
         use std::io::Write as _;
         // WRITE rec FROM src ⇒ move src into the record buffer first.
         if let Some(src) = from {
@@ -7697,6 +8702,7 @@ impl Interpreter {
         not_invalid_key: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("READ");
         use crate::indexed::{status, ReadDir};
         use cobolt_ast::stmt::ReadDirection;
         use std::io::BufRead as _;
@@ -8028,6 +9034,7 @@ impl Interpreter {
         not_invalid_key: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("REWRITE");
         if let Some(src) = from {
             self.exec_move(src, std::slice::from_ref(record))?;
         }
@@ -8139,6 +9146,7 @@ impl Interpreter {
         not_invalid_key: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("DELETE");
         use crate::indexed::status;
         let file = file_name.to_ascii_uppercase();
         let Some(spec) = self.file_specs.get(&file).cloned() else {
@@ -8194,6 +9202,7 @@ impl Interpreter {
         not_invalid_key: &[Stmt],
         _span: Span,
     ) -> Result<(), RuntimeError> {
+        self.debug_io_verb = Some("START");
         use crate::indexed::status;
         let file = file_name.to_ascii_uppercase();
         let Some(spec) = self.file_specs.get(&file).cloned() else {
@@ -9049,7 +10058,16 @@ impl Interpreter {
                 // caller's, even when the file itself is shared (`IS EXTERNAL`).
                 let saved_file_status =
                     std::mem::replace(&mut self.active_file_status, callee_file_status);
+                self.debug_out(
+                    crate::debugger::OutputChannel::Events,
+                    format!("CALL     {prog_name}"),
+                );
+                let called = self.debug_push_program_frame(
+                    crate::debug_session::FrameKind::Call,
+                    prog_name.clone(),
+                );
                 let result = self.run_para_sequence(&para_bodies, &para_order);
+                self.debug_pop_frame(called);
                 self.active_file_status = saved_file_status;
                 self.para_map = saved_map;
                 self.para_order = saved_order;
@@ -13228,6 +14246,40 @@ fn find_decl<'a>(
 /// Return the source span of a statement as `Some(span)`.
 ///
 /// Delegates to `Stmt::span()` which covers every variant.
+/// The run-unit registers the inspector lists under SPECIAL REGISTERS.
+const SPECIAL_REGISTERS: &[&str] = &[
+    "RETURN-CODE",
+    "TALLY",
+    "WHEN-COMPILED",
+    "LINAGE-COUNTER",
+    "SORT-RETURN",
+    "NUMBER-OF-CALL-PARAMETERS",
+];
+
+/// Which "non-value" a byte image is, if any.
+///
+/// Read from the BYTES rather than the rendered text, because an empty string,
+/// a field of spaces, LOW-VALUES and HIGH-VALUES all display as approximately
+/// nothing while meaning four different things — telling them apart is the
+/// whole point of the column.
+fn classify_special(bytes: Option<&[u8]>) -> Option<crate::debugger::SpecialValue> {
+    use crate::debugger::SpecialValue;
+    let b = bytes?;
+    if b.is_empty() {
+        return Some(SpecialValue::EmptyString);
+    }
+    if b.iter().all(|c| *c == b' ') {
+        return Some(SpecialValue::Spaces);
+    }
+    if b.iter().all(|c| *c == 0x00) {
+        return Some(SpecialValue::LowValues);
+    }
+    if b.iter().all(|c| *c == 0xFF) {
+        return Some(SpecialValue::HighValues);
+    }
+    None
+}
+
 #[inline]
 fn stmt_span(stmt: &Stmt) -> Option<Span> {
     Some(stmt.span())

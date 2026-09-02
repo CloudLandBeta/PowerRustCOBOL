@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+[package]
+name         = "cobolt-dap"
+description  = "Wire-compatible Debug Adapter Protocol for PowerRustCOBOL — framing, types, client and adapter server"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+
+[dependencies]
+# The protocol IS JSON. Bodies we do not model stay `Value`, so an unknown
+# request survives a round trip instead of being dropped on the floor.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

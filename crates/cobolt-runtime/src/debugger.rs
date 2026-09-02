@@ -30,12 +30,121 @@ use serde::{Deserialize, Serialize};
 pub enum DebugCmd {
     /// Resume execution until the next breakpoint.
     Continue,
-    /// Execute the next statement, then pause again.
+    /// Execute the next statement, then pause again. Crosses a PERFORM of a
+    /// paragraph or section rather than entering it.
     StepOver,
-    /// Step into the next statement. Currently statement-level, matching StepOver.
+    /// Step into the next statement, entering an out-of-line PERFORM or a CALL.
     StepIn,
     /// Request the interpreter to pause at the next statement (async).
     Pause,
+    /// Run until the current PERFORM or CALL returns, then pause in the caller.
+    StepOut,
+    /// Run until a given 1-based source line, then pause. Gives up — and says
+    /// so — if the frame it was issued from returns first.
+    RunToCursor { line: u32 },
+    /// End the program. Distinct from dropping the channel, which is the IDE
+    /// going away rather than the developer asking to stop.
+    Terminate,
+    /// Ask a question while stopped.
+    ///
+    /// Answered with [`DebugEvent::Answer`] carrying the same `id`, and — unlike
+    /// every other command — it does **not** resume: the program stays exactly
+    /// where it is, so the developer can open a group, then a table, then an
+    /// 88-level without the program moving underneath them.
+    Query { id: u64, query: DebugQuery },
+}
+
+/// A question the IDE asks while the program is stopped.
+///
+/// Values are fetched on demand rather than pushed. The old `Paused` event
+/// serialised **every data item in the program** at every stop — a large
+/// message per single-step, nearly all of it rows nobody opened.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DebugQuery {
+    /// The COBOL scopes visible in a frame: WORKING-STORAGE, LINKAGE, …
+    Scopes { frame: usize },
+    /// The rows under a handle — a scope, a group's children, a table's
+    /// occurrences, an item's 88-levels, or its REDEFINES views.
+    Variables { reference: i64 },
+    /// Change a data item while stopped. Validated against the item's own
+    /// PICTURE before anything is written; a rejected edit leaves the program
+    /// exactly as it was.
+    SetVariable { reference: i64, name: String, value: String },
+    /// Evaluate a COBOL expression in a frame. Read-only.
+    Evaluate { frame: usize, expression: String },
+}
+
+/// One collapsible scope in the data inspector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScopeInfo {
+    pub kind: crate::debug_session::ScopeKind,
+    /// The COBOL section name — not translated: a COBOL developer looks for
+    /// "WORKING-STORAGE SECTION", not a rendering of it.
+    pub name: String,
+    /// Handle to pass back as [`DebugQuery::Variables`].
+    pub reference: i64,
+    /// How many rows it holds, for the header count.
+    pub count: u32,
+    pub expensive: bool,
+}
+
+/// A value that is NOT an ordinary value, kept apart so the inspector can tell
+/// seven different things apart instead of rendering them all as an empty cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpecialValue {
+    EmptyString,
+    Spaces,
+    LowValues,
+    HighValues,
+    /// A LINKAGE item with no argument, or an item never given a value.
+    Unset,
+    /// Reading it failed; the message is in the row's `value`.
+    EvaluationError,
+}
+
+/// One row of the data inspector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VarInfo {
+    /// The item's own name, unqualified — the tree supplies the path.
+    pub name: String,
+    pub value: String,
+    /// COBOL category: `group`, `alphanumeric`, `numeric`, `float`,
+    /// `condition`, `index`.
+    pub category: String,
+    /// Non-zero when the row expands. Pass back as [`DebugQuery::Variables`].
+    pub reference: i64,
+    /// Raw PICTURE, empty for a group or an index.
+    pub pic: String,
+    /// Storage width in bytes, when known.
+    pub length: Option<u32>,
+    /// This item's own OCCURS count, if it is a table.
+    pub occurs: Option<u32>,
+    /// The controlling item of an OCCURS DEPENDING ON.
+    pub depending_on: Option<String>,
+    /// The item whose bytes this one re-reads.
+    pub redefines: Option<String>,
+    pub special: Option<SpecialValue>,
+    /// May it be edited while stopped? False for a group, a table, an 88-level
+    /// and anything the runtime cannot write back.
+    pub editable: bool,
+    /// The expression that re-reads this item — its qualified name. What "add
+    /// to watches" would copy.
+    pub evaluate_name: String,
+    /// The item changed at this stop.
+    pub changed: bool,
+}
+
+/// The reply to a [`DebugQuery`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DebugAnswer {
+    Scopes(Vec<ScopeInfo>),
+    Variables(Vec<VarInfo>),
+    /// The value as it reads back AFTER the write — a `PIC 9(3)` given `7`
+    /// answers `007`, so the developer sees what the program will see.
+    Set { value: String },
+    Evaluated { result: String, pic: String },
+    /// The query failed. Carries the reason, which the UI shows verbatim.
+    Error(String),
 }
 
 /// A debug command sent to a **remote** debuggee (an `rcrun run-form --debug`
@@ -73,6 +182,23 @@ pub struct VarSnapshot {
 /// Event sent from the interpreter to the IDE.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DebugEvent {
+    /// The interpreter stopped at a safepoint.
+    ///
+    /// Carries **why** and the logical COBOL stack, and nothing else: scopes,
+    /// variables and evaluations are fetched on demand. The older `Paused`
+    /// below pushes every data item in the program with every stop, which is a
+    /// large message per single-step for rows the developer never opens.
+    Stopped {
+        /// Source line about to execute (1-based).
+        line: u32,
+        /// Source column (1-based).
+        col: u32,
+        /// The paragraph the innermost frame is in.
+        paragraph: String,
+        reason: crate::debug_session::StopReason,
+        /// The logical stack, innermost frame first.
+        frames: Vec<crate::debug_session::DebugFrame>,
+    },
     /// The interpreter has paused before executing a statement.
     Paused {
         /// Source line that is about to execute (1-based).
@@ -84,10 +210,36 @@ pub enum DebugEvent {
         /// Snapshot of all data items at the moment of pause.
         vars: Vec<VarSnapshot>,
     },
+    /// Output from the debugger itself: a logpoint, a file operation, an event.
+    /// Goes to the investigation dock rather than the program's own DISPLAY.
+    Output {
+        text: String,
+        channel: OutputChannel,
+    },
+    /// The reply to a [`DebugCmd::Query`], carrying the same `id`.
+    Answer { id: u64, answer: DebugAnswer },
     /// The interpreter resumed after a `Continue` or `StepOver`.
     Resumed,
     /// The program finished (STOP RUN / GOBACK).
     Finished,
+}
+
+/// Which tab of the investigation dock a line of debugger output belongs in.
+///
+/// Without this everything piles into one console, and the question "what did
+/// this program do to my files" becomes a grep through unrelated chatter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OutputChannel {
+    /// Debugger messages and logpoint output.
+    Console,
+    /// Form events, program entry and exit.
+    Events,
+    /// OPEN / READ / WRITE / CLOSE and their FILE STATUS.
+    FileIo,
+    /// Warnings and refusals.
+    Problems,
+    /// Ordered record of what happened, including irreversible side effects.
+    Timeline,
 }
 
 // ── Shared breakpoint set ─────────────────────────────────────────────────────
@@ -122,6 +274,45 @@ pub fn debug_session_requested() -> bool {
 }
 
 pub type Breakpoints = Arc<Mutex<HashSet<u32>>>;
+
+/// What a breakpoint does beyond "stop here".
+///
+/// Kept in a **separate** shared map rather than folded into [`Breakpoints`]:
+/// that set is the fast path consulted at every statement, and a plain
+/// breakpoint — the overwhelming majority — must not pay for a hash lookup into
+/// a richer structure to learn it has nothing extra to say.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BreakpointSpec {
+    /// A COBOL condition. The breakpoint fires only when it is true; a
+    /// condition that fails to parse or to evaluate is reported once and the
+    /// breakpoint then behaves as a plain one, because silently never stopping
+    /// is indistinguishable from a broken debugger.
+    pub condition: Option<String>,
+    /// `5`, `>= 5`, `% 3` — see the DAP hit-condition algebra.
+    pub hit_condition: Option<String>,
+    /// A logpoint: emit this, with `{expr}` interpolated, and do NOT stop.
+    pub log_message: Option<String>,
+    /// Remove the breakpoint once it has fired.
+    pub temporary: bool,
+}
+
+impl BreakpointSpec {
+    /// Does this carry anything beyond "stop here"?
+    pub fn is_plain(&self) -> bool {
+        self.condition.is_none()
+            && self.hit_condition.is_none()
+            && self.log_message.is_none()
+            && !self.temporary
+    }
+}
+
+/// Line → extra behaviour, shared with the IDE so an edit takes effect live.
+pub type BreakpointSpecs = Arc<Mutex<std::collections::HashMap<u32, BreakpointSpec>>>;
+
+/// An empty, shared spec map.
+pub fn new_breakpoint_specs() -> BreakpointSpecs {
+    Arc::new(Mutex::new(std::collections::HashMap::new()))
+}
 
 /// Create an empty, shared breakpoint set.
 pub fn new_breakpoints() -> Breakpoints {

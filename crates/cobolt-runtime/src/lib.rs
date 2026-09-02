@@ -37,6 +37,9 @@ pub mod channels;
 pub mod collation;
 pub mod compress;
 pub mod db_runtime;
+pub mod debug_eval;
+pub mod debug_session;
+pub mod debug_view;
 pub mod debugger;
 pub mod diag_path;
 pub mod environment;
@@ -65,9 +68,14 @@ pub mod value;
 
 pub use channels::{FormEvent, FormIpcMessage, StateUpdate};
 pub use db_runtime::DbRegistry;
+pub use debug_view::{render as render_value, ValueView};
+pub use debug_session::{
+    DebugFrame, FrameKind, ScopeKind, StepDecision, StepMode, StopReason, VarRef, VarRefTable,
+};
 pub use debugger::{
-    debug_session_requested, new_breakpoints, new_user_scope, Breakpoints, DebugCmd, DebugEvent,
-    DebugUserScope, RemoteDebugCmd, UserScope, VarSnapshot, DEBUG_SESSION_ENV,
+    debug_session_requested, new_breakpoint_specs, new_breakpoints, BreakpointSpec, BreakpointSpecs, OutputChannel, new_user_scope, Breakpoints, DebugAnswer, DebugCmd,
+    DebugEvent, DebugQuery, DebugUserScope, RemoteDebugCmd, ScopeInfo, SpecialValue, UserScope,
+    VarInfo, VarSnapshot, DEBUG_SESSION_ENV,
 };
 pub use environment::{new_external_store, CobolEnvironment, ExternalStore};
 pub use error::RuntimeError;

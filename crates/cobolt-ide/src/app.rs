@@ -1959,6 +1959,13 @@ impl CoboltApp {
         }
         let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
         self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
         self.debugger
             .set_source(cbl_path.display().to_string(), &source, &bp_set);
         run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
@@ -2169,6 +2176,13 @@ impl CoboltApp {
         ));
         self.editor.clear_diags();
         self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
 
         // Sync breakpoints into the interpreter's shared set and into the debug window.
         let bp_lines = self.editor.breakpoints_for(&path);
@@ -2516,6 +2530,28 @@ impl CoboltApp {
             } else if let Some(a) = action {
                 self.handle_debug_action(a);
             }
+            // Queries the inspector queued while painting. Dispatched AFTER the
+            // action above, so a step and the questions about where it landed
+            // never race: the step is sent first and the answers describe the
+            // new stop.
+            for (id, query) in self.debugger.take_queries() {
+                self.handle_debug_action(DebugAction::Query(id, query));
+            }
+            // Persist the watch list when it actually changed. Polled rather
+            // than written per frame: `cobolt.toml` is the project file, not a
+            // scratch pad, and rewriting it 60 times a second would be a
+            // remarkable way to lose it.
+            let saved = self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.ide.debug_watches.clone())
+                .unwrap_or_default();
+            if self.debugger.watches_differ_from(&saved) {
+                if let Some(proj) = self.cobolt_project.as_mut() {
+                    proj.ide.debug_watches = self.debugger.watch_expressions();
+                    self.do_save_project();
+                }
+            }
         });
     }
 
@@ -2640,6 +2676,13 @@ impl CoboltApp {
                     self.debug_external = false;
                     self.debug_owner_form = None;
                     self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
                 }
                 DebugAction::Continue => {
                     if let Some(run) = run {
@@ -2654,6 +2697,21 @@ impl CoboltApp {
                 DebugAction::StepIn => {
                     if let Some(run) = run {
                         run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepIn));
+                    }
+                }
+                DebugAction::StepOut => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepOut));
+                    }
+                }
+                DebugAction::Query(id, query) => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Query { id, query }));
+                    }
+                }
+                DebugAction::RunToCursor(line) => {
+                    if let Some(run) = run {
+                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::RunToCursor { line }));
                     }
                 }
                 DebugAction::Pause => {
@@ -2674,11 +2732,25 @@ impl CoboltApp {
                 self.debug_active = false;
                 self.debug_owner_form = None;
                 self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
                 self.editor.debug_line = None;
             }
             DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
             DebugAction::StepOver => self.debug_runner.send_cmd(DebugCmd::StepOver),
             DebugAction::StepIn => self.debug_runner.send_cmd(DebugCmd::StepIn),
+            DebugAction::StepOut => self.debug_runner.send_cmd(DebugCmd::StepOut),
+            DebugAction::Query(id, query) => {
+                self.debug_runner.send_cmd(DebugCmd::Query { id, query })
+            }
+            DebugAction::RunToCursor(line) => {
+                self.debug_runner.send_cmd(DebugCmd::RunToCursor { line })
+            }
             DebugAction::Pause => {
                 self.debugger.center_current_line_next_frame();
                 self.debug_runner.send_cmd(DebugCmd::Pause);
@@ -12291,6 +12363,13 @@ impl eframe::App for CoboltApp {
                 self.debug_active = false;
                 self.debug_owner_form = None;
                 self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
                 self.editor.debug_line = None;
             }
             if dirty {
@@ -13214,6 +13293,13 @@ impl eframe::App for CoboltApp {
                     self.debug_external = false;
                     self.debug_owner_form = None;
                     self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
                 }
             }
             if !dbg_events.is_empty() {
@@ -15590,6 +15676,13 @@ impl CoboltApp {
                             self.debug_external = false;
                             self.debug_owner_form = None;
                             self.debugger.reset();
+        // The project's saved watches, restored for this session.
+        let saved_watches = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.debug_watches.clone())
+            .unwrap_or_default();
+        self.debugger.set_watches(&saved_watches);
                         }
                     }
                     DesignerToolbarAction::Cut => {

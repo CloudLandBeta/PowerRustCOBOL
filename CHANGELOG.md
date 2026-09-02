@@ -1,5 +1,254 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.4] — 2026-09-02
+
+### The generated code gets out of the way
+
+Codegen now brackets what it writes with plain COBOL comments —
+`*> <EVENT-LOOP>` … `*> </EVENT-LOOP>`, and the same for the timer, CSV-export,
+REST-client and web-search scaffolding. The debugger folds those regions away by
+default: the generated code is assumed to work, and the developer is looking for
+the handler they wrote (operator, 2026-09-02).
+
+A comment pair rather than a side table, so the `.cbl` is self-describing —
+anything reading the file can find the boundary without also holding the
+`SourceMap`. Regions pair by **name**: an unclosed one folds nothing rather than
+swallowing the rest of the file.
+
+Where the two filters overlap, generated wins. An empty paragraph inside the
+event loop is hidden because it is generated; calling it an empty block would
+name the wrong reason. The marker says which — `⌄ EVENT-LOOP (58 lines)` against
+`⌄ 4 empty blocks hidden`.
+
+**Comments are not code.** A paragraph documented but never written is empty, and
+folds with its comment rather than leaving it orphaned above the fold.
+
+### The data inspector is a table
+
+Name · PIC / Type · Value, in aligned columns with a header, as the mockup asks.
+The PIC column is allocated on every row even when it has nothing to say — a
+column that appears only when it has content is not a column, and the Value
+column has to begin at the same x on every line. It reads `PIC 9(3)`, `Group`,
+`Condition` or `OCCURS 20 TIMES` depending on what the row is.
+
+### Data breakpoints, exception filters, and two channels that now carry traffic
+
+**Break on write.** Watch a data item and stop when it changes. Compared at the
+safepoint rather than hooked into every write: the environment is written from
+hundreds of places — every MOVE, arithmetic receiver, INSPECT, STRING, READ and
+group operation — and a hook in each is a hook that will be missed. One
+comparison per watched item per statement catches all of them and reports at a
+boundary the developer can stand on. A watch on a name that does not exist is
+refused, not accepted and then silently never fired.
+
+**Exception filters** for bad FILE STATUS and AT END, off by default — a bad
+status is common in normal COBOL and stopping on every one uninvited would make
+the debugger unusable. `00`, `02`, `04`, `05` and `07` are success or
+information and never stop.
+
+**File I/O and Events now carry traffic.** Every file verb records its status
+through one hook, so OPEN, CLOSE, READ, WRITE, REWRITE, DELETE and START all
+report without seven places to forget. Events carries program entry, exit, CALL
+and watched-item changes.
+
+**OCCURS as a table** — a hundred-element table as a hundred tree rows is a
+hundred lines of scrolling to find the wrong entry; as a grid it is one glance.
+The subscript margin is sized for the largest index so the columns do not shift
+at (10), (100), (1000).
+
+**Watches persist per project**, in `cobolt.toml`. Expressions only: a value
+belongs to a stop, and restoring one next session would present a reading from a
+program run that has ended.
+
+## [PowerRustCOBOL 1.63.3] — 2026-09-02
+
+### Watches, a console, structured viewers, and breakpoints that decide
+
+**Watches.** Add a COBOL expression, see it evaluated in the selected frame at
+every stop. The evaluator is the **real parser**: a fragment is wrapped in a
+synthetic program and read by the same grammar the compiler uses, so a watch
+accepts qualified names, subscripts, reference modification, arithmetic,
+comparisons, condition-names, `LENGTH OF` and intrinsic functions — and gains
+each new construct the day the parser does, rather than the day somebody
+remembers to reimplement it here.
+
+A watch that cannot be read marks **its own row** and leaves the others alone,
+and a watch not yet evaluated at this stop shows `…` rather than the previous
+stop's answer: a stale reading presented as a current one is worse than no
+reading.
+
+**An unknown name is an error, not zero.** The interpreter evaluates an
+unresolved identifier to 0 — tolerable inside a running program, actively
+misleading in a watch, where a typo would show `0` and read as a real value.
+A bare name that does not resolve now says so.
+
+**The investigation dock**: Debug Console, Events, File I/O, Problems and
+Timeline, each with its own count. Timeline is every channel in the order it
+happened. The console carries a prompt — the same evaluator the watches use —
+with ↑/↓ history. The dock has an explicit stored height and one grip: it never
+resizes itself.
+
+**Structured viewers.** The same bytes, read the several ways a COBOL developer
+needs them: text with whitespace made visible (`AB··`), a hex dump, numeric
+detail spelling out sign, scale and digit count, and pretty-printed JSON and XML.
+The menu offers only what a value can actually be read as. The JSON formatter
+respects strings — a brace inside a value is text, not structure — and renders
+malformed input rather than failing, because a truncated `PIC X(4096)` is
+exactly what a developer needs to see.
+
+**Breakpoints that decide.** Conditional (`WS-I = 7`), hit-count (`5`, `>= 8`,
+`% 4`), logpoints with `{expression}` interpolation, and temporaries that remove
+themselves after firing. The order is DAP's: the hit is counted **first**, then
+the hit condition, then the COBOL condition — a hit counted only when the
+condition held would make `>= 5` mean something it does not say.
+
+A logpoint never stops, and an expression it cannot read becomes `{WS-X=?}`
+rather than silencing the whole line. A condition that fails to parse or evaluate
+is **reported and the breakpoint still stops**: silently never firing is
+indistinguishable from a debugger that is broken.
+
+## [PowerRustCOBOL 1.63.2] — 2026-09-02
+
+### Data inspection, on demand
+
+The debugger's variable pane is a **tree**, and the values behind it are fetched
+only when a row is opened.
+
+The old pane was fed by a snapshot of **every data item in the program**,
+serialised into every pause event — a large message per single-step, almost all
+of it rows nobody looked at. Now the IDE asks: scopes first, then the rows under
+one handle, then the rows under one of those. A `Query` is answered **without
+resuming**, so opening a group, then a table, then an 88-level does not advance
+the program between clicks.
+
+Scopes are the COBOL sections — WORKING-STORAGE, LOCAL-STORAGE, LINKAGE, FILE,
+SCREEN STATE, SPECIAL REGISTERS — named in COBOL and listed only when they hold
+something. A group opens into its children, a table into its occurrences, and an
+item with 88-levels into its conditions, each evaluated with the same predicate
+`IF 88-name` uses so the pane can never disagree with the program.
+
+**The four non-values are told apart.** An empty string, a field of SPACES,
+LOW-VALUES and HIGH-VALUES all display as approximately nothing and mean four
+different things; each is classified from the item's bytes and rendered by name.
+
+**Editing is validated before it is applied.** Click a value while stopped, type,
+press Enter: the write is checked against the item's own PICTURE and width, and a
+refusal leaves the program untouched rather than half-changed. The value that
+comes back is what the *program* will see — a `PIC 9(3)` given `7` answers `007`.
+A group is written through its children, a table through an occurrence, and an
+88-level not at all.
+
+Handles are per-stop by construction: resuming forgets them, and a handle from an
+earlier stop is refused rather than resolved against whatever now sits at that
+depth.
+
+**An item with a PICTURE is elementary**, whatever hangs below it. `01 WS-STATUS
+PIC X` with 88-levels under it is flagged as a group by the symbol table — it does
+have subordinate entries — but its child list rightly excludes 88s, so trusting
+that flag produced a row that claimed to expand and then opened onto nothing.
+
+## [PowerRustCOBOL 1.63.1] — 2026-09-02
+
+### The debugger starts to behave like one, and Neumorphic gets its contrast back
+
+**Stepping is COBOL stepping now.** The interpreter's safepoint runs off a
+`StepMode` state machine instead of a single "am I stepping" flag, and the
+depth it reasons about is the **logical COBOL** one — the program's PERFORM and
+CALL nesting — not the interpreter's Rust call stack, which describes the
+interpreter and says nothing about the program.
+
+Every `PERFORM` adds a level of that depth, because `PERFORM … END-PERFORM` is
+one COBOL statement and Step Over executes a statement whole. What differs is
+whether the level is also a **call frame**: an out-of-line `PERFORM PARA` is
+(it appears in the call stack, and Step Out can leave it), while an inline
+`PERFORM UNTIL … END-PERFORM` is not — a loop is not something you called. So
+Step Over on a loop header runs the whole loop and lands past `END-PERFORM`,
+Step Into goes inside it, and a breakpoint in the body still stops.
+
+**Step Out**, **Run to Cursor** and **Terminate** are new commands, wired to
+both debuggees — the in-IDE interpreter thread and the external
+`rcrun run-form --debug` / built-binary process. Run to Cursor gives up and says
+so if the frame it was issued from returns first, rather than running the
+program to its end.
+
+**The call stack is a real stack.** `Stopped` carries the reason and the logical
+frames; the pane lists program · paragraph per frame, greys generated
+scaffolding, and selecting a frame is what the inspector will resolve against.
+The session strip says *why* it stopped — Breakpoint, Step, Manual pause, Data
+changed, Runtime error, Run to cursor — in all six languages.
+
+**Hide empty blocks** folds divisions, sections and paragraphs that hold no
+executable statement into one expandable marker. Purely a view filter: the
+file's own line numbers are preserved, stepping is untouched, and a run holding
+the current statement or a breakpoint is never folded.
+
+Underneath it all is **`cobolt-dap`**, a new crate speaking wire-compatible
+Debug Adapter Protocol — framing, envelope, typed bodies, client and adapter
+server. COBOL travels in extra `cobol*` fields rather than repurposed standard
+ones, so a stock DAP client sees well-formed extras instead of malformed
+standards.
+
+### Neumorphic: captions you can read
+
+Every control is seeded `ForegroundColor = #FFFFFF`, which means *the developer
+has not chosen* — not *paint it white*. That sentinel was only resolved away
+when the theme published a text colour, and Liquid Glass, which owns the
+neumorphic glass styles, publishes none. So under Neumorphic Light the sentinel
+was taken literally: **white captions on a near-white face**, on every control
+the developer had not recoloured. Measured 1.17:1 against a 4.5:1 floor; now
+17.98:1.
+
+The **DateTimePicker's calendar** was worse and differently broken. Its day
+numbers are buttons, so they took egui's *ambient* text colour — neither of the
+two hardcoded constants in that block touched them — on a popup whose ground was
+a hardcoded navy regardless of theme: 1.42:1. The popup now takes its control's
+themed ground and inks every glyph against it. Its two navigation arrows were
+double-encoded in the source and rendered as boxes; they are triangles again.
+
+**Neumorphic defaults, both registers:** corner radius 10, no border, drop
+shadow on everywhere except a Label, and a Label fully transparent with a
+high-contrast ink. A Label is frameless — its glyphs are its face — so the
+register's surface had been turning it into an opaque card.
+
+## [PowerRustCOBOL 1.63.0] — 2026-09-02
+
+### A worked example for every control in the toolbox
+
+`PowerDemo3/forms/` gains **30 new demonstration forms**, one per toolbox
+control that did not already have one, each filed in the folder its category
+belongs to: ten under `Common/`, four under `Containers/`, one under `Data/`,
+six under `Graphics/`, four under `Menus & Bars/` and five under `Non-Visual/`.
+Button, Label, TextBox, DataGrid, Maps, RestClient, Snackbar and the six chart
+types already had demos and were left alone.
+
+Every form is `form-format="Both"`, so each loads either into its own window or
+into the application shell's ContentPane, and the two looks alternate form by
+form — **Elegance**, then **Neumorphic Light**, and back.
+
+**The handlers are written in the extended dialect, not the long-hand one.**
+They prefer the inline call `Ctrl::Method(args)` over `INVOKE … USING`, write
+straight into a property (`MOVE`, `ADD`, `COMPUTE`, `STRING … INTO` all take a
+property as a receiving field), lean on `STRING`'s smart default `DELIMITED BY`
+rather than spelling it out, use the fenced ``` block literal for SQL, JSON and
+multi-line prose, take `TRUE`/`FALSE` as operands, chain with `::`
+(`Lst::Items::Count()`), and reach the value transforms (`::toUpperCase()`).
+
+**Every line that uses an extension carries a six-language comment above it** —
+English, Portuguese, Spanish, French, Japanese and Chinese, in `Language::ALL`
+order — saying which extension it is and what it buys. The COBOL itself stays
+English throughout, as it must: only the prose is translated.
+
+Each form was held to the same gate the IDE applies — generate → tokenize →
+parse → semantic analysis — plus a check that refuses any property or method the
+runtime does not actually have, so no demo names an invented member.
+
+`PowerDemo3/forms/DEMOS-TO-FIX.md` records what did **not** work, chief among it
+that `is_known_method` omits 23 methods the interpreter dispatches, so
+`Ctrl::Cancel(...)`, `Ctrl::Search(...)` and every Maps verb parse their
+parentheses as a collection subscript and the call silently does nothing. The
+shipped `restapi-form.cfrm` has had a dead Cancel button for that reason. The
+new WebSearch demo works around it with `INVOKE` and says why in a comment.
+
 ## [PowerRustCOBOL 1.62.154] — 2026-09-02
 
 ### A REST call, narrated
