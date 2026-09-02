@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.151] — 2026-09-02
+
+### A worked Charts example
+
+`PowerDemo3/forms/Charts/charts-form.cfrm` puts all six chart types on one form
+— Bar, Line, Pie, Area, Scatter and Donut — each with its own series, and ten
+buttons that drive them. The data path is the whole point and it is the same for
+every type: `Clear()` drops what the chart holds, then one
+`AddPoint(label, value)` per point, and each `AddPoint` pushes the whole series
+so the chart redraws as it fills. A chart with no data draws a representative
+sample instead, which is why the designer canvas never looks empty — the
+"Clear every chart" button shows exactly that.
+
+The other buttons exercise the switches, and deliberately show which belong to
+every chart and which to one family: `Monochrome` and `MonochromeGradient`,
+`ShowGridLines` and `ShowLegend` (independent of each other and of the axes) on
+all six; `Horizontal` on the bar alone; `Smooth` on line and area; `LabelFormat`
+and the donut's `InnerRadius` on the two round ones. Values are auto-scaled, so
+nothing sets a maximum.
+
+`charts_demo_compiles.rs` holds it to the gate the Maps and Snackbar examples
+already have: generate the program exactly as the IDE does, then lex, parse and
+analyse it — 946 lines, 0 errors — and fail if the example stops covering a
+chart type or a switch. It skips when PowerDemo3 is absent.
+
 ## [PowerRustCOBOL 1.62.150] — 2026-09-02
 
 ### A worked Snackbar example, held to the same gate as the code
