@@ -1,5 +1,93 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.62.144] — 2026-09-01
+
+### The REST Client read its own configuration for the first time
+
+A form with a `RestClient` configured exactly as the property pane invites —
+address in `BaseURL`, `AuthType` set to `APIKey`, the key in `AuthToken` — sent
+its request **to the empty string, unauthenticated** (operator, 2026-09-01).
+The handler was right. `RestClient-1::get()` with no argument is the idiomatic
+call, `onComplete` reading `ResponseBody` is the documented pattern, and both
+were correct. The runtime simply never looked at the control.
+
+Seven properties were seeded on every RestClient, editable in the properties
+pane and documented in the System Knowledge Base, while **nothing in
+`cobolt-runtime` read any of them**: `BaseURL`, `DefaultMethod`, `AuthType`,
+`AuthToken`, `DefaultHeaders`, `FollowRedirects`, `VerifyTLS`. The URL came only
+from the call argument, so an argument-less verb requested nothing at all.
+
+All seven now reach the request, in **both** the synchronous branch and
+`spawn_rest_op` — the demo that exposed this runs `Mode = Async`, which is the
+default, so a fix to the blocking path alone would have changed nothing the
+operator could see.
+
+- **`BaseURL`** resolves the address: no argument uses it as it stands, a
+  relative argument joins onto it, a leading `?` attaches a query string, and an
+  argument carrying its own scheme is used unchanged — so **every call that
+  worked before resolves to byte-identical URLs**.
+- **`AuthType`** sends `Authorization: Bearer …`, `Authorization: Basic …`
+  (base64-encoding a `user:password` token) or `X-API-Key: …`. An empty
+  `AuthToken` sends no header rather than an empty one.
+- **`DefaultHeaders`** are parsed `key: value` per line; a header set at run
+  time with `COBOL-HTTP-SET-HEADER` overrides one named there, because an
+  explicit call outranks design-time configuration.
+- **`FollowRedirects`** and **`VerifyTLS`** reach the transport, defaulting to
+  the safe answer when a value is unset or unreadable.
+- **`DefaultMethod`** is the verb `Call()` uses when given none — and `Call()`
+  now passes the verb through instead of folding everything unrecognised into a
+  GET, so `Call("PATCH", …)` finally issues a PATCH.
+- **`TimeoutSeconds`** bounds a `Sync` call too, which is what "request timeout"
+  had always claimed.
+
+A control's settings travel **with the request**, never on the shared
+`HttpClient`: that object is one per interpreter, and writing an Authorization
+header there would leak one control's credentials onto every other control's
+calls.
+
+**The audit this asked for.** Every non-visual control's properties were then
+checked against every crate that could read one. The remaining gaps are recorded
+rather than quietly fixed, in a new guard test that fails when a seeded property
+declares no reader — `SqlDatabase`'s `AutoConnect`, `MaximumConnections`,
+`ConnectionDataItem` and `ResultSetDataItem`; `AgentObject`'s `AgentAPI`,
+`AgentAPIKey`, `AgentEndpoint`, `Temperature`, `MaximumTokens`, `Stream` and
+`TargetControls`; `RestClient`'s `RequestDataItem`; `IndexedFile`'s
+`CurrentRecordDataItem`. Each is offered in the property pane and changes
+nothing; each now has to be declared as such in writing.
+
+### A documented runtime property is no longer called a hallucination
+
+`TOOLBAR-1::LastButton` is printed verbatim in the Developer's Guide, the
+runtime writes it before `onButtonClick` fires — and saving a handler that read
+it was refused with "has no property 'LastButton'" (operator, 2026-09-01).
+
+`runtime_property_names_for` returned a non-empty list for only four control
+types. Everything else got the empty slice, and that one function feeds three
+consumers at once: the Knowledge Base's per-control "Runtime Properties"
+section, the IDE agent's `property_readable`, and the designer's save-time
+handler gate. A property missing from it was therefore undocumented *and*
+rejected, in the same breath.
+
+`ToolBar`'s `LastButton` and `FileDropZone`'s `DroppedFiles`, `RejectedFiles`,
+`StagedFiles` and `CommitSummary` — all five written by the runtime, all five
+marked runtime-only in their own reference entries — are now listed. A guard
+test reads the property table itself and fails when a property documented as
+runtime-only is listed for no control, so documenting one without wiring it
+fails here rather than in a developer's handler.
+
+### Snackbar buttons acknowledge a press
+
+A notification's action buttons painted one flat well whatever the pointer did.
+The click always landed — the host has hit-tested the painter's reported rects
+since the control shipped — but nothing on screen said so, which reads as
+decoration rather than a button.
+
+The well now answers the pointer, brightening under it and deepening while the
+primary button is held, using the same `Idle`/`Hovered`/`Pressed` vocabulary the
+toolbar's buttons use. It varies the layer's *presence* rather than scaling its
+colour, because the well is translucent over whatever face the notification
+has — the toolbar's RGB lift would be all but invisible there.
+
 ## [PowerRustCOBOL 1.62.143] — 2026-09-01
 
 ### Non-visual controls no longer show their designer badge in the running form

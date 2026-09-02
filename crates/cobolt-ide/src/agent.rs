@@ -3314,5 +3314,49 @@ mod tests {
             "the report must name the operation and the reason: {discarded:?}"
         );
     }
-}
 
+    // ── The handler lint and runtime-only properties ─────────────────────────
+
+    /// A property the runtime writes and the guide tells developers to read must
+    /// not be reported as one the control does not have.
+    ///
+    /// `TOOLBAR-1::LastButton` is printed verbatim in the Developer's Guide, and
+    /// the lint rejected it (operator, 2026-09-01). `property_readable` unions
+    /// the *seeded* properties with `runtime_property_names_for`, and a
+    /// runtime-only property is by definition never seeded — so when that list
+    /// was empty for a control, every correct reference to one of its runtime
+    /// answers read as a hallucination.
+    #[test]
+    fn a_runtime_only_property_is_readable_by_a_handler() {
+        for (ct, prop) in [
+            (ControlType::ToolBar, "LastButton"),
+            (ControlType::FileDropZone, "DroppedFiles"),
+            (ControlType::FileDropZone, "RejectedFiles"),
+            (ControlType::FileDropZone, "StagedFiles"),
+            (ControlType::FileDropZone, "CommitSummary"),
+            (ControlType::Snackbar, "LastButtonId"),
+            (ControlType::RestClient, "ResponseBody"),
+            (ControlType::Maps, "SelectedMarkerId"),
+        ] {
+            assert!(
+                property_readable(&ct, prop),
+                "{ct:?}::{prop} is written by the runtime and documented, so reading \
+                 it from a handler must not be reported as a missing property"
+            );
+        }
+    }
+
+    /// The union must not become a rubber stamp: a name nothing writes is still
+    /// a mistake worth reporting.
+    #[test]
+    fn an_invented_property_is_still_rejected() {
+        assert!(
+            !property_readable(&ControlType::ToolBar, "LastBanana"),
+            "the lint must still catch a property that does not exist"
+        );
+        assert!(
+            !property_readable(&ControlType::Button, "LastButton"),
+            "LastButton belongs to ToolBar; a Button has no such property"
+        );
+    }
+}

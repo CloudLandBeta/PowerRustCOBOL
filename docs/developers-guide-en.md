@@ -3068,6 +3068,10 @@ other COBOL identifier. **icon** is any catalogue icon name (`refresh`,
 `x-mark`, `undo`, `check`), **position** is `None`, `Left` or `Right`, and
 **dismiss** decides whether clicking closes the notification (default `true`).
 
+A button answers the pointer the way the toolbar's do: its well brightens under
+the pointer and deepens while the mouse button is held, so a press is
+acknowledged on screen before the handler runs.
+
 Bind `onButtonClick` and read which one was pressed:
 
 ```cobol
@@ -6415,6 +6419,80 @@ reference: `docs/database-runtime-en.md`.
 > ⚠️ **Caveat.** Network features reach the outside world — handle errors and
 > timeouts in COBOL, and never embed secrets (API keys, tokens) in a form you
 > intend to ship. Treat those as runtime configuration.
+
+### Configuring the REST Client
+
+The control's properties configure **every request it sends**, so a handler is
+usually a single line — the address and the credentials live in the properties
+pane, not repeated through your COBOL.
+
+- **`BaseURL`** — the address the control requests. A verb called with **no
+  argument** uses it as it stands, which is the ordinary case:
+
+  ```cobol
+           RestClient-1::get()
+  ```
+
+  A **relative** argument is joined onto it (`orders/42` becomes
+  `https://api.example.com/v1/orders/42`); an argument starting with `?`
+  attaches a query string to it; and an argument carrying its own scheme
+  (`https://...`) is used unchanged — so a handler that already passes a
+  complete URL behaves exactly as before.
+
+- **`AuthType`** and **`AuthToken`** — applied to every request:
+
+  | `AuthType` | Header sent |
+  |------------|-------------|
+  | `None`     | *(none)* |
+  | `Bearer`   | `Authorization: Bearer <AuthToken>` |
+  | `Basic`    | `Authorization: Basic <AuthToken>` — encoded for you when the token is written `user:password` |
+  | `APIKey`   | `X-API-Key: <AuthToken>` |
+
+  An **empty `AuthToken` sends no header at all** rather than an empty one, so
+  an unconfigured control fails as "unauthenticated" instead of looking like a
+  server fault. An API that wants its key under a different header name uses
+  `DefaultHeaders` for it.
+
+- **`DefaultHeaders`** — `key: value`, one per line, sent with every request. A
+  line with no colon is ignored. A header set at run time with
+  `COBOL-HTTP-SET-HEADER` **overrides** the one named here: an explicit call is
+  more specific than design-time configuration.
+
+- **`DefaultMethod`** — the verb `Call()` uses when it is given no method
+  argument. The named verbs (`get`, `post`, `put`, `delete`) always use theirs.
+
+- **`FollowRedirects`** — follow `3xx` responses (default: yes). Switched off,
+  the redirect response itself is delivered.
+
+- **`VerifyTLS`** — verify the server's certificate and host name
+  (default: yes).
+
+- **`TimeoutSeconds`** / **`TimeoutMs`** — bound the request in **both** `Sync`
+  and `Async` mode.
+
+A complete pair of handlers, with everything else configured in the designer:
+
+```cobol
+      *> Button-1 :: onClick
+           RestClient-1::get()
+
+      *> RestClient-1 :: onComplete
+           MOVE RestClient-1::ResponseBody TO TextBox-1::Text
+
+      *> RestClient-1 :: onError
+           MOVE RestClient-1::LastError TO TextBox-1::Text
+```
+
+> **Note.** `Call()` takes the verb as its first argument —
+> `RestClient-1::Call("PATCH", "orders/42", WS-BODY)` — which is how you reach
+> `PATCH` and any other verb with no named method of its own. Called with an
+> empty verb it uses `DefaultMethod`.
+
+> ⚠️ **Caveat.** Turn `VerifyTLS` off only against a development server with a
+> self-signed certificate. With verification off, nothing distinguishes the
+> real server from anything else answering at that address — never ship a form
+> that way. And keep credentials out of shipped forms (see the caveat above):
+> set `AuthToken` as runtime configuration.
 
 ### Asynchronous I/O (`Mode`, `Busy`, `TimeoutMs`, `Cancel()`)
 

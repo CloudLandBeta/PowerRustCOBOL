@@ -3994,11 +3994,11 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ResponseDataItem" => ("COBOL data-item name", "WORKING-STORAGE item that receives the response."),
 
         // ── RestClient ──
-        "BaseURL" => ("HTTP(S) URL", "Documented base address (note: inline verbs take a FULL URL argument; BaseURL is not auto-prepended)."),
-        "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "Designer default verb."),
-        "AuthType" => ("one of: `None` | `Bearer` | `Basic` | `APIKey`", "Authentication scheme."),
-        "AuthToken" => ("secret string or empty", "Token/credentials for AuthType."),
-        "DefaultHeaders" => ("`key:value` pairs, newline-separated", "Headers sent with every request."),
+        "BaseURL" => ("HTTP(S) URL", "The address the control's verbs request. A verb called with no URL argument uses it as it stands; a relative argument is joined onto it; an argument carrying its own scheme (`https://...`) is used unchanged."),
+        "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "The verb `Call()` uses when given no method argument. The named verbs (`get`, `post`, `put`, `delete`) always use their own."),
+        "AuthType" => ("one of: `None` | `Bearer` | `Basic` | `APIKey`", "Authentication scheme, applied to every request the control sends. `Bearer` sends `Authorization: Bearer <AuthToken>`; `Basic` sends `Authorization: Basic <AuthToken>`, base64-encoding the token when it is written `user:password`; `APIKey` sends `X-API-Key: <AuthToken>`. An API wanting a different header name uses `DefaultHeaders` instead."),
+        "AuthToken" => ("secret string or empty", "Token/credentials for AuthType. Empty sends no authentication header at all, rather than an empty one."),
+        "DefaultHeaders" => ("`key:value` pairs, newline-separated", "Headers sent with every request. A line with no colon is ignored. A header set at run time with `COBOL-HTTP-SET-HEADER` overrides the one named here."),
         "FollowRedirects" => (BOOL_DOMAIN, "Follows HTTP redirects."),
         "VerifyTLS" => (BOOL_DOMAIN, "Verifies TLS certificates."),
         "RequestDataItem" => ("COBOL data-item name", "Item whose content is sent as the request body."),
@@ -7976,5 +7976,90 @@ mod sdk_tests {
             .map(Path::to_path_buf)
             .unwrap();
         assert_eq!(candidates.last(), Some(&built), "build-time path must rank last");
+    }
+}
+
+#[cfg(test)]
+mod runtime_only_property_tests {
+    use cobolt_forms::model::ControlType;
+
+    /// Every property this reference documents as `runtime-only` must be listed
+    /// by `runtime_property_names_for` for some control.
+    ///
+    /// That one function feeds two consumers, and an omission breaks both. It
+    /// decides what the KB prints under a control's "Runtime Properties"
+    /// heading, and it is half of the IDE's `property_readable` — so a property
+    /// missing from it is simultaneously undocumented and rejected by the
+    /// handler lint as a hallucination. `TOOLBAR-1::LastButton` is the line the
+    /// Developer's Guide prints, and the lint called it a property the control
+    /// does not have (operator, 2026-09-01), purely because `ToolBar` mapped to
+    /// the empty slice.
+    ///
+    /// The names are read out of this file's own property table, so documenting
+    /// a new runtime-only property without wiring it fails here rather than in
+    /// a developer's handler.
+    #[test]
+    fn every_runtime_only_property_is_listed_for_some_control() {
+        // Only the property table itself: this file also *discusses* runtime-only
+        // properties in prose (including in this test), and prose is not a
+        // declaration.
+        let src = include_str!("lib.rs");
+        let table_start = src
+            .find("pub fn property_reference")
+            .expect("property_reference must exist");
+        let table = &src[table_start..];
+        let table = &table[..table.find("\n}\n").unwrap_or(table.len())];
+
+        // Entries read `"Name" => ("...runtime-only...", "...")`, some wrapped
+        // onto a second line.
+        let mut documented: Vec<&str> = Vec::new();
+        for (idx, _) in table.match_indices("runtime-only") {
+            let before = &table[..idx];
+            let arrow = match before.rfind("\" => (") {
+                Some(a) => a,
+                None => continue,
+            };
+            // The domain string must be the one this arrow opens, not a later
+            // description that happens to mention the phrase.
+            if table[arrow..idx].matches('"').count() > 3 {
+                continue;
+            }
+            let name_end = arrow + 1;
+            let name_start = match before[..name_end - 1].rfind('"') {
+                Some(q) => q + 1,
+                None => continue,
+            };
+            let name = &table[name_start..name_end - 1];
+            if !name.is_empty() && !documented.contains(&name) {
+                documented.push(name);
+            }
+        }
+
+        assert!(
+            documented.len() >= 10,
+            "the scan found only {documented:?} — the property table's shape changed \
+             and this test is no longer reading it"
+        );
+
+        let listed: Vec<String> = ControlType::ALL
+            .iter()
+            .flat_map(|ct| {
+                cobolt_forms::model::runtime_property_names_for(ct.as_str())
+                    .iter()
+                    .map(|p| (*p).to_owned())
+            })
+            .collect();
+
+        let orphans: Vec<&&str> = documented
+            .iter()
+            .filter(|name| !listed.iter().any(|l| l.eq_ignore_ascii_case(name)))
+            .collect();
+
+        assert!(
+            orphans.is_empty(),
+            "documented as runtime-only but listed for no control: {orphans:?}\n\
+             Add each to runtime_property_names_for, or the KB will not print it \
+             and the handler lint will reject a correct reference to it."
+        );
     }
 }

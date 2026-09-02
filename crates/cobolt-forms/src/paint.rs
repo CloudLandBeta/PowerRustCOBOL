@@ -16649,6 +16649,46 @@ pub struct SnackbarPaint {
     pub buttons: Vec<egui::Rect>,
 }
 
+/// Where the pointer is, so a notification's buttons can answer it.
+///
+/// A Snackbar button is painted, not a widget — there is no `egui::Response` to
+/// read a hover off, so the pointer has to be handed in the way
+/// [`crate::toolbar_paint::Interaction`] hands it to the toolbar. Without this
+/// the buttons painted one flat well forever: clicking one worked, and nothing
+/// on screen said so (operator, 2026-09-01).
+///
+/// Surfaces with no live pointer — tests, and any static face — pass
+/// [`SnackPointer::inert`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SnackPointer {
+    /// Latest pointer position, in the same screen space as the paint rect.
+    pub pos: Option<Pos2>,
+    /// Is the primary button down?
+    pub held: bool,
+}
+
+impl SnackPointer {
+    /// No pointer at all: every button idle.
+    pub fn inert() -> Self {
+        Self::default()
+    }
+
+    /// What one button rect should look like under this pointer.
+    fn state_of(&self, r: egui::Rect) -> crate::toolbar_paint::ButtonState {
+        use crate::toolbar_paint::ButtonState;
+        match self.pos {
+            Some(p) if r.contains(p) => {
+                if self.held {
+                    ButtonState::Pressed
+                } else {
+                    ButtonState::Hovered
+                }
+            }
+            _ => ButtonState::Idle,
+        }
+    }
+}
+
 /// Paint one notification (spec 055 R18–R24).
 ///
 /// **Paint order is R20's, exactly**: background colour, then background image,
@@ -16667,6 +16707,7 @@ pub fn draw_snackbar(
     v: &crate::snackbar::SnackVisual,
     bg_tex: Option<(egui::TextureId, egui::Vec2)>,
     alpha_mul: f32,
+    pointer: SnackPointer,
 ) -> SnackbarPaint {
     use crate::snackbar::{layout_content, ButtonIconPosition};
 
@@ -16889,12 +16930,24 @@ pub fn draw_snackbar(
     );
 
     // The buttons: a subtle well in the ink's own colour, then caption + icon.
+    //
+    // The well answers the pointer. It is a translucent layer over whatever the
+    // notification's face happens to be, so the toolbar's trick of scaling the
+    // fill's RGB (`toolbar_paint::lift`) would be all but invisible here —
+    // engagement is expressed by how *present* the layer is instead. The state
+    // vocabulary is still the catalogue's, so there is no third idea of what a
+    // button does under a finger.
     let mut button_rects = Vec::with_capacity(l.buttons.len());
     for (i, br) in l.buttons.iter().enumerate() {
         let r = to_egui(*br);
         button_rects.push(r);
         let Some(b) = v.buttons.get(i) else { continue };
-        let well = Color32::from_rgba_unmultiplied(ink.r(), ink.g(), ink.b(), 38);
+        let well_alpha = match pointer.state_of(r) {
+            crate::toolbar_paint::ButtonState::Idle => 38,
+            crate::toolbar_paint::ButtonState::Hovered => 64,
+            crate::toolbar_paint::ButtonState::Pressed => 96,
+        };
+        let well = Color32::from_rgba_unmultiplied(ink.r(), ink.g(), ink.b(), well_alpha);
         painter.rect_filled(r, egui::CornerRadius::same((m.button_h / 3.0) as u8), fade(well));
 
         let icon_w = if b.icon.is_empty() || matches!(b.position, ButtonIconPosition::None) {

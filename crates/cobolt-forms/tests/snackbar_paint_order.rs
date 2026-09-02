@@ -27,7 +27,7 @@ fn painted(v: &cobolt_forms::snackbar::SnackVisual, at: Rect) -> Vec<(Rect, Colo
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                draw_snackbar(ui.painter(), at, v, None, 1.0);
+                draw_snackbar(ui.painter(), at, v, None, 1.0, cobolt_forms::paint::SnackPointer::inert());
             });
     });
     full.textures_delta.clear();
@@ -55,7 +55,7 @@ fn painted_kinds(v: &cobolt_forms::snackbar::SnackVisual, at: Rect) -> Vec<(&'st
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                draw_snackbar(ui.painter(), at, v, None, 1.0);
+                draw_snackbar(ui.painter(), at, v, None, 1.0, cobolt_forms::paint::SnackPointer::inert());
             });
     });
     full.textures_delta.clear();
@@ -216,8 +216,8 @@ fn a_background_image_never_moves_the_content() {
     let mut got = Vec::new();
     let mut full = ctx.run_ui(input, |root_ui| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-            got.push(draw_snackbar(ui.painter(), AT, &plain, None, 1.0));
-            got.push(draw_snackbar(ui.painter(), AT, &imaged, None, 1.0));
+            got.push(draw_snackbar(ui.painter(), AT, &plain, None, 1.0, cobolt_forms::paint::SnackPointer::inert()));
+            got.push(draw_snackbar(ui.painter(), AT, &imaged, None, 1.0, cobolt_forms::paint::SnackPointer::inert()));
         });
     });
     full.textures_delta.clear();
@@ -246,7 +246,7 @@ fn the_painter_reports_a_rect_for_every_button_it_drew() {
     let mut out = None;
     let mut full = ctx.run_ui(input, |root_ui| {
         egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
-            out = Some(draw_snackbar(ui.painter(), AT, &v, None, 1.0));
+            out = Some(draw_snackbar(ui.painter(), AT, &v, None, 1.0, cobolt_forms::paint::SnackPointer::inert()));
         });
     });
     full.textures_delta.clear();

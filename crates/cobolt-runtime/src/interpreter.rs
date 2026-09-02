@@ -72,6 +72,23 @@ enum LoopStep {
 /// alone is not enough: the IDE always sets the var (to `0` when the diagnostic
 /// is off) and re-syncs it while the form runs, so the value is read on every
 /// call rather than cached.
+/// Does this string carry its own URL scheme (`https://...`)?
+///
+/// The test that decides whether a `RestClient` call argument is a complete
+/// address or a path to resolve against the control's `BaseURL`.
+fn url_has_scheme(s: &str) -> bool {
+    match s.find("://") {
+        Some(i) if i > 0 => {
+            let scheme = &s[..i];
+            scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        }
+        _ => false,
+    }
+}
+
 fn databind_trace_enabled() -> bool {
     std::env::var("COBOLT_DATABIND_TRACE")
         .map(|v| {
@@ -2367,13 +2384,148 @@ impl Interpreter {
         secs.saturating_mul(1000)
     }
 
+    /// The address a `RestClient` verb actually requests.
+    ///
+    /// `BaseURL` is seeded on every RestClient and was read by nothing, so the
+    /// idiomatic handler — address configured in the designer, `REST-1::get()`
+    /// with no argument — requested the empty string and could only fail. The
+    /// call argument still wins whenever it carries its own scheme, so every
+    /// call that worked before resolves to exactly the same URL:
+    ///
+    /// * no argument       -> `BaseURL`
+    /// * absolute argument -> the argument, untouched
+    /// * relative argument -> `BaseURL` + `/` + the argument
+    /// * `?...` / `#...`   -> appended to `BaseURL` directly
+    ///
+    /// With no `BaseURL` configured the argument is the URL, which is what the
+    /// runtime did for its whole life before this.
+    fn rest_url(&self, obj: &str, arg: &str) -> String {
+        let arg = arg.trim();
+        let base = self.obj_get(obj, "BaseURL");
+        let base = base.trim();
+        if arg.is_empty() {
+            return base.to_string();
+        }
+        if base.is_empty() || url_has_scheme(arg) {
+            return arg.to_string();
+        }
+        let base = base.trim_end_matches('/');
+        if arg.starts_with('?') || arg.starts_with('#') {
+            format!("{base}{arg}")
+        } else {
+            format!("{base}/{}", arg.trim_start_matches('/'))
+        }
+    }
+
+    /// A boolean control property, tolerant of every spelling one is written in
+    /// across the designer, the `.cfrm` and the runtime (`true` / `1` / `on`).
+    /// An unset or unrecognised value keeps `default` rather than reading as
+    /// false — a missing `VerifyTLS` must not silently stop verifying.
+    fn ctrl_bool(&self, obj: &str, prop: &str, default: bool) -> bool {
+        let v = self.obj_get(obj, prop);
+        let v = v.trim();
+        if v.is_empty() {
+            return default;
+        }
+        if v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on") {
+            true
+        } else if v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off") {
+            false
+        } else {
+            default
+        }
+    }
+
+    /// The transport configuration a `RestClient` control carries: its default
+    /// headers, its credentials, and its redirect / TLS policy.
+    ///
+    /// Every one of these was seeded on the control, shown in the property pane
+    /// and documented in the System KB while being read by nothing at all.
+    fn rest_config(&self, obj: &str) -> crate::http_runtime::RequestConfig {
+        let mut headers: Vec<(String, String)> = Vec::new();
+
+        // `DefaultHeaders` -- `key: value`, one per line. A line carrying no
+        // colon is not a header, so it is skipped rather than sent malformed.
+        let raw = self.obj_get(obj, "DefaultHeaders");
+        for line in raw.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((k, v)) = line.split_once(':') {
+                let (k, v) = (k.trim(), v.trim());
+                if !k.is_empty() {
+                    headers.push((k.to_string(), v.to_string()));
+                }
+            }
+        }
+
+        // `AuthType` / `AuthToken`. An empty token sends no header at all: an
+        // `Authorization: Bearer ` with nothing after it is a 401 whose cause
+        // reads like a server fault rather than an unconfigured control.
+        let token = self.obj_get(obj, "AuthToken");
+        let token = token.trim();
+        if !token.is_empty() {
+            let scheme = self.obj_get(obj, "AuthType");
+            match scheme.trim().to_ascii_uppercase().as_str() {
+                "BEARER" => headers.push(("Authorization".into(), format!("Bearer {token}"))),
+                "BASIC" => {
+                    // `user:password` is what a developer types into the
+                    // property pane; a token with no colon is already base64
+                    // and is sent as it stands.
+                    let value = if token.contains(':') {
+                        crate::http_runtime::encode_base64(token.as_bytes())
+                    } else {
+                        token.to_string()
+                    };
+                    headers.push(("Authorization".into(), format!("Basic {value}")));
+                }
+                // No header name is universal for an API key. `X-API-Key` is
+                // the common one and is what the KB documents; an API wanting
+                // another spelling sets it through `DefaultHeaders`.
+                "APIKEY" => headers.push(("X-API-Key".into(), token.to_string())),
+                _ => {}
+            }
+        }
+
+        crate::http_runtime::RequestConfig {
+            timeout_ms: 0, // set per call site: sync uses it directly, async adds a backstop
+            follow_redirects: self.ctrl_bool(obj, "FollowRedirects", true),
+            verify_tls: self.ctrl_bool(obj, "VerifyTLS", true),
+            headers,
+        }
+    }
+
+    /// One blocking `RestClient` call (`Mode = Sync`), under the control's own
+    /// address, credentials and policy. `TimeoutSeconds` is documented as the
+    /// request timeout, so it bounds this call as well as an async one.
+    fn rest_send_sync(
+        &self,
+        obj: &str,
+        verb: &str,
+        url_arg: &str,
+        body: Option<&str>,
+    ) -> (String, u16) {
+        let url = self.rest_url(obj, url_arg);
+        let mut cfg = self.rest_config(obj);
+        cfg.timeout_ms = self.rest_timeout_ms(obj);
+        self.http.send_configured(verb, &url, body, &cfg)
+    }
+
     /// Spawn a background REST operation (spec 032). Returns immediately.
     ///
     /// Rejects (no-op) if the control is already `Busy`. Otherwise bumps the
     /// control's generation, sets `Busy = 1`, records the pending op, and spawns
     /// a detached worker that performs the blocking HTTP call and posts an
     /// `AsyncOpResult` back over `async_result_tx`.
-    fn spawn_rest_op(&mut self, obj: &str, verb: &str, url: String, body: String) -> CobolValue {
+    fn spawn_rest_op(
+        &mut self,
+        obj: &str,
+        verb: &str,
+        url: String,
+        body: String,
+        cfg: crate::http_runtime::RequestConfig,
+    ) -> CobolValue {
         if self.async_pending.contains_key(obj) {
             // One in-flight op per control — ignore the second start (R6).
             return CobolValue::from_str("", 0);
@@ -2408,13 +2560,15 @@ impl Interpreter {
         } else {
             0
         };
+        let mut cfg = cfg;
+        cfg.timeout_ms = transport_timeout;
         std::thread::spawn(move || {
-            let (b, st) = match verb.as_str() {
-                "POST" => http.send_with_body_timeout("POST", &url, &body, transport_timeout),
-                "PUT" => http.send_with_body_timeout("PUT", &url, &body, transport_timeout),
-                "DELETE" => http.delete_with_timeout(&url, transport_timeout),
-                _ => http.get_with_timeout(&url, transport_timeout),
-            };
+            // Only these carry a request body; a GET or DELETE sends none, as
+            // before. The verb itself is passed through rather than folded into
+            // GET, so `Call('PATCH', ...)` finally issues a PATCH.
+            let has_body = matches!(verb.as_str(), "POST" | "PUT" | "PATCH");
+            let (b, st) =
+                http.send_configured(&verb, &url, has_body.then_some(body.as_str()), &cfg);
             // The sync convention: a transport error yields status 0 with the
             // error text as the body; a real HTTP response (incl. 4xx/5xx) keeps
             // its status. Map accordingly.
@@ -11081,9 +11235,10 @@ impl Interpreter {
             // keeps the original blocking, same-statement-result behaviour.
             "GET" => {
                 if self.rest_is_async(obj) {
-                    self.spawn_rest_op(obj, "GET", arg(0), String::new())
+                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
+                    self.spawn_rest_op(obj, "GET", url, String::new(), cfg)
                 } else {
-                    let (b, st) = self.http.get(&arg(0));
+                    let (b, st) = self.rest_send_sync(obj, "GET", &arg(0), None);
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -11091,9 +11246,10 @@ impl Interpreter {
             }
             "POST" => {
                 if self.rest_is_async(obj) {
-                    self.spawn_rest_op(obj, "POST", arg(0), arg(1))
+                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
+                    self.spawn_rest_op(obj, "POST", url, arg(1), cfg)
                 } else {
-                    let (b, st) = self.http.post(&arg(0), &arg(1));
+                    let (b, st) = self.rest_send_sync(obj, "POST", &arg(0), Some(&arg(1)));
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -11101,9 +11257,10 @@ impl Interpreter {
             }
             "PUT" => {
                 if self.rest_is_async(obj) {
-                    self.spawn_rest_op(obj, "PUT", arg(0), arg(1))
+                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
+                    self.spawn_rest_op(obj, "PUT", url, arg(1), cfg)
                 } else {
-                    let (b, st) = self.http.put(&arg(0), &arg(1));
+                    let (b, st) = self.rest_send_sync(obj, "PUT", &arg(0), Some(&arg(1)));
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -11111,9 +11268,10 @@ impl Interpreter {
             }
             "DELETE" => {
                 if self.rest_is_async(obj) {
-                    self.spawn_rest_op(obj, "DELETE", arg(0), String::new())
+                    let (url, cfg) = (self.rest_url(obj, &arg(0)), self.rest_config(obj));
+                    self.spawn_rest_op(obj, "DELETE", url, String::new(), cfg)
                 } else {
-                    let (b, st) = self.http.delete(&arg(0));
+                    let (b, st) = self.rest_send_sync(obj, "DELETE", &arg(0), None);
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -11155,7 +11313,16 @@ impl Interpreter {
                     percent_encode_query(&q),
                 );
                 if self.rest_is_async(obj) {
-                    self.spawn_rest_op(obj, "GET", url, String::new())
+                    // A signed Custom Search GET: the URL is already complete
+                    // and a WebSearch carries none of the RestClient's address
+                    // or credential properties, so it keeps the stock policy.
+                    self.spawn_rest_op(
+                        obj,
+                        "GET",
+                        url,
+                        String::new(),
+                        crate::http_runtime::RequestConfig::default(),
+                    )
                 } else {
                     let (b, st) = self.http.get(&url);
                     self.obj_set(obj, "ResponseBody", b.clone());
@@ -11288,20 +11455,24 @@ impl Interpreter {
                 none
             }
             "CALL" => {
-                let verb = arg(0).to_ascii_uppercase();
+                // An omitted verb falls back to `DefaultMethod`, which is what
+                // "Designer default verb" means and the only place it applies.
+                let mut verb = arg(0).trim().to_ascii_uppercase();
+                if verb.is_empty() {
+                    verb = self.obj_get(obj, "DefaultMethod").trim().to_ascii_uppercase();
+                }
+                if verb.is_empty() {
+                    verb = "GET".to_string();
+                }
+                let has_body = matches!(verb.as_str(), "POST" | "PUT" | "PATCH");
                 if self.rest_is_async(obj) {
-                    let (url, body) = match verb.as_str() {
-                        "POST" | "PUT" => (arg(1), arg(2)),
-                        _ => (arg(1), String::new()),
-                    };
-                    self.spawn_rest_op(obj, &verb, url, body)
+                    let body = if has_body { arg(2) } else { String::new() };
+                    let (url, cfg) = (self.rest_url(obj, &arg(1)), self.rest_config(obj));
+                    self.spawn_rest_op(obj, &verb, url, body, cfg)
                 } else {
-                    let (b, st) = match verb.as_str() {
-                        "POST" => self.http.post(&arg(1), &arg(2)),
-                        "PUT" => self.http.put(&arg(1), &arg(2)),
-                        "DELETE" => self.http.delete(&arg(1)),
-                        _ => self.http.get(&arg(1)),
-                    };
+                    let body = arg(2);
+                    let (b, st) =
+                        self.rest_send_sync(obj, &verb, &arg(1), has_body.then_some(body.as_str()));
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -14101,6 +14272,197 @@ mod tests {
     use cobolt_ast::expr::{CmpOp, Literal};
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
+
+    // ── RestClient: the control's own configuration reaches the request ──────
+    //
+    // Every one of these properties was seeded, shown in the property pane and
+    // documented, while the request path read none of them. A handler doing the
+    // idiomatic thing — address in the designer, `REST-1::get()` in the
+    // handler — asked an empty URL for an unauthenticated answer.
+
+    /// An interpreter with one RestClient carrying `props`.
+    fn rest_interp(props: &[(&str, &str)]) -> Interpreter {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. REST-CONFIG.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "Rest1".to_owned(),
+            "RestClient".to_owned(),
+            props
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect::<Vec<_>>(),
+        )]);
+        interp
+    }
+
+    /// Find one header by name, case-insensitively.
+    fn header<'a>(cfg: &'a crate::http_runtime::RequestConfig, name: &str) -> Option<&'a str> {
+        cfg.headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(name))
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn a_verb_with_no_argument_requests_the_configured_base_url() {
+        // The operator's actual handler: `RestClient-1::get()`. Before this, the
+        // URL was the empty string and the call could only fail.
+        let interp = rest_interp(&[("BaseURL", "https://api.example.com/v1")]);
+        assert_eq!(
+            interp.rest_url("Rest1", ""),
+            "https://api.example.com/v1",
+            "an argument-less verb must fall back to BaseURL"
+        );
+    }
+
+    #[test]
+    fn an_absolute_argument_still_wins_over_base_url() {
+        // The compatibility guarantee: every call that worked before this change
+        // passed a full URL, and must resolve to exactly the same address.
+        let interp = rest_interp(&[("BaseURL", "https://api.example.com")]);
+        assert_eq!(
+            interp.rest_url("Rest1", "https://other.example.org/thing"),
+            "https://other.example.org/thing"
+        );
+        assert_eq!(
+            interp.rest_url("Rest1", "http://plain.example.org/x"),
+            "http://plain.example.org/x"
+        );
+    }
+
+    #[test]
+    fn a_relative_argument_joins_onto_base_url_with_exactly_one_slash() {
+        let interp = rest_interp(&[("BaseURL", "https://api.example.com/v1/")]);
+        assert_eq!(
+            interp.rest_url("Rest1", "users/7"),
+            "https://api.example.com/v1/users/7"
+        );
+        assert_eq!(
+            interp.rest_url("Rest1", "/users/7"),
+            "https://api.example.com/v1/users/7",
+            "a leading slash on the argument must not double the separator"
+        );
+        assert_eq!(
+            interp.rest_url("Rest1", "?q=pizza"),
+            "https://api.example.com/v1?q=pizza",
+            "a query string attaches to the base rather than becoming a path"
+        );
+    }
+
+    #[test]
+    fn with_no_base_url_the_argument_is_the_url() {
+        // Exactly the behaviour the runtime had for its whole life.
+        let interp = rest_interp(&[]);
+        assert_eq!(
+            interp.rest_url("Rest1", "https://example.com/a"),
+            "https://example.com/a"
+        );
+    }
+
+    #[test]
+    fn auth_type_bearer_sends_an_authorization_header() {
+        let interp = rest_interp(&[("AuthType", "Bearer"), ("AuthToken", "abc123")]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(header(&cfg, "Authorization"), Some("Bearer abc123"));
+    }
+
+    #[test]
+    fn auth_type_api_key_sends_the_key_header() {
+        let interp = rest_interp(&[("AuthType", "APIKey"), ("AuthToken", "k-9")]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(header(&cfg, "X-API-Key"), Some("k-9"));
+    }
+
+    #[test]
+    fn auth_type_basic_base64_encodes_user_colon_password() {
+        // `user:password` is what a developer types into the property pane.
+        let interp = rest_interp(&[("AuthType", "Basic"), ("AuthToken", "aladdin:opensesame")]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(
+            header(&cfg, "Authorization"),
+            Some("Basic YWxhZGRpbjpvcGVuc2VzYW1l")
+        );
+    }
+
+    #[test]
+    fn auth_type_basic_passes_an_already_encoded_token_through() {
+        let interp = rest_interp(&[("AuthType", "Basic"), ("AuthToken", "YWxhZGRpbjpvcGVu")]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(header(&cfg, "Authorization"), Some("Basic YWxhZGRpbjpvcGVu"));
+    }
+
+    #[test]
+    fn an_empty_token_sends_no_authorization_header_at_all() {
+        // `Authorization: Bearer ` with nothing after it is a 401 that reads
+        // like a server fault instead of an unconfigured control.
+        let interp = rest_interp(&[("AuthType", "Bearer"), ("AuthToken", "   ")]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(header(&cfg, "Authorization"), None);
+    }
+
+    #[test]
+    fn auth_type_none_sends_no_authorization_header() {
+        let interp = rest_interp(&[("AuthType", "None"), ("AuthToken", "ignored")]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(header(&cfg, "Authorization"), None);
+    }
+
+    #[test]
+    fn default_headers_are_parsed_one_per_line_and_malformed_lines_skipped() {
+        let interp = rest_interp(&[(
+            "DefaultHeaders",
+            "Accept: application/json\nX-Trace:  42 \n\nnot a header\n# comment: no",
+        )]);
+        let cfg = interp.rest_config("Rest1");
+        assert_eq!(header(&cfg, "Accept"), Some("application/json"));
+        assert_eq!(header(&cfg, "X-Trace"), Some("42"), "value must be trimmed");
+        assert_eq!(
+            cfg.headers.len(),
+            2,
+            "a line with no colon is not a header, and a comment is not one either: {:?}",
+            cfg.headers
+        );
+    }
+
+    #[test]
+    fn redirect_and_tls_policy_come_off_the_control_and_default_to_safe() {
+        let unset = rest_interp(&[]).rest_config("Rest1");
+        assert!(unset.follow_redirects, "redirects are followed by default");
+        assert!(unset.verify_tls, "TLS is verified by default");
+
+        let off = rest_interp(&[("FollowRedirects", "false"), ("VerifyTLS", "false")])
+            .rest_config("Rest1");
+        assert!(!off.follow_redirects);
+        assert!(!off.verify_tls);
+
+        // The `.cfrm`, the designer and the runtime each spell a boolean their
+        // own way; all of them must reach the same policy.
+        let ones = rest_interp(&[("FollowRedirects", "0"), ("VerifyTLS", "0")]).rest_config("Rest1");
+        assert!(!ones.follow_redirects);
+        assert!(!ones.verify_tls);
+
+        // An unrecognised value must not silently stop verifying.
+        let junk = rest_interp(&[("VerifyTLS", "banana")]).rest_config("Rest1");
+        assert!(junk.verify_tls, "an unreadable value keeps the safe default");
+    }
+
+    #[test]
+    fn url_scheme_detection_separates_an_address_from_a_path() {
+        assert!(url_has_scheme("https://example.com"));
+        assert!(url_has_scheme("http://example.com"));
+        assert!(!url_has_scheme("users/7"));
+        assert!(!url_has_scheme("/users/7"));
+        assert!(!url_has_scheme("://nohost"), "a scheme needs a name");
+        assert!(!url_has_scheme("9http://x"), "a scheme starts with a letter");
+    }
 
     #[test]
     fn runtime_time_is_eight_digit_hhmmssss() {

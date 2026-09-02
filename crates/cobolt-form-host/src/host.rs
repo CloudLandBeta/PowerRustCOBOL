@@ -825,6 +825,13 @@ impl FormBody {
             .pointer_latest_pos()
             .map(|p| (p.x, p.y));
         self.snackbars.tick(now, pointer);
+        // The same pointer the pause-on-hover tick uses, in the form the painter
+        // wants: a button has no `Response` to read a hover off, so the state has
+        // to be handed to `draw_snackbar` explicitly.
+        let snack_pointer = cobolt_forms::paint::SnackPointer {
+            pos: ui.ctx().pointer_latest_pos(),
+            held: ui.input(|i| i.pointer.primary_down()),
+        };
 
         let painter = ui.painter().clone();
         let surf = cobolt_forms::model::Rect::new(
@@ -875,7 +882,14 @@ impl FormBody {
                 egui::Pos2::new(r.x as f32, r.y as f32),
                 egui::Vec2::new(r.w as f32, r.h as f32),
             );
-            let out = cobolt_forms::paint::draw_snackbar(&painter, rect, &n.visual, None, 1.0);
+            let out = cobolt_forms::paint::draw_snackbar(
+                &painter,
+                rect,
+                &n.visual,
+                None,
+                1.0,
+                snack_pointer,
+            );
             hits.push((*id, out.buttons));
         }
 

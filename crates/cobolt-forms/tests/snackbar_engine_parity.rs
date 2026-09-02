@@ -44,7 +44,7 @@ fn paint(v: &SnackVisual, at: Rect) -> Vec<(Rect, Color32)> {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
             .show_inside(root_ui, |ui| {
-                draw_snackbar(ui.painter(), at, v, None, 1.0);
+                draw_snackbar(ui.painter(), at, v, None, 1.0, cobolt_forms::paint::SnackPointer::inert());
             });
     });
     full.textures_delta.clear();

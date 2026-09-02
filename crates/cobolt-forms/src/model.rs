@@ -1291,13 +1291,27 @@ pub fn runtime_property_names_for(type_name: &str) -> &'static [&'static str] {
     // clicked there is no answer.
     //
     // Listing it here is what keeps the handler lint from calling a correct
-    // reference a hallucination — the failure `TOOLBAR-1::LastButton` still has
-    // (operator, 2026-09-01), which is tracked separately as a fix.
+    // reference a hallucination.
     const SNACKBAR: &[&str] = &["LastButtonId", "LastButtonIndex"];
+    // Which toolbar button was pressed, written before `onButtonClick` fires.
+    // `TOOLBAR-1::LastButton` is the line the Developer's Guide prints, and the
+    // handler lint rejected it as a property the control does not have
+    // (operator, 2026-09-01) for exactly one reason: this list was empty.
+    const TOOLBAR: &[&str] = &["LastButton"];
+    // What a drop delivered: what landed, what was turned away, what is staged
+    // awaiting a commit, and the human-readable summary of the staged set.
+    const FILE_DROP_ZONE: &[&str] = &[
+        "DroppedFiles",
+        "RejectedFiles",
+        "StagedFiles",
+        "CommitSummary",
+    ];
     match ControlType::from_str(type_name) {
         ControlType::Maps => MAPS,
         ControlType::RestClient | ControlType::WebSearch => ASYNC,
         ControlType::Snackbar => SNACKBAR,
+        ControlType::ToolBar => TOOLBAR,
+        ControlType::FileDropZone => FILE_DROP_ZONE,
         _ => &[],
     }
 }

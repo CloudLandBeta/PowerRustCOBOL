@@ -271,6 +271,43 @@ mod handler_member_gate_tests {
         );
     }
 
+    /// The same failure, one control along: `TOOLBAR-1::LastButton`.
+    ///
+    /// The Developer's Guide prints that line, the runtime writes the property
+    /// before `onButtonClick` fires, and the gate called it a property the
+    /// control does not have (operator, 2026-09-01). One cause, shared with the
+    /// Maps case above: `runtime_property_names_for` answered the empty slice
+    /// for `ToolBar`, so the gate only ever saw what the *designer* can set.
+    #[test]
+    fn reading_a_runtime_only_property_is_not_a_hallucinated_property() {
+        let mut form = Form::new("ToolbarDemo", "Toolbar demo", 640, 480);
+        form.controls.push(cobolt_forms::Control::new(
+            "TOOLBAR-1",
+            cobolt_forms::ControlType::ToolBar,
+            0,
+            0,
+        ));
+        form.controls.push(cobolt_forms::Control::new(
+            "FDZ-1",
+            cobolt_forms::ControlType::FileDropZone,
+            0,
+            60,
+        ));
+        let handler = concat!(
+            "           MOVE TOOLBAR-1::LastButton TO WS-BTN.\n",
+            "           MOVE FDZ-1::DroppedFiles TO WS-FILES.\n",
+            "           MOVE FDZ-1::RejectedFiles TO WS-BAD.\n",
+            "           MOVE FDZ-1::StagedFiles TO WS-STAGED.\n",
+            "           MOVE FDZ-1::CommitSummary TO WS-SUMMARY.\n",
+        );
+        let diags = validate_handler_members(&form, handler);
+        assert!(
+            diags.is_empty(),
+            "documented runtime-only reads were rejected: {:?}",
+            diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        );
+    }
+
     /// The gate still earns its keep: a property no control has is still caught,
     /// on the right line.
     #[test]
