@@ -7800,6 +7800,41 @@ fn render_interactive(
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
                 .collect();
+            // Registered BEFORE the rows — the same order the DataGrid's
+            // `grid_focus` actually uses (`datagrid-focus`, interacted ahead
+            // of its per-cell widgets), not the reverse this used to claim.
+            //
+            // egui breaks a tie between two overlapping raw `ui.interact`
+            // calls by keeping whichever was interacted LAST ("topmost").
+            // Every row's rect is a subset of this whole-control `screen`
+            // rect, so a click on ANY row was a perfect tie against this
+            // catch-all — and with this registered AFTER the row loop, IT
+            // won every single time. `resp.clicked()` on the row was always
+            // false; the click silently became nothing but a focus grab, and
+            // no row could ever be selected, checked, expanded or collapsed
+            // (operator, 2026-09-03: "can't check a node" — and then, once
+            // narrowed down, "still can't select" either — the same cause,
+            // covering every row action there is, not one of them
+            // specifically). Registering it FIRST makes each row interact
+            // AFTER it instead, so the row is what wins its own rect.
+            // Registered BEFORE the rows — the same order the DataGrid's
+            // `grid_focus` actually uses (`datagrid-focus`, interacted ahead
+            // of its per-cell widgets), not the reverse this used to claim.
+            //
+            // egui breaks a tie between two overlapping raw `ui.interact`
+            // calls by keeping whichever was interacted LAST ("topmost").
+            // Every row's rect is a subset of this whole-control `screen`
+            // rect, so a click on ANY row was a perfect tie against this
+            // catch-all — and with this registered AFTER the row loop, IT
+            // won every single time. `resp.clicked()` on the row was always
+            // false; the click silently became nothing but a focus grab, and
+            // no row could ever be selected, checked, expanded or collapsed
+            // (operator, 2026-09-03: "can't check a node" — and then, once
+            // narrowed down, "still can't select" either — the same cause,
+            // covering every row action there is, not one of them
+            // specifically). Registering it FIRST makes each row interact
+            // AFTER it instead, so the row is what wins its own rect.
+            let tree_focus = ui.interact(screen, ctrl_id.with("tv-focus"), Sense::click());
             for row in &rows {
                 // `click_and_drag`, so a DRAG anywhere on the tree scrolls it
                 // while a click still selects — egui already tells the two
@@ -7887,10 +7922,10 @@ fn render_interactive(
             }
             // ── Keyboard ─────────────────────────────────────────────────
             //
-            // Registered AFTER the rows, so a click on a row is the row's and
-            // only the leftover surface takes focus — the same order the
-            // DataGrid uses for the same reason.
-            let tree_focus = ui.interact(screen, ctrl_id.with("tv-focus"), Sense::click());
+            // `tree_focus` was interacted ABOVE, before the row loop — see
+            // the comment there. Calling `ui.interact` on the same id a
+            // second time here would register it twice in one frame (an id
+            // clash), so this reuses the `Response` already in hand.
             if tree_focus.clicked() {
                 tree_focus.request_focus();
             }
@@ -13037,6 +13072,108 @@ mod tests {
             .as_deref(),
             Some("2026-09-11 09:30"),
             "a date-and-time picker writes the day and keeps the time"
+        );
+    }
+
+    // ── TreeView: a row click must be the row's, not the focus catcher's ────
+    //
+    // No row action — select, check, expand/collapse — ever fired: a
+    // whole-control focus catcher (`tv-focus`) was interacted AFTER the
+    // per-row widgets, and egui breaks a tie between two overlapping raw
+    // `ui.interact` calls in favour of whichever was interacted LAST. Every
+    // row's rect sits inside the tree's own full rect, so a click on any row
+    // was a perfect tie the focus catcher always won — the row's own
+    // `resp.clicked()` was false on every single click, forever (operator,
+    // 2026-09-03: "can't check a node", and once narrowed down, "still can't
+    // select" — one cause, covering every row action there is).
+
+    fn checkable_tree(id: &str, items: &str) -> Control {
+        let mut c = ctrl(id, ControlType::TreeView, 20, 20, 260, 160);
+        c.set_prop("Items", crate::PropValue::String(items.to_owned()));
+        c.set_prop("CheckBoxes", crate::PropValue::Bool(true));
+        c
+    }
+
+    /// Click at `at` and return `(prop_updates, events)` from that one frame.
+    fn click_tree(control: &Control, at: Pos2) -> (Map<String, Map<String, String>>, Vec<UiEvent>) {
+        let (events, overrides) = drive(
+            std::slice::from_ref(control),
+            vec![
+                (0.00, vec![Event::PointerMoved(at)]),
+                (0.05, vec![press(at)]),
+                (0.10, vec![release(at)]),
+                (0.15, vec![]),
+            ],
+        );
+        (overrides, events)
+    }
+
+    /// A click anywhere on a row that is NOT the tick box or the disclosure
+    /// arrow selects it — `SelectedNode` and `onNodeSelect` both fire.
+    #[test]
+    fn a_row_click_selects_it() {
+        let c = checkable_tree("Trv-1", "Brazil\n  Rio de Janeiro");
+        let rows = crate::treeview::layout_at(&c, Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(260.0, 160.0)), 0.0);
+        let row = rows.iter().find(|r| r.text == "Rio de Janeiro").expect("row laid out");
+        // Well clear of the tick box and the arrow — the label area itself.
+        let at = pos2(row.label_x + 20.0, row.rect.center().y);
+
+        let (overrides, events) = click_tree(&c, at);
+        assert_eq!(
+            overrides.get("Trv-1").and_then(|p| p.get("SelectedNode")).map(String::as_str),
+            Some("Rio de Janeiro"),
+            "a plain row click must select it"
+        );
+        assert!(
+            events.iter().any(|e| e.ctrl_id == "Trv-1" && e.event == "onNodeSelect"),
+            "onNodeSelect must fire, got {events:?}"
+        );
+    }
+
+    /// A click ON the tick box checks the node — `CheckedNodes` and
+    /// `onNodeCheck` fire, and the click does NOT also select the row (the
+    /// three hit zones — arrow, box, label — never overlap).
+    #[test]
+    fn a_tick_box_click_checks_it_and_does_not_also_select() {
+        let c = checkable_tree("Trv-1", "Brazil\n  Rio de Janeiro");
+        let rows = crate::treeview::layout_at(&c, Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(260.0, 160.0)), 0.0);
+        let row = rows.iter().find(|r| r.text == "Rio de Janeiro").expect("row laid out");
+        let at = row.check.expect("CheckBoxes is on").center();
+
+        let (overrides, events) = click_tree(&c, at);
+        assert_eq!(
+            overrides.get("Trv-1").and_then(|p| p.get("CheckedNodes")).map(String::as_str),
+            Some("Rio de Janeiro"),
+            "a tick-box click must check the node"
+        );
+        assert!(
+            events.iter().any(|e| e.ctrl_id == "Trv-1" && e.event == "onNodeCheck"),
+            "onNodeCheck must fire, got {events:?}"
+        );
+        assert!(
+            overrides.get("Trv-1").and_then(|p| p.get("SelectedNode")).is_none(),
+            "a tick-box click must not also select the row"
+        );
+    }
+
+    /// A click on the disclosure arrow folds the node — `CollapsedNodes`
+    /// changes — without checking or selecting it.
+    #[test]
+    fn an_arrow_click_collapses_the_parent() {
+        let c = checkable_tree("Trv-1", "Brazil\n  Rio de Janeiro");
+        let rows = crate::treeview::layout_at(&c, Rect::from_min_size(pos2(20.0, 20.0), Vec2::new(260.0, 160.0)), 0.0);
+        let row = rows.iter().find(|r| r.text == "Brazil").expect("row laid out");
+        let at = row.expander.expect("Brazil has a child, so an arrow").center();
+
+        let (overrides, _events) = click_tree(&c, at);
+        assert_eq!(
+            overrides.get("Trv-1").and_then(|p| p.get("CollapsedNodes")).map(String::as_str),
+            Some("Brazil"),
+            "an arrow click must collapse that node"
+        );
+        assert!(
+            overrides.get("Trv-1").and_then(|p| p.get("SelectedNode")).is_none(),
+            "an arrow click must not also select the row"
         );
     }
 

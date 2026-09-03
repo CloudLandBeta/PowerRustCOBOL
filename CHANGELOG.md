@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.25] — 2026-09-03
+
+### A TreeView row has never been clickable — select, check, expand, none of it
+
+Reported first as "can't check a node"; once narrowed down, "still can't
+select" either. Same cause, and it covered every row action there is, not one
+of them specifically — clicking a TreeView row has never done anything at all.
+
+A whole-control focus catcher (`tv-focus`) was interacted **after** the
+per-row widgets. egui breaks a tie between two overlapping raw `ui.interact`
+calls in favour of whichever was interacted last — and every row's rect sits
+inside the tree's own full rect, so a click on any row was a perfect tie the
+focus catcher always won. The row's own `resp.clicked()` was false on every
+single click; the click silently became nothing but a focus grab, and
+`SelectedNode`/`CheckedNodes`/`CollapsedNodes` never moved.
+
+The comment justifying the order claimed it matched the DataGrid — it did not:
+the DataGrid's own `grid_focus` is interacted **before** its per-cell widgets,
+the opposite order, which is exactly why the DataGrid never had this bug.
+`tv-focus` now goes first too, so a row is the later, topmost widget over its
+own rect and wins the tie the way it always should have.
+
+Caught with three tests that actually drive a simulated click through a row,
+the tick box and the disclosure arrow — a gap this control never had before:
+extensive layout/paint coverage existed, but nothing exercised a real click
+through `render.rs`'s own interaction arm, which is exactly where this lived.
+Verified against the real bug by reverting the ordering and watching all three
+fail with `None` where a `SelectedNode`/`CheckedNodes`/`CollapsedNodes` update
+should have been, before restoring the fix.
+
 ## [PowerRustCOBOL 1.63.24] — 2026-09-03
 
 ### GroupBox captions are legible, and Animator's Play/Pause/Stop actually play, pause and stop
