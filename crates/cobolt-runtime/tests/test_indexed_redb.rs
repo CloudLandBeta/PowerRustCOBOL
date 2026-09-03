@@ -478,3 +478,61 @@ fn observability_log_json_format() {
         "COMMIT json wrong:\n{log}"
     );
 }
+
+// ── Drop without an explicit CLOSE ──────────────────────────────────────────
+
+/// Dropping a `RedbIndexedFile` with an open write transaction must not
+/// deadlock — the exact sequence the IDE's Indexed File Browser does with no
+/// explicit CLOSE at all: change a row, press Commit (which the module doc
+/// says "commits and begins a fresh transaction"), then dismiss the window.
+///
+/// `redb::Database::drop` starts a write transaction of its own as part of
+/// its internal cleanup, which blocks forever if this struct's own `wtx` is
+/// still open when `db` tears down — and a struct with no custom `Drop` tears
+/// its fields down in DECLARATION order, `db` before `wtx`. That froze the
+/// whole IDE, because egui/eframe's event loop and the drop both run on the
+/// single main thread (operator, 2026-09-03).
+///
+/// A regression here would hang forever, so the drop runs on its own thread
+/// and this test bounds how long it is willing to wait for it — a timeout is
+/// a clear failure, not a wedged test binary.
+#[test]
+fn dropping_after_commit_with_no_explicit_close_does_not_deadlock() {
+    let path = tmp_path("drop-after-commit");
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+    let mut f = RedbIndexedFile::new(&path, 9, primary, Vec::new());
+    assert_eq!(f.open(OpenMode::Output), status::OK);
+    assert_eq!(f.write(&rec("1", "ANA")), status::OK);
+    // Commits the write above AND opens a fresh transaction — `f` now holds
+    // one open `wtx` again, exactly as it does after the browser's Commit
+    // button, with no CLOSE ever called.
+    f.commit();
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        drop(f); // the operation under test
+        let _ = tx.send(());
+    });
+    assert!(
+        rx.recv_timeout(std::time::Duration::from_secs(5)).is_ok(),
+        "drop() did not return within 5s — the ordering deadlock is back"
+    );
+
+    // …and the fresh transaction Drop had to finalize was actually committed,
+    // not silently discarded: the record written before Commit is still there.
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+    let mut reopened = RedbIndexedFile::new(&path, 9, primary, Vec::new());
+    assert_eq!(reopened.open(OpenMode::Io), status::OK);
+    let (r, st) = reopened.read_key(b"0001");
+    assert_eq!(st, status::OK);
+    assert_eq!(r.unwrap(), rec("1", "ANA"));
+    assert_eq!(reopened.close(), status::OK);
+}

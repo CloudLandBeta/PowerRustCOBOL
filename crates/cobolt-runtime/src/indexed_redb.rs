@@ -680,6 +680,31 @@ impl RedbIndexedFile {
     }
 }
 
+/// A struct with no custom `Drop` has its fields torn down in DECLARATION
+/// order, and `db: Option<Database>` is declared before `wtx:
+/// Option<WriteTransaction>` — so a `RedbIndexedFile` dropped with a write
+/// transaction still open drops `db` first, while `wtx` is still alive.
+/// `redb::Database::drop` starts a write transaction of its own as part of its
+/// internal cleanup, which then blocks forever waiting for the slot our own
+/// un-dropped `wtx` is still holding: a true ordering deadlock, not a slow
+/// operation, and it froze the whole IDE — its only thread is the one that
+/// hung (operator, 2026-09-03: edit a row, Commit — which "commits and begins
+/// a fresh transaction", see the module doc — then close the window, and
+/// `GridSession` is simply dropped with that fresh transaction still open).
+///
+/// `close()` already gets this ordering right: it takes and commits `wtx`
+/// before clearing `db`. This makes that the unconditional path — a caller
+/// that dismisses the file without an explicit CLOSE (exactly what closing
+/// the grid browser's window does) can no longer leave `wtx` outliving `db`.
+/// Calling `close()` here is idempotent: it no-ops when `self.open` is already
+/// `None`, and once it returns, `db` and `wtx` are both `None` already, so the
+/// fields' own (now-trivial) drops that follow do nothing.
+impl Drop for RedbIndexedFile {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
+}
+
 /// Tiny abstraction so `read_meta` can share code across table flavors.
 trait ReadMeta {
     fn meta_get(&self, key: &[u8]) -> Option<Bytes>;

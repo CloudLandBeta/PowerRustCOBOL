@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.23] — 2026-09-03
+
+### `cargo test could hang forever` had a twin: closing the grid browser could freeze the whole IDE
+
+Edit a row in the Indexed File Browser on a redb-engine file, press Commit,
+then close the window: the spinning ball never stopped. Not slow — a true
+deadlock, on the IDE's only thread, confirmed with a live stack sample:
+`RedbIndexedFile::drop` → `redb::Database::drop` → `start_write_transaction` →
+blocked forever on a condition variable.
+
+`Commit` does what the redb engine's own module doc says it does — "commits
+and begins a fresh transaction" — so after clicking it, the file holds a new,
+open write transaction. The Indexed File Browser never calls `CLOSE` when its
+window is dismissed; it just drops the session. `RedbIndexedFile` had no
+custom `Drop`, so Rust tore its fields down in **declaration order** — the
+`Database` field is declared before the `WriteTransaction` field, so `Database`
+started dying while that transaction was still open. `redb`'s own internal
+cleanup tries to start a write transaction of its own as part of tearing
+itself down, and that blocks forever waiting for the slot the still-alive
+transaction is holding: A waits on B, but B only runs after A finishes.
+
+`close()` already got this ordering right — it commits the open transaction
+before clearing the database. `Drop` now does the same thing unconditionally,
+so nothing that merely drops the file (a closed window, an early return, any
+caller that never explicitly closes it) can leave a transaction outliving the
+database that owns it.
+
+Caught with a five-second-watchdog test that spawns the drop on its own thread
+so a regression fails the test suite instead of hanging it — verified against
+the actual bug by disabling the fix and watching it fail at exactly 5.12s
+before restoring it.
+
 ## [PowerRustCOBOL 1.63.22] — 2026-09-03
 
 ### The Indexed File Browser can open a redb-engine file
