@@ -104,6 +104,49 @@ const CODE_LINE_H: f32 = 15.0;
 /// A blank source line, at the same 30 % proportion.
 const CODE_BLANK_H: f32 = 1.0;
 
+/// The data items a source line names, with their current values.
+///
+/// Restrained on purpose (spec: "show restrained inline values only for
+/// relevant or recently changed data items"): only the line under the
+/// execution pointer, and at most two items. An annotation on every line turns
+/// a listing into a wall, and the whole value of the hint is that it is rare
+/// enough to notice.
+///
+/// Matched by scanning the line for COBOL words that are actually declared,
+/// rather than by parsing it: a data item is a word the environment knows, and
+/// the parse would have to be redone here for no extra certainty.
+fn inline_values(line: &str, vars: &[VarSnapshot], limit: usize) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let upper = line.to_ascii_uppercase();
+    for v in vars {
+        if out.len() >= limit {
+            break;
+        }
+        // Subscripted slots (`WS-ROW(3)`) are storage keys, not words in the
+        // text; their parent is what the line names.
+        let name = v.name.split('(').next().unwrap_or(&v.name);
+        if name.len() < 3 || out.iter().any(|(n, _)| n == name) {
+            continue;
+        }
+        let Some(at) = upper.find(name) else {
+            continue;
+        };
+        // A whole word: `WS-N` must not match inside `WS-NAME`.
+        let before_ok = at == 0
+            || !upper.as_bytes()[at - 1].is_ascii_alphanumeric() && upper.as_bytes()[at - 1] != b'-';
+        let after = at + name.len();
+        let after_ok = after >= upper.len()
+            || !upper.as_bytes()[after].is_ascii_alphanumeric() && upper.as_bytes()[after] != b'-';
+        if before_ok && after_ok {
+            let value = v.value.trim();
+            if !value.is_empty() {
+                out.push((name.to_owned(), value.to_owned()));
+            }
+        }
+    }
+    out
+}
+
 // ── DebuggerPanel ─────────────────────────────────────────────────────────────
 
 /// State for the floating debugger window.
@@ -1116,9 +1159,22 @@ impl DebuggerPanel {
             egui::Stroke::new(1.0, Color32::from_gray(70)),
         );
 
+        let dock_rect = egui::Rect::from_min_size(
+            ui.cursor().min,
+            Vec2::new(ui.available_width(), dock_h),
+        );
+        // A face behind the dock, one step darker than the panes above it. The
+        // dock rendered onto bare canvas before, so an empty console read as
+        // "the window just stops here" rather than as a pane waiting for
+        // output.
+        ui.painter()
+            .rect_filled(dock_rect, 0.0, Color32::from_rgb(16, 26, 34));
         ui.allocate_ui(Vec2::new(ui.available_width(), dock_h), |ui| {
+            ui.add_space(2.0);
             self.investigation_dock(ui, tr);
         });
+        ui.separator();
+        self.status_bar(ui, tr);
 
         toggled
     }
@@ -1157,6 +1213,7 @@ impl DebuggerPanel {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let current = self.current_line;
                 let bps = &self.breakpoints;
+                let vars = &self.vars;
 
                 let folding = self.hide_empty_blocks;
                 let runs = &self.hidden;
@@ -1305,6 +1362,18 @@ impl DebuggerPanel {
                         if resp.clicked() {
                             picked_line = Some(line_num);
                         }
+                        // Inline values, on the stopped line only.
+                        if is_current {
+                            for (name, value) in inline_values(line_text, vars, 2) {
+                                ui.add_space(14.0);
+                                ui.label(
+                                    RichText::new(format!("{name} = {value}"))
+                                        .monospace()
+                                        .size(10.0)
+                                        .color(Color32::from_gray(135)),
+                                );
+                            }
+                        }
                     });
 
                     // Auto-scroll when current line changes
@@ -1325,6 +1394,64 @@ impl DebuggerPanel {
 
 
     // ── Investigation dock ────────────────────────────────────────────────────
+
+    /// The status strip along the very bottom: what this session is attached to.
+    ///
+    /// Facts the developer would otherwise have to remember — which runtime,
+    /// which thread, which frame the inspector is answering about. Every item
+    /// is something the debugger actually knows; nothing here is decoration.
+    fn status_bar(&self, ui: &mut egui::Ui, tr: &Tr) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.add_space(4.0);
+            let (dot, label, colour) = if self.is_paused {
+                ("●", tr.dbg_state_paused, Color32::from_rgb(220, 180, 50))
+            } else if self.source_lines.is_empty() {
+                ("○", tr.dbg_state_disconnected, Color32::from_gray(120))
+            } else {
+                ("○", tr.dbg_state_running, Color32::from_rgb(80, 200, 80))
+            };
+            ui.label(
+                RichText::new(format!("{dot} {label}"))
+                    .size(10.0)
+                    .color(colour),
+            );
+            ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+            ui.label(
+                RichText::new("COBOL source mapping ✓")
+                    .size(10.0)
+                    .color(Color32::from_gray(130)),
+            );
+            ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+            // One interpreter per debuggee, so the thread list is one entry —
+            // named after the program rather than called "Thread 1", which
+            // would say nothing.
+            let thread = self
+                .frames
+                .last()
+                .map(|f| f.program.clone())
+                .unwrap_or_else(|| "—".to_owned());
+            ui.label(
+                RichText::new(format!("Main thread · {thread}"))
+                    .size(10.0)
+                    .color(Color32::from_gray(130)),
+            );
+            ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+            ui.label(
+                RichText::new(format!("Frame {}", self.selected_frame))
+                    .size(10.0)
+                    .color(Color32::from_gray(130)),
+            );
+            if self.current_line > 0 {
+                ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+                ui.label(
+                    RichText::new(format!("line {}", self.current_line))
+                        .size(10.0)
+                        .color(Color32::from_gray(130)),
+                );
+            }
+        });
+    }
 
     /// The bottom dock: debugger output, split by channel, plus a prompt.
     ///
@@ -1680,47 +1807,62 @@ impl DebuggerPanel {
                             .hint_text(tr.dbg_watch_hint)
                             .desired_width(f32::INFINITY),
                     );
-                    let entered =
-                        resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if entered && !self.watch_input.trim().is_empty() {
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        && !self.watch_input.trim().is_empty()
+                    {
                         add_watch = Some(self.watch_input.trim().to_owned());
                     }
                 });
                 ui.add_space(2.0);
-                ScrollArea::vertical()
-                    .id_salt("dbg_watch_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        if self.watches.is_empty() {
-                            ui.label(
-                                RichText::new(tr.dbg_watch_empty)
-                                    .color(Color32::from_gray(110))
-                                    .size(11.0),
-                            );
-                        }
-                        for (i, w) in self.watches.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 6.0;
-                                if ui
-                                    .add(
-                                        egui::Label::new(
-                                            RichText::new("✕")
-                                                .size(10.0)
-                                                .color(Color32::from_gray(120)),
-                                        )
-                                        .sense(egui::Sense::click()),
-                                    )
-                                    .clicked()
-                                {
-                                    drop_watch = Some(i);
-                                }
-                                ui.label(
-                                    RichText::new(&w.expression)
-                                        .monospace()
-                                        .size(11.0)
-                                        .color(Color32::from_rgb(215, 220, 235)),
-                                );
-                                match (&w.value, &w.error) {
+
+                if self.watches.is_empty() {
+                    ui.label(
+                        RichText::new(tr.dbg_watch_empty)
+                            .color(Color32::from_gray(110))
+                            .size(11.0),
+                    );
+                } else {
+                    // Its own two-column table, as the mockup asks — the same
+                    // shape as the inspector so the two read as one pane rather
+                    // than a table above a list.
+                    let watches: Vec<(String, Option<String>, Option<String>)> = self
+                        .watches
+                        .iter()
+                        .map(|w| (w.expression.clone(), w.value.clone(), w.error.clone()))
+                        .collect();
+                    let paused = self.is_paused;
+                    TableBuilder::new(ui)
+                        .id_salt("dbg_watch_table")
+                        .striped(true)
+                        .resizable(true)
+                        .column(Column::initial(220.0).at_least(90.0).resizable(true))
+                        .column(Column::remainder().at_least(60.0))
+                        .column(Column::exact(20.0))
+                        .header(18.0, |mut header| {
+                            for label in [tr.dbg_col_expression, tr.dbg_col_value] {
+                                header.col(|ui| {
+                                    ui.label(
+                                        RichText::new(label)
+                                            .size(11.0)
+                                            .color(Color32::from_gray(150)),
+                                    );
+                                });
+                            }
+                            header.col(|_| {});
+                        })
+                        .body(|body| {
+                            body.rows(18.0, watches.len(), |mut row| {
+                                let i = row.index();
+                                let (expr, value, error) = &watches[i];
+                                row.col(|ui| {
+                                    ui.label(
+                                        RichText::new(expr)
+                                            .monospace()
+                                            .size(11.0)
+                                            .color(Color32::from_rgb(215, 220, 235)),
+                                    );
+                                });
+                                row.col(|ui| match (value, error) {
                                     (_, Some(e)) => {
                                         ui.label(
                                             RichText::new(e)
@@ -1737,21 +1879,36 @@ impl DebuggerPanel {
                                                 .color(Color32::from_rgb(240, 200, 120)),
                                         );
                                     }
-                                    // Not evaluated yet at this stop. Say so
-                                    // rather than show the PREVIOUS stop's
-                                    // value, which would be a stale reading
-                                    // presented as a current one.
+                                    // Not evaluated at THIS stop. Saying so beats
+                                    // showing the previous stop's answer, which
+                                    // would be a stale reading presented as live.
                                     (None, None) => {
                                         ui.label(
-                                            RichText::new(if self.is_paused { "…" } else { "—" })
+                                            RichText::new(if paused { "…" } else { "—" })
                                                 .size(11.0)
                                                 .color(Color32::from_gray(110)),
                                         );
                                     }
-                                }
+                                });
+                                row.col(|ui| {
+                                    if ui
+                                        .add(
+                                            egui::Label::new(
+                                                RichText::new("🗑")
+                                                    .size(11.0)
+                                                    .color(Color32::from_gray(120)),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        )
+                                        .clicked()
+                                    {
+                                        drop_watch = Some(i);
+                                    }
+                                });
                             });
-                        }
-                    });
+                        });
+                }
+
                 if self.is_paused {
                     for (i, w) in self.watches.iter().enumerate() {
                         if w.value.is_none() && w.error.is_none() {
@@ -2511,5 +2668,67 @@ impl DebuggerPanel {
                 self.flatten_children(row.reference, depth + 1, filter, out);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod inline_value_tests {
+    use super::inline_values;
+    use cobolt_runtime::VarSnapshot;
+
+    fn v(name: &str, value: &str) -> VarSnapshot {
+        VarSnapshot {
+            name: name.into(),
+            scope: "WS".into(),
+            pic: String::new(),
+            origin: String::new(),
+            value: value.into(),
+        }
+    }
+
+    /// The bug this kind of matcher always has: a short name found INSIDE a
+    /// longer one. `WS-N` must not annotate a line that only mentions
+    /// `WS-NAME`.
+    #[test]
+    fn a_name_matches_only_as_a_whole_word() {
+        let vars = vec![v("WS-N", "7"), v("WS-NAME", "ADA")];
+        let hits = inline_values("    MOVE WS-NAME TO WS-OUT.", &vars, 4);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].0, "WS-NAME");
+
+        let hits = inline_values("    ADD 1 TO WS-N.", &vars, 4);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].0, "WS-N");
+    }
+
+    /// Restraint is the point: an annotation on everything is a wall.
+    #[test]
+    fn the_limit_is_honoured_and_duplicates_are_not_repeated() {
+        let vars = vec![v("WS-A", "1"), v("WS-B", "2"), v("WS-C", "3")];
+        let line = "    COMPUTE WS-A = WS-B + WS-C.";
+        assert_eq!(inline_values(line, &vars, 2).len(), 2);
+        assert_eq!(inline_values(line, &vars, 0).len(), 0);
+        // A subscripted slot annotates under its parent's name, once.
+        let subs = vec![v("WS-ROW(1)", "10"), v("WS-ROW(2)", "20")];
+        let hits = inline_values("    ADD 1 TO WS-ROW(1).", &subs, 4);
+        assert_eq!(hits.len(), 1, "{hits:?}");
+        assert_eq!(hits[0].0, "WS-ROW");
+    }
+
+    #[test]
+    fn a_line_naming_nothing_annotates_nothing() {
+        let vars = vec![v("WS-A", "1")];
+        assert!(inline_values("    GOBACK.", &vars, 4).is_empty());
+        assert!(inline_values("", &vars, 4).is_empty());
+        // An item with no value is not worth a hint.
+        assert!(inline_values("    ADD 1 TO WS-A.", &[v("WS-A", "   ")], 4).is_empty());
+    }
+
+    /// Case-insensitive, because the listing is COBOL and the storage keys are
+    /// upper case whatever the developer typed.
+    #[test]
+    fn matching_ignores_case() {
+        let vars = vec![v("WS-TOTAL", "42")];
+        assert_eq!(inline_values("    move 1 to ws-total.", &vars, 4).len(), 1);
     }
 }

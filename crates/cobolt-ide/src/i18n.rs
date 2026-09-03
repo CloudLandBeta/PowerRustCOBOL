@@ -926,6 +926,7 @@ pub struct Tr {
     pub dbg_col_name: &'static str,
     pub dbg_col_pic: &'static str,
     pub dbg_col_value: &'static str,
+    pub dbg_col_expression: &'static str,
 
     // ── Project panel ─────────────────────────────────────────────────────────
     pub panel_project: &'static str,
@@ -2256,6 +2257,7 @@ const EN: Tr = Tr {
     dbg_col_name: "Name",
     dbg_col_pic: "PIC / Type",
     dbg_col_value: "Value",
+    dbg_col_expression: "Expression",
 
     panel_project:   "Project",
     panel_sources:   "Sources",
@@ -3482,6 +3484,7 @@ const ES: Tr = Tr {
     dbg_col_name: "Nombre",
     dbg_col_pic: "PIC / Tipo",
     dbg_col_value: "Valor",
+    dbg_col_expression: "Expresión",
 
     panel_project:   "Proyecto",
     panel_sources:   "Fuentes",
@@ -4708,6 +4711,7 @@ const PT: Tr = Tr {
     dbg_col_name: "Nome",
     dbg_col_pic: "PIC / Tipo",
     dbg_col_value: "Valor",
+    dbg_col_expression: "Expressão",
 
     panel_project:   "Projeto",
     panel_sources:   "Fontes",
@@ -5933,6 +5937,7 @@ const JA: Tr = Tr {
     dbg_col_name: "名前",
     dbg_col_pic: "PIC / 型",
     dbg_col_value: "値",
+    dbg_col_expression: "式",
 
     panel_project:   "プロジェクト",
     panel_sources:   "ソース",
@@ -7165,6 +7170,7 @@ const ZH: Tr = Tr {
     dbg_col_name: "名称",
     dbg_col_pic: "PIC / 类型",
     dbg_col_value: "值",
+    dbg_col_expression: "表达式",
 
     panel_project: "项目",
     panel_sources: "源文件",
@@ -8392,6 +8398,7 @@ const FR: Tr = Tr {
     dbg_col_name: "Nom",
     dbg_col_pic: "PIC / Type",
     dbg_col_value: "Valeur",
+    dbg_col_expression: "Expression",
 
     panel_project:   "Projet",
     panel_sources:   "Sources",

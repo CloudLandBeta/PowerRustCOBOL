@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.13] — 2026-09-02
+
+### Finishing the debugger window
+
+**Watches is its own table** — Expression · Value, resizable, with a delete on
+each row. The same shape as the inspector above it, so the two read as one pane
+rather than a table sitting on top of a list. A watch not yet evaluated at this
+stop shows `…`; showing the previous stop's answer would be a stale reading
+presented as a live one.
+
+**Inline values.** The line under the execution pointer carries the values of
+the data items it names — `WS-TOTAL = 42` — dim, to its right. Deliberately
+restrained: that line only, at most two items. An annotation on every line turns
+a listing into a wall, and the whole value of the hint is being rare enough to
+notice.
+
+Matched as whole words, which is where this kind of code goes wrong: `WS-N` must
+not annotate a line that only mentions `WS-NAME`. A subscripted slot annotates
+under its parent's name, once, rather than once per occurrence.
+
+**The dock has a face** — one step darker than the panes above it. It painted
+onto bare canvas before, so an empty console read as "the window just stops
+here" rather than as a pane waiting for output.
+
+**A status strip** along the bottom: session state, source mapping, thread,
+frame and line. Every item is something the debugger actually knows — the thread
+is named after the program rather than called "Thread 1", which would say
+nothing.
+
 ## [PowerRustCOBOL 1.63.12] — 2026-09-02
 
 ### The debugger window, rebuilt
