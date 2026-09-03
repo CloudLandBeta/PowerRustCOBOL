@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.38] — 2026-09-03
+
+### A failed build now says what `rustc` actually said
+
+Chasing the tinyvec failure fixed in 1.63.34 took hours longer than it should
+have, for one reason: nothing anywhere would show the real compiler error. The
+IDE's Output panel, `rcrun build` and the compiler's own build tests all
+reported the same sentence — "error: could not compile `tinyvec` (lib) due to
+1 previous error" — which names neither what went wrong nor the file it went
+wrong in. The actual diagnostic, "cannot find macro `vec` in this scope" with
+its line and code frame, had to be dug out by re-running cargo by hand.
+
+The information was never missing; it was discarded. `build_core` runs cargo
+with `--message-format=json` so that an error inside a developer's `EXEC RUST`
+block can be restated in their COBOL coordinates — but that flag also moves
+**every** diagnostic off stderr and onto stdout as JSON, leaving stderr with
+only cargo's summary line. On failure the JSON stream was read for block
+errors alone: if one mapped back to a developer's block, they got a proper
+message; if it did not — a dependency that will not compile, an error in
+generated code, anything at all outside their own block — the entire parsed
+stream was dropped and the terse stderr summary was reported by itself.
+
+Failures outside an `EXEC RUST` block are now reported with `rustc`'s own
+diagnostics — rendered exactly as cargo would have printed them without the
+JSON flag, followed by cargo's transcript, so nothing that used to be shown
+was traded away. Ten diagnostics are shown and any remainder is counted, so a
+build with fifty errors still leads with the first one. A failure that carries
+no compiler diagnostic at all — an unresolvable version requirement, a broken
+manifest — is cargo's own message on stderr, and that is still reported
+unchanged.
+
+`EXEC RUST` block errors are untouched: they are still mapped back to the
+developer's file, line and column, still ordered by source position, and still
+take precedence over the raw output.
+
+The regression guard drives a real `cargo build --message-format=json` against
+a deliberately broken path dependency — a `no_std` crate calling `vec!`, the
+tinyvec bug in miniature — and asserts both halves of the defect: that cargo's
+stderr alone really does omit the diagnostic, and that the reported message
+contains it.
+
 ## [PowerRustCOBOL 1.63.37] — 2026-09-03
 
 ### A RadioButton ticked "Checked" in the inspector rendered unchecked everywhere

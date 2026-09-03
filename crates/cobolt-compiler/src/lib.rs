@@ -1457,8 +1457,9 @@ fn build_core(
     };
     if !status.success() {
         // A failure inside a developer's block is reported in their terms. Any
-        // other failure — ours, or a dependency's — surfaces raw, because
-        // dressing it up as a COBOL error would point them at innocent code.
+        // other failure — ours, or a dependency's — surfaces as rustc's own
+        // diagnostics (`cargo_failure_output`), because dressing it up as a
+        // COBOL error would point them at innocent code.
         // ALL block errors, deterministically ordered by the developer's own
         // (line, column). Taking whichever error cargo's parallel JSON stream
         // mentioned first made identical rebuilds show different single
@@ -1481,7 +1482,7 @@ fn build_core(
         }
         return Err(CompilerError::CargoBuild {
             code: status.code().unwrap_or(-1),
-            stderr: captured,
+            stderr: cargo_failure_output(&json, &captured),
         });
     }
 
@@ -1750,6 +1751,126 @@ fn stage_theme_packs(
         });
     }
     Ok(staged)
+}
+
+// ── Build-failure reporting ───────────────────────────────────────────────────
+
+/// How many diagnostics a build failure is reported with before the rest are
+/// only counted. Enough to see a cluster of related errors, few enough that the
+/// IDE's Output panel still shows the first one.
+const REPORTED_ERRORS: usize = 10;
+
+/// What a failed `cargo build` is reported as: `rustc`'s own diagnostics first,
+/// then cargo's transcript.
+///
+/// `--message-format=json` is what lets a block error be restated in the
+/// developer's COBOL coordinates, but it also moves **every** diagnostic off
+/// stderr and onto stdout as JSON. Reporting only stderr therefore reduced any
+/// failure outside a developer's `EXEC RUST` block to cargo's summary line —
+/// "error: could not compile `tinyvec` (lib) due to 1 previous error", which
+/// names neither the error nor the file it happened in (found the hard way
+/// while root-causing exactly that failure, 1.63.34). The diagnostics were
+/// captured all along; they were simply dropped on the floor.
+fn cargo_failure_output(json: &str, stderr: &str) -> String {
+    let errors = cargo_json_errors(json);
+    if errors.is_empty() {
+        // A failure with no compiler diagnostic at all — a resolution conflict,
+        // a manifest error — is cargo's own, and it states it on stderr.
+        return stderr.to_owned();
+    }
+    let mut out = errors
+        .iter()
+        .take(REPORTED_ERRORS)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if errors.len() > REPORTED_ERRORS {
+        out.push_str(&format!(
+            "\n\n─ {} more error(s) ─",
+            errors.len() - REPORTED_ERRORS
+        ));
+    }
+    out.push_str("\n\n");
+    out.push_str(stderr);
+    out
+}
+
+/// Every error-level diagnostic in cargo's `--message-format=json` stream, in
+/// the order cargo emitted them and without repeats.
+///
+/// Unlike [`exec_rust::map_cargo_json`], nothing is filtered by file: an error
+/// in a dependency, in the generated `main.rs`, or in the scaffolding is
+/// exactly what this is for. Lines that are not JSON objects are skipped —
+/// cargo interleaves artefact records in the same stream.
+fn cargo_json_errors(json: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for line in json.lines() {
+        let line = line.trim();
+        if !line.starts_with('{') {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if v.get("reason").and_then(|r| r.as_str()) != Some("compiler-message") {
+            continue;
+        }
+        let Some(msg) = v.get("message") else { continue };
+        let level = msg.get("level").and_then(|l| l.as_str()).unwrap_or_default();
+        // "error" and "error: internal compiler error"; warnings and notes are
+        // not why the build stopped.
+        if !level.starts_with("error") {
+            continue;
+        }
+        // `rendered` is the diagnostic exactly as cargo would have printed it,
+        // code frame and all. It is assembled by hand only when absent.
+        let text = match msg.get("rendered").and_then(|r| r.as_str()) {
+            Some(r) if !r.trim().is_empty() => r.trim_end().to_owned(),
+            _ => render_diagnostic(msg, level),
+        };
+        if !text.is_empty() && seen.insert(text.clone()) {
+            out.push(text);
+        }
+    }
+    out
+}
+
+/// A diagnostic written out the way `rustc` prints one, for the case where
+/// cargo sent no `rendered` text.
+fn render_diagnostic(msg: &serde_json::Value, level: &str) -> String {
+    let headline = msg
+        .get("message")
+        .and_then(|m| m.as_str())
+        .unwrap_or_default();
+    if headline.is_empty() {
+        return String::new();
+    }
+    let mut out = match msg.get("code").and_then(|c| c.get("code")).and_then(|c| c.as_str()) {
+        Some(code) => format!("{level}[{code}]: {headline}"),
+        None => format!("{level}: {headline}"),
+    };
+    let spans = msg.get("spans").and_then(|s| s.as_array());
+    let span = spans.and_then(|spans| {
+        spans
+            .iter()
+            .find(|s| s.get("is_primary").and_then(|p| p.as_bool()).unwrap_or(false))
+            .or_else(|| spans.first())
+    });
+    if let Some(span) = span {
+        let file = span
+            .get("file_name")
+            .and_then(|f| f.as_str())
+            .unwrap_or_default();
+        if !file.is_empty() {
+            out.push_str(&format!(
+                "\n  --> {file}:{}:{}",
+                span.get("line_start").and_then(|l| l.as_u64()).unwrap_or(0),
+                span.get("column_start").and_then(|c| c.as_u64()).unwrap_or(0),
+            ));
+        }
+    }
+    out
 }
 
 // ── Code generators ───────────────────────────────────────────────────────────
@@ -7162,6 +7283,129 @@ not json at all
         assert_eq!(
             mapped[0].line, expected_line,
             "the diagnostic should point at the developer's COBOL line"
+        );
+    }
+
+    /// **The regression guard for 1.63.38.** A build broken *outside* any
+    /// `EXEC RUST` block — here a dependency that will not compile, the shape
+    /// of the tinyvec failure 1.63.34 chased down — is reported with `rustc`'s
+    /// own words, not with cargo's "could not compile … due to 1 previous
+    /// error".
+    ///
+    /// Driven by a real `cargo build --message-format=json`, invoked as
+    /// `build_core` invokes it, because the whole defect was a claim about
+    /// *where cargo puts its diagnostics*: a hand-written JSON fixture would go
+    /// on passing whether or not that claim still held.
+    #[test]
+    fn a_dependency_that_fails_to_compile_is_reported_in_rustcs_own_words() {
+        let dir = temp_dir("depfail");
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::create_dir_all(dir.join("broken/src")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"depfail\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n\
+             [dependencies]\nbroken = { path = \"broken\" }\n\n[workspace]\n",
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.rs"), "fn main() { broken::hello(); }\n").unwrap();
+        fs::write(
+            dir.join("broken/Cargo.toml"),
+            "[package]\nname = \"broken\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        // tinyvec 1.13.0's own bug in miniature: `vec!` is not in prelude scope
+        // under `no_std`, and importing the module does not import the macro.
+        fs::write(
+            dir.join("broken/src/lib.rs"),
+            "#![no_std]\nextern crate alloc;\nuse alloc::vec::Vec;\n\
+             pub fn hello() -> Vec<u8> { vec![0u8] }\n",
+        )
+        .unwrap();
+
+        let out = std::process::Command::new("cargo")
+            .args(["build", "--message-format=json", "--offline"])
+            .current_dir(&dir)
+            .output()
+            .expect("failed to run cargo build");
+        assert!(
+            !out.status.success(),
+            "the fixture was supposed to fail to build"
+        );
+        let json = String::from_utf8_lossy(&out.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+        // The defect itself: stderr — all that used to be reported — says only
+        // that *something* did not compile.
+        assert!(
+            stderr.contains("could not compile `broken`"),
+            "cargo's summary line should be on stderr: {stderr}"
+        );
+        assert!(
+            !stderr.contains("cannot find macro `vec`"),
+            "cargo put the diagnostic on stderr after all — this guard's premise \
+             is gone and the reporting path needs rechecking:\n{stderr}"
+        );
+
+        let reported = cargo_failure_output(&json, &stderr);
+        assert!(
+            reported.contains("cannot find macro `vec`"),
+            "the real diagnostic never reached the developer:\n{reported}"
+        );
+        assert!(
+            reported.contains("broken/src/lib.rs"),
+            "the failing file should be named:\n{reported}"
+        );
+        assert!(
+            reported.contains(stderr.trim()),
+            "cargo's own transcript should survive alongside it:\n{reported}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A failure cargo reports itself — an unresolvable version, a broken
+    /// manifest — carries no compiler diagnostic at all, and warnings are not
+    /// why a build stopped. Cargo's stderr *is* the message in that case, and
+    /// it survives untouched.
+    #[test]
+    fn a_failure_with_no_compiler_errors_keeps_cargos_own_message() {
+        let stderr = "error: failed to select a version for the requirement `serde = \"^99\"`\n";
+        assert_eq!(cargo_failure_output("", stderr), stderr);
+
+        let json = "{\"reason\":\"compiler-artifact\",\"target\":{\"name\":\"x\"}}\n\
+                    not json at all\n\
+                    {\"reason\":\"compiler-message\",\"message\":{\"level\":\"warning\",\
+                    \"message\":\"unused variable\",\"rendered\":\"warning: unused variable: `x`\"}}";
+        assert_eq!(cargo_failure_output(json, stderr), stderr);
+    }
+
+    /// `rendered` is what cargo sends and what gets shown; a diagnostic that
+    /// arrives without it is still assembled from its parts rather than
+    /// dropped, and one error reported by two build units is shown once.
+    #[test]
+    fn a_diagnostic_without_rendered_text_is_still_reported() {
+        let json = "{\"reason\":\"compiler-message\",\"message\":{\"level\":\"error\",\
+                    \"message\":\"cannot find macro `vec` in this scope\",\"code\":{\"code\":\"E0433\"},\
+                    \"spans\":[{\"file_name\":\"src/lib.rs\",\"line_start\":4,\"column_start\":29,\
+                    \"is_primary\":true}]}}\n\
+                    {\"reason\":\"compiler-message\",\"message\":{\"level\":\"error\",\
+                    \"message\":\"cannot find macro `vec` in this scope\",\"code\":{\"code\":\"E0433\"},\
+                    \"spans\":[{\"file_name\":\"src/lib.rs\",\"line_start\":4,\"column_start\":29,\
+                    \"is_primary\":true}]}}";
+
+        let reported = cargo_failure_output(json, "error: could not compile `broken`\n");
+        assert!(
+            reported.contains("error[E0433]: cannot find macro `vec` in this scope"),
+            "the message and its code should be stated: {reported}"
+        );
+        assert!(
+            reported.contains("--> src/lib.rs:4:29"),
+            "the location should be stated: {reported}"
+        );
+        assert_eq!(
+            reported.matches("E0433").count(),
+            1,
+            "the same error from two units should be reported once: {reported}"
         );
     }
 
