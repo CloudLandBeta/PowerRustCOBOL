@@ -1783,6 +1783,20 @@ data-binding information. If a scalar control belongs to an explicit control
 array, it can show only the array-owned mapping context; it cannot choose its own
 source. This keeps one field from silently drifting away from the row contract.
 
+> **Which combinations actually populate at run time (1.63.33).** The Designer
+> lets you pair any source family with any approved target — the binding
+> editor validates the mapping, not whether that pairing does anything once
+> the form runs. Today, a **DataGrid** populates from an **Indexed** source
+> (reading the `.cidx`'s file directly, in primary-key order — no `SELECT`/FD
+> needed in your program) and from a **COBOL table** source (your own code
+> fills the table; call `RefreshBinding()` once it has). An Indexed→DataGrid
+> binding refreshes itself the moment the binding loads, with no call needed
+> — there is no fill step to wait for. Every other source×target pairing —
+> SQL, REST, Agent AI against any target; Indexed against a Chart, ComboBox,
+> ListBox, or control array — is configurable and validated, but nothing
+> populates it yet. Build against what is documented here as working, not
+> against what the Designer merely lets you configure.
+
 Each binding stores its source descriptor, target descriptor, ordered field
 mappings, read-only/writable mode, saved source metadata, and validation
 snapshot in the `.cfrm` file. Existing forms without binding metadata load and

@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.33] — 2026-09-03
+
+### A DataGrid bound to an Indexed source now actually populates
+
+Reported as "datagrid does not load the actors" (operator, 2026-09-03,
+PowerDemo3). Not a broken read of the file — nothing ever tried to read it.
+`write_binding_refresh_seed` (codegen) only ever recognized a `CobolTable`
+source when seeding a DataGrid's `_BindingKind`/`_BindingFields`; an
+`IndexedFile` source fell through unrecognized, and the interpreter's own
+`refresh_datagrid_binding` gates on `_BindingKind == "CobolTable"` — so an
+Indexed-sourced grid was structurally incapable of ever getting rows,
+regardless of what the file on disk actually held. The Designer's binding
+editor never stopped a developer from configuring exactly this; it simply
+did nothing once the form ran.
+
+An Indexed→DataGrid binding is now real. Codegen seeds `_BindingKind`,
+`_BindingFields`, and a new `_BindingIndexedPath` (the `.cidx` path,
+verbatim), then invokes `RefreshBinding()` immediately — there is no
+developer fill step to wait for, unlike a COBOL table. The interpreter reads
+the file directly: no `SELECT`/FD exists for a Designer-only binding, and no
+`RecordLayout` (that machinery is keyed off a DATA DIVISION declaration this
+binding never has), so it opens through the same engine-dispatching
+`GridSession` the IDE's own Indexed File Browser already uses — the exact
+sniffing that made `actors.idx` (a `redb`-backed file, misidentified before
+1.63.22's fix) open correctly is inherited for free — and decodes each
+field with the same PIC-aware formatter that browser already shows, so a
+bound grid and the IDE's own file view agree on the same bytes.
+
+A missing data file (a fresh project, nothing written yet) or an empty one
+(zero records) both yield an empty grid, not a fault — checked explicitly
+before opening, since an unconditional open would otherwise create the data
+file on disk as a side effect of what is meant to be a read-only render.
+
+Still configurable-but-inert today, same as before this change: SQL, REST
+and Agent AI sources against any target, and an Indexed source against
+anything other than a DataGrid (a Chart, ComboBox, ListBox, or control
+array). Not silently widened — see the Developer's Guide's Data Binding
+section for exactly which pairings are live.
+
+Verified end to end, not just at the function level: a real on-disk indexed
+file built the same way `DiskIndexedFile` writes one, a `Form`/
+`DataBindingDef` shaped exactly like PowerDemo3's own saved binding, run
+through the actual generated COBOL and the real interpreter — covering a
+populated file, an empty-but-existing one, and a `.cidx` with no data file
+at all.
+
 ## [PowerRustCOBOL 1.63.32] — 2026-09-03
 
 ### The codegen golden-byte suite was silently red — regenerated

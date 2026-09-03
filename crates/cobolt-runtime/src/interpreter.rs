@@ -10364,10 +10364,14 @@ impl Interpreter {
     }
 
     fn refresh_binding(&mut self, control_id: &str) -> usize {
-        if !self
-            .obj_get(control_id, "_BindingKind")
-            .eq_ignore_ascii_case("CobolTable")
-        {
+        let binding_kind = self.obj_get(control_id, "_BindingKind");
+        // An `IndexedFile` source is never a WS table the running program fills
+        // itself, so it gets its own read path (`refresh_indexed_file_binding`)
+        // rather than joining the CobolTable-only checks below.
+        if binding_kind.eq_ignore_ascii_case("IndexedFile") {
+            return self.refresh_indexed_file_binding(control_id);
+        }
+        if !binding_kind.eq_ignore_ascii_case("CobolTable") {
             return 0;
         }
         // Spec 039 R21: a standalone Knob/Gauge/Switch, seeded with a single
@@ -10390,6 +10394,96 @@ impl Interpreter {
         }
         // default to datagrid logic
         self.refresh_datagrid_binding(control_id)
+    }
+
+    /// `IndexedFile` source -> `DataGrid` target (codegen:
+    /// `write_indexed_file_binding_seed` in `cobolt-codegen`). Unlike a
+    /// `CobolTable` binding there is no WS table the running program has
+    /// filled first — the `.cidx` definition plus the file on disk are
+    /// everything needed — so this opens the SAME `IndexedStore` engine a
+    /// plain `OPEN`/`READ NEXT` would (`indexed_ide::GridSession`, already
+    /// shared with the IDE's own Indexed File Browser) and scans every record
+    /// in primary-key order, decoding each mapped field with the `.cidx`'s own
+    /// byte offsets. There is no `RecordLayout` to reuse here (`files.rs`):
+    /// that machinery is keyed by a DATA DIVISION declaration, and a
+    /// Designer-only binding needs no SELECT/FD at all — the `.cidx` is the
+    /// only record layout that exists for this file.
+    fn refresh_indexed_file_binding(&mut self, control_id: &str) -> usize {
+        let def_path = self.obj_get(control_id, "_BindingIndexedPath");
+        let def_path = def_path.trim();
+        if def_path.is_empty() {
+            return 0;
+        }
+        let fields = self
+            .obj_get(control_id, "_BindingFields")
+            .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if fields.is_empty() {
+            return 0;
+        }
+        let def = match cobolt_indexed::load_indexed(def_path) {
+            Ok(def) => def,
+            Err(e) => {
+                tracing::warn!(
+                    "IndexedFile binding on {control_id}: cannot read '{def_path}': {e:?}"
+                );
+                self.obj_set(control_id, "Rows", String::new());
+                return 0;
+            }
+        };
+        let leaves = def
+            .record_root()
+            .map(|root| root.all_leaves())
+            .unwrap_or_default();
+        let data_path = std::path::Path::new(&def.assign_path);
+        // A missing data file is an empty grid, not a fault — the same
+        // "nothing to read yet" outcome a plain OPEN INPUT reports as FILE
+        // STATUS 35. This has to be checked BEFORE `GridSession::open`, which
+        // opens I-O and would otherwise create an empty file on disk as a
+        // side effect of what is meant to be a read-only refresh.
+        if !data_path.exists() {
+            self.obj_set(control_id, "Rows", String::new());
+            return 0;
+        }
+        let session = match crate::indexed_ide::GridSession::open(&def, data_path) {
+            Ok(session) => session,
+            Err(e) => {
+                tracing::warn!(
+                    "IndexedFile binding on {control_id}: cannot open '{}': {e}",
+                    data_path.display()
+                );
+                self.obj_set(control_id, "Rows", String::new());
+                return 0;
+            }
+        };
+        let rows: Vec<String> = session
+            .rows()
+            .iter()
+            .map(|record| {
+                fields
+                    .iter()
+                    .map(|name| {
+                        let Some(leaf) = leaves
+                            .iter()
+                            .find(|leaf| leaf.name.eq_ignore_ascii_case(name))
+                        else {
+                            return String::new();
+                        };
+                        let start = (leaf.offset.unwrap_or(0) as usize).min(record.len());
+                        let end =
+                            (start + leaf.length.unwrap_or(0) as usize).min(record.len());
+                        cobolt_indexed::format_field_display(leaf, &record[start..end])
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\t")
+            })
+            .collect();
+        let row_count = rows.len();
+        self.obj_set(control_id, "Rows", rows.join("\n"));
+        row_count
     }
 
     /// Read the WS table fields seeded in `_BindingMarkerFields`

@@ -210,6 +210,37 @@ pub fn append_data_binding_seed_props(
     let Some(binding) = binding else {
         return;
     };
+    // Only a DataGrid target is wired up for IndexedFile so far (matching
+    // codegen's `write_indexed_file_binding_seed`) — the Designer's binding
+    // editor does not actually stop a developer aiming an IndexedFile source
+    // at a ControlArray/ScalarControl/MarkerCollection target, but nothing
+    // populates that combination today, CobolTable included: those three are
+    // seeded below strictly for a CobolTable source.
+    if let cobolt_forms::BindingSourceDescriptor::IndexedFile {
+        definition_path,
+        fields,
+        ..
+    } = &binding.source
+    {
+        if matches!(
+            &binding.target,
+            cobolt_forms::BindingTargetDescriptor::DataGrid { .. }
+        ) && !fields.is_empty()
+            && !definition_path.trim().is_empty()
+        {
+            props.push(("_BindingKind".into(), "IndexedFile".into()));
+            props.push((
+                "_BindingFields".into(),
+                fields
+                    .iter()
+                    .map(|field| field.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ));
+            props.push(("_BindingIndexedPath".into(), definition_path.clone()));
+        }
+        return;
+    }
     let cobolt_forms::BindingSourceDescriptor::CobolTable { fields, .. } = &binding.source else {
         return;
     };

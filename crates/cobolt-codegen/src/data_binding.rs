@@ -148,6 +148,12 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             write_marker_binding_seed(out, control_id, binding);
             return;
         }
+        BindingTargetDescriptor::DataGrid { control_id }
+            if matches!(&binding.source, BindingSourceDescriptor::IndexedFile { .. }) =>
+        {
+            write_indexed_file_binding_seed(out, control_id, binding);
+            return;
+        }
         _ => {}
     }
     let (control_id, is_array) = match &binding.target {
@@ -209,6 +215,48 @@ fn write_binding_refresh_seed(out: &mut String, form: &Form, binding: &DataBindi
             "           INVOKE {control_id} 'RefreshBinding'\n"
         ));
     }
+}
+
+/// `IndexedFile` source -> `DataGrid` target: seed `_BindingKind`/`_BindingFields`
+/// (same shape as the `CobolTable` seed above) plus `_BindingIndexedPath` (the
+/// `.cidx` definition path exactly as the Designer saved it — resolved at
+/// runtime the same way a plain `SELECT ... ASSIGN TO` resolves its target:
+/// against the process's own working directory, since the interpreter has no
+/// project-root concept of its own).
+///
+/// Unlike the `CobolTable` `DataGrid` seed, this also invokes `RefreshBinding`
+/// immediately. A `CobolTable` source is a WS table the running program's own
+/// code has to fill first, so codegen cannot know when it is ready and leaves
+/// the first refresh to the developer; an indexed file has no such fill step —
+/// the `.cidx` plus the file already on disk are everything needed to populate
+/// the grid the moment the binding loads.
+fn write_indexed_file_binding_seed(out: &mut String, control_id: &str, binding: &DataBindingDef) {
+    let BindingSourceDescriptor::IndexedFile {
+        definition_path,
+        fields,
+        ..
+    } = &binding.source
+    else {
+        return;
+    };
+    if fields.is_empty() || definition_path.trim().is_empty() {
+        return;
+    }
+    let fields_joined = fields
+        .iter()
+        .map(|field| field.name.as_str())
+        .collect::<Vec<_>>()
+        .join(",");
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingKind\" BY CONTENT \"IndexedFile\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingFields\" BY CONTENT \"{fields_joined}\"\n"
+    ));
+    out.push_str(&format!(
+        "           INVOKE {control_id} 'SetProperty' USING BY CONTENT \"_BindingIndexedPath\" BY CONTENT \"{definition_path}\"\n"
+    ));
+    out.push_str(&format!("           INVOKE {control_id} 'RefreshBinding'\n"));
 }
 
 /// Spec 039 T13 (and, retroactively, T6's `ScalarControl`): seed
