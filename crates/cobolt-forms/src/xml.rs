@@ -1812,7 +1812,12 @@ Actor Caption:string</Property>
         );
         assert_eq!(
             untouched.get_prop("BorderStyle").map(PropValue::as_str),
-            Some("Single"),
+            // "the same as a freshly created one" is what this test says, and
+            // a fresh Label's own seed is "None". It asserted "Single" until
+            // 1.63.39 — the flat value the backfill invented, which no new
+            // Label has ever carried. The claim was right; the number was the
+            // bug, and it is what put a rim on every loaded Switch.
+            Some("None"),
             "and the same for BorderStyle, seeded alongside it"
         );
         // The caption and the gradient flag it already had are untouched.
@@ -1835,6 +1840,54 @@ Actor Caption:string</Property>
             chosen.get_prop("BorderStyle").map(PropValue::as_str),
             Some("Fixed3D"),
             "an explicit BorderStyle must survive the backfill"
+        );
+    }
+
+    /// **The regression guard for the white rim around a saved Switch.**
+    ///
+    /// A Switch saved before `BorderStyle` reached the control at all (1.63.35)
+    /// carries no such property — PowerDemo3's own `switch-form.cfrm`, written
+    /// 2026-09-02, is exactly this file. When the load-time backfill (1.63.36)
+    /// handed it the flat `"Single"`, the pill-stroking code 1.63.35 had just
+    /// added drew a border around every one of them: a white outline hugging
+    /// the track, in both the off and the on state (operator screenshots,
+    /// 2026-09-03). Nothing on the canvas had asked for it and nothing short of
+    /// setting `BorderStyle` by hand could take it away.
+    #[test]
+    fn a_legacy_switch_loads_without_a_border() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#FFFFFF">
+  <Control id="Switch-1" type="Switch" x="40" y="40" w="52" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Checked">false</Property>
+  </Control>
+  <Control id="Switch-2" type="Switch" x="40" y="90" w="52" h="28" tab-order="1" z-order="1" visible="true" enabled="true">
+    <Property name="Checked">true</Property>
+    <Property name="BorderStyle">Single</Property>
+  </Control>
+</Form>"##;
+
+        let loaded = load_form_from_str(xml).expect("load legacy switch form");
+
+        let plain = loaded.find_control("Switch-1").expect("Switch-1");
+        assert_eq!(
+            plain.get_prop("BorderStyle").map(PropValue::as_str),
+            Some("None"),
+            "a saved Switch must load frameless, like a freshly dropped one — \
+             a seeded border draws a rim around the pill"
+        );
+        // The row still EXISTS, which is what the backfill is for: the
+        // inspector shows a row only for a property that is present, so the
+        // developer can still turn a border on.
+        assert!(
+            plain.get_prop("BorderStyle").is_some(),
+            "the row must exist so the properties pane can offer it"
+        );
+
+        let chosen = loaded.find_control("Switch-2").expect("Switch-2");
+        assert_eq!(
+            chosen.get_prop("BorderStyle").map(PropValue::as_str),
+            Some("Single"),
+            "a border the developer did ask for must survive the backfill"
         );
     }
 

@@ -4276,11 +4276,20 @@ pub(crate) fn seed_theme_owned_appearance(
     // than removing the row); this is the lasting answer the operator asked
     // for — spec 016 Q2's theme-defaults table.
     //
-    // Both seeds are the value the RENDERER already falls back to when the
-    // property is absent — `Single` in `draw_control`, `0` in
-    // `corner_radius` — so nothing changes shape. The row simply exists,
-    // which is the whole point: the inspector shows a row only for a
-    // property that is present.
+    // Both seeds are the value a BRAND NEW control of this type carries, so
+    // nothing changes shape. The row simply exists, which is the whole point:
+    // the inspector shows a row only for a property that is present.
+    //
+    // `BorderStyle` used to be seeded flat `"Single"` here — the renderer's
+    // own fallback when the property is absent. That was wrong for every
+    // control whose `Control::new` seeds `"None"` instead (Switch, Label,
+    // CheckBox, RadioButton, PictureBox, Animator, ToolBar): once 1.63.36
+    // ran this function on LOAD as well, an already-saved one came back from
+    // disk carrying a border it had never been given. On a Switch that is
+    // visible immediately — 1.63.35 had just taught it to stroke its own
+    // pill — so every existing switch grew a white rim (operator screenshots,
+    // 2026-09-03: "if anything it got worse"). `border_style_default` is the
+    // one table both boundaries read.
     //
     // The boundary is "paints a face". A non-visual control renders NOTHING
     // at run time (its designer chip is a tray badge, not a control face)
@@ -4296,7 +4305,30 @@ pub(crate) fn seed_theme_owned_appearance(
         }
         props
             .entry("BorderStyle".to_owned())
-            .or_insert(PropValue::String("Single".into()));
+            .or_insert(PropValue::String(border_style_default(control_type).into()));
+    }
+}
+
+/// The `BorderStyle` a brand new control of this type is seeded with.
+///
+/// `Control::new`'s own per-type arms are the origin of these values; this is
+/// the same table, read by the load-time backfill so a control coming off disk
+/// gets what a freshly dropped one gets. `every_control_types_seeded_border_style_matches`
+/// asserts the two agree for every type in [`ControlType::ALL`], so they cannot
+/// drift the way the flat `"Single"` default did.
+pub(crate) fn border_style_default(control_type: &ControlType) -> &'static str {
+    match control_type {
+        ControlType::TextBox => "Fixed3D",
+        // Controls that paint their own complete face, or none at all: a rim
+        // around them is a second outline the developer never asked for.
+        ControlType::Label
+        | ControlType::CheckBox
+        | ControlType::RadioButton
+        | ControlType::PictureBox
+        | ControlType::Animator
+        | ControlType::ToolBar
+        | ControlType::Switch => "None",
+        _ => "Single",
     }
 }
 
@@ -8724,6 +8756,53 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// `border_style_default` is the table the load-time backfill seeds from,
+    /// and it must say exactly what `Control::new` gives a fresh control of the
+    /// same type — otherwise a form coming off disk renders differently from
+    /// the identical form built on the canvas.
+    ///
+    /// This is the guard for 1.63.39: the backfill seeded a flat `"Single"`,
+    /// so every saved Switch (and Label, CheckBox, PictureBox, …) whose own
+    /// default is `"None"` came back from disk carrying a border nobody asked
+    /// for. Walking `ControlType::ALL` means a new control type cannot be
+    /// added on one side of that boundary only.
+    #[test]
+    fn every_control_types_seeded_border_style_matches() {
+        for ct in ControlType::ALL {
+            if ct.is_non_visual() || matches!(ct, ControlType::Line) {
+                continue; // No face to border — deliberately seeds neither.
+            }
+            let fresh = Control::new("C", ct.clone(), 0, 0);
+            assert_eq!(
+                fresh.get_prop("BorderStyle").map(|v| v.as_str().to_owned()),
+                Some(border_style_default(ct).to_owned()),
+                "{ct:?}: Control::new and border_style_default disagree"
+            );
+        }
+    }
+
+    /// The same thing said from the backfill's side: seeding an EMPTY property
+    /// bag — what a control saved before `BorderStyle` existed looks like —
+    /// leaves a Switch frameless and a Panel bordered.
+    #[test]
+    fn the_backfill_seeds_a_switch_no_border_and_a_panel_one() {
+        let mut switch_props = IndexMap::new();
+        seed_theme_owned_appearance(&ControlType::Switch, &mut switch_props);
+        assert_eq!(
+            switch_props.get("BorderStyle").map(|v| v.as_str().to_owned()),
+            Some("None".to_owned()),
+            "a switch backfilled with a border grows a white rim around its pill"
+        );
+
+        let mut panel_props = IndexMap::new();
+        seed_theme_owned_appearance(&ControlType::Panel, &mut panel_props);
+        assert_eq!(
+            panel_props.get("BorderStyle").map(|v| v.as_str().to_owned()),
+            Some("Single".to_owned()),
+            "a panel's own default is a border, and must stay one"
+        );
     }
 
     /// The Label ink each register seeds must actually be legible on the form

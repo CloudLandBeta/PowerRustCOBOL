@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.39] — 2026-09-03
+
+### The white rim around every saved Switch
+
+"if anything it got worse" (operator, 2026-09-03, with screenshots of a
+Switch off and on, each wearing a pale outline hugging its pill). It was
+worse, and it was ours: two fixes that landed twenty-five minutes apart
+combined into a defect neither had on its own.
+
+1.63.35 gave the Switch a `BorderStyle` it had never had, seeded `"None"`,
+and taught it to stroke the track's own pill radius when a developer turns
+one on. 1.63.36 then made the load-time backfill seed `CornerRadius` and
+`BorderStyle` on controls read from a `.cfrm` — closing a real bug — but it
+seeded `BorderStyle` as a flat `"Single"`, the renderer's fallback for an
+absent property, rather than what a brand new control of that type carries.
+For a Switch that is `"None"`. So every switch in every already-saved form
+came off disk carrying a border nobody had asked for, and 1.63.35's new
+stroking code dutifully drew it. PowerDemo3's own `switch-form.cfrm`, saved
+2026-09-02, has no `BorderStyle` element at all — the rim was invented at
+load time, on a file that is clean on disk, which is why it appeared on
+forms nobody had touched.
+
+The same flat default was wrong for every control whose own seed is `"None"`
+— Label, CheckBox, RadioButton, PictureBox, Animator, ToolBar — each of them
+loading with a border its freshly-dropped twin does not have.
+
+`border_style_default` is now the one table both boundaries read, so a
+control loaded from disk is seeded exactly what `Control::new` gives a new
+one. An explicit `BorderStyle` a developer did choose is still never
+overwritten, and the row still always EXISTS — which is what the backfill
+was for, since the inspector shows a row only for a property that is
+present.
+
+Guarded three ways: a test walking `ControlType::ALL` that fails if
+`Control::new` and the seeding table ever disagree again on any type; a load
+test on a Switch with no saved `BorderStyle` (the operator's file, in
+miniature) asserting it comes back frameless while a Switch that names
+`Single` keeps it; and a correction to the 1.63.36 test that asserted a
+legacy Label loads as `Single` — it said "the same as a freshly created one"
+and then asserted the one value a fresh Label never has. The claim was
+right; the number was the bug.
+
 ## [PowerRustCOBOL 1.63.38] — 2026-09-03
 
 ### A failed build now says what `rustc` actually said
