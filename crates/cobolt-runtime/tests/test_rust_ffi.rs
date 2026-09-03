@@ -582,3 +582,166 @@ fn an_object_reference_declared_in_a_handler_binds_inside_a_block() {
         "the block's result must come back through the handler-local item"
     );
 }
+
+// ── 051 Q1 — adopting a shared bridge must not orphan a form's own objects ──
+//
+// A spawned CHILD form (embedded pane occupant or its own window — the same
+// build, spec 042) is exactly the shape above (a handler with its own
+// `OBJECT REFERENCE` items) PLUS a shared, process-wide Rust bridge that
+// every form's `EXEC RUST` blocks are meant to see (spec 051 Q1). The two
+// tests below use the same HANDLERLOCAL/BUTTON-1--ONCLICK program as the test
+// just above, built two different ways, against a bridge that already holds
+// one unrelated object at id 1 — standing in for the root form (or an
+// earlier sibling) having registered its own object first.
+
+fn handlerlocal_src() -> &'static str {
+    r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. HANDLERLOCAL.
+       ENVIRONMENT DIVISION.
+       CONFIGURATION SECTION.
+       REPOSITORY.
+           CLASS RUST-STRING IS "Rust.String"
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ERROR PIC X(120).
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           CALL "BUTTON-1--ONCLICK"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. BUTTON-1--ONCLICK IS COMMON PROGRAM.
+       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 COBOL-TEXT  USAGE IS OBJECT REFERENCE RUST-STRING.
+       01 RUST-RESULT USAGE IS OBJECT REFERENCE RUST-STRING.
+       LINKAGE SECTION.
+       PROCEDURE DIVISION.
+       MAIN.
+           MOVE "ferris" TO COBOL-TEXT
+
+           EXEC RUST
+           END-EXEC
+
+           DISPLAY RUST-RESULT
+
+           GOBACK.
+
+       END PROGRAM BUTTON-1--ONCLICK.
+       END PROGRAM HANDLERLOCAL.
+"#
+}
+
+fn handlerlocal_body(ctx: &mut cobolt_runtime::exec_rust::ExecRustContext<'_>) {
+    let h_in = ctx.env.get_i64("COBOL-TEXT").unwrap_or(0);
+    let h_out = ctx.env.get_i64("RUST-RESULT").unwrap_or(0);
+    for (h, name) in [(h_in, "COBOL-TEXT"), (h_out, "RUST-RESULT")] {
+        if let Err(e) = ctx.bridge.check_binding::<String>(h, name, "Rust.String") {
+            panic!("{e}");
+        }
+    }
+    let cobol_text: String = ctx.bridge.take_or_init(h_in, String::new);
+    let rust_result = format!("{cobol_text} says hello");
+    ctx.bridge.put_value(h_in, "Rust.String", cobol_text);
+    ctx.bridge.put_value(h_out, "Rust.String", rust_result);
+}
+
+/// The bug, reproduced for real: building with a private bridge and adopting
+/// the shared one AFTER (`set_shared_rust_bridge`, called post-construction —
+/// what every child form did before `new_with_channels_and_bridge` existed)
+/// drops the handler-local items' just-allocated handles. `env` still holds
+/// their OLD ids from the discarded private bridge, and those ids are not
+/// reserved in the shared one — so `MOVE "ferris" TO COBOL-TEXT` silently
+/// writes into whatever unrelated object already lives at id 1, because the
+/// type name happens to match and nothing catches the collision. This is the
+/// "worse than an error" case the fix exists for: no panic, no FILE STATUS,
+/// just a corrupted neighbour.
+#[test]
+fn adopting_a_shared_bridge_after_construction_corrupts_an_unrelated_object() {
+    let result = parse(tokenize(handlerlocal_src(), SourceFormat::Free));
+    assert!(result.diagnostics.iter().all(|d| d.severity != Severity::Error));
+    let program = result.program.expect("no program");
+
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(
+        cobolt_runtime::rust_bridge::RustBridge::new(),
+    ));
+    let sentinel_id = {
+        let mut b = shared.lock().unwrap();
+        let id = b.create_uninitialised("Rust.String");
+        b.put_value(id, "Rust.String", "SENTINEL-DO-NOT-TOUCH".to_string());
+        id
+    };
+    assert_eq!(sentinel_id, 1, "the sentinel must land on the low id a fresh handler bridge would also hand out first");
+
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, _state_rx) = mpsc::channel();
+    let (display_tx, _display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.set_shared_rust_bridge(std::sync::Arc::clone(&shared));
+    interp.register_exec_rust_blocks(|reg| reg.register(0, handlerlocal_body));
+    let _ = interp.run();
+
+    let sentinel_now: Option<String> = shared.lock().unwrap().peek(sentinel_id).and_then(|v| match v {
+        cobolt_runtime::rust_bridge::BridgeValue::Str(s) => Some(s),
+        _ => None,
+    });
+    assert_eq!(
+        sentinel_now.as_deref(),
+        Some("ferris"),
+        "reproduction failed to reproduce: the old two-step sequence should have let \
+         the handler's own MOVE overwrite the unrelated sentinel object at the same id"
+    );
+}
+
+/// The fix: seeding into the shared bridge from construction means the
+/// handler's own items get ids the bridge has not handed out yet (2 and 3,
+/// after the sentinel's 1) — never colliding with what was already there.
+#[test]
+fn new_with_channels_and_bridge_never_touches_an_unrelated_object() {
+    let result = parse(tokenize(handlerlocal_src(), SourceFormat::Free));
+    assert!(result.diagnostics.iter().all(|d| d.severity != Severity::Error));
+    let program = result.program.expect("no program");
+
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(
+        cobolt_runtime::rust_bridge::RustBridge::new(),
+    ));
+    let sentinel_id = {
+        let mut b = shared.lock().unwrap();
+        let id = b.create_uninitialised("Rust.String");
+        b.put_value(id, "Rust.String", "SENTINEL-DO-NOT-TOUCH".to_string());
+        id
+    };
+
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, _state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels_and_bridge(
+        program,
+        event_rx,
+        state_tx,
+        display_tx,
+        Some(std::sync::Arc::clone(&shared)),
+    );
+    interp.register_exec_rust_blocks(|reg| reg.register(0, handlerlocal_body));
+    interp
+        .run()
+        .expect("the handler's own OBJECT REFERENCE items must be bindable in the shared bridge");
+
+    let sentinel_now: Option<String> = shared.lock().unwrap().peek(sentinel_id).and_then(|v| match v {
+        cobolt_runtime::rust_bridge::BridgeValue::Str(s) => Some(s),
+        _ => None,
+    });
+    assert_eq!(
+        sentinel_now.as_deref(),
+        Some("SENTINEL-DO-NOT-TOUCH"),
+        "the handler's own MOVE/EXEC RUST must never reach an object it does not own"
+    );
+    let displayed: Vec<String> = display_rx.try_iter().map(|s| s.trim().to_owned()).collect();
+    assert_eq!(
+        displayed,
+        vec!["ferris says hello".to_string()],
+        "the handler must still work correctly against its own (now id 2/3) objects"
+    );
+}

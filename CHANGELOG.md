@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.28] — 2026-09-03
+
+### EXEC RUST objects went stale the moment a form was anything but the root window
+
+Reported as "Cobol+rust - Works when standalone window, does not work
+embedded" (operator, 2026-09-03). Every interpreter allocates real Rust-FFI
+object handles for its `OBJECT REFERENCE` items at construction — a private
+bridge, built fresh every time. A spawned CHILD form (the sidebar picker's
+embedded demos, or a `OPEN FORM ... AS WINDOW` child — spec 042's one form
+host builds both the same way) then adopted the process-wide SHARED bridge
+**after** construction, via `set_shared_rust_bridge` — which drops whatever
+the constructor had just allocated into the now-discarded private one. The
+child's `env` kept referencing those dead ids.
+
+That is already broken on its own — an EXEC RUST block trying to bind one of
+those ids got "handle N is not live", surfacing as `FFI failed:` from the
+handler's own `CATCH RUST-EXCEPTION`. It gets worse: a fresh bridge always
+starts numbering its handles at 1, so a child's dead ids are exactly the LOW
+ids the shared bridge handed out to whatever the root form (or an earlier
+sibling) registered first. A plain `MOVE` into the child's own `OBJECT
+REFERENCE` item — ordinary code, no block involved — silently overwrote
+that unrelated object instead of erroring, because the type name happened to
+match and nothing was there to catch the collision. No panic, no FILE
+STATUS: a form's own logic quietly corrupting an object it never touched.
+
+The root form never hit this — it never adopts anyone else's bridge, so its
+private one is simply its bridge for the whole run. That is exactly why the
+bug only ever showed up embedded.
+
+`Interpreter` now has `new_with_channels_and_bridge`, which seeds a form's
+`OBJECT REFERENCE` items directly into the bridge it will actually keep —
+shared or private — instead of building against a throwaway one and hoping
+nobody adopts a different bridge before the environment's ids are read. Every
+existing caller (100+ call sites, mostly tests) is untouched; only the one
+spot that ever adopted a shared bridge — `build_form_instance`, the single
+place spec 042's one form host constructs a child interpreter — switched to
+it.
+
+Verified with two tests that run the *same* handler-shaped program (an
+`OBJECT REFERENCE` pair declared inside a nested COMMON program, exactly the
+RAD generator's own shape) against a bridge that already holds one unrelated
+object at the low id a fresh handler would also claim: built the old way, the
+handler's own `MOVE` provably overwrites that object; built the new way, the
+object is provably untouched and the handler still produces the right
+result. The bug had to be reproduced on purpose, not just assumed fixed.
+
 ## [PowerRustCOBOL 1.63.27] — 2026-09-03
 
 ### A new Shape is flat by default, the way a drawing primitive should be

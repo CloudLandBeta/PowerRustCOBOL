@@ -1649,6 +1649,27 @@ impl Interpreter {
     /// that `EXTERNAL` data is the same physical copy across every interpreter
     /// built with the same store.
     pub fn with_external_store(program: Program, external_store: ExternalStore) -> Self {
+        Self::with_external_store_and_bridge(program, external_store, None)
+    }
+
+    /// Like [`with_external_store`](Self::with_external_store), but seeds this
+    /// program's `OBJECT REFERENCE` items directly into `shared_bridge` (`None`
+    /// = a fresh private bridge, exactly as before this method existed).
+    ///
+    /// A caller that instead builds with a private bridge and swaps in a
+    /// shared one afterward via `set_shared_rust_bridge` drops every handle
+    /// this constructor already allocated — `env` keeps referencing those now
+    /// -dead ids, and the program's own EXEC RUST objects either fail with
+    /// "handle is not live" or, worse, silently alias onto whatever unrelated
+    /// object already holds that same low id in the shared bridge (operator,
+    /// 2026-09-03 — EXEC RUST "works standalone, not embedded": a spawned
+    /// child form is exactly that sequence). Seeding into the real bridge from
+    /// the start makes the two-step sequence impossible to get wrong.
+    fn with_external_store_and_bridge(
+        program: Program,
+        external_store: ExternalStore,
+        shared_bridge: Option<std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>>>,
+    ) -> Self {
         let mut env = if let Some(data) = &program.data {
             CobolEnvironment::from_data_division_with_origin(
                 data,
@@ -1664,9 +1685,15 @@ impl Interpreter {
         seed_external_store(&mut env, &external_store);
         // Construct the program's Rust-FFI object references (spec 005): each
         // `OBJECT REFERENCE` item gets a live Rust object (from its VALUE, if any)
-        // and its handle id stored in the environment.
-        let mut rust_bridge = crate::rust_bridge::RustBridge::new();
-        let mut object_refs = build_object_refs(&program, &mut env, &mut rust_bridge);
+        // and its handle id stored in the environment — seeded directly into
+        // the bridge this interpreter will actually keep, shared or private.
+        let rust_bridge_handle = shared_bridge.unwrap_or_else(|| {
+            std::sync::Arc::new(std::sync::Mutex::new(crate::rust_bridge::RustBridge::new()))
+        });
+        let mut object_refs = {
+            let mut bridge = rust_bridge_handle.lock().unwrap_or_else(|e| e.into_inner());
+            build_object_refs(&program, &mut env, &mut bridge)
+        };
         let (para_map, para_order, para_bodies, section_names) =
             build_para_map(&program.procedure.body);
         let user_classes: HashMap<String, Vec<(char, char)>> = program
@@ -1704,13 +1731,16 @@ impl Interpreter {
         // A nested program — every RAD event handler is one — declares its own
         // `OBJECT REFERENCE` items; they need objects too, seeded into the
         // program's local template so they are in place from its first CALL.
-        seed_nested_object_refs(
-            &program,
-            &repository_map(&program),
-            &mut nested_registry,
-            &mut rust_bridge,
-            &mut object_refs,
-        );
+        {
+            let mut bridge = rust_bridge_handle.lock().unwrap_or_else(|e| e.into_inner());
+            seed_nested_object_refs(
+                &program,
+                &repository_map(&program),
+                &mut nested_registry,
+                &mut bridge,
+                &mut object_refs,
+            );
+        }
 
         let (file_specs, record_to_file) = build_file_specs(&program);
         let same_area_peers = build_same_area_peers(&program);
@@ -1733,7 +1763,7 @@ impl Interpreter {
             program,
             env,
             external_store,
-            rust_bridge: std::sync::Arc::new(std::sync::Mutex::new(rust_bridge)),
+            rust_bridge: rust_bridge_handle,
             object_refs,
             objects: ObjectRegistry::new(),
             exec_rust: crate::exec_rust::ExecRustRegistry::new(),
@@ -2327,6 +2357,31 @@ impl Interpreter {
         display_tx: mpsc::Sender<String>,
     ) -> Self {
         let mut interp = Self::new(program);
+        interp.event_rx = Some(event_rx);
+        interp.state_tx = Some(state_tx);
+        interp.display_tx = Some(display_tx);
+        interp
+    }
+
+    /// Like [`new_with_channels`](Self::new_with_channels), but for a form
+    /// that is going to adopt a shared Rust-object bridge (051 Q1 — a spawned
+    /// child form, embedded or its own window) — seed its `OBJECT REFERENCE`
+    /// items into `shared_bridge` from construction rather than building with
+    /// a private bridge first and swapping it in afterward via
+    /// [`set_shared_rust_bridge`](Self::set_shared_rust_bridge), which drops
+    /// whatever this constructor already allocated. `None` behaves exactly
+    /// like [`new_with_channels`](Self::new_with_channels) (the interpreter's
+    /// own private bridge, e.g. the root form, which is never adopted into
+    /// anything).
+    pub fn new_with_channels_and_bridge(
+        program: Program,
+        event_rx: mpsc::Receiver<FormEvent>,
+        state_tx: mpsc::Sender<StateUpdate>,
+        display_tx: mpsc::Sender<String>,
+        shared_bridge: Option<std::sync::Arc<std::sync::Mutex<crate::rust_bridge::RustBridge>>>,
+    ) -> Self {
+        let mut interp =
+            Self::with_external_store_and_bridge(program, new_external_store(), shared_bridge);
         interp.event_rx = Some(event_rx);
         interp.state_tx = Some(state_tx);
         interp.display_tx = Some(display_tx);

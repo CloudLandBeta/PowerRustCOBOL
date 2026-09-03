@@ -2662,16 +2662,18 @@ impl FormHost {
             let bridge = self.shared_rust_bridge.clone();
             let err_tx = display_tx.clone();
             std::thread::spawn(move || {
-                let mut interp = cobolt_runtime::interpreter::Interpreter::new_with_channels(
-                    program, ev_rx, state_tx, display_tx,
-                );
+                // 051 Q1 — one object bridge per process, adopted from
+                // construction: seeding this form's own EXEC RUST objects into
+                // the shared bridge directly (rather than building with a
+                // private one and swapping it in after) is what keeps their
+                // handles valid — see `new_with_channels_and_bridge`'s doc.
+                let mut interp =
+                    cobolt_runtime::interpreter::Interpreter::new_with_channels_and_bridge(
+                        program, ev_rx, state_tx, display_tx, bridge,
+                    );
                 interp.set_input_channel(input_rx);
                 interp.set_event_counter(pending);
                 interp.set_form_host(req_tx, &handle, &form_object, closed_rx);
-                if let Some(b) = bridge {
-                    // 051 Q1 — one object bridge per process.
-                    interp.set_shared_rust_bridge(b);
-                }
                 if let Some(setup) = setup {
                     setup(&mut interp);
                 }

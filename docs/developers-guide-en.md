@@ -5900,6 +5900,15 @@ an error — fill those inside a block.
 > seen as `FFI failed:` from the handler's `CATCH RUST-EXCEPTION`. Rebuild with a
 > current version.
 
+> ⚠️ **Before 1.63.28, a form opened any way other than as your project's main
+> window** — picked from a sidebar/menu into a content pane, or opened with
+> `OPEN FORM … AS WINDOW` — **could hit the same `handle is not live` failure,
+> or worse: a plain `MOVE` into one of its own `OBJECT REFERENCE` items could
+> silently overwrite an unrelated object belonging to another open form,**
+> with no error at all. A form running as your project's main window never
+> showed this. Rebuild with a current version — nothing about how you write
+> `EXEC RUST` changes.
+
 #### Where a block may appear
 
 Anywhere a statement may appear — including inside `IF`, `EVALUATE`, `PERFORM`,
