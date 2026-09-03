@@ -900,11 +900,12 @@ impl FormBody {
         };
         self.snackbars.layout(surf, &measure, now);
 
-        // Paint newest LAST so it sits over its neighbours, and collect the
-        // button rects for hit-testing. The stack decides what is drawn and how
-        // far through its entrance, movement or fade it is; the host only turns
-        // that into a rect and an alpha.
-        let mut hits: Vec<(u64, Vec<egui::Rect>)> = Vec::new();
+        // Paint newest LAST so it sits over its neighbours, and collect each
+        // notification's clickable rects for hit-testing — its built-in close
+        // plus the developer's own buttons. The stack decides what is drawn and
+        // how far through its entrance, movement or fade it is; the host only
+        // turns that into a rect and an alpha.
+        let mut hits: Vec<(u64, cobolt_forms::paint::SnackbarPaint)> = Vec::new();
         for d in self.snackbars.to_draw(now) {
             let rect = egui::Rect::from_min_size(
                 egui::Pos2::new(d.rect.x as f32, d.rect.y as f32),
@@ -921,23 +922,32 @@ impl FormBody {
                 d.alpha,
                 snack_pointer,
             );
-            // A remnant is already closed: its buttons are not clickable.
+            // A remnant is already closed: its close and buttons are not
+            // clickable.
             if d.interactive {
-                hits.push((d.id, out.buttons));
+                hits.push((d.id, out));
             }
         }
 
-        // A click on a button. The notification is not a control, so this is not
-        // an `interact` on a widget id — it is a hit test against the rects the
-        // painter just reported, which is the same thing the toolbar does.
+        // A click on the close or a button. The notification is not a control,
+        // so this is not an `interact` on a widget id — it is a hit test
+        // against the rects the painter just reported, which is the same thing
+        // the toolbar does. The close is always on (055 follow-up, operator
+        // 2026-09-03) and dismisses only ITS notification — unlike
+        // `DismissAll()`, which is scoped to the whole control.
         if ui.input(|i| i.pointer.primary_clicked()) {
             if let Some(pos) = ui.ctx().pointer_interact_pos() {
-                'outer: for (id, buttons) in hits.iter().rev() {
-                    for (idx, br) in buttons.iter().enumerate() {
-                        if br.contains(pos) {
+                'outer: for (id, paint) in hits.iter().rev() {
+                    match paint.hit_test(pos) {
+                        Some(cobolt_forms::paint::SnackHit::Close) => {
+                            self.snackbars.dismiss(*id, cobolt_forms::snackbar::DismissReason::User);
+                            break 'outer;
+                        }
+                        Some(cobolt_forms::paint::SnackHit::Button(idx)) => {
                             self.snackbars.click_button(*id, idx);
                             break 'outer;
                         }
+                        None => {}
                     }
                 }
             }

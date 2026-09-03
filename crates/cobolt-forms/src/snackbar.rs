@@ -859,6 +859,48 @@ pub fn layout_content(
     ContentLayout { icon, text: text_rect, buttons, lines_used, ellipsized }
 }
 
+// ── The built-in close ───────────────────────────────────────────────────────
+//
+// Every notification gets one, on top of whatever buttons the developer added
+// (operator, 2026-09-03) — Critical's own `timeout_ms: 0` (§7) otherwise left
+// a buttonless Critical notification with no way to close it but `DismissAll()`,
+// which takes every live notification on the control, not just the one. It is
+// deliberately NOT a `SnackButton`: never part of `Buttons`, never counted
+// against [`MAX_BUTTONS`], always present regardless of category.
+
+/// How much width the close reserves on the notification's right edge: its own
+/// square plus the gap that keeps it clear of whatever the developer put
+/// there — a button, or just the text.
+///
+/// Sized off the class's own `icon` metric rather than a fourth arbitrary
+/// number — the close scales with Small/Medium/Large exactly as the category
+/// icon does. Callers narrow the rect they hand `layout_content` by this same
+/// amount (never `layout_content` itself — its contract stays the plain
+/// R19 row), which is what makes the two unable to disagree about where the
+/// reserved column is.
+pub fn close_button_width(size: SnackSize) -> f32 {
+    let m = size.metrics();
+    m.icon + m.gap
+}
+
+/// Where the built-in close sits: the notification's own top-right corner, on
+/// the same `pad_x`/`pad_y` margins as everything else (R19), inside the
+/// column [`close_button_width`] reserves. Because that column is never handed
+/// to `layout_content`, the close can never land on a developer button however
+/// many the notification declares.
+pub fn close_button_rect(rect: Rect, size: SnackSize) -> Rect {
+    let m = size.metrics();
+    let side = m.icon;
+    let x = rect.x as f32 + rect.w as f32 - m.pad_x - side;
+    let y = rect.y as f32 + m.pad_y;
+    Rect::new(
+        x.round() as i32,
+        y.round() as i32,
+        side.round() as i32,
+        side.round() as i32,
+    )
+}
+
 /// The size one notification wants, before the stack places it.
 ///
 /// Width is the content's natural width clamped to the class's `min_width` …
@@ -883,7 +925,13 @@ pub fn notification_size(
             + m.gap * button_widths.len().saturating_sub(1) as f32
             + m.gap
     };
-    let natural = m.pad_x * 2.0 + icon_w + text_width_of(text) + buttons_w;
+    // The built-in close (always on) reserves its own column too — the same
+    // one a caller narrows `layout_content`'s rect by — so the width settled
+    // on here always leaves the text and the developer's buttons the room
+    // they would have had without it, rather than ellipsizing text the class
+    // and content alone would have fit.
+    let close_w = close_button_width(size);
+    let natural = m.pad_x * 2.0 + icon_w + text_width_of(text) + buttons_w + close_w;
 
     // The surface is a ceiling as well as the class: a notification wider than
     // the pane it is anchored in would be clipped, and the developer would see
@@ -892,7 +940,7 @@ pub fn notification_size(
     let width = natural.clamp(m.min_width, ceiling.max(m.min_width));
 
     // Measure the lines against the width we just settled on.
-    let text_w = (width - m.pad_x * 2.0 - icon_w - buttons_w).max(0.0);
+    let text_w = (width - m.pad_x * 2.0 - icon_w - buttons_w - close_w).max(0.0);
     let needed = if !wrap || text_w <= 0.5 {
         1
     } else {
@@ -1291,6 +1339,74 @@ mod tests {
             l.buttons[1].x, l.buttons[1].x + l.buttons[1].w,
             right_margin
         );
+    }
+
+    #[test]
+    fn the_close_button_sits_in_the_top_right_corner_and_never_overlaps_the_row() {
+        // `draw_snackbar` narrows the rect it hands `layout_content` by
+        // `close_button_width` — reproduced here so the test exercises the
+        // real contract between the two, not a hand-picked width.
+        eprintln!("\n  class    close rect [x0..x1]×[y0..y1]     buttons end at   clearance");
+        eprintln!("  ------   ---------------------------------   --------------   ---------");
+        for s in SnackSize::ALL {
+            let m = s.metrics();
+            let h = m.min_height.round() as i32;
+            let full = Rect::new(40, 100, 400, h);
+            let content = Rect::new(
+                full.x,
+                full.y,
+                (full.w as f32 - close_button_width(s)).round() as i32,
+                full.h,
+            );
+            let l = layout_content(content, s, Some(m.icon), "Saved", &[70.0, 60.0], &measure, true);
+            let close = close_button_rect(full, s);
+            let buttons_right = l.buttons.last().unwrap().x + l.buttons.last().unwrap().w;
+            let clearance = close.x - buttons_right;
+
+            eprintln!(
+                "  {:<7}  [{:>3}..{:>3}]×[{:>3}..{:>3}]   {:>14}   {:>9}",
+                s.as_str(), close.x, close.x + close.w, close.y, close.y + close.h,
+                buttons_right, clearance
+            );
+
+            // Flush with the same right/top margins everything else uses
+            // (R19's pad_x, and pad_y for the top) — the "corner" in its name.
+            assert_eq!(
+                close.x + close.w, full.x + full.w - m.pad_x.round() as i32,
+                "{}: close must sit flush with the right margin", s.as_str()
+            );
+            assert_eq!(
+                close.y, full.y + m.pad_y.round() as i32,
+                "{}: close must sit flush with the top margin", s.as_str()
+            );
+
+            // And it never overlaps ANY of the row's own buttons — not just
+            // the rightmost — however many the notification declares.
+            for (i, br) in l.buttons.iter().enumerate() {
+                assert!(
+                    close.x >= br.x + br.w,
+                    "{}: close overlaps button {i} ({close:?} vs {br:?})", s.as_str()
+                );
+            }
+            assert!(clearance > 0, "{}: some daylight between the row and the close", s.as_str());
+        }
+        eprintln!("  → the close-X's own column starts where the row's buttons must stop, in all 3 classes\n");
+    }
+
+    /// A buttonless notification (Critical's own shape, §7 R6) still gets a
+    /// close — the whole reason this exists (operator, 2026-09-03): before it,
+    /// a Critical notification with `timeout_ms: 0` and no developer button had
+    /// no way to close individually, only `DismissAll()` for the whole control.
+    #[test]
+    fn a_buttonless_notification_still_gets_a_close_rect_inside_its_own_bounds() {
+        for s in SnackSize::ALL {
+            let m = s.metrics();
+            let full = Rect::new(0, 0, m.min_width.round() as i32, m.min_height.round() as i32);
+            let close = close_button_rect(full, s);
+            assert!(close.x >= full.x && close.x + close.w <= full.x + full.w, "{}: close stays inside the card horizontally", s.as_str());
+            assert!(close.y >= full.y && close.y + close.h <= full.y + full.h, "{}: close stays inside the card vertically", s.as_str());
+        }
+        eprintln!("\n  → a buttonless notification's close rect stays within its own bounds in all 3 classes\n");
     }
 
     #[test]

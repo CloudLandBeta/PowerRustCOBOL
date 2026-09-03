@@ -4559,7 +4559,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ),
             (
                 "DismissAll()",
-                "Dismiss every live notification RAISED BY THIS CONTROL, with reason `Programmatic`; anything this control had queued is discarded too. Other Snackbar controls on the form are untouched. There is no `Hide()` — under `Show()`-as-factory it could not say WHICH notification it meant.",
+                "Dismiss every live notification RAISED BY THIS CONTROL, with reason `Programmatic`; anything this control had queued is discarded too. Other Snackbar controls on the form are untouched. There is no COBOL-callable `Hide()`/`Dismiss(id)` for ONE notification — under `Show()`-as-factory it could not say WHICH notification it meant. The operator has their own way to close one: every notification carries a built-in close button (top-right, reason `User`) regardless of category or whatever buttons the developer added — that is UI, not a CALL, so it has no effect on what your COBOL code can dismiss programmatically.",
             ),
             (
                 "Clear()",

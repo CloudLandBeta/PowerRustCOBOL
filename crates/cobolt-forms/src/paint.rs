@@ -17678,8 +17678,34 @@ mod gauge_zone_tests {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SnackbarPaint {
     pub rect: egui::Rect,
+    /// The built-in close — always present, never one of `buttons` (055
+    /// follow-up, operator 2026-09-03: every notification gets one, on top of
+    /// whatever buttons the developer added).
+    pub close: egui::Rect,
     /// One per button, in `Buttons` order.
     pub buttons: Vec<egui::Rect>,
+}
+
+/// What a pointer position landed on — the same test the host runs against a
+/// click, exposed here so it can be driven directly in a test without an
+/// `egui::Ui` to click through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnackHit {
+    Close,
+    /// Index into `Buttons` order — the same index `click_button` takes.
+    Button(usize),
+}
+
+impl SnackbarPaint {
+    /// Which clickable rect `pos` falls in, if any. `close` and `buttons`
+    /// never overlap — `draw_snackbar` reserves the close its own column — so
+    /// the order they are checked in cannot change the answer.
+    pub fn hit_test(&self, pos: egui::Pos2) -> Option<SnackHit> {
+        if self.close.contains(pos) {
+            return Some(SnackHit::Close);
+        }
+        self.buttons.iter().position(|r| r.contains(pos)).map(SnackHit::Button)
+    }
 }
 
 /// Where the pointer is, so a notification's buttons can answer it.
@@ -17904,13 +17930,23 @@ pub fn draw_snackbar(
         .collect();
 
     let icon_side = v.icon.as_ref().map(|_| v.icon_size);
+    let full_rect = crate::model::Rect::new(
+        rect.min.x.round() as i32,
+        rect.min.y.round() as i32,
+        rect.width().round() as i32,
+        rect.height().round() as i32,
+    );
+    // The built-in close (always on) reserves its own column on the right —
+    // `layout_content` never sees that space, so a developer's own buttons can
+    // never land on it (055 follow-up, operator 2026-09-03).
+    let content_rect = crate::model::Rect::new(
+        full_rect.x,
+        full_rect.y,
+        (full_rect.w as f32 - crate::snackbar::close_button_width(v.size)).round() as i32,
+        full_rect.h,
+    );
     let l = layout_content(
-        crate::model::Rect::new(
-            rect.min.x.round() as i32,
-            rect.min.y.round() as i32,
-            rect.width().round() as i32,
-            rect.height().round() as i32,
-        ),
+        content_rect,
         v.size,
         icon_side,
         &v.text,
@@ -18019,5 +18055,25 @@ pub fn draw_snackbar(
         }
     }
 
-    SnackbarPaint { rect, buttons: button_rects }
+    // The built-in close — always on, painted the same way a developer button
+    // is (a well that answers the pointer, then the glyph), but it is never one
+    // of `v.buttons`: it exists regardless of category or whether the
+    // developer declared any button at all (operator, 2026-09-03).
+    let close_rect = to_egui(crate::snackbar::close_button_rect(full_rect, v.size));
+    let close_well_alpha = match pointer.state_of(close_rect) {
+        crate::toolbar_paint::ButtonState::Idle => 38,
+        crate::toolbar_paint::ButtonState::Hovered => 64,
+        crate::toolbar_paint::ButtonState::Pressed => 96,
+    };
+    let close_well = Color32::from_rgba_unmultiplied(ink.r(), ink.g(), ink.b(), close_well_alpha);
+    painter.rect_filled(
+        close_rect,
+        egui::CornerRadius::same((m.icon / 3.0) as u8),
+        fade(close_well),
+    );
+    let close_glyph =
+        egui::Rect::from_center_size(close_rect.center(), egui::Vec2::splat(m.icon * 0.8));
+    crate::icons::draw_menu_icon(painter, close_glyph, "x-mark", ink);
+
+    SnackbarPaint { rect, close: close_rect, buttons: button_rects }
 }

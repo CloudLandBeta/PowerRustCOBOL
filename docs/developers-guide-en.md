@@ -3224,6 +3224,17 @@ with exactly what was left when the pointer moves away — an operator reading a
 message never has it vanish under the cursor. Turn that off with
 `PauseTimeoutOnHover`.
 
+**Every notification has a built-in close, top-right** (1.63.30) — regardless
+of `Category` or whatever buttons you declared. This is the operator's own
+way to dismiss ONE message, including a `Critical` one that never times out
+on its own. It fires its own dismissal reason, `User` — distinct from
+`Timeout` (expired on its own), `Action` (a button's `dismiss=true`) and
+`Programmatic` (`DismissAll()`) — so a handler reading the dismissal reason
+can always tell the four apart. It is a UI affordance only: there is no
+COBOL-callable equivalent for dismissing a single notification by CALL;
+`DismissAll()` remains the only programmatic dismissal, and it clears every
+live notification this control raised, not just one.
+
 **Buttons.** Up to three, one per line in the `Buttons` property, fields
 separated by `|`. Trailing fields may be left off:
 
@@ -3366,8 +3377,10 @@ are untouched:
        INVOKE SNACK-1::DismissAll()
 ```
 
-There is no `Hide()`. With `Show()` minting a new notification each time, `Hide()`
-could not say *which* one it meant.
+There is no COBOL-callable `Hide()` for one notification. With `Show()` minting
+a new notification each time, `Hide()` could not say *which* one it meant —
+that is what the operator's own close button is for (above); it is UI, not a
+CALL your handler can reach for.
 
 **Events.** `onShown` when a message joins the stack, `onTimeout` when its time
 runs out, then `onClosing` and `onClosed` as it leaves — both carrying the reason

@@ -955,3 +955,113 @@ fn the_stack_reports_when_an_effect_is_in_flight() {
     );
     eprintln!("\n  → screen-rate only while an effect is running or pending\n");
 }
+
+/// 055 follow-up (operator, 2026-09-03) — every notification gets a built-in
+/// close, on top of whatever buttons the developer added. Before this, a
+/// Critical notification with no developer button had NO way to close
+/// individually: its category default is `timeout_ms: 0` (§7 R6 — severe
+/// enough that it must not silently expire), and only `DismissAll()` existed,
+/// which takes every live notification on the control at once.
+///
+/// This drives the click the way the host actually would: paint each
+/// notification at its REAL, stack-laid-out rect through the production
+/// `draw_snackbar`, read back where it put the close, and dismiss by clicking
+/// exactly there (`SnackbarPaint::hit_test`, the same test `host.rs` runs).
+#[test]
+fn clicking_the_close_dismisses_only_that_notification() {
+    let t0 = Instant::now();
+    let mut s = SnackbarStack::new();
+
+    let critical = visual(&[("Category", PropValue::String("Critical".into()))]);
+    assert_eq!(critical.timeout_ms, 0, "fixture: Critical never expires on its own (R6)");
+    assert!(critical.buttons.is_empty(), "fixture: no developer buttons");
+
+    let with_buttons = visual(&[(
+        "Buttons",
+        PropValue::String("retry|Retry|refresh|Left|true\nclose|Close||Left|true".into()),
+    )]);
+
+    // One arrival at a time (the stack's own rule) — raise and settle the
+    // Critical one, then the buttoned one, so both are up together.
+    let (ids_a, t1) = raise_settled(&mut s, "SNACK-1", || critical.clone(), t0, 1);
+    let (ids_b, t2) = raise_settled(&mut s, "SNACK-1", || with_buttons.clone(), t1, 1);
+    let (id_a, id_b) = (ids_a[0], ids_b[0]);
+    let rects = s.layout(SURFACE, &fixed_size, t2);
+    assert_eq!(rects.len(), 2, "both settled and up");
+
+    // Paint each at its real laid-out rect and collect what the painter
+    // reports — the exact geometry the host hands to its own hit test.
+    let ctx = egui::Context::default();
+    let mut input = egui::RawInput::default();
+    input.screen_rect = Some(egui::Rect::from_min_size(
+        egui::Pos2::ZERO,
+        egui::Vec2::new(SURFACE.w as f32, SURFACE.h as f32),
+    ));
+    let mut paints: std::collections::HashMap<u64, cobolt_forms::paint::SnackbarPaint> =
+        std::collections::HashMap::new();
+    let mut full = ctx.run_ui(input, |root_ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+            for (id, r) in &rects {
+                let n = s.live().iter().find(|n| n.id == *id).expect("still live");
+                let er = egui::Rect::from_min_size(
+                    egui::Pos2::new(r.x as f32, r.y as f32),
+                    egui::Vec2::new(r.w as f32, r.h as f32),
+                );
+                let out = cobolt_forms::paint::draw_snackbar(
+                    ui.painter(),
+                    er,
+                    &n.visual,
+                    None,
+                    1.0,
+                    cobolt_forms::paint::SnackPointer::inert(),
+                );
+                paints.insert(*id, out);
+            }
+        });
+    });
+    full.textures_delta.clear();
+
+    let paint_a = paints.get(&id_a).expect("A painted");
+    let paint_b = paints.get(&id_b).expect("B painted");
+    assert!(paint_a.buttons.is_empty(), "A: the Critical fixture declared no buttons");
+    assert_eq!(paint_b.buttons.len(), 2, "B: the fixture declared two buttons");
+    for (i, br) in paint_b.buttons.iter().enumerate() {
+        assert!(!paint_b.close.intersects(*br), "B: close overlaps button {i} ({:?} vs {:?})", paint_b.close, br);
+    }
+
+    eprintln!("\n  id   fixture             close centre           buttons");
+    eprintln!("  ---  ------------------  ---------------------  -------");
+    eprintln!("  {id_a:<3}  Critical/no-button  {:?}   0", paint_a.close.center());
+    eprintln!("  {id_b:<3}  2 developer buttons {:?}   2", paint_b.close.center());
+
+    // Click A's close, at exactly the position the painter put it.
+    use cobolt_forms::paint::SnackHit;
+    assert_eq!(paint_a.hit_test(paint_a.close.center()), Some(SnackHit::Close));
+    assert!(s.dismiss(id_a, DismissReason::User), "A's close dismisses A");
+
+    assert_eq!(s.live().len(), 1, "AC: exactly one notification removed");
+    assert_eq!(s.live()[0].id, id_b, "the rest of the stack is undisturbed");
+    assert_eq!(s.live()[0].visual.buttons.len(), 2, "B's own buttons are untouched");
+    let evs_a: Vec<String> = s.drain_events().iter().map(describe).collect();
+    let closes_a: Vec<&String> =
+        evs_a.iter().filter(|e| e.starts_with("Closing(") || e.starts_with("Closed(")).collect();
+    assert_eq!(
+        closes_a,
+        vec![&format!("Closing({id_a},User)"), &format!("Closed({id_a},User)")],
+        "only A closed, with reason User, and B fired no Closing/Closed at all: {evs_a:?}"
+    );
+
+    // Symmetrically, click B's close — the case where the close must not be
+    // shadowed by, or itself shadow, a developer button.
+    assert_eq!(paint_b.hit_test(paint_b.close.center()), Some(SnackHit::Close));
+    assert!(s.dismiss(id_b, DismissReason::User), "B's close dismisses B too");
+    assert!(s.live().is_empty(), "both gone, nothing left over");
+    let evs_b: Vec<String> = s.drain_events().iter().map(describe).collect();
+    assert_eq!(
+        evs_b,
+        vec![format!("Closing({id_b},User)"), format!("Closed({id_b},User)")],
+        "B closed with reason User: {evs_b:?}"
+    );
+
+    eprintln!("  → close(A) removed exactly A; close(B) removed exactly B; stack ends empty, no overlap either fixture\n");
+}

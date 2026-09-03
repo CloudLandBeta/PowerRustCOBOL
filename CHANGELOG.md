@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.30] — 2026-09-03
+
+### Every Snackbar notification can now be closed on its own
+
+"A critical notification without a button stays in the window forever. how
+do I get rid of it?" (operator, 2026-09-03). True by design — `Critical`
+deliberately never times out on its own — but there was genuinely no way to
+close ONE, short of `DismissAll()`, which takes down every live notification
+this control raised at once.
+
+Every notification now carries a built-in close, top-right, regardless of
+`Category` or whatever buttons the developer added. It reserves its own
+column in the layout rather than merely finding empty space, so a developer's
+own buttons or text physically cannot land on it. Clicking it dismisses only
+that ONE notification, with a new dismissal reason, `User`, distinct from
+`Timeout`/`Action`/`Programmatic`/`Overflow` — `onClosing`/`onClosed` already
+carried `User` as a documented, tested reason value; nothing in the running
+control had ever actually produced it until now.
+
+This reuses `SnackbarStack::dismiss()`, an existing, already-tested single-
+notification removal function that had simply never been wired into a
+production click path — `DismissAll()` was the only caller. No new property,
+no new event, and no COBOL-callable per-notification dismissal was added:
+the close is UI the operator gets for free, not something a handler calls.
+
 ## [PowerRustCOBOL 1.63.29] — 2026-09-03
 
 ### A demo with its own sidebar no longer loads beside the shell's
