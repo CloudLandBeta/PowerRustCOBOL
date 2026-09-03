@@ -5047,6 +5047,13 @@ impl Control {
             ControlType::Switch => {
                 props.insert("Checked".into(), PropValue::Bool(false));
                 props.insert("Accent".into(), PropValue::String("Blue".into()));
+                // No border by default — the track's own fill/outline (which
+                // themes with a Toggle surface already vary by state) IS the
+                // switch's face. An explicit border is additive and off unless
+                // the developer asks for one, the same convention PictureBox
+                // and Animator use.
+                props.insert("BorderStyle".into(), PropValue::String("None".into()));
+                props.insert("BorderColor".into(), PropValue::String("#888888".into()));
             }
             // FileDropZone (spec 039): egui-elegance's `FileDropZone`.
             // DroppedFiles is runtime-only (populated by a drop or the

@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.35] — 2026-09-03
+
+### A Switch's border is now the developer's own choice, and follows the pill's own shape when it draws one
+
+Reported from a screenshot: a faint white outline visible only at the
+corners of a Switch's track (operator, 2026-09-03, PowerDemo3). Traced the
+control's actual rendering (`CT::Switch` in `paint.rs`, the one shared
+painter for the designer, Run Form and a compiled binary) all the way
+through — the shapes it emits for a plain, unconfigured Switch under both
+Elegance (a themed outline-when-off pill) and Liquid Glass (a solid-filled
+one) are exactly a track and a knob, nothing else; no extra rim shape exists
+in either configuration to explain a corner-only artifact. Added two tests
+that dump the actual painted shapes rather than just counting them, proving
+the current rendering is clean under both. If the artifact is still visible
+after relaunching on this build, it needs a fresh look with more to go on —
+several other reports today turned out to be stale, pre-rebuild binaries.
+
+Regardless of that mystery, the request had a second, independently clear
+half: a Switch had no way at all to ask for an explicit border — unlike
+PictureBox or Animator, it seeded no `BorderStyle`. It now does (seeded
+`"None"`, matching that same convention), and when a developer turns one on,
+it draws on the track's own pill radius — never the control's generic
+rectangular frame — so a border, once asked for, reads as part of the
+switch's own outline on every side rather than a rim that only shows where a
+square frame clears a round pill's corners. That mismatch is precisely what
+a corner-only artifact looks like, so this closes the door on it regardless
+of whether it was ever actually happening.
+
 ## [PowerRustCOBOL 1.63.34] — 2026-09-03
 
 ### Every form build was one dependency resolution away from failing outright

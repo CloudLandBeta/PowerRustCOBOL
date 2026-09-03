@@ -3648,6 +3648,34 @@ fn draw_control_body(
                         painter.rect_filled(track, r, if checked { accent } else { off });
                     }
                 }
+                // An explicit border, off unless the developer asks for one
+                // (BorderStyle seeds "None") — additive, and always drawn on
+                // the track's OWN pill radius `r`, never the control's generic
+                // rectangular frame, so a border a developer turns on reads as
+                // part of the switch's own outline on every side, not a
+                // mismatched rim (operator, 2026-09-03).
+                let switch_border_style = ctrl
+                    .get_prop("BorderStyle")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_else(|| "None".into());
+                if !switch_border_style.eq_ignore_ascii_case("None") {
+                    let switch_border_color = ctrl
+                        .get_prop("BorderColor")
+                        .map(|v| parse_color(v.as_str()))
+                        .unwrap_or(Color32::from_gray(0x88));
+                    let switch_border_width = ctrl
+                        .get_prop("BorderWidth")
+                        .map(|v| v.as_i64() as f32)
+                        .unwrap_or(1.0);
+                    draw_control_border(
+                        painter,
+                        track,
+                        egui::CornerRadius::same(r as u8),
+                        &switch_border_style,
+                        switch_border_width,
+                        alpha_color(switch_border_color),
+                    );
+                }
                 let knob_d = (track_h - 4.0).max(2.0);
                 let knob_x = if checked {
                     track.max.x - r
@@ -13535,6 +13563,104 @@ mod theme_render_tests {
             sw < boxed,
             "a Switch ({sw} shapes) must draw less chrome than a TextBox \
              ({boxed}) — the extra is the card and rim it should not have"
+        );
+    }
+
+    /// Every stroked `Rect` shape a Switch paints, with the track's own pill
+    /// radius alongside for comparison — walked directly rather than counted,
+    /// so a test can tell an explicit border apart from the theme's own
+    /// state-driven outline (Elegance strokes the OFF track too) instead of
+    /// conflating the two.
+    fn switch_stroked_rects(
+        theme: Option<Arc<dyn crate::surface_theme::SurfaceTheme>>,
+        border_style: Option<&str>,
+        checked: bool,
+    ) -> (Vec<(egui::CornerRadius, f32, Color32)>, f32) {
+        let ctx = egui::Context::default();
+        if let Some(t) = theme {
+            set_surface_theme(&ctx, t);
+        }
+        let mut c = Control::new("S", crate::model::ControlType::Switch, 0, 0);
+        c.rect = crate::model::Rect::new(10, 10, 56, 30);
+        c.set_prop("Checked", crate::model::PropValue::Bool(checked));
+        if let Some(style) = border_style {
+            c.set_prop("BorderStyle", crate::model::PropValue::String(style.into()));
+            c.set_prop("BorderColor", crate::model::PropValue::String("#FF0000".into()));
+            c.set_prop("BorderWidth", crate::model::PropValue::Int(2));
+        }
+        let pill_radius = c.rect.h as f32 * 0.5;
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 120.0)));
+        let mut strokes = Vec::new();
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                let painter = ui.painter().clone();
+                draw_control(&painter, egui::Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+        });
+        full.textures_delta.clear();
+        fn walk(s: &egui::Shape, out: &mut Vec<(egui::CornerRadius, f32, Color32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 => {
+                    out.push((r.corner_radius, r.stroke.width, r.stroke.color))
+                }
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut strokes);
+        }
+        (strokes, pill_radius)
+    }
+
+    /// `BorderStyle` seeds "None": no property asked for a border, so no
+    /// stroked shape should exist beyond whatever the ACTIVE THEME's own
+    /// Toggle state already draws (Elegance strokes the OFF track; Liquid
+    /// Glass fills it, no stroke at all). Regression guard for the request
+    /// that started this — a switch with nothing configured must never grow
+    /// an uncontrollable rim (operator, 2026-09-03).
+    #[test]
+    fn a_switch_with_default_border_style_draws_no_developer_border() {
+        // Liquid Glass: the OFF track is a plain fill, so there must be no
+        // stroked rect at all when no BorderStyle was set.
+        let (strokes, _) = switch_stroked_rects(None, None, false);
+        assert!(
+            strokes.is_empty(),
+            "an unconfigured Switch under Liquid Glass must draw no border, got {strokes:?}"
+        );
+    }
+
+    /// Setting `BorderStyle` explicitly draws a border on the track's OWN
+    /// pill radius — never the control's generic rectangular frame — so the
+    /// result reads as part of the switch's outline on every side rather than
+    /// a mismatched rim visible only where a square frame clears a round
+    /// pill's corners (operator, 2026-09-03: "make it all around the switch
+    /// instead to appear part of it").
+    #[test]
+    fn a_switch_border_style_draws_on_the_pills_own_radius_all_around() {
+        let (strokes, pill_radius) = switch_stroked_rects(None, Some("Single"), false);
+        assert_eq!(
+            strokes.len(),
+            1,
+            "exactly one explicit border stroke, got {strokes:?}"
+        );
+        let (rounding, width, color) = strokes[0];
+        let want_r = pill_radius as u8;
+        assert!(
+            rounding.nw == want_r
+                && rounding.ne == want_r
+                && rounding.sw == want_r
+                && rounding.se == want_r,
+            "the border must follow the pill's own radius ({want_r}) on \
+             every corner, got {rounding:?} — a mismatch is exactly what \
+             makes a border visible only at the corners"
+        );
+        assert_eq!(width, 2.0, "BorderWidth must reach the drawn stroke");
+        assert_eq!(
+            color,
+            Color32::from_rgb(0xFF, 0x00, 0x00),
+            "BorderColor must reach the drawn stroke"
         );
     }
 
