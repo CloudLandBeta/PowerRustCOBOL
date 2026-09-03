@@ -2897,7 +2897,81 @@ The service controls (`agent-object`, `rest-client`, `sql-database`) build
 offline but need their local service to run; each project's `README.md` says
 which. See `examples/README.md` for the full index.
 
+### DateTimePicker (dates *and* times)
+
+The **DateTimePicker** is a field that drops open a picker. What it drops open —
+a calendar, a clock, or both — is decided by its **`Format`** property, and the
+same property decides what the field displays.
+
+| `Format` | The popup offers | The field shows |
+|---|---|---|
+| `Short`, `Long` | a month calendar | the date |
+| `Time` | an hour/minute clock | the time |
+| `Custom` | whatever `CustomFormat` asks for | the same halves |
+
+Under `Custom`, the pattern's own letters decide: `y`, `M` or `d` ask for a
+calendar, `H`, `h` or `m` for a clock, and a pattern with both — the usual
+`dd/MM/yyyy HH:mm` — gets both. **Case matters here and nowhere else on this
+control**: `M` is the month, `m` is the minute.
+
+**`Value` is always ISO**, whatever `Format` displays:
+
+| The picker edits | `Value` holds |
+|---|---|
+| a date | `YYYY-MM-DD` |
+| a time | `HH:MM` |
+| both | `YYYY-MM-DD HH:MM` |
+
+That separation is deliberate. A PowerCOBOL developer is used to a display
+format and a stored value being the same thing, and it is what makes date
+handling in a form fragile: change the format for a report and every `MOVE` that
+read the field starts seeing something else. Here the display is presentation
+and `Value` is data, so your program can rely on one shape:
+
+```cobol
+       01  WS-BOOKING.
+           05  WS-BOOKING-DATE     PIC X(10).
+           05  FILLER              PIC X.
+           05  WS-BOOKING-TIME     PIC X(5).
+
+       GET-BOOKING.
+           MOVE DateTimePicker-1::Value TO WS-BOOKING
+           DISPLAY "Booked for " WS-BOOKING-DATE
+                   " at "        WS-BOOKING-TIME.
+```
+
+**Setting it from COBOL** is the same shape in reverse — write ISO and the field
+displays it the way `Format` says:
+
+```cobol
+       SET-DEFAULT-SLOT.
+           MOVE "2026-09-03 09:30" TO DateTimePicker-1::Value.
+```
+
+**The clock.** Two steppers, hours and minutes. Both **wrap** — `23 ▶` is `00`,
+`59 ▶` is `00` — and the minute stepper deliberately does **not** carry into the
+hour: a stepper that changed a field you were not pointing at is how you set the
+wrong time without noticing. Each press writes `Value` and fires `onChange`
+immediately, and the popup stays open so you can set the hour and the minute in
+one visit. On a picker that edits both halves, clicking a day keeps the time
+already set and leaves the popup open for the clock; on a date-only picker the
+day click closes it, as it always has.
+
+> **Note.** A `Value` the control cannot read as a date or a time is displayed
+> exactly as you set it, not blanked. It is your data, and hiding it would look
+> like the control had lost it.
+>
+> ⚠️ **Caveat.** `MinimumDate` / `MaximumDate` bound the date only. There is no
+> minimum or maximum *time*.
+
+📷 Screenshot needed — `datetimepicker-clock.png`
+*Place a DateTimePicker on a form, set `Format` to `Custom` and `CustomFormat`
+to `dd/MM/yyyy HH:mm`, run the form and click the field so the popup opens.
+Capture the whole popup — the month grid with the hour/minute strip beneath it —
+with the pointer resting on the hour `▶` arrow.*
+
 ### MenuBar (pulldown menus)
+
 
 The **MenuBar** control provides a 3-level pulldown menu system for your
 application. Menus are authored in a **tree editor** inside the IDE and stored

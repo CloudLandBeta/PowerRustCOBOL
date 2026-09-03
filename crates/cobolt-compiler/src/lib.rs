@@ -3771,9 +3771,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Minimum" => ("integer ≤ Maximum", "Lower bound of the value range."),
         "Maximum" => ("integer ≥ Minimum", "Upper bound of the value range."),
         "Value" => (
-            "ProgressBar/Slider/NumericUpDown: integer within Minimum..Maximum; DateTimePicker: date string",
-            "Current value.",
+            "ProgressBar/Slider/NumericUpDown: integer within Minimum..Maximum; DateTimePicker: `YYYY-MM-DD`, `HH:MM`, or `YYYY-MM-DD HH:MM`",
+            "Current value. A DateTimePicker always stores ISO, whatever Format displays, so a COBOL handler reading Value gets one shape; which halves are present follows Format (a Time picker stores the time alone).",
         ),
+
         "Step" => ("integer > 0", "Increment applied by arrows / Increment()/Decrement()."),
         "LargeChange" => ("integer > 0", "Page Up/Down increment."),
         "DecimalPlaces" => ("0-6", "Fractional digits displayed."),
@@ -3803,9 +3804,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RimColor" => (COLOR_DOMAIN, "Knob rim and inner ring — the two outlines around the dial face. Empty (the default) leaves them to the theme."),
 
         // ── Date/time ──
-        "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Date display format preset."),
-        "CustomFormat" => ("format pattern, e.g. `dd/MM/yyyy`", "Pattern used when Format = `Custom`."),
+        "Format" => ("one of: `Short` | `Long` | `Time` | `Custom`", "Which halves of a date-time the picker edits and shows. `Short`/`Long` are the date alone: the popup is a calendar. `Time` is the time alone: the popup is an hour/minute clock. `Custom` is decided by CustomFormat's own letters. It never changes how Value is stored — that is always ISO."),
+        "CustomFormat" => ("format pattern, e.g. `dd/MM/yyyy HH:mm`", "Pattern used when Format = `Custom`. Its letters decide what the popup offers: `y`/`M`/`d` ask for a calendar, `H`/`h`/`m` for a clock, both for both. Case matters here and nowhere else on this control — `M` is the month, `m` the minute. A pattern naming neither falls back to a date."),
         "ShowUpDown" => (BOOL_DOMAIN, "Spinner arrows instead of a drop-down calendar."),
+
         "MinimumDate" => ("date string or empty", "Earliest selectable date."),
         "MaximumDate" => ("date string or empty", "Latest selectable date."),
 

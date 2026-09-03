@@ -1,6 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.18] — 2026-09-03
+
+### The DateTimePicker can pick a time
+
+The popup was calendar-only. The field could **show** `09:30` because `Value`
+happened to hold it, and nothing anywhere could change it. `Format` was dead
+alongside it: `Short`, `Long`, `Time` and `Custom` all printed `Value` verbatim.
+
+**`Format` now decides what the control edits and what it shows.** `Short` and
+`Long` are the date alone and drop open a calendar; `Time` is the time alone and
+drops open an hour/minute clock; `Custom` is decided by `CustomFormat`'s own
+letters — `y`/`M`/`d` ask for a calendar, `H`/`h`/`m` for a clock, both for
+both. Case matters there and nowhere else on this control: `M` is the month and
+`m` the minute.
+
+**The clock** is two steppers under the grid. Both wrap — `23 ▶` is `00` — and
+the minute deliberately does *not* carry into the hour: a stepper that changed a
+field the operator was not pointing at is how you set the wrong time without
+noticing. Each press writes `Value` and fires `onChange` on the spot, and the
+popup stays open, so the hour and the minute can be set in one visit.
+
+**`Value` stays canonical ISO** whatever `Format` displays — `YYYY-MM-DD`,
+`HH:MM`, or the two space-separated — so a COBOL handler reading it gets one
+shape. Display is presentation; `Value` is data.
+
+Along the way: `parse_ymd` split the whole string on `-`, which gave three parts
+for `2026-09-03 09:30` too — but the last was `03 09:30`, which does not parse.
+A value carrying a time therefore read as *no date*, and the calendar opened on
+its hardcoded default month instead of the value's.
+
 ## [PowerRustCOBOL 1.63.17] — 2026-09-03
+
 
 ### The needle has one owner, the bars have corners, and a frame is never dropped
 

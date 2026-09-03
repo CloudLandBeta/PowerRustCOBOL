@@ -5745,29 +5745,57 @@ fn render_interactive(
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
 
+            // Which halves this picker edits — `Format`, and `CustomFormat`'s
+            // own letters when it says `Custom`. A `Time` picker shows no
+            // calendar; a `Short`/`Long` one shows no clock.
+            let parts = paint::dt_parts(ctrl);
+            // The day the popup opens on, and the time it starts from: the
+            // value's own, when it has one.
+            let val_date = paint::parse_ymd(&val);
+            let val_time = paint::parse_hm(&val);
             let mut cal: paint::CalState = ui
                 .data(|d| d.get_temp::<paint::CalState>(ctrl_id))
-                .unwrap_or_else(|| match paint::parse_ymd(&val) {
-                    Some((y, m, _)) => paint::CalState {
-                        open: false,
-                        year: y,
-                        month: m,
-                    },
-                    None => paint::CalState::default(),
+                .unwrap_or_else(|| {
+                    let (h, mi) = val_time.unwrap_or((0, 0));
+                    match val_date {
+                        Some((y, m, _)) => paint::CalState {
+                            open: false,
+                            year: y,
+                            month: m,
+                            hour: h,
+                            minute: mi,
+                        },
+                        None => paint::CalState {
+                            hour: h,
+                            minute: mi,
+                            ..paint::CalState::default()
+                        },
+                    }
                 });
             if resp.clicked() && enabled {
                 cal.open = !cal.open;
             }
+
             if cal.open {
                 let area_pos = screen.left_bottom() + vec2(0.0, 2.0);
+                // The grid occupies no height at all on a time-only picker, and
+                // the clock none on a date-only one — the popup is exactly as
+                // tall as what it can actually edit.
+                let grid_h = if parts.date {
+                    paint::CAL_GRID_Y + paint::CAL_CELL * 6.0
+                } else {
+                    0.0
+                };
+                let time_h = if parts.time { paint::CAL_TIME_H } else { 0.0 };
                 let inner = egui::Area::new(ctrl_id.with("cal"))
                     .order(egui::Order::Foreground)
                     .fixed_pos(area_pos)
                     .show(ui.ctx(), |ui| {
                         let area_rect = Rect::from_min_size(
                             area_pos,
-                            vec2(paint::CAL_W, paint::CAL_GRID_Y + paint::CAL_CELL * 6.0),
+                            vec2(paint::CAL_W, grid_h + time_h),
                         );
+
                         let p = ui.painter();
                         p.rect_filled(area_rect, 6.0, cal_bg);
                         p.rect_stroke(
@@ -5776,95 +5804,214 @@ fn render_interactive(
                             Stroke::new(1.0, Color32::from_rgba_premultiplied(160, 170, 230, 150)),
                             egui::StrokeKind::Middle,
                         );
-                        let prev = ui.put(
-                            Rect::from_min_size(area_pos, vec2(paint::CAL_CELL, paint::CAL_NAV_H)),
-                            egui::Button::new(egui::RichText::new("◀").color(dim)).frame(false),
-                        );
-                        let next = ui.put(
-                            Rect::from_min_size(
-                                area_pos + vec2(paint::CAL_W - paint::CAL_CELL, 0.0),
-                                vec2(paint::CAL_CELL, paint::CAL_NAV_H),
-                            ),
-                            egui::Button::new(egui::RichText::new("▶").color(dim)).frame(false),
-                        );
-                        ui.painter().text(
-                            area_pos + vec2(paint::CAL_W / 2.0, paint::CAL_NAV_H / 2.0),
-                            Align2::CENTER_CENTER,
-                            format!(
-                                "{} {}",
-                                paint::MONTHS[(cal.month.clamp(1, 12) - 1) as usize],
-                                cal.year
-                            ),
-                            FontId::proportional(13.0),
-                            white,
-                        );
-                        if prev.clicked() {
-                            if cal.month == 1 {
-                                cal.month = 12;
-                                cal.year -= 1;
-                            } else {
-                                cal.month -= 1;
-                            }
-                        }
-                        if next.clicked() {
-                            if cal.month == 12 {
-                                cal.month = 1;
-                                cal.year += 1;
-                            } else {
-                                cal.month += 1;
-                            }
-                        }
-                        for (i, wd) in ["S", "M", "T", "W", "T", "F", "S"].iter().enumerate() {
+                        let mut picked: Option<u32> = None;
+                        // Whether the clock moved this frame. A time edit
+                        // commits on the spot and leaves the popup OPEN — the
+                        // operator is usually still adjusting, and a picker
+                        // that closed on every arrow press could not be used
+                        // to set both the hour and the minute.
+                        let mut time_moved = false;
+
+                        if parts.date {
+                            let prev = ui.put(
+                                Rect::from_min_size(
+                                    area_pos,
+                                    vec2(paint::CAL_CELL, paint::CAL_NAV_H),
+                                ),
+                                egui::Button::new(egui::RichText::new("◀").color(dim))
+                                    .frame(false),
+                            );
+                            let next = ui.put(
+                                Rect::from_min_size(
+                                    area_pos + vec2(paint::CAL_W - paint::CAL_CELL, 0.0),
+                                    vec2(paint::CAL_CELL, paint::CAL_NAV_H),
+                                ),
+                                egui::Button::new(egui::RichText::new("▶").color(dim))
+                                    .frame(false),
+                            );
                             ui.painter().text(
-                                area_pos
-                                    + vec2(
-                                        i as f32 * paint::CAL_CELL + paint::CAL_CELL / 2.0,
-                                        paint::CAL_NAV_H + paint::CAL_WK_H / 2.0,
-                                    ),
+                                area_pos + vec2(paint::CAL_W / 2.0, paint::CAL_NAV_H / 2.0),
                                 Align2::CENTER_CENTER,
-                                *wd,
-                                FontId::proportional(10.0),
+                                format!(
+                                    "{} {}",
+                                    paint::MONTHS[(cal.month.clamp(1, 12) - 1) as usize],
+                                    cal.year
+                                ),
+                                FontId::proportional(13.0),
+                                white,
+                            );
+                            if prev.clicked() {
+                                if cal.month == 1 {
+                                    cal.month = 12;
+                                    cal.year -= 1;
+                                } else {
+                                    cal.month -= 1;
+                                }
+                            }
+                            if next.clicked() {
+                                if cal.month == 12 {
+                                    cal.month = 1;
+                                    cal.year += 1;
+                                } else {
+                                    cal.month += 1;
+                                }
+                            }
+                            for (i, wd) in ["S", "M", "T", "W", "T", "F", "S"].iter().enumerate() {
+                                ui.painter().text(
+                                    area_pos
+                                        + vec2(
+                                            i as f32 * paint::CAL_CELL + paint::CAL_CELL / 2.0,
+                                            paint::CAL_NAV_H + paint::CAL_WK_H / 2.0,
+                                        ),
+                                    Align2::CENTER_CENTER,
+                                    *wd,
+                                    FontId::proportional(10.0),
+                                    dim,
+                                );
+                            }
+                            let first_wd = paint::day_of_week(cal.year, cal.month, 1);
+                            let ndays = paint::days_in_month(cal.year, cal.month);
+                            for day in 1..=ndays {
+                                let idx = first_wd + (day - 1);
+                                let (col, row) = (idx % 7, idx / 7);
+                                let cell = Rect::from_min_size(
+                                    area_pos
+                                        + vec2(
+                                            col as f32 * paint::CAL_CELL,
+                                            paint::CAL_GRID_Y + row as f32 * paint::CAL_CELL,
+                                        ),
+                                    vec2(paint::CAL_CELL, paint::CAL_CELL),
+                                );
+                                if ui
+                                    .put(
+                                        cell,
+                                        egui::Button::new(
+                                            egui::RichText::new(format!("{day}")).color(white),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .clicked()
+                                {
+                                    picked = Some(day);
+                                }
+                            }
+                        }
+
+                        // ── The clock ────────────────────────────────────────
+                        //
+                        // Two steppers, hour and minute, in one strip under the
+                        // grid. The popup was calendar-only: the field could
+                        // SHOW `09:30` because `Value` held it, and nothing
+                        // anywhere could change it (operator, 2026-09-03).
+                        //
+                        // Both wrap rather than clamp — 23 ▶ is 00, and the
+                        // minute rolling past 59 does NOT carry into the hour,
+                        // because a stepper that changed a field the operator
+                        // was not pointing at is how you set the wrong time
+                        // without noticing.
+                        if parts.time {
+                            let strip_y = area_pos.y + grid_h;
+                            let mid = strip_y + paint::CAL_TIME_H / 2.0;
+                            // Hour on the left of centre, minute on the right,
+                            // each `◀ nn ▶` in a third of the popup's width.
+                            let unit_w = paint::CAL_W / 2.0;
+                            let mut stepper = |ui: &mut egui::Ui,
+                                               x0: f32,
+                                               value: &mut u32,
+                                               modulo: u32,
+                                               label: &str| {
+                                let bw = 18.0;
+                                let back = ui.put(
+                                    Rect::from_center_size(
+                                        egui::pos2(x0 + bw * 0.5 + 2.0, mid),
+                                        vec2(bw, 22.0),
+                                    ),
+                                    egui::Button::new(egui::RichText::new("◀").color(dim))
+                                        .frame(false),
+                                );
+                                let fwd = ui.put(
+                                    Rect::from_center_size(
+                                        egui::pos2(x0 + unit_w - bw * 0.5 - 2.0, mid),
+                                        vec2(bw, 22.0),
+                                    ),
+                                    egui::Button::new(egui::RichText::new("▶").color(dim))
+                                        .frame(false),
+                                );
+                                ui.painter().text(
+                                    egui::pos2(x0 + unit_w * 0.5, mid),
+                                    Align2::CENTER_CENTER,
+                                    label,
+                                    FontId::proportional(14.0),
+                                    white,
+                                );
+                                // `+ modulo - 1` rather than `- 1`: these are
+                                // unsigned, and 00 ◀ has to reach 23.
+                                if back.clicked() {
+                                    *value = (*value + modulo - 1) % modulo;
+                                    return true;
+                                }
+                                if fwd.clicked() {
+                                    *value = (*value + 1) % modulo;
+                                    return true;
+                                }
+                                false
+                            };
+                            let (h, mi) = (cal.hour, cal.minute);
+                            let hour_label = format!("{h:02}");
+                            let min_label = format!("{mi:02}");
+                            let mut hour = cal.hour;
+                            let mut minute = cal.minute;
+                            if stepper(ui, area_pos.x, &mut hour, 24, &hour_label) {
+                                time_moved = true;
+                            }
+                            if stepper(ui, area_pos.x + unit_w, &mut minute, 60, &min_label) {
+                                time_moved = true;
+                            }
+                            cal.hour = hour;
+                            cal.minute = minute;
+                            // The colon between the two, on the seam.
+                            ui.painter().text(
+                                egui::pos2(area_pos.x + unit_w, mid),
+                                Align2::CENTER_CENTER,
+                                ":",
+                                FontId::proportional(14.0),
                                 dim,
                             );
                         }
-                        let first_wd = paint::day_of_week(cal.year, cal.month, 1);
-                        let ndays = paint::days_in_month(cal.year, cal.month);
-                        let mut picked: Option<u32> = None;
-                        for day in 1..=ndays {
-                            let idx = first_wd + (day - 1);
-                            let (col, row) = (idx % 7, idx / 7);
-                            let cell = Rect::from_min_size(
-                                area_pos
-                                    + vec2(
-                                        col as f32 * paint::CAL_CELL,
-                                        paint::CAL_GRID_Y + row as f32 * paint::CAL_CELL,
-                                    ),
-                                vec2(paint::CAL_CELL, paint::CAL_CELL),
-                            );
-                            if ui
-                                .put(
-                                    cell,
-                                    egui::Button::new(
-                                        egui::RichText::new(format!("{day}")).color(white),
-                                    )
-                                    .frame(false),
-                                )
-                                .clicked()
-                            {
-                                picked = Some(day);
-                            }
-                        }
-                        picked
+                        (picked, time_moved)
                     });
-                if let Some(day) = inner.inner {
-                    let date = format!("{:04}-{:02}-{:02}", cal.year, cal.month, day);
+                let (picked, time_moved) = inner.inner;
+                // One writer for both halves, so a day click and an arrow press
+                // cannot disagree about the shape of `Value`.
+                let commit = |cal: &paint::CalState, day: Option<u32>| {
+                    let date = day
+                        .map(|d| (cal.year, cal.month, d))
+                        .or(val_date)
+                        // A date-and-time picker whose value carried only a
+                        // time still has to write SOME day once the operator
+                        // touches the clock; the month on screen is the one
+                        // they are looking at.
+                        .or(Some((cal.year, cal.month, 1)));
+                    paint::format_dt_value(date, Some((cal.hour, cal.minute)), parts)
+                };
+                if let Some(day) = picked {
+                    let value = commit(&cal, Some(day));
                     out.prop_updates
-                        .push((id.to_owned(), "Value".to_owned(), date.clone()));
-                    out.events.push(UiEvent::change(id, &date));
-                    cal.open = false;
+                        .push((id.to_owned(), "Value".to_owned(), value.clone()));
+                    out.events.push(UiEvent::change(id, &value));
+                    // A date-only picker is finished the moment a day is
+                    // clicked. One that also carries a time is NOT — closing
+                    // here would take the clock away before it could be used.
+                    cal.open = parts.time;
+                } else if time_moved {
+                    let value = commit(&cal, None);
+                    out.prop_updates
+                        .push((id.to_owned(), "Value".to_owned(), value.clone()));
+                    out.events.push(UiEvent::change(id, &value));
                 } else if !resp.clicked() && inner.response.clicked_elsewhere() {
                     cal.open = false;
                 }
+
             }
             ui.data_mut(|d| d.insert_temp(ctrl_id, cal));
         }
@@ -12734,10 +12881,170 @@ mod tests {
     }
 
 
+    // ── DateTimePicker: the clock ────────────────────────────────────────────
+
+    /// A DateTimePicker at a known rect, so the popup's geometry is derivable.
+    fn dtp(format: &str, custom: &str, value: &str) -> Control {
+        let mut c = ctrl("DTP-1", ControlType::DateTimePicker, 20, 20, 180, 24);
+        c.set_prop("Format", crate::PropValue::String(format.to_owned()));
+        c.set_prop("CustomFormat", crate::PropValue::String(custom.to_owned()));
+        c.set_prop("Value", crate::PropValue::String(value.to_owned()));
+        c
+    }
+
+    /// Where the popup's hour/minute arrows land, given the halves on show.
+    ///
+    /// Derived from the same constants the renderer lays them out with, so the
+    /// test cannot drift from the widget by a pixel and start clicking nothing.
+    fn clock_arrows(date_half: bool) -> (Pos2, Pos2, Pos2, Pos2) {
+        let area = pos2(20.0, 20.0 + 24.0 + 2.0); // the field's bottom-left + 2
+        let grid_h = if date_half {
+            crate::paint::CAL_GRID_Y + crate::paint::CAL_CELL * 6.0
+        } else {
+            0.0
+        };
+        let mid = area.y + grid_h + crate::paint::CAL_TIME_H / 2.0;
+        let unit = crate::paint::CAL_W / 2.0;
+        let bw = 18.0;
+        (
+            pos2(area.x + bw * 0.5 + 2.0, mid),          // hour ◀
+            pos2(area.x + unit - bw * 0.5 - 2.0, mid),   // hour ▶
+            pos2(area.x + unit + bw * 0.5 + 2.0, mid),   // minute ◀
+            pos2(area.x + unit * 2.0 - bw * 0.5 - 2.0, mid), // minute ▶
+        )
+    }
+
+    /// Open the picker and press `at`, returning the `Value` it wrote.
+    fn pick(control: &Control, at: Pos2) -> Option<String> {
+        let field = pos2(60.0, 32.0); // inside the 180×24 field
+        let (_, overrides) = drive(
+            std::slice::from_ref(control),
+            vec![
+                (0.00, vec![Event::PointerMoved(field)]),
+                (0.05, vec![press(field)]),
+                (0.10, vec![release(field)]), // …the popup is open
+                (0.15, vec![Event::PointerMoved(at)]),
+                (0.20, vec![press(at)]),
+                (0.25, vec![release(at)]),
+                (0.30, vec![]),
+            ],
+        );
+        overrides
+            .get("DTP-1")
+            .and_then(|p| p.get("Value"))
+            .cloned()
+    }
+
+    /// The popup can edit hours and minutes, and writes them into `Value`.
+    ///
+    /// It was calendar-only: the field could SHOW `09:30` because `Value` held
+    /// it, and nothing anywhere could change it (operator, 2026-09-03).
+    #[test]
+    fn the_clock_arrows_change_the_time_and_write_it_back() {
+        let (h_back, h_fwd, m_back, m_fwd) = clock_arrows(false);
+        let at = |v: &str| dtp("Time", "", v);
+
+        assert_eq!(
+            pick(&at("09:30"), h_fwd).as_deref(),
+            Some("10:30"),
+            "the hour arrow must advance the hour and leave the minute alone"
+        );
+        assert_eq!(pick(&at("09:30"), h_back).as_deref(), Some("08:30"));
+        assert_eq!(pick(&at("09:30"), m_fwd).as_deref(), Some("09:31"));
+        assert_eq!(pick(&at("09:30"), m_back).as_deref(), Some("09:29"));
+    }
+
+    /// Both fields wrap, and the minute does NOT carry into the hour.
+    ///
+    /// A stepper that changed a field the operator was not pointing at is how
+    /// you set the wrong time without noticing.
+    #[test]
+    fn the_clock_wraps_without_carrying() {
+        let (h_back, h_fwd, m_back, m_fwd) = clock_arrows(false);
+        let at = |v: &str| dtp("Time", "", v);
+
+        assert_eq!(pick(&at("23:00"), h_fwd).as_deref(), Some("00:00"));
+        assert_eq!(pick(&at("00:00"), h_back).as_deref(), Some("23:00"));
+        assert_eq!(
+            pick(&at("09:59"), m_fwd).as_deref(),
+            Some("09:00"),
+            "59 ▶ wraps to 00 and the hour stays at 9"
+        );
+        assert_eq!(
+            pick(&at("09:00"), m_back).as_deref(),
+            Some("09:59"),
+            "00 ◀ wraps to 59 and the hour stays at 9"
+        );
+    }
+
+    /// A picker that edits both halves keeps the date while the clock moves.
+    #[test]
+    fn a_date_and_time_picker_keeps_its_date_while_the_clock_moves() {
+        let (_, h_fwd, _, m_fwd) = clock_arrows(true);
+        let both = |v: &str| dtp("Custom", "dd/MM/yyyy HH:mm", v);
+
+        assert_eq!(
+            pick(&both("2026-09-03 09:30"), h_fwd).as_deref(),
+            Some("2026-09-03 10:30")
+        );
+        assert_eq!(
+            pick(&both("2026-09-03 09:30"), m_fwd).as_deref(),
+            Some("2026-09-03 09:31")
+        );
+    }
+
+    /// A date-only picker has no clock to press: the arrows are not there, so
+    /// the same coordinates change nothing.
+    #[test]
+    fn a_date_only_picker_shows_no_clock() {
+        let (_, h_fwd, _, m_fwd) = clock_arrows(true);
+        for at in [h_fwd, m_fwd] {
+            assert_eq!(
+                pick(&dtp("Short", "", "2026-09-03"), at),
+                None,
+                "a Short picker must write nothing when the clock's coordinates \
+                 are pressed — it has no clock"
+            );
+        }
+    }
+
+    /// Clicking a day still commits the date, and the popup stays open when
+    /// there is also a time to set.
+    #[test]
+    fn a_day_click_commits_and_closes_only_when_there_is_no_clock() {
+        // The first cell of the grid that holds day 1 of the shown month.
+        let day_cell = |y: i32, m: u32, day: u32| {
+            let idx = crate::paint::day_of_week(y, m, 1) + (day - 1);
+            let (col, row) = (idx % 7, idx / 7);
+            pos2(
+                20.0 + col as f32 * crate::paint::CAL_CELL + crate::paint::CAL_CELL / 2.0,
+                20.0 + 24.0 + 2.0
+                    + crate::paint::CAL_GRID_Y
+                    + row as f32 * crate::paint::CAL_CELL
+                    + crate::paint::CAL_CELL / 2.0,
+            )
+        };
+        assert_eq!(
+            pick(&dtp("Short", "", "2026-09-03"), day_cell(2026, 9, 11)).as_deref(),
+            Some("2026-09-11"),
+            "a date-only picker writes the day alone"
+        );
+        assert_eq!(
+            pick(
+                &dtp("Custom", "dd/MM/yyyy HH:mm", "2026-09-03 09:30"),
+                day_cell(2026, 9, 11)
+            )
+            .as_deref(),
+            Some("2026-09-11 09:30"),
+            "a date-and-time picker writes the day and keeps the time"
+        );
+    }
+
     // ── Splitter ─────────────────────────────────────────────────────────────
     //
     // The control the operator asked for (2026-08-23): a themed panel divided
     // in two by a line you drag, NOT a bar between two neighbouring controls.
+
     // The bar could not be grabbed at all before 1.61.163 and was still the
     // wrong control after it ("splitter still not working properly").
 

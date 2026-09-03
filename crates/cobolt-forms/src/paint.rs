@@ -4698,13 +4698,30 @@ fn draw_control_body(
             format!("{shown} ▾")
         }
         CT::DateTimePicker => {
-            let val = ctrl
+            let raw = ctrl
                 .get_prop("Value")
                 .map(|v| v.as_str().to_owned())
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "DD/MM/YYYY".into());
-            format!("📅 {val}")
+                .unwrap_or_default();
+            let parts = dt_parts(ctrl);
+            let shown = display_dt(&raw, parts);
+            let empty = if parts.date && parts.time {
+                "DD/MM/YYYY HH:MM"
+            } else if parts.time {
+                "HH:MM"
+            } else {
+                "DD/MM/YYYY"
+            };
+            // 🕐 for a clock, 📅 for a calendar — the glyph says which popup
+            // the field opens, so a `Format = Time` picker stops advertising a
+            // calendar it does not show.
+            let glyph = if parts.date { "📅" } else { "🕐" };
+            if shown.is_empty() {
+                format!("{glyph} {empty}")
+            } else {
+                format!("{glyph} {shown}")
+            }
         }
+
         CT::NumericUpDown => {
             // The value alone, centred in its field — the face the preview and
             // the running form show. The canvas used to letter "▲▼" into the
@@ -6813,13 +6830,22 @@ pub const MONTHS: [&str; 12] = [
     "December",
 ];
 
+/// The height of the popup's time strip — the hour/minute row under the grid.
+pub const CAL_TIME_H: f32 = 34.0;
+
 /// Open/viewed-month state for a DateTimePicker calendar popup, stashed in egui
 /// temp memory keyed by the control id.
+///
+/// `hour`/`minute` are the time being edited. They live here rather than being
+/// re-read from `Value` every frame because the operator edits them one step at
+/// a time and a half-typed time still has to be somewhere.
 #[derive(Clone)]
 pub struct CalState {
     pub open: bool,
     pub year: i32,
     pub month: u32, // 1-12
+    pub hour: u32,  // 0-23
+    pub minute: u32, // 0-59
 }
 impl Default for CalState {
     fn default() -> Self {
@@ -6827,9 +6853,118 @@ impl Default for CalState {
             open: false,
             year: 2026,
             month: 6,
+            hour: 0,
+            minute: 0,
         }
     }
 }
+
+/// Which halves of a date-time a DateTimePicker's `Format` asks for.
+///
+/// A picker with no time half shows no time strip and writes no time into
+/// `Value`; one with no date half shows no calendar. Both false is impossible —
+/// `dt_parts` falls back to the date, because a picker that can pick nothing is
+/// never what a `CustomFormat` typo meant.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DtParts {
+    pub date: bool,
+    pub time: bool,
+}
+
+/// Read `Format` (and `CustomFormat`) and say which halves the control edits.
+///
+/// `Short`/`Long` are date only, `Time` is time only. `Custom` is decided by
+/// the pattern itself: `y`/`M`/`d` ask for a date, `H`/`h`/`m` for a time — the
+/// same letters the property's own hint shows (`dd/MM/yyyy HH:mm`). A pattern
+/// naming neither falls back to a date.
+pub fn dt_parts(ctrl: &Control) -> DtParts {
+    let format = ctrl
+        .get_prop("Format")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_default();
+    match format.trim() {
+        f if f.eq_ignore_ascii_case("Time") => DtParts { date: false, time: true },
+        f if f.eq_ignore_ascii_case("Custom") => {
+            let pat = ctrl
+                .get_prop("CustomFormat")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_default();
+            // `M` is the month and `m` the minute — case matters, and it is the
+            // one place in this control where it does.
+            let date = pat.contains('y') || pat.contains('M') || pat.contains('d');
+            let time = pat.contains('H') || pat.contains('h') || pat.contains('m');
+            if date || time {
+                DtParts { date, time }
+            } else {
+                DtParts { date: true, time: false }
+            }
+        }
+        // Short, Long, anything unrecognised.
+        _ => DtParts { date: true, time: false },
+    }
+}
+
+/// The `HH:MM` in a value, wherever it sits in the string.
+///
+/// Separate from [`parse_ymd`] so each half of a value can be missing: a
+/// `Format = Time` picker holds `09:30` and no date at all.
+pub fn parse_hm(s: &str) -> Option<(u32, u32)> {
+    let token = s
+        .split(|c: char| c.is_whitespace() || c == 'T')
+        .find(|t| t.contains(':'))?;
+    let mut it = token.split(':');
+    let h: u32 = it.next()?.trim().parse().ok()?;
+    let m: u32 = it.next()?.trim().parse().ok()?;
+    (h < 24 && m < 60).then_some((h, m))
+}
+
+/// What a DateTimePicker's field shows for `raw`, given the halves its `Format`
+/// asks for.
+///
+/// `Format` used to do nothing whatever: the field printed `Value` verbatim,
+/// so a `Short` picker holding `2026-09-03 09:30` showed the time and a `Time`
+/// picker showed the date. The value is canonical ISO and stays that way — this
+/// only decides what is put on screen.
+///
+/// A `Value` that carries neither half readably is shown as it stands rather
+/// than blanked: it is the developer's text, and hiding it would look like the
+/// control had lost it.
+pub fn display_dt(raw: &str, parts: DtParts) -> String {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let date = parse_ymd(raw);
+    let time = parse_hm(raw);
+    if date.is_none() && time.is_none() {
+        return raw.to_owned();
+    }
+    format_dt_value(date, time, parts)
+}
+
+/// Write a `Value` back in the canonical form, carrying only the halves
+/// `parts` asks for.
+
+///
+/// Canonical is ISO — `YYYY-MM-DD`, `HH:MM`, or the two space-separated — so a
+/// COBOL handler reading `Value` gets one shape whatever the developer chose to
+/// *display*. `Format` decides what is editable and what is shown; it never
+/// changes how the value is stored.
+pub fn format_dt_value(date: Option<(i32, u32, u32)>, time: Option<(u32, u32)>, parts: DtParts) -> String {
+    let d = (parts.date)
+        .then(|| date.map(|(y, m, d)| format!("{y:04}-{m:02}-{d:02}")))
+        .flatten();
+    let t = (parts.time)
+        .then(|| time.map(|(h, mi)| format!("{h:02}:{mi:02}")))
+        .flatten();
+    match (d, t) {
+        (Some(d), Some(t)) => format!("{d} {t}"),
+        (Some(d), None) => d,
+        (None, Some(t)) => t,
+        (None, None) => String::new(),
+    }
+}
+
 
 fn is_leap(y: i32) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
@@ -6858,14 +6993,26 @@ pub fn day_of_week(y: i32, m: u32, d: u32) -> u32 {
     ((v + 7) % 7) as u32
 }
 
+/// The `YYYY-MM-DD` in a value, ignoring any time that follows it.
+///
+/// The date half is taken off the front FIRST. Splitting the whole string on
+/// `-` gave three parts for `2026-09-03` and three for `2026-09-03 09:30` too —
+/// but the last of those was `03 09:30`, which does not parse, so a value
+/// carrying a time read as no date at all and the calendar opened on its
+/// hardcoded default month instead of the value's.
 pub fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
-    let p: Vec<&str> = s.split('-').collect();
+    let head = s
+        .trim()
+        .split(|c: char| c.is_whitespace() || c == 'T')
+        .next()?;
+    let p: Vec<&str> = head.split('-').collect();
     if p.len() == 3 {
         Some((p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?))
     } else {
         None
     }
 }
+
 
 /// Render an Animator control: plays its animated/still image (GIF/WebP/APNG/…)
 /// at the current moment, or a placeholder when no source is set / decode fails.
