@@ -1,6 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.19] — 2026-09-03
+
+### Every control seeds every theme-owned property
+
+Spec 016 Q2's foundation, and the lasting answer to the property-removal class.
+
+`reset_theme_owned_props` can only put a property back to what a **new** control
+of that type carries. A property no control seeds could therefore not be put
+back at all, and the branch that handled that case used to *remove* the key —
+which takes the row out of the inspector, so a developer lost the ability to set
+a property because of a theme switch made for an unrelated reason. That is how a
+Label kept losing its corner radius. 1.63.15 made the branch harmless; this
+makes it unreachable.
+
+Thirty of forty-three control types were missing `BorderStyle`, `CornerRadius`
+or both. Both seeds are the value the renderer already fell back to when the
+property was absent — `Single` in `draw_control`, `0` in `corner_radius` — so
+nothing changes shape. The row simply exists, which is the whole point: the
+inspector shows a row only for a property that is present. A control with an
+opinion of its own keeps it: a ToolBar's designed 10, and the `None` a Label,
+CheckBox and RadioButton seed because they are a glyph and a caption, not a card.
+
+The boundary is **paints a face**. A non-visual control renders nothing at run
+time — its designer chip is a tray badge, not a control face — and a Line is a
+stroke with no frame to border or round; appearance rows on either would be
+noise, not completeness. That is not the "no real frame" reasoning spec 016 Q4
+threw out: a Label and the bars have faces, and were excluded for how they
+*look* by default.
+
 ## [PowerRustCOBOL 1.63.18] — 2026-09-03
+
 
 ### The DateTimePicker can pick a time
 

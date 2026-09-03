@@ -5222,6 +5222,38 @@ impl Control {
                 .entry("CornerRadius".to_owned())
                 .or_insert(PropValue::Int(d));
         }
+
+        // ── Every control that paints a face seeds every theme-owned property ──
+        //
+        // This is what makes `reset_theme_owned_props`'s "no seed" branch
+        // unreachable, and with it the whole property-removal class: a reset
+        // can only put a property back to what a NEW control carries, so a
+        // property no control seeds could never be put back at all. It was
+        // already made harmless in 1.63.15 (it leaves the value alone rather
+        // than removing the row); this is the lasting answer the operator asked
+        // for — spec 016 Q2's theme-defaults table.
+        //
+        // Both seeds are the value the RENDERER already falls back to when the
+        // property is absent — `Single` in `draw_control`, `0` in
+        // `corner_radius` — so nothing changes shape. The row simply exists,
+        // which is the whole point: the inspector shows a row only for a
+        // property that is present.
+        //
+        // The boundary is "paints a face". A non-visual control renders NOTHING
+        // at run time (its designer chip is a tray badge, not a control face)
+        // and a Line is a stroke with no frame to border or round — giving
+        // either an appearance row would be noise, not completeness. That is
+        // not the "no real frame" reasoning spec 016 Q4 threw out: a Label and
+        // the bars have faces and were excluded for how they LOOK by default.
+        if !control_type.is_non_visual() && !matches!(control_type, ControlType::Line) {
+            props
+                .entry("CornerRadius".to_owned())
+                .or_insert(PropValue::Int(0));
+            props
+                .entry("BorderStyle".to_owned())
+                .or_insert(PropValue::String("Single".into()));
+        }
+
         if control_type.is_data_input_control() {
             props.insert(
                 "ForegroundColor".into(),
