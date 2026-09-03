@@ -2327,6 +2327,26 @@ impl FormHost {
         rx.try_recv().ok().flatten().unwrap_or_default()
     }
 
+    /// The shell's `open-form:` probe (PowerDemo3 nested-sidebar report): does
+    /// `form_id`'s design carry a SideMenu control anywhere in its tree? A
+    /// SideMenu paints as a rail; embedded in the ContentPane it sits beside
+    /// the shell's own rail, so the shell opens such a target as its own
+    /// window instead of an occupant. Flattened exactly as
+    /// `build_form_instance` flattens for rendering, so this can never
+    /// disagree with what actually paints. `&self` — a plain `Fn` lookup,
+    /// safe to call again right before `ensure_occupant` resolves the same id.
+    pub fn form_has_side_menu(&self, form_id: &str) -> Result<bool, String> {
+        let Some(source) = &self.form_source else {
+            return Err("this host has no form source (single-form runtime)".into());
+        };
+        let (form, _program) = source(form_id)?;
+        let mut flat: Vec<cobolt_forms::Control> = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        Ok(flat
+            .iter()
+            .any(|c| c.control_type == cobolt_forms::ControlType::SideMenu))
+    }
+
     /// 051 R10 — make sure a pane occupant for `form_id` exists (building
     /// its instance and registering its Embedded handle on first need) and
     /// return its event sender for the shell's `Resident` lifecycle box.

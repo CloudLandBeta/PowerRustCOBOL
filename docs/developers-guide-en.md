@@ -8065,6 +8065,15 @@ The shell window has three fixed regions:
 | **Breadcrumb** | One segment per step of the navigation chain (`Main › CRM › Customers`). Clicking a segment goes back there. Painted by the shell — a loaded form's colours never affect it. |
 | **ContentPane** | The loaded form, top-left, at its designed size. |
 
+> **A target form that carries its own SideMenu opens in a new window
+> instead of the ContentPane** (1.63.29). A rail-shaped form loaded beside
+> the shell's own rail is two sidebars fighting for the same edge of the
+> screen — so a menu item pointed at one behaves exactly like an
+> **open-standalone** item instead: its own top-level window, closable on
+> its own, the shell's ContentPane untouched. A target with an ordinary
+> `MenuBar` (a horizontal strip, not a rail) still loads into the
+> ContentPane as always — only a `SideMenu` triggers this.
+
 ### The breadcrumb frame
 
 The breadcrumb is a **frame**, not just a line of text. It always runs from the

@@ -1356,11 +1356,6 @@ impl ShellApp {
                     }
                 }
                 Some(a) if a.starts_with("open-form:") => {
-                    // 051 R10/R11 — the embedded door, for real: the target
-                    // loads into the ContentPane as its own program instance;
-                    // the outgoing occupant deactivates (parking when its
-                    // load asked to be preserved, destroyed otherwise) and
-                    // the breadcrumb follows the chain.
                     let target = a
                         .split_once(':')
                         .map(|(_, t)| t.trim().to_string())
@@ -1372,6 +1367,48 @@ impl ShellApp {
                         );
                         continue;
                     }
+                    // PowerDemo3 nested-sidebar report (operator ruling): a
+                    // target that carries its own SideMenu rail collides
+                    // visually when embedded beside the shell's own rail, so
+                    // it opens as its own window instead — the same request
+                    // an open-standalone-async item submits — and skips the
+                    // occupant/chain machinery below entirely. A MenuBar
+                    // (horizontal strip) does not collide the same way and
+                    // keeps embedding.
+                    match self.host.form_has_side_menu(&target) {
+                        Ok(true) => {
+                            // The reply is the COBOL caller's affordance; a
+                            // menu click has no blocked flow to resume.
+                            let (rtx, _rrx) = std::sync::mpsc::channel();
+                            let _ = self.form_req_tx.send(
+                                cobolt_runtime::form_host::FormRequest::OpenForm {
+                                    caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                                    form_id: target,
+                                    sync: false,
+                                    window_state: None,
+                                    x: None,
+                                    y: None,
+                                    width: None,
+                                    height: None,
+                                    modal: false,
+                                    reply: rtx,
+                                },
+                            );
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(e) => {
+                            // R15 — visible, never silent.
+                            println!("Runtime error: cannot open form '{target}': {e}");
+                            eprintln!("shell: open-form '{target}' failed: {e}");
+                            continue;
+                        }
+                    }
+                    // 051 R10/R11 — the embedded door, for real: the target
+                    // loads into the ContentPane as its own program instance;
+                    // the outgoing occupant deactivates (parking when its
+                    // load asked to be preserved, destroyed otherwise) and
+                    // the breadcrumb follows the chain.
                     let target_upper = target.to_ascii_uppercase();
                     if self
                         .chain
@@ -3404,6 +3441,284 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             "051 occupant swap — CRM opened (chain MAIN›CRM), HR swap parked CRM \
              (3 resident), return revived the SAME instance ({crm_handle_1}), \
              breadcrumb-back destroyed it and re-activated the root"
+        );
+    }
+
+    /// PowerDemo3 nested-sidebar report (operator ruling) — an `open-form:`
+    /// target that carries its own SideMenu rail must NOT become a ContentPane
+    /// occupant: it submits the same shell-parented, modeless OpenForm request
+    /// an `open-standalone-async:` item would, and never touches the
+    /// occupant/breadcrumb machinery.
+    #[test]
+    fn open_form_target_with_side_menu_opens_new_window_not_occupant() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        // Mirrors PowerDemo3's own sidebar-demo-form.cfrm: a demo screen whose
+        // top-level controls include a SideMenu of its own.
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            if up == "SIDEBAR-DEMO" {
+                let mut form = cobolt_forms::Form::new(up.as_str(), "Sidebar Demo", 900, 660);
+                form.controls.push(cobolt_forms::Control::new(
+                    "SideMenu-Demo",
+                    cobolt_forms::ControlType::SideMenu,
+                    0,
+                    0,
+                ));
+                Ok((form, program()))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        });
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        // The app's request channel is the TEST's — the submitted open (if
+        // any) is read back with its flags, exactly as the standalone-menu
+        // test above reads it.
+        let (test_tx, test_rx) = mpsc::channel();
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: "MAIN-FORM".into(),
+            label: "Main".into(),
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: "MAIN-FORM".into(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain,
+            host,
+            side_menu_ctrl: None,
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx: test_tx,
+        };
+        let click = |action: &str| MenuClick {
+            slot: MenuSlot::Root,
+            item_id: action.to_string(),
+            action: Some(action.to_string()),
+            preserve_previous_form: false,
+        };
+
+        app.shell.pending_clicks = vec![click("open-form:SIDEBAR-DEMO")];
+        app.process_menu_clicks();
+
+        let opens: Vec<(String, String, bool, bool)> = test_rx
+            .try_iter()
+            .map(|r| match r {
+                cobolt_runtime::form_host::FormRequest::OpenForm {
+                    caller,
+                    form_id,
+                    sync,
+                    modal,
+                    ..
+                } => (caller, form_id, sync, modal),
+                other => panic!("unexpected request: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            opens,
+            vec![("W0".into(), "SIDEBAR-DEMO".into(), false, false)],
+            "a SideMenu-bearing target submits a shell-parented, modeless \
+             OpenForm request instead of embedding"
+        );
+        assert!(
+            app.host.occupant_forms().is_empty(),
+            "the SideMenu target never became a ContentPane occupant"
+        );
+        let segs: Vec<String> = app.chain.segments().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(
+            segs,
+            vec!["MAIN-FORM".to_string()],
+            "the breadcrumb gained no segment for a windowed target"
+        );
+
+        println!(
+            "PowerDemo3 nested-sidebar fix — SIDEBAR-DEMO (own SideMenu) routed \
+             to a new window {opens:?}; 0 occupants, breadcrumb unchanged"
+        );
+    }
+
+    /// Regression guard for the same fix: a target with no SideMenu —
+    /// including one that carries a MenuBar, which the operator ruled does
+    /// NOT collide the way a nested SideMenu does — still embeds exactly as
+    /// before the SideMenu probe existed.
+    #[test]
+    fn open_form_target_without_side_menu_still_embeds() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        // Mirrors PowerDemo3's own menubar-form.cfrm: a demo screen whose
+        // top-level controls include a MenuBar (a horizontal strip, not a
+        // rail) — the operator's read is that this does NOT collide.
+        let source: FormSource = Box::new(|id: &str| {
+            let up = id.trim().to_ascii_uppercase();
+            match up.as_str() {
+                "PLAIN" => {
+                    Ok((cobolt_forms::Form::new(up.as_str(), "Plain", 400, 300), program()))
+                }
+                "MENUBAR-DEMO" => {
+                    let mut form =
+                        cobolt_forms::Form::new(up.as_str(), "MenuBar Demo", 900, 500);
+                    form.controls.push(cobolt_forms::Control::new(
+                        "MenuBar-Demo",
+                        cobolt_forms::ControlType::MenuBar,
+                        0,
+                        0,
+                    ));
+                    Ok((form, program()))
+                }
+                other => Err(format!("no form named '{other}'")),
+            }
+        });
+        let (host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx: ev_tx.clone(),
+            input_tx: input_tx.clone(),
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: form_req_tx.clone(),
+            form_source: Some(source),
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let mut chain = NavChain::default();
+        chain.push(NavEntry {
+            form_object: "MAIN-FORM".into(),
+            label: "Main".into(),
+            preserve_on_replace: false,
+            resident: Box::new(ChannelResident {
+                form_object: "MAIN-FORM".into(),
+                ev_tx: ev_tx.clone(),
+            }),
+        });
+        let mut app = ShellApp {
+            shell: Shell::default(),
+            chain,
+            host,
+            side_menu_ctrl: None,
+            state_path: None,
+            input_tx,
+            ev_tx,
+            form_req_tx,
+        };
+        let click = |action: &str| MenuClick {
+            slot: MenuSlot::Root,
+            item_id: action.to_string(),
+            action: Some(action.to_string()),
+            preserve_previous_form: false,
+        };
+
+        app.shell.pending_clicks = vec![click("open-form:PLAIN")];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("PLAIN"));
+        assert_eq!(app.host.occupant_forms(), vec!["PLAIN".to_string()]);
+
+        // Non-preserving swap onto MENUBAR-DEMO: PLAIN retires, MENUBAR-DEMO
+        // takes the pane — exactly the pre-existing embedded-door behavior,
+        // unaffected by the SideMenu probe.
+        app.shell.pending_clicks = vec![click("open-form:MENUBAR-DEMO")];
+        app.process_menu_clicks();
+        assert_eq!(app.host.active_occupant_form(), Some("MENUBAR-DEMO"));
+        assert_eq!(
+            app.host.occupant_forms(),
+            vec!["MENUBAR-DEMO".to_string()],
+            "MENUBAR-DEMO embedded like PLAIN did — a MenuBar does not trip \
+             the SideMenu probe"
+        );
+        let segs: Vec<String> = app.chain.segments().into_iter().map(|(f, _)| f).collect();
+        assert_eq!(
+            segs,
+            vec!["MAIN-FORM".to_string(), "MENUBAR-DEMO".to_string()],
+            "the breadcrumb follows the chain exactly as before"
+        );
+
+        println!(
+            "PowerDemo3 nested-sidebar fix — regression guard: PLAIN then \
+             MENUBAR-DEMO (own MenuBar) both embedded as occupants in turn, \
+             final occupant {:?}",
+            app.host.occupant_forms()
         );
     }
 

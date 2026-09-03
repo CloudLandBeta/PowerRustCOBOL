@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.29] — 2026-09-03
+
+### A demo with its own sidebar no longer loads beside the shell's
+
+Reported as PowerDemo3's sidebar "getting messed with the main window which
+has a sidebar" (operator, 2026-09-03). A shell's `open-form:` menu action
+always embedded its target into the ContentPane, unconditionally — correct
+for an ordinary demo screen, but a target that is itself rail-shaped (its own
+`SideMenu`) landed right beside the shell's own rail: two sidebars competing
+for the same edge of the window.
+
+Such a target now opens as its own top-level window instead — the same
+request an `open-standalone-async:` menu item already submits, reusing that
+path exactly rather than any new window-handle machinery, so its lifecycle
+(closing, cleanup) is identical to every other spawned child window. A target
+with an ordinary `MenuBar` — a horizontal strip, not a rail — still embeds
+exactly as before; only a form carrying a `SideMenu` anywhere in its control
+tree triggers the new behaviour, per the operator's own scoping ("only if the
+demo has a sidebar. a menubar should not cause the problem"). Checked against
+PowerDemo3's actual forms rather than assumed: its MenuBar-only demo is a
+30px horizontal strip with no rail to collide with, so the narrower scope
+stands — widening it to MenuBar targets too remains a pending item if the
+operator's own testing turns up a case where it's warranted after all.
+
 ## [PowerRustCOBOL 1.63.28] — 2026-09-03
 
 ### EXEC RUST objects went stale the moment a form was anything but the root window
