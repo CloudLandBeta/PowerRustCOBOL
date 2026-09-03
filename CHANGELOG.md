@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.22] — 2026-09-03
+
+### Every build that links the GUI stack failed on `tinyvec` — a `no_std` feature gap, not a real conflict
+
+`cargo test -p cobolt-compiler` failed in two clusters —
+`resolve_main_tests::an_unchanged_program_recompiles_nothing` and both
+`test_external_crates_e2e` cases — and the operator hit the identical wall
+building a real project (PowerDemo3's sidebar form) through the IDE. Every
+one bottomed out in the nested `cargo build` this compiler spawns to
+produce the generated crate, with only "error: could not compile `tinyvec`
+(lib) due to 1 previous error" and no further detail — that detail never
+reaches the surfaced error because it comes back as a JSON diagnostic on
+the subprocess's stdout, while the failure path only carries stderr's
+human-readable summary forward.
+
+Reproducing the nested build by hand (the staging directory a failed build
+leaves behind, under `cargo-build-<name>`) surfaced the real error:
+tinyvec 1.13.0's `with_initial_len` — new in that release — calls the
+`vec!` macro assuming it is in scope, but it is not: the crate's own
+`use alloc::vec::{self, Vec}` brings in the `vec` *module*, never the
+macro, and this only compiles at all when the `std` prelude is separately
+supplying `vec!`. Any generated crate with an `EXEC RUST` block or a form
+links `cobolt-forms`' `render` feature, which reaches `fontdb` (via
+resvg/usvg, for form-icon rendering); fontdb depends on tinyvec with only
+its `alloc` feature, and nothing else in that graph asks for `std` — so a
+fresh lock resolution now builds tinyvec in `no_std` mode and hits this
+upstream bug on every single build. Not a version conflict, and not a
+local cache problem: `tinyvec` on its own, and the whole dependency graph
+in isolation, both resolve and build fine — only this specific
+`alloc`-without-`std` feature combination is broken, and it is broken
+upstream, in tinyvec's own source, independent of anything project-local.
+
+Named directly in the generated `Cargo.toml`'s dependency block
+(`cobolt-compiler`'s `base_dependency_block`), exactly like the existing
+zune-jpeg fix beside it: `tinyvec = { version = "1", features = ["std"] }`
+unions the `std` feature back in (which implies `alloc`), so tinyvec
+leaves `no_std` mode and the `vec!` macro comes from the standard prelude
+instead. Harmless — every binary that reaches this dependency already
+links a full `std` GUI — and it fixes every one of the four call sites
+that build a generated crate, since they all share this one function.
+
 ## [PowerRustCOBOL 1.63.21] — 2026-09-03
 
 ### `cargo test -p cobolt-runtime` could hang forever, silently

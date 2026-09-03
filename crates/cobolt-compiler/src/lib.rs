@@ -2074,6 +2074,16 @@ pollster        = "0.3"
 # every fresh lock resolution since zune-jpeg 0.5.15 fails to compile.
 # Naming it here unions the feature back in.
 zune-jpeg       = {{ version = "0.5", features = ["log"] }}
+# FIX (found 2026-09-03): fontdb (via resvg/usvg, pulled in for form-icon
+# rendering) depends on tinyvec with only its `alloc` feature, and nothing
+# else in this graph asks for `std` — so tinyvec resolves and builds in
+# `no_std` mode. tinyvec 1.13.0's `with_initial_len` calls the `vec!`
+# macro assuming it is in scope, but in a `no_std` build it is not (the
+# crate's own alloc-vec-module import brings in the module, not the
+# macro) — a genuine upstream bug that fails every fresh lock resolution.
+# Naming it here with `std` (which implies `alloc`) unions the feature
+# back in; harmless, since this binary already links a full `std` GUI.
+tinyvec         = {{ version = "1", features = ["std"] }}
 "#
         ));
     }
