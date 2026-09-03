@@ -655,7 +655,19 @@ pub(crate) struct FormBody {
     pub(crate) snackbars: crate::snackbar_stack::SnackbarStack,
 }
 
+/// The id space the SideMenu footer fragment renders in.
+///
+/// A CONSTANT, deliberately — not `ui.id()`. These ids key focus, scroll
+/// offsets and combo state from one frame to the next, so an id that moved when
+/// the `Ui` tree shifted would drop the operator's focus mid-keystroke. The
+/// same value goes to `render_form_scoped` and to every `control_widget_id`
+/// lookup for that surface; they must not drift apart.
+pub(crate) fn footer_id_scope() -> egui::Id {
+    egui::Id::new("cobolt-sidemenu-footer")
+}
+
 impl FormBody {
+
     /// Draw the SideMenu's footer Panel — and whatever the developer dropped
     /// into it — inside the rail's own footer band, and forward what the
     /// operator does there to the interpreter.
@@ -735,12 +747,22 @@ impl FormBody {
         // Focus BEFORE the footer's widgets see the click — same rule as the
         // main frame paths (the press surrenders the field's focus).
         let pre_focus = ui.ctx().memory(|m| m.focused());
-        // …and the footer gets the other one, for the same reason.
+        // …and the footer renders in its OWN id space.
+        //
+        // This is a SECOND form surface inside one egui viewport: the pane
+        // beside it holds another form entirely, and both derive widget ids
+        // from control ids. A `TextBox-1` in this footer and a `TextBox-1` in
+        // the pane occupant asked egui for the same id, and it painted "Second
+        // use of widget ID" over the pane's — which had done nothing wrong
+        // (operator, 2026-09-02, the Ferris Says sample). `push_id` cannot
+        // separate them: the engine's control ids are absolute by design, so
+        // the id space has to be passed in.
         let out = child
             .push_id("sidemenu-footer", |ui| {
-                cobolt_forms::render::render_form(ui, &input)
+                cobolt_forms::render::render_form_scoped(ui, &input, None, footer_id_scope())
             })
             .inner;
+
         // A toolbar button (or FileDropZone) in the footer is as real as one
         // on the form: its platform actions used to be dropped here — only the
         // COBOL event was forwarded, so print/copy/share in a footer did
@@ -751,8 +773,10 @@ impl FormBody {
             &out.file_picker_requests,
             &out.toolbar_actions,
             pre_focus,
+            Some(footer_id_scope()),
         );
         self.forward_interaction(&out.prop_updates, out.events);
+
     }
 
     // ── Snackbar (spec 055) ─────────────────────────────────────────────────
@@ -1088,7 +1112,14 @@ impl FormBody {
         file_pickers: &[String],
         toolbar_actions: &[(String, String, String)],
         pre_focus: Option<egui::Id>,
+        // The id space the surface those requests came from was rendered in
+        // (`None` = the form's own). The clipboard verbs match egui's focused
+        // widget back to a control, and a control drawn in the SideMenu footer
+        // carries the footer's id — matching it against the plain one would
+        // report "no text field has focus" for a field the operator is in.
+        scope: Option<egui::Id>,
     ) -> bool {
+
         let mut acted = false;
 
         // FileDropZone click → native picker (spec 039 T4). `cobolt-forms` has no
@@ -1186,7 +1217,8 @@ impl FormBody {
                 .or(pre_focus)
                 .and_then(|focus| {
                     self.controls.iter().find_map(|c| {
-                        (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                        let widget = cobolt_forms::render::control_widget_id(scope, c.id.as_str());
+                        (widget == focus).then(|| {
                             // The live text when the field was edited; the
                             // DESIGNED text otherwise — an untouched field's
                             // Copy used to copy "".
@@ -1215,8 +1247,9 @@ impl FormBody {
                 .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
                     control_id: id.as_str(),
                     text: text.clone(),
-                    widget_id: egui::Id::new(("rt_ctrl", id.as_str())),
+                    widget_id: cobolt_forms::render::control_widget_id(scope, id.as_str()),
                 });
+
             let (outcome, new_text) = self.toolbar_runner.perform(ctx, &parsed, focused_ref);
             self.note_action_outcome(ctx, &outcome);
             // A Cut or a Paste changed the focused field: write it back the way a
@@ -1824,8 +1857,10 @@ impl FormBody {
                 &output.file_picker_requests,
                 &output.toolbar_actions,
                 pre_focus,
+                None,
             ) {
                 platform_acted = true;
+
             }
         }
         self.show_action_notice(ctx);
@@ -3593,7 +3628,9 @@ impl FormHost {
                 &output.file_picker_requests,
                 &output.toolbar_actions,
                 pre_focus,
+                None,
             ) {
+
                 interacted = true;
             }
         }
@@ -4982,7 +5019,7 @@ mod parity {
         let pre = Some(egui::Id::new(("rt_ctrl", "TXT-1")));
         let mut full = ctx.run_ui(Default::default(), |_root| {
             let ctx2 = _root.ctx().clone();
-            body.run_platform_requests(&ctx2, &[], &press, pre);
+            body.run_platform_requests(&ctx2, &[], &press, pre, None);
         });
         full.textures_delta.clear();
         let copied = full.platform_output.commands.iter().find_map(|c| match c {
@@ -5006,7 +5043,7 @@ mod parity {
         let ctx = egui::Context::default();
         let mut full = ctx.run_ui(Default::default(), |_root| {
             let ctx2 = _root.ctx().clone();
-            body.run_platform_requests(&ctx2, &[], &press, None);
+            body.run_platform_requests(&ctx2, &[], &press, None, None);
         });
         full.textures_delta.clear();
         assert!(
@@ -5055,7 +5092,7 @@ mod parity {
         let mut full = ctx.run_ui(Default::default(), |root| {
             let ctx2 = root.ctx().clone();
             // Live focus already surrendered by the press; pre-press focus names the field.
-            body.run_platform_requests(&ctx2, &[], &press, Some(widget_id));
+            body.run_platform_requests(&ctx2, &[], &press, Some(widget_id), None);
         });
         full.textures_delta.clear();
 

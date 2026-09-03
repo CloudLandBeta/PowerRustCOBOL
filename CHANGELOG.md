@@ -1,6 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.16] — 2026-09-03
+
+### Four fixes: widget-id collision, transparency, background colour, animation names
+
+**Two forms in one window no longer collide on a widget id.** Opening the Ferris
+Says sample from the shell painted "🔥 Second use of widget ID 9F79" over its
+"Type your message" box. The shell draws the main form's SideMenu footer
+fragment into the rail and the pane occupant beside it in the same frame, and
+both derive widget ids from control ids — so `sidebar-form`'s footer `TextBox-1`
+and `ferris-says-form`'s `TextBox-1` asked egui for the same id.
+
+`ui.push_id` cannot separate them, which is why salting the two passes with it
+changed nothing: a control's runtime id is absolute by design, built from the
+control id alone so a host can reconstruct it later (clipboard focus, tab order)
+without knowing where in the `Ui` tree the control was drawn. The engine now
+takes an explicit **id space** — `render_form_scoped` — and the footer renders in
+its own. `control_widget_id` publishes the shape so the host and the IDE preview
+stop spelling it out for themselves.
+
+**Transparency is the frame's, and so is the drop shadow.** At
+`Transparency = 100` the frame is invisible, **not removed**: it keeps its rect,
+its corners and its properties, and its shadow goes with it. The shadow used to
+be painted at the inherited alpha alone, so the face vanished and an offset dark
+shape stayed — over a Label, whose glyphs are all that survives, that reads as a
+shadow cast by the letters. The flat (glass-toggle-off) face also ignored
+`Transparency` outright and painted an opaque slab; it now fades like every
+other face.
+
+**A `BackgroundColor` you chose is the face.** Liquid Glass painted the chosen
+colour and then laid twenty frost bands over it — 12 % to 44 % white — so pure
+red arrived washed pink and the property read as dead. Switching a background
+gradient on made the same colour exact, because the gradient branch paints its
+mesh with nothing over it: one property, two answers, decided by an unrelated
+checkbox. The frost now yields to the chosen colour in proportion to its
+opacity. An opaque colour leaves none; a translucent one keeps its share, which
+is what asking to see through a face means; a control nobody coloured keeps its
+frost, because that is what makes it glass. Reported on a TextBox, it was never
+a TextBox defect — Button and Panel took the same veil.
+
+**A new animation is named.** Adding one with the name field empty did nothing
+at all, silently, and an animation's name is how a COBOL handler triggers it —
+so an unnamed one could never be played. Leave the field empty and the animation
+is `anim1`, `anim2`, … numbered from the highest `animN` already on the control,
+so deleting one and adding another never lands on a name still in use.
+
 ## [PowerRustCOBOL 1.63.15] — 2026-09-03
+
 
 ### A theme switch never removes a property
 

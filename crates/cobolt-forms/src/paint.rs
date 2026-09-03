@@ -676,6 +676,36 @@ fn glass_base_underlay(base: Color32, alpha_mul: f32) -> Option<Color32> {
         .then(|| Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), base_alpha))
 }
 
+/// How much of the frost a glass face still shows, given the background the
+/// developer chose for it.
+///
+/// `None` — nobody picked a colour — is the default Liquid Glass look, frost
+/// and all: `1.0`, and every untouched control paints exactly as it did.
+///
+/// A colour the developer DID pick is not a tint under the frost, it is the
+/// face. The frost bands run from about 12 % to 44 % white, so a control set to
+/// pure red came out washed pink and the operator reported the property as
+/// dead: "Back color is not being applied when Background gradient is not
+/// selected" (2026-09-03). Not selected is the operative half — the GRADIENT
+/// branch paints its mesh with no frost over it at all, so the same colour
+/// arrived exact the moment a gradient was switched on and washed out again
+/// the moment it was switched off. One property, two answers.
+///
+/// So the frost yields to the chosen colour in proportion to how opaque that
+/// colour is: an opaque one leaves none (the gradient's answer, now the flat
+/// one's too), and a deliberately translucent one keeps its share — that is a
+/// developer asking to see through the face, which is what frost is for.
+///
+/// The rim, the specular and the drop shadow are untouched either way: the
+/// control still reads as glass, it simply is not repainted white.
+fn glass_frost_opacity(bg_underlay: Option<Color32>) -> f32 {
+    match bg_underlay {
+        None => 1.0,
+        Some(c) => 1.0 - (c.a() as f32 / 255.0).clamp(0.0, 1.0),
+    }
+}
+
+
 pub fn draw_glass(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -739,6 +769,9 @@ pub fn draw_glass(
     if let Some(base_fill) = bg_underlay.and_then(|c| glass_base_underlay(c, am)) {
         painter.rect_filled(rect, rnd, base_fill);
     }
+    // How much frost still goes over that chosen colour — see
+    // `glass_frost_opacity`. `1.0` (nobody picked one) is the look as it was.
+    let frost = glass_frost_opacity(bg_underlay);
 
     // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
     // Each 1px band is horizontally inset to follow the rounded corner arcs
@@ -789,8 +822,8 @@ pub fn draw_glass(
             let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
             let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
             let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
-            let ga = ((glass_alpha + lip) * am).clamp(0.0, 255.0);
-            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0);
+            let ga = ((glass_alpha + lip) * am * frost).clamp(0.0, 255.0);
+            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) * frost;
             let dr = 28.0 * am * da / 255.0;
             let dg = 44.0 * am * da / 255.0;
             let db = 56.0 * am * da / 255.0;
@@ -905,6 +938,9 @@ pub fn draw_glass_enhanced(
     if let Some(base_fill) = bg_underlay.and_then(|c| glass_base_underlay(c, am)) {
         painter.rect_filled(rect, rnd, base_fill);
     }
+    // How much frost still goes over that chosen colour — see
+    // `glass_frost_opacity`. `1.0` (nobody picked one) is the look as it was.
+    let frost = glass_frost_opacity(bg_underlay);
 
     // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
     {
@@ -947,8 +983,8 @@ pub fn draw_glass_enhanced(
             let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
             let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
             let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
-            let ga = ((glass_alpha + lip) * am).clamp(0.0, 255.0);
-            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0);
+            let ga = ((glass_alpha + lip) * am * frost).clamp(0.0, 255.0);
+            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) * frost;
             let dr = 28.0 * am * da / 255.0;
             let dg = 44.0 * am * da / 255.0;
             let db = 56.0 * am * da / 255.0;
@@ -1402,11 +1438,16 @@ pub fn control_shadow_stack(
             alpha_mul,
         );
     }
+    // The frame's shadow fades with the frame (see `draw_control`'s drop-shadow
+    // block), so the sampler folds the same face opacity in. Sampling it at the
+    // ancestor alpha alone would restore, inside every corner notch, a shadow
+    // that was never painted outside one.
     match regular_drop_shadow(ctrl, rect, false).filter(|s| !s.overlay) {
-        Some(shadow) => regular_shadow_stack(&shadow, alpha_mul),
+        Some(shadow) => regular_shadow_stack(&shadow, alpha_mul * face_opacity_of(ctrl)),
         None => ShadowStack::default(),
     }
 }
+
 
 /// The dual-halo stack that `draw_glass_neumorphic` and
 /// [`draw_neumorphic_shadow_only`] both paint. One definition, so the sampler the
@@ -2189,7 +2230,23 @@ fn draw_control_body(
     }
 
     // ── Drop shadow ───────────────────────────────────────────────────────────
+    //
+    // The shadow belongs to the FRAME, so it is painted at `face_alpha` and
+    // fades with it — at `Transparency = 100` the frame is invisible and its
+    // shadow is invisible with it.
+    //
+    // It used to be painted at `alpha_mul`, which is the ancestor alpha alone:
+    // the face went and the shadow stayed, an offset dark shape around a
+    // control with nothing left to cast it. Over a Label, whose glyphs are all
+    // that survives, it reads as a shadow cast BY the letters — "if the
+    // transparency is set to 100%, the dropshadow is applied to the elements of
+    // the control instead the frame" (operator, 2026-09-03).
+    //
+    // Invisible, NOT removed: the frame still occupies its rect, still has its
+    // corners, and `CornerRadius`, `ShadowDistance` and the rest stay
+    // meaningful — turn the transparency back down and the same shadow returns.
     let regular_shadow = regular_drop_shadow(ctrl, frame_rect, is_neumorphic);
+
     if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| !shadow.overlay) {
         if matches!(ctrl.control_type, CT::GroupBox | CT::Panel) {
             debug_frame(
@@ -2201,10 +2258,11 @@ fn draw_control_body(
                 container_diag,
             );
         }
-        draw_regular_drop_shadow(painter, shadow, alpha_mul);
+        draw_regular_drop_shadow(painter, shadow, face_alpha);
     }
 
     // ── Line control ──────────────────────────────────────────────────────────
+
     if matches!(ctrl.control_type, CT::Line) {
         let line_color = ctrl
             .get_prop("LineColor")
@@ -2575,7 +2633,7 @@ fn draw_control_body(
         }
 
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-            draw_regular_drop_shadow(painter, shadow, alpha_mul);
+            draw_regular_drop_shadow(painter, shadow, face_alpha);
         }
         return;
     }
@@ -3123,7 +3181,7 @@ fn draw_control_body(
             );
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-            draw_regular_drop_shadow(painter, shadow, alpha_mul);
+            draw_regular_drop_shadow(painter, shadow, face_alpha);
         }
         return;
     }
@@ -3937,7 +3995,7 @@ fn draw_control_body(
             draw_neumorphic_overlay_shadow_only(painter, rect, corner, alpha_mul);
         }
         if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-            draw_regular_drop_shadow(painter, shadow, alpha_mul);
+            draw_regular_drop_shadow(painter, shadow, face_alpha);
         }
         return;
     }
@@ -4483,7 +4541,13 @@ fn draw_control_body(
         } else {
             frame_rect
         };
-        painter.rect_filled(face_rect, frame_round, alpha_color(fill));
+        // `face_color`, not `alpha_color`: this IS the face, so it owes the
+        // control's own `Transparency` as well as the inherited alpha. It was
+        // painted at the ancestor alpha alone, so with the glass toggle off a
+        // control set to 100 % transparent still painted a fully opaque slab —
+        // the one branch where `Transparency` did nothing at all.
+        painter.rect_filled(face_rect, frame_round, face_color(fill));
+
         if border_style != "None" {
             let bw = if selected {
                 2.0_f32.max(user_border_width)
@@ -4652,7 +4716,7 @@ fn draw_control_body(
                     );
                 }
                 if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-                    draw_regular_drop_shadow(painter, shadow, alpha_mul);
+                    draw_regular_drop_shadow(painter, shadow, face_alpha);
                 }
                 return;
             }
@@ -4692,7 +4756,7 @@ fn draw_control_body(
                     );
                 }
                 if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-                    draw_regular_drop_shadow(painter, shadow, alpha_mul);
+                    draw_regular_drop_shadow(painter, shadow, face_alpha);
                 }
                 return; // skip generic text rendering below
             }
@@ -4735,7 +4799,7 @@ fn draw_control_body(
                 selected,
             );
             if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-                draw_regular_drop_shadow(painter, shadow, alpha_mul);
+                draw_regular_drop_shadow(painter, shadow, face_alpha);
             }
             return;
         }
@@ -5556,7 +5620,7 @@ fn draw_control_body(
     }
 
     if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
-        draw_regular_drop_shadow(painter, shadow, alpha_mul);
+        draw_regular_drop_shadow(painter, shadow, face_alpha);
     }
 }
 

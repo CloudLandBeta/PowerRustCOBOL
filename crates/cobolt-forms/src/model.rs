@@ -1013,8 +1013,37 @@ pub struct AnimationDef {
     pub slide_dy: i32,
 }
 
+/// The default name for the next animation added to a control that already has
+/// `existing`: `anim1`, `anim2`, and so on.
+///
+/// A new animation used to arrive with no name at all unless the developer
+/// typed one, and an animation's name is how COBOL triggers it — so an unnamed
+/// one is unreachable (operator, 2026-09-03: "Set a default unique name (anim1,
+/// anim2 etc) for each animation created by the user").
+///
+/// Numbered from the HIGHEST `animN` already present, not from the count. With
+/// `anim1`, `anim2`, `anim3` and the middle one deleted, counting would offer
+/// `anim3` — the name of the one still there — and `add_animation` replaces by
+/// name, so the developer would have silently overwritten it instead of adding.
+/// Any other name the developer chose is ignored by the scan; it neither
+/// reserves a number nor blocks one.
+pub fn next_animation_name(existing: &[AnimationDef]) -> String {
+    let highest = existing
+        .iter()
+        .filter_map(|a| {
+            let rest = a.name.strip_prefix("anim").or_else(|| a.name.strip_prefix("Anim"))?;
+            (!rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+                .then(|| rest.parse::<u32>().ok())
+                .flatten()
+        })
+        .max()
+        .unwrap_or(0);
+    format!("anim{}", highest.saturating_add(1))
+}
+
 impl AnimationDef {
     pub fn new(name: impl Into<String>) -> Self {
+
         Self {
             name: name.into(),
             trigger: AnimTrigger::OnFormLoad,

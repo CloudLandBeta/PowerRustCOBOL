@@ -14033,17 +14033,21 @@ impl CoboltApp {
                 PreviewPress::Perform => {}
             }
             // Copy/Cut/Paste act on whichever control has keyboard focus. egui
-            // reports that as a widget id, and a control's TextEdit is built with
-            // `Id::new(("rt_ctrl", <control id>))` — so the focused control is
-            // found by matching that back. Live focus is already gone by now —
-            // the pressing click surrendered it — so the pre-render focus is
-            // the fallback. Same rule as the running host.
+            // reports that as a widget id, and the engine says which id it gave
+            // a control — so the focused control is found by matching that
+            // back. `None` is the preview's id space: one form on the surface,
+            // so the plain ids. Live focus is already gone by now — the
+            // pressing click surrendered it — so the pre-render focus is the
+            // fallback. Same rule as the running host.
             let focused = ctx
                 .memory(|m| m.focused())
                 .or(pre_focus)
                 .and_then(|focus| {
                     controls.iter().find_map(|c| {
-                        (egui::Id::new(("rt_ctrl", c.id.as_str())) == focus).then(|| {
+                        let widget =
+                            cobolt_forms::render::control_widget_id(None, c.id.as_str());
+                        (widget == focus).then(|| {
+
                             // Live text when edited; the designed Text/Value
                             // otherwise, so Copy on an untouched field copies
                             // what is on screen, not "".
@@ -14067,7 +14071,8 @@ impl CoboltApp {
                 .map(|(id, text)| cobolt_forms::toolbar_actions::Focused {
                     control_id: id.as_str(),
                     text: text.clone(),
-                    widget_id: egui::Id::new(("rt_ctrl", id.as_str())),
+                    widget_id: cobolt_forms::render::control_widget_id(None, id.as_str()),
+
                 });
             let (outcome, new_text) = self
                 .preview_toolbar_runner

@@ -4822,9 +4822,19 @@ impl DesignerPanel {
         // these returned before the stack and were invisible to undo).
         if key == "_AddAnimation" {
             if let Some(old) = self.form.find_control(ctrl_id).map(|c| c.animations.clone()) {
+                // No name typed → the control's next default, `anim1`, `anim2`,
+                // … An animation's name is how COBOL triggers it, so one
+                // without a name can never be played (operator, 2026-09-03).
+                let typed = value.as_str().trim().to_owned();
+                let name = if typed.is_empty() {
+                    cobolt_forms::model::next_animation_name(&old)
+                } else {
+                    typed
+                };
                 let mut new = old.clone();
-                new.retain(|a| a.name != value.as_str());
-                new.push(AnimationDef::new(value.as_str()));
+                new.retain(|a| a.name != name);
+                new.push(AnimationDef::new(name));
+
                 self.apply(Cmd::SetAnimations {
                     id: ctrl_id.to_owned(),
                     old,
@@ -16178,11 +16188,67 @@ mod text_align_tests {
         assert_eq!(c.tab_order, 0, "TabOrder undoes");
     }
 
+    /// An animation added without a name gets `anim1`, `anim2`, … and a
+    /// delete-then-add never lands on a name that is still in use.
+    ///
+    /// The name is how a COBOL handler triggers the animation, so an unnamed
+    /// one is unreachable (operator, 2026-09-03). Numbering from the highest
+    /// existing `animN` rather than from the count is what makes the second
+    /// half true: `add_animation` replaces by name, so offering a live name
+    /// would overwrite that animation instead of adding one.
+    #[test]
+    fn a_new_animation_is_named_anim1_anim2_and_never_reuses_a_live_name() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("B1", ControlType::Button, 0, 0));
+
+        let add_unnamed = |d: &mut DesignerPanel| {
+            d.set_property("B1", "_AddAnimation", PropValue::String(String::new()));
+        };
+        let names = |d: &DesignerPanel| -> Vec<String> {
+            d.form
+                .find_control("B1")
+                .unwrap()
+                .animations
+                .iter()
+                .map(|a| a.name.clone())
+                .collect()
+        };
+
+        add_unnamed(&mut d);
+        add_unnamed(&mut d);
+        add_unnamed(&mut d);
+        assert_eq!(names(&d), vec!["anim1", "anim2", "anim3"]);
+
+        // Delete the middle one and add another: `anim4`, not `anim3`.
+        d.set_property("B1", "_RemoveAnim1", PropValue::String("anim2".into()));
+        assert_eq!(names(&d), vec!["anim1", "anim3"]);
+        add_unnamed(&mut d);
+        assert_eq!(
+            names(&d),
+            vec!["anim1", "anim3", "anim4"],
+            "numbering from the count would have offered anim3 and silently \
+             replaced the animation of that name"
+        );
+
+        // A name the developer types is still theirs, and does not reserve a
+        // number or consume one.
+        d.set_property("B1", "_AddAnimation", PropValue::String("fly-in".into()));
+        add_unnamed(&mut d);
+        assert_eq!(names(&d), vec!["anim1", "anim3", "anim4", "fly-in", "anim5"]);
+
+        // Whitespace is not a name.
+        d.set_property("B1", "_AddAnimation", PropValue::String("   ".into()));
+        assert_eq!(names(&d).last().unwrap(), "anim6");
+    }
+
     /// Audit 2026-07-29: animation add/remove/field edits and data-binding
     /// application returned before the undo stack — they ride it now, with
     /// redo.
     #[test]
     fn animations_and_data_bindings_are_undoable() {
+
         use cobolt_forms::{BindingSourceDescriptor, BindingTargetDescriptor, DataBindingDef};
         let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
         d.form

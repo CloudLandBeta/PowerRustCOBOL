@@ -5409,17 +5409,26 @@ impl PropertiesPanel {
             }
         }
 
-        // Add new animation
+        // Add new animation.
+        //
+        // The name field is optional now: leave it empty and the animation is
+        // called `anim1`, `anim2`, … The name is what a COBOL handler triggers
+        // the animation BY, so one added without a name could never be played,
+        // and Add simply did nothing while the field was empty — with nothing
+        // on screen saying why (operator, 2026-09-03).
+        let next_default = cobolt_forms::model::next_animation_name(&ctrl.animations);
         ui.add_space(4.0);
         ui.separator();
         ui.horizontal(|ui| {
             ui.label("New animation name:");
             ui.add(
                 egui::TextEdit::singleline(&mut self.new_anim_name)
-                    .hint_text("fly-in")
+                    // The hint IS the default, so the field shows what leaving
+                    // it empty will produce rather than an example of a name.
+                    .hint_text(next_default.as_str())
                     .desired_width(120.0),
             );
-            if ui.button("➕ Add").clicked() && !self.new_anim_name.is_empty() {
+            if ui.button("➕ Add").clicked() {
                 action.set_props.push((
                     id.to_owned(),
                     "_AddAnimation".to_owned(),
@@ -5427,6 +5436,7 @@ impl PropertiesPanel {
                 ));
             }
         });
+
         ui.add_space(4.0);
     }
 

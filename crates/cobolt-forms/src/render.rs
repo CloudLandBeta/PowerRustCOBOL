@@ -1425,10 +1425,12 @@ fn expand_repeating_groups(controls: &[Control]) -> Option<Vec<Control>> {
 }
 
 fn ancestor_auto_scroll_offset(
+    scope: Option<egui::Id>,
     controls: &[Control],
     idx: usize,
     ctx: &egui::Context,
 ) -> egui::Vec2 {
+
     let mut off = egui::Vec2::ZERO;
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
@@ -1443,7 +1445,8 @@ fn ancestor_auto_scroll_offset(
                     .get_prop("VScroll")
                     .map_or(false, |v| v.as_bool());
             if has_h || has_v {
-                let sid = egui::Id::new(("autoscr", pid));
+                let sid = scoped_id(scope, ("autoscr", pid));
+
                 if let Some(o) = ctx.data(|d| d.get_temp::<egui::Vec2>(sid)) {
                     off += o;
                 }
@@ -1704,7 +1707,7 @@ struct ChartTween {
 }
 
 pub fn render_form(ui: &mut egui::Ui, input: &RenderInput<'_>) -> RenderOutput {
-    render_form_with_chrome(ui, input, None)
+    render_form_inner(ui, input, None, None)
 }
 
 /// [`render_form`], with one slot of host chrome painted between the backdrop
@@ -1716,6 +1719,39 @@ pub fn render_form_with_chrome(
     input: &RenderInput<'_>,
     chrome: Option<ChromeUnderControls<'_>>,
 ) -> RenderOutput {
+    render_form_inner(ui, input, chrome, None)
+}
+
+/// [`render_form_with_chrome`] in its own **id space**.
+///
+/// A host calls this for the SECOND form surface it paints into one egui
+/// viewport — the shell's SideMenu footer fragment, drawn in the same frame as
+/// the ContentPane occupant. Without it the two surfaces derive widget ids from
+/// control ids alone, and two forms that both happen to contain a `TextBox-1`
+/// collide: egui paints "Second use of widget ID" over whichever drew second
+/// (operator, 2026-09-02 — the Ferris Says sample).
+///
+/// `scope` must be a CONSTANT for that surface, not `ui.id()`: the ids key
+/// focus, scroll offsets and combo state between frames, and an id that moves
+/// when the `Ui` tree shifts would drop the operator's focus mid-keystroke.
+/// Whatever a host passes here it must pass to [`control_widget_id`] too, or
+/// the clipboard verbs stop finding the focused field.
+pub fn render_form_scoped(
+    ui: &mut egui::Ui,
+    input: &RenderInput<'_>,
+    chrome: Option<ChromeUnderControls<'_>>,
+    scope: egui::Id,
+) -> RenderOutput {
+    render_form_inner(ui, input, chrome, Some(scope))
+}
+
+fn render_form_inner(
+    ui: &mut egui::Ui,
+    input: &RenderInput<'_>,
+    chrome: Option<ChromeUnderControls<'_>>,
+    scope: Option<egui::Id>,
+) -> RenderOutput {
+
     let mut out = RenderOutput::default();
     // Each control's drawn alpha, for the corner-notch pass at the end of the
     // frame: it re-composites the control's own shadow and must use the alpha
@@ -1792,13 +1828,15 @@ pub fn render_form_with_chrome(
     let mut open_combos: Vec<OpenCombo> = Vec::new();
     let tab_focus_request = if interactive {
         apply_pending_tab_focus(ui);
-        let mut tab_targets = collect_tab_targets(input, controls, &order);
+        let mut tab_targets = collect_tab_targets(scope, input, controls, &order);
+
         resolve_tab_traversal(ui, &mut tab_targets)
     } else {
         None
     };
     let default_button_click = if interactive {
-        resolve_default_button_enter(input, controls, &order, ui)
+        resolve_default_button_enter(scope, input, controls, &order, ui)
+
     } else {
         None
     };
@@ -1816,7 +1854,8 @@ pub fn render_form_with_chrome(
         // control each frame â a control hidden THIS frame must still fire
         // its onVisibleChanged â so this runs before the visibility skips.
         if interactive {
-            visible_enabled_events(ui, input, controls, idx, &mut out);
+            visible_enabled_events(scope, ui, input, controls, idx, &mut out);
+
         }
         if !input.state.visible(base) {
             continue;
@@ -1832,7 +1871,8 @@ pub fn render_form_with_chrome(
         // Apply ancestor AutoScroll offsets (if any) so children of a Panel with
         // AutoScroll=true are shifted, making the property actually scroll the
         // content.
-        let scroll = ancestor_auto_scroll_offset(controls, idx, ui.ctx());
+        let scroll = ancestor_auto_scroll_offset(scope, controls, idx, ui.ctx());
+
 
         // Animation transform: shift then scale about the control centre. Both
         // surfaces (preview now, designer later) supply entrance effects this way;
@@ -1874,8 +1914,9 @@ pub fn render_form_with_chrome(
             let hscroll = base.get_prop("HScroll").map_or(false, |v| v.as_bool());
             let vscroll = base.get_prop("VScroll").map_or(false, |v| v.as_bool());
             if hscroll || vscroll {
-                let sid = egui::Id::new(("autoscr", &base.id));
-                let overscroll_id = egui::Id::new(("overscroll", &base.id));
+                let sid = scoped_id(scope, ("autoscr", &base.id));
+                let overscroll_id = scoped_id(scope, ("overscroll", &base.id));
+
 
                 // Read and decay overscroll
                 let mut overscroll = ui
@@ -2011,6 +2052,7 @@ pub fn render_form_with_chrome(
             // (text edit, slider drag, combo popup, â¦) ported from the run path.
             render_interactive(
                 ui,
+                scope,
                 &face,
                 screen,
                 clip,
@@ -2023,6 +2065,7 @@ pub fn render_form_with_chrome(
                 &mut out,
                 &mut open_combos,
             );
+
         } else {
             // Static: the one true face renderer (charts, images, glass, rounding).
             // PictureBox needs its texture pre-loaded so `draw_control` paints the
@@ -2098,10 +2141,12 @@ pub fn render_form_with_chrome(
             reveal,
         } = combo;
         let gesture = ui
-            .data(|d| d.get_temp(combo_gesture_id(&cid)))
+            .data(|d| d.get_temp(combo_gesture_id(scope, &cid)))
+
             .unwrap_or_default();
         let highlight = ui
-            .data(|d| d.get_temp(combo_highlight_id(&cid)))
+            .data(|d| d.get_temp(combo_highlight_id(scope, &cid)))
+
             .unwrap_or(0);
         let outcome = crate::paint::glass_combo_popup(
             ui,
@@ -2122,15 +2167,18 @@ pub fn render_form_with_chrome(
                 reveal,
             },
         );
-        let open_id = rt_id(&cid).with("combo_open");
+        let open_id = rt_id_in(scope, &cid).with("combo_open");
+
         ui.data_mut(|d| {
-            d.insert_temp(combo_highlight_id(&cid), outcome.highlight);
-            d.insert_temp(combo_gesture_id(&cid), outcome.gesture);
+            d.insert_temp(combo_highlight_id(scope, &cid), outcome.highlight);
+            d.insert_temp(combo_gesture_id(scope, &cid), outcome.gesture);
+
             // Picking from the list keeps the combo on the keyboard, so the
             // arrows carry on working straight after â the header pass dropped
             // it a moment ago, because the press was not on the header.
             if outcome.pressed_in_list {
-                d.insert_temp(combo_keyboard_id(&cid), true);
+                d.insert_temp(combo_keyboard_id(scope, &cid), true);
+
             }
         });
         match outcome.action {
@@ -2179,19 +2227,20 @@ struct OpenCombo {
 }
 
 /// Where a ComboBox keeps the item it is highlighting between frames.
-fn combo_highlight_id(id: &str) -> egui::Id {
-    rt_id(id).with("combo-highlight")
+fn combo_highlight_id(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    rt_id_in(scope, id).with("combo-highlight")
 }
 
 /// Where a ComboBox keeps the pointer gesture in progress.
-fn combo_gesture_id(id: &str) -> egui::Id {
-    rt_id(id).with("combo-gesture")
+fn combo_gesture_id(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    rt_id_in(scope, id).with("combo-gesture")
 }
 
 /// Where a ComboBox keeps whether the arrow keys are talking to it.
-fn combo_keyboard_id(id: &str) -> egui::Id {
-    rt_id(id).with("combo-keyboard")
+fn combo_keyboard_id(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    rt_id_in(scope, id).with("combo-keyboard")
 }
+
 
 #[derive(Clone)]
 struct TabTarget {
@@ -2206,10 +2255,12 @@ struct DefaultButtonTarget {
 }
 
 fn collect_tab_targets(
+    scope: Option<egui::Id>,
     input: &RenderInput<'_>,
     controls: &[Control],
     order: &[usize],
 ) -> Vec<TabTarget> {
+
     let mut targets = Vec::new();
     let mut sequence = 0usize;
     for &idx in order {
@@ -2222,7 +2273,8 @@ fn collect_tab_targets(
             targets.push(TabTarget {
                 tab_order: base.tab_order,
                 sequence,
-                focus_id: tab_focus_id(&live),
+                focus_id: tab_focus_id(scope, &live),
+
             });
         }
         sequence += 1;
@@ -2231,13 +2283,15 @@ fn collect_tab_targets(
 }
 
 fn resolve_default_button_enter(
+    scope: Option<egui::Id>,
     input: &RenderInput<'_>,
     controls: &[Control],
     order: &[usize],
     ui: &egui::Ui,
 ) -> Option<String> {
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
-    if !enter || focused_control_is_input(ui, input, controls) {
+    if !enter || focused_control_is_input(scope, ui, input, controls) {
+
         return None;
     }
     let target = collect_default_button_target(input, controls, order)?;
@@ -2288,7 +2342,13 @@ fn collect_default_button_target(
     explicit
 }
 
-fn focused_control_is_input(ui: &egui::Ui, input: &RenderInput<'_>, controls: &[Control]) -> bool {
+fn focused_control_is_input(
+    scope: Option<egui::Id>,
+    ui: &egui::Ui,
+    input: &RenderInput<'_>,
+    controls: &[Control],
+) -> bool {
+
     let focused = match ui.ctx().memory(|m| m.focused()) {
         Some(id) => id,
         None => return false,
@@ -2298,7 +2358,8 @@ fn focused_control_is_input(ui: &egui::Ui, input: &RenderInput<'_>, controls: &[
             && containers::is_visible(controls, idx, input.active_tabs)
             && input.state.enabled(base)
             && is_enter_input_control(&base.control_type)
-            && tab_focus_id(&input.state.live(base)) == focused
+            && tab_focus_id(scope, &input.state.live(base)) == focused
+
     })
 }
 
@@ -2337,8 +2398,9 @@ fn is_tab_focusable(ct: &ControlType) -> bool {
     )
 }
 
-fn tab_focus_id(ctrl: &Control) -> egui::Id {
-    let base = rt_id(&ctrl.id);
+fn tab_focus_id(scope: Option<egui::Id>, ctrl: &Control) -> egui::Id {
+    let base = rt_id_in(scope, &ctrl.id);
+
     if matches!(ctrl.control_type, ControlType::DataGrid) {
         base.with("datagrid-focus")
     } else {
@@ -2729,10 +2791,49 @@ impl UiEvent {
     }
 }
 
-/// The egui interaction id for a running control, derived from its COBOL id.
-fn rt_id(id: &str) -> egui::Id {
-    egui::Id::new(("rt_ctrl", id))
+/// An id this render pass derives from a control id, in the pass's own id space.
+///
+/// `None` is the plain, historical id — the one every form window, the IDE
+/// preview and every test use, and the one a host reconstructs when it has to
+/// match a focused widget back to a control.
+fn scoped_id(scope: Option<egui::Id>, key: impl std::hash::Hash + std::fmt::Debug) -> egui::Id {
+
+    match scope {
+        None => egui::Id::new(key),
+        Some(s) => s.with(key),
+    }
 }
+
+/// The egui interaction id for a running control, derived from its COBOL id
+/// **and** the id space of the surface it is drawn on.
+///
+/// Two form surfaces can share one egui viewport: the shell paints the main
+/// form's SideMenu footer fragment into the rail and, in the same frame, a
+/// whole other form into the ContentPane. Both derive widget ids from control
+/// ids, so a `TextBox-1` in the footer and a `TextBox-1` in the pane occupant
+/// asked egui for the SAME id, and it answered "Second use of widget ID" over
+/// the innocent one (operator, 2026-09-02).
+///
+/// `ui.push_id` cannot fix that, and salting the two passes with it did not:
+/// this id is ABSOLUTE — built from the control id alone, never from `ui.id()`
+/// — precisely so a host can reconstruct it later (clipboard focus, tab order)
+/// without knowing where in the `Ui` tree the control ended up. So the
+/// separation has to be explicit, and that is what `scope` is.
+fn rt_id_in(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    scoped_id(scope, ("rt_ctrl", id))
+}
+
+/// The egui widget id the engine gives control `id` on a surface rendered in
+/// `scope` — the one a host matches against `Memory::focused`.
+///
+/// Published so a host never has to spell `("rt_ctrl", id)` out for itself: the
+/// engine owns that shape, and three copies of it in three crates is how the
+/// clipboard verbs would quietly stop finding the focused field the next time
+/// it changes.
+pub fn control_widget_id(scope: Option<egui::Id>, id: &str) -> egui::Id {
+    rt_id_in(scope, id)
+}
+
 
 /// Whether the control names a `Picture` of its own, as opposed to having one
 /// derived from `MaximumLength`.
@@ -3192,7 +3293,9 @@ fn control_pointer_events(
 /// EFFECTIVE visibility (own flag + container ancestry) and enabled state
 /// against the previous frame; fires only the bound events.
 fn visible_enabled_events(
+    scope: Option<egui::Id>,
     ui: &egui::Ui,
+
     input: &RenderInput<'_>,
     controls: &[Control],
     idx: usize,
@@ -3207,7 +3310,8 @@ fn visible_enabled_events(
     let visible =
         input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs);
     let enabled = input.state.enabled(base);
-    let mem = rt_id(&base.id).with("vis-en");
+    let mem = rt_id_in(scope, &base.id).with("vis-en");
+
     let prev = ui.ctx().memory(|m| m.data.get_temp::<(bool, bool)>(mem));
     if let Some((prev_visible, prev_enabled)) = prev {
         if want_visible && prev_visible != visible {
@@ -3729,7 +3833,10 @@ pub(crate) fn node_payload(row: &crate::treeview::TreeRow, checked: &[String]) -
 #[allow(clippy::too_many_arguments)]
 fn render_interactive(
     ui: &mut egui::Ui,
+    // The id space this surface renders in — see `rt_id_in`.
+    scope: Option<egui::Id>,
     ctrl: &Control,
+
     screen: Rect,
     clip: Rect,
     glass: bool,
@@ -3751,8 +3858,9 @@ fn render_interactive(
     use egui::{pos2, vec2, Align2, Color32, FontId, Sense, Stroke};
 
     let id = ctrl.id.as_str();
-    let ctrl_id = rt_id(id);
+    let ctrl_id = rt_id_in(scope, id);
     let ct = ctrl.control_type.clone();
+
     let painter = ui.painter_at(clip);
 
     // Universal pointer/gesture/geometry events for every visual control.
@@ -4963,8 +5071,9 @@ fn render_interactive(
             };
             let open_id = ctrl_id.with("combo_open");
             let was_open_id = ctrl_id.with("combo_was_open");
-            let highlight_id = combo_highlight_id(id);
-            let gesture_id = combo_gesture_id(id);
+            let highlight_id = combo_highlight_id(scope, id);
+            let gesture_id = combo_gesture_id(scope, id);
+
             let mut is_open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
             let at = |value: &str| items.iter().position(|it| it == value);
             let mut highlight: usize = ui
@@ -5071,7 +5180,8 @@ fn render_interactive(
             // there is no caret for an arrow to move; and even where a combo
             // does type, the arrows belong to the list and the caret to
             // â / â. If typing ever lands, the arrows stay with the list.
-            let kb_id = combo_keyboard_id(id);
+            let kb_id = combo_keyboard_id(scope, id);
+
             let mut has_keyboard: bool = ui.data(|d| d.get_temp(kb_id)).unwrap_or(false);
             if pointer_pressed {
                 // Dropped on any press elsewhere â including one inside the
@@ -7835,7 +7945,8 @@ fn render_interactive(
                 .map(|v| paint::parse_color(v.as_str()))
                 .unwrap_or(Color32::from_rgb(51, 102, 204));
 
-            let menu_id = egui::Id::new(("menu_open", id));
+            let menu_id = scoped_id(scope, ("menu_open", id));
+
             let open_idx: Option<usize> = ui.data(|d| d.get_temp(menu_id)).unwrap_or(None);
 
             if let Some(def) = paint::get_menu_cache(ui.ctx(), id) {
@@ -7895,7 +8006,8 @@ fn render_interactive(
 
                     // Pulldown dropdown
                     if is_open && !entry.items.is_empty() {
-                        let dropdown_id = egui::Id::new(("menu_dropdown", id, ti));
+                        let dropdown_id = scoped_id(scope, ("menu_dropdown", id, ti));
+
                         let dropdown_pos = pos2(label_rect.min.x, label_rect.max.y + 2.0);
                         egui::Area::new(dropdown_id)
                             .order(egui::Order::Foreground)
@@ -7959,7 +8071,8 @@ fn render_interactive(
                                             });
                                             let mut row_resp = ui.interact(
                                                 item_resp.response.rect,
-                                                egui::Id::new(("mi", &item.id)),
+                                                scoped_id(scope, ("mi", &item.id)),
+
                                                 egui::Sense::click(),
                                             );
                                             if let Some(icon) = menu_cursor {
