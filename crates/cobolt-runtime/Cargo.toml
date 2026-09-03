@@ -117,3 +117,7 @@ cobolt-parser     = { path = "../cobolt-parser" }
 cobolt-semantic   = { path = "../cobolt-semantic" }
 pretty_assertions = { workspace = true }
 tempfile          = "3"
+# test_accept_from_mnemonic.rs redirects the test binary's real stdin to
+# /dev/null so a Format 1 ACCEPT cannot block the suite forever — already in
+# the lockfile transitively, so this adds no new code to the build.
+libc              = "0.2"

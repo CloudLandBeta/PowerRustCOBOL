@@ -56,8 +56,42 @@ fn accept_sources(src: &str) -> Vec<Option<AcceptSource>> {
         .collect()
 }
 
+/// Point this process's real stdin at `/dev/null`.
+///
+/// A Format 1 `ACCEPT` (no `FROM`, or `FROM` a device mnemonic) reads the
+/// interpreter's actual stdin — see `Interpreter::exec_accept` — with no
+/// timeout, because a real running program is correct to block there waiting
+/// for the operator. This file's `run()` executes real ACCEPT statements
+/// through that same path, and the comment two tests down used to bank on
+/// "stdin closed under `cargo test`" — true only when the invocation itself
+/// redirects or closes it (CI, an agent's non-interactive shell). Run `cargo
+/// test -p cobolt-runtime` directly from a terminal, where stdin is the TTY,
+/// and the read never returns: this test — and every test after it in this
+/// binary, since Rust runs one process for the whole file — hangs forever
+/// with no output and no failure (operator, 2026-09-03: two such processes
+/// sat blocked for 16 and 18 hours).
+///
+/// Redirecting the real fd makes the read return EOF immediately regardless
+/// of how the binary was invoked, matching the assumption the test always
+/// intended rather than one it merely inherited from its environment. `Once`
+/// because integration tests in one file share a process and may run on
+/// different threads; the redirect only needs to happen, well, once.
+fn close_stdin_for_this_process() {
+    use std::sync::Once;
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| unsafe {
+        let devnull = std::ffi::CString::new("/dev/null").expect("no NUL in a literal");
+        let fd = libc::open(devnull.as_ptr(), libc::O_RDONLY);
+        if fd >= 0 {
+            libc::dup2(fd, libc::STDIN_FILENO);
+            libc::close(fd);
+        }
+    });
+}
+
 /// Run `src` and return its DISPLAY lines.
 fn run(src: &str) -> Vec<String> {
+    close_stdin_for_this_process();
     let result = parse(tokenize(src, SourceFormat::Free));
     let errors: Vec<String> = result
         .diagnostics

@@ -1522,6 +1522,7 @@ dependencies = [
  "cobolt-semantic",
  "google_maps",
  "indexmap",
+ "libc",
  "mysql",
  "native-tls",
  "postgres",

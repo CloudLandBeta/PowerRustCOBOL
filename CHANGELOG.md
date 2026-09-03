@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.21] — 2026-09-03
+
+### `cargo test -p cobolt-runtime` could hang forever, silently
+
+Run from an interactive terminal, `test_accept_from_mnemonic.rs` never
+finished: no output, no failure, nothing — the operator found two such
+processes that had sat blocked for 16 and 18 hours.
+
+The test executes real COBOL through the interpreter, and one program does a
+Format 1 `ACCEPT` — no `FROM`, or `FROM` a device mnemonic — which reads the
+process's actual stdin with no timeout (`Interpreter::exec_accept`). That is
+correct for a real running program: it should block waiting for the operator.
+The test's own comment banked on "stdin closed under `cargo test`", which is
+true only when the invocation itself closes or redirects it — an automated or
+CI shell, not a human running `cargo test -p cobolt-runtime` directly, where
+stdin is the TTY and the read never returns. Rust runs every test in a file as
+one process, so the hang took the rest of the binary down with it.
+
+The test now redirects its own real stdin to `/dev/null` before running any
+program, so the read returns EOF immediately regardless of how the binary was
+invoked — matching what the test always intended rather than an ambient
+property of its environment. Runtime behaviour is untouched: a real `rcrun
+run` still blocks on `ACCEPT` exactly as before.
+
 ## [PowerRustCOBOL 1.63.20] — 2026-09-03
 
 ### Default Theme Settings — a project decides what its themes mean
