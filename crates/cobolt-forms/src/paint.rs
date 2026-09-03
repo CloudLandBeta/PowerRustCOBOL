@@ -2280,18 +2280,21 @@ fn draw_control_body(
         // truth when present; otherwise fall back to the legacy LineDirection
         // presets so existing forms are unchanged. The line is centred and as long
         // as the control's width, rotated about its centre.
-        let (p1, p2) = if let Some(deg) = ctrl.get_prop("LineAngle").map(|v| v.as_i64() as f32) {
-            let rad = deg.to_radians();
-            let c = rect.center();
-            let d = Vec2::new(rad.cos(), rad.sin()) * (rect.width().max(1.0) * 0.5);
-            (c - d, c + d)
-        } else {
-            match dir.as_str() {
-                "Vertical" => (rect.left_top(), rect.left_bottom()),
-                "Diagonal" => (rect.left_top(), rect.right_bottom()),
-                _ => (rect.left_center(), rect.right_center()),
-            }
-        };
+        //
+        // `crate::model::line_endpoints` is the SAME formula the Form Designer's
+        // endpoint-drag handles read (`designer.rs::line_endpoints_of`) — a
+        // second copy here would let the drag handles drift from what actually
+        // gets painted.
+        let angle = ctrl.get_prop("LineAngle").map(|v| v.as_i64());
+        let (p1, p2) = crate::model::line_endpoints(
+            rect.min.x,
+            rect.min.y,
+            rect.width(),
+            rect.height(),
+            angle,
+            &dir,
+        );
+        let (p1, p2) = (Pos2::new(p1.0, p1.1), Pos2::new(p2.0, p2.1));
         let col = alpha_color(line_color);
         let stroke = Stroke::new(thickness, col);
         let t = thickness.max(1.0);

@@ -796,6 +796,28 @@ impl DesignerPanel {
         }
         self.form.find_control(id).map(|c| c.rect)
     }
+
+    /// `id`'s two drawn Line endpoints, in the SAME form-coordinate rect
+    /// `handle_rect_of` gives every other control's knobs — reading the
+    /// painted rect here too is what keeps a Line's endpoint handles from
+    /// drifting off the segment the canvas actually drew (the same parity
+    /// `handle_rect_of` exists for). `None` when `id` is not a Line, or
+    /// nothing has painted a rect for it yet.
+    pub(crate) fn line_endpoints_of(&self, id: &str) -> Option<((f32, f32), (f32, f32))> {
+        let ctrl = self.form.find_control(id)?;
+        if ctrl.control_type != ControlType::Line {
+            return None;
+        }
+        let r = self.handle_rect_of(id)?;
+        let angle = ctrl.get_prop("LineAngle").map(|v| v.as_i64());
+        let dir = ctrl
+            .get_prop("LineDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "Horizontal".into());
+        Some(cobolt_forms::model::line_endpoints(
+            r.x as f32, r.y as f32, r.w as f32, r.h as f32, angle, &dir,
+        ))
+    }
 }
 
 fn handle_cursor(h: Handle) -> CursorIcon {
@@ -863,6 +885,42 @@ fn apply_resize(
     nr
 }
 
+/// The rect + `LineAngle` that make a Line's segment run exactly from
+/// `anchor` to the pointer `(px, py)` — the geometry behind a Line's
+/// endpoint drag, pure and standalone so a test can drive it directly the
+/// way `apply_resize` is driven directly.
+///
+/// Deliberately NOT grid-snapped: unlike a rect handle, an endpoint drag has
+/// to reach any angle continuously, and rounding either point to a grid line
+/// would reintroduce exactly the coarse jumps this drag exists to remove
+/// (see `paint.rs`'s `CT::Line` block and `line_endpoints` in `model.rs` for
+/// why a small width swings the angle wildly under an 8px step).
+///
+/// `rect.height()` plays no part in where `line_endpoints` draws the segment
+/// (only the rect's centre and width do), so it is left exactly as it was —
+/// the drag changes the line's length and angle, never its declared
+/// thickness/hit-box height. `rect.center()` MUST land on the midpoint of
+/// `anchor` and the pointer for the two to agree, so `x`/`y` are both
+/// recomputed from it even though only `w` conceptually "changed".
+fn line_endpoint_drag_result(
+    orig_rect: cobolt_forms::model::Rect,
+    anchor: (f32, f32),
+    px: f32,
+    py: f32,
+    min_w: i32,
+) -> (cobolt_forms::model::Rect, i64) {
+    let (dx, dy) = (px - anchor.0, py - anchor.1);
+    let len = dx.hypot(dy);
+    let angle = dy.atan2(dx).to_degrees().rem_euclid(360.0).round() as i64;
+    let (cx, cy) = ((anchor.0 + px) * 0.5, (anchor.1 + py) * 0.5);
+    let w = (len.round() as i32).max(min_w);
+    let mut nr = orig_rect;
+    nr.w = w;
+    nr.x = (cx - w as f32 * 0.5).round() as i32;
+    nr.y = (cy - orig_rect.h as f32 * 0.5).round() as i32;
+    (nr, angle)
+}
+
 // ── Drag state ────────────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
@@ -883,6 +941,21 @@ enum DragState {
         orig_rect: cobolt_forms::model::Rect,
         start_x: i32,
         start_y: i32,
+    },
+    /// Dragging one end of a Line control's drawn segment. A Line has no
+    /// interior to resize — its two ends ARE the whole control — so it gets
+    /// its own two-point drag instead of the generic 8-point rect `Handle`
+    /// every other control uses: the dragged end tracks the pointer exactly,
+    /// and `LineAngle` is computed and written directly from it (continuous
+    /// degrees), never derived after the fact from a grid-snapped rect.
+    ResizingLineEndpoint {
+        id: String,
+        /// The OTHER endpoint, fixed for the whole gesture — captured once at
+        /// press-time so it cannot itself drift as the dragged end (and thus
+        /// the control's rect) is rewritten every frame.
+        anchor: (f32, f32),
+        orig_rect: cobolt_forms::model::Rect,
+        orig_angle: Option<i64>,
     },
     PlacingNew {
         ctrl_type: ControlType,
@@ -1930,6 +2003,12 @@ pub struct DesignerPanel {
     /// Stores which form edge (if any) the pointer was on when the mouse button
     /// was first pressed, so the form-resize drag can begin on `drag_started()`.
     press_form_edge: Option<FormEdge>,
+    /// A Line control has no rect handles — see `press_handle` — it has two
+    /// draggable ENDS instead. Stores the OTHER end (the one the drag holds
+    /// fixed) captured when the mouse button first pressed on the near one,
+    /// for the same reason `press_handle` captures early: by `drag_started()`
+    /// the pointer has already moved off the small target.
+    press_line_anchor: Option<(f32, f32)>,
 
     // ── Menu editor modal (spec 018) ────────────────────────────────────────
     pub menu_modal: Option<MenuEditorModal>,
@@ -2096,6 +2175,7 @@ impl DesignerPanel {
             press_handle: None,
             sel_handle_rect: None,
             press_form_edge: None,
+            press_line_anchor: None,
             menu_modal: None,
             toolbar_modal: None,
             event_modal: None,
@@ -7553,7 +7633,38 @@ impl DesignerPanel {
                     });
                     let rect = painted.or_else(|| self.form.find_control(&sid).map(|c| c.rect));
                     if let Some(rect) = rect {
-                        draw_handles(&painter, origin, &rect, glass);
+                        // A Line has no interior to resize — its two ends ARE
+                        // the whole control — so its selection handles sit on
+                        // the drawn segment's endpoints instead of the
+                        // generic 8-point rect every other control uses (see
+                        // `line_endpoints_of` / `ResizingLineEndpoint`).
+                        let line_ends: Option<((f32, f32), (f32, f32))> = self
+                            .form
+                            .find_control(&sid)
+                            .filter(|c| c.control_type == ControlType::Line)
+                            .map(|c| {
+                                let angle = c.get_prop("LineAngle").map(|v| v.as_i64());
+                                let dir = c
+                                    .get_prop("LineDirection")
+                                    .map(|v| v.as_str().to_owned())
+                                    .unwrap_or_else(|| "Horizontal".into());
+                                cobolt_forms::model::line_endpoints(
+                                    rect.x as f32,
+                                    rect.y as f32,
+                                    rect.w as f32,
+                                    rect.h as f32,
+                                    angle,
+                                    &dir,
+                                )
+                            });
+                        if let Some((p1, p2)) = line_ends {
+                            let pts = [Pos2::new(p1.0, p1.1), Pos2::new(p2.0, p2.1)];
+                            draw_handles(&painter, origin, &pts, glass);
+                        } else {
+                            let pts: Vec<Pos2> =
+                                ALL_HANDLES.iter().map(|&h| handle_pos(&rect, h)).collect();
+                            draw_handles(&painter, origin, &pts, glass);
+                        }
                         // The hit-test reads the same rect, so a knob is
                         // grabbable exactly where it is drawn.
                         self.sel_handle_rect = Some((sid, rect));
@@ -10620,6 +10731,89 @@ impl DesignerPanel {
         self.dirty = true;
     }
 
+    /// One pointer move of a Line endpoint drag: write the rect and
+    /// `LineAngle` live, so the segment tracks the pointer under the drag
+    /// exactly like the rect handles do for every other control.
+    fn apply_line_endpoint_drag(&mut self, px: i32, py: i32) {
+        let DragState::ResizingLineEndpoint {
+            ref id,
+            anchor,
+            orig_rect,
+            ..
+        } = self.drag.clone()
+        else {
+            return;
+        };
+        let min_w = self
+            .form
+            .find_control(id)
+            .map(|c| cobolt_forms::model::min_control_size(c).0)
+            .unwrap_or(8);
+        let (new_rect, new_angle) =
+            line_endpoint_drag_result(orig_rect, anchor, px as f32, py as f32, min_w);
+        if let Some(ctrl) = self.form.find_control_mut(id) {
+            ctrl.rect = new_rect;
+            ctrl.set_prop("LineAngle", new_angle);
+        }
+    }
+
+    /// End a Line endpoint drag: the rect and `LineAngle` were written live,
+    /// so this records ONE undo entry for the whole gesture (mirrors
+    /// `finish_splitter_division_drag`) instead of leaving the per-frame
+    /// writes with nothing on the undo stack at all.
+    fn finish_line_endpoint_drag(&mut self) {
+        let DragState::ResizingLineEndpoint {
+            ref id,
+            orig_rect,
+            orig_angle,
+            ..
+        } = self.drag.clone()
+        else {
+            return;
+        };
+        let Some(ctrl) = self.form.find_control(id) else {
+            self.dirty = true;
+            return;
+        };
+        let new_rect = ctrl.rect;
+        let new_angle = ctrl.get_prop("LineAngle").map(|v| v.as_i64());
+        if new_rect == orig_rect && new_angle == orig_angle {
+            self.dirty = true;
+            return;
+        }
+        let mut cmds = Vec::new();
+        if new_rect != orig_rect {
+            cmds.push(Cmd::ResizeControl {
+                id: id.clone(),
+                old_rect: orig_rect,
+                new_rect,
+            });
+        }
+        // Always explicit, never left to re-derive from LineDirection — the
+        // same contract typing into the Properties panel's Angle° field
+        // already gives (`int_prop_row` in properties.rs), so the drawn
+        // result is unambiguous and matches exactly what was dragged.
+        //
+        // Conditional (like `ResizeControl` above) because the two CAN
+        // diverge: re-stretching an end along the same ray changes the rect
+        // without changing the angle, and pushing a no-op `SetProperty`
+        // alongside it would only pad the undo entry.
+        if new_angle != orig_angle {
+            cmds.push(Cmd::SetProperty {
+                id: id.clone(),
+                key: "LineAngle".to_owned(),
+                old: orig_angle.map(PropValue::Int),
+                new: PropValue::Int(new_angle.unwrap_or(0)),
+            });
+        }
+        if cmds.len() == 1 {
+            self.apply(cmds.pop().expect("one command"));
+        } else {
+            self.apply(Cmd::Batch { cmds });
+        }
+        self.dirty = true;
+    }
+
     /// Put a Splitter's division back in the middle — what a double-click on
     /// the line does, on the canvas and in the running form alike.
     fn centre_splitter_division(&mut self, id: &str) {
@@ -11041,24 +11235,57 @@ impl DesignerPanel {
             }
         }
 
+        // A Line has no rect interior to resize — its two ends ARE the whole
+        // control — so a selected Line gets endpoint handles (below) instead
+        // of the generic 8-point rect handles; `None` here is what turns the
+        // rect-handle hit-test off for it.
+        let selected_line = self
+            .selected_ids
+            .first()
+            .and_then(|sid| self.line_endpoints_of(sid).map(|ends| (sid.clone(), ends)));
+
         // Check if pointer is currently over a resize handle (for cursor feedback).
         // The grab zones sit on the rect the knobs were DRAWN on (see
         // `sel_handle_rect`), so a knob is grabbable exactly where it appears.
-        let handle_hover = self.selected_ids.first().and_then(|sid| {
-            self.handle_rect_of(sid).and_then(|r| {
-                for &h in &ALL_HANDLES {
-                    let hp = handle_pos(&r, h);
-                    let dist = ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt();
-                    if dist < 8.0 {
-                        return Some(h);
+        let handle_hover = if selected_line.is_some() {
+            None
+        } else {
+            self.selected_ids.first().and_then(|sid| {
+                self.handle_rect_of(sid).and_then(|r| {
+                    for &h in &ALL_HANDLES {
+                        let hp = handle_pos(&r, h);
+                        let dist =
+                            ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt();
+                        if dist < 8.0 {
+                            return Some(h);
+                        }
                     }
-                }
-                None
+                    None
+                })
             })
-        });
+        };
 
         if let Some(h) = handle_hover {
             resp.ctx.set_cursor_icon(handle_cursor(h));
+        }
+
+        // Same idea as `handle_hover`, but for a Line's two endpoints: whichever
+        // one the pointer is near, capture the OTHER one — the anchor a drag
+        // from here would hold fixed (see `ResizingLineEndpoint`).
+        let line_end_hover: Option<(f32, f32)> = selected_line.as_ref().and_then(|(_, (p1, p2))| {
+            let near = |p: (f32, f32)| {
+                ((px as f32 - p.0).powi(2) + (py as f32 - p.1).powi(2)).sqrt() < 8.0
+            };
+            if near(*p1) {
+                Some(*p2)
+            } else if near(*p2) {
+                Some(*p1)
+            } else {
+                None
+            }
+        });
+        if line_end_hover.is_some() {
+            resp.ctx.set_cursor_icon(CursorIcon::Grab);
         }
 
         // Detect hovering the form's own resize border (only when not over a
@@ -11082,6 +11309,7 @@ impl DesignerPanel {
             if primary_just_pressed {
                 self.press_handle = handle_hover;
                 self.press_form_edge = form_edge_hover;
+                self.press_line_anchor = line_end_hover;
             }
         }
         // Clear if the button is no longer held (cancelled press with no drag).
@@ -11089,6 +11317,7 @@ impl DesignerPanel {
         if !primary_held {
             self.press_handle = None;
             self.press_form_edge = None;
+            self.press_line_anchor = None;
         }
 
         let primary_just_pressed =
@@ -11165,6 +11394,22 @@ impl DesignerPanel {
                             start_x: px,
                             start_y: py,
                         };
+                    } else
+                    // A Line's endpoint, captured at press-time for the same
+                    // reason the rect handle below is: outranks the plain
+                    // hit-test-for-move so grabbing an end never starts
+                    // dragging the whole control instead.
+                    if let Some(anchor) = self.press_line_anchor.take() {
+                        if let Some(sid) = self.selected_ids.first().cloned() {
+                            if let Some(ctrl) = self.form.find_control(&sid) {
+                                self.drag = DragState::ResizingLineEndpoint {
+                                    id: sid,
+                                    anchor,
+                                    orig_rect: ctrl.rect,
+                                    orig_angle: ctrl.get_prop("LineAngle").map(|v| v.as_i64()),
+                                };
+                            }
+                        }
                     } else
                     // Use the handle captured at press-time, not the current hover
                     // (the pointer has already moved by the time drag_started fires).
@@ -11324,6 +11569,9 @@ impl DesignerPanel {
                         ctrl.rect = apply_resize(orig_rect, handle, dx, dy, gp, sn, Some(&floor));
                     }
                 }
+                DragState::ResizingLineEndpoint { .. } => {
+                    self.apply_line_endpoint_drag(px, py);
+                }
                 DragState::PlacingNew {
                     ref ctrl_type,
                     start_x,
@@ -11480,6 +11728,9 @@ impl DesignerPanel {
                         });
                         self.trigger_repeating_group_placement_release(&resp.ctx, &[id]);
                     }
+                }
+                DragState::ResizingLineEndpoint { .. } => {
+                    self.finish_line_endpoint_drag();
                 }
                 DragState::PlacingNew {
                     ctrl_type,
@@ -11933,9 +12184,12 @@ fn rename_control_refs_in_cobol(code: &mut String, old: &str, new: &str) {
     *code = out;
 }
 
-fn draw_handles(painter: &egui::Painter, origin: Pos2, r: &cobolt_forms::model::Rect, glass: bool) {
-    for &h in &ALL_HANDLES {
-        let hp = handle_pos(r, h);
+/// Draw a knob at every point in `points` — the generic 8 rect-handle
+/// positions for most controls, or a Line's own 2 endpoints (see
+/// `line_endpoints_of`/`ResizingLineEndpoint`). One drawing function so both
+/// kinds of handle look identical; only which points they sit on differs.
+fn draw_handles(painter: &egui::Painter, origin: Pos2, points: &[Pos2], glass: bool) {
+    for &hp in points {
         let screen = origin + Vec2::new(hp.x, hp.y);
         if glass {
             painter.circle_filled(
@@ -18577,6 +18831,295 @@ mod sidebar_seam_tests {
             before.len(),
             STYLES.len(),
             dp.form.glass_style
+        );
+    }
+}
+
+/// A Line's own two-point drag (the fix for the bug where dragging a Line
+/// only ever reached the "Diagonal" slope of whatever grid-snapped rect the
+/// generic 8-handle resize produced). Driven the same way `sidebar_seam_tests`
+/// drives `MovingSplitterDivision` / `ResizingSidebarPane`: seed `DragState`
+/// directly (standing in for the press-time hit-test `handle_drag` does with
+/// `line_endpoints_of` + `press_line_anchor`), then call the same
+/// `apply_line_endpoint_drag` / `finish_line_endpoint_drag` methods
+/// `handle_drag` itself calls — the production code path, not a re-implementation
+/// of its math.
+#[cfg(test)]
+mod line_endpoint_drag_tests {
+    use super::*;
+    use cobolt_forms::{Control, Form};
+
+    fn line_form(x: i32, y: i32, w: i32, h: i32) -> DesignerPanel {
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut ln = Control::new("Line-1", ControlType::Line, x, y);
+        ln.rect = cobolt_forms::model::Rect::new(x, y, w, h);
+        form.controls.push(ln);
+        let mut dp = DesignerPanel::new(form);
+        dp.selected_ids = vec!["Line-1".to_owned()];
+        dp
+    }
+
+    /// `line_endpoints_of` — the SAME geometry both the endpoint-drag hover
+    /// hit-test and the drawn handles read — must reproduce exactly what
+    /// `paint.rs`'s `CT::Line` block draws for the legacy presets, or a knob
+    /// would sit somewhere other than the line the developer sees.
+    #[test]
+    fn line_endpoints_of_matches_the_legacy_direction_presets() {
+        let mut dp = line_form(50, 50, 200, 4);
+        assert_eq!(
+            dp.line_endpoints_of("Line-1"),
+            Some(((50.0, 52.0), (250.0, 52.0))),
+            "Horizontal (default): left-centre to right-centre"
+        );
+
+        dp.form
+            .find_control_mut("Line-1")
+            .unwrap()
+            .set_prop("LineDirection", "Vertical");
+        assert_eq!(
+            dp.line_endpoints_of("Line-1"),
+            Some(((50.0, 50.0), (50.0, 54.0))),
+            "Vertical: top to bottom"
+        );
+
+        dp.form
+            .find_control_mut("Line-1")
+            .unwrap()
+            .set_prop("LineDirection", "Diagonal");
+        assert_eq!(
+            dp.line_endpoints_of("Line-1"),
+            Some(((50.0, 50.0), (250.0, 54.0))),
+            "Diagonal: the rect's own corners"
+        );
+    }
+
+    /// The pure geometry behind the drag, driven directly the way
+    /// `form_resize_tests` drives `apply_resize`: the angle is exactly
+    /// `atan2` of the pointer around the fixed anchor, in the same y-down /
+    /// 0°-horizontal convention `paint.rs` draws with (Properties panel's own
+    /// fallback mapping: Vertical → 90°, Diagonal → 45°).
+    #[test]
+    fn drag_result_angle_matches_atan2_around_the_anchor() {
+        let rect = cobolt_forms::model::Rect::new(100, 98, 200, 4);
+        let anchor = (100.0, 100.0);
+
+        let (r, a) = line_endpoint_drag_result(rect, anchor, 110.0, 100.0, 8);
+        assert_eq!(a, 0, "straight right of the anchor is 0 degrees");
+        assert_eq!(r.w, 10, "the rect width becomes the segment length");
+
+        let (_, a) = line_endpoint_drag_result(rect, anchor, 100.0, 110.0, 8);
+        assert_eq!(a, 90, "straight below the anchor is 90 degrees (y grows down)");
+
+        let (_, a) = line_endpoint_drag_result(rect, anchor, 110.0, 110.0, 8);
+        assert_eq!(a, 45, "down-right of the anchor is 45 degrees");
+
+        let (_, a) = line_endpoint_drag_result(rect, anchor, 90.0, 110.0, 8);
+        assert_eq!(a, 135, "down-left of the anchor is 135 degrees");
+    }
+
+    /// **The bug this replaces:** dragging a rect corner on the default
+    /// 200×4 box left `apply_resize`'s 8px `snap()` pinning the height at its
+    /// 8px floor across a wide range of drag distances, so the "Diagonal"
+    /// slope barely moved before jumping. An endpoint drag must reach any
+    /// angle continuously: a handful of one-point pointer steps must not
+    /// collapse onto a shared rounded value the way the old grid-snapped
+    /// rect did.
+    #[test]
+    fn adjacent_pointer_positions_give_different_angles_not_a_shared_grid_step() {
+        let rect = cobolt_forms::model::Rect::new(100, 98, 200, 4);
+        let anchor = (100.0, 100.0);
+        let angles: Vec<i64> = (0..8)
+            .map(|dy| line_endpoint_drag_result(rect, anchor, 140.0, 100.0 + dy as f32, 8).1)
+            .collect();
+        let mut distinct = angles.clone();
+        distinct.dedup();
+        assert!(
+            distinct.len() > 4,
+            "8 one-point pointer steps produced only {} distinct angle(s) {angles:?} — \
+             the drag is still quantised",
+            distinct.len()
+        );
+    }
+
+    /// The drawn segment's length floors at the control's own minimum (8 —
+    /// the same floor `apply_resize` gives every other control via
+    /// `min_control_size`), so dragging onto the anchor cannot collapse the
+    /// Line to an unselectable point.
+    #[test]
+    fn drag_result_floors_the_length_at_the_control_minimum() {
+        let (r, _) = line_endpoint_drag_result(
+            cobolt_forms::model::Rect::new(100, 98, 200, 4),
+            (100.0, 100.0),
+            101.0,
+            100.0, // 1pt away — shorter than the 8pt floor
+            8,
+        );
+        assert_eq!(r.w, 8, "length never drops below the control's own minimum");
+    }
+
+    /// Driving the REAL gesture end-to-end (not just the geometry function in
+    /// isolation): grab the right end, drag it to an arbitrary point, and
+    /// confirm the dragged end lands exactly on the pointer while the other
+    /// end — the anchor — never moves. This is the actual behaviour a
+    /// developer dragging a Line's handle now gets: any angle, tracked
+    /// continuously, exactly like an endpoint in a drawing tool.
+    #[test]
+    fn dragging_an_endpoint_tracks_the_pointer_and_holds_the_other_end_fixed() {
+        let mut dp = line_form(100, 98, 200, 4);
+        let (p1, p2) = dp
+            .line_endpoints_of("Line-1")
+            .expect("a Line reports its endpoints");
+        assert_eq!((p1, p2), ((100.0, 100.0), (300.0, 100.0)));
+
+        // Grab the right end (p2); the anchor is the other one, p1.
+        dp.drag = DragState::ResizingLineEndpoint {
+            id: "Line-1".into(),
+            anchor: p1,
+            orig_rect: dp.form.find_control("Line-1").unwrap().rect,
+            orig_angle: None,
+        };
+        // Drag it up and to a deliberately non-45/90-degree position.
+        dp.apply_line_endpoint_drag(240, 40);
+
+        let ctrl = dp.form.find_control("Line-1").unwrap();
+        let angle = ctrl.get_prop("LineAngle").map(|v| v.as_i64());
+        assert!(
+            !matches!(angle, None | Some(0) | Some(45) | Some(90)),
+            "a free drag should not land on a round preset angle by coincidence: {angle:?}"
+        );
+
+        let (new_p1, new_p2) = dp.line_endpoints_of("Line-1").unwrap();
+        assert!(
+            (new_p1.0 - p1.0).abs() < 2.0 && (new_p1.1 - p1.1).abs() < 2.0,
+            "the un-dragged end stays put: {p1:?} -> {new_p1:?}"
+        );
+        assert!(
+            (new_p2.0 - 240.0).abs() < 2.0 && (new_p2.1 - 40.0).abs() < 2.0,
+            "the dragged end tracks the pointer to (240, 40): got {new_p2:?}"
+        );
+        println!(
+            "  Line endpoint drag — anchor {p1:?} held, dragged end {p2:?} -> {new_p2:?} \
+             (pointer (240, 40)), LineAngle -> {angle:?}"
+        );
+    }
+
+    /// The whole gesture is ONE undo entry — rect AND `LineAngle` together —
+    /// mirroring `dragging_the_division_carries_the_contents_and_undoes_once`.
+    /// `LineAngle` is explicitly UNSET beforehand, so this also proves undo
+    /// restores "unset" rather than leaving a stray `LineAngle: 0` behind.
+    #[test]
+    fn finishing_the_drag_is_one_undo_entry_for_rect_and_angle_together() {
+        let mut dp = line_form(100, 98, 200, 4);
+        let orig_rect = dp.form.find_control("Line-1").unwrap().rect;
+        assert_eq!(
+            dp.form.find_control("Line-1").unwrap().get_prop("LineAngle"),
+            None,
+            "a fresh Line has no LineAngle until something sets one"
+        );
+
+        dp.drag = DragState::ResizingLineEndpoint {
+            id: "Line-1".into(),
+            anchor: (100.0, 100.0),
+            orig_rect,
+            orig_angle: None,
+        };
+        dp.apply_line_endpoint_drag(240, 40);
+        dp.finish_line_endpoint_drag();
+
+        let ctrl = dp.form.find_control("Line-1").unwrap();
+        assert_ne!(ctrl.rect, orig_rect, "the rect changed");
+        let angle_after = ctrl.get_prop("LineAngle").map(|v| v.as_i64());
+        assert!(angle_after.is_some(), "the drag always ends with an explicit LineAngle");
+
+        dp.undo();
+        let ctrl = dp.form.find_control("Line-1").unwrap();
+        assert_eq!(ctrl.rect, orig_rect, "ONE undo restores the rect");
+        assert_eq!(
+            ctrl.get_prop("LineAngle"),
+            None,
+            "…and LineAngle with it, back to unset — as if the drag never happened"
+        );
+        println!(
+            "  Line endpoint drag undo — rect {orig_rect:?} restored, LineAngle {angle_after:?} -> unset, in one undo()"
+        );
+    }
+
+    /// A press that never turns into a real drag commits nothing — mirroring
+    /// `drag_move_tests`' "a click that does not move leaves the control
+    /// alone", applied to `finish_line_endpoint_drag`'s own no-op guard.
+    #[test]
+    fn a_press_without_movement_pushes_no_undo_entry() {
+        let mut dp = line_form(100, 98, 200, 4);
+        let orig_rect = dp.form.find_control("Line-1").unwrap().rect;
+        dp.drag = DragState::ResizingLineEndpoint {
+            id: "Line-1".into(),
+            anchor: (100.0, 100.0),
+            orig_rect,
+            orig_angle: None,
+        };
+        let stack_before = dp.undo_stack.len();
+        // No `apply_line_endpoint_drag` call — the gesture never moved.
+        dp.finish_line_endpoint_drag();
+        assert_eq!(
+            dp.undo_stack.len(),
+            stack_before,
+            "nothing changed, so there is nothing to undo"
+        );
+    }
+
+    /// Re-stretching an end further along the SAME ray changes only the
+    /// rect, never the angle — `finish_line_endpoint_drag` must not pad the
+    /// undo entry with a no-op `LineAngle` write when that happens.
+    #[test]
+    fn re_stretching_along_the_same_ray_only_touches_the_rect() {
+        let mut dp = line_form(100, 98, 200, 4);
+        let anchor = (100.0, 100.0);
+
+        // First drag: sets LineAngle explicitly to 0 (straight right).
+        dp.drag = DragState::ResizingLineEndpoint {
+            id: "Line-1".into(),
+            anchor,
+            orig_rect: dp.form.find_control("Line-1").unwrap().rect,
+            orig_angle: None,
+        };
+        dp.apply_line_endpoint_drag(200, 100);
+        dp.finish_line_endpoint_drag();
+        let after_first = dp.form.find_control("Line-1").unwrap().clone();
+        assert_eq!(after_first.get_prop("LineAngle").map(|v| v.as_i64()), Some(0));
+
+        // Second drag: same ray (still due right of the anchor), further out.
+        let stack_before = dp.undo_stack.len();
+        dp.drag = DragState::ResizingLineEndpoint {
+            id: "Line-1".into(),
+            anchor,
+            orig_rect: after_first.rect,
+            orig_angle: Some(0),
+        };
+        dp.apply_line_endpoint_drag(260, 100);
+        dp.finish_line_endpoint_drag();
+        assert_eq!(
+            dp.undo_stack.len(),
+            stack_before + 1,
+            "the re-stretch is still exactly one undo entry"
+        );
+
+        let after_second = dp.form.find_control("Line-1").unwrap();
+        assert_ne!(after_second.rect, after_first.rect, "the rect grew");
+        assert_eq!(
+            after_second.get_prop("LineAngle").map(|v| v.as_i64()),
+            Some(0),
+            "the angle is unchanged — still due right"
+        );
+
+        // ONE undo puts the rect back and leaves the angle at 0 throughout —
+        // never bounced through `None` by an unrelated SetProperty entry.
+        dp.undo();
+        let ctrl = dp.form.find_control("Line-1").unwrap();
+        assert_eq!(ctrl.rect, after_first.rect, "undo restores the pre-restretch rect");
+        assert_eq!(
+            ctrl.get_prop("LineAngle").map(|v| v.as_i64()),
+            Some(0),
+            "…and LineAngle was never part of this undo step"
         );
     }
 }

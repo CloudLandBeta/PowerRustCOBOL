@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.31] — 2026-09-03
+
+### A Line's angle can now be dragged, not just typed
+
+Reported alongside "Line control thinner does not work" (which turned out to
+be a stale build, not a bug — LineThickness reads correctly) as a side
+problem: "can't freely change the angle in the designer." Real, and specific
+to the Designer. A Line had no drag gesture of its own — it used the same
+generic 8-point rectangle handles every other control does, so dragging a
+corner only ever resized an invisible bounding box, and "Diagonal" is that
+box's own corner-to-corner slope. With the grid snap every form starts with
+(8px) quantizing that box against a Line's tiny 200×4 default size, the
+angle you could reach by dragging jumped in coarse steps; typing a number
+into the Properties panel's Angle° field was the only way to reach an
+arbitrary one.
+
+A selected Line now shows its own two endpoint handles instead of the
+generic eight. Dragging either one sets the angle continuously from the
+pointer's position around the fixed opposite end — never grid-snapped — and
+writes `LineAngle` directly, exactly as typing into Angle° already did, so
+there is one formula for where a Line's endpoints are (`line_endpoints`,
+shared by the renderer and the new drag handles) rather than two that could
+drift apart.
+
+*(This shipped with `line_endpoints` sitting in 1.63.27's commit rather than
+its own — two changes landed in the same shared working tree around the same
+time, and a wholesale `git add` on a file already carrying both didn't catch
+it. The code itself is unaffected: tested, reviewed, and correct either way.)*
+
 ## [PowerRustCOBOL 1.63.30] — 2026-09-03
 
 ### Every Snackbar notification can now be closed on its own
