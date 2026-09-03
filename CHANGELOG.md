@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.22] — 2026-09-03
+
+### The Indexed File Browser can open a redb-engine file
+
+Opening PowerDemo3's `actors` indexed file reported `OPEN I-O failed: FILE
+STATUS 39` and showed nothing. The file was not corrupt and its schema had not
+drifted — it is a `redb::Database`, because `STORAGE IS DISK` names a COBOL
+storage class, not a physical format: which of the Rust (`PRCIDXD1`), RmCOBOL,
+Fujitsu or redb engines actually wrote the bytes is chosen at OPEN time, by
+`rcrun --indexed-engine` or `COBOL_INDEXED_ENGINE`, and the `.cidx` definition
+has no field to record that choice. The Indexed File Browser always assumed
+`DiskIndexedFile`, so a file created once with the redb engine could never be
+read back — the bytes do not even parse as `PRCIDXD1`, and FILE STATUS 39
+("conflicting file attributes") is exactly right for a wrong container, if not
+obviously so from the message alone.
+
+The browser now sniffs a disk file's own leading bytes before opening it —
+`redb`'s literal magic against everything else — and dispatches to the engine
+that actually matches, the same leniency (`strict_metadata = false`) the
+in-memory path already had. Nothing about how a COBOL program opens a file
+changes: `--indexed-engine` still selects the writer: this only teaches the
+browser to recognize what is already on disk.
+
 ## [PowerRustCOBOL 1.63.21] — 2026-09-03
 
 ### `cargo test -p cobolt-runtime` could hang forever, silently

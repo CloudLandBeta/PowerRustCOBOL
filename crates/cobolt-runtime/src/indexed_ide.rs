@@ -59,6 +59,38 @@ pub fn compare_schema(def: &IndexedDefinition, info: &IndexedFileInfo) -> Schema
     SchemaDrift::Ok
 }
 
+/// Which physical container a `STORAGE IS DISK` file actually is, read from its
+/// own leading bytes rather than assumed from the `.cidx`.
+///
+/// `StorageMode::Disk` names a COBOL-level storage class, not a physical
+/// format: which of the Rust (`PRCIDXD1`), RmCOBOL, Fujitsu or **redb** engines
+/// actually wrote the bytes is chosen at OPEN time, by `rcrun --indexed-engine`
+/// or `COBOL_INDEXED_ENGINE` — a run-time choice the `.cidx` definition has no
+/// field to record. A file created once with `--indexed-engine redb` therefore
+/// looks identical to any other on the definition alone, and opening it as the
+/// default `DiskIndexedFile` fails outright: the bytes do not even parse as
+/// `PRCIDXD1`, so the engine correctly (if confusingly) reports FILE STATUS 39
+/// — "conflicting file attributes" is exactly what a wrong container is.
+enum DiskFormat {
+    /// The default Rust engine's own container, or no file yet (nothing to
+    /// sniff — the definition's own choice governs what gets CREATED).
+    Prcidxd1,
+    /// A `redb::Database`.
+    Redb,
+}
+
+fn sniff_disk_format(path: &Path) -> DiskFormat {
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return DiskFormat::Prcidxd1;
+    };
+    use std::io::Read;
+    let mut head = [0u8; 4];
+    if f.read_exact(&mut head).is_ok() && &head == b"redb" {
+        return DiskFormat::Redb;
+    }
+    DiskFormat::Prcidxd1
+}
+
 /// Build runtime key specs from a definition.
 pub fn key_specs_from_def(def: &IndexedDefinition) -> (KeySpec, Vec<KeySpec>) {
     let primary = def
@@ -154,12 +186,30 @@ impl GridSession {
         let primary_len = primary.len;
 
         let mut file: Box<dyn IndexedStore> = match def.storage {
-            StorageMode::Disk => {
-                let f = crate::indexed_disk::DiskIndexedFile::new(
-                    path, record_len, primary, alternates,
-                );
-                Box::new(f)
-            }
+            // The definition says DISK, but that names a COBOL storage class,
+            // not a physical format — sniff the file's own bytes for which
+            // engine actually wrote it (see `sniff_disk_format`). A file that
+            // does not exist yet sniffs as `Prcidxd1`, matching what
+            // `create_empty_from_definition` would create for this same
+            // definition.
+            StorageMode::Disk => match sniff_disk_format(path) {
+                DiskFormat::Redb => {
+                    let mut f = crate::indexed_redb::RedbIndexedFile::new(
+                        path, record_len, primary, alternates,
+                    );
+                    // Lenient, like the in-memory arm below: the browser is
+                    // for looking at rows, not for enforcing the schema a
+                    // COBOL program's own OPEN would.
+                    f.set_strict_metadata(false);
+                    Box::new(f)
+                }
+                DiskFormat::Prcidxd1 => {
+                    let f = crate::indexed_disk::DiskIndexedFile::new(
+                        path, record_len, primary, alternates,
+                    );
+                    Box::new(f)
+                }
+            },
             StorageMode::Memory => {
                 let mut f = IndexedFile::new(path, record_len, primary, alternates);
                 f.set_strict_metadata(false);
