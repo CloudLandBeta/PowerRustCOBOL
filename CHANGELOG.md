@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.26] — 2026-09-03
+
+### MenuBar and ToolBar were reading on a dark form only — a light one made them nearly disappear
+
+Same class of bug as 1.63.24's GroupBox fix, in two more places: a hand-rolled
+colour path tuned for a dark glass form, with no notion that the active form
+might not be one (operator, 2026-09-03 — "menubar - where is it? / toolbar -
+where is it?", testing a Neumorphic Light form).
+
+**MenuBar.** Its surface only ever painted when the developer chose a colour,
+or when a *theme pack* supplied a `Card` token. Neumorphic is a `GlassStyle`,
+not a pack — `theme_has_surface` never sees it — so an untouched Neumorphic
+bar fell all the way through to "bare, form shows through," the behaviour
+Classic/Enhanced keep on purpose. Every other Neumorphic control gets its own
+soft procedural surface by default; the bar alone did not. Its caption ink
+compounded this: seeded `#E1E6FA`, not the shared `#FFFFFF` sentinel, so a
+saved form carrying that literal looked like a deliberate choice to
+`resolve_label_ink` and could never adapt — normalizing the historical literal
+to the real sentinel first (it equals this arm's own fallback, so an untouched
+value is recognizable independent of which constant a control seeds) lets the
+same ink resolver every other control uses take over.
+
+**ToolBar.** `Theme::resolve` filled in five fallback colours — border, card,
+raised card, text, dim text — with literals for whenever no theme token
+applies, none of which have ever been theme-*or-form*-aware: a translucent
+white card lift and near-white text, tuned for the dark glass form these
+controls were designed against. On a light form the lift reads as a barely-
+there wash and the ink lands within a few grey levels of the page itself —
+exactly the reported faint ghost icons. The fallback now reads the form's own
+backdrop and picks its polarity from that: unchanged on a dark form, and a
+translucent black lift with dark ink on a light one.
+
+Both were caught the same way the GroupBox fix caught its bug: rendering a
+freshly-seeded control (Control::new's own defaults, untouched) against the
+actual demo's light backdrop and asserting on contrast ratio rather than a
+hand-picked expected colour, so a fix that regressed to a different wrong
+literal would still fail the test.
+
 ## [PowerRustCOBOL 1.63.25] — 2026-09-03
 
 ### A TreeView row has never been clickable — select, check, expand, none of it

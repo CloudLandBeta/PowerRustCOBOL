@@ -8089,6 +8089,25 @@ fn render_interactive(
             // that supplies its own faces always lays its bar down; Liquid
             // Glass supplies none and keeps the original opt-in behaviour
             // exactly (R10).
+            // Neumorphic is a GlassStyle, not a theme pack, so `theme_has_surface`
+            // never sees it: a Neumorphic bar with no chosen colour used to fall
+            // all the way through to "bare, form shows through" exactly like
+            // Classic/Enhanced. Every OTHER Neumorphic control gets its own soft
+            // procedural surface by default; the bar alone did not, which is
+            // what made it disappear (operator, 2026-09-03 — "menubar - where is
+            // it?"). Classic/Enhanced have no Card token either but are not
+            // Neumorphic, so they still fall through unchanged (R10).
+            let is_neumorphic = paint::glass_config_applies(painter.ctx())
+                && paint::active_glass_style(painter.ctx()).is_neumorphic();
+            // The same soft lavender-blue every other Neumorphic surface
+            // defaults to (paint.rs's generic container fill) when the
+            // developer has not chosen a colour of their own.
+            let neumorphic_default_fill = Color32::from_rgb(232, 237, 254);
+            let fill = if menu_bg.a() > 0 {
+                menu_bg
+            } else {
+                neumorphic_default_fill
+            };
             if menu_bg.a() > 0 {
                 paint::draw_surface_auto(
                     &painter,
@@ -8099,21 +8118,41 @@ fn render_interactive(
                     alpha,
                     paint::SurfaceRole::Shape,
                 );
-            } else if paint::theme_has_surface(painter.ctx(), paint::SurfaceRole::Card) {
+            } else if is_neumorphic
+                || paint::theme_has_surface(painter.ctx(), paint::SurfaceRole::Card)
+            {
                 paint::draw_surface_auto(
                     &painter,
                     screen,
-                    menu_bg,
+                    fill,
                     paint::corner_radius(ctrl),
                     false,
                     alpha,
                     paint::SurfaceRole::Card,
                 );
             }
-            let fg = ctrl
+            // `#E1E6FA` is the seeded literal (== the historical fallback just
+            // below) — not the shared `#FFFFFF` sentinel — so a saved form
+            // carrying it looks like a deliberate choice to the generic ink
+            // resolver and can never adapt to a theme. Normalising it to the
+            // real sentinel first lets `resolve_label_ink` treat an untouched
+            // MenuBar/SideMenu caption the same as every other control's.
+            let historical_default_fg = Color32::from_rgb(225, 230, 250);
+            let mut ink_ctrl = ctrl.clone();
+            if ink_ctrl
                 .get_prop("ForegroundColor")
-                .map(|v| paint::parse_color(v.as_str()))
-                .unwrap_or(Color32::from_rgb(225, 230, 250));
+                .map(|v| paint::parse_color(v.as_str()) == historical_default_fg)
+                .unwrap_or(false)
+            {
+                ink_ctrl.set_prop("ForegroundColor", crate::model::DEFAULT_FOREGROUND_COLOR);
+            }
+            let fg = paint::resolve_label_ink(
+                painter.ctx(),
+                &ink_ctrl,
+                is_neumorphic,
+                fill,
+                historical_default_fg,
+            );
             let highlight_bg = ctrl
                 .get_prop("HighlightBgColor")
                 .map(|v| paint::parse_color(v.as_str()))
@@ -13174,6 +13213,99 @@ mod tests {
         assert!(
             overrides.get("Trv-1").and_then(|p| p.get("SelectedNode")).is_none(),
             "an arrow click must not also select the row"
+        );
+    }
+
+    // ── MenuBar ──────────────────────────────────────────────────────────────
+
+    /// `CT::MenuBar` used to read `ForegroundColor` literally and only ever
+    /// painted a surface when the developer chose a colour, or a
+    /// self-contained theme PACK supplied a Card token. Neumorphic is a
+    /// GlassStyle, not a pack, so `theme_has_surface` never saw it: an
+    /// untouched Neumorphic MenuBar drew no band at all, and its permanently
+    /// lavender `#E1E6FA` ink (seeded, not the shared sentinel) landed
+    /// straight on the form's own light backdrop — invisible (operator,
+    /// 2026-09-03, "menubar - where is it?"). `Control::new` here reproduces
+    /// PowerDemo3's actual saved state: those two literals, untouched.
+    #[test]
+    fn a_neumorphic_menubar_paints_a_surface_and_readable_ink() {
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+        let mut menu = Control::new("Menu-1", ControlType::MenuBar, 0, 0);
+        menu.rect = crate::model::Rect::new(0, 0, 400, 28);
+        let controls = vec![menu];
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 300.0)));
+        let active_tabs: crate::containers::ActiveTabs = Default::default();
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(600.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active_tabs,
+                        backdrop: Backdrop {
+                            paint: true,
+                            color_hex: "#EAEBEFFF".into(),
+                            transparency: 0,
+                            gradient_enabled: false,
+                            gradient_start_hex: String::new(),
+                            gradient_end_hex: String::new(),
+                            gradient_direction: "South".into(),
+                            image: None,
+                            image_mode: Default::default(),
+                            use_theme_background: false,
+                            window_size: None,
+                            behind_fill: None,
+                            image_extent: None,
+                        },
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        full.textures_delta.clear();
+
+        let mut ink: Option<Color32> = None;
+        let mut band_painted = false;
+        fn walk(s: &egui::Shape, ink: &mut Option<Color32>, band: &mut bool) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, ink, band)),
+                egui::Shape::Text(t) => {
+                    *ink = Some(
+                        t.galley
+                            .job
+                            .sections
+                            .first()
+                            .map(|sec| sec.format.color)
+                            .unwrap_or(t.fallback_color),
+                    );
+                }
+                egui::Shape::Rect(r) if r.fill.a() > 0 => *band = true,
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut ink, &mut band_painted);
+        }
+
+        assert!(
+            band_painted,
+            "a Neumorphic MenuBar with no chosen colour must still paint its own surface"
+        );
+        let ink = ink.expect("the empty-bar label must have painted text");
+        let backdrop_color = crate::paint::parse_color("#EAEBEFFF");
+        let ratio = crate::paint::contrast_ratio(ink, backdrop_color);
+        assert!(
+            ratio >= 4.5,
+            "MenuBar ink {ink:?} must read on its own light backdrop {backdrop_color:?}, got {ratio:.2}:1"
+        );
+        println!(
+            "\n  Neumorphic MenuBar, untouched (seeded #E1E6FA/#00000000) — surface \
+             painted: {band_painted}, ink {ink:?} on {backdrop_color:?}, contrast {ratio:.2}:1\n"
         );
     }
 

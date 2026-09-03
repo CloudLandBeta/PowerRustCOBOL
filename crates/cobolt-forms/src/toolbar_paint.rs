@@ -131,15 +131,37 @@ struct Theme {
 impl Theme {
     fn resolve(ctx: &egui::Context) -> Self {
         // Liquid Glass supplies no flat tokens, so each falls back to a value
-        // that reads on both a light and a dark form.
+        // that used to be a fixed literal tuned for a dark glass form — a
+        // near-white translucent card lift and near-white text. On a light
+        // Neumorphic form those read as a barely-there wash and near-invisible
+        // ink on a near-identical background: the reported "toolbar - where is
+        // it?" faint ghost icons (operator, 2026-09-03). Deriving the fallback
+        // from the form's OWN backdrop, the same way every other bar in this
+        // module reads its surroundings, keeps a dark glass form exactly as it
+        // was and gives a light form a fallback that actually reads on it.
+        let backdrop = paint::form_backdrop_of(ctx);
+        let dark = paint::caret_color(backdrop, Color32::WHITE) == Color32::WHITE;
+        let (card_default, card_raised_default, text_default, dim_text_default) = if dark {
+            (
+                Color32::from_rgba_unmultiplied(255, 255, 255, 18),
+                Color32::from_rgba_unmultiplied(255, 255, 255, 32),
+                Color32::from_gray(230),
+                Color32::from_gray(140),
+            )
+        } else {
+            (
+                Color32::from_rgba_unmultiplied(0, 0, 0, 14),
+                Color32::from_rgba_unmultiplied(0, 0, 0, 26),
+                Color32::from_gray(30),
+                Color32::from_gray(100),
+            )
+        };
         Self {
             border: paint::theme_token(ctx, Tok::Border).unwrap_or(Color32::from_gray(120)),
-            card: paint::theme_token(ctx, Tok::Card)
-                .unwrap_or(Color32::from_rgba_unmultiplied(255, 255, 255, 18)),
-            card_raised: paint::theme_token(ctx, Tok::CardRaised)
-                .unwrap_or(Color32::from_rgba_unmultiplied(255, 255, 255, 32)),
-            text: paint::theme_token(ctx, Tok::Text).unwrap_or(Color32::from_gray(230)),
-            dim_text: paint::theme_token(ctx, Tok::DimText).unwrap_or(Color32::from_gray(140)),
+            card: paint::theme_token(ctx, Tok::Card).unwrap_or(card_default),
+            card_raised: paint::theme_token(ctx, Tok::CardRaised).unwrap_or(card_raised_default),
+            text: paint::theme_token(ctx, Tok::Text).unwrap_or(text_default),
+            dim_text: paint::theme_token(ctx, Tok::DimText).unwrap_or(dim_text_default),
         }
     }
 }
@@ -441,6 +463,66 @@ mod tests {
              #FF8800 is obeyed; hover lifts 100⇒{}, press sinks 100⇒{}\n",
             lift(base, ButtonState::Hovered).r(),
             lift(base, ButtonState::Pressed).r()
+        );
+    }
+
+    /// `Theme::resolve`'s fallbacks used to be fixed literals tuned for a dark
+    /// glass form — a near-white translucent card lift and near-white text.
+    /// On a light form (e.g. a Neumorphic Light form with no theme pack) those
+    /// read as a barely-there wash and near-invisible ink on a near-identical
+    /// background: the reported "toolbar - where is it?" faint ghost icons
+    /// (operator, 2026-09-03). The fix derives the fallback from the form's
+    /// OWN backdrop instead of a fixed literal, so it must actually contrast
+    /// against that backdrop and must darken (not lighten) the elevation lift.
+    #[test]
+    fn a_light_form_gets_toolbar_fallbacks_that_actually_contrast() {
+        let ctx = egui::Context::default();
+        // The PowerDemo3 MenuBar/ToolBar demo's own light form background.
+        let backdrop = Color32::from_rgb(0xEA, 0xEB, 0xEF);
+        paint::set_form_backdrop(&ctx, backdrop);
+        let theme = Theme::resolve(&ctx);
+        let ratio = paint::contrast_ratio(theme.text, backdrop);
+        assert!(
+            ratio >= 4.5,
+            "fallback text {:?} must read on a light form's own backdrop {:?}, got {:.2}:1",
+            theme.text,
+            backdrop,
+            ratio
+        );
+        assert!(
+            theme.card_raised.r() < 128 && theme.card_raised.a() > 0,
+            "the elevation lift on a light form must be a translucent DARKENING, \
+             not the dark-form default of translucent white, got {:?}",
+            theme.card_raised
+        );
+        println!(
+            "\n  ToolBar fallback on a light form — text {:?} vs backdrop {:?}, \
+             contrast {ratio:.2}:1 (>= 4.5 required); card_raised {:?}\n",
+            theme.text, backdrop, theme.card_raised
+        );
+    }
+
+    /// The historical dark-glass-form fallback must not move at all — this is
+    /// the register every existing Classic/Enhanced toolbar was designed
+    /// against, and the fix must be additive, not a re-tuning of it.
+    #[test]
+    fn a_dark_form_keeps_the_toolbars_historical_fallback() {
+        let ctx = egui::Context::default();
+        paint::set_form_backdrop(&ctx, Color32::from_rgb(20, 22, 30));
+        let theme = Theme::resolve(&ctx);
+        assert_eq!(
+            theme.text,
+            Color32::from_gray(230),
+            "a dark form's fallback ink must be byte-for-byte unchanged"
+        );
+        assert_eq!(
+            theme.card_raised,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 32),
+            "a dark form's fallback lift must be byte-for-byte unchanged"
+        );
+        println!(
+            "\n  ToolBar fallback on a dark form — unchanged: text {:?}, card_raised {:?}\n",
+            theme.text, theme.card_raised
         );
     }
 }

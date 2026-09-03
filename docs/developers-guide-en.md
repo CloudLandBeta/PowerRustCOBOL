@@ -2475,6 +2475,12 @@ can still disagree, field by field. In the editor an inherited row is marked
 `group` (or `theme` on a group), and the ✕ beside a value you have set puts it
 back to inheriting.
 
+> **The theme fallback reads your form's own background.** A button or group
+> that inherits all the way down to the theme gets a face and ink chosen for
+> contrast against the form it is actually sitting on — not a fixed look
+> tuned for one kind of form. A toolbar left at its defaults stays legible
+> whether the form behind it is dark or light.
+
 **Adding a button copies the previous one's appearance** — its size, colours,
 gradient and shadow, but never its icon, tooltip or action. Building a toolbar
 is usually six buttons that differ only in icon and action, so you set the look
@@ -3128,7 +3134,12 @@ at runtime the hash is validated and a tampered file is rejected.
 
 **Colour properties.** The MenuBar exposes four colour properties:
 `HighlightBgColor`, `HighlightFgColor` (hover colours), `SelectedBgColor`,
-`SelectedFgColor` (open-menu colours).
+`SelectedFgColor` (open-menu colours). `BackgroundColor` and `ForegroundColor`
+are also there for when you want to pick the bar's own face and caption ink
+yourself; left alone, the bar reads its surroundings instead — it takes a
+soft surface under a Neumorphic form style and picks caption ink that
+contrasts with whatever it ends up sitting on, so a menu bar you have not
+recoloured stays visible and legible on both a dark and a light form.
 
 **Events.** `onMenuClick` fires when any action item is clicked or its
 accelerator key is pressed. The clicked item's `id` is passed as the event
