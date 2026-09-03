@@ -5793,14 +5793,24 @@ impl Control {
             if !is_theme_mark {
                 continue;
             }
-            match fresh.get_prop(key) {
-                Some(v) => {
-                    let v = v.clone();
-                    self.set_prop(*key, v);
-                }
-                None => {
-                    self.properties.shift_remove(*key);
-                }
+            // A PROPERTY IS NEVER REMOVED (operator ruling, 2026-09-03).
+            //
+            // This used to `shift_remove` the key when the fresh control had no
+            // seed for it, on the reading that "no seed" means "this control
+            // does not have this property". It does not: the property exists,
+            // the control simply has no opinion about its value — and removing
+            // it takes the row out of the inspector, so a developer loses the
+            // ABILITY to set it because of a theme switch they made for an
+            // unrelated reason. That is how a Label kept losing its corner
+            // radius.
+            //
+            // Restore the seed where there is one; where there is none, leave
+            // the value alone. The lasting answer is that every control seeds
+            // every theme-owned property, at which point this branch never
+            // runs — see spec 016 Q2, the theme-defaults table.
+            if let Some(v) = fresh.get_prop(key) {
+                let v = v.clone();
+                self.set_prop(*key, v);
             }
         }
     }
@@ -8210,6 +8220,31 @@ mod tests {
 
     /// The seeded values are ordinary property values the developer can edit
     /// afterwards, not painting constants — the form takes a solid background
+    /// A theme switch must never take a property AWAY.
+    ///
+    /// Removing it takes the row out of the inspector, so the developer loses
+    /// the ability to set that property at all — because of a theme switch they
+    /// made for an unrelated reason (operator ruling, 2026-09-03).
+    #[test]
+    fn a_theme_switch_never_removes_a_property() {
+        let mut c = Control::new("C", ControlType::Label, 0, 0);
+        // A key with no seed on this control type, written by a style.
+        c.set_prop("ShadowColor", PropValue::String("#123456".into()));
+        let before: Vec<String> = c.properties.keys().cloned().collect();
+
+        c.apply_neumorphic_defaults();
+        c.reset_theme_owned_props();
+
+        for key in &before {
+            assert!(
+                c.get_prop(key).is_some(),
+                "{key} was removed by a theme switch"
+            );
+        }
+        // And a seeded key comes back to its seed rather than lingering.
+        assert_eq!(c.get_prop("CornerRadius").unwrap().as_i64(), 0);
+    }
+
     /// Every control seeds `CornerRadius`, which is what
     /// `paint::themed_corner_radius` already claims — and a Label was the
     /// exception that made the claim false and the inspector row vanish at

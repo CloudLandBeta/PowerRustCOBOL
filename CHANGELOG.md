@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.15] — 2026-09-03
+
+### A theme switch never removes a property
+
+Operator ruling: **a property is never removed.**
+
+`reset_theme_owned_props` used to drop a theme-owned key when the fresh control
+had no seed for it, on the reading that "no seed" means "this control does not
+have this property". It does not. The property exists; the control simply has no
+opinion about its value — and removing it takes the row out of the inspector, so
+the developer loses the *ability* to set it because of a theme switch made for
+an unrelated reason. That is how a Label kept losing its corner radius.
+
+The seed is restored where there is one; where there is none, the value is left
+alone. The lasting answer is that every control carries a default for every
+theme-owned property, at which point the branch never runs — spec 016 Q2's
+theme-defaults table.
+
 ## [PowerRustCOBOL 1.63.14] — 2026-09-02
 
 ### Copying a style no longer copies which radio is chosen
