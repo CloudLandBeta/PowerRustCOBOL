@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.32] — 2026-09-03
+
+### The codegen golden-byte suite was silently red — regenerated
+
+Unrelated to today's other fixes: `cargo test -p cobolt-codegen` has been
+failing since 1.63.4, when the debugger's `<EVENT-LOOP>`/`<TIMER-STUBS>`/
+`<CSV-EXPORT>`/`<REST-CLIENT>`/`<WEB-SEARCH>` code-site markers started
+appearing in generated `.cbl` output — the golden snapshots in
+`tests/golden/` were never regenerated to match, so the spec 053 byte- and
+line-range-stability guard has been quietly failing on every run since.
+Found while verifying an unrelated change on this branch.
+
+Regenerated with `UPDATE_GOLDEN=1` and reviewed the diff line by line: every
+change across all 6 corpus forms is exactly the new marker comments and the
+downstream line-number shift they cause in the paired `.ranges.txt` files —
+nothing else moved.
+
 ## [PowerRustCOBOL 1.63.31] — 2026-09-03
 
 ### A Line's angle can now be dragged, not just typed

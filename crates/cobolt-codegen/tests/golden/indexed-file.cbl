@@ -95,6 +95,7 @@
            PERFORM CustomerFile-CLOSE
            STOP RUN.
 
+      *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
                CALL "COBOL-WAIT-EVENT"
@@ -103,6 +104,15 @@
                CONTINUE
            END-PERFORM.
 
+      *> </EVENT-LOOP>
+      *> <TIMER-STUBS>
+      *> </TIMER-STUBS>
+      *> <CSV-EXPORT>
+      *> </CSV-EXPORT>
+      *> <REST-CLIENT>
+      *> </REST-CLIENT>
+      *> <WEB-SEARCH>
+      *> </WEB-SEARCH>
        CustomerFile-OPEN.
       *>  Opens indexed file CUSTOMERS for I-O.
            IF WS-CustomerFile-IS-OPEN = 0

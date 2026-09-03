@@ -87,6 +87,7 @@
            CALL "EMPTY-FORM--ONCLOSE"
            STOP RUN.
 
+      *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
                CALL "COBOL-WAIT-EVENT"
@@ -95,6 +96,15 @@
                CONTINUE
            END-PERFORM.
 
+      *> </EVENT-LOOP>
+      *> <TIMER-STUBS>
+      *> </TIMER-STUBS>
+      *> <CSV-EXPORT>
+      *> </CSV-EXPORT>
+      *> <REST-CLIENT>
+      *> </REST-CLIENT>
+      *> <WEB-SEARCH>
+      *> </WEB-SEARCH>
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────
 

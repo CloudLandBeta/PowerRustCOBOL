@@ -120,6 +120,7 @@
            CALL "CONTROLS-FORM--ONCLOSE"
            STOP RUN.
 
+      *> <EVENT-LOOP>
        COBOL-EVENT-LOOP.
            PERFORM UNTIL COBOL-QUIT = 1
                CALL "COBOL-WAIT-EVENT"
@@ -138,11 +139,20 @@
                END-EVALUATE
            END-PERFORM.
 
+      *> </EVENT-LOOP>
+      *> <TIMER-STUBS>
        COBOL-START-TIMERS.
       *>    Called once from COBOL-MAIN to register timer intervals.
            INVOKE TIMER-1 'SetInterval' USING BY VALUE 1000
            CONTINUE.
 
+      *> </TIMER-STUBS>
+      *> <CSV-EXPORT>
+      *> </CSV-EXPORT>
+      *> <REST-CLIENT>
+      *> </REST-CLIENT>
+      *> <WEB-SEARCH>
+      *> </WEB-SEARCH>
 
       *> ── Nested event-handler programs (COBOL-85) ─────────────────────
 
