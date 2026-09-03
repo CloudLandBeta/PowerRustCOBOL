@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.24] — 2026-09-03
+
+### GroupBox captions are legible, and Animator's Play/Pause/Stop actually play, pause and stop
+
+**GroupBox.** Its caption had its own hand-rolled colour pick that never went
+through `resolve_label_ink` — the safety net every other control's caption
+already uses. It read `ForegroundColor` literally, so an untouched GroupBox's
+caption was always the seeded `#FFFFFF`, and it painted an equally unfiltered
+`BackgroundColor` band (`#F0F0F0`) directly behind it: near-invisible on any
+theme whose surface happens to be light, not only Elegance (operator
+screenshot, 2026-09-03 — "group box tab font color needs to be high
+contrast"). The caption now resolves its ink the same way a Label or a Button
+does, and the band only paints when a `BackgroundColor` was actually chosen —
+`user_background_color` filters the same sentinel on the way in that
+`resolve_label_ink` already filtered on the way out.
+
+**Animator.** `PlayAnimation`/`Pause`/`StopAnimation` were recognized,
+dispatched methods that simply did nothing: the host routed them to the
+spec-038 named-entrance-effect clock (`self.root.anim`), a completely
+different subsystem keyed by animation *name*, with no bearing whatsoever on
+the Animator control's own GIF/WebP/APNG player — which reads only its static
+`AutoPlay` property and a wall-clock elapsed time, forever, regardless.
+
+The host now checks the control's actual type: an Animator's commands reach
+`cobolt-media`'s own new playback state machine, and every other control's
+still reach the entrance-effect clock exactly as before. Play resumes from
+wherever the clip was, not from the start; Pause freezes the current frame in
+place; Stop resets to frame 0 and halts. All three are driven by the same
+elapsed-time clock `playback_position` reads for the `onFrameChanged`/
+`onLooped`/`onEnded` lifecycle events, so those can no longer disagree with
+what's on screen either.
+
 ## [PowerRustCOBOL 1.63.23] — 2026-09-03
 
 ### `cargo test could hang forever` had a twin: closing the grid browser could freeze the whole IDE

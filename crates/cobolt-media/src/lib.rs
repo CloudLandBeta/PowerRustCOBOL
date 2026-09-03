@@ -158,14 +158,147 @@ struct AnimCache {
     delays_ms: Vec<u32>,
     total_ms: u32,
     size: egui::Vec2,
-    /// `ctx.input().time` at first display — the playback clock origin.
+    /// `ctx.input().time` at first display — the playback clock origin while
+    /// no live command has ever touched this control (see [`resolve_clock`]).
     start: f64,
+}
+
+/// A playback command asked for out-of-band — COBOL's `PLAY ANIMATION`,
+/// `PAUSE` and `STOP-ANIMATION` on an **Animator** control — applied the next
+/// time [`play`] or [`playback_position`] runs for the same control.
+///
+/// Until a control ever receives one of these, `auto_play` (the design-time
+/// property) is the only thing that governs it, unchanged from before this
+/// existed — a control nobody calls a method on behaves exactly as it always
+/// has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PlaybackCommand {
+    Play,
+    Pause,
+    Stop,
+}
+
+/// Ask a control's animation to play, pause or stop, from outside the paint
+/// loop that actually drives it.
+///
+/// Keyed by `ctrl_id` alone — never the [`play`] cache key, which also
+/// carries the source path — so a command survives a `Source` change and can
+/// be issued before the control has ever been painted a first time.
+pub fn command(ctx: &egui::Context, ctrl_id: &str, cmd: PlaybackCommand) {
+    let id = egui::Id::new(("cobolt_anim_cmd", ctrl_id));
+    ctx.memory_mut(|m| m.data.insert_temp(id, cmd));
+}
+
+/// The live PLAY/PAUSE/STOP override for one control, once a command has ever
+/// touched it. Kept separate from [`AnimCache`] (which is keyed by control id
+/// **and** source) so pausing survives a `Source` change instead of quietly
+/// resetting to "never paused" the moment the clip does.
+#[derive(Clone, Copy, Debug)]
+struct PlaybackState {
+    /// `None` until a command arrives.
+    live_playing: Option<bool>,
+    /// Playback time already banked before the most recent resume, in ms.
+    accumulated_ms: f64,
+    /// Wall-clock instant playback last resumed, or `None` while paused or
+    /// stopped. Meaningless while `live_playing` is `None`.
+    resumed_at: Option<f64>,
+}
+
+/// Apply any pending [`command`] for `ctrl_id` and answer `(elapsed_ms,
+/// playing)` — the one place the pause/stop clock is computed, so [`play`]
+/// and [`playback_position`] can never disagree about where the animation
+/// actually is.
+///
+/// Safe to call more than once in the same frame for the same control (`play`
+/// then `playback_position`, as the Animator's own render arm does): the
+/// first call consumes and applies the pending command and persists the
+/// result; the second sees no command left, reads the now-current state back,
+/// and answers identically.
+fn resolve_clock(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    cache_start: f64,
+    auto_play: bool,
+    now: f64,
+) -> (f64, bool) {
+    let cmd_id = egui::Id::new(("cobolt_anim_cmd", ctrl_id));
+    let pending = ctx.memory(|m| m.data.get_temp::<PlaybackCommand>(cmd_id));
+    if pending.is_some() {
+        ctx.memory_mut(|m| m.data.remove::<PlaybackCommand>(cmd_id));
+    }
+
+    let state_id = egui::Id::new(("cobolt_anim_state", ctrl_id));
+    let mut state = ctx
+        .memory(|m| m.data.get_temp::<PlaybackState>(state_id))
+        .unwrap_or(PlaybackState {
+            live_playing: None,
+            accumulated_ms: 0.0,
+            resumed_at: None,
+        });
+
+    if let Some(cmd) = pending {
+        // The first live command ever hands control from the design-time
+        // `auto_play` clock to this state machine — bank whatever it had
+        // already played so the handover itself never jumps the frame.
+        if state.live_playing.is_none() {
+            state.accumulated_ms = if auto_play {
+                (now - cache_start) * 1000.0
+            } else {
+                0.0
+            };
+            state.resumed_at = if auto_play { Some(now) } else { None };
+            state.live_playing = Some(auto_play);
+        }
+        let was_playing = state.live_playing.unwrap_or(false);
+        match cmd {
+            PlaybackCommand::Play => {
+                if !was_playing {
+                    state.resumed_at = Some(now);
+                }
+                state.live_playing = Some(true);
+            }
+            PlaybackCommand::Pause => {
+                if was_playing {
+                    state.accumulated_ms +=
+                        state.resumed_at.map_or(0.0, |t| (now - t) * 1000.0);
+                }
+                state.resumed_at = None;
+                state.live_playing = Some(false);
+            }
+            PlaybackCommand::Stop => {
+                // `accumulated_ms = 0` alone is enough to land on frame 0 —
+                // `frame_at` with zero elapsed always does, no separate
+                // "force index 0" branch needed.
+                state.accumulated_ms = 0.0;
+                state.resumed_at = None;
+                state.live_playing = Some(false);
+            }
+        }
+        ctx.memory_mut(|m| m.data.insert_temp(state_id, state));
+    }
+
+    match state.live_playing {
+        // Untouched by any command: `auto_play` alone decides, exactly as
+        // before this existed. `elapsed = 0` when it is false rather than the
+        // raw (unused) wall-clock reading — every caller may now treat
+        // "not playing" as "elapsed is frozen" uniformly, on this branch and
+        // the paused/stopped one below alike, with no separate "force frame
+        // 0" case of its own.
+        None if auto_play => ((now - cache_start) * 1000.0, true),
+        None => (0.0, false),
+        Some(playing) => {
+            let elapsed =
+                state.accumulated_ms + state.resumed_at.map_or(0.0, |t| (now - t) * 1000.0);
+            (elapsed, playing)
+        }
+    }
 }
 
 /// Decode (once) and play `bytes` under the given `key`, returning the texture
 /// and native pixel size for the current moment.
 ///
-/// * `auto_play` — when false, frame 0 is shown (paused).
+/// * `auto_play` — when false and no live [`command`] has ever been issued
+///   for `ctrl_id`, frame 0 is shown (paused).
 /// * `looping`   — when false, playback stops on the final frame.
 ///
 /// The result is cached in egui memory keyed by `key`, so callers should pass a
@@ -177,6 +310,7 @@ pub fn play(
     load: impl FnOnce() -> Option<Vec<u8>>,
     auto_play: bool,
     looping: bool,
+    ctrl_id: &str,
 ) -> Option<(egui::TextureId, egui::Vec2)> {
     let id = egui::Id::new(("cobolt_anim", key));
 
@@ -228,16 +362,12 @@ pub fn play(
         return None;
     }
 
-    let elapsed = (now - cache.start) * 1000.0;
-    let idx = if auto_play {
-        frame_at(&cache.delays_ms, cache.total_ms, elapsed.max(0.0), looping)
-    } else {
-        0
-    };
+    let (elapsed, playing) = resolve_clock(ctx, ctrl_id, cache.start, auto_play, now);
+    let idx = frame_at(&cache.delays_ms, cache.total_ms, elapsed.max(0.0), looping);
 
     // Keep animating: schedule next repaint at the next frame time (or half the current delay
     // as a safe upper bound). This prevents pegging the CPU at max FPS for every Animator.
-    if auto_play && cache.textures.len() > 1 && (looping || elapsed < cache.total_ms as f64) {
+    if playing && cache.textures.len() > 1 && (looping || elapsed < cache.total_ms as f64) {
         let delay_ms = cache.delays_ms.get(idx).copied().unwrap_or(16) as f64;
         let remaining = (delay_ms / 1000.0 * 0.6).max(0.008); // ~60% of frame time, min 8ms
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining));
@@ -256,6 +386,7 @@ pub fn playback_position(
     key: &str,
     auto_play: bool,
     looping: bool,
+    ctrl_id: &str,
 ) -> Option<(usize, u32, bool)> {
     let id = egui::Id::new(("cobolt_anim", key));
     let cache = ctx.memory(|m| m.data.get_temp::<Arc<AnimCache>>(id))?;
@@ -263,19 +394,20 @@ pub fn playback_position(
         return None;
     }
     let now = ctx.input(|i| i.time);
-    let elapsed = ((now - cache.start) * 1000.0).max(0.0);
-    let idx = if auto_play {
-        frame_at(&cache.delays_ms, cache.total_ms, elapsed, looping)
-    } else {
-        0
-    };
-    let loops = if looping && auto_play {
+    // The render arm calls `play()` immediately before this on every frame,
+    // which already consumed and applied any pending command — this reads
+    // that same, now-current state back (see `resolve_clock`'s doc comment),
+    // so the two can never disagree about where the animation actually is.
+    let (elapsed, playing) = resolve_clock(ctx, ctrl_id, cache.start, auto_play, now);
+    let elapsed = elapsed.max(0.0);
+    let idx = frame_at(&cache.delays_ms, cache.total_ms, elapsed, looping);
+    let loops = if looping && playing {
         (elapsed / cache.total_ms as f64) as u32
     } else {
         0
     };
     // A non-looping animation has ended once the clock passes its total time.
-    let ended = auto_play && !looping && elapsed >= cache.total_ms as f64;
+    let ended = playing && !looping && elapsed >= cache.total_ms as f64;
     Some((idx.min(cache.textures.len() - 1), loops, ended))
 }
 
@@ -384,5 +516,118 @@ mod tests {
         assert_eq!(frame_at(&delays, total, 350.0, true), 0);
         // Non-looping holds the last frame past the end.
         assert_eq!(frame_at(&delays, total, 999.0, false), 2);
+    }
+
+    // ── PLAY / PAUSE / STOP-ANIMATION ───────────────────────────────────────
+    //
+    // Pause/Stop appeared to do nothing at all: the frame index came purely
+    // from wall-clock elapsed time (`now - cache.start`) with no notion of a
+    // live command anywhere in this crate, so a control kept advancing
+    // forever regardless of what COBOL asked for (operator, 2026-09-03,
+    // watching an Animator's loop counter climb well past 300 after pressing
+    // Stop). These drive `play`/`playback_position` across simulated frames —
+    // the same two calls the running form makes every frame — and assert on
+    // `playback_position`'s frame index, which is the plain, unambiguous
+    // signal (a `TextureId` proves nothing by itself).
+
+    /// One simulated frame at wall-clock `t` seconds: calls `play` (which
+    /// consumes any pending command) then `playback_position` (which reads
+    /// the result back), exactly as the Animator's own render arm does every
+    /// frame, and returns `playback_position`'s frame index.
+    fn tick(ctx: &egui::Context, t: f64, key: &str, ctrl_id: &str, auto_play: bool, looping: bool) -> usize {
+        let mut input = egui::RawInput::default();
+        input.time = Some(t);
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::Vec2::new(50.0, 50.0),
+        ));
+        let mut frame = None;
+        let mut full = ctx.run_ui(input, |_ui| {
+            let gif = make_gif();
+            let _ = play(ctx, key, move || Some(gif), auto_play, looping, ctrl_id);
+            frame = playback_position(ctx, key, auto_play, looping, ctrl_id)
+                .map(|(idx, _, _)| idx);
+        });
+        full.textures_delta.clear();
+        frame.expect("a 2-frame gif always has a playback position")
+    }
+
+    /// Baseline: nobody has ever called Play/Pause/Stop. `auto_play` alone
+    /// governs, exactly as before this machinery existed — the 100 ms/frame,
+    /// 2-frame clip advances 0→1→0 on the wall clock.
+    #[test]
+    fn untouched_by_any_command_auto_play_alone_still_governs() {
+        let ctx = egui::Context::default();
+        assert_eq!(tick(&ctx, 0.00, "k1", "A1", true, true), 0);
+        assert_eq!(tick(&ctx, 0.05, "k1", "A1", true, true), 0); // 50ms: still frame 0
+        assert_eq!(tick(&ctx, 0.15, "k1", "A1", true, true), 1); // 150ms: frame 1
+        assert_eq!(tick(&ctx, 0.25, "k1", "A1", true, true), 0); // 250ms: looped back
+    }
+
+    /// …and an Animator whose `AutoPlay` is off, never touched by a command,
+    /// stays on frame 0 forever — the historical "paused by design" case.
+    #[test]
+    fn untouched_and_auto_play_off_never_advances() {
+        let ctx = egui::Context::default();
+        assert_eq!(tick(&ctx, 0.00, "k2", "A2", false, true), 0);
+        assert_eq!(tick(&ctx, 5.00, "k2", "A2", false, true), 0);
+    }
+
+    /// Pause freezes at the CURRENT frame — not frame 0, and not a jump
+    /// forward or back — and Play resumes from exactly there.
+    #[test]
+    fn pause_freezes_the_current_frame_and_play_resumes_from_it() {
+        let ctx = egui::Context::default();
+        let (key, id) = ("k3", "A3");
+        assert_eq!(tick(&ctx, 0.00, key, id, true, true), 0);
+        assert_eq!(tick(&ctx, 0.15, key, id, true, true), 1, "150ms in: frame 1");
+
+        command(&ctx, id, PlaybackCommand::Pause);
+        // Frozen on frame 1, however much simulated time passes.
+        assert_eq!(tick(&ctx, 0.16, key, id, true, true), 1);
+        assert_eq!(tick(&ctx, 3.00, key, id, true, true), 1, "still frame 1 at t=3s");
+        assert_eq!(tick(&ctx, 9.00, key, id, true, true), 1, "still frame 1 at t=9s");
+
+        // Resume: picks up from frame 1, not frame 0 — Play is a resume, not
+        // a restart.
+        command(&ctx, id, PlaybackCommand::Play);
+        assert_eq!(tick(&ctx, 9.00, key, id, true, true), 1, "resumes exactly where it paused");
+        // 100ms of PLAYING time later (elapsed banked at pause + 100ms run
+        // since resume), it has advanced to the next frame.
+        assert_eq!(tick(&ctx, 9.10, key, id, true, true), 0, "advanced one frame after resuming");
+    }
+
+    /// Stop resets to frame 0 and halts — unlike Pause, which freezes in
+    /// place. A later Play restarts fresh rather than resuming a stale
+    /// mid-clip position.
+    #[test]
+    fn stop_resets_to_frame_zero_and_halts_play_restarts_fresh() {
+        let ctx = egui::Context::default();
+        let (key, id) = ("k4", "A4");
+        assert_eq!(tick(&ctx, 0.00, key, id, true, true), 0);
+        assert_eq!(tick(&ctx, 0.15, key, id, true, true), 1, "150ms in: frame 1");
+
+        command(&ctx, id, PlaybackCommand::Stop);
+        assert_eq!(tick(&ctx, 0.16, key, id, true, true), 0, "Stop lands on frame 0 immediately");
+        assert_eq!(tick(&ctx, 5.00, key, id, true, true), 0, "…and stays there, unlike Pause");
+
+        command(&ctx, id, PlaybackCommand::Play);
+        assert_eq!(tick(&ctx, 5.00, key, id, true, true), 0, "restarts at frame 0, not mid-clip");
+        assert_eq!(tick(&ctx, 5.15, key, id, true, true), 1, "…and advances normally from there");
+    }
+
+    /// Two Animators never share a command or a clock — the whole point of
+    /// keying by `ctrl_id`.
+    #[test]
+    fn two_animators_do_not_share_commands() {
+        let ctx = egui::Context::default();
+        assert_eq!(tick(&ctx, 0.00, "k5a", "A5a", true, true), 0);
+        assert_eq!(tick(&ctx, 0.00, "k5b", "A5b", true, true), 0);
+        assert_eq!(tick(&ctx, 0.15, "k5a", "A5a", true, true), 1);
+        assert_eq!(tick(&ctx, 0.15, "k5b", "A5b", true, true), 1);
+
+        command(&ctx, "A5a", PlaybackCommand::Stop);
+        assert_eq!(tick(&ctx, 0.16, "k5a", "A5a", true, true), 0, "A5a stopped");
+        assert_eq!(tick(&ctx, 0.16, "k5b", "A5b", true, true), 1, "A5b untouched, still frame 1");
     }
 }

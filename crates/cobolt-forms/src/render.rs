@@ -8534,7 +8534,7 @@ fn render_interactive(
             );
             // spec 021 T12: playback lifecycle read back from the media clock.
             if let Some((frame, loops, ended)) =
-                cobolt_media::playback_position(ui.ctx(), &key, auto, looping)
+                cobolt_media::playback_position(ui.ctx(), &key, auto, looping, id)
             {
                 let mem = ctrl_id.with("anim-pos");
                 let prev = ui

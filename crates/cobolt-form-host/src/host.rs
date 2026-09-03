@@ -3247,14 +3247,40 @@ impl FormHost {
             }
             // COBOL's PLAY ANIMATION / STOP-ANIMATION / PAUSE arrive as writes to
             // these pseudo-properties; act on the write, don't store it.
+            //
+            // Two entirely different things answer to the same three verbs,
+            // by control type. On an ordinary control they trigger a NAMED
+            // spec-038 entrance/exit effect (`self.root.anim`, `ctrl.animations`)
+            // — unchanged below. On an **Animator** they must instead drive
+            // its own GIF/WebP/APNG clock (`cobolt_media`), which
+            // `self.root.anim` has no idea exists: routing an Animator here
+            // silently touched a HashMap the media player never reads, so
+            // Play appeared to work only because AutoPlay was already true,
+            // and Pause/Stop did nothing at all — the animation just kept
+            // advancing off the wall clock forever (operator, 2026-09-03).
             if let Some(cmd) = anim_command(&u.prop) {
-                match cmd {
-                    AnimCommand::Play => {
-                        self.root.anim
-                            .play_programmatic(&self.root.controls, &u.ctrl_id, &u.value)
+                let is_animator = self
+                    .root
+                    .controls
+                    .iter()
+                    .find(|c| c.id.eq_ignore_ascii_case(&u.ctrl_id))
+                    .is_some_and(|c| c.control_type == cobolt_forms::ControlType::Animator);
+                if is_animator {
+                    let media_cmd = match cmd {
+                        AnimCommand::Play => cobolt_media::PlaybackCommand::Play,
+                        AnimCommand::Stop => cobolt_media::PlaybackCommand::Stop,
+                        AnimCommand::Pause => cobolt_media::PlaybackCommand::Pause,
+                    };
+                    cobolt_media::command(ctx, &u.ctrl_id, media_cmd);
+                } else {
+                    match cmd {
+                        AnimCommand::Play => {
+                            self.root.anim
+                                .play_programmatic(&self.root.controls, &u.ctrl_id, &u.value)
+                        }
+                        AnimCommand::Stop => self.root.anim.stop_all(&u.ctrl_id),
+                        AnimCommand::Pause => self.root.anim.pause_all(&u.ctrl_id),
                     }
-                    AnimCommand::Stop => self.root.anim.stop_all(&u.ctrl_id),
-                    AnimCommand::Pause => self.root.anim.pause_all(&u.ctrl_id),
                 }
                 drained += 1;
                 continue;

@@ -5727,17 +5727,30 @@ pub fn draw_groupbox_caption(
     if is_legacy_groupbox_generated_caption(&cap) {
         return;
     }
-    let label_color = ctrl
-        .get_prop("ForegroundColor")
-        .map(|v| parse_color(v.as_str()))
-        .unwrap_or_else(|| {
-            // 047 — a Label is frameless: its text IS its face, so the theme's
-            // text colour has to reach it here or a label stays off-theme. It
-            // takes `LabelText`, not `Text`: a theme may want a caption quieter
-            // than the text the operator types into an input.
-            theme_token(painter.ctx(), crate::surface_theme::ColorToken::LabelText)
-                .unwrap_or_else(|| control_colors(&ctrl.control_type, false).2)
-        });
+    // The same rule every other control's caption follows (`resolve_label_ink`):
+    // the seeded `#FFFFFF` means "the developer has not chosen a colour", not a
+    // request for white, and is only resolved away when a theme or the
+    // neumorphic register has a better answer — with a contrast safety net
+    // against whatever surface the theme actually paints when `BackgroundColor`
+    // was left alone too. This caption had its own hand-rolled pick that never
+    // went through it: it read `ForegroundColor` literally, so a GroupBox
+    // caption was always `#FFFFFF`, and under Elegance's light forms —
+    // `inner-form1`, or any other bright surface — that read as blank
+    // (operator screenshot, 2026-09-03).
+    let is_neumorphic =
+        glass_config_applies(painter.ctx()) && active_glass_style(painter.ctx()).is_neumorphic();
+    let (default_fill, _, default_text) = control_colors(&ctrl.control_type, false);
+    // GroupBox is a container: under Neumorphic its own `BackgroundColor` IS
+    // the surface fill (mirrors `draw_control`'s `is_container` branch);
+    // otherwise the face comes from the theme, not a flat colour.
+    let fill = if is_neumorphic {
+        ctrl.get_prop("BackgroundColor")
+            .map(|v| parse_color(v.as_str()))
+            .unwrap_or(Color32::from_rgb(232, 237, 254))
+    } else {
+        default_fill
+    };
+    let label_color = resolve_label_ink(painter.ctx(), ctrl, is_neumorphic, fill, default_text);
     let caption_enabled = ctrl
         .get_prop("CaptionEnabled")
         .map(|v| v.as_bool())
@@ -5757,24 +5770,26 @@ pub fn draw_groupbox_caption(
     let x = origin.x + corner_radius(ctrl).max(0.0) + 10.0;
     let pos = Pos2::new(x, origin.y);
 
-    // BackgroundColor on a GroupBox paints a band behind the caption text.
-    if let Some(bg_val) = ctrl.get_prop("BackgroundColor") {
-        let bg = parse_color(bg_val.as_str());
-        if bg.a() > 0 {
-            let galley = painter.layout_no_wrap(cap.clone(), font_id.clone(), text);
-            let pad = 4.0_f32;
-            let bg_rect = egui::Rect::from_min_size(
-                Pos2::new(x - pad, origin.y - galley.size().y * 0.5 - 1.0),
-                egui::Vec2::new(galley.size().x + pad * 2.0, galley.size().y + 2.0),
-            );
-            let bg_color = Color32::from_rgba_premultiplied(
-                bg.r(),
-                bg.g(),
-                bg.b(),
-                ((bg.a() as f32) * a) as u8,
-            );
-            painter.rect_filled(bg_rect, 2.0, bg_color);
-        }
+    // BackgroundColor on a GroupBox paints a band behind the caption text —
+    // only when the developer actually chose one. `user_background_color`
+    // filters the same seeded `#F0F0F0` sentinel `resolve_label_ink` filters
+    // on the ink side; reading the raw property painted an opaque near-white
+    // band directly behind literal white text on every untouched GroupBox,
+    // invisible regardless of theme or of what was really behind it.
+    if let Some(bg) = user_background_color(ctrl) {
+        let galley = painter.layout_no_wrap(cap.clone(), font_id.clone(), text);
+        let pad = 4.0_f32;
+        let bg_rect = egui::Rect::from_min_size(
+            Pos2::new(x - pad, origin.y - galley.size().y * 0.5 - 1.0),
+            egui::Vec2::new(galley.size().x + pad * 2.0, galley.size().y + 2.0),
+        );
+        let bg_color = Color32::from_rgba_premultiplied(
+            bg.r(),
+            bg.g(),
+            bg.b(),
+            ((bg.a() as f32) * a) as u8,
+        );
+        painter.rect_filled(bg_rect, 2.0, bg_color);
     }
 
     painter.text(pos, egui::Align2::LEFT_CENTER, &cap, font_id, text);
@@ -7474,6 +7489,7 @@ pub fn draw_animator(
             move || std::fs::read(&path).ok(),
             auto_play,
             looping,
+            &ctrl.id,
         )
     };
 
@@ -16782,6 +16798,197 @@ slice = [4, 4, 4, 4]
         for (id, theme, sc) in &rows {
             println!("  {:<18} {:<14} {sc}", format!("{id:?}"), theme);
         }
+    }
+
+    /// `draw_groupbox_caption` had its own hand-rolled colour pick that never
+    /// went through `resolve_label_ink` — it read `ForegroundColor` literally,
+    /// so an untouched GroupBox's caption was always the seeded `#FFFFFF`, and
+    /// it painted an equally unfiltered `BackgroundColor` band (`#F0F0F0`)
+    /// directly behind it: near-invisible on ANY theme, not just Elegance,
+    /// though a light surface like Elegance's is where the operator actually
+    /// noticed (2026-09-03, "group box (Elegance theme) tab font color needs
+    /// to be high contrast").
+    ///
+    /// Captured by walking the painted shapes rather than re-deriving the
+    /// expected colour by hand: a hand-picked "should be X" assertion would
+    /// pass even if the fix quietly regressed to a different, equally wrong
+    /// hardcoded colour. The two checks that actually matter are that it is
+    /// no longer the literal seeded white, and that it clears the same 4.5:1
+    /// bar `resolve_label_ink`'s safety net enforces everywhere else.
+    #[test]
+    fn a_groupbox_caption_is_never_the_seeded_white_on_white() {
+        /// `(caption text colours, opaque rects painted, the theme's own Card
+        /// token — `None` for a translucent-frost theme like Liquid Glass,
+        /// which paints no flat surface at all)`. Read from the SAME context
+        /// the caption was painted against, so the comparison can never drift
+        /// onto a differently-configured one.
+        fn painted(
+            theme: Arc<dyn crate::surface_theme::SurfaceTheme>,
+        ) -> (Vec<Color32>, Vec<egui::Rect>, Option<Color32>) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, theme);
+            let card = theme_token(&ctx, crate::surface_theme::ColorToken::Card);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                egui::Vec2::new(400.0, 200.0),
+            ));
+            // A GroupBox exactly as `Control::new` seeds one — Caption set, and
+            // both colours left at their sentinels: this is every GroupBox a
+            // developer drops on a form and does not immediately recolour.
+            let mut gb = Control::new("G-1", ControlType::GroupBox, 20, 20);
+            gb.rect = crate::model::Rect::new(20, 20, 220, 120);
+            gb.set_prop("Caption", crate::model::PropValue::String("Address".into()));
+
+            let mut colors = Vec::new();
+            let mut rects = Vec::new();
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root, |ui| {
+                        let painter = ui.painter().clone();
+                        draw_groupbox_caption(&painter, Pos2::new(gb.rect.x as f32, gb.rect.y as f32), &gb, 1.0);
+                    });
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, colors: &mut Vec<Color32>, rects: &mut Vec<egui::Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, colors, rects)),
+                    egui::Shape::Text(t) => {
+                        let c = t
+                            .galley
+                            .job
+                            .sections
+                            .first()
+                            .map(|sec| sec.format.color)
+                            .unwrap_or(t.fallback_color);
+                        colors.push(c);
+                    }
+                    egui::Shape::Rect(r) if r.fill.a() > 0 => rects.push(r.rect),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut colors, &mut rects);
+            }
+            (colors, rects, card)
+        }
+
+        // The requirement is CONTRAST, not any particular colour: Elegance's
+        // own Card is dark, so white ink there is already legible and correct
+        // — asserting caption ink must never literally equal white would be
+        // testing an implementation detail, not the thing the operator asked
+        // for. `LightCardTheme` is the case that actually forces the safety
+        // net to swap the literal sentinel away: no `Text`/`LabelText` token
+        // (so nothing strips the sentinel up front) and a light `Card`/
+        // `InputBg` (so leaving it white would fail the same 4.5:1 bar
+        // `resolve_label_ink` enforces everywhere else).
+        #[derive(Debug)]
+        struct LightCardTheme;
+        impl crate::surface_theme::SurfaceTheme for LightCardTheme {
+            fn id(&self) -> &str {
+                "light-card-test"
+            }
+            fn token(&self, tok: crate::surface_theme::ColorToken) -> Option<Color32> {
+                use crate::surface_theme::ColorToken as Tok;
+                match tok {
+                    Tok::Card | Tok::InputBg => Some(Color32::from_rgb(0xF0, 0xF0, 0xF0)),
+                    _ => None,
+                }
+            }
+        }
+
+        for (name, theme) in [
+            ("Elegance", eleg()),
+            ("Liquid Glass", glass()),
+            ("a light, tokenless theme", Arc::new(LightCardTheme)),
+        ] {
+            let (colors, rects, surface) = painted(theme);
+            assert_eq!(
+                colors.len(),
+                1,
+                "{name}: the caption paints exactly one text run, got {colors:?}"
+            );
+            let ink = colors[0];
+            // No BackgroundColor was chosen, so no band may be painted at all —
+            // the caption sits directly on whatever the GroupBox's real face
+            // is, same as before the sentinel was seeded.
+            assert!(
+                rects.is_empty(),
+                "{name}: an unset BackgroundColor must paint no band, got {rects:?}"
+            );
+            // Only a theme with a real surface to measure against owes this
+            // bar — the same one `resolve_label_ink`'s own safety net
+            // enforces. A theme with none (Liquid Glass: translucent frost,
+            // no flat Card) has nothing for the caption to clash with, and
+            // white is its own, correct, unconditional answer.
+            if let Some(surface) = surface {
+                let ratio = contrast_ratio(ink, surface);
+                assert!(
+                    ratio >= 4.5,
+                    "{name}: caption ink {ink:?} on card {surface:?} is only {ratio:.2}:1"
+                );
+            }
+        }
+
+        // …and on the light theme specifically, that bar could only be met by
+        // actually swapping the sentinel away — pin the mechanism, not just
+        // the outcome.
+        let (colors, _, _) = painted(Arc::new(LightCardTheme));
+        assert_ne!(
+            (colors[0].r(), colors[0].g(), colors[0].b()),
+            (0xFF, 0xFF, 0xFF),
+            "a light card must not leave the caption on the literal seeded white"
+        );
+    }
+
+    /// A `BackgroundColor` the developer actually chose still gets its band —
+    /// the fix filters the SEEDED sentinel, not the property itself.
+    #[test]
+    fn a_chosen_groupbox_background_still_paints_its_band() {
+        let ctx = egui::Context::default();
+        set_surface_theme(&ctx, eleg());
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            Pos2::ZERO,
+            egui::Vec2::new(400.0, 200.0),
+        ));
+        let mut gb = Control::new("G-1", ControlType::GroupBox, 20, 20);
+        gb.rect = crate::model::Rect::new(20, 20, 220, 120);
+        gb.set_prop("Caption", crate::model::PropValue::String("Address".into()));
+        gb.set_prop(
+            "BackgroundColor",
+            crate::model::PropValue::String("#2255CCFF".into()),
+        );
+        gb.set_prop(
+            "ForegroundColor",
+            crate::model::PropValue::String("#FFFFFFFF".into()),
+        );
+
+        let mut rects = Vec::new();
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    draw_groupbox_caption(&painter, Pos2::new(gb.rect.x as f32, gb.rect.y as f32), &gb, 1.0);
+                });
+        });
+        full.textures_delta.clear();
+        fn walk(s: &egui::Shape, rects: &mut Vec<Color32>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rects)),
+                egui::Shape::Rect(r) if r.fill.a() > 0 => rects.push(r.fill),
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut rects);
+        }
+        assert!(
+            rects.iter().any(|c| (c.r(), c.g(), c.b()) == (0x22, 0x55, 0xCC)),
+            "a developer-chosen BackgroundColor must still paint its band, got {rects:?}"
+        );
     }
 }
 
