@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.14] — 2026-09-02
+
+### Copying a style no longer copies which radio is chosen
+
+The format painter's never-copy list held `"Checked"` but not `"Selected"` — and
+a RadioButton's state property was renamed from the first to the second on
+2026-08-31. So painting a style onto a group of radios copied "this is the
+selected one" onto every target: all of them came out checked, and group
+exclusivity then fought each attempt to undo it.
+
+Both names are now taken from the model's own constants, so the list cannot
+drift from them again.
+
+### A Label keeps its corner radius
+
+Spec 016 §7 **Q4 was never settled** — it *recommended* excluding Label on the
+reading that a Label is "transparent, no frame". A Label with a
+`BackgroundColor` paints a face, and that face has corners.
+
+The exclusion had a cost nobody anticipated: `CornerRadius` is theme-owned, so a
+theme switch reset it to the Label's seed, found none, and **removed the
+property** — and the inspector shows the row only while the property exists. The
+row appeared whenever a theme stamped a value and vanished at the next switch.
+
+A Label now seeds `CornerRadius = 0`, which is the value
+`themed_corner_radius` already used for it, so nothing renders differently.
+
+### The shell and the form it hosts no longer share widget ids
+
+`Second use of widget ID 9F79`, over a TextBox that had done nothing wrong. The
+shell renders a form in its ContentPane **and** a form fragment in the SideMenu
+footer, both through `render_form`, both deriving widget ids from control ids —
+one id space between two surfaces. Each has its own now.
+
 ## [PowerRustCOBOL 1.63.13] — 2026-09-02
 
 ### Finishing the debugger window

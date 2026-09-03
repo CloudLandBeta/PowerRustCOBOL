@@ -4092,6 +4092,23 @@ impl Control {
                 props.insert("BorderColor".into(), PropValue::String("#AAAAAA".into()));
             }
             ControlType::Label => {
+                // Seeded so the property EXISTS. `themed_corner_radius` already
+                // documents "`Control::new` seeds CornerRadius on every bordered
+                // control … everything else 0", and a Label was the exception
+                // that made the sentence false.
+                //
+                // The consequence was not cosmetic: the inspector shows the row
+                // only when the property is present, and `CornerRadius` is
+                // theme-owned — so a theme switch reset it to the Label's seed,
+                // found none, and REMOVED it. The row appeared only while some
+                // theme happened to have stamped a value, and vanished at the
+                // next switch (operator: "Label has lost (again) the corner
+                // radius property", 2026-09-02).
+                //
+                // Zero is the value `themed_corner_radius` already uses for a
+                // Label, so nothing renders differently; the property simply
+                // stops disappearing.
+                props.insert("CornerRadius".into(), PropValue::Int(0));
                 props.insert("TextAlignment".into(), PropValue::String("Left".into()));
                 props.insert(
                     "VerticalAlignment".into(),
@@ -8193,6 +8210,48 @@ mod tests {
 
     /// The seeded values are ordinary property values the developer can edit
     /// afterwards, not painting constants — the form takes a solid background
+    /// Every control seeds `CornerRadius`, which is what
+    /// `paint::themed_corner_radius` already claims — and a Label was the
+    /// exception that made the claim false and the inspector row vanish at
+    /// every theme switch.
+    #[test]
+    fn every_control_seeds_a_corner_radius() {
+        for kind in [
+            ControlType::Label,
+            ControlType::Button,
+            ControlType::TextBox,
+            ControlType::CheckBox,
+            ControlType::RadioButton,
+            ControlType::Panel,
+            ControlType::ProgressBar,
+        ] {
+            let c = Control::new("C", kind.clone(), 0, 0);
+            assert!(
+                c.get_prop("CornerRadius").is_some(),
+                "{kind:?} must seed CornerRadius, or the inspector hides the row"
+            );
+        }
+        // The documented defaults, unchanged.
+        let l = Control::new("L", ControlType::Label, 0, 0);
+        assert_eq!(l.get_prop("CornerRadius").unwrap().as_i64(), 0);
+        let b = Control::new("B", ControlType::Button, 0, 0);
+        assert_eq!(b.get_prop("CornerRadius").unwrap().as_i64(), 3);
+    }
+
+    /// And it SURVIVES a theme switch, which is the path that lost it.
+    #[test]
+    fn a_theme_switch_leaves_the_label_its_corner_radius() {
+        let mut l = Control::new("L", ControlType::Label, 0, 0);
+        l.apply_neumorphic_defaults();
+        assert_eq!(l.get_prop("CornerRadius").unwrap().as_i64(), NEUMORPHIC_CORNER_RADIUS);
+        l.reset_theme_owned_props();
+        assert!(
+            l.get_prop("CornerRadius").is_some(),
+            "the reset must restore the seed, not remove the property"
+        );
+        assert_eq!(l.get_prop("CornerRadius").unwrap().as_i64(), 0);
+    }
+
     /// The four rules the operator laid down (2026-09-02), and the Label
     /// exception to three of them — held by **both** neumorphic registers.
     ///
@@ -8584,10 +8643,25 @@ mod tests {
                 c.control_type
             );
         }
-        // Non-bordered / non-visual controls do not get a corner radius.
-        assert!(Control::new("L", ControlType::Label, 0, 0)
-            .get_prop("CornerRadius")
-            .is_none());
+        // A Label DOES carry one, since 2026-09-02. Spec 016 grouped it with
+        // the non-bordered controls, on the reading that a Label paints no
+        // frame — but a Label with a BackgroundColor paints a face, and that
+        // face has corners the developer can see.
+        //
+        // The absence had a second cost that decided it: `CornerRadius` is
+        // theme-owned, so a theme switch reset it to the seed, found none, and
+        // removed the property — and the inspector shows the row only while the
+        // property exists. The row appeared whenever a theme stamped a value
+        // and vanished at the next switch, which the operator reported twice.
+        assert_eq!(
+            Control::new("L", ControlType::Label, 0, 0)
+                .get_prop("CornerRadius")
+                .unwrap()
+                .as_i64(),
+            0,
+            "a Label's corner radius defaults to 0 — visible only when it has a face"
+        );
+        // A non-visual control still gets none: it paints nothing at all.
         assert!(Control::new("T", ControlType::Timer, 0, 0)
             .get_prop("CornerRadius")
             .is_none());

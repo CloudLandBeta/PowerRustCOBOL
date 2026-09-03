@@ -735,7 +735,12 @@ impl FormBody {
         // Focus BEFORE the footer's widgets see the click — same rule as the
         // main frame paths (the press surrenders the field's focus).
         let pre_focus = ui.ctx().memory(|m| m.focused());
-        let out = cobolt_forms::render::render_form(&mut child, &input);
+        // …and the footer gets the other one, for the same reason.
+        let out = child
+            .push_id("sidemenu-footer", |ui| {
+                cobolt_forms::render::render_form(ui, &input)
+            })
+            .inner;
         // A toolbar button (or FileDropZone) in the footer is as real as one
         // on the form: its platform actions used to be dropped here — only the
         // COBOL event was forwarded, so print/copy/share in a footer did
@@ -3498,7 +3503,17 @@ impl FormHost {
                                 active_tabs: &active_tabs,
                                 backdrop: engine_backdrop,
                             };
-                            out = cobolt_forms::render::render_form(ui, &input);
+                            // Its OWN id space. The shell renders a form here
+                            // AND a form fragment in the SideMenu footer, both
+                            // through `render_form`, both deriving widget ids
+                            // from control ids — so a control in the pane and
+                            // one in the rail could hash to the same id and
+                            // egui reported "Second use of widget ID …" over a
+                            // TextBox that had done nothing wrong (operator,
+                            // 2026-09-02). Two surfaces, two id spaces.
+                            ui.push_id("content-pane", |ui| {
+                                out = cobolt_forms::render::render_form(ui, &input);
+                            });
                         });
                     content_scroll = sa.state.offset;
                 });

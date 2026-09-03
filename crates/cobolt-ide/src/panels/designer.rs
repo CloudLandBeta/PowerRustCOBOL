@@ -1105,7 +1105,15 @@ fn is_copyable_style_prop(key: &str) -> bool {
         "Items",
         "Rows",
         "Columns",
-        "Checked",
+        // State, not style. Named through the model's own constants so this
+        // list cannot drift from them again: a RadioButton's state moved from
+        // `Checked` to `Selected` on 2026-08-31 and this list kept only the old
+        // name, so the format painter happily copied "this is the selected one"
+        // onto every target — every radio in the group came out selected, and
+        // group exclusivity then fought each attempt to undo it (operator,
+        // 2026-09-02).
+        cobolt_forms::model::CHECKED_PROP,
+        cobolt_forms::model::SELECTED_PROP,
         "SelectedIndex",
         "SelectedItem",
         "SelectedItemId",
@@ -18754,5 +18762,59 @@ mod head_str_tests {
             head.contains("form-format=\"Both\""),
             "the attribute the caller reads must survive the cut"
         );
+    }
+}
+
+#[cfg(test)]
+mod format_painter_exclusion_tests {
+    use super::is_copyable_style_prop as is_style_prop;
+    use cobolt_forms::model::{ControlType, CHECKED_PROP, SELECTED_PROP};
+
+    /// Copying a style must never copy WHICH control is chosen.
+    ///
+    /// The painter takes a source control's look and stamps it onto targets. A
+    /// radio's `Selected` is not a look — it is the answer the user gave — and
+    /// stamping it made every radio in a group selected at once.
+    #[test]
+    fn selection_state_is_never_copied_by_the_format_painter() {
+        assert!(!is_style_prop(SELECTED_PROP), "a RadioButton's state");
+        assert!(!is_style_prop(CHECKED_PROP), "a CheckBox's / Switch's state");
+        // Both spellings, whatever the constants happen to be today.
+        assert!(!is_style_prop("Selected"));
+        assert!(!is_style_prop("Checked"));
+    }
+
+    /// The other half: the painter must still copy what it is FOR.
+    #[test]
+    fn appearance_is_still_copied() {
+        for key in [
+            "BackgroundColor",
+            "ForegroundColor",
+            "CornerRadius",
+            "BorderStyle",
+            "FontSize",
+            "CheckColor",
+            "CheckAlignment",
+        ] {
+            assert!(is_style_prop(key), "{key} is a look and should copy");
+        }
+    }
+
+    /// And the neighbouring state properties stay excluded, so this fix does
+    /// not narrow the rule to one control.
+    #[test]
+    fn every_selection_like_property_stays_excluded() {
+        for key in [
+            "SelectedIndex",
+            "SelectedItem",
+            "SelectedItemId",
+            "SelectedTab",
+            "Value",
+            "Text",
+            "Caption",
+        ] {
+            assert!(!is_style_prop(key), "{key} is content, not style");
+        }
+        let _ = ControlType::RadioButton;
     }
 }
