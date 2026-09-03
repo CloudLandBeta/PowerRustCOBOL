@@ -718,6 +718,18 @@ fn seed_missing_props(form: &mut Form) {
             }
             _ => {}
         }
+
+        // `CornerRadius`/`BorderStyle`: the SAME function `Control::new`
+        // calls for a brand new control, so a control saved before either
+        // property existed backfills identically to one just dropped fresh —
+        // a Label that predates the seed is not a special case, it is the
+        // ordinary one (operator, 2026-09-03: an existing Label's
+        // CornerRadius row was simply never there, because `Control::new`'s
+        // own fix never runs for a control loaded from disk). LAST, so a
+        // type-specific choice above it — a CheckBox's own `BorderStyle`
+        // "None" — is already in place and this only fills what is still
+        // absent, exactly the order `Control::new` itself uses.
+        crate::model::seed_theme_owned_appearance(&c.control_type, &mut c.properties);
     }
 }
 
@@ -1760,6 +1772,69 @@ Actor Caption:string</Property>
             rdo.get_prop("BorderStyle").map(PropValue::as_str),
             Some("Sunken"),
             "an explicit choice must survive the backfill"
+        );
+    }
+
+    /// A Label saved before `CornerRadius`/`BorderStyle` were seeded on every
+    /// visual control (6c64c80, 1.63.19) carries neither — `Control::new`'s
+    /// own fix never runs for a control loaded from disk, so a form saved
+    /// before that change kept the exact bug it fixed, forever, for every
+    /// control already in it. `seed_theme_owned_appearance` closes that by
+    /// running on load too, through the identical function `Control::new`
+    /// itself calls — not a second, hand-kept copy of the same boundary
+    /// (operator, 2026-09-03: "your merge once again removed the radius
+    /// corner from labels" — traced to exactly this: a real, pre-existing
+    /// PowerDemo3 Label with no `CornerRadius` property in its saved XML at
+    /// all, from before the seed existed).
+    #[test]
+    fn legacy_label_gains_corner_radius_and_border_style_on_load() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#FFFFFF">
+  <Control id="Label-2" type="Label" x="568" y="96" w="688" h="144" tab-order="0" z-order="62" visible="true" enabled="true">
+    <Property name="Caption">hello</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+  </Control>
+  <Control id="Label-3" type="Label" x="20" y="260" w="150" h="24" tab-order="1" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">already set</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+  </Control>
+</Form>"##;
+
+        let loaded = load_form_from_str(xml).expect("load legacy label form");
+
+        let untouched = loaded.find_control("Label-2").expect("Label-2");
+        assert_eq!(
+            untouched.get_prop("CornerRadius").map(PropValue::as_i64),
+            Some(0),
+            "a Label with no saved CornerRadius must gain the seeded default \
+             on load, the same as a freshly created one — not stay absent"
+        );
+        assert_eq!(
+            untouched.get_prop("BorderStyle").map(PropValue::as_str),
+            Some("Single"),
+            "and the same for BorderStyle, seeded alongside it"
+        );
+        // The caption and the gradient flag it already had are untouched.
+        assert_eq!(
+            untouched.get_prop("Caption").map(PropValue::as_str),
+            Some("hello")
+        );
+        assert!(untouched
+            .get_prop("BackgroundGradientEnabled")
+            .map(PropValue::as_bool)
+            .unwrap_or(false));
+
+        let chosen = loaded.find_control("Label-3").expect("Label-3");
+        assert_eq!(
+            chosen.get_prop("CornerRadius").map(PropValue::as_i64),
+            Some(10),
+            "an explicit CornerRadius must survive the backfill"
+        );
+        assert_eq!(
+            chosen.get_prop("BorderStyle").map(PropValue::as_str),
+            Some("Fixed3D"),
+            "an explicit BorderStyle must survive the backfill"
         );
     }
 

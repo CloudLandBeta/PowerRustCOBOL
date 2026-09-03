@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.36] — 2026-09-03
+
+### A property "the theme never removes" still needed to have arrived in the first place
+
+"Your merge once again removed the radius corner from labels" (operator,
+2026-09-03) — traced to a real PowerDemo3 Label (`datagrid-form.cfrm`'s
+`Label-2`) with no `CornerRadius` property in its saved `.cfrm` at all. It
+had not been removed by anything in this session; it had simply never
+arrived. `Control::new` has seeded `CornerRadius`/`BorderStyle` on every
+visual control since 6c64c80 (1.63.19), closing the class of bug where a
+theme switch stripped a property nothing could put back — but that seed only
+ever runs for a **brand new** control. A form saved before 1.63.19 keeps
+every control exactly as it was written, forever, because loading a `.cfrm`
+never calls `Control::new` for what it finds — only `seed_missing_props`,
+the load-time repair pass for exactly this situation, runs. It backfills
+several controls' own new properties on load (CheckBox/RadioButton's border
+keys, GroupBox's caption toggle, DataGrid's newer columns, Splitter's pane
+ownership, MenuBar's colours) but was never taught the one from 1.63.19 —
+so of PowerDemo3's 270 Label controls across 42 forms, however many predate
+that fix kept the exact bug it was written to end.
+
+`CornerRadius`/`BorderStyle` seeding is now one function,
+`seed_theme_owned_appearance`, called by both `Control::new` and
+`seed_missing_props` — not two copies of the same boundary that can drift
+apart the way this one just proved they can. Opening any existing form now
+backfills every control the same way creating a fresh one already did,
+whether that form was last saved yesterday or eight versions ago.
+
+Two regressions caught by the existing test suite before this shipped, both
+fixed in the same pass: applying the new seed *before* `seed_missing_props`'s
+own CheckBox/RadioButton entry overwrote their "no border by default" with
+the generic fallback (fixed by ordering the shared seed last, mirroring
+`Control::new`'s own order — a type's own choice always precedes the generic
+one); and unconditionally backfilling `CornerRadius` would have shadowed a
+pre-spec-016 container's legacy `BorderRadius` alias with a fresh 0, since
+the renderer checks the canonical key first (fixed by skipping the backfill
+whenever the legacy key is already present).
+
 ## [PowerRustCOBOL 1.63.35] — 2026-09-03
 
 ### A Switch's border is now the developer's own choice, and follows the pill's own shape when it draws one

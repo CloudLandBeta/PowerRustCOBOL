@@ -4183,6 +4183,123 @@ pub fn migrate_legacy_opacity(ctrl: &mut Control) {
     ctrl.properties.shift_remove("Opacity");
 }
 
+/// `CornerRadius`/`BorderStyle` for every control that paints a face — the
+/// one place both `Control::new` (a brand new control) and `xml::load_form`'s
+/// `seed_missing_props` (an already-saved one) get this from, so the two can
+/// never drift apart again.
+///
+/// They already had: `Control::new` seeded both properties correctly from the
+/// day spec 016/6c64c80 landed, but `seed_missing_props` — the load-time
+/// backfill for a control saved BEFORE that seed existed — was never taught
+/// the same boundary, so any Label (or other control) already sitting in a
+/// saved `.cfrm` kept no `CornerRadius` at all: `Control::new` never runs for
+/// a control loaded from disk, so its own fix never reached one. Only a
+/// freshly re-created control ever benefited — a saved project's *existing*
+/// controls, which is nearly all of them, did not (operator, 2026-09-03:
+/// "your merge once again removed the radius corner from labels" — it had
+/// not been removed; it had simply never arrived).
+///
+/// Unified corner radius on every bordered visual control (spec 016).
+/// Canonical key `CornerRadius`; the renderer also reads the legacy
+/// container `BorderRadius` as an alias. Default preserves each control's
+/// current look (Button 3, charts 8, everything else 0).
+pub(crate) fn seed_theme_owned_appearance(
+    control_type: &ControlType,
+    props: &mut IndexMap<String, PropValue>,
+) {
+    let corner_default: Option<i64> = match control_type {
+        ControlType::Button => Some(3),
+        ControlType::BarChart
+        | ControlType::LineChart
+        | ControlType::PieChart
+        | ControlType::AreaChart
+        | ControlType::ScatterChart
+        | ControlType::DonutChart => Some(8),
+        // A deliberate choice, not the old look (operator, 2026-08-16):
+        // the bar's artwork was hard-wired to a 2 px round, so once
+        // `CornerRadius` actually reached the paint a seeded 0 would have
+        // squared off every existing bar. 10 rounds it properly.
+        ControlType::ProgressBar => Some(10),
+        ControlType::TextBox
+        | ControlType::ComboBox
+        | ControlType::ListBox
+        | ControlType::TreeView
+        | ControlType::PictureBox
+        | ControlType::DataGrid
+        | ControlType::NumericUpDown
+        | ControlType::DateTimePicker
+        | ControlType::Slider
+        | ControlType::Shape
+        | ControlType::CheckBox
+        | ControlType::RadioButton
+        | ControlType::GroupBox
+        | ControlType::Panel
+        | ControlType::TabControl
+        | ControlType::Switch
+        | ControlType::FileDropZone
+        // Spec 016 Q4, settled by the operator 2026-09-03: the bars are IN.
+        //
+        // Q4's recommendation excluded them, and Label, for having "no real
+        // frame". That reasoning had already failed once — a Label kept
+        // losing its corner radius because the property was never seeded,
+        // and the fix was to seed it. A bar has a frame like anything else;
+        // at `Transparency = 100` that frame is invisible, not absent, and
+        // its corners stay meaningful. Seeded 0, so no existing bar changes
+        // shape — the row simply exists, and can be set.
+        | ControlType::MenuBar
+        | ControlType::ToolBar
+        | ControlType::StatusBar => Some(0),
+        _ => None,
+    };
+
+    // A legacy `BorderRadius` (pre-spec-016 container files) already answers
+    // `corner_radius()`'s own `.or_else` fallback — backfilling a fresh
+    // `CornerRadius` alongside it would shadow the developer's real value
+    // with 0, since the canonical key is checked first. Absent BOTH is the
+    // only case that means "never had either."
+    let has_legacy_alias = props.contains_key("BorderRadius");
+    if let Some(d) = corner_default {
+        if !has_legacy_alias {
+            props
+                .entry("CornerRadius".to_owned())
+                .or_insert(PropValue::Int(d));
+        }
+    }
+
+    // ── Every control that paints a face seeds every theme-owned property ──
+    //
+    // This is what makes `reset_theme_owned_props`'s "no seed" branch
+    // unreachable, and with it the whole property-removal class: a reset
+    // can only put a property back to what a NEW control carries, so a
+    // property no control seeds could never be put back at all. It was
+    // already made harmless in 1.63.15 (it leaves the value alone rather
+    // than removing the row); this is the lasting answer the operator asked
+    // for — spec 016 Q2's theme-defaults table.
+    //
+    // Both seeds are the value the RENDERER already falls back to when the
+    // property is absent — `Single` in `draw_control`, `0` in
+    // `corner_radius` — so nothing changes shape. The row simply exists,
+    // which is the whole point: the inspector shows a row only for a
+    // property that is present.
+    //
+    // The boundary is "paints a face". A non-visual control renders NOTHING
+    // at run time (its designer chip is a tray badge, not a control face)
+    // and a Line is a stroke with no frame to border or round — giving
+    // either an appearance row would be noise, not completeness. That is
+    // not the "no real frame" reasoning spec 016 Q4 threw out: a Label and
+    // the bars have faces and were excluded for how they LOOK by default.
+    if !control_type.is_non_visual() && !matches!(control_type, ControlType::Line) {
+        if !has_legacy_alias {
+            props
+                .entry("CornerRadius".to_owned())
+                .or_insert(PropValue::Int(0));
+        }
+        props
+            .entry("BorderStyle".to_owned())
+            .or_insert(PropValue::String("Single".into()));
+    }
+}
+
 impl Control {
     pub fn new(id: impl Into<String>, control_type: ControlType, x: i32, y: i32) -> Self {
         let (w, h) = control_type.default_size();
@@ -5364,91 +5481,7 @@ impl Control {
             _ => {}
         }
 
-        // Unified corner radius on every bordered visual control (spec 016).
-        // Canonical key `CornerRadius`; the renderer also reads the legacy
-        // container `BorderRadius` as an alias. Default preserves each control's
-        // current look (Button 3, charts 8, everything else 0).
-        let corner_default: Option<i64> = match control_type {
-            ControlType::Button => Some(3),
-            ControlType::BarChart
-            | ControlType::LineChart
-            | ControlType::PieChart
-            | ControlType::AreaChart
-            | ControlType::ScatterChart
-            | ControlType::DonutChart => Some(8),
-            // A deliberate choice, not the old look (operator, 2026-08-16):
-            // the bar's artwork was hard-wired to a 2 px round, so once
-            // `CornerRadius` actually reached the paint a seeded 0 would have
-            // squared off every existing bar. 10 rounds it properly.
-            ControlType::ProgressBar => Some(10),
-            ControlType::TextBox
-            | ControlType::ComboBox
-            | ControlType::ListBox
-            | ControlType::TreeView
-            | ControlType::PictureBox
-            | ControlType::DataGrid
-            | ControlType::NumericUpDown
-            | ControlType::DateTimePicker
-            | ControlType::Slider
-            | ControlType::Shape
-            | ControlType::CheckBox
-            | ControlType::RadioButton
-            | ControlType::GroupBox
-            | ControlType::Panel
-            | ControlType::TabControl
-            | ControlType::Switch
-            | ControlType::FileDropZone
-            // Spec 016 Q4, settled by the operator 2026-09-03: the bars are IN.
-            //
-            // Q4's recommendation excluded them, and Label, for having "no real
-            // frame". That reasoning had already failed once — a Label kept
-            // losing its corner radius because the property was never seeded,
-            // and the fix was to seed it. A bar has a frame like anything else;
-            // at `Transparency = 100` that frame is invisible, not absent, and
-            // its corners stay meaningful. Seeded 0, so no existing bar changes
-            // shape — the row simply exists, and can be set.
-            | ControlType::MenuBar
-            | ControlType::ToolBar
-            | ControlType::StatusBar => Some(0),
-            _ => None,
-        };
-
-        if let Some(d) = corner_default {
-            props
-                .entry("CornerRadius".to_owned())
-                .or_insert(PropValue::Int(d));
-        }
-
-        // ── Every control that paints a face seeds every theme-owned property ──
-        //
-        // This is what makes `reset_theme_owned_props`'s "no seed" branch
-        // unreachable, and with it the whole property-removal class: a reset
-        // can only put a property back to what a NEW control carries, so a
-        // property no control seeds could never be put back at all. It was
-        // already made harmless in 1.63.15 (it leaves the value alone rather
-        // than removing the row); this is the lasting answer the operator asked
-        // for — spec 016 Q2's theme-defaults table.
-        //
-        // Both seeds are the value the RENDERER already falls back to when the
-        // property is absent — `Single` in `draw_control`, `0` in
-        // `corner_radius` — so nothing changes shape. The row simply exists,
-        // which is the whole point: the inspector shows a row only for a
-        // property that is present.
-        //
-        // The boundary is "paints a face". A non-visual control renders NOTHING
-        // at run time (its designer chip is a tray badge, not a control face)
-        // and a Line is a stroke with no frame to border or round — giving
-        // either an appearance row would be noise, not completeness. That is
-        // not the "no real frame" reasoning spec 016 Q4 threw out: a Label and
-        // the bars have faces and were excluded for how they LOOK by default.
-        if !control_type.is_non_visual() && !matches!(control_type, ControlType::Line) {
-            props
-                .entry("CornerRadius".to_owned())
-                .or_insert(PropValue::Int(0));
-            props
-                .entry("BorderStyle".to_owned())
-                .or_insert(PropValue::String("Single".into()));
-        }
+        seed_theme_owned_appearance(&control_type, &mut props);
 
         if control_type.is_data_input_control() {
             props.insert(
