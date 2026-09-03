@@ -2074,6 +2074,16 @@ pollster        = "0.3"
 # every fresh lock resolution since zune-jpeg 0.5.15 fails to compile.
 # Naming it here unions the feature back in.
 zune-jpeg       = {{ version = "0.5", features = ["log"] }}
+# FIX (upstream bug, found 2026-09-03): `cobolt-forms`' "render" feature
+# reaches fontdb (resvg/usvg, for form-icon rendering), which pulls tinyvec
+# with only its "alloc" feature — nothing else in the graph asks for "std",
+# so a fresh lock resolution builds tinyvec in no_std mode. tinyvec 1.13.0's
+# `with_initial_len` calls the `vec!` macro assuming it is in prelude scope,
+# which no_std does not provide (tinyvec's own `use alloc::vec::{{self, Vec}}`
+# imports the MODULE, not the macro) — "cannot find macro `vec` in this
+# scope". Forcing "std" (which implies "alloc") takes tinyvec out of no_std
+# entirely. 1.11.0/1.12.0 predate `with_initial_len` and never hit this.
+tinyvec         = {{ version = "1", features = ["std"] }}
 "#
         ));
     }

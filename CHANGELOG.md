@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.34] — 2026-09-03
+
+### Every form build was one dependency resolution away from failing outright
+
+`cargo test -p cobolt-compiler` had two clusters failing on "could not
+compile `tinyvec` (lib) due to 1 previous error" (flagged separately
+yesterday as needing investigation) — and the same wall showed up in a real
+`rcrun build`/IDE Build of an actual project (PowerDemo3's sidebar-form),
+confirming it wasn't confined to the test harness.
+
+Root cause, found and fixed on a peer session working the flagged
+investigation: an upstream bug in tinyvec 1.13.0, not a real dependency
+conflict or a stale cache. `cobolt-forms`' "render" feature reaches `fontdb`
+(via resvg/usvg, for form-icon rendering), which pulls in tinyvec with only
+its "alloc" feature — nothing else in the graph asks for "std", so a fresh
+lock resolution builds tinyvec in `no_std` mode. Version 1.13.0's new
+`with_initial_len` calls the `vec!` macro assuming it is in prelude scope,
+which `no_std` never provides (tinyvec's own `use alloc::vec::{self, Vec}`
+imports the *module*, not the macro) — every fresh build of every project
+with a form or an EXEC RUST block was one `cargo update` away from hitting
+this. 1.11.0/1.12.0 predate `with_initial_len` and never hit it, which is
+why this had gone unnoticed until a lock resolution picked up 1.13.0.
+
+Fixed the same way this file already handles zune-jpeg's own default-features
+gap right above it: naming `tinyvec = { version = "1", features = ["std"] }`
+in the generated project's own `Cargo.toml` unions "std" back in, which
+implies "alloc" and takes it out of `no_std` mode entirely. Verified against
+both previously-failing test clusters (now green) and the full
+`cobolt-compiler` suite (109 test result blocks, 0 failed).
+
+Separately noted, not fixed in this pass: the real rustc diagnostic behind a
+dependency-level build failure like this one is invisible to both the IDE's
+own build-failure reporting and this project's own build-verification
+tests — `build_core`'s cargo invocation captures it as JSON on stdout, but
+the error-surfacing path only forwards stderr's terse summary when the
+failure isn't attributable to a user's own EXEC RUST block. Worth a
+follow-up so the next dependency-level failure doesn't read as an opaque
+"due to 1 previous error" either.
+
 ## [PowerRustCOBOL 1.63.33] — 2026-09-03
 
 ### A DataGrid bound to an Indexed source now actually populates
