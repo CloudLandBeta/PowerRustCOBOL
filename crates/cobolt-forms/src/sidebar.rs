@@ -594,11 +594,25 @@ pub fn menu_band(rect: Rect, state: &SidebarState<'_>) -> Rect {
 }
 
 /// How tall the menu rows are in total, scroll or no scroll.
+///
+/// Measured from the SAME walker [`layout`] is about to lay the rows out with —
+/// `rail_rows` collapsed, `walk_rows` open. It always used the open one, so a
+/// collapsed rail's scroll limit was computed from rows it was not showing:
+/// icons are taller and spaced further apart than the rows they stand in for,
+/// so a rail whose icons overflowed could still measure as "fits" and refuse to
+/// scroll at all — the icons past the foot were simply unreachable (operator,
+/// 2026-09-03, with a rail whose last icon was cut off by the footer). Both
+/// hosts gate their wheel handling on `max_scroll > 0.0`, so this one
+/// measurement is the whole of it.
 pub fn menu_content_height(rect: Rect, state: &SidebarState<'_>) -> f32 {
     let mut y = 0.0_f32;
-    let mut prefix = Vec::new();
     let mut sink = Vec::new();
-    walk_rows(state.items, &mut prefix, 0, &mut y, rect, state, &mut sink);
+    if state.collapsed {
+        rail_rows(state.items, &mut y, rect, &mut sink);
+    } else {
+        let mut prefix = Vec::new();
+        walk_rows(state.items, &mut prefix, 0, &mut y, rect, state, &mut sink);
+    }
     y.max(0.0)
 }
 
@@ -2163,6 +2177,92 @@ mod tests {
             "049 sidebar scroll — 20 items = {content:.0}px of rows in a \
              {:.0}px menu pane; scroll range 0..{max:.0}px; header/footer \
              fixed; every visible row confined to the pane",
+            band.height()
+        );
+    }
+
+    /// **The COLLAPSED rail scrolls too** — the same guarantee, measured from
+    /// the rows the rail actually shows.
+    ///
+    /// `menu_content_height` measured with the OPEN walker whatever the rail
+    /// was doing. An icon row is taller than the row it stands in for and
+    /// carries a gap after it, so the same menu measures SHORTER open than
+    /// collapsed: the rail could overflow its pane while the number the scroll
+    /// limit came from still fitted, and `max_scroll` came back `0.0`. Both
+    /// hosts gate the wheel on that, so the rail did not scroll at all and the
+    /// icons past its foot were unreachable (operator, 2026-09-03: a rail whose
+    /// last icon was cut in half by the footer).
+    #[test]
+    fn a_collapsed_rail_taller_than_its_pane_scrolls_too() {
+        // A real menu: groups holding the items. Open, a closed group is ONE
+        // row and its children are not laid out at all; collapsed, every child
+        // surfaces on the rail as its own icon. That asymmetry is the whole
+        // defect — the rail was sized by the short measurement.
+        let items: Vec<MenuItem> = (0..6)
+            .map(|g| {
+                let mut group = MenuItem::new_action(format!("g{g}"), format!("Group {g}"));
+                for i in 0..3 {
+                    let mut kid =
+                        MenuItem::new_action(format!("i{g}-{i}"), format!("Item {g}.{i}"));
+                    kid.icon = Some("home".into());
+                    kid.action = Some(format!("open-form:f{g}-{i}"));
+                    group.items.push(kid);
+                }
+                group
+            })
+            .collect();
+        let none: Vec<String> = Vec::new();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(COLLAPSED_WIDTH, 300.0));
+
+        let mut st = state(&items, true, &none);
+        let band = menu_band(rect, &st);
+        let content = menu_content_height(rect, &st);
+        assert!(
+            content > band.height(),
+            "the fixture must actually overflow the rail: {content} vs {}",
+            band.height()
+        );
+
+        // The defect, stated as a number: the OPEN measurement of this same
+        // menu is what the rail used to be given, and it does not overflow —
+        // which is exactly why nothing scrolled.
+        let open_content = menu_content_height(rect, &state(&items, false, &none));
+        assert!(
+            open_content < content,
+            "the open walk must measure shorter than the rail for this test to \
+             mean anything: {open_content} vs {content}"
+        );
+
+        let max = max_scroll(rect, &st);
+        assert!(max > 0.0, "an overflowing rail can scroll");
+
+        let ids = |rows: &[SidebarRow]| -> Vec<String> {
+            rows.iter()
+                .filter_map(|r| match &r.kind {
+                    RowKind::Item { id, .. } => Some(id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        let top_ids = ids(&layout(rect, &st));
+        assert!(top_ids.contains(&"i0-0".to_string()), "the first icon is at rest");
+        assert!(
+            !top_ids.contains(&"i5-2".to_string()),
+            "the last icon is past the rail's foot — that is what scrolling is for"
+        );
+
+        st.scroll = max;
+        let bottom_ids = ids(&layout(rect, &st));
+        assert!(
+            bottom_ids.contains(&"i5-2".to_string()),
+            "scrolled to the end, the last icon is reachable: {bottom_ids:?}"
+        );
+
+        eprintln!(
+            "collapsed rail scroll — 18 icons = {content:.0}px in a {:.0}px \
+             pane (the open walk of the same menu: {open_content:.0}px); \
+             scroll range 0..{max:.0}px",
             band.height()
         );
     }

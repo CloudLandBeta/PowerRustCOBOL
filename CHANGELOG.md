@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.40] — 2026-09-03
+
+### A collapsed rail with more icons than it has room for now scrolls
+
+"Collapsed sidebar needs scroll when the number of icons is greater than the
+available vertical space" (operator, 2026-09-03, with a rail whose last icon
+was cut in half by the footer). No scrollbar — the wheel, exactly as the open
+sidebar has always worked.
+
+The scrolling itself was already there and already wired in both hosts; what
+was wrong was the number it was given. `menu_content_height` measured the
+menu with the OPEN walker whatever state the rail was in, and the two walks
+do not describe the same thing: open, a closed group is ONE row and its
+children are not laid out at all; collapsed, every one of those children
+surfaces on the rail as its own icon, taller than the row it stands in for
+and carrying a gap after it. The fixture in the new test measures 828 px of
+icons against 276 px for the open walk of the identical menu — so a rail
+holding a few groups could overflow its pane while the number behind the
+scroll limit still fitted inside it. Both hosts gate their wheel handling on
+`max_scroll > 0.0`, so the rail then refused to scroll at all and every icon
+past its foot was unreachable; with more groups it scrolled, but only as far
+as the wrong measurement allowed.
+
+`menu_content_height` now measures with the same walker `layout` is about to
+lay the rows out with — `rail_rows` collapsed, `walk_rows` open. Nothing else
+changed: the header and footer panes still never scroll, so the collapse
+toggle stays reachable at any offset.
+
 ## [PowerRustCOBOL 1.63.39] — 2026-09-03
 
 ### The white rim around every saved Switch
