@@ -5826,7 +5826,21 @@ impl PropertiesPanel {
             // ── CheckBox / RadioButton ────────────────────────────────────────
             ControlType::CheckBox | ControlType::RadioButton if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
-                bool_row_inline(ui, id, "Checked", "Checked (default)", ctrl, action);
+                // A RadioButton's state property has been `Selected`, not
+                // `Checked`, since 2026-08-31 — this row hard-coded "Checked"
+                // for both controls, so ticking it on a RadioButton wrote a
+                // property `toggle_state_of` never reads (it checks `Selected`
+                // FIRST and only falls back to `Checked` when `Selected` is
+                // entirely absent, which it never is — every RadioButton
+                // seeds it). The inspector said checked; every host rendered
+                // it unchecked (operator, 2026-09-03).
+                let state_key = cobolt_forms::model::selection_property(&ctrl.control_type);
+                let state_label = if ctrl.control_type == ControlType::RadioButton {
+                    "Selected (default)"
+                } else {
+                    "Checked (default)"
+                };
+                bool_row_inline(ui, id, state_key, state_label, ctrl, action);
                 combo_row_inline(
                     ui,
                     id,
@@ -11297,6 +11311,94 @@ mod tests {
              Start zoom, showing 40.7128, -74.0060, 12\n"
         );
     }
+
+    /// The Basic-properties "default state" row hard-coded the property key
+    /// `"Checked"` for BOTH CheckBox and RadioButton — correct for a CheckBox
+    /// (its own state property), wrong for a RadioButton, whose state has
+    /// been `Selected` since 2026-08-31. Ticking the row on a RadioButton
+    /// wrote `Checked=true`, which `toggle_state_of` never reads once
+    /// `Selected` is present (every RadioButton seeds it) — so the inspector
+    /// showed the box ticked while every rendering host (Preview, Run Form,
+    /// the compiled binary) showed it unchecked (operator, 2026-09-03).
+    ///
+    /// Asserted through the row's own LABEL rather than reading a private
+    /// local variable: `state_key` and `state_label` are chosen together by
+    /// the same `if`, so a correct label is exactly as strong a guarantee as
+    /// reading the key directly, and it is what the fix's own diff branches
+    /// on — the same shape-walk `the_maps_pane_offers_the_starting_location`
+    /// above already uses for this panel.
+    #[test]
+    fn a_radio_buttons_default_state_row_says_selected_not_checked() {
+        let form = Form::new("F", "F", 800, 600);
+        let radio = Control::new("Rdo-1", ControlType::RadioButton, 10, 10);
+        let checkbox = Control::new("Chk-1", ControlType::CheckBox, 10, 10);
+
+        fn labels_shown(form: &Form, ctrl: &Control, tr: &Tr) -> Vec<String> {
+            let ctx = egui::Context::default();
+            let mut panel = PropertiesPanel::new();
+            let mut out = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(420.0, 1400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::CentralPanel::default().show_inside(ui, |ui| {
+                        let _ = panel.show(ui, form, Some(ctrl), &[], tr);
+                    });
+                },
+            );
+            fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+                match shape {
+                    egui::Shape::Text(t) => out.push(t.galley.text().to_owned()),
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            full.textures_delta.clear();
+            out
+        }
+
+        let tr = &crate::i18n::Language::English.tr();
+        let radio_labels = labels_shown(&form, &radio, tr);
+        let checkbox_labels = labels_shown(&form, &checkbox, tr);
+        let shown = |labels: &[String], needle: &str| labels.iter().any(|t| t.contains(needle));
+
+        assert!(
+            shown(&radio_labels, "Selected (default)"),
+            "a RadioButton's default-state row must read 'Selected (default)', \
+             got {radio_labels:?}"
+        );
+        assert!(
+            !shown(&radio_labels, "Checked (default)"),
+            "a RadioButton must not ALSO offer a 'Checked (default)' row — \
+             there is only one state property and one row for it"
+        );
+        assert!(
+            shown(&checkbox_labels, "Checked (default)"),
+            "a CheckBox's own row must be untouched — still 'Checked (default)', \
+             got {checkbox_labels:?}"
+        );
+
+        // The property the row's own key must resolve to for each type —
+        // the same function the fix calls, exercised directly so a future
+        // change to `selection_property` itself is caught here too.
+        assert_eq!(
+            cobolt_forms::model::selection_property(&ControlType::RadioButton),
+            "Selected"
+        );
+        assert_eq!(
+            cobolt_forms::model::selection_property(&ControlType::CheckBox),
+            "Checked"
+        );
+    }
+
     use super::*;
 
     /// The list-item editor is a FIXED five-line window on the list (operator,

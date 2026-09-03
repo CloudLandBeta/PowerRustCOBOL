@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.37] — 2026-09-03
+
+### A RadioButton ticked "Checked" in the inspector rendered unchecked everywhere
+
+"I've created a new set of radio buttons. The checked/selected radio button
+is rendered unchecked in all hosts (preview/rad/run form)" (operator,
+2026-09-03) — the Basic-properties "default state" row in the inspector
+hard-coded the property key `"Checked"` for both CheckBox and RadioButton.
+Correct for a CheckBox, wrong for a RadioButton: its state has been
+`Selected`, not `Checked`, since 2026-08-31. Ticking the row on a fresh
+RadioButton wrote `Checked=true` — a property `toggle_state_of` never reads,
+because it checks `Selected` first and only falls back to `Checked` when
+`Selected` is entirely absent, which it never is (every RadioButton seeds
+it). The inspector showed the box ticked; every rendering host — the
+designer canvas, Run Form, a compiled binary — showed it unchecked, because
+none of them were ever told to be. The Developer's Guide already documented
+`Selected` as the real property name; the inspector row was the one place
+that had not caught up.
+
+The row now asks `cobolt_forms::model::selection_property` which key belongs
+to the control in front of it — the same function `toggle_state_of` already
+trusts — and its label follows: "Selected (default)" for a RadioButton,
+"Checked (default)" for a CheckBox, unchanged.
+
+Also caught in the same pass: the chunked System KB store had gone stale
+after 1.63.35 added `BorderStyle`/`BorderColor` to the Switch control — a
+regeneration that commit should have carried and did not. Regenerated and
+committed here instead of leaving it for whichever change happened to run
+the full test suite next.
+
 ## [PowerRustCOBOL 1.63.36] — 2026-09-03
 
 ### A property "the theme never removes" still needed to have arrived in the first place
