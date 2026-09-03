@@ -1883,6 +1883,16 @@ pub struct DesignerPanel {
     /// Resolved by the app alongside `active_theme_pack` and published to the
     /// canvas + preview contexts each frame.
     pub active_surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
+    /// The project's own appearance defaults, keyed `"<theme>/<glass style>"`
+    /// (spec 016 Q2). Pushed in by the app each frame, the same way
+    /// `active_surface_theme` is — the designer owns the form, the project owns
+    /// what its themes mean.
+    ///
+    /// Empty for a project that has never opened the Default Theme Settings
+    /// modal, and then a theme switch stamps exactly what it always did.
+    pub theme_defaults:
+        std::collections::BTreeMap<String, cobolt_forms::model::ThemeDefaults>,
+
 
     /// The font the user most recently set on a control in this form. New controls
     /// inherit it so a form keeps a consistent typeface.
@@ -2128,6 +2138,8 @@ impl DesignerPanel {
             preview_combo_open: HashMap::new(),
             active_theme_pack: None,
             active_surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            theme_defaults: std::collections::BTreeMap::new(),
+
             placement_release_starts: HashMap::new(),
         }
     }
@@ -4815,7 +4827,23 @@ impl DesignerPanel {
         }
     }
 
+    /// The project's appearance table for a theme + glass style, if it has one.
+    ///
+    /// The key is built by `project_model::theme_defaults_key`, and it must be
+    /// the same spelling the modal writes with — two hand-built keys that
+    /// differed by a space would silently give the modal and the theme switch
+    /// different tables.
+    pub fn project_theme_defaults(
+        &self,
+        theme: Option<&str>,
+        style: cobolt_forms::model::GlassStyle,
+    ) -> Option<&cobolt_forms::model::ThemeDefaults> {
+        let key = crate::project_model::theme_defaults_key(theme, style);
+        self.theme_defaults.get(&key)
+    }
+
     pub fn set_property(&mut self, ctrl_id: &str, key: &str, value: PropValue) {
+
         // ── Animation management meta-keys ────────────────────────────────────
         // Add / remove / field edits all become one undoable SetAnimations
         // command carrying the full before/after list (audit, 2026-07-29 —
@@ -5215,9 +5243,14 @@ impl DesignerPanel {
                 if self.active_surface_theme.is_self_contained() {
                     self.form.glass_style = style;
                 } else {
-                    self.form.apply_glass_style_defaults(style);
+                    let table = self
+                        .project_theme_defaults(self.form.theme.as_deref(), style)
+                        .cloned();
+                    self.form.apply_glass_style_defaults_with(style, table.as_ref());
+
                 }
                 self.dirty = true;
+
             }
             "BackgroundGradientEnabled" => {
                 self.form.background_gradient_enabled = value == "true" || value == "1";
@@ -5265,9 +5298,17 @@ impl DesignerPanel {
                 let v = value.trim();
                 let target = (!v.is_empty()).then(|| v.to_owned());
                 if self.form.theme != target {
-                    self.form.apply_theme_defaults(target);
+                    // The table of the theme being switched TO, not the one
+                    // being left: the values that follow the switch are the
+                    // incoming theme's.
+                    let style = self.form.glass_style;
+                    let table = self
+                        .project_theme_defaults(target.as_deref(), style)
+                        .cloned();
+                    self.form.apply_theme_defaults_with(target, table.as_ref());
                     self.dirty = true;
                 }
+
             }
             "UseThemeBackground" => {
                 self.form.use_theme_background = value == "true" || value == "1";
@@ -16188,7 +16229,68 @@ mod text_align_tests {
         assert_eq!(c.tab_order, 0, "TabOrder undoes");
     }
 
+    /// A theme switch made in the designer stamps the PROJECT's table, not
+    /// only the shipped style (spec 016 Q2).
+    ///
+    /// The table is the source of truth (operator, 2026-09-03): the built-in
+    /// appliers are what PowerRustCOBOL ships, and an entry in the project's
+    /// Default Theme Settings is what this project has decided they are.
+    #[test]
+    fn a_theme_switch_stamps_the_projects_own_table() {
+        use cobolt_forms::model::{GlassStyle, ThemeDefaults};
+
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("B1", ControlType::Button, 0, 0));
+
+        // Neumorphic ships a 10 px corner; this project says 22.
+        let mut table = ThemeDefaults::default();
+        table
+            .base
+            .insert("CornerRadius".into(), PropValue::Int(22));
+        d.theme_defaults.insert(
+            crate::project_model::theme_defaults_key(None, GlassStyle::Neumorphic),
+            table,
+        );
+
+        d.set_property(
+            "",
+            "GlassStyle",
+            PropValue::String("Neumorphic Light".into()),
+        );
+        assert_eq!(
+            d.form.find_control("B1").unwrap().get_prop("CornerRadius"),
+            Some(&PropValue::Int(22)),
+            "the project's table must win over the shipped Neumorphic default"
+        );
+
+        // A project with no table of its own gets exactly what it always did.
+        let mut plain = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        plain
+            .form
+            .controls
+            .push(Control::new("B1", ControlType::Button, 0, 0));
+        plain.set_property(
+            "",
+            "GlassStyle",
+            PropValue::String("Neumorphic Light".into()),
+        );
+        assert_eq!(
+            plain
+                .form
+                .find_control("B1")
+                .unwrap()
+                .get_prop("CornerRadius"),
+            Some(&PropValue::Int(
+                cobolt_forms::model::NEUMORPHIC_CORNER_RADIUS
+            )),
+            "an untouched project still gets the shipped Neumorphic corner"
+        );
+    }
+
     /// An animation added without a name gets `anim1`, `anim2`, … and a
+
     /// delete-then-add never lands on a name that is still in use.
     ///
     /// The name is how a COBOL handler triggers the animation, so an unnamed

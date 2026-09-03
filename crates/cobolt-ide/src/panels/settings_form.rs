@@ -303,6 +303,9 @@ pub struct SettingsFormAction {
     pub manage_agents: bool,
     /// Open the Models Manager (spec 031).
     pub manage_models: bool,
+    /// Open the Default Theme Settings modal (spec 016 Q2).
+    pub open_theme_defaults: bool,
+
     /// Open the Model Leaderboard (spec 040).
     pub open_leaderboard: bool,
 }
@@ -1480,6 +1483,40 @@ impl SettingsForm {
                                     });
                             });
                         });
+
+                        // The per-theme appearance defaults (spec 016 Q2),
+                        // directly under the theme they belong to.
+                        ui.horizontal_top(|ui| {
+                            let left_rect = ui
+                                .allocate_exact_size(
+                                    egui::vec2(splitter, 0.0),
+                                    egui::Sense::hover(),
+                                )
+                                .0;
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(left_rect), |ui| {
+                                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                                ui.set_min_width(splitter);
+                                ui.add_space(property_indent);
+                                ui.add(
+                                    egui::Label::new(tr.theme_defaults_base).truncate(),
+                                );
+
+                            });
+                            ui.allocate_space(egui::vec2(resizer_width, 0.0));
+                            ui.add_space(gap_after_resizer);
+                            let right_w = ui.available_width();
+                            ui.allocate_ui(egui::vec2(right_w, 0.0), |ui| {
+                                if ui
+                                    .button(tr.theme_defaults_title)
+                                    .on_hover_text(tr.theme_defaults_import_hint)
+                                    .clicked()
+                                {
+                                    action.open_theme_defaults = true;
+                                }
+
+                            });
+                        });
+
 
                         // Default form theme (spec 007) — the picker is **hidden for now**:
                         // only Liquid Glass ships as a finished look; the special asset

@@ -37,6 +37,8 @@ pub mod properties;
 pub mod rounded_clip;
 pub mod settings_form;
 pub mod target_picker;
+pub mod theme_defaults_modal;
+
 pub mod toolbar;
 // The ToolBar control's editor — groups, buttons and their actions. Every option
 // a toolbar has lives in this modal, not in the properties pane.

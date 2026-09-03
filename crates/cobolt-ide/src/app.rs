@@ -577,6 +577,10 @@ pub struct CoboltApp {
     agents_modal: Option<crate::panels::agents_modal::AgentsModal>,
     /// Models Manager modal (spec 031), present while open.
     models_modal: Option<crate::panels::models_modal::ModelsModal>,
+    /// Default Theme Settings — the project's per-theme appearance table
+    /// (spec 016 Q2).
+    theme_defaults_modal: Option<crate::panels::theme_defaults_modal::ThemeDefaultsModal>,
+
     /// A KB document add found the semantic model absent — the confirmation
     /// dialog is showing.
     semantic_offer_open: bool,
@@ -1495,6 +1499,8 @@ impl CoboltApp {
             theme_packs_loaded: false,
 
             settings_form: None,
+            theme_defaults_modal: None,
+
             show_project_settings: false,
             show_grace_chat: false,
             grace_chat: GraceChatPanel::new(),
@@ -4239,7 +4245,139 @@ impl CoboltApp {
     }
 
     /// The project's root directory (where `cobolt.toml` lives), if a project is open.
+    // ── Default Theme Settings (spec 016 Q2) ────────────────────────────────
+
+    /// The theme id and glass style the modal opens on: the project's own, so
+    /// it starts editing the table the developer is actually looking at.
+    fn theme_defaults_context(&self) -> (String, cobolt_forms::model::GlassStyle) {
+        let theme = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.theme.clone())
+            .unwrap_or_default();
+        // The glass style is a FORM property. With a form open, that form's is
+        // the honest answer; with none, Classic — both selectors are in the
+        // modal, so an opening guess is a convenience and never a commitment.
+        let style = self
+            .designers
+            .first()
+            .map(|d| d.1.form.glass_style)
+            .unwrap_or(cobolt_forms::model::GlassStyle::Classic);
+        (theme, style)
+    }
+
+
+    fn open_theme_defaults_modal(&mut self) {
+        let (theme, style) = self.theme_defaults_context();
+        let draft = self.theme_defaults_for(&theme, style);
+        self.theme_defaults_modal = Some(
+            crate::panels::theme_defaults_modal::ThemeDefaultsModal::new(theme, style, draft),
+        );
+    }
+
+    /// The project's stored table for one theme + glass style, or an empty one.
+    fn theme_defaults_for(
+        &self,
+        theme: &str,
+        style: cobolt_forms::model::GlassStyle,
+    ) -> cobolt_forms::model::ThemeDefaults {
+        let key = crate::project_model::theme_defaults_key(Some(theme), style);
+        self.cobolt_project
+            .as_ref()
+            .and_then(|p| p.ide.theme_defaults.get(&key).cloned())
+            .unwrap_or_default()
+    }
+
+    /// One frame of the modal, and whatever it asks for.
+    fn show_theme_defaults_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut m) = self.theme_defaults_modal.take() else {
+            return;
+        };
+        let themes: Vec<(&'static str, &'static str)> = crate::theme::THEMES
+            .iter()
+            .map(|t| (t.id, t.name))
+            .collect();
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        let forms: Vec<String> = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.files.forms.clone())
+            .unwrap_or_default();
+        let (was_theme, was_style) = (m.theme.clone(), m.style);
+        let act = m.show(ctx, &themes, &forms, &theme, &tr);
+
+
+        // The selectors moved: load the table that pair already has, rather
+        // than carrying the previous pair's values into it — that would copy a
+        // theme onto its neighbour the moment the developer looked at it.
+        if m.theme != was_theme || m.style != was_style {
+            let fresh = self.theme_defaults_for(&m.theme, m.style);
+            m.set_draft(fresh);
+        } else if let Some((theme_id, style, table)) = act.save {
+            let key = crate::project_model::theme_defaults_key(Some(&theme_id), style);
+            if let Some(p) = &mut self.cobolt_project {
+                if table.is_empty() {
+                    // An emptied table is REMOVED rather than stored empty, so
+                    // `cobolt.toml` never accumulates a row per theme the
+                    // developer merely looked at.
+                    p.ide.theme_defaults.remove(&key);
+                } else {
+                    p.ide.theme_defaults.insert(key, table);
+                }
+            }
+            self.do_save_project();
+        }
+
+        if let Some(rel) = act.import_from {
+            self.import_theme_defaults_from_form(&mut m, &tr, &rel);
+        }
+
+        if m.open {
+            self.theme_defaults_modal = Some(m);
+        }
+    }
+
+    /// Read a theme's values off a form the developer has styled by hand.
+    ///
+    /// The operator's way of authoring a theme (2026-09-03): lay the look out
+    /// on a real form, where you can see it, and read the numbers back.
+    ///
+    /// The form is read from DISK rather than from an open designer: a designer
+    /// window may hold unsaved edits, and a theme harvested from something the
+    /// project does not contain yet would not survive the next reload. What is
+    /// on disk is what the form is.
+    fn import_theme_defaults_from_form(
+        &mut self,
+        m: &mut crate::panels::theme_defaults_modal::ThemeDefaultsModal,
+        tr: &crate::i18n::Tr,
+        rel: &str,
+    ) {
+        let Some(root) = self.project_dir() else {
+            return;
+        };
+        let abs = root.join(rel);
+        let form = match load_form(&abs) {
+            Ok(f) => f,
+            Err(e) => {
+                self.output
+                    .push_status(format!("Default Theme Settings: could not read {rel}: {e}"));
+                return;
+            }
+        };
+        let table = cobolt_forms::model::ThemeDefaults::from_form(&form);
+        let count = table.base.len()
+            + table.overrides.values().map(|o| o.len()).sum::<usize>();
+        m.note_import(tr, count);
+        m.set_draft(table);
+        self.output.push_status(format!(
+            "Default Theme Settings: read {count} values from {rel}."
+        ));
+    }
+
+
     fn project_dir(&self) -> Option<PathBuf> {
+
         self.project_path
             .as_ref()
             .and_then(|p| p.parent())
@@ -8525,8 +8663,11 @@ impl CoboltApp {
             }
             self.handle_leaderboard_action(act);
         }
+        // Default Theme Settings (spec 016 Q2).
+        self.show_theme_defaults_modal(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
+
             let act = m.show(ctx, &mut self.llm, &self.lang.tr());
             if m.open {
                 self.models_modal = Some(m);
@@ -8705,6 +8846,10 @@ impl CoboltApp {
         if action.manage_models {
             self.models_modal = Some(crate::panels::models_modal::ModelsModal::new());
         }
+        if action.open_theme_defaults {
+            self.open_theme_defaults_modal();
+        }
+
         if action.fetch_reviewer_models {
             if let Some(form) = &self.settings_form {
                 if let Some(provider) =
@@ -16185,6 +16330,15 @@ impl CoboltApp {
         self.designers[idx].1.active_theme_pack = pack;
         self.designers[idx].1.active_surface_theme =
             self.resolve_surface_theme(form_theme.as_deref());
+        // …and the project's own appearance table, so a theme switch made in
+        // the designer stamps what THIS project has decided its themes mean
+        // (spec 016 Q2).
+        self.designers[idx].1.theme_defaults = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.theme_defaults.clone())
+            .unwrap_or_default();
+
         let llm_cfg = self.llm.clone();
         // Project directory (holds the `agentic_ai/` prompt + skills) for the
         // event-editor assistant. Cloned so the closure doesn't borrow `self`.

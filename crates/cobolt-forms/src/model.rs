@@ -39,12 +39,24 @@ impl Default for Rect {
 // ── PropValue ─────────────────────────────────────────────────────────────────
 
 /// The value of a control property.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `untagged`, so a serialized value is the scalar itself rather than
+/// `{ Int = 10 }`. The one place this is serialized is the project's theme
+/// defaults table in `cobolt.toml` ([`ThemeDefaults`]), which a developer reads
+/// and hand-edits — `CornerRadius = 10` and `ShadowEnabled = true` are what it
+/// should say. The `.cfrm` serializer is hand-written and does not go through
+/// serde, so nothing else changes shape.
+///
+/// Variant order is the deserialization order: an integer will not parse as a
+/// `String`, so `Int` and `Bool` still win their own scalars.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum PropValue {
     String(String),
     Int(i64),
     Bool(bool),
 }
+
 
 impl PropValue {
     pub fn as_str(&self) -> &str {
@@ -3889,7 +3901,138 @@ pub const THEME_OWNED_PROPS: &[&str] = &[
     "BackgroundGradientDirection",
 ];
 
+/// The appearance a theme stamps: one **base** every control takes, plus the
+/// per-control-type **overrides** the theme's design calls for.
+///
+/// Spec 016 Q2. The shape is the operator's (2026-09-03), and it is what the
+/// real themes need: Elegance is uniform across every control type, while
+/// Neumorphic Light is not — a Button is raised with a gradient, a Label has no
+/// shadow and a transparent ground, a TextBox is *sunken* (a negative
+/// `ShadowBlurStrength`). A flat table cannot say "Labels have no shadow"; a
+/// full per-type table is forty-three copies of one answer. Base plus
+/// exceptions says both.
+///
+/// Only [`THEME_OWNED_PROPS`] belong here. Everything else is the developer's:
+/// captions and `Text`, `Items` and `Value`, geometry, events, data bindings.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ThemeDefaults {
+
+    /// Applied to every control that paints a face.
+    #[serde(default)]
+    pub base: std::collections::BTreeMap<String, PropValue>,
+    /// Keyed by [`ControlType::as_str`]; each entry wins over `base` for that
+    /// type, property by property.
+    #[serde(default)]
+    pub overrides: std::collections::BTreeMap<String, std::collections::BTreeMap<String, PropValue>>,
+}
+
+impl ThemeDefaults {
+    /// What this table says a control of type `ct` should carry for `key`.
+    ///
+    /// An override wins **per property**, not wholesale: a theme that says
+    /// "Labels have no shadow" is not also saying they have no corner radius.
+    pub fn value_for(&self, ct: &ControlType, key: &str) -> Option<&PropValue> {
+        self.overrides
+            .get(ct.as_str())
+            .and_then(|o| o.get(key))
+            .or_else(|| self.base.get(key))
+    }
+
+    /// Whether the table says anything at all.
+    pub fn is_empty(&self) -> bool {
+        self.base.is_empty() && self.overrides.is_empty()
+    }
+
+    /// Stamp the table onto one control.
+    ///
+    /// Only onto a control that paints a face, and only [`THEME_OWNED_PROPS`]:
+    /// a table is a theme, and a theme owns appearance and nothing else.
+    pub fn apply_to(&self, ctrl: &mut Control) {
+        if ctrl.control_type.is_non_visual() || matches!(ctrl.control_type, ControlType::Line) {
+            return;
+        }
+        for key in THEME_OWNED_PROPS {
+            if let Some(v) = self.value_for(&ctrl.control_type, key) {
+                let v = v.clone();
+                ctrl.set_prop(*key, v);
+            }
+        }
+    }
+
+    /// Harvest a table from a form the developer has styled by hand.
+    ///
+    /// The operator's way of authoring one (2026-09-03): *"create/adjust themes
+    /// visually in a form and then apply to the theme"* — lay the look out on a
+    /// real form, where you can see it, and read the numbers back off it.
+    ///
+    /// For each theme-owned property the value the **most** controls agree on
+    /// becomes the base, and every type that disagrees becomes an override. A
+    /// tie is broken by the [`THEME_OWNED_PROPS`] order of the control types as
+    /// they appear in the form, so the same form always harvests the same
+    /// table — a table that changed between two reads of one file would be
+    /// impossible to review.
+    ///
+    /// Controls that paint no face are skipped: they carry appearance
+    /// properties that nothing ever draws, and letting them vote would put a
+    /// Timer's untouched seed into the theme.
+    pub fn from_form(form: &Form) -> Self {
+        let mut flat: Vec<(&ControlType, &Control)> = Vec::new();
+        fn walk<'a>(cs: &'a [Control], out: &mut Vec<(&'a ControlType, &'a Control)>) {
+            for c in cs {
+                if !c.control_type.is_non_visual() && !matches!(c.control_type, ControlType::Line) {
+                    out.push((&c.control_type, c));
+                }
+                walk(&c.children, out);
+            }
+        }
+        walk(&form.controls, &mut flat);
+
+        let mut base = std::collections::BTreeMap::new();
+        let mut overrides: std::collections::BTreeMap<
+            String,
+            std::collections::BTreeMap<String, PropValue>,
+        > = std::collections::BTreeMap::new();
+
+        for key in THEME_OWNED_PROPS {
+            // What each control type says, in the order the types first appear.
+            let mut per_type: Vec<(String, PropValue)> = Vec::new();
+            for (ct, c) in &flat {
+                let Some(v) = c.get_prop(key) else { continue };
+                let name = ct.as_str().to_owned();
+                if !per_type.iter().any(|(n, _)| *n == name) {
+                    per_type.push((name, v.clone()));
+                }
+            }
+            if per_type.is_empty() {
+                continue;
+            }
+            // The value the most TYPES agree on — types, not controls, so a
+            // form holding eleven Labels and one Button is not a theme made of
+            // Labels.
+            let mut winner: Option<(PropValue, usize)> = None;
+            for (_, v) in &per_type {
+                let n = per_type.iter().filter(|(_, o)| prop_values_match(o, v)).count();
+                if winner.as_ref().map_or(true, |(_, best)| n > *best) {
+                    winner = Some((v.clone(), n));
+                }
+            }
+            let Some((agreed, _)) = winner else { continue };
+            base.insert((*key).to_owned(), agreed.clone());
+            for (name, v) in &per_type {
+                if !prop_values_match(v, &agreed) {
+                    overrides
+                        .entry(name.clone())
+                        .or_default()
+                        .insert((*key).to_owned(), v.clone());
+                }
+            }
+        }
+        Self { base, overrides }
+    }
+}
+
 pub const NEUMORPHIC_SURFACE_COLOR: &str = "#E1E6F8FF";
+
 /// Form-level colours are stored **without** the leading `#`; control-level
 /// ones keep it. Both spellings below are deliberate.
 pub const NEUMORPHIC_FORM_BACKGROUND: &str = "EAEBEFFF";
@@ -5925,6 +6068,27 @@ impl Control {
     }
 
     pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        self.apply_glass_style_defaults_with(style, None);
+    }
+
+    /// [`Self::apply_glass_style_defaults`], with the project's own table for
+    /// this theme laid over the shipped one (spec 016 Q2).
+    ///
+    /// The table is the source of truth (operator, 2026-09-03): the built-in
+    /// appliers are the values PowerRustCOBOL *ships*, and the project's table
+    /// is what this project has decided they are. So the shipped stamp goes on
+    /// first and the table over it, property by property — a table that names
+    /// three properties adjusts three and leaves the rest as they came.
+    ///
+    /// A value the DEVELOPER chose on a particular control is still untouched:
+    /// `reset_theme_owned_props` only clears marks a theme could have written,
+    /// which is what lets a form using a theme override it (operator, same
+    /// ruling).
+    pub fn apply_glass_style_defaults_with(
+        &mut self,
+        style: GlassStyle,
+        defaults: Option<&ThemeDefaults>,
+    ) {
         // Reset first, then stamp: the target's defaults are what a NEW control
         // would carry, which is not the same as "the old values plus whatever
         // the new style happens to write".
@@ -5934,7 +6098,11 @@ impl Control {
             GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
             GlassStyle::Classic | GlassStyle::Enhanced => {}
         }
+        if let Some(d) = defaults {
+            d.apply_to(self);
+        }
     }
+
 
     /// Remove an animation by name.
     pub fn remove_animation(&mut self, name: &str) {
@@ -6735,6 +6903,17 @@ impl Form {
     /// and to every control — clearing whatever the previous style stamped
     /// (operator rule, 2026-08-21).
     pub fn apply_glass_style_defaults(&mut self, style: GlassStyle) {
+        self.apply_glass_style_defaults_with(style, None);
+    }
+
+    /// [`Self::apply_glass_style_defaults`], with the project's own table for
+    /// this theme laid over the shipped one (spec 016 Q2) — every control on
+    /// the form, and the children inside its containers.
+    pub fn apply_glass_style_defaults_with(
+        &mut self,
+        style: GlassStyle,
+        defaults: Option<&ThemeDefaults>,
+    ) {
         self.reset_theme_owned_appearance();
         for ctrl in &mut self.controls {
             ctrl.reset_theme_owned_props();
@@ -6744,7 +6923,17 @@ impl Form {
             GlassStyle::NeumorphicDark => self.apply_neumorphic_dark_defaults(),
             GlassStyle::Classic | GlassStyle::Enhanced => self.glass_style = style,
         }
+        if let Some(d) = defaults {
+            fn stamp(cs: &mut [Control], d: &ThemeDefaults) {
+                for c in cs {
+                    d.apply_to(c);
+                    stamp(&mut c.children, d);
+                }
+            }
+            stamp(&mut self.controls, d);
+        }
     }
+
 
     /// Re-apply the defaults a new form would carry, after the **Theme** was
     /// changed (spec 007 / 050) — the theme's own half of the same rule.
@@ -6756,10 +6945,21 @@ impl Form {
     /// Switching theme therefore *clears* the outgoing theme's residue instead
     /// of leaving a form half dressed in each.
     pub fn apply_theme_defaults(&mut self, theme: Option<String>) {
+        self.apply_theme_defaults_with(theme, None);
+    }
+
+    /// [`Self::apply_theme_defaults`], with the project's table for the theme
+    /// being switched TO.
+    pub fn apply_theme_defaults_with(
+        &mut self,
+        theme: Option<String>,
+        defaults: Option<&ThemeDefaults>,
+    ) {
         self.theme = theme.filter(|t| !t.trim().is_empty());
         let style = self.glass_style;
-        self.apply_glass_style_defaults(style);
+        self.apply_glass_style_defaults_with(style, defaults);
     }
+
 
     /// Fill the `REPOSITORY` block with the curated Rust-FFI type bridge
     /// ([`default_repository`]) **only when it is empty**. A developer who has

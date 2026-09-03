@@ -2897,7 +2897,70 @@ The service controls (`agent-object`, `rest-client`, `sql-database`) build
 offline but need their local service to run; each project's `README.md` says
 which. See `examples/README.md` for the full index.
 
+### Default Theme Settings (what a theme means in *your* project)
+
+A theme decides how every control on a form looks. **Project settings → Default
+Theme Settings** is where you say what that look is.
+
+PowerCOBOL has nothing quite like this: there, a control's appearance is a
+property you set on each control, one at a time, and a "theme" is a convention
+you keep by hand. Here a theme is a *table*, the table belongs to the project,
+and switching a form to a theme stamps it.
+
+```
+[Theme]  [Glass style]        [form ▼] [📥 Import from a form…]
+Every control          <property, value>
+Exceptions by type     [control type ▼]  <property, value>
+```
+
+**Base plus exceptions.** Most themes are uniform: one corner radius, one border
+style, one shadow, everywhere. Some are not — a raised Button, a flat Label and
+a *sunken* TextBox are three different answers within one look. So the table has
+a base every control takes, and per-control-type exceptions over it. An
+exception wins **property by property**: saying "Labels have no shadow" does not
+also say they have no corner radius.
+
+**Authoring by importing.** You do not have to type a theme in. Style a form
+until it looks the way you want the theme to look — that is what the designer is
+for — then pick it in the form list and press **Import from a form**. The value
+the most control *types* agree on becomes the base, and every type that
+disagrees becomes an exception. Types vote, not controls: a form holding eleven
+Labels and one Button is not a theme made of Labels.
+
+**What it governs, and what it never touches.** Only appearance:
+`BackgroundColor`, `ForegroundColor`, `CornerRadius`, `BorderStyle`, the whole
+`Shadow*` family and the background gradient. Captions and `Text`, `Items` and
+`Value`, geometry, tab order, `Enabled`/`Visible`, event bindings and data
+bindings are **yours**, and a theme switch never rewrites them.
+
+> **Note.** A value *you* set on a particular control survives a theme switch. A
+> switch only clears the marks a theme could have written, so a form that needs
+> one control to be different from its theme just sets it and keeps it.
+>
+> **Note.** The table lives in `cobolt.toml` under `theme_defaults`, keyed by
+> theme and glass style, as plain values you can read and edit by hand:
+>
+> ```toml
+> [ide.theme_defaults."elegance/Classic".base]
+> CornerRadius = 10
+> BorderStyle = "None"
+> ShadowEnabled = false
+>
+> [ide.theme_defaults."elegance/Classic".overrides.Label]
+> BackgroundColor = "#00000000"
+> ```
+>
+> ⚠️ **Caveat.** The table is the project's, not the form's. Two projects that
+> share a `.cfrm` do not share what its theme means — copy the `theme_defaults`
+> block across if you want the same look.
+
+📷 Screenshot needed — `default-theme-settings.png`
+*Open project settings, press the Default Theme Settings button under the theme
+row, and capture the whole modal with a few base properties ticked and one
+control type selected under Exceptions.*
+
 ### DateTimePicker (dates *and* times)
+
 
 The **DateTimePicker** is a field that drops open a picker. What it drops open —
 a calendar, a clock, or both — is decided by its **`Format`** property, and the

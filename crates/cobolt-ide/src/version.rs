@@ -19,7 +19,8 @@
 ///
 /// **z** — Increment for bug fixes, visual polish, performance improvements,
 ///   and any change that does not add new user-visible functionality.
-pub const VERSION: &str = "1.63.19";
+pub const VERSION: &str = "1.63.20";
+
 
 
 

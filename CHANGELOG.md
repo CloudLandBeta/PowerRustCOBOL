@@ -1,6 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.20] — 2026-09-03
+
+### Default Theme Settings — a project decides what its themes mean
+
+Spec 016 Q2. In **project settings**, under the theme it belongs to: two
+selectors and a property table.
+
+```
+[Theme]  [Glass style]        [form ▼] [📥 Import from a form…]
+Every control          <the theme-owned properties, key/value>
+Exceptions by type     [control type ▼]  <the same table, for that type>
+```
+
+**Base plus exceptions**, because that is what the real themes need. Elegance is
+uniform across every control type; Neumorphic Light is not — a Button is raised
+with a gradient, a Label has no shadow and a transparent ground, a TextBox is
+*sunken*. A flat table cannot say "Labels have no shadow"; a full per-type table
+is forty-three copies of one answer. An override wins **per property**: a theme
+that says Labels have no shadow is not also saying they have no corner radius.
+
+**Import reads a theme off a form you have already styled.** Lay the look out on
+a real form, where you can see it, then read the numbers back — the value the
+most control *types* agree on becomes the base, and every type that disagrees
+becomes an exception. Types vote, not controls, so a form holding eleven Labels
+and one Button is not a theme made of Labels. The form is read from disk, so
+what is harvested is what the project actually contains.
+
+**The table is the source of truth.** The built-in style appliers are what
+PowerRustCOBOL ships; an entry here is what this project has decided they are,
+and it wins. A theme switch made in the designer stamps it. A value the
+developer set on a particular control still survives — a reset only clears marks
+a theme could have written, so a form using a theme can always override it.
+
+Stored per project in `cobolt.toml` under `theme_defaults`, keyed
+`"<theme>/<glass style>"`, as plain scalars a developer can read and hand-edit
+(`CornerRadius = 10`, `ShadowEnabled = true`). Empty for a project that has
+never opened the modal, so nothing needs upgrading and the shipped look is
+unchanged.
+
 ## [PowerRustCOBOL 1.63.19] — 2026-09-03
+
 
 ### Every control seeds every theme-owned property
 

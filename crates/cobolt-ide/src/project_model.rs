@@ -443,7 +443,30 @@ pub struct IdeSettings {
     /// nothing needs upgrading.
     #[serde(default)]
     pub debug_watches: Vec<String>,
+    /// The project's own appearance defaults per theme (spec 016 Q2).
+    ///
+    /// Keyed `"<theme id>/<glass style>"` — the two selectors in the Default
+    /// Theme Settings modal — because a theme looks different under Neumorphic
+    /// than under Liquid Glass and both are choices the project makes.
+    ///
+    /// The built-in style appliers are what PowerRustCOBOL *ships*; an entry
+    /// here is what THIS project has decided they are, and it wins (operator,
+    /// 2026-09-03). Empty for a project that has never opened the modal, so
+    /// nothing needs upgrading and the shipped look is unchanged.
+    #[serde(default)]
+    pub theme_defaults: std::collections::BTreeMap<String, cobolt_forms::model::ThemeDefaults>,
 }
+
+/// The `theme_defaults` key for a theme id and glass style.
+///
+/// One spelling, used by the writer and every reader — two hand-built keys that
+/// differed by a space would silently give the modal and the theme switch
+/// different tables.
+pub fn theme_defaults_key(theme: Option<&str>, style: cobolt_forms::model::GlassStyle) -> String {
+    let theme = theme.map(str::trim).filter(|t| !t.is_empty()).unwrap_or("default");
+    format!("{theme}/{}", style.as_str())
+}
+
 
 fn default_bg_opacity() -> u8 {
     70
@@ -478,9 +501,11 @@ impl Default for IdeSettings {
             inspector_dump_path: default_inspector_dump_path(),
             hide_ai_setup_prompt: false,
             debug_watches: Vec::new(),
+            theme_defaults: std::collections::BTreeMap::new(),
         }
     }
 }
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectMeta {
