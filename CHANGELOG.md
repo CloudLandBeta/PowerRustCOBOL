@@ -1,6 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.17] — 2026-09-03
+
+### The needle has one owner, the bars have corners, and a frame is never dropped
+
+**A Gauge's needle answers to `NeedleColor` and nothing else** (operator ruling:
+"Hide Color, always use NeedleColor for the needle"). A blank `NeedleColor` used
+to fall back to the meter's `Color`, so two properties owned one needle: setting
+`Color` moved the needle with it, and on a zoned gauge the needle changed colour
+as the reading crossed a threshold. Blank is the control's own ink now — its
+`ForegroundColor`, else the theme accent.
+
+`Color` also leaves the designer's property pane. It duplicated
+`ForegroundColor` for the meter and competed with `NeedleColor` for the needle:
+one control, three colour properties, two of them arguing. The meter is
+`ForegroundColor`, the track is `BackgroundColor` and the needle is
+`NeedleColor` — the same three every other control uses. A `Color` already
+stored in a form is left alone and still paints that gauge's meter; the value is
+the developer's and is never deleted.
+
+**Spec 016 Q4 is settled: every control carries a corner radius**, `Label` and
+the `MenuBar`/`ToolBar`/`StatusBar` bars included. Q4's draft recommendation
+excluded them for having "no real frame". That reasoning had already failed once
+— a Label kept losing its corner radius — and the premise is wrong: a frame at
+`Transparency = 100` is invisible, not absent, so it still has corners. The
+painter always honoured the property on a bar; only the seed was missing, so the
+developer could not set what the renderer was already willing to draw. Each bar
+seeds its own default, so nothing changes shape.
+
+**A partly transparent frame is faded, never dropped.** A CheckBox lost its
+whole frame at 30 % transparency or more, so asking for a half-visible card got
+you none. That threshold existed to stop a frame shadow hanging in mid-air
+around a face that had gone — the shadow defect fixed in 1.63.16 — so it is
+gone, and a CheckBox obeys the same rule as everything else.
+
+**A container's `BackgroundColor` reaches its face with the glass toggle off.**
+A container's fill is the theme's card rather than its own colour, and the glass
+path passes the chosen colour separately as an underlay — so a Panel showed it
+under Liquid Glass and ignored it without. One property, two answers.
+
 ## [PowerRustCOBOL 1.63.16] — 2026-09-03
+
 
 ### Four fixes: widget-id collision, transparency, background colour, animation names
 

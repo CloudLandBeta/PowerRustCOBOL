@@ -3700,7 +3700,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "ZOrder" => ("any integer; higher paints in front", "Stacking order among siblings."),
         "DataItem" => ("COBOL WORKING-STORAGE data-item name", "Data-binding source item for this control (empty = unbound)."),
         "DataFormat" => ("format string (empty = raw)", "Display format applied to the bound value."),
-        "CornerRadius" => ("pixels ≥ 0", "Rounded-corner radius (default 3 on Button, 8 on charts, 0 elsewhere)."),
+        "CornerRadius" => ("pixels ≥ 0", "Rounded-corner radius. Carried by EVERY visual control including Label and the MenuBar/ToolBar/StatusBar bars (spec 016 Q4, settled 2026-09-03): a frame at Transparency = 100 is invisible, not absent, so it still has corners. Defaults: 3 on Button, 8 on charts, 10 on ProgressBar and ToolBar, 0 elsewhere."),
+
 
         // ── Text input / captions ──
         "Caption" => ("free text", "Visible label text (Button/Label/CheckBox/RadioButton/GroupBox)."),
@@ -4102,7 +4103,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "DefaultValue" => ("integer within Minimum..Maximum", "Value a double-click/reset returns the Knob to."),
         "Label" => ("free text or empty", "Caption drawn under the Knob."),
         "GaugeStyle" => ("one of: `Radial` | `Linear` | `Donut`", "Which meter the Gauge draws: a half-circle speedometer, a horizontal bar, or a full ring."),
-        "Color" => ("hex color string or empty", "Gauge fill color; empty uses the active theme's accent. Ignored while zone coloring is on (see WarningThreshold)."),
+        "Color" => ("hex color string or empty", "Gauge fill color; empty uses the control's ForegroundColor, else the active theme's accent. Ignored while zone coloring is on (see WarningThreshold), and it never paints the needle — that is NeedleColor's alone. No longer offered in the designer's property pane: colour the meter with ForegroundColor and the track with BackgroundColor, like every other control. A value already stored in a form still paints that gauge's meter."),
+
         "WarningThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns amber. Empty = zone coloring off; both this and CriticalThreshold must be set together, and while they are the zone owns the fill color: green below WarningThreshold, amber from it, red from CriticalThreshold."),
         "CriticalThreshold" => ("fraction of Minimum..Maximum, `0.0`-`1.0`, or empty", "Where the Gauge's fill turns red (see WarningThreshold)."),
         "NormalColor" => (COLOR_DOMAIN, "The Gauge zone BELOW the warning mark. Empty = the built-in `#2E7D32` green. Only used while BOTH thresholds are set — that is what turns zones on."),
@@ -4110,7 +4112,8 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "CriticalColor" => (COLOR_DOMAIN, "The Gauge zone from the critical mark up. Empty = the built-in `#C62828` red."),
         "Unit" => ("free text or empty, e.g. `\"%\"`, `\"rpm\"`", "Suffix after the Gauge's numeric readout, in every style. A unit that starts with a letter or digit is spaced off the number (`\"Parts\"` reads `23 Parts`); a symbol is not (`\"%\"` reads `23%`, `\"°C\"` reads `19°C`). Leading spaces you type are kept as typed."),
         "ShowNeedle" => (BOOL_DOMAIN, "Draws the Gauge's needle (Radial and Donut styles)."),
-        "NeedleColor" => ("hex color string or empty", "Colour of the Gauge's needle and its hub (Radial and Donut). Empty = the colour the meter itself is drawn in, which is how the needle has always been painted. The meter's band is unaffected — this is the needle's colour alone."),
+        "NeedleColor" => ("hex color string or empty", "Colour of the Gauge's needle and its hub (Radial and Donut), and the ONLY property that paints them. Empty = the control's own ForegroundColor, else the theme accent — never the meter's Color, which used to reach the needle as well and gave one needle two owners. The meter's band is unaffected: this is the needle's colour alone."),
+
         "ShowScale" => (BOOL_DOMAIN, "Draws the Radial Gauge's tick scale."),
         "ReadoutPosition" => ("one of: `Up` | `Down`", "Where a Radial Gauge prints its value + Unit: `Up` inside the dial, above the needle's pivot (the default), or `Down` 5 px below the pivot, where a speedometer prints its number. On `Down` the dial gives up that much height so the reading stays inside the control. Radial only — a Donut reads out in its hole and a Linear under its bar."),
         "BarHeight" => ("pixels > 0", "Linear Gauge bar thickness."),

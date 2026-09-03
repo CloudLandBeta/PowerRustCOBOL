@@ -171,3 +171,83 @@ fn an_invisible_frame_keeps_its_corner_radius() {
         );
     }
 }
+
+/// A partly transparent frame is FADED, never dropped.
+///
+/// A CheckBox used to lose its whole frame once it reached 30 % transparency,
+/// so a developer who asked for a half-visible card got none — the threshold
+/// was there to stop a frame shadow hanging in mid-air around a face that had
+/// gone, which is the shadow defect above and is fixed at its source now.
+#[test]
+fn a_half_transparent_frame_is_faded_not_dropped() {
+    for (name, kind) in [
+        ("CheckBox", ControlType::CheckBox),
+        ("TextBox", ControlType::TextBox),
+        ("Panel", ControlType::Panel),
+    ] {
+        let mut c = shadowed(kind.clone(), 50);
+        c.set_prop("BackgroundColor", PropValue::String("#2255CCFF".to_owned()));
+        let half = paint(&c);
+        let mut c = shadowed(kind.clone(), 100);
+        c.set_prop("BackgroundColor", PropValue::String("#2255CCFF".to_owned()));
+        let gone = paint(&c);
+
+        let face = |p: &Painted| p.fills.iter().filter(|c| c.a() > 0).count();
+        assert!(
+            face(&half) > face(&gone),
+            "{name} at 50 % must paint more of its face than at 100 % — a \
+             transparency in between fades the frame, it does not remove it \
+             ({} fills vs {})",
+            face(&half),
+            face(&gone)
+        );
+    }
+}
+
+/// A container's own `BackgroundColor` reaches its face whether or not the
+/// Liquid Glass toggle is on.
+///
+/// A container's `fill` is the theme's card rather than its own colour ("their
+/// content comes from children"), and the glass path passes the chosen colour
+/// separately as an underlay — so a Panel showed it under glass and ignored it
+/// with glass off. One property, two answers.
+#[test]
+fn a_container_shows_its_own_background_colour_with_or_without_glass() {
+    for glass in [false, true] {
+        let mut c = Control::new("P-1", ControlType::Panel, 20, 20);
+        c.rect = MRect::new(20, 20, 200, 80);
+        c.set_prop("BackgroundColor", PropValue::String("#FF0000FF".to_owned()));
+
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let mut p = Painted::default();
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root, |ui| {
+                    cobolt_forms::paint::draw_control(
+                        &ui.painter().clone(),
+                        Pos2::ZERO,
+                        &c,
+                        false,
+                        glass,
+                        1.0,
+                        1.0,
+                        None,
+                    );
+                });
+        });
+        full.textures_delta.clear();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut p);
+        }
+        assert!(
+            p.fills
+                .iter()
+                .any(|c| c.a() > 200 && c.r() > 200 && c.g() < 40 && c.b() < 40),
+            "a Panel set to #FF0000 must paint red with glass = {glass}, got {:?}",
+            p.fills
+        );
+    }
+}

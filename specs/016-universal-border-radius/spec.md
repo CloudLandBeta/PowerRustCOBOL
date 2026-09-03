@@ -71,8 +71,11 @@ and arbitrary child widgets — cannot be shape-masked; see §7 Q3.
   `PictureBox`, `DataGrid`, `NumericUpDown`, `DateTimePicker`, `ProgressBar`,
   `GroupBox`, `Panel`, `TabControl`, `Slider` (track), `Shape` (rectangle), and
   the chart controls (`BarChart`, `LineChart`, `PieChart`, `AreaChart`,
-  `ScatterChart`, `DonutChart`). *(Label, Line, MenuBar/ToolBar/StatusBar, and
-  non-visual controls are excluded — see Q4.)*
+  `ScatterChart`, `DonutChart`), plus **`Label`, `MenuBar`, `ToolBar` and
+  `StatusBar`** — Q4 settled on including them (operator, 2026-09-03). *(Line and
+  the non-visual controls stay out: a Line has no face to round, and a non-visual
+  control is not painted on the running form at all.)*
+
 - **R2 (ubiquitous):** the control's **background fill and border** shall be drawn
   rounded to the border-radius.
 - **R3 (state):** while border-radius **> 0**, the control's **content** (text,
@@ -149,10 +152,26 @@ and arbitrary child widgets — cannot be shape-masked; see §7 Q3.
   fall back to corner-masking against that fill; accept that the editable
   text/scroll layer stays square inside a rounded face (note it). The
   background-image limitation from the earlier draft is **gone** for images.*
-- **Q4 — control set:** confirm the R1 list. Should `Label` (transparent, no
-  frame) and the bars (`MenuBar`/`ToolBar`/`StatusBar`) be included? *Recommendation:
-  exclude Label and the bars from clipping (no real frame), include everything
-  else in R1.*
+- **Q4 — control set (RESOLVED, operator 2026-09-03): every control is
+  included — `Label` and the bars too.** The draft recommendation was to exclude
+  `Label` and `MenuBar`/`ToolBar`/`StatusBar` for having "no real frame". That
+  reasoning failed in practice, twice:
+  - A `Label` kept losing its corner radius. The property was never seeded, the
+    inspector shows a row only for a property that is present, and `CornerRadius`
+    is theme-owned — so a theme switch reset it to a seed that did not exist and
+    removed the row (operator, 2026-09-02). Fixed by seeding it (1.63.14/15).
+  - The premise itself is wrong. **A frame is invisible, not absent.** At
+    `Transparency = 100` a control's frame still occupies its rect and still has
+    corners; that is the same rule that governs the drop shadow (1.63.16).
+    "No real frame" describes how a control looks by default, not what it has.
+
+  So the three bars seed `CornerRadius` like everything else — each at its own
+  default, so nothing changes shape: `ToolBar` already seeded 10 and keeps it,
+  `MenuBar` and `StatusBar` seed 0. The painter always honoured the property on
+  a bar; only the seed was missing, so the developer could not set what the
+  renderer was already willing to draw.
+  Test: `crates/cobolt-forms/tests/the_bars_carry_a_corner_radius.rs`.
+
 - **Q5 — interactive run widgets:** TextBox/ComboBox/ListBox/etc. in the running
   form overlay native egui widgets (TextEdit, ScrollArea) that **cannot be
   rounded-clipped**; only their `draw_control` face can. Accept that the editable

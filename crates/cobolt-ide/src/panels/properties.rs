@@ -6381,9 +6381,10 @@ impl PropertiesPanel {
                 // its full-circle sweep — so the row sits above the per-style
                 // groups.
                 bool_row_inline(ui, id, "ShowNeedle", "Show needle", ctrl, action);
-                // Blank = the meter's own colour, which is what the needle has
-                // always taken.
+                // The needle's only owner. Blank = the control's own
+                // `ForegroundColor`, else the theme accent.
                 color_row(ui, id, "NeedleColor", ctrl, action);
+
                 ui.add_space(4.0);
                 ui.label(egui::RichText::new("Radial style").small().weak());
                 bool_row_inline(ui, id, "ShowScale", "Show scale", ctrl, action);
@@ -6409,10 +6410,23 @@ impl PropertiesPanel {
                     8,
                 );
                 ui.add_space(4.0);
-                color_row(ui, id, "Color", ctrl, action);
+                // `Color` is deliberately NOT offered here (operator ruling,
+                // 2026-09-03: "Hide Color, always use NeedleColor for the
+                // needle"). It duplicated `ForegroundColor` for the meter and
+                // competed with `NeedleColor` for the needle — one control,
+                // three properties, two of them arguing.
+                //
+                // The meter is `ForegroundColor`, the track is
+                // `BackgroundColor` and the needle is `NeedleColor`: the same
+                // three properties every other control uses. A `Color` already
+                // stored in a form is left alone and still paints that gauge's
+                // meter — the value is the developer's and is never deleted —
+                // it is simply no longer offered, and no longer reaches the
+                // needle.
             }
 
             // ── Switch (spec 039) ───────────────────────────────────────────
+
             ControlType::Switch if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
                 bool_row_inline(ui, id, "Checked", "Checked", ctrl, action);

@@ -4834,10 +4834,13 @@ impl Control {
                 // Radial + Donut (the needle); the scale is Radial-only
                 props.insert("ShowNeedle".into(), PropValue::Bool(true));
                 props.insert("ShowScale".into(), PropValue::Bool(true));
-                // The needle's own ink. Empty = whatever colour the meter is
-                // drawn in (its `Color`, a zone, or the theme accent), which is
-                // how the needle has always been painted.
+                // The needle's own ink, and the only property that paints it
+                // (operator ruling, 2026-09-03). Empty = the control's own
+                // `ForegroundColor`, else the theme accent — never the meter's
+                // `Color`, which used to reach the needle as well and gave one
+                // needle two owners.
                 props.insert("NeedleColor".into(), PropValue::String("".into()));
+
                 // Where the readout sits, Radial only: `Up` inside the dial as
                 // it always has, `Down` under the needle's pivot. A Donut reads
                 // out in the hole and a Linear under its bar — neither has two
@@ -5198,9 +5201,22 @@ impl Control {
             | ControlType::Panel
             | ControlType::TabControl
             | ControlType::Switch
-            | ControlType::FileDropZone => Some(0),
+            | ControlType::FileDropZone
+            // Spec 016 Q4, settled by the operator 2026-09-03: the bars are IN.
+            //
+            // Q4's recommendation excluded them, and Label, for having "no real
+            // frame". That reasoning had already failed once — a Label kept
+            // losing its corner radius because the property was never seeded,
+            // and the fix was to seed it. A bar has a frame like anything else;
+            // at `Transparency = 100` that frame is invisible, not absent, and
+            // its corners stay meaningful. Seeded 0, so no existing bar changes
+            // shape — the row simply exists, and can be set.
+            | ControlType::MenuBar
+            | ControlType::ToolBar
+            | ControlType::StatusBar => Some(0),
             _ => None,
         };
+
         if let Some(d) = corner_default {
             props
                 .entry("CornerRadius".to_owned())

@@ -3340,20 +3340,31 @@ fn draw_control_body(
                         theme_token(painter.ctx(), Tok::Border).unwrap_or(Color32::from_gray(140))
                     }),
                 );
-                // The needle's own colour, once the developer asks for one. Left
-                // blank it is the meter's colour, which is the only ink the
-                // needle has ever had — so an untouched gauge draws as before.
+                // The needle's ink is `NeedleColor`'s alone (operator ruling,
+                // 2026-09-03: "Hide Color, always use NeedleColor for the
+                // needle").
+                //
+                // It used to fall back to the meter's colour when left blank,
+                // so `Color` and `NeedleColor` were two properties competing
+                // over one thing: setting `Color` moved the needle too, and a
+                // gauge with zones had its needle change colour as the reading
+                // crossed a threshold. Blank now means the control's own ink —
+                // its `ForegroundColor`, else the theme accent — which is the
+                // meter's OWN fallback, so a gauge that set neither property is
+                // unchanged and one that set `Color` keeps its bar while the
+                // needle stops following it.
                 let needle_ink = {
                     let named = ctrl
                         .get_prop("NeedleColor")
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
                     if named.trim().is_empty() {
-                        fill
+                        alpha_color(user_fg.unwrap_or_else(|| accent_color("Blue")))
                     } else {
                         alpha_color(parse_color(&named))
                     }
                 };
+
                 // What it reads out: the developer's own `Text` when they set
                 // one, otherwise the value with `Unit` after it.
                 let reading = {
@@ -4107,15 +4118,18 @@ fn draw_control_body(
         pack.control(key).map(|skin| (pack.clone(), skin.clone()))
     });
 
-    // Where a CheckBox's drop shadow belongs follows its transparency. With a
-    // face solid enough to lift off the form (under 30 % transparent) the
-    // shadow is the whole frame's, as for any other control. Once the
-    // background is mostly or entirely see-through there is no card to raise,
-    // and a frame shadow would hang in mid-air around nothing — so the control
-    // draws no frame at all and the only thing casting is the tick box itself,
-    // which takes its own relief from `draw_glass_auto` on `box_rect` below.
-    let checkbox_frameless =
-        matches!(ctrl.control_type, CT::CheckBox) && crate::model::transparency_of(ctrl) >= 30;
+    // A CheckBox used to drop its whole frame once it was 30 % transparent or
+    // more, because a frame shadow would otherwise "hang in mid-air around
+    // nothing" — the face was gone and the shadow stayed. That was the shadow
+    // bug, not a CheckBox rule, and it is fixed at the source now: the frame's
+    // shadow is painted at `face_alpha` and fades with the face.
+    //
+    // So the threshold is gone, and a CheckBox obeys the one rule every other
+    // control obeys — the frame is FADED by `Transparency`, not removed. At the
+    // seeded 100 the face and its shadow are invisible and `draw_glass` returns
+    // before drawing anything, so a default CheckBox is unchanged; at 50 the
+    // developer now gets the half-visible card they asked for instead of none.
+
 
     // 049 — a SideMenu owns its whole face: `sidebar::paint` fills the rail
     // with the designed BackgroundColor over the form's backdrop. The generic
@@ -4157,11 +4171,11 @@ fn draw_control_body(
         || pic_frameless
         || chart_frameless
         || container_frameless
-        || checkbox_frameless
         || radio_frameless
         || switch_frameless
         || sidemenu_frameless
     {
+
         // No visible frame. When selected, show a lightweight selection outline.
         if is_container {
             debug_frame(
@@ -4188,9 +4202,8 @@ fn draw_control_body(
         // drawing a second rim there would overrule the property that asked for
         // none. A RadioButton needs no entry: its framelessness IS
         // `BorderStyle == "None"`, so it never reaches here with a border to draw.
-        if (label_frameless || checkbox_frameless)
-            && border_style != "None"
-            && user_border_width > 0.5
+        if label_frameless && border_style != "None" && user_border_width > 0.5
+
         {
             draw_control_border(
                 painter,
@@ -4546,7 +4559,16 @@ fn draw_control_body(
         // painted at the ancestor alpha alone, so with the glass toggle off a
         // control set to 100 % transparent still painted a fully opaque slab —
         // the one branch where `Transparency` did nothing at all.
-        painter.rect_filled(face_rect, frame_round, face_color(fill));
+        //
+        // …and `user_bg` ahead of `fill`, because a CONTAINER's `fill` is the
+        // theme's card rather than its `BackgroundColor` ("their content comes
+        // from children"). The glass branch above passes the chosen colour
+        // separately as an underlay, so a Panel showed it under Liquid Glass and
+        // ignored it with the glass toggle off — the same property answering
+        // twice. `user_background_color` filters the seeded default, so a
+        // container nobody coloured still takes the theme's card.
+        painter.rect_filled(face_rect, frame_round, face_color(user_bg.unwrap_or(fill)));
+
 
         if border_style != "None" {
             let bw = if selected {
@@ -15669,12 +15691,17 @@ slice = [4, 4, 4, 4]
         );
     }
 
-    /// A Donut honours `ShowNeedle` exactly like the Radial — and the needle
-    /// takes the developer's own `Color`, not a theme's. Mirrors the operator's
-    /// report (2026-08-15): a Donut gauge saved with `ShowNeedle=true` and
-    /// `Color=#16A34AFF` painted no needle at all.
+    /// A Donut honours `ShowNeedle` exactly like the Radial. Mirrors the
+    /// operator's report (2026-08-15): a Donut gauge saved with
+    /// `ShowNeedle=true` and `Color=#16A34AFF` painted no needle at all.
+    ///
+    /// The needle no longer takes that `Color` (operator, 2026-09-03) — it is
+    /// `NeedleColor`'s alone — so the assertion is that a needle is drawn and
+    /// that it is NOT the meter's ink. What the 2026-08-15 report was really
+    /// about was a needle that did not exist, and that is still what is pinned.
     #[test]
-    fn donut_needle_is_drawn_in_the_developers_colour_and_can_be_turned_off() {
+    fn donut_needle_is_drawn_and_can_be_turned_off() {
+
         use crate::model::PropValue;
 
         /// `(needle stroke colours, hub fill colours)` painted for `ct`.
@@ -15714,14 +15741,16 @@ slice = [4, 4, 4, 4]
         let green = Color32::from_rgb(0x16, 0xA3, 0x4A);
         let (segs, hubs) = needle_ink(&donut);
         assert!(
-            segs.contains(&green),
-            "ShowNeedle defaults on: the Donut must draw its needle in the \
-             developer's #16A34A, got segments {segs:?}"
+            !segs.is_empty() && !hubs.is_empty(),
+            "ShowNeedle defaults on: the Donut must draw a needle and its hub, \
+             got segments {segs:?}, circles {hubs:?}"
         );
         assert!(
-            hubs.contains(&green),
-            "the needle's hub must take the same colour, got circles {hubs:?}"
+            !segs.contains(&green) && !hubs.contains(&green),
+            "…and not in the meter's #16A34A: the needle answers to \
+             `NeedleColor` alone, got segments {segs:?}, circles {hubs:?}"
         );
+
 
         let mut bare = donut.clone();
         bare.set_prop("ShowNeedle", PropValue::Bool(false));
@@ -15733,17 +15762,25 @@ slice = [4, 4, 4, 4]
         );
 
         println!(
-            "\n  Gauge — Donut: needle + hub in the developer's #16A34A when on \
-             ({} segments, {} circles), none when off\n",
+            "\n  Gauge — Donut: needle + hub drawn when ShowNeedle is on \
+             ({} segments, {} circles) and in the needle's own ink, not the \
+             meter's #16A34A; none when off\n",
             segs.len(),
             hubs.len()
         );
+
     }
 
     /// `NeedleColor` paints the needle and its hub, and nothing else on the
     /// gauge (operator, 2026-08-16: "the needle needs a property to define its
-    /// colour"). Blank keeps the meter's own ink, which is all the needle ever
-    /// had, so an untouched gauge is unchanged.
+    /// colour").
+    ///
+    /// Blank does NOT fall back to the meter's `Color` any more (operator,
+    /// 2026-09-03: "Hide Color, always use NeedleColor for the needle"). That
+    /// fallback made two properties own one needle: setting `Color` moved the
+    /// needle too, and on a zoned gauge the needle changed colour as the
+    /// reading crossed a threshold. Blank is the control's own ink now.
+
     #[test]
     fn the_needle_takes_its_own_colour_without_repainting_the_meter() {
         use crate::model::PropValue;
@@ -15799,10 +15836,17 @@ slice = [4, 4, 4, 4]
 
             let (segs, hubs, _) = ink(&g);
             assert!(
-                segs.contains(&green) && hubs.contains(&green),
-                "{style}: a blank NeedleColor must keep the meter's #16A34A — \
+                !segs.contains(&green) && !hubs.contains(&green),
+                "{style}: a blank NeedleColor must NOT take the meter's \
+                 #16A34A — the needle answers to `NeedleColor` and nothing else \
+                 (operator, 2026-09-03) — segments {segs:?}, circles {hubs:?}"
+            );
+            assert!(
+                !segs.is_empty() && !hubs.is_empty(),
+                "{style}: …and it is still drawn, in the control's own ink — \
                  segments {segs:?}, circles {hubs:?}"
             );
+
 
             g.set_prop("NeedleColor", PropValue::String("#D92525FF".into()));
             let (segs, hubs, bands) = ink(&g);
@@ -15825,8 +15869,10 @@ slice = [4, 4, 4, 4]
 
         println!(
             "\n  Gauge — NeedleColor #D92525 paints needle + hub in Radial and \
-             Donut; the band stays on the meter's #16A34A; blank inherits it\n"
+             Donut; the band stays on the meter's #16A34A; blank takes the \
+             control's own ink, never the meter's\n"
         );
+
     }
 
     /// `ReadoutPosition` moves a Radial's value+unit from inside the dial to
