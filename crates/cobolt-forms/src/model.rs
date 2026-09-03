@@ -4093,6 +4093,45 @@ pub fn min_control_size(ctrl: &Control) -> (i32, i32) {
     }
 }
 
+/// A Line control's two drawn endpoints, from its own rect `(x, y, w, h)` plus
+/// `LineAngle`/`LineDirection` — the one formula both the renderer
+/// (`cobolt_forms::paint`'s `CT::Line` block) and the Form Designer's
+/// endpoint-drag handles read, so a drag handle can never land somewhere
+/// other than where the line is actually painted.
+///
+/// `LineAngle` (degrees, 0 = horizontal, clockwise since form-space y grows
+/// downward) wins when present: the segment is centred on the rect and as
+/// long as the rect is wide, rotated about that centre. Otherwise the legacy
+/// `LineDirection` presets stand in, so a form saved before free rotation
+/// existed is unchanged: `"Vertical"` top-to-bottom, `"Diagonal"` the rect's
+/// own corner-to-corner slope, anything else left-centre to right-centre.
+///
+/// Takes plain floats rather than a [`Rect`] because the renderer's rect has
+/// already been offset and animation-scaled by the time it draws a Line —
+/// this has to fit whatever rect each caller is actually working with.
+pub fn line_endpoints(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    angle: Option<i64>,
+    direction: &str,
+) -> ((f32, f32), (f32, f32)) {
+    if let Some(deg) = angle {
+        let rad = (deg as f32).to_radians();
+        let (cx, cy) = (x + w * 0.5, y + h * 0.5);
+        let half = w.max(1.0) * 0.5;
+        let (dx, dy) = (rad.cos() * half, rad.sin() * half);
+        ((cx - dx, cy - dy), (cx + dx, cy + dy))
+    } else {
+        match direction {
+            "Vertical" => ((x, y), (x, y + h)),
+            "Diagonal" => ((x, y), (x + w, y + h)),
+            _ => ((x, y + h * 0.5), (x + w, y + h * 0.5)),
+        }
+    }
+}
+
 pub fn default_transparency(control_type: &ControlType) -> i64 {
     match control_type {
         ControlType::CheckBox => 100,
@@ -4868,7 +4907,14 @@ impl Control {
             }
             ControlType::Shape => {
                 props.insert("ShapeType".into(), PropValue::String("Rectangle".into()));
-                props.insert("FormStyle".into(), PropValue::Bool(true));
+                // A shape is a drawing primitive: PowerCOBOL/isCOBOL developers
+                // reach for it wanting the flat FillColor/LineColor they just
+                // set, not a preview of whichever glass style the form happens
+                // to be wearing (operator, 2026-09-03 — "new shape should be
+                // flat, instead to follow the form style"). FormStyle is the
+                // property that already let a developer ask for the opposite;
+                // it simply defaulted to the wrong one.
+                props.insert("FormStyle".into(), PropValue::Bool(false));
                 props.insert(
                     "FillColor".into(),
                     PropValue::String(DEFAULT_SHAPE_FILL_COLOR.into()),

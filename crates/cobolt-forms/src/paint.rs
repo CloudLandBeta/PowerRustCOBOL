@@ -2398,9 +2398,12 @@ fn draw_control_body(
             .get_prop("LineStyle")
             .map(|v| v.as_str().to_owned())
             .unwrap_or_else(|| "Solid".into());
-        // SurfaceStyle (default true): the shape follows the form's current style
-        // (Classic/Enhanced glass, Neumorphic); off = flat classic fill.
-        let glass = glass && ctrl.get_prop("FormStyle").map(|v| v.as_bool()).unwrap_or(true);
+        // FormStyle (seeded false, 1.63.27): on, the shape follows the form's
+        // current style (Classic/Enhanced glass, Neumorphic); off (the
+        // default) is a flat classic fill — a shape is a drawing primitive,
+        // not a form-styled container, so it starts as the colours the
+        // developer set rather than a preview of the active glass style.
+        let glass = glass && ctrl.get_prop("FormStyle").map(|v| v.as_bool()).unwrap_or(false);
 
         let rr = match shape_type.as_str() {
             "Circle" => rect.width().min(rect.height()) / 2.0,
@@ -14155,6 +14158,12 @@ mod theme_render_tests {
         let mut c = Control::new("SHP", ControlType::Shape, 0, 0);
         c.rect = crate::model::Rect::new(60, 60, 120, 80);
         c.set_prop("ShapeType", PropValue::String(shape_type.into()));
+        // This test's whole point is comparing shadow geometry ACROSS glass
+        // styles, which only happens when the shape actually follows one —
+        // FormStyle defaults to false (1.63.27, a flat fill is the shape's own
+        // baseline) precisely so a shape does NOT do this unasked, so the
+        // cross-style comparison below must opt in explicitly.
+        c.set_prop("FormStyle", PropValue::Bool(true));
         // Explicit on/off: Neumorphic styles default the shadow to ON, so the
         // baseline must disable it rather than rely on the absent-prop default.
         c.set_prop("ShadowEnabled", PropValue::Bool(shadow));

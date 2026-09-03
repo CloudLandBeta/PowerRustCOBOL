@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.27] — 2026-09-03
+
+### A new Shape is flat by default, the way a drawing primitive should be
+
+A freshly-dropped Shape control rendered with whatever glass style the form
+happened to be wearing — Classic frost, Neumorphic soft-surface, whatever was
+active — rather than the plain `FillColor`/`LineColor` the developer had just
+set on it (operator, 2026-09-03: "new shape should be flat, instead to follow
+the form style. Let the developer define what he want to do using
+properties"). The mechanism to ask for either was already there —
+`FormStyle` — it simply seeded to `true` (follow the form), the wrong way
+round for a drawing primitive that exists specifically to be colours the
+developer chose. It now seeds `false`; `FormStyle` still lets a developer
+opt a shape back into the active glass style with one property, unchanged.
+
+This only affects a **newly created** Shape. A shape already saved with
+`FormStyle` at its old default carries that literal `true` in its `.cfrm`
+file and keeps rendering exactly as before — toggle the property off in the
+Designer's Properties pane to bring an existing shape onto the new default.
+
 ## [PowerRustCOBOL 1.63.26] — 2026-09-03
 
 ### MenuBar and ToolBar were reading on a dark form only — a light one made them nearly disappear
