@@ -3195,6 +3195,19 @@ impl CoboltApp {
                 if let Some(root) = dir.as_ref() {
                     self.ensure_project_agent_system(root);
                     self.sync_project_documentation_membership(root);
+                    // …and the indexed definitions, for the same reason.
+                    //
+                    // This ran ONLY when the IDE's own indexed tooling raised
+                    // its changed-flag, so a `.cidx` that arrived any other way
+                    // — written by hand, restored from a backup, pulled in with
+                    // the project — was never discovered. `files.indexed` stayed
+                    // empty, and an empty list is what makes the data-binding
+                    // editor grey out its Indexed source and report "select a
+                    // binding source" for a form that already has one (operator,
+                    // 2026-09-02). The function already both adds what it finds
+                    // and prunes what has gone, so running it on open simply
+                    // makes the tracked list agree with the disk.
+                    self.sync_project_indexed_membership(root);
                     let data_dir = root.join("data");
                     let rels = crate::llm::load_raw_preferred_indexed(&data_dir);
                     self.raw_preferred_indexed =

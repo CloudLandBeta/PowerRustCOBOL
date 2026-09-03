@@ -88,6 +88,22 @@ pub enum DebugAction {
     ToggleBreakpoint(u32),
 }
 
+/// Height of one source line in the code pane.
+///
+/// The monospace glyphs are about 13.5 px tall, so this number IS the leading:
+/// at 18 there were ~4.5 px between lines and the listing read double-spaced
+/// (operator screenshot, 2026-09-02). At 15 the gap is ~1.4 px — 30 % of what
+/// it was — which is what the operator asked for and what a code listing should
+/// look like: dense enough to see a paragraph at once, still separated enough
+/// to track along a line.
+///
+/// One constant, because the row, its gutter, the current-line highlight and a
+/// blank line must agree or the pointer sits between two lines.
+const CODE_LINE_H: f32 = 15.0;
+
+/// A blank source line, at the same 30 % proportion.
+const CODE_BLANK_H: f32 = 1.0;
+
 // ── DebuggerPanel ─────────────────────────────────────────────────────────────
 
 /// State for the floating debugger window.
@@ -951,6 +967,109 @@ impl DebuggerPanel {
     /// Two-pane split (code viewer left, variables right), with a draggable
     /// divider whose position is persisted by egui's table state.
     /// Returns the gutter line the developer clicked, if any.
+    /// The file tab and the breadcrumb: `generated › switch-form.cbl ›
+    /// SWITCH-FORM--ONLOAD › PROCEDURE DIVISION`.
+    ///
+    /// The old header was the absolute path on one line, which is the least
+    /// useful thing to show: the developer knows which project they opened and
+    /// cannot read a 70-character path at a glance anyway. What they need is
+    /// WHERE IN THE PROGRAM the pointer is, which is the trail.
+    fn file_strip(&self, ui: &mut egui::Ui) {
+        let path = std::path::Path::new(&self.source_path);
+        let file = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("(no source)");
+        let folder = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+
+        // The tab. One file today — a session debugs one program — so it is
+        // drawn as the tab it will be rather than promising a strip that does
+        // not exist yet.
+        ui.horizontal(|ui| {
+            ui.add_space(2.0);
+            let (rect, _) = ui.allocate_exact_size(
+                // Sized from the label's own width, so a long file name is not
+                // clipped and a short one does not leave a wide empty tab.
+                Vec2::new(file.chars().count() as f32 * 7.0 + 22.0, 22.0),
+                egui::Sense::hover(),
+            );
+            ui.painter().rect_filled(
+                rect,
+                egui::CornerRadius {
+                    nw: 4,
+                    ne: 4,
+                    sw: 0,
+                    se: 0,
+                },
+                Color32::from_rgb(28, 46, 58),
+            );
+            ui.painter().text(
+                rect.left_center() + Vec2::new(9.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                file,
+                egui::FontId::proportional(12.0),
+                Color32::from_rgb(215, 225, 240),
+            );
+            // The amber underline is the "this is the active tab" marker, the
+            // same amber the current-line pointer uses.
+            ui.painter().hline(
+                rect.x_range(),
+                rect.max.y - 1.0,
+                egui::Stroke::new(2.0, Color32::from_rgb(230, 180, 40)),
+            );
+        });
+
+        // The trail. Each crumb is what the debugger actually knows: the
+        // folder, the file, the program (paragraph) it stopped in, and the
+        // division that paragraph lives in.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.add_space(4.0);
+            let mut crumbs: Vec<String> = Vec::new();
+            if !folder.is_empty() {
+                crumbs.push(folder.to_owned());
+            }
+            crumbs.push(file.to_owned());
+            if let Some(f) = self.frames.get(self.selected_frame) {
+                if !f.program.is_empty() {
+                    crumbs.push(f.program.clone());
+                }
+                if let Some(sec) = &f.section {
+                    crumbs.push(sec.clone());
+                }
+                if !f.paragraph.is_empty() {
+                    crumbs.push(f.paragraph.clone());
+                }
+            } else if !self.current_para.is_empty() {
+                crumbs.push(self.current_para.clone());
+            }
+            let last = crumbs.len().saturating_sub(1);
+            for (i, c) in crumbs.iter().enumerate() {
+                if i > 0 {
+                    ui.label(
+                        RichText::new("›")
+                            .size(11.0)
+                            .color(Color32::from_gray(90)),
+                    );
+                }
+                ui.label(
+                    RichText::new(c)
+                        .size(11.0)
+                        // The last crumb is where you ARE; the rest are context.
+                        .color(if i == last {
+                            Color32::from_rgb(215, 225, 240)
+                        } else {
+                            Color32::from_gray(125)
+                        }),
+                );
+            }
+        });
+    }
+
     fn split_body(&mut self, ui: &mut egui::Ui, tr: &Tr, need_scroll: bool) -> Option<u32> {
         // The dock takes its OWN stored height off the top; the split gets what
         // is left. Deriving either from the content is what makes a pane creep.
@@ -1016,13 +1135,10 @@ impl DebuggerPanel {
         pane_w: f32,
         tr: &Tr,
     ) -> Option<u32> {
-        // File path in muted monospace
-        ui.label(
-            RichText::new(&self.source_path)
-                .monospace()
-                .size(10.0)
-                .color(Color32::from_gray(95)),
-        );
+        // The file tab and the breadcrumb trail, in place of the bare absolute
+        // path this used to print.
+        self.file_strip(ui);
+        ui.add_space(2.0);
 
         // The gutter click collected this frame. `code_viewer` only reads the
         // panel, so the toggle travels out as a return value instead of being
@@ -1100,7 +1216,7 @@ impl DebuggerPanel {
 
                     if line_text.trim().is_empty() {
                         let (rect, _) =
-                            ui.allocate_exact_size(Vec2::new(pane_w, 3.0), egui::Sense::hover());
+                            ui.allocate_exact_size(Vec2::new(pane_w, CODE_BLANK_H), egui::Sense::hover());
                         if is_current {
                             ui.painter().rect_filled(
                                 rect,
@@ -1119,7 +1235,7 @@ impl DebuggerPanel {
                         let rect = ui.available_rect_before_wrap();
                         let bg = egui::Rect::from_min_size(
                             rect.min,
-                            Vec2::new(rect.width().max(pane_w), 19.0),
+                            Vec2::new(rect.width().max(pane_w), CODE_LINE_H),
                         );
                         ui.painter().rect_filled(
                             bg,
@@ -1133,7 +1249,7 @@ impl DebuggerPanel {
 
                         // Line number
                         ui.add_sized(
-                            [32.0, 18.0],
+                            [32.0, CODE_LINE_H],
                             egui::Label::new(
                                 RichText::new(format!("{:>4}", line_num))
                                     .monospace()
@@ -1146,7 +1262,10 @@ impl DebuggerPanel {
                         // developer sets a breakpoint where they are reading the
                         // code, which is here, not in a separate editor tab.
                         let (gut_rect, gut_resp) =
-                            ui.allocate_exact_size(Vec2::new(18.0, 18.0), egui::Sense::click());
+                            ui.allocate_exact_size(
+                                Vec2::new(18.0, CODE_LINE_H),
+                                egui::Sense::click(),
+                            );
                         if gut_resp.clicked() {
                             toggled = Some(line_num);
                         }
@@ -1430,79 +1549,127 @@ impl DebuggerPanel {
                     );
                     return;
                 }
-                // The scopes of the selected frame. Asked for once per stop;
-                // everything below arrives only when a row is opened.
                 if self.scopes.is_empty() {
                     want_scopes = true;
                 }
+
+                // The visible tree, flattened to rows first. A table needs a
+                // row COUNT before it draws, and flattening is also what lets
+                // it virtualise: only the rows on screen are built, so a
+                // WORKING-STORAGE of thousands of items costs what fits.
                 let filter = self.var_filter.to_ascii_lowercase();
-                // Three columns the developer can drag, as the mockup asks:
-                // Name | PIC / Type | Value. A header row makes the columns
-                // readable as columns rather than as three runs of text.
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    let w = ui.available_width();
-                    let name_w = (w * 0.44).max(120.0);
-                    let pic_w = (w * 0.26).max(90.0);
-                    for (label, width) in [
-                        (tr.dbg_col_name, name_w),
-                        (tr.dbg_col_pic, pic_w),
-                        (tr.dbg_col_value, w - name_w - pic_w),
-                    ] {
-                        ui.allocate_ui(Vec2::new(width, 18.0), |ui| {
-                            ui.label(
-                                RichText::new(label)
-                                    .size(11.0)
-                                    .color(Color32::from_gray(150)),
-                            );
-                        });
-                    }
-                });
-                ui.separator();
-                ScrollArea::vertical()
-                    .id_salt("dbg_inspect_scroll")
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        ui.spacing_mut().item_spacing.y = 1.0;
-                        for sc in &self.scopes {
-                            let open = self.open.contains(&sc.reference);
-                            let head = ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!(
-                                        "{} {}  ({})",
-                                        if open { "⌄" } else { "›" },
-                                        sc.name,
-                                        sc.count
-                                    ))
-                                    .monospace()
-                                    .size(11.0)
-                                    .color(Color32::from_rgb(150, 175, 215)),
-                                )
-                                .sense(egui::Sense::click()),
-                            );
-                            if head.hovered() {
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                            if head.clicked() {
-                                toggle = Some(sc.reference);
-                            }
-                            if open {
-                                render_rows(
-                                    ui,
-                                    &self.rows,
-                                    &self.open,
-                                    sc.reference,
-                                    1,
-                                    &filter,
-                                    &self.editing,
-                                    &mut toggle,
-                                    &mut fetch,
-                                    &mut begin_edit,
-                                    &mut edit_buf,
-                                    &mut commit,
+                let rows = self.flatten_visible(&filter);
+
+                TableBuilder::new(ui)
+                    .id_salt("dbg_inspect_table")
+                    .striped(true)
+                    // Draggable dividers, as the mockup asks. `allocate_ui`
+                    // reserves width but does not make a child FILL it, so the
+                    // hand-laid version collapsed every cell onto the next and
+                    // read `COBOL-CONTROL-IDPIC X(64)SPACES`.
+                    .resizable(true)
+                    .column(Column::initial(190.0).at_least(90.0).resizable(true))
+                    .column(Column::initial(110.0).at_least(60.0).resizable(true))
+                    .column(Column::remainder().at_least(60.0))
+                    .header(18.0, |mut header| {
+                        for label in [tr.dbg_col_name, tr.dbg_col_pic, tr.dbg_col_value] {
+                            header.col(|ui| {
+                                ui.label(
+                                    RichText::new(label)
+                                        .size(11.0)
+                                        .color(Color32::from_gray(150)),
                                 );
-                            }
+                            });
                         }
+                    })
+                    .body(|body| {
+                        body.rows(18.0, rows.len(), |mut row| {
+                            let r = &rows[row.index()];
+                            row.col(|ui| {
+                                let marker = if !r.expandable {
+                                    "  "
+                                } else if r.open {
+                                    "⌄"
+                                } else {
+                                    "›"
+                                };
+                                let resp = ui.add(
+                                    egui::Label::new(
+                                        RichText::new(format!(
+                                            "{}{marker} {}",
+                                            "   ".repeat(r.depth),
+                                            r.name
+                                        ))
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(r.name_colour),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                );
+                                if r.expandable {
+                                    if resp.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if resp.clicked() {
+                                        toggle = Some(r.reference);
+                                    }
+                                }
+                            });
+                            row.col(|ui| {
+                                ui.label(
+                                    RichText::new(&r.type_text)
+                                        .monospace()
+                                        .size(10.0)
+                                        .color(Color32::from_gray(140)),
+                                );
+                            });
+                            row.col(|ui| {
+                                let editing_this = matches!(
+                                    &self.editing,
+                                    Some((pr, n, _)) if *pr == r.parent && *n == r.name
+                                );
+                                if editing_this {
+                                    if let Some((_, _, buf)) = self.editing.as_ref() {
+                                        let mut text = buf.clone();
+                                        let resp = ui.add(
+                                            TextEdit::singleline(&mut text)
+                                                .desired_width(f32::INFINITY)
+                                                .font(egui::TextStyle::Monospace),
+                                        );
+                                        if text != *buf {
+                                            edit_buf = Some(text.clone());
+                                        }
+                                        if resp.lost_focus()
+                                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                        {
+                                            commit = Some((r.parent, r.name.clone(), text));
+                                        }
+                                    }
+                                } else {
+                                    let mut rt = RichText::new(&r.value_text)
+                                        .monospace()
+                                        .size(11.0)
+                                        .color(r.value_colour);
+                                    if r.value_italic {
+                                        rt = rt.italics();
+                                    }
+                                    let v =
+                                        ui.add(egui::Label::new(rt).sense(egui::Sense::click()));
+                                    if r.editable {
+                                        if v.hovered() {
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                                        }
+                                        if v.clicked() {
+                                            begin_edit = Some((
+                                                r.parent,
+                                                r.name.clone(),
+                                                r.raw_value.clone(),
+                                            ));
+                                        }
+                                    }
+                                }
+                            });
+                        });
                     });
             }
 
@@ -2189,210 +2356,160 @@ mod tests {
     }
 }
 
-/// Paint the rows under one handle, recursing into the ones the developer has
-/// opened.
+/// One line of the flattened inspector tree, ready for a table row.
 ///
-/// Free function rather than a method: it reads several `self` fields while the
-/// caller still holds them, and threading intents out through `&mut` locals is
-/// what keeps the borrow checker satisfied without cloning the tree per frame.
-#[allow(clippy::too_many_arguments)]
-fn render_rows(
-    ui: &mut egui::Ui,
-    rows: &HashMap<i64, Vec<VarInfo>>,
-    open: &HashSet<i64>,
-    reference: i64,
+/// Built fresh each frame from the scopes, the fetched rows and which handles
+/// are open. Flattening first is what lets the table virtualise — it needs a
+/// row COUNT before it draws — and it keeps every column's content decided in
+/// one place rather than inside three separate cell closures.
+struct FlatRow {
     depth: usize,
-    filter: &str,
-    editing: &Option<(i64, String, String)>,
-    toggle: &mut Option<i64>,
-    fetch: &mut Option<i64>,
-    begin_edit: &mut Option<(i64, String, String)>,
-    edit_buf: &mut Option<String>,
-    commit: &mut Option<(i64, String, String)>,
-) {
-    let Some(list) = rows.get(&reference) else {
-        // Opened but not answered yet. Say so rather than render an empty
-        // group, which reads as "this has nothing in it".
-        ui.label(
-            RichText::new(format!("{}…", "  ".repeat(depth)))
-                .monospace()
-                .size(11.0)
-                .color(Color32::from_gray(110)),
-        );
-        if fetch.is_none() {
-            *fetch = Some(reference);
-        }
-        return;
-    };
+    name: String,
+    /// The handle this row expands to, 0 when it does not expand.
+    reference: i64,
+    /// The handle this row was LISTED under — what an edit is addressed by.
+    parent: i64,
+    expandable: bool,
+    open: bool,
+    editable: bool,
+    type_text: String,
+    value_text: String,
+    raw_value: String,
+    value_italic: bool,
+    name_colour: Color32,
+    value_colour: Color32,
+}
 
-    for row in list {
-        if !filter.is_empty()
-            && !row.name.to_ascii_lowercase().contains(filter)
-            && !row.value.to_ascii_lowercase().contains(filter)
-        {
-            continue;
-        }
-        let indent = "  ".repeat(depth);
-        let expandable = row.reference != 0;
-        let is_open = expandable && open.contains(&row.reference);
-
-        // Column geometry, recomputed per row from the pane's own width so a
-        // drag on the splitter carries through. Fixed fractions, never the
-        // row's content: sizing a column from what it holds is what makes a
-        // table shift under the reader.
-        let total = ui.available_width();
-        let name_w = (total * 0.44).max(120.0);
-        let pic_w = (total * 0.26).max(90.0);
-        let value_w = (total - name_w - pic_w).max(60.0);
-
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            let marker = if !expandable {
-                " "
-            } else if is_open {
-                "⌄"
-            } else {
-                "›"
-            };
-            let name = ui
-                .allocate_ui(Vec2::new(name_w, 18.0), |ui| {
-                    ui.add(
-                egui::Label::new(
-                    RichText::new(format!("{indent}{marker} {}", row.name))
-                        .monospace()
-                        .size(11.0)
-                        .color(if row.category == "condition" {
-                            Color32::from_rgb(190, 160, 230)
-                        } else if row.category == "group" {
-                            Color32::from_rgb(150, 175, 215)
-                        } else {
-                            Color32::from_rgb(215, 220, 235)
-                        }),
-                )
-                .sense(egui::Sense::click()),
-            )
-                })
-                .inner;
-            if expandable {
-                if name.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                }
-                if name.clicked() {
-                    *toggle = Some(row.reference);
-                }
-            }
-
-            // PIC / Type. Allocated even when empty, so the Value column
-            // begins at the same x on every row — a column that only exists
-            // when it has content is not a column.
-            ui.allocate_ui(Vec2::new(pic_w, 18.0), |ui| {
-                let text = if !row.pic.is_empty() {
-                    format!("PIC {}", row.pic)
-                } else if row.category == "group" {
-                    "Group".to_owned()
-                } else if row.category == "condition" {
-                    "Condition".to_owned()
-                } else if let Some(n) = row.occurs {
-                    format!("OCCURS {n} TIMES")
-                } else {
-                    String::new()
-                };
-                ui.label(
-                    RichText::new(text)
-                        .monospace()
-                        .size(10.0)
-                        .color(Color32::from_gray(140)),
-                );
-            });
-
-            // Value. A "non-value" is rendered as its NAME in italics, never as
-            // blank: an empty string, spaces, LOW-VALUES and HIGH-VALUES all
-            // look like nothing and mean four different things.
-            let value_cell = |ui: &mut egui::Ui, body: &mut dyn FnMut(&mut egui::Ui)| {
-                ui.allocate_ui(Vec2::new(value_w, 18.0), |ui| body(ui));
-            };
-            let _ = &value_cell;
-            match editing {
-                Some((r, n, buf)) if *r == reference && *n == row.name => {
-                    let mut text = buf.clone();
-                    let resp = ui.add(
-                        TextEdit::singleline(&mut text)
-                            .desired_width(120.0)
-                            .font(egui::TextStyle::Monospace),
-                    );
-                    if text != *buf {
-                        *edit_buf = Some(text.clone());
-                    }
-                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        *commit = Some((reference, row.name.clone(), text));
-                    }
-                }
-                _ => {
-                    let (shown, colour, italic) = match row.special {
-                        Some(SpecialValue::EmptyString) => {
-                            ("(empty)".to_owned(), Color32::from_gray(120), true)
-                        }
-                        Some(SpecialValue::Spaces) => {
-                            ("SPACES".to_owned(), Color32::from_gray(120), true)
-                        }
-                        Some(SpecialValue::LowValues) => {
-                            ("LOW-VALUES".to_owned(), Color32::from_gray(120), true)
-                        }
-                        Some(SpecialValue::HighValues) => {
-                            ("HIGH-VALUES".to_owned(), Color32::from_gray(120), true)
-                        }
-                        Some(SpecialValue::Unset) => {
-                            ("(unset)".to_owned(), Color32::from_gray(120), true)
-                        }
-                        Some(SpecialValue::EvaluationError) => {
-                            (row.value.clone(), Color32::from_rgb(230, 120, 120), true)
-                        }
-                        None => (
-                            row.value.clone(),
-                            if row.value == "TRUE" {
-                                Color32::from_rgb(120, 210, 140)
-                            } else {
-                                Color32::from_rgb(240, 200, 120)
-                            },
-                            false,
-                        ),
-                    };
-                    let mut rt = RichText::new(shown).monospace().size(11.0).color(colour);
-                    if italic {
-                        rt = rt.italics();
-                    }
-                    let v = ui.add(egui::Label::new(rt).sense(egui::Sense::click()));
-                    // Editing is offered only while stopped and only on a slot
-                    // the runtime can actually write.
-                    if row.editable {
-                        if v.hovered() {
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
-                        }
-                        if v.clicked() {
-                            *begin_edit =
-                                Some((reference, row.name.clone(), row.value.trim().to_owned()));
-                        }
-                    }
-                }
-            }
-
-        });
-
-        if is_open {
-            render_rows(
-                ui,
-                rows,
+impl DebuggerPanel {
+    /// Flatten the open parts of the tree, applying the filter.
+    ///
+    /// A scope always shows: hiding an empty WORKING-STORAGE because its rows
+    /// have not arrived yet would make the pane look broken while it loads.
+    fn flatten_visible(&self, filter: &str) -> Vec<FlatRow> {
+        let mut out = Vec::new();
+        for sc in &self.scopes {
+            let open = self.open.contains(&sc.reference);
+            out.push(FlatRow {
+                depth: 0,
+                name: sc.name.clone(),
+                reference: sc.reference,
+                parent: 0,
+                expandable: true,
                 open,
-                row.reference,
-                depth + 1,
-                filter,
-                editing,
-                toggle,
-                fetch,
-                begin_edit,
-                edit_buf,
-                commit,
-            );
+                editable: false,
+                type_text: format!("({})", sc.count),
+                value_text: String::new(),
+                raw_value: String::new(),
+                value_italic: false,
+                name_colour: Color32::from_rgb(150, 175, 215),
+                value_colour: Color32::from_gray(140),
+            });
+            if open {
+                self.flatten_children(sc.reference, 1, filter, &mut out);
+            }
+        }
+        out
+    }
+
+    fn flatten_children(&self, reference: i64, depth: usize, filter: &str, out: &mut Vec<FlatRow>) {
+        let Some(rows) = self.rows.get(&reference) else {
+            // Asked for, not yet answered. Say so rather than render nothing,
+            // which reads as "this group is empty".
+            out.push(FlatRow {
+                depth,
+                name: "…".into(),
+                reference: 0,
+                parent: reference,
+                expandable: false,
+                open: false,
+                editable: false,
+                type_text: String::new(),
+                value_text: String::new(),
+                raw_value: String::new(),
+                value_italic: false,
+                name_colour: Color32::from_gray(110),
+                value_colour: Color32::from_gray(110),
+            });
+            return;
+        };
+        for row in rows {
+            if !filter.is_empty()
+                && !row.name.to_ascii_lowercase().contains(filter)
+                && !row.value.to_ascii_lowercase().contains(filter)
+            {
+                continue;
+            }
+            let expandable = row.reference != 0;
+            let open = expandable && self.open.contains(&row.reference);
+
+            // The PIC / Type column says what the row IS when it has no PICTURE
+            // of its own — a column that is blank on half its rows is not a
+            // column.
+            let type_text = if !row.pic.is_empty() {
+                format!("PIC {}", row.pic)
+            } else if row.category == "group" {
+                "Group".to_owned()
+            } else if row.category == "condition" {
+                "Condition".to_owned()
+            } else if let Some(n) = row.occurs {
+                format!("OCCURS {n} TIMES")
+            } else {
+                String::new()
+            };
+
+            // A "non-value" is named, never blank: an empty string, SPACES,
+            // LOW-VALUES and HIGH-VALUES all look like nothing and mean four
+            // different things.
+            let (value_text, value_colour, value_italic) = match row.special {
+                Some(SpecialValue::EmptyString) => {
+                    ("(empty)".to_owned(), Color32::from_gray(120), true)
+                }
+                Some(SpecialValue::Spaces) => ("SPACES".to_owned(), Color32::from_gray(120), true),
+                Some(SpecialValue::LowValues) => {
+                    ("LOW-VALUES".to_owned(), Color32::from_gray(120), true)
+                }
+                Some(SpecialValue::HighValues) => {
+                    ("HIGH-VALUES".to_owned(), Color32::from_gray(120), true)
+                }
+                Some(SpecialValue::Unset) => ("(unset)".to_owned(), Color32::from_gray(120), true),
+                Some(SpecialValue::EvaluationError) => {
+                    (row.value.clone(), Color32::from_rgb(230, 120, 120), true)
+                }
+                None => (
+                    row.value.trim().to_owned(),
+                    if row.value.trim() == "TRUE" {
+                        Color32::from_rgb(120, 210, 140)
+                    } else {
+                        Color32::from_rgb(240, 200, 120)
+                    },
+                    false,
+                ),
+            };
+
+            out.push(FlatRow {
+                depth,
+                name: row.name.clone(),
+                reference: row.reference,
+                parent: reference,
+                expandable,
+                open,
+                editable: row.editable,
+                type_text,
+                value_text,
+                raw_value: row.value.trim().to_owned(),
+                value_italic,
+                name_colour: if row.category == "condition" {
+                    Color32::from_rgb(190, 160, 230)
+                } else if row.category == "group" {
+                    Color32::from_rgb(150, 175, 215)
+                } else {
+                    Color32::from_rgb(215, 220, 235)
+                },
+                value_colour,
+            });
+            if open {
+                self.flatten_children(row.reference, depth + 1, filter, out);
+            }
         }
     }
 }

@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.63.12] — 2026-09-02
+
+### The debugger window, rebuilt
+
+**The data inspector is a real table.** Name · PIC/Type · Value, with dividers
+the developer can drag. The hand-laid version reserved a width per cell with
+`allocate_ui`, which does not make a child FILL it — so every cell collapsed
+onto the next and a row read `COBOL-CONTROL-IDPIC X(64)SPACES`.
+
+The tree is flattened to rows before it is drawn, which is what a table needs to
+know its row count — and what lets it **virtualise**: only the rows on screen are
+built, so a WORKING-STORAGE of thousands costs what fits.
+
+**A file tab and a breadcrumb** replace the absolute path the header used to
+print: `generated › switch-form.cbl › SWITCH-FORM--ONLOAD › PROCEDURE DIVISION`.
+The path was the least useful thing to show — the developer knows which project
+they opened; what they need is where in the program the pointer is. The last
+crumb is where you are, the rest are context.
+
+**The listing is no longer double-spaced.** A source line was 18 px against
+13.5 px of glyphs, so ~4.5 px of leading sat between every line. It is 15 px
+now — about 1.4 px of gap, 30 % of what it was — held in one constant, because
+the row, its gutter, the current-line highlight and a blank line must agree or
+the execution pointer sits between two lines.
+
+### A `.cidx` written outside the IDE is now found
+
+`files.indexed` was synced only when the IDE's own indexed tooling raised its
+changed-flag, so a definition that arrived any other way — written by hand,
+restored from a backup, pulled in with the project — was never discovered. The
+list stayed empty, and an empty list is exactly what makes the data-binding
+editor grey out its Indexed source and report "select a binding source" for a
+form that already has a binding.
+
+It now syncs on project open as well, beside the documentation sync that always
+did. The function already both adds what it finds and prunes what has gone, so
+running it there simply makes the tracked list agree with the disk.
+
 ## [PowerRustCOBOL 1.63.11] — 2026-09-02
 
 ### The DataGrid demo loads its data
