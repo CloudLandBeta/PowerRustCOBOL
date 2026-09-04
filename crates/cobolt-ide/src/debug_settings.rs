@@ -252,7 +252,8 @@ static SECTIONS: &[Section] = &[
                 hint: "Authoring tool for this checkout, not a product feature: F12 captures \
                        the focused window (Shift+F12 waits 3 s, for states that must be held \
                        with the mouse), then a popup places the shot into a \
-                       `📷 Screenshot needed` slot of the English guide — saving the PNG under \
+                       `📷 Screenshot needed` slot of ANY English Markdown document — the \
+                       guide, README.md, or anything under docs/ — saving the PNG under \
                        assets/images/screenshots/ and writing the markdown. English documents \
                        only; the translated guides reference the same images.",
                 env: "PRC_DOC_SCREENSHOTS",

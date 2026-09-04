@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.5] — 2026-09-04
+
+### F12 fills a screenshot slot in any English document, README.md included
+
+"the F12 screenshot capture function of the IDE only update the user guide. I
+need it to be able to update any PowerRustCOBOL documentation in Markdown
+format (.md), including the README.md file" (operator, 2026-09-04).
+
+The code was never guide-*only*, but the scan was: `english_docs` did a single
+non-recursive `read_dir` of `docs/`. `README.md` does not live there, so it was
+unreachable — permanently — and a document in a `docs/` subdirectory was missed
+for the same reason. It *looked* guide-only for a second reason too: the picker
+offers a document only when it holds at least one `📷 Screenshot needed` slot,
+and the guide is the only file that has any (19 of them).
+
+That second fact is what makes widening safe — a document with no slots never
+appears in the popup, so scanning more can never clutter the picker. The scan
+now collects the repository's **top-level** Markdown (`README.md` among them)
+plus everything under **`docs/` at any depth**. The top level is deliberately
+not recursed, which keeps `target/`, `crates/`, the agent skill files and the
+NIST corpus out — none of them documentation a screenshot belongs in.
+
+No path special-casing was needed: `rel_shots_path` already derives the climb
+from the document's own directory, so a root-level `README.md` gets a plain
+`assets/images/screenshots` with no `../`. The new test pins that rather than
+trusting it.
+
+**Three places carried the same stale assumption and move together.** The
+module doc ("The English Developer's Guide carries…"), the Debug Settings hint
+the operator actually reads, and — the one that would have produced a broken
+document — the **`/doc-shots` skill**, whose step 4 hard-coded "path is
+relative to `docs/`". That `../` written into `README.md` points outside the
+repository. The module promises a shot taken by hand and one taken by the agent
+are indistinguishable, so both writers had to learn the same rule.
+
+Guarded by `the_scan_reaches_the_readme_and_nested_docs_but_not_the_source_tree`:
+`README.md` and a nested `docs/` file are offered, translations still are not
+(GOLDEN RULE #3 — the images are language-neutral), the source tree stays out,
+and `README.md`'s image path carries no `../`.
+
 ## [PowerRustCOBOL 1.64.4] — 2026-09-03
 
 ### `Fetch()` returns the row, and a query finally names its columns

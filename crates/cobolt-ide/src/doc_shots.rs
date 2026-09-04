@@ -8,8 +8,10 @@
 //!
 //! # What it is for
 //!
-//! The English Developer's Guide carries `📷 Screenshot needed — \`name.png\``
-//! placeholders. Filling them by hand means hunting a window id, shelling out to
+//! PowerRustCOBOL's English Markdown documentation — the Developer's Guide,
+//! `README.md`, and anything else under `docs/` — carries
+//! `📷 Screenshot needed — \`name.png\`` placeholders. Filling them by hand
+//! means hunting a window id, shelling out to
 //! a capture utility and pasting markdown. Worse, the shots that matter most —
 //! an open combo popup, the DateTimePicker calendar, a hover highlight — vanish
 //! the moment anything is clicked.
@@ -105,17 +107,48 @@ pub fn is_english_doc(path: &Path) -> bool {
         .any(|suffix| stem.ends_with(suffix))
 }
 
-/// Every English `.md` under `<root>/docs`, sorted, that holds at least one slot.
+/// Every English Markdown document the capture tool may fill, sorted.
+///
+/// **The repository's own top-level files — `README.md` among them — and
+/// everything under `docs/`, at any depth.** It used to be a single
+/// non-recursive `read_dir` of `docs/`, which left `README.md` unreachable
+/// because it does not live there, and skipped anything in a `docs/`
+/// subdirectory (operator, 2026-09-03: "only update the user guide … I need it
+/// to be able to update any PowerRustCOBOL documentation in Markdown format
+/// (.md), including the README.md file").
+///
+/// In practice it *looked* guide-only for a second reason: the picker lists a
+/// document only when it holds at least one `📷` slot, and the guide was the
+/// only one that did. Widening the scan is therefore safe — a document with no
+/// slots never appears — so this errs towards offering more rather than
+/// guessing which files count as documentation.
+///
+/// The top level is deliberately NOT recursed: that would drag in `target/`,
+/// `crates/`, the agent skill files and the NIST corpus, none of which are
+/// documentation a screenshot belongs in.
 pub fn english_docs(root: &Path) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = std::fs::read_dir(root.join("docs"))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file() && is_english_doc(path))
-        .collect();
+    let mut out = Vec::new();
+    collect_english_md(root, false, &mut out);
+    collect_english_md(&root.join("docs"), true, &mut out);
     out.sort();
+    out.dedup();
     out
+}
+
+/// English `.md` files in `dir`, descending into subdirectories when asked.
+fn collect_english_md(dir: &Path, recurse: bool, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        if path.is_dir() {
+            if recurse {
+                collect_english_md(&path, true, out);
+            }
+        } else if is_english_doc(&path) {
+            out.push(path);
+        }
+    }
 }
 
 // ── Slots ─────────────────────────────────────────────────────────────────────
@@ -957,6 +990,70 @@ Next section.
                 slot.line + 1
             );
         }
+    }
+
+    /// **Any English Markdown document, not just the guide** (operator,
+    /// 2026-09-03). `README.md` is the case that motivated it: it does not live
+    /// under `docs/`, so the old single `read_dir("docs")` could never see it,
+    /// and a document in a `docs/` subdirectory was missed for the same reason
+    /// — the scan did not recurse.
+    #[test]
+    fn the_scan_reaches_the_readme_and_nested_docs_but_not_the_source_tree() {
+        let dir = std::env::temp_dir().join("prc_doc_shots_scope_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs/deep")).unwrap();
+        std::fs::create_dir_all(dir.join("crates/cobolt-ide/src")).unwrap();
+
+        std::fs::write(dir.join("README.md"), "# readme").unwrap();
+        std::fs::write(dir.join("CHANGELOG.md"), "# changelog").unwrap();
+        std::fs::write(dir.join("docs/developers-guide-en.md"), "# guide").unwrap();
+        std::fs::write(dir.join("docs/deep/nested-en.md"), "# nested").unwrap();
+        // Translations stay out — the images are language-neutral and the
+        // translated guides reference the same files (GOLDEN RULE #3).
+        std::fs::write(dir.join("docs/developers-guide-pt.md"), "# pt").unwrap();
+        // Source-tree markdown is not documentation a screenshot belongs in,
+        // and the top level is deliberately not recursed so it stays out.
+        std::fs::write(dir.join("crates/cobolt-ide/src/notes.md"), "# notes").unwrap();
+
+        let found: Vec<String> = english_docs(&dir)
+            .iter()
+            .map(|p| {
+                p.strip_prefix(&dir)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+
+        assert!(
+            found.contains(&"README.md".to_string()),
+            "README.md must be reachable: {found:?}"
+        );
+        assert!(
+            found.contains(&"docs/deep/nested-en.md".to_string()),
+            "a nested doc must be reachable: {found:?}"
+        );
+        assert!(
+            found.contains(&"docs/developers-guide-en.md".to_string()),
+            "the guide must still be there: {found:?}"
+        );
+        assert!(
+            !found.iter().any(|p| p.ends_with("-pt.md")),
+            "translations must stay out: {found:?}"
+        );
+        assert!(
+            !found.iter().any(|p| p.starts_with("crates/")),
+            "the source tree must stay out: {found:?}"
+        );
+
+        // A root-level document reaches the images without climbing out of a
+        // directory it is not in.
+        assert_eq!(
+            rel_shots_path(&dir.join("README.md"), &dir),
+            "assets/images/screenshots"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
