@@ -559,6 +559,11 @@ pub struct Tr {
     pub agents_proficiency_reviewed: &'static str,
     pub models_proficiency_hint: &'static str,
 
+    // ── Provider test: which model it used (operator, 2026-09-04) ───────────
+    /// "Testing “{}”…" — the model the connection test actually sends to.
+    pub providers_test_model: &'static str,
+    pub providers_test_no_models: &'static str,
+
     // ── Proficiency run progress (operator, 2026-09-04) ──────────────────────
     /// Round line: "{step}: {what that round is}".
     pub bench_step: &'static str,
@@ -1994,6 +1999,8 @@ const EN: Tr = Tr {
     agents_check_proficiency: "Check proficiency",
     agents_proficiency_reviewed: "Tests this model's COBOL proficiency, reviewed by its pedantic companion.",
     models_proficiency_hint: "Scores this model's COBOL proficiency on its own — no reviewer, so the result is this model alone.",
+    providers_test_model: "Testing “{}”…",
+    providers_test_no_models: "No models are registered for this provider — press Refresh models first.",
     bench_step: "Step {}: {}",
     bench_stage_primary: "Primary model — writing the assessment",
     bench_stage_review: "Reviewer — checking the assessment",
@@ -3240,6 +3247,8 @@ const ES: Tr = Tr {
     agents_check_proficiency: "Comprobar competencia",
     agents_proficiency_reviewed: "Prueba la competencia COBOL de este modelo, revisada por su compañero pedante.",
     models_proficiency_hint: "Puntúa la competencia COBOL de este modelo por sí solo: sin revisor, así que el resultado es de este modelo únicamente.",
+    providers_test_model: "Probando «{}»…",
+    providers_test_no_models: "No hay modelos registrados para este proveedor: pulse Actualizar modelos primero.",
     bench_step: "Paso {}: {}",
     bench_stage_primary: "Modelo principal: redactando la evaluación",
     bench_stage_review: "Revisor: comprobando la evaluación",
@@ -4486,6 +4495,8 @@ const PT: Tr = Tr {
     agents_check_proficiency: "Verificar competência",
     agents_proficiency_reviewed: "Testa a competência COBOL deste modelo, revisada pelo seu companheiro pedante.",
     models_proficiency_hint: "Pontua a competência COBOL deste modelo sozinho: sem revisor, portanto o resultado é apenas deste modelo.",
+    providers_test_model: "Testando “{}”…",
+    providers_test_no_models: "Nenhum modelo registrado para este provedor — clique em Atualizar modelos primeiro.",
     bench_step: "Passo {}: {}",
     bench_stage_primary: "Modelo principal: escrevendo a avaliação",
     bench_stage_review: "Revisor: verificando a avaliação",
@@ -5730,6 +5741,8 @@ const JA: Tr = Tr {
     agents_check_proficiency: "習熟度チェック",
     agents_proficiency_reviewed: "このモデルの COBOL 習熟度を、厳密コンパニオンのレビュー付きでテストします。",
     models_proficiency_hint: "このモデル単体の COBOL 習熟度を採点します。レビュアーなしなので、結果はこのモデルだけのものです。",
+    providers_test_model: "「{}」をテスト中…",
+    providers_test_no_models: "このプロバイダーにはモデルが登録されていません。まずモデルを更新してください。",
     bench_step: "ステップ {}: {}",
     bench_stage_primary: "主モデル: 評価を作成中",
     bench_stage_review: "レビュアー: 評価を検証中",
@@ -6981,6 +6994,8 @@ const ZH: Tr = Tr {
     agents_check_proficiency: "检查熟练度",
     agents_proficiency_reviewed: "测试此模型的 COBOL 熟练度，由其严苛同伴评审。",
     models_proficiency_hint: "单独评估此模型的 COBOL 熟练度：无评审者，因此结果仅代表该模型本身。",
+    providers_test_model: "正在测试“{}”…",
+    providers_test_no_models: "此提供方尚未注册任何模型 — 请先刷新模型。",
     bench_step: "步骤 {}：{}",
     bench_stage_primary: "主模型：正在撰写评估",
     bench_stage_review: "评审者：正在检查评估",
@@ -8227,6 +8242,8 @@ const FR: Tr = Tr {
     agents_check_proficiency: "Vérifier la compétence",
     agents_proficiency_reviewed: "Teste la compétence COBOL de ce modèle, révisée par son compagnon pédant.",
     models_proficiency_hint: "Évalue la compétence COBOL de ce modèle seul : sans réviseur, le résultat ne concerne donc que ce modèle.",
+    providers_test_model: "Test de « {} »…",
+    providers_test_no_models: "Aucun modèle n'est enregistré pour ce fournisseur — actualisez d'abord les modèles.",
     bench_step: "Étape {} : {}",
     bench_stage_primary: "Modèle principal : rédaction de l'évaluation",
     bench_stage_review: "Réviseur : vérification de l'évaluation",

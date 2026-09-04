@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.21] — 2026-09-04
+
+### A connection test tests the model you are using, and says which
+
+The Model Providers Manager's **Test** button sits on a provider row that has
+no model picker, and it always sent the provider's FIRST registered model. A
+provider configured for `gemma4` was therefore exercised with
+`nemotron-3-ultra`, and because the failure text is correctly built from the
+model that was actually used, the 401 help told the operator to check whether a
+model they had never chosen was still offered (operator, 2026-09-04).
+
+Nothing was testing every model in the list — one wrong model, named honestly,
+simply looked like it.
+
+The test now sends the model actually in use when the selected provider offers
+it, and the provider's first only as a fallback. Every line the operator reads
+— the "testing" line, the outcome, and the log entry — names that model, since
+a test that picks its own subject and then gives a bare verdict is a verdict
+about nothing visible.
+
+A provider with no models registered no longer sends a request with an empty
+model id, which providers answer with 401 or 400 — indistinguishable from a bad
+key, and the reason a credential gets blamed for a missing model list. It now
+says there are no models and to refresh them first.
+
 ## [PowerRustCOBOL 1.64.20] — 2026-09-04
 
 ### The proficiency check says what it is doing

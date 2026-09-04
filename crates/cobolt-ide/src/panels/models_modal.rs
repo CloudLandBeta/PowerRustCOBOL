@@ -53,6 +53,9 @@ pub struct ModelsModal {
     /// In-flight test-connection request.
     test_rx: Option<Receiver<LlmResponse>>,
     test_msg: Option<String>,
+    /// The model the in-flight test is actually using, so every line the
+    /// developer reads names it (operator, 2026-09-04).
+    test_model: Option<String>,
     /// The credential-file path being edited, and the last thing the store said
     /// about it — a refusal, or where the keys were written.
     store_path_buf: String,
@@ -125,6 +128,7 @@ impl ModelsModal {
             auto_fetch_pending: true,
             test_rx: None,
             test_msg: None,
+            test_model: None,
             store_path_buf: String::new(),
             store_msg: None,
             store_refused: false,
@@ -298,6 +302,7 @@ impl ModelsModal {
         self.endpoint_buf = llm.provider_endpoint(id);
         self.models_msg = None;
         self.test_msg = None;
+        self.test_model = None;
         self.models_rx = None;
         self.models_request_provider = None;
         self.test_rx = None;
@@ -390,6 +395,13 @@ impl ModelsModal {
                         action.alert_error = Some(e.clone());
                         format!("{}: {e}", tr.ai_test_failed_title)
                     }
+                };
+                // The outcome names the model it is about: the test picks the
+                // model itself, so a bare verdict is a verdict about nothing
+                // the developer can see.
+                let msg = match &self.test_model {
+                    Some(m) => format!("{m}: {msg}"),
+                    None => msg,
                 };
                 action
                     .log_lines
@@ -770,13 +782,36 @@ impl ModelsModal {
             self.commit(llm);
             action.applied = true;
             let id = self.selected_provider().to_string();
-            let mut cfg = llm.clone();
-            cfg.provider = id.clone();
-            cfg.endpoint = self.endpoint_buf.clone();
-            cfg.api_key = self.key_buf.clone();
-            cfg.model = llm.models_for(&id).first().cloned().unwrap_or_default();
-            self.test_rx = Some(crate::llm::spawn_test(&cfg));
-            self.test_msg = Some(tr.ai_testing.to_string());
+            // WHICH model the test uses: the one actually in use when it
+            // belongs to this provider, else the provider's first.
+            //
+            // Until 1.64.21 it was unconditionally the first registered
+            // model, so a provider was tested under a model the developer had
+            // never chosen and every failure named THAT model — including the
+            // 401 help, which then asked them to check whether a model they
+            // had never selected was still offered (operator, 2026-09-04:
+            // testing gemma4 reported nemotron-3-ultra).
+            let model = test_model_for(llm.models_for(&id), &llm.model).map(str::to_string);
+            match model {
+                // An empty model id reaches the provider as a malformed
+                // request and comes back as 401/400 — indistinguishable from
+                // a bad key, and the developer goes hunting for a credential
+                // that was never the problem.
+                None => {
+                    self.test_model = None;
+                    self.test_msg = Some(tr.providers_test_no_models.to_string());
+                }
+                Some(model) => {
+                    let mut cfg = llm.clone();
+                    cfg.provider = id.clone();
+                    cfg.endpoint = self.endpoint_buf.clone();
+                    cfg.api_key = self.key_buf.clone();
+                    cfg.model = model.clone();
+                    self.test_rx = Some(crate::llm::spawn_test(&cfg));
+                    self.test_msg = Some(tr.providers_test_model.replacen("{}", &model, 1));
+                    self.test_model = Some(model);
+                }
+            }
         }
         if do_save {
             self.save_and_close(llm);
@@ -800,8 +835,78 @@ impl ModelsModal {
     }
 }
 
+/// Which model a provider's connection test should send to.
+///
+/// The model actually in use when this provider offers it, and otherwise the
+/// provider's first. `None` when the provider has no models registered — the
+/// caller must not send a request with an empty model id, which every provider
+/// answers as an authorization or bad-request failure indistinguishable from a
+/// wrong key.
+fn test_model_for<'a>(models: &'a [String], in_use: &str) -> Option<&'a str> {
+    models
+        .iter()
+        .find(|m| m.trim() == in_use.trim() && !m.trim().is_empty())
+        .or_else(|| models.first())
+        .map(String::as_str)
+}
+
 #[cfg(test)]
 mod tests {
+    /// **A connection test must test the model the developer is using.**
+    ///
+    /// The button lives on a provider row with no model picker, so before
+    /// 1.64.21 it always sent the provider's FIRST registered model. Testing a
+    /// provider configured for gemma4 therefore exercised nemotron-3-ultra,
+    /// and the 401 help then told the developer to check whether a model they
+    /// had never chosen was still offered (operator, 2026-09-04).
+    #[test]
+    fn the_test_uses_the_model_in_use_when_the_provider_offers_it() {
+        let models = vec![
+            "nemotron-3-ultra".to_string(),
+            "gemma4".to_string(),
+            "qwen3".to_string(),
+        ];
+        assert_eq!(test_model_for(&models, "gemma4"), Some("gemma4"));
+    }
+
+    /// The modal can be opened on a provider that has nothing to do with the
+    /// model in use; that provider's first model is then the only sensible
+    /// probe, and it is what the messages will name.
+    #[test]
+    fn a_provider_that_does_not_offer_the_model_in_use_falls_back_to_its_first() {
+        let models = vec!["nemotron-3-ultra".to_string(), "qwen3".to_string()];
+        assert_eq!(
+            test_model_for(&models, "claude-opus-5"),
+            Some("nemotron-3-ultra")
+        );
+    }
+
+    /// An empty model id reaches the provider as a malformed request and comes
+    /// back 401/400 — the failure that sends a developer hunting for a
+    /// credential that was never the problem. There must be no request at all.
+    #[test]
+    fn a_provider_with_no_models_yields_no_model_to_test() {
+        assert_eq!(test_model_for(&[], "gemma4"), None);
+    }
+
+    /// Both messages the developer reads must carry the placeholder the model
+    /// name is substituted into, in every language.
+    #[test]
+    fn the_test_messages_name_the_model_in_every_language() {
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            assert_eq!(
+                tr.providers_test_model.matches("{}").count(),
+                1,
+                "{lang:?}: providers_test_model must carry the model name"
+            );
+            assert!(
+                !tr.providers_test_no_models.trim().is_empty(),
+                "{lang:?}: providers_test_no_models"
+            );
+        }
+    }
+
     use super::*;
 
     /// A provider is configured once and every one of its models becomes
