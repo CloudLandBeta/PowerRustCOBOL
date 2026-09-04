@@ -267,7 +267,47 @@ fn evaluate_request_clarity(
             return None;
         }
     };
-    parse_clarity_reply(&reply)
+    // Every outcome is on the record. A reply the parser cannot read used to
+    // return None in silence, so a gate that never ran and a request genuinely
+    // rated 10/10 looked identical from outside — which is exactly the question
+    // "why did Grace not ask?" cannot be answered without (operator,
+    // 2026-09-04).
+    match parse_clarity_reply(&reply) {
+        Some(check) => {
+            if check.questions.is_empty() {
+                crate::llm::push_ai_log(
+                    crate::llm::AiLogKind::Info,
+                    format!(
+                        "clarity pre-check: {}/10, no questions asked (the gate opens at {CLARITY_GATE_THRESHOLD}).",
+                        check.clarity
+                    ),
+                );
+            } else {
+                crate::llm::push_ai_log(
+                    crate::llm::AiLogKind::Info,
+                    format!(
+                        "clarity pre-check: {}/10 with {} question(s) — {}",
+                        check.clarity,
+                        check.questions.len(),
+                        check.questions.join(" | ")
+                    ),
+                );
+            }
+            Some(check)
+        }
+        None => {
+            crate::llm::push_ai_log(
+                crate::llm::AiLogKind::Error,
+                format!(
+                    "clarity pre-check UNREADABLE (fail-open, no gate): the model answered with no \
+                     parseable {{\"clarity\": …}} block, so the request was planned unrated. \
+                     Reply began: {}",
+                    reply.chars().take(200).collect::<String>().replace('\n', " ")
+                ),
+            );
+            None
+        }
+    }
 }
 
 /// Deterministic parse of the clarity pre-check reply. `None` (fail-open)

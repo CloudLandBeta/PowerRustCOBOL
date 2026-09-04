@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.30] — 2026-09-04
+
+### The clarity gate says what it decided
+
+"Why did Grace not ask?" could not be answered from the log, because two very
+different outcomes looked identical from outside: a request the model genuinely
+rated 10/10, and a reply whose JSON the parser could not read at all. The
+second returned `None` in silence and the request was planned unrated
+(operator, 2026-09-04).
+
+Every outcome is now on the record. A rating with no questions says so and
+names the threshold it was measured against; a rating WITH questions logs them;
+and an unreadable reply is logged as an error that says plainly that no gate
+ran, with the first 200 characters of what the model actually sent.
+
+This changes no behaviour — the pre-check still fails open, as it should, since
+a model that cannot answer the pre-check must not block the work. It makes the
+next report diagnosable instead of guessable.
+
 ## [PowerRustCOBOL 1.64.29] — 2026-09-04
 
 ### A question is shown as a question again
