@@ -5245,47 +5245,90 @@ fn draw_control_body(
             // caption used to run straight over its neighbours. It shrinks now,
             // like every other caption.
             let lpad = 3.0_f32.min(rect.width() * 0.25);
-            let galley = if text_justified(&align_raw) {
-                // Justified text fills the width by construction; keep the job
-                // path so `justify` is honoured.
-                let mut job = styled_text_job(
-                    painter, ctrl, &label, &font_name, fsize, txt_color, rect.width(), halign,
-                );
-                job.justify = true;
-                painter.layout_job(job)
-            } else {
-                fitted_caption_galley(
-                    painter,
-                    ctrl,
-                    &label,
-                    &font_name,
-                    fsize,
-                    txt_color,
-                    (rect.width() - 2.0 * lpad).max(1.0),
-                    rect.height().max(1.0),
-                    halign,
-                )
+            let valign = text_valign(
+                ctrl.get_prop("VerticalAlignment")
+                    .map(|v| v.as_str())
+                    .unwrap_or(""),
+            );
+            let vpad = 2.0_f32.min(rect.height() * 0.25);
+
+            // One layout at a given horizontal inset. Called twice: once to
+            // learn how tall the caption is, and again once the corner radius
+            // has had its say about how wide it may be.
+            let lay = |hpad: f32| -> std::sync::Arc<egui::Galley> {
+                if text_justified(&align_raw) {
+                    // Justified text fills the width by construction; keep the
+                    // job path so `justify` is honoured.
+                    let mut job = styled_text_job(
+                        painter,
+                        ctrl,
+                        &label,
+                        &font_name,
+                        fsize,
+                        txt_color,
+                        (rect.width() - 2.0 * hpad).max(1.0),
+                        halign,
+                    );
+                    job.justify = true;
+                    painter.layout_job(job)
+                } else {
+                    fitted_caption_galley(
+                        painter,
+                        ctrl,
+                        &label,
+                        &font_name,
+                        fsize,
+                        txt_color,
+                        (rect.width() - 2.0 * hpad).max(1.0),
+                        rect.height().max(1.0),
+                        halign,
+                    )
+                }
             };
+            let anchor_y_for = |h: f32| match valign {
+                egui::Align::TOP => rect.top() + vpad,
+                egui::Align::BOTTOM => rect.bottom() - vpad - h,
+                _ => rect.center().y - h / 2.0,
+            };
+
+            // ── The caption must stay inside the ARC, not just the box ──────
+            //
+            // A Label inset its text by a flat 3 px whatever `CornerRadius`
+            // said, and — unlike the TextBox branch below, which clips "so
+            // wrapped lines stay clear of the rounded corners" — clipped
+            // nothing at all. On a pill-shaped Label the top and bottom lines
+            // were laid across the full box width, which at those rows is
+            // entirely OUTSIDE the shape, so the text ran out through the
+            // corners (operator screenshot, 2026-09-03: "text is bleeding out
+            // of label when corner radius is set").
+            //
+            // The inset is measured, not guessed: `rounded_text_inset` asks
+            // how far the arc reaches in at the caption's own topmost and
+            // bottommost rows. A short line centred in a tall pill still gets
+            // the full width — the arc takes nothing at the middle — while a
+            // block spanning the whole height is narrowed by the radius.
+            let radius = corner_radius(ctrl);
+            let mut galley = lay(lpad);
+            let mut pad = lpad;
+            if radius > lpad {
+                let top = anchor_y_for(galley.size().y);
+                let inset = rounded_text_inset(rect, radius, top, top + galley.size().y);
+                if inset > lpad {
+                    pad = inset.min(rect.width() * 0.45);
+                    galley = lay(pad);
+                }
+            }
+
             // The galley's draw origin follows `halign`: top-left for LEFT,
             // top-centre for CENTER, top-right for RIGHT. Anchor x to the
             // matching edge of the rect (with a small inset off the border);
             // y follows VerticalAlignment (Middle on forms without it).
-            let pad = 3.0_f32.min(rect.width() * 0.25);
             let anchor_x = match halign {
                 egui::Align::Center => rect.center().x,
                 egui::Align::RIGHT => rect.right() - pad,
                 _ => rect.left() + pad,
             };
-            let vpad = 2.0_f32.min(rect.height() * 0.25);
-            let anchor_y = match text_valign(
-                ctrl.get_prop("VerticalAlignment")
-                    .map(|v| v.as_str())
-                    .unwrap_or(""),
-            ) {
-                egui::Align::TOP => rect.top() + vpad,
-                egui::Align::BOTTOM => rect.bottom() - vpad - galley.size().y,
-                _ => rect.center().y - galley.size().y / 2.0,
-            };
+            let anchor_y = anchor_y_for(galley.size().y);
             let text_pos = egui::pos2(anchor_x, anchor_y);
             // The run form takes the caption from here and draws it itself, so
             // the reader can select and copy it. Same galley, same position,
@@ -9306,6 +9349,41 @@ pub(crate) fn progressbar_segments(
         off += step;
     }
     out
+}
+
+/// How far a rounded corner reaches horizontally into `rect` for a block of
+/// content occupying `top..bottom` vertically.
+///
+/// At the vertical middle of a rounded rect the arc takes nothing — the edge
+/// there IS the box edge — and at the very top and bottom rows it takes the
+/// whole radius. For a row `dy` past the arc's centre the intrusion is
+/// `r - √(r² - dy²)`, and a block is limited by whichever of its two extreme
+/// rows the arc bites hardest.
+///
+/// This is what lets a caption use the full width of a tall pill when it is a
+/// single centred line, and be narrowed only when it actually reaches into the
+/// corners. Guessing a flat inset would do one of those two cases wrong.
+pub fn rounded_text_inset(rect: Rect, r: f32, top: f32, bottom: f32) -> f32 {
+    if r <= 0.0 {
+        return 0.0;
+    }
+    // Never more than the geometry can hold — egui clamps a corner radius to
+    // half the shorter side, and so must anything reasoning about the arc.
+    let r = r.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    let top_centre = rect.top() + r;
+    let bottom_centre = rect.bottom() - r;
+    let intrusion = |y: f32| -> f32 {
+        let dy = if y < top_centre {
+            top_centre - y
+        } else if y > bottom_centre {
+            y - bottom_centre
+        } else {
+            return 0.0;
+        };
+        let dy = dy.clamp(0.0, r);
+        r - (r * r - dy * dy).max(0.0).sqrt()
+    };
+    intrusion(top).max(intrusion(bottom))
 }
 
 pub fn corner_radius(ctrl: &Control) -> f32 {
@@ -13628,6 +13706,122 @@ mod theme_render_tests {
         assert!(
             strokes.is_empty(),
             "an unconfigured Switch under Liquid Glass must draw no border, got {strokes:?}"
+        );
+    }
+
+    /// The arc-intrusion maths the Label's caption inset is measured with.
+    #[test]
+    fn rounded_text_inset_follows_the_arc() {
+        let rect = egui::Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(400.0, 100.0));
+
+        // No radius, no inset — an ordinary square Label is untouched.
+        assert_eq!(rounded_text_inset(rect, 0.0, 0.0, 100.0), 0.0);
+
+        // A row through the middle clears both arcs completely — with a radius
+        // small enough that the two arcs do not meet. (At r = h/2 they meet at
+        // the centre line and NO row is free, which is why this uses r = 20.)
+        assert_eq!(rounded_text_inset(rect, 20.0, 45.0, 55.0), 0.0);
+
+        // The very top row is level with the arc's centre height minus r, so
+        // the arc has reached its full depth.
+        let full = rounded_text_inset(rect, 50.0, 0.0, 0.0);
+        assert!(
+            (full - 50.0).abs() < 0.001,
+            "at the top row the arc takes the whole radius, got {full}"
+        );
+
+        // Half-way down the arc (dy = r/√2) it has taken r(1 − 1/√2).
+        let r: f32 = 50.0;
+        let dy = r / 2.0_f32.sqrt();
+        let expected = r - (r * r - dy * dy).sqrt();
+        let got = rounded_text_inset(rect, r, rect.top() + (r - dy), rect.top() + (r - dy));
+        assert!(
+            (got - expected).abs() < 0.001,
+            "expected {expected}, got {got}"
+        );
+    }
+
+    /// **A Label's caption must stay inside the arc, not merely inside the
+    /// box** (operator screenshot, 2026-09-03: "text is bleeding out of label
+    /// when corner radius is set").
+    ///
+    /// The caption was inset by a flat 3 px however round the Label was, so on
+    /// a pill the top and bottom lines were laid across the full box width —
+    /// which at those rows is entirely outside the shape — and nothing clipped
+    /// them. A square Label must be completely unaffected by the fix.
+    #[test]
+    fn a_rounded_labels_caption_stays_inside_the_arc() {
+        let caption = "PowerRustCOBOL DataGrids are powerful tools capable of loading \
+                       virtually any number of rows. They offer numerous configuration \
+                       options, optional per-column filters, CSV import and export.";
+
+        let layout_for = |radius: i64| -> CaptionLayout {
+            let ctx = egui::Context::default();
+            let mut c = Control::new("L", crate::model::ControlType::Label, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 400, 120);
+            c.set_prop("Caption", crate::model::PropValue::String(caption.into()));
+            c.set_prop("CornerRadius", crate::model::PropValue::Int(radius));
+            c.set_prop("WordWrap", crate::model::PropValue::Bool(true));
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 300.0)));
+            let mut out = None;
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root, |ui| {
+                        out = draw_control_capturing_label(
+                            &ui.painter().clone(),
+                            egui::Pos2::ZERO,
+                            &c,
+                            false,
+                            false,
+                            1.0,
+                            1.0,
+                            None,
+                        );
+                    });
+            });
+            // As every other headless render test here does — the atlas delta
+            // has to be taken off the output or epaint trips over it.
+            full.textures_delta.clear();
+            out.expect("a Label must report its caption layout")
+        };
+
+        let rect = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 120.0));
+
+        // A pill: radius 60 = half the height.
+        let round = layout_for(60);
+        let top = round.pos.y;
+        let bottom = top + round.galley.size().y;
+        let needed = rounded_text_inset(rect, 60.0, top, bottom);
+        let left = round.pos.x;
+        assert!(
+            left >= rect.left() + needed - 0.5,
+            "caption starts at {left}, inside the arc it must clear {}",
+            rect.left() + needed
+        );
+        assert!(
+            left + round.galley.size().x <= rect.right() - needed + 0.5,
+            "caption ends at {}, the arc reaches in to {}",
+            left + round.galley.size().x,
+            rect.right() - needed
+        );
+
+        // A square Label is unchanged: it still uses the full width bar the
+        // flat 3 px, so the fix cannot have quietly narrowed every caption.
+        let square = layout_for(0);
+        assert!(
+            square.pos.x <= rect.left() + 3.5,
+            "a square Label must keep its 3px inset, got {}",
+            square.pos.x
+        );
+        assert!(
+            square.galley.size().x > round.galley.size().x,
+            "the pill must give its caption LESS width than the square one: \
+             square {} vs round {}",
+            square.galley.size().x,
+            round.galley.size().x
         );
     }
 

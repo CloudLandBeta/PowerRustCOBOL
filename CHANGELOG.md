@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.3] — 2026-09-03
+
+### A Label's caption stays inside its rounded corners
+
+"text is bleeding out of label when corner radius is set" (operator
+screenshot, 2026-09-03 — a pill-shaped Label whose first and last lines ran
+straight out through the arcs).
+
+A Label inset its caption by a flat 3 px whatever `CornerRadius` said, and
+— unlike the TextBox branch immediately below it, whose own comment says it
+clips "so wrapped lines stay clear of the rounded corners" — it clipped
+nothing at all. So on a rounded Label the caption was laid out across the full
+box width, which at the top and bottom rows is almost entirely **outside** the
+shape.
+
+The inset is now **measured against the arc rather than guessed**.
+`rounded_text_inset` asks how far the corner reaches in at the caption's own
+topmost and bottommost rows — `r − √(r² − dy²)` — and the caption is laid out
+again at that width. The distinction earns its keep: a short centred line in a
+tall pill keeps the full width, because the arc takes nothing at the middle,
+while a block that really does reach into the corners is narrowed by exactly
+what the corner takes. A flat inset would have squeezed the first case for
+nothing.
+
+It lands in the one painter both surfaces share — the designer canvas and the
+run form take the same galley at the same position — so the two cannot
+disagree about where the text sits.
+
+Guarded by two tests. `rounded_text_inset_follows_the_arc` pins the geometry
+(no radius → no inset; a row through the middle → nothing; the top row → the
+whole radius; half-way down the arc → `r(1 − 1/√2)`).
+`a_rounded_labels_caption_stays_inside_the_arc` renders a real pill-shaped
+Label and asserts the caption clears the arc on both sides — and, just as
+importantly, that a **square** Label still starts at exactly 3 px and gets
+more width than the pill, so the fix cannot have quietly narrowed every
+caption in every form. Mutation-tested: with the radius branch disabled the
+caption starts at x=3 where the arc needs 9.25, and the test says so.
+
 ## [PowerRustCOBOL 1.64.2] — 2026-09-03
 
 ### A Switch you can actually give a border to — and the test that should have caught the rim
