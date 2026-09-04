@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.13] — 2026-09-04
+
+### The placement popup opens in the window that took the shot
+
+"draw the popup in the window that took the shot" (operator, 2026-09-04, once
+F12 in the RAD started working and pulled the main window forward with it).
+
+The popup lived on the main window for a reason that no longer holds. While the
+capture went through `ViewportCommand::Screenshot`, the picture was taken at
+some later point in the frame loop, so a popup drawn in the same window could
+have ended up *inside* the shot. Keeping it on the root was the guard. Since
+1.64.12 the capture is synchronous — `screencapture` has already returned the
+PNG before anything else is drawn — so a popup shown afterwards cannot appear
+in an image that was taken before it existed.
+
+So `DocShots` now remembers which viewport took the shot, every viewport calls
+`ui()`, and only the one that captured draws. The main window stops being yanked
+to the front, and the operator stays in the designer they were arranging.
+
+Failures follow the same rule: a capture that cannot run — Screen Recording
+permission being the likely one — reports itself in the window that tried,
+rather than on a window the operator is not looking at.
+
 ## [PowerRustCOBOL 1.64.12] — 2026-09-04
 
 ### One capture, called by every window with its own handle

@@ -636,6 +636,15 @@ pub struct DocShots {
     /// A Shift+F12 countdown, and the viewport that asked for it.
     delay: Option<(ViewportId, Instant)>,
     open: bool,
+    /// The viewport that took the pending shot — and therefore the one that
+    /// draws the placement popup. The popup used to live on the main window
+    /// only, because a synchronous-looking `ViewportCommand::Screenshot` could
+    /// have caught it in the frame being photographed. `screencapture` has
+    /// already returned the PNG by the time this is set, so the shot cannot
+    /// contain a popup that did not exist when it was taken — and the operator
+    /// keeps the window they were working in (operator, 2026-09-04: "draw the
+    /// popup in the window that took the shot").
+    popup_viewport: Option<ViewportId>,
     /// Viewports `poll` has run in at least once — so the probe announces each
     /// window once instead of every frame.
     seen_viewports: std::collections::HashSet<ViewportId>,
@@ -798,22 +807,15 @@ impl DocShots {
                 self.name_input.clear();
                 self.refresh();
                 self.open = true;
-                // The popup is drawn by the MAIN window alone, so that it is
-                // never part of the frame being photographed. Raise it, or a
-                // shot taken over a designer opens its popup out of sight.
-                if ctx.viewport_id() != ViewportId::ROOT {
-                    ctx.send_viewport_cmd_to(ViewportId::ROOT, egui::ViewportCommand::Focus);
-                    ctx.request_repaint_of(ViewportId::ROOT);
-                }
+                self.popup_viewport = Some(ctx.viewport_id());
             }
             Err(message) => {
+                // The failure is reported in the window that tried, for the
+                // same reason the popup is: that is where the operator is.
                 tracing::warn!(target: "doc_shots", "capture failed: {message}");
                 self.status = Some(format!("✗ {message}"));
                 self.open = true;
-                if ctx.viewport_id() != ViewportId::ROOT {
-                    ctx.send_viewport_cmd_to(ViewportId::ROOT, egui::ViewportCommand::Focus);
-                    ctx.request_repaint_of(ViewportId::ROOT);
-                }
+                self.popup_viewport = Some(ctx.viewport_id());
             }
         }
     }
@@ -840,6 +842,10 @@ impl DocShots {
     /// The placement popup. Main window only — it must not appear in the very
     /// frame the operator is photographing.
     pub fn ui(&mut self, ctx: &Context, backdrop: Color32) {
+        // Every viewport calls this; the one that took the shot draws it.
+        if self.popup_viewport != Some(ctx.viewport_id()) {
+            return;
+        }
         if !self.open || self.pending.is_none() {
             return;
         }
@@ -942,6 +948,7 @@ impl DocShots {
         if !open || close {
             self.open = false;
             self.pending = None;
+            self.popup_viewport = None;
         }
     }
 

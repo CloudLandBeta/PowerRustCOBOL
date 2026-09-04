@@ -2529,6 +2529,10 @@ impl CoboltApp {
         }
         ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
             self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
+            // The window that took the shot draws the placement popup, so
+            // the operator stays in the window they were working in.
+            let shot_bg = self.current_theme().bg_panel.to_opaque();
+            self.doc_shots.ui(vp_ctx, shot_bg);
             let close = vp_ctx.input(|i| i.viewport().close_requested());
             let action = self.debugger.show_viewport_body(vp_ctx, tr);
             if close {
@@ -13324,6 +13328,10 @@ impl eframe::App for CoboltApp {
                     .with_inner_size([1200.0, 800.0]),
                 |vp_ctx, _class| {
                     self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
+                    // The window that took the shot draws the placement popup, so
+                    // the operator stays in the window they were working in.
+                    let shot_bg = self.current_theme().bg_panel.to_opaque();
+                    self.doc_shots.ui(vp_ctx, shot_bg);
                     if activate {
                         vp_ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         vp_ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -13419,6 +13427,10 @@ impl eframe::App for CoboltApp {
                     .with_transparent(true),
                 |vp_ctx, _class| {
                     self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
+                    // The window that took the shot draws the placement popup, so
+                    // the operator stays in the window they were working in.
+                    let shot_bg = self.current_theme().bg_panel.to_opaque();
+                    self.doc_shots.ui(vp_ctx, shot_bg);
                     if vp_ctx.input(|i| i.viewport().close_requested()) {
                         self.designers[idx].1.show_preview = false;
                     }
@@ -14325,6 +14337,10 @@ impl CoboltApp {
         }
         ctx.show_viewport_immediate(vp_id, builder, |vp_ctx, _class| {
             self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
+            // The window that took the shot draws the placement popup, so
+            // the operator stays in the window they were working in.
+            let shot_bg = self.current_theme().bg_panel.to_opaque();
+            self.doc_shots.ui(vp_ctx, shot_bg);
             if vp_ctx.input(|i| i.viewport().close_requested()) {
                 self.show_inspector = false;
             }
@@ -14627,6 +14643,10 @@ impl CoboltApp {
                     .with_inner_size([1000.0, 600.0]),
                 |vp_ctx, _class| {
                     self.doc_shots.poll(vp_ctx, self.debug.doc_screenshots);
+                    // The window that took the shot draws the placement popup, so
+                    // the operator stays in the window they were working in.
+                    let shot_bg = self.current_theme().bg_panel.to_opaque();
+                    self.doc_shots.ui(vp_ctx, shot_bg);
                     if vp_ctx.input(|i| i.viewport().close_requested()) {
                         self.indexed_grids[gi].1.close_requested = true;
                     }
