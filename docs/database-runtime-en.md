@@ -13,9 +13,9 @@ RustCOBOL programs talk to SQL databases through a small set of built-in
 selected automatically from the connection string, so a program written for
 SQLite runs unchanged against PostgreSQL or MySQL by changing one literal.
 
-| Backend     | Driver (pure Rust, no system library) | Connection string                                  |
+| Backend     | Driver (no system library needed)     | Connection string                                  |
 |-------------|---------------------------------------|----------------------------------------------------|
-| **SQLite**  | `rusqlite` (bundled SQLite)           | `:memory:`, `sqlite:<path>`, or a bare file path   |
+| **SQLite**  | `rusqlite`, `features = ["bundled"]` — compiles the SQLite **C** amalgamation, so this one is not pure Rust | `:memory:`, `sqlite:<path>`, or a bare file path   |
 | **PostgreSQL** | `postgres` (rust-postgres, sync)   | `postgres://user:pass@host:port/db`                |
 | **MySQL**   | `mysql` (rustls, sync)                | `mysql://user:pass@host:port/db`                   |
 

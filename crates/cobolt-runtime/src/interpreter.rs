@@ -12741,17 +12741,64 @@ impl Interpreter {
                     }
                 }
             }
+            // `Fetch()` hands back the ROW, tab-separated, and empty once the
+            // result set runs out — so the loop a developer writes reads:
+            //
+            //     PERFORM UNTIL 1 = 2
+            //         MOVE Db::Fetch() TO WS-ROW
+            //         IF WS-ROW = SPACES  EXIT PERFORM  END-IF
+            //         ...
+            //     END-PERFORM
+            //
+            // It used to return "1"/"0" — a flag — while every caller (the
+            // PowerDemo3 SqlDatabase demo included) moved it into a PIC X and
+            // treated it as data. That loop could not end: "0" is not SPACES,
+            // so the demo appended "1" to a ListBox forever, which is what the
+            // operator saw as "not showing the columns" and "incredible slow".
+            // Nothing on the `::` surface could reach a value at all — reading
+            // data needed the CALL surface and a column INDEX.
             "FETCH" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
-                let fetched = self.db.next_row(h);
-                if fetched {
-                    self.queue_control_event(obj, "onRowFetched");
+                match self.db.take_row(h) {
+                    Some(row) => {
+                        self.queue_control_event(obj, "onRowFetched");
+                        val(row.join("\t"))
+                    }
+                    None => val(String::new()),
                 }
-                val(if fetched { "1" } else { "0" }.to_string())
             }
             "FETCHALL" => {
                 let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
                 val(self.db.row_count(h).to_string())
+            }
+            // What the query returned, by name — the other half of the same
+            // report. `ColumnNames()` is tab-separated like a row, so the two
+            // line up field for field; `ColumnCount()` and `ColumnName(n)`
+            // (1-based) are there for a program that walks them.
+            //
+            // NOT `Columns()`: a DataGrid already has a `Columns` PROPERTY, and
+            // a name in `is_known_method` stops being readable as a property —
+            // `MOVE ... TO GRID::Columns` became "a method call, not a
+            // receiving field". The vocabulary is shared across every control,
+            // so a new method name has to be free on ALL of them, not just on
+            // the one it was written for.
+            "COLUMNNAMES" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                val(self.db.columns(h).join("\t"))
+            }
+            "COLUMNCOUNT" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                val(self.db.columns(h).len().to_string())
+            }
+            "COLUMNNAME" => {
+                let h = parse_i(self.obj_get(obj, "_Handle")) as u32;
+                let n: usize = arg(0).trim().parse().unwrap_or(0);
+                let cols = self.db.columns(h);
+                val(if n >= 1 && n <= cols.len() {
+                    cols[n - 1].clone()
+                } else {
+                    String::new()
+                })
             }
             // ── Property accessor (spec 010 R9) ──
             // A member that is not an explicit method is a **property**:
@@ -15205,6 +15252,13 @@ fn is_known_method(name: &str) -> bool {
             | "ASK" | "GET" | "POST" | "PUT" | "DELETE" | "CALL" | "SETHEADER"
             | "CLEARHEADERS" | "SETTIMEOUT" | "OPEN" | "EXECUTE" | "EXEC"
             | "QUERY" | "FETCH" | "FETCHALL"
+        // SqlDatabase result-set columns — every one MUST be listed here, or
+        // `Db::ColumnName(2)` parses its parens as a collection subscript and
+        // silently means "element 2 of ColumnName". Equally, a name added here
+        // stops being usable as a PROPERTY on every control: `Columns` is a
+        // DataGrid property, which is why the tab-joined accessor is called
+        // `ColumnNames`.
+            | "COLUMNNAMES" | "COLUMNCOUNT" | "COLUMNNAME"
         // Collection verbs + scalar transforms (exec_member_method)
             | "COUNT" | "SIZE" | "REMOVE" | "ADD" | "APPEND"
             | "TOUPPERCASE" | "UPPERCASE" | "UPPER"

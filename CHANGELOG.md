@@ -1,5 +1,63 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.4] — 2026-09-03
+
+### `Fetch()` returns the row, and a query finally names its columns
+
+Both halves of the SqlDatabase report (operator, 2026-09-03: the demo "is not
+showing the columns returned by the query (if any). It is also incredible
+slow") were the same defect wearing two hats — the result set was reaching
+COBOL with its data and its names stripped off.
+
+**`Db::Fetch()` returned a `"1"`/`"0"` flag.** Every caller — the PowerDemo3
+`sqldatabase-form` demo included — moved it into a `PIC X` and treated it as a
+row. That loop cannot end: `WS-ROW PIC X(200)` holding `"0"` is not `SPACES`,
+so the demo appended `"1"` to a ListBox forever, each `AddItem` copying an
+ever-growing string. What looked like slowness was an unbounded loop; what
+looked like missing columns was a list of flags. Nothing on the `::` surface
+could reach a value at all: reading data meant the CALL surface and a numeric
+column index.
+
+`Fetch()` now returns the **next row**, columns TAB-separated, and **empty
+once the rows run out** — so it terminates its own loop, and the demo's COBOL
+becomes correct exactly as written, without touching the form. This is a
+deliberate breaking change to that method's contract; a program testing it for
+`= 1` was already broken, because it never saw a second row.
+
+**The column names were discarded at the source.** `exec_sqlite` read
+`stmt.column_count()` and never `stmt.column_names()`, and `ExecResult` had
+nowhere to put them — so no layer above could name a column, which is why the
+designer has no query preview and a bound DataGrid takes its headings only
+from the `Columns` property a developer typed by hand. All three drivers hand
+the names over for free and now all three keep them: `rusqlite` from the
+prepared statement (so an empty result set still reports its shape),
+`postgres` from the first row message, `mysql` from the result set. Reaching
+them: `ColumnNames()` (TAB-separated, in SELECT order, lining up
+field-for-field with a row), `ColumnCount()`, and `ColumnName(n)`, 1-based.
+Not `Columns()`: a DataGrid already has a `Columns` property, and a name in
+the inline-method vocabulary stops being readable as a property on EVERY
+control — the suite caught `MOVE ... TO GRID::Columns` breaking.
+
+`Fetch()` consumes as it reads, while `COBOL-FETCH-ROW`/`COBOL-NEXT-ROW` read
+the current row in place and step separately. The two traversals must not be
+interleaved on one handle, and both the doc comment and the knowledge base now
+say so.
+
+Guarded at both levels: `a_query_reports_its_columns_and_yields_its_rows` and
+`an_empty_result_set_still_names_its_columns` pin the registry, and
+`the_method_surface_returns_rows_and_names_columns` runs the demo's own loop
+shape as COBOL through the interpreter — it asserts the loop **ends**, that
+the columns come back by name, and that each row arrives once.
+
+**A claim corrected while checking the drivers.** The support matrix and
+`database-runtime-en.md` both said the SQL drivers are "pure Rust, no system
+libraries". The second half holds — nothing is linked from the host — but
+`rusqlite` is pinned `features = ["bundled"]` and compiles the SQLite **C**
+amalgamation via `libsqlite3-sys`. Only `postgres` and `mysql` are pure Rust.
+That bundled C build is also the standing explanation for
+`test_external_crates_e2e` failing inside a nested `cargo build`, which this
+project had been filing as environmental.
+
 ## [PowerRustCOBOL 1.64.3] — 2026-09-03
 
 ### A Label's caption stays inside its rounded corners

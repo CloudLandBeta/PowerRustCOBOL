@@ -14,9 +14,9 @@
 //! Three backends are supported behind one uniform interface, selected by the
 //! connection string:
 //!
-//! | Backend     | Driver (pure Rust, no system library) |
+//! | Backend     | Driver (no system library needed)      |
 //! |-------------|---------------------------------------|
-//! | SQLite      | `rusqlite` (bundled)                  |
+//! | SQLite      | `rusqlite`, `features = ["bundled"]` — compiles the SQLite C amalgamation, so it is not pure Rust, but nothing is linked from the host |
 //! | PostgreSQL  | `postgres` (rust-postgres, sync)      |
 //! | MySQL       | `mysql` (rustls, sync)                |
 //!
@@ -97,10 +97,19 @@ enum Backend {
     MySql(mysql::Conn),
 }
 
-/// The outcome of executing one statement: cached rows plus an affected-row
-/// count (the latter is used for INSERT/UPDATE/DELETE/DDL).
+/// The outcome of executing one statement: the column names, cached rows, and
+/// an affected-row count (the latter is used for INSERT/UPDATE/DELETE/DDL).
+///
+/// `columns` used to be missing, and every driver here hands the names over for
+/// free — `rusqlite` from the prepared statement, `postgres` from the row,
+/// `mysql` from the result set. Dropping them meant nothing above this layer
+/// could ever name a column: a query's result reached COBOL as numbered
+/// positions only, so a grid or a list had no headings to show and the
+/// developer had to know the SELECT's shape by heart (operator, 2026-09-03:
+/// "not showing the columns returned by the query").
 #[cfg(feature = "sql")]
 struct ExecResult {
+    columns: Vec<String>,
     rows: Vec<Vec<String>>,
     affected: usize,
 }
@@ -128,6 +137,8 @@ pub struct DbConn {
     /// The backing driver connection.
     #[cfg(feature = "sql")]
     backend: Backend,
+    /// The column names of the last result set, in SELECT order.
+    columns: Vec<String>,
     /// All rows fetched from the last `COBOL-EXEC-SQL` call.
     /// Each row is a `Vec<String>` of column values (every value normalised to
     /// its text form, exactly as SQLite already did).
@@ -149,6 +160,7 @@ impl DbConn {
         };
         Ok(Self {
             backend,
+            columns: Vec::new(),
             rows: Vec::new(),
             cursor: 0,
             exhausted: false,
@@ -202,6 +214,7 @@ impl DbConn {
     /// (and DDL) the affected-row count is returned and `self.rows` is empty.
     #[cfg(feature = "sql")]
     fn exec(&mut self, sql: &str) -> Result<usize, String> {
+        self.columns.clear();
         self.rows.clear();
         self.cursor = 0;
         self.exhausted = false;
@@ -213,6 +226,7 @@ impl DbConn {
             Backend::MySql(conn) => Self::exec_mysql(conn, sql)?,
         };
 
+        self.columns = result.columns;
         self.rows = result.rows;
         // SELECT → number of rows; DML/DDL → affected rows.
         if self.rows.is_empty() {
@@ -240,6 +254,14 @@ impl DbConn {
         if is_select {
             let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
             let col_count = stmt.column_count();
+            // Taken from the PREPARED STATEMENT, not from a row: a SELECT that
+            // matches nothing still has columns, and a caller asking what the
+            // query returns deserves an answer when it returns no rows.
+            let columns: Vec<String> = stmt
+                .column_names()
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
             let rows_iter = stmt
                 .query_map([], |row| {
                     let mut cols = Vec::with_capacity(col_count);
@@ -265,10 +287,15 @@ impl DbConn {
             for row in rows_iter {
                 rows.push(row.map_err(|e| e.to_string())?);
             }
-            Ok(ExecResult { rows, affected: 0 })
+            Ok(ExecResult {
+                columns,
+                rows,
+                affected: 0,
+            })
         } else {
             let affected = conn.execute(sql, []).map_err(|e| e.to_string())?;
             Ok(ExecResult {
+                columns: Vec::new(),
                 rows: Vec::new(),
                 affected,
             })
@@ -282,11 +309,15 @@ impl DbConn {
         use postgres::SimpleQueryMessage;
         let messages = client.simple_query(sql).map_err(|e| e.to_string())?;
         let mut rows = Vec::new();
+        let mut columns: Vec<String> = Vec::new();
         let mut affected = 0usize;
         for msg in messages {
             match msg {
                 SimpleQueryMessage::Row(r) => {
                     let n = r.columns().len();
+                    if columns.is_empty() {
+                        columns = r.columns().iter().map(|c| c.name().to_owned()).collect();
+                    }
                     let mut cols = Vec::with_capacity(n);
                     for i in 0..n {
                         cols.push(r.get(i).unwrap_or("").to_string());
@@ -297,7 +328,11 @@ impl DbConn {
                 _ => {}
             }
         }
-        Ok(ExecResult { rows, affected })
+        Ok(ExecResult {
+            columns,
+            rows,
+            affected,
+        })
     }
 
     /// MySQL execution via `query_iter`, normalising each `mysql::Value` to text.
@@ -305,6 +340,12 @@ impl DbConn {
     fn exec_mysql(conn: &mut mysql::Conn, sql: &str) -> Result<ExecResult, String> {
         use mysql::prelude::Queryable;
         let mut qr = conn.query_iter(sql).map_err(|e| e.to_string())?;
+        let columns: Vec<String> = qr
+            .columns()
+            .as_ref()
+            .iter()
+            .map(|c| c.name_str().into_owned())
+            .collect();
         let mut rows = Vec::new();
         for row_res in qr.by_ref() {
             let row = row_res.map_err(|e| e.to_string())?;
@@ -317,7 +358,11 @@ impl DbConn {
             rows.push(cols);
         }
         let affected = qr.affected_rows() as usize;
-        Ok(ExecResult { rows, affected })
+        Ok(ExecResult {
+            columns,
+            rows,
+            affected,
+        })
     }
 
     /// Convert one `mysql::Value` to the same text form the other backends use.
@@ -385,6 +430,28 @@ impl DbConn {
     fn is_exhausted(&self) -> bool {
         self.exhausted
     }
+
+    /// The current row's values, then advance — the shape a
+    /// `PERFORM UNTIL <empty>` loop needs, and what `Db::Fetch()` returns.
+    ///
+    /// `None` once the rows run out, so the caller's loop ends on its own
+    /// instead of needing a separate "is there more" question. This is
+    /// deliberately a *different* traversal from `fetch_col` + `next_row`,
+    /// which read the current row in place and step separately: mixing the two
+    /// on one handle will skip rows, because this one consumes as it reads.
+    fn take_row(&mut self) -> Option<Vec<String>> {
+        if self.exhausted || self.cursor >= self.rows.len() {
+            self.exhausted = true;
+            return None;
+        }
+        let row = self.rows[self.cursor].clone();
+        if self.cursor + 1 < self.rows.len() {
+            self.cursor += 1;
+        } else {
+            self.exhausted = true;
+        }
+        Some(row)
+    }
 }
 
 // ── DbRegistry ────────────────────────────────────────────────────────────────
@@ -433,6 +500,25 @@ impl DbRegistry {
             .get(&handle)
             .map(|c| c.fetch_col(col))
             .unwrap_or_default()
+    }
+
+    /// The column names of the last result set, in SELECT order.
+    ///
+    /// Available even when the query matched no rows — they come from the
+    /// prepared statement, not from a row.
+    pub fn columns(&self, handle: u32) -> Vec<String> {
+        self.connections
+            .get(&handle)
+            .map(|c| c.columns.clone())
+            .unwrap_or_default()
+    }
+
+    /// The current row's values, then advance. `None` when the rows run out.
+    ///
+    /// See [`DbConn::take_row`]: this consumes as it reads, so it is not to be
+    /// interleaved with `fetch_col`/`next_row` on the same handle.
+    pub fn take_row(&mut self, handle: u32) -> Option<Vec<String>> {
+        self.connections.get_mut(&handle).and_then(|c| c.take_row())
     }
 
     /// Advance cursor to the next row.
@@ -505,6 +591,68 @@ mod tests {
             BackendKind::classify("mysql://u:p@localhost/db"),
             BackendKind::MySql
         );
+    }
+
+    /// **A query reports its columns, and `take_row` hands back the data.**
+    ///
+    /// Both halves of the 2026-09-03 report: the names were dropped by
+    /// `ExecResult`, and the only row traversal on the `::` surface returned a
+    /// 1/0 flag, so a query's result could reach COBOL only as numbered
+    /// positions through the CALL surface.
+    #[cfg(feature = "sql")]
+    #[test]
+    fn a_query_reports_its_columns_and_yields_its_rows() {
+        let mut reg = DbRegistry::new();
+        let h = reg.open(":memory:").expect("in-memory sqlite opens");
+        reg.exec(h, "CREATE TABLE persons (id INTEGER, name TEXT)")
+            .expect("create");
+        reg.exec(h, "INSERT INTO persons VALUES (1, 'Ada'), (2, 'Grace')")
+            .expect("insert");
+
+        let n = reg
+            .exec(h, "SELECT id, name FROM persons ORDER BY id")
+            .expect("select");
+        assert_eq!(n, 2, "two rows");
+
+        // The names the SELECT asked for, in its order.
+        assert_eq!(reg.columns(h), vec!["id".to_string(), "name".to_string()]);
+
+        // Each row once, in order, then nothing — the loop shape COBOL uses.
+        assert_eq!(
+            reg.take_row(h),
+            Some(vec!["1".to_string(), "Ada".to_string()])
+        );
+        assert_eq!(
+            reg.take_row(h),
+            Some(vec!["2".to_string(), "Grace".to_string()])
+        );
+        assert_eq!(reg.take_row(h), None, "the result set is spent");
+        assert_eq!(reg.take_row(h), None, "and stays spent");
+
+        reg.close(h);
+    }
+
+    /// A SELECT that matches nothing still has columns — they come from the
+    /// prepared statement, not from a row. Taking them from the first row
+    /// would report none here, which is exactly when a caller most needs to
+    /// know the shape of what it asked for.
+    #[cfg(feature = "sql")]
+    #[test]
+    fn an_empty_result_set_still_names_its_columns() {
+        let mut reg = DbRegistry::new();
+        let h = reg.open(":memory:").expect("in-memory sqlite opens");
+        reg.exec(h, "CREATE TABLE t (a INTEGER, b TEXT, c REAL)")
+            .expect("create");
+
+        let n = reg.exec(h, "SELECT a, b, c FROM t").expect("select");
+        assert_eq!(n, 0, "no rows");
+        assert_eq!(
+            reg.columns(h),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+        assert_eq!(reg.take_row(h), None);
+
+        reg.close(h);
     }
 
     #[test]

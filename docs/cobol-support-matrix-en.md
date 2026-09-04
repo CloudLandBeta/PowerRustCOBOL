@@ -268,7 +268,8 @@ COBOL; it is what makes the language usable for modern applications.
 
 | Capability | 85 | 20xx | PRC | Status | Notes |
 |---|:--:|:--:|:--:|:--:|---|
-| **SQL** — SQLite, PostgreSQL, MySQL | — | — | ● | ✅ | One identical CALL surface for all three; backend chosen from the connection string. Pure-Rust drivers, no system libraries — [`database-runtime-en.md`](database-runtime-en.md) |
+| **SQL** — SQLite, PostgreSQL, MySQL | — | — | ● | ✅ | One identical CALL surface for all three; the backend is chosen from the connection string. **No system libraries** — nothing is linked from the host — but "pure Rust" is only true of two of the three: `postgres` and `mysql` are, while `rusqlite` is pinned `features = ["bundled"]` and compiles the **SQLite C amalgamation** through `libsqlite3-sys`. (That C build is also why `test_external_crates_e2e` intermittently fails inside a nested `cargo build`.) See [`database-runtime-en.md`](database-runtime-en.md) |
+| **SQL result sets** — `Fetch()`, `ColumnNames()`, `ColumnCount()`, `ColumnName(n)` | — | — | ● | ✅ | `Fetch()` returns the next row TAB-separated and empty when spent, so it terminates its own loop; `ColumnNames()` names the result set in SELECT order, even when it matched no rows. The `CALL` surface reads the current row one column at a time by index instead — the two traversals must not be mixed on one handle |
 | **HTTP / REST** — GET / POST / PUT / DELETE | — | — | ● | ✅ | Custom headers |
 | **GUI** — `COBOL-WAIT-EVENT`, `COBOL-SET-PROPERTY`, `COBOL-GET-PROPERTY`, `COBOL-INIT-FORM` | — | — | ● | ✅ | |
 | **Charts** — bar / line / pie / area / scatter / donut | — | — | ● | ✅ | Bound to COBOL tables |

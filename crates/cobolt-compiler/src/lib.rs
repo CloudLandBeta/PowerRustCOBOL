@@ -4817,8 +4817,15 @@ An IndexedFile control named `IXF-1` is driven with `PERFORM` on the paragraphs 
 - `PERFORM IXF-1-CLOSE` — close the file.\n\
 The two-character file status lands in the `StatusDataItem` (or `WS-IXF-1-STATUS`).\n",
         "SqlDatabase" => "\
+### Usage (inline `::` methods)\n\
+`Open(conn-string)` → handle · `Execute(sql)` / `Query(sql)` → row count · `Close()`.\n\
+Reading a result set:\n\
+- **`Fetch()` returns the next ROW**, its columns separated by TAB, and returns **EMPTY once the rows run out**. That is the loop's own terminator — write `PERFORM UNTIL 1 = 2 / MOVE DB-1::Fetch() TO WS-ROW / IF WS-ROW = SPACES EXIT PERFORM END-IF / ... / END-PERFORM`. It does NOT return a 1/0 flag; a loop testing it for `= 0` or `= 1` never ends.\n\
+- `ColumnNames()` → the column names of the last result set, TAB-separated in SELECT order, so they line up field-for-field with a row from `Fetch()`. Available even when the query matched no rows.\n\
+- `ColumnCount()` → how many · `ColumnName(n)` → the *n*-th name, 1-based.\n\
+Split a row on TAB with `UNSTRING ... DELIMITED BY X\"09\"`, or use reference modification if the widths are known.\n\
 ### Usage (generated paragraphs and CALL API)\n\
-Besides the inline methods, the IDE generates paragraphs for a control named `DB-1`: `DB-1-CONNECT` (opens using `WS-DB-1-CONN-STRING`), `DB-1-EXEC` (runs `WS-SQL-QUERY`, row count in `WS-SQL-ROW-COUNT`), `DB-1-FETCH-ALL` (template row loop), `DB-1-COMMIT`, `DB-1-ROLLBACK`, `DB-1-CLOSE`. The low-level `CALL \"COBOL-OPEN-DB\" / \"COBOL-EXEC-SQL\" / \"COBOL-FETCH-ROW\" / ...` API is also available.\n",
+The IDE also generates paragraphs for a control named `DB-1`: `DB-1-CONNECT` (opens using `WS-DB-1-CONN-STRING`), `DB-1-EXEC` (runs `WS-SQL-QUERY`, row count in `WS-SQL-ROW-COUNT`), `DB-1-FETCH-ALL` (template row loop), `DB-1-COMMIT`, `DB-1-ROLLBACK`, `DB-1-CLOSE`. The low-level `CALL \"COBOL-OPEN-DB\" / \"COBOL-EXEC-SQL\" / \"COBOL-FETCH-ROW\" / ...` API is also available — it reads the CURRENT row one column at a time by INDEX (`COBOL-FETCH-ROW` + `COBOL-NEXT-ROW`). Do not interleave that traversal with `Fetch()` on one handle: `Fetch()` consumes as it reads, so mixing them skips rows.\n",
         "BarChart" | "LineChart" | "PieChart" | "AreaChart" | "ScatterChart" | "DonutChart" => "\
 ### Data flow\n\
 Three equivalent ways to feed the chart:\n\
