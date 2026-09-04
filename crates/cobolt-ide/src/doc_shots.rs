@@ -534,6 +534,9 @@ pub struct DocShots {
     /// A Shift+F12 countdown, and the viewport that asked for it.
     delay: Option<(ViewportId, Instant)>,
     open: bool,
+    /// Viewports `poll` has run in at least once — so the probe announces each
+    /// window once instead of every frame.
+    seen_viewports: std::collections::HashSet<ViewportId>,
     docs: Vec<DocEntry>,
     selected: Option<usize>,
     /// File name for a bare `[SCREENSHOT]`, which names no target itself.
@@ -555,6 +558,47 @@ impl DocShots {
     pub fn poll(&mut self, ctx: &Context, enabled: bool) {
         if !enabled {
             return;
+        }
+
+        // ── Probe: is this viewport polling, and does it see keys at all? ───
+        //
+        // `COBOLT_LOG=doc_shots=info` printed NOTHING when F12 was pressed over
+        // the Form Designer (operator, 2026-09-04), which rules out the popup,
+        // the focus flag and the debug switch — the key never reaches here. Two
+        // things could produce that silence and they need different fixes:
+        // `poll` not running for that viewport at all (an immediate child only
+        // runs inside its parent's frame), or running but receiving no key
+        // events. One line each, so the next run says which.
+        {
+            let first_time = self.seen_viewports.insert(ctx.viewport_id());
+            if first_time {
+                tracing::info!(
+                    target: "doc_shots",
+                    "poll is live for viewport={:?}",
+                    ctx.viewport_id(),
+                );
+            }
+            let keys: Vec<Key> = ctx.input(|input| {
+                input
+                    .events
+                    .iter()
+                    .filter_map(|event| match event {
+                        egui::Event::Key {
+                            key, pressed: true, ..
+                        } => Some(*key),
+                        _ => None,
+                    })
+                    .collect()
+            });
+            if !keys.is_empty() {
+                tracing::info!(
+                    target: "doc_shots",
+                    "viewport={:?} focused={} keys={:?}",
+                    ctx.viewport_id(),
+                    ctx.input(|i| i.focused),
+                    keys,
+                );
+            }
         }
 
         let (mut now, mut delayed) = (false, false);

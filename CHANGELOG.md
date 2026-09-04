@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.11] — 2026-09-04
+
+### A probe one level below the F12 traces
+
+`COBOLT_LOG=doc_shots=info` printed **nothing** when F12 was pressed over the
+Form Designer (operator, 2026-09-04). That rules out the popup, the focus flag
+and the debug switch in one stroke — the key never reaches `poll` at all, so
+1.64.8 and 1.64.9 were both fixing things that were not the fault.
+
+Two very different causes produce identical silence, and they need opposite
+fixes:
+
+- **`poll` never runs for that viewport.** A designer window is an *immediate*
+  viewport — its closure executes inside the root window's own frame. If the
+  root is idle because focus sits on the designer, the closure does not run,
+  and a key event in the designer's queue is never looked at.
+- **`poll` runs but receives no key events**, which would point at delivery or
+  at the OS intercepting F12.
+
+So: one line per viewport the first time `poll` executes there, and one line
+whenever **any** key arrives — not just F12. Pressing an ordinary letter in the
+designer now answers the question on its own: a `keys=[A]` line with no F12 line
+means the window is polling and receiving keys and something eats F12
+specifically; no lines at all means the closure is not running.
+
+No behaviour changed. This is instrumentation for a fault that has survived two
+plausible-looking fixes, and guessing a third time is worse than measuring.
+
 ## [PowerRustCOBOL 1.64.9] — 2026-09-04
 
 ### F12 was dead in the Form Designer because it asked the wrong question
