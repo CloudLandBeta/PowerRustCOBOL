@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.6] — 2026-09-04
+
+### The support matrix reads in Spanish, French and Portuguese
+
+The matrix from 1.64.0 now has three of its five translations. They were
+generated whole from the English canonical, then brought forward to the English
+as it stands after 1.64.1 and 1.64.4 — the two corrections made since:
+
+- the **SQL driver row**, which still claimed "pure Rust, no system libraries"
+  in every language. Only two of the three drivers are pure Rust; `rusqlite` is
+  pinned `features = ["bundled"]` and compiles the SQLite C amalgamation.
+- the **SQL result-sets row** (`Fetch()`, `ColumnNames()`, `ColumnCount()`,
+  `ColumnName(n)`), added when the runtime learned to return rows and name
+  columns, and absent from translations written before it existed.
+
+Each file is pinned to the English structurally, which is what makes a
+table-shaped document safe to translate: **213 table rows and 16 headings**,
+column counts matching line-for-line, and every origin/status mark (`●` `○` `✅`
+`🚧` `⛔` `🚫`) in the same cell of the same row — checked per row, not merely as
+totals, so a mark that drifted between columns could not hide behind a matching
+count. Clean `iconv`, no double-encoded sequences, no dangling link.
+
+**Japanese and Chinese are still missing**, so this is four of six languages,
+not the whole cycle. Both agents stalled reading their 80–100 KB counterpart
+reference for terminology; the retry — glossary supplied inline, no large file
+read, written in passes — is queued rather than run, because the operator
+redirected to defect work. `docs/cobol-support-matrix-{jp,cn}.md` are the only
+outstanding files.
+
 ## [PowerRustCOBOL 1.64.5] — 2026-09-04
 
 ### F12 fills a screenshot slot in any English document, README.md included
