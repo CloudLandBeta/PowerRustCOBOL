@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.12] — 2026-09-04
+
+### One capture, called by every window with its own handle
+
+The trace settled it: `F12 seen … viewport="2134" focused=true`, over and over,
+and `capture landed` **not once**. The key was always fine. The picture never
+came back.
+
+`ViewportCommand::Screenshot` is serviced by eframe where a viewport runs its
+own paint loop — the request is drained from `viewport.actions_requested` and
+handed to the painter, and the readback returns through `handle_screenshots`
+when that window builds its input. A Form Designer window is an **immediate**
+viewport: it renders inside the root window's frame and never runs that loop, so
+its request was queued and silently dropped. Two earlier fixes (1.64.8's popup
+focus, 1.64.9's `input.focused` gate) were aimed at a key that had never gone
+missing.
+
+**Now there is one capture and both windows call it**, each passing its own
+window: `WindowTarget::of(ctx)` is what a viewport knows about itself — its
+outer rectangle and scale — and `capture_window(&target)` photographs exactly
+that. No branch on "am I the root", no dependence on which viewports eframe
+services, and the main window and a designer window run identical code.
+
+On macOS it drives `screencapture -x -o -R<x,y,w,h>`, the same tool the
+`/doc-shots` skill already uses, so a shot taken by hand and one taken here come
+out of the same pipe. A **region** rather than a window id keeps it free of
+CoreGraphics bindings, because the rectangle is something egui already knows.
+Other platforms say so plainly instead of pretending.
+
+Two details that would otherwise bite:
+
+- **The region rounds outwards.** Window edges land on fractional points often
+  (HiDPI, a dragged window), and rounding to nearest shaves a pixel column off
+  one side. Growing the rectangle can only pick up a sliver of desktop against
+  the window's own border; shrinking it cuts content. Pinned by
+  `the_capture_region_rounds_outwards`, degenerate rectangle included.
+- **Screen Recording permission.** Without it macOS hands back an unreadable
+  file rather than an error, so the failure now says exactly that, names the
+  System Settings panel, and surfaces in the popup instead of vanishing.
+
+The capture is synchronous now, so the round trip through egui's event queue is
+gone entirely — with it the class of bug where a request is accepted and quietly
+never answered.
+
 ## [PowerRustCOBOL 1.64.11] — 2026-09-04
 
 ### A probe one level below the F12 traces

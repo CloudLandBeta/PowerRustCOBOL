@@ -151,6 +151,108 @@ fn collect_english_md(dir: &Path, recurse: bool, out: &mut Vec<PathBuf>) {
     }
 }
 
+// ── Window capture ────────────────────────────────────────────────────────────
+
+/// Which window to photograph, in screen coordinates.
+///
+/// **The handle every viewport can supply for itself.** egui knows where its own
+/// OS window sits, so the main window and a Form Designer window hand over the
+/// same kind of value and call the same capture — one implementation, no branch
+/// on "am I the root".
+///
+/// That symmetry is the whole point. The previous design asked egui for the
+/// picture (`ViewportCommand::Screenshot`), and eframe only services that where
+/// a viewport runs its own paint loop. A designer window is an *immediate*
+/// viewport — rendered inside the root's frame — so its request was queued and
+/// silently never serviced: the key arrived, the command went out, no image ever
+/// came back (operator's trace, 2026-09-04: `F12 seen … viewport="2134"`
+/// repeatedly, `capture landed` never once).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowTarget {
+    /// The window's outer rectangle, in logical screen points.
+    pub rect: egui::Rect,
+    /// Points → pixels on the display it is on.
+    pub scale: f32,
+}
+
+impl WindowTarget {
+    /// What this viewport knows about its own window. `None` when the platform
+    /// does not report a rectangle, which is the honest answer — better than
+    /// photographing the wrong part of the screen.
+    pub fn of(ctx: &Context) -> Option<Self> {
+        ctx.input(|input| {
+            let viewport = input.viewport();
+            let rect = viewport.outer_rect?;
+            let scale = viewport
+                .native_pixels_per_point
+                .unwrap_or_else(|| input.pixels_per_point());
+            (rect.width() >= 1.0 && rect.height() >= 1.0 && scale > 0.0)
+                .then_some(Self { rect, scale })
+        })
+    }
+
+    /// The `x,y,w,h` region argument, rounded outwards so a fractional window
+    /// edge never shaves a pixel off the shot.
+    pub fn region(&self) -> String {
+        let x = self.rect.min.x.floor() as i64;
+        let y = self.rect.min.y.floor() as i64;
+        let w = self.rect.width().ceil().max(1.0) as i64;
+        let h = self.rect.height().ceil().max(1.0) as i64;
+        format!("{x},{y},{w},{h}")
+    }
+}
+
+/// Photograph one window — the single implementation every surface calls.
+///
+/// macOS only, deliberately: `screencapture` is the same tool the `/doc-shots`
+/// skill drives, so a shot taken by hand and one taken here come out of the same
+/// pipe. Capturing a *region* rather than a window id keeps this free of
+/// CoreGraphics bindings — the rectangle is what egui already knows.
+#[cfg(target_os = "macos")]
+pub fn capture_window(target: &WindowTarget) -> Result<ColorImage, String> {
+    let temp = std::env::temp_dir().join(format!(
+        "prc-doc-shot-{}.png",
+        std::process::id() as u64 * 31 + Instant::now().elapsed().subsec_nanos() as u64
+    ));
+    let status = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-x", "-o", "-R", &target.region()])
+        .arg(&temp)
+        .status()
+        .map_err(|error| format!("could not run screencapture: {error}"))?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("screencapture exited with {status}"));
+    }
+    let decoded = image::open(&temp);
+    let _ = std::fs::remove_file(&temp);
+    let decoded = decoded.map_err(|error| {
+        format!(
+            "screencapture wrote nothing readable ({error}). On macOS this is \
+             usually Screen Recording permission: System Settings → Privacy & \
+             Security → Screen Recording, then restart the IDE"
+        )
+    })?;
+    let rgba = decoded.to_rgba8();
+    let (width, height) = (rgba.width() as usize, rgba.height() as usize);
+    if width == 0 || height == 0 {
+        return Err("the capture came back empty".into());
+    }
+    Ok(ColorImage {
+        size: [width, height],
+        pixels: rgba
+            .pixels()
+            .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+            .collect(),
+        source_size: egui::Vec2::new(width as f32, height as f32),
+    })
+}
+
+/// Every other platform: say so rather than pretend.
+#[cfg(not(target_os = "macos"))]
+pub fn capture_window(_target: &WindowTarget) -> Result<ColorImage, String> {
+    Err("window capture is implemented for macOS only".into())
+}
+
 // ── Slots ─────────────────────────────────────────────────────────────────────
 
 /// What kind of marker a slot came from.
@@ -651,7 +753,7 @@ impl DocShots {
             );
         }
         if now {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            self.take(ctx);
         }
         if delayed {
             self.delay = Some((ctx.viewport_id(), Instant::now() + DELAY));
@@ -663,51 +765,55 @@ impl DocShots {
             if viewport == ctx.viewport_id() {
                 if Instant::now() >= at {
                     self.delay = None;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                    self.take(ctx);
                 } else {
                     ctx.request_repaint_after(Duration::from_millis(100));
                 }
             }
         }
 
-        let captured = ctx.input(|input| {
-            input.events.iter().find_map(|event| match event {
-                egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        });
-        if let Some(image) = captured {
-            tracing::info!(
-                target: "doc_shots",
-                "capture landed in viewport={:?} ({}x{}) — raising the main window",
-                ctx.viewport_id(),
-                image.size[0],
-                image.size[1],
-            );
-            self.pending = Some(image);
-            self.status = None;
-            self.name_input.clear();
-            self.refresh();
-            self.open = true;
-            // ── Raise the window that draws the popup ────────────────────────
-            //
-            // The capture follows focus — the whole point, since the shots that
-            // matter are of a designer, a preview or the running form — but the
-            // placement popup is drawn by the MAIN window alone, deliberately,
-            // so it is never part of the frame being photographed.
-            //
-            // Nothing brought that window forward. Press F12 over a designer and
-            // the shot is taken, the popup opens, and it opens BEHIND the window
-            // being looked at — indistinguishable from the key doing nothing
-            // (operator, 2026-09-04: "F12 does not work in RAD"). A background
-            // viewport may not even repaint, so the popup could be both hidden
-            // and undrawn.
-            //
-            // Asking the root viewport for focus and a repaint is the whole fix;
-            // the capture path itself was always correct.
-            if ctx.viewport_id() != ViewportId::ROOT {
-                ctx.send_viewport_cmd_to(ViewportId::ROOT, egui::ViewportCommand::Focus);
-                ctx.request_repaint_of(ViewportId::ROOT);
+    }
+
+    /// Photograph THIS window and open the placement popup.
+    ///
+    /// Called by whichever viewport saw the key — the main window and every
+    /// designer window run the identical path, each passing its own window.
+    fn take(&mut self, ctx: &Context) {
+        let Some(target) = WindowTarget::of(ctx) else {
+            self.status = Some("✗ this window does not report its position".into());
+            return;
+        };
+        match capture_window(&target) {
+            Ok(image) => {
+                tracing::info!(
+                    target: "doc_shots",
+                    "captured viewport={:?} region={} -> {}x{}",
+                    ctx.viewport_id(),
+                    target.region(),
+                    image.size[0],
+                    image.size[1],
+                );
+                self.pending = Some(Arc::new(image));
+                self.status = None;
+                self.name_input.clear();
+                self.refresh();
+                self.open = true;
+                // The popup is drawn by the MAIN window alone, so that it is
+                // never part of the frame being photographed. Raise it, or a
+                // shot taken over a designer opens its popup out of sight.
+                if ctx.viewport_id() != ViewportId::ROOT {
+                    ctx.send_viewport_cmd_to(ViewportId::ROOT, egui::ViewportCommand::Focus);
+                    ctx.request_repaint_of(ViewportId::ROOT);
+                }
+            }
+            Err(message) => {
+                tracing::warn!(target: "doc_shots", "capture failed: {message}");
+                self.status = Some(format!("✗ {message}"));
+                self.open = true;
+                if ctx.viewport_id() != ViewportId::ROOT {
+                    ctx.send_viewport_cmd_to(ViewportId::ROOT, egui::ViewportCommand::Focus);
+                    ctx.request_repaint_of(ViewportId::ROOT);
+                }
             }
         }
     }
@@ -1182,6 +1288,37 @@ Next section.
         );
         // Its images sit beside it, not one directory up.
         assert_eq!(rel_shots_path(&readme, &root), SHOTS_REL);
+    }
+
+    /// The region handed to `screencapture`, rounded **outwards**.
+    ///
+    /// A window edge lands on a fractional point often enough (HiDPI, a dragged
+    /// window), and rounding to nearest would shave a pixel column off one side
+    /// of every such shot. Growing the rectangle can only pick up a pixel of
+    /// desktop, which is invisible against the window's own border; shrinking it
+    /// cuts the content.
+    #[test]
+    fn the_capture_region_rounds_outwards() {
+        let target = WindowTarget {
+            rect: egui::Rect::from_min_size(egui::pos2(100.4, 50.6), egui::vec2(1200.2, 800.9)),
+            scale: 2.0,
+        };
+        assert_eq!(target.region(), "100,50,1201,801");
+
+        // A whole-number rectangle is passed through untouched.
+        let exact = WindowTarget {
+            rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1280.0, 800.0)),
+            scale: 1.0,
+        };
+        assert_eq!(exact.region(), "0,0,1280,800");
+
+        // A degenerate rectangle still names at least one pixel rather than
+        // asking the tool for a zero-sized region.
+        let sliver = WindowTarget {
+            rect: egui::Rect::from_min_size(egui::pos2(5.0, 5.0), egui::vec2(0.0, 0.0)),
+            scale: 1.0,
+        };
+        assert_eq!(sliver.region(), "5,5,1,1");
     }
 
     #[test]
