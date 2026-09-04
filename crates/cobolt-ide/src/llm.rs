@@ -578,6 +578,21 @@ impl LlmConfig {
                     .get(&api_key_slot(&self.reviewer_provider, &self.reviewer_model))
                     .cloned()
             })
+            // …and finally the PROVIDER credential, which is where keys have
+            // actually lived since spec 048 retired per-model profiles: one
+            // key per provider, serving every model it offers.
+            //
+            // Without this the reviewer resolved to an EMPTY key and its
+            // request went out unauthenticated, so a tandem run succeeded on
+            // the primary and came back 401 on the judge — with the same
+            // provider, the same endpoint and a valid key on file, which is
+            // exactly what the 401 help then told the operator to go and
+            // check (operator, 2026-09-04).
+            .filter(|key| !key.trim().is_empty())
+            .or_else(|| {
+                let key = self.provider_api_key(&self.reviewer_provider);
+                (!key.trim().is_empty()).then_some(key)
+            })
             .unwrap_or_default();
         c
     }
@@ -1640,6 +1655,18 @@ fn run_mesh_request(
         let _ = tx.send(LlmResponse::Err(msg));
         return rx;
     }
+    // A blank credential, caught HERE rather than by the provider. Every
+    // remote path funnels through this function, and an unauthenticated
+    // request comes back as 401 — indistinguishable from a rejected key, and
+    // it sends the developer to re-check a credential that was never the
+    // problem. `credential_gap` was written for exactly this and was reachable
+    // only from Grace (operator, 2026-09-04).
+    if let Some(msg) = request_credential_gap(&req) {
+        push_ai_log(AiLogKind::Error, msg.clone());
+        push_connection_log(&format!("=== ERROR ===\n{msg}\n"));
+        let _ = tx.send(LlmResponse::Err(msg));
+        return rx;
+    }
     std::thread::spawn(move || {
         // ── Route (unchanged contract: explicit specialist wins, otherwise
         // keyword routing; named project agents get no built-in preamble) ──
@@ -1912,6 +1939,33 @@ fn mesh_request_base(cfg: &LlmConfig) -> cobolt_agents::MeshRequest {
 /// ("insufficient permissions"), which reads like an account issue and sends
 /// the developer looking in the wrong place. Local providers legitimately need
 /// no key, so only remote endpoints are checked.
+/// [`credential_gap`] for a built request — the shape every remote call
+/// actually funnels through, whoever built it.
+///
+/// Local Ollama authenticates nothing, so it is exempt by the same rule the
+/// provider registry uses ([`provider_requires_key`]); everything hosted must
+/// carry a key before the request leaves.
+pub fn request_credential_gap(req: &cobolt_agents::MeshRequest) -> Option<String> {
+    if !req.api_key.trim().is_empty() {
+        return None;
+    }
+    let endpoint = req.endpoint.trim().to_ascii_lowercase();
+    if endpoint.is_empty() || endpoint.contains("localhost") || endpoint.contains("127.0.0.1") {
+        return None;
+    }
+    if !provider_requires_key(&req.provider) {
+        return None;
+    }
+    Some(format!(
+        "no API key reached the request for provider \"{}\" model \"{}\" ({}). \
+         The request was NOT sent, because an unauthenticated call comes back \
+         as 401 and reads like a rejected key. Check that this provider's key \
+         is set in the Model Providers Manager — and if it is, the credential \
+         was lost on the way to this particular call rather than missing.",
+        req.provider, req.model, req.endpoint
+    ))
+}
+
 pub fn credential_gap(cfg: &LlmConfig) -> Option<String> {
     if !cfg.api_key.trim().is_empty() {
         return None;
@@ -8884,5 +8938,96 @@ mod ollama_model_list_tests {
             model_list_headers("ollama", "").is_empty(),
             "a keyless local Ollama sends no authorization header"
         );
+    }
+}
+
+#[cfg(test)]
+mod reviewer_credential_tests {
+    use super::*;
+
+    /// **The judge must use the provider's key.**
+    ///
+    /// Credentials live in one per-PROVIDER slot since spec 048 retired
+    /// per-model profiles. `reviewer_config` looked only in a retired profile
+    /// and the legacy per-model slot, so it resolved to an empty key and the
+    /// judge's request went out unauthenticated. A tandem run therefore
+    /// succeeded on the primary and came back 401 on the judge — same
+    /// provider, same endpoint, valid key on file (operator, 2026-09-04).
+    #[test]
+    fn the_reviewer_inherits_the_provider_credential() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "ollama_cloud".into();
+        cfg.model = "nemotron-3-nano:30b".into();
+        cfg.reviewer_provider = "ollama_cloud".into();
+        cfg.reviewer_model = "gpt-oss:120b".into();
+        cfg.reviewer_endpoint = "https://ollama.com/api/chat".into();
+        cfg.store_api_key(provider_key_slot("ollama_cloud"), "sk-live");
+
+        let rev = cfg.reviewer_config();
+        assert_eq!(rev.provider, "ollama_cloud");
+        assert_eq!(rev.model, "gpt-oss:120b");
+        assert_eq!(
+            rev.api_key, "sk-live",
+            "the judge must carry the provider's key, not an empty string"
+        );
+    }
+
+    /// A key registered against the exact model still wins — that slot is more
+    /// specific than the provider's, and a developer who set one meant it.
+    #[test]
+    fn a_model_specific_key_still_takes_precedence() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.reviewer_provider = "ollama_cloud".into();
+        cfg.reviewer_model = "gpt-oss:120b".into();
+        cfg.store_api_key(provider_key_slot("ollama_cloud"), "sk-provider");
+        cfg.store_api_key(api_key_slot("ollama_cloud", "gpt-oss:120b"), "sk-model");
+
+        assert_eq!(cfg.reviewer_config().api_key, "sk-model");
+    }
+
+    /// The funnel refuses a keyless remote call instead of letting the
+    /// provider answer 401 — the failure that sent the developer to re-check a
+    /// credential that was fine.
+    #[test]
+    fn a_keyless_remote_request_is_refused_before_it_is_sent() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "ollama_cloud".into();
+        cfg.model = "gpt-oss:120b".into();
+        cfg.endpoint = "https://ollama.com/api/chat".into();
+        cfg.api_key = String::new();
+
+        let req = mesh_request_base(&cfg);
+        let gap = request_credential_gap(&req).expect("a keyless remote call must be refused");
+        assert!(gap.contains("gpt-oss:120b"), "names the model: {gap}");
+        assert!(gap.contains("ollama_cloud"), "names the provider: {gap}");
+        assert!(gap.contains("NOT sent"), "says the call did not go out: {gap}");
+    }
+
+    /// Local Ollama authenticates nothing; demanding a key would break a
+    /// working setup.
+    #[test]
+    fn a_local_ollama_needs_no_key() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "ollama".into();
+        cfg.model = "gemma4:31b".into();
+        cfg.endpoint = "http://localhost:11434/api/chat".into();
+        cfg.api_key = String::new();
+        assert!(request_credential_gap(&mesh_request_base(&cfg)).is_none());
+
+        // …and not merely because of the hostname: the provider rule holds
+        // even when a local Ollama is reached by another address.
+        cfg.endpoint = "http://192.168.1.10:11434/api/chat".into();
+        assert!(request_credential_gap(&mesh_request_base(&cfg)).is_none());
+    }
+
+    /// A configured key passes straight through.
+    #[test]
+    fn a_request_carrying_a_key_is_not_refused() {
+        let mut cfg = LlmConfig::load_defaults_for_test();
+        cfg.provider = "ollama_cloud".into();
+        cfg.model = "gpt-oss:120b".into();
+        cfg.endpoint = "https://ollama.com/api/chat".into();
+        cfg.api_key = "sk-live".into();
+        assert!(request_credential_gap(&mesh_request_base(&cfg)).is_none());
     }
 }

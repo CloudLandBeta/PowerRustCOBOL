@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.24] — 2026-09-04
+
+### The judge gets the key, and a failure stops outliving its subject
+
+**The reviewer ran unauthenticated.** Credentials have lived in one
+per-provider slot since spec 048 retired per-model profiles, but
+`reviewer_config` looked only in a retired profile and the legacy per-model
+slot. Finding neither, it resolved to an EMPTY key, so a tandem proficiency
+run succeeded on the primary and came back 401 on the judge — same provider,
+same endpoint, valid key on file, 54 seconds apart. The 401 help then sent the
+operator to check a credential that was working perfectly (operator,
+2026-09-04, with the request log that shows both calls). The reviewer now
+falls back to the provider credential; a key registered against the exact
+model still wins, since that is the more specific choice and a developer who
+set one meant it.
+
+**A blank credential no longer reaches a provider.** `credential_gap` was
+written to catch exactly this "before the request goes out, so a blank key
+surfaces as a configuration problem instead of an opaque provider 401" — and
+was reachable only from Grace. The shared request funnel now refuses a keyless
+remote call and says the request was not sent, naming the provider and model.
+Local Ollama authenticates nothing and is exempt by the provider rule, not by
+hostname, so reaching one across the LAN still works.
+
+**A failure now belongs to a provider.** The Model Providers Manager cleared
+its error only when the endpoint text changed, so an OpenAI "incorrect API key"
+survived fixing the key, deleting the model, and switching provider — and was
+then drawn under Ollama (Cloud), accusing a credential it knew nothing about.
+The error carries its provider and is only ever shown under that one, and it is
+dropped whenever the thing it describes changes: a new selection, a new key, a
+new fetch, a new test, a deleted credential.
+
 ## [PowerRustCOBOL 1.64.23] — 2026-09-04
 
 ### "Add to board" adds the model to the board

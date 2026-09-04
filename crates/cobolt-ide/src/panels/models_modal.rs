@@ -40,7 +40,16 @@ pub struct ModelsModal {
     endpoint_buf: String,
     /// Whether the buffers have been hydrated for the current selection.
     loaded: bool,
-    error: Option<String>,
+    /// The last failure, WITH the provider it was about.
+    ///
+    /// A message that outlives its subject is worse than none: this one was
+    /// cleared only by editing the endpoint, so an OpenAI "incorrect API key"
+    /// stayed on screen after the key was fixed, after the model was deleted,
+    /// and even after switching to another provider entirely — where it
+    /// accused a credential that had nothing to do with it (operator,
+    /// 2026-09-04). Pairing it with its provider makes showing it in the wrong
+    /// place impossible rather than merely unlikely.
+    error: Option<(String, String)>,
     confirm_delete: bool,
     /// In-flight model-list fetch, and the provider that asked for it.
     models_rx: Option<Receiver<Result<Vec<String>, String>>>,
@@ -107,10 +116,15 @@ fn provider_can_list_models(provider: &str, api_key: &str) -> bool {
 impl ModelsModal {
     /// Show an error, and record it in the IDE console (operator, 2026-08-09).
     /// Closing the manager takes the message with it; the console keeps it.
-    fn set_error(&mut self, message: impl Into<String>) {
+    fn set_error(&mut self, provider: &str, message: impl Into<String>) {
         let message = message.into();
         crate::error_log::record(&message);
-        self.error = Some(message);
+        self.error = Some((provider.trim().to_string(), message));
+    }
+
+    /// Drop a failure that a new attempt, or a new subject, has superseded.
+    fn clear_error(&mut self) {
+        self.error = None;
     }
 
     pub fn new() -> Self {
@@ -301,6 +315,7 @@ impl ModelsModal {
         self.key_buf = llm.provider_api_key(id);
         self.endpoint_buf = llm.provider_endpoint(id);
         self.models_msg = None;
+        self.clear_error();
         self.test_msg = None;
         self.test_model = None;
         self.models_rx = None;
@@ -374,7 +389,14 @@ impl ModelsModal {
                         }
                         Err(e) => {
                             self.models_msg = None;
-                            self.set_error(tr.providers_models_error.replacen("{}", &e, 1));
+                            let owner = self
+                                .models_request_provider
+                                .clone()
+                                .unwrap_or_else(|| self.selected_provider().to_string());
+                            self.set_error(
+                                &owner,
+                                tr.providers_models_error.replacen("{}", &e, 1),
+                            );
                             action
                                 .log_lines
                                 .push(format!("Model Providers: failed to list models: {e}"));
@@ -645,7 +667,7 @@ impl ModelsModal {
                                                 )
                                                 .changed()
                                             {
-                                                self.error = None;
+                                                self.clear_error();
                                             }
                                             if ui.button(tr.providers_endpoint_reset).clicked() {
                                                 self.endpoint_buf = Provider::from_id(id)
@@ -658,11 +680,21 @@ impl ModelsModal {
                                         if needs_key {
                                             ui.label(tr.providers_key);
                                             ui.horizontal(|ui| {
-                                                ui.add(
-                                                    egui::TextEdit::singleline(&mut self.key_buf)
+                                                if ui
+                                                    .add(
+                                                        egui::TextEdit::singleline(
+                                                            &mut self.key_buf,
+                                                        )
                                                         .password(true)
                                                         .desired_width(360.0),
-                                                );
+                                                    )
+                                                    .changed()
+                                                {
+                                                    // The failure was about the
+                                                    // OLD key. Typing a new one
+                                                    // retires it.
+                                                    self.clear_error();
+                                                }
                                                 if ui.button(tr.models_delete).clicked() {
                                                     self.confirm_delete = true;
                                                 }
@@ -719,13 +751,16 @@ impl ModelsModal {
                                     ui.add_space(6.0);
                                     ui.label(egui::RichText::new(m).small());
                                 }
-                                if let Some(e) = &self.error {
-                                    ui.add_space(6.0);
-                                    ui.label(
-                                        egui::RichText::new(e)
-                                            .color(ui.visuals().error_fg_color)
-                                            .small(),
-                                    );
+                                // Only ever under the provider it is about.
+                                if let Some((owner, e)) = &self.error {
+                                    if owner == id {
+                                        ui.add_space(6.0);
+                                        ui.label(
+                                            egui::RichText::new(e)
+                                                .color(ui.visuals().error_fg_color)
+                                                .small(),
+                                        );
+                                    }
                                 }
 
                                 // Where every key is kept — the answer to "will
@@ -760,6 +795,7 @@ impl ModelsModal {
             self.load_selected(llm);
         }
         if do_delete {
+            self.clear_error();
             let slot = provider_key_slot(self.selected_provider());
             llm.forget_credential_slot(&slot);
             self.key_buf.clear();
@@ -767,6 +803,7 @@ impl ModelsModal {
             action.applied = true;
         }
         if do_fetch {
+            self.clear_error();
             let id = self.selected_provider().to_string();
             if let Some(provider) = Provider::from_id(&id) {
                 self.models_rx = Some(crate::llm::spawn_list_models(
@@ -779,6 +816,7 @@ impl ModelsModal {
             }
         }
         if do_test {
+            self.clear_error();
             self.commit(llm);
             action.applied = true;
             let id = self.selected_provider().to_string();
@@ -852,6 +890,52 @@ fn test_model_for<'a>(models: &'a [String], in_use: &str) -> Option<&'a str> {
 
 #[cfg(test)]
 mod tests {
+    /// **A failure must not outlive its subject.**
+    ///
+    /// The error was cleared only when the endpoint text changed, so an
+    /// OpenAI "incorrect API key" survived fixing the key, deleting the model
+    /// and switching provider — and was then displayed under Ollama (Cloud),
+    /// accusing a credential it knew nothing about (operator, 2026-09-04).
+    #[test]
+    fn a_providers_failure_is_dropped_when_the_selection_moves() {
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut modal = ModelsModal::new();
+        modal.sel = PROVIDERS.iter().position(|p| p.id == "openai").unwrap();
+        modal.set_error("openai", "Could not list models: 401");
+        assert!(modal.error.is_some());
+
+        modal.sel = PROVIDERS.iter().position(|p| p.id == "ollama_cloud").unwrap();
+        modal.load_selected(&llm);
+        assert!(
+            modal.error.is_none(),
+            "the previous provider's failure must not follow the selection"
+        );
+    }
+
+    /// Belt and braces: even if a failure somehow survives, it carries the
+    /// provider it belongs to, so it can only ever be drawn under that one.
+    #[test]
+    fn a_failure_knows_which_provider_it_is_about() {
+        let mut modal = ModelsModal::new();
+        modal.set_error("openai", "Incorrect API key provided");
+        let (owner, msg) = modal.error.clone().expect("the failure was recorded");
+        assert_eq!(owner, "openai");
+        assert!(msg.contains("Incorrect API key"));
+        assert_ne!(
+            owner, "ollama_cloud",
+            "and it is therefore never drawn under another provider"
+        );
+    }
+
+    /// Typing a new key retires a failure that was about the old one.
+    #[test]
+    fn editing_the_key_retires_the_failure_it_caused() {
+        let mut modal = ModelsModal::new();
+        modal.set_error("openai", "Incorrect API key provided");
+        modal.clear_error();
+        assert!(modal.error.is_none());
+    }
+
     /// **A connection test must test the model the developer is using.**
     ///
     /// The button lives on a provider row with no model picker, so before
