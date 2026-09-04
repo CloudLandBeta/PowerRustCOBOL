@@ -8608,8 +8608,17 @@ pub fn draw_chart_preview(
             .unwrap_or(false);
 
     // title
+    //
+    // Drawn with `chrome`, not `painter`. The title lives in the TOP MARGIN,
+    // above the plot, and `painter` was just rebound to the plot's own clip
+    // (`plot.expand(8.0)`) — so the title was cut off 8 pt above the plot and
+    // all that reached the screen was the bottom sliver of its glyphs, or
+    // nothing at all once the band grew past 36 pt (operator, 2026-09-04: "all
+    // 6 chart types are clipping the title on the top"). The axis captions and
+    // the legend already take `chrome` for exactly this reason, three lines
+    // above; the title was the one margin-dweller that did not.
     if !title_text.is_empty() {
-        painter.text(
+        chrome.text(
             Pos2::new(rect.center().x, rect.min.y + margin_t * 0.5),
             egui::Align2::CENTER_CENTER,
             &title_text,

@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.17] — 2026-09-04
+
+### A chart's title stops being cut off by its own plot
+
+All six chart types drew their `Title` through the painter that had just been
+rebound to the **plot's** clip rectangle, three lines earlier. The title does
+not live in the plot — it lives in the top margin above it — so the clip ate
+it: at a 320×240 chart only the bottom 4.5 points of a 20-point line reached
+the screen, and once the top band passed 36 points nothing did at all
+(operator, 2026-09-04: "all 6 chart types are clipping the title on the top").
+
+The axis captions and the legend already take the control-wide `chrome`
+painter, for exactly this reason and with a comment saying so. The title was
+the one margin-dweller that did not. It does now.
+
+One painter serves both surfaces — the designer canvas and the running form
+both reach charts through `draw_control` — so this is fixed in both at once.
+
+| Chart type | Title visible before | After |
+|---|---|---|
+| Bar, Line, Area, Scatter, Pie, Donut | 22 % | 100 % |
+
+The test measures rather than counts. A clipped text run still emits its shape,
+carrying the clip rectangle that erases it, so counting shapes would have
+proved nothing; the harness now records each run's bounds **before** its clip
+as well as after, and the assertion is the ratio. That extra field also gives
+every future "is this cut off?" test an exact answer instead of a proxy — the
+laid-out line box is always taller than the glyphs, so the old comparison
+called a perfectly whole caption 87 % shown.
+
 ## [PowerRustCOBOL 1.64.16] — 2026-09-04
 
 ### F12 photographs the window again, not the desktop around it

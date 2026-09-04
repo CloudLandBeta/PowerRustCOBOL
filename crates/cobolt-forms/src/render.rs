@@ -10248,11 +10248,25 @@ mod tests {
         pos: egui::Pos2,
         size: Vec2,
         ink: Rect,
+        /// The same run BEFORE its clip rect was applied. `ink` divided by this
+        /// is the fraction that reaches the screen — the only honest way to ask
+        /// "was this run cut off?". Comparing against `size` cannot answer it:
+        /// the glyph bounds are always shorter than the laid-out line box, so a
+        /// perfectly whole caption reports as 87 % shown.
+        full: Rect,
     }
 
     impl PaintedText {
         fn rect(&self) -> Rect {
             self.ink
+        }
+
+        /// How much of the run survived its clip rect, 0.0 to 1.0.
+        fn shown(&self) -> f32 {
+            if self.full.height() <= 0.0 {
+                return 0.0;
+            }
+            self.ink.height() / self.full.height()
         }
     }
 
@@ -10271,7 +10285,8 @@ mod tests {
         fn collect(shape: &egui::Shape, clip: Rect, out: &mut Vec<PaintedText>) {
             match shape {
                 egui::Shape::Text(t) => {
-                    let ink = t.visual_bounding_rect().intersect(clip);
+                    let full = t.visual_bounding_rect();
+                    let ink = full.intersect(clip);
                     if ink.is_positive() {
                         out.push(PaintedText {
                             text: t.galley.text().to_owned(),
@@ -10288,6 +10303,7 @@ mod tests {
                             // `halign = Center` treats `pos` as the text's
                             // centre, not its left edge.
                             ink,
+                            full,
                         });
                     }
                 }
@@ -11355,7 +11371,8 @@ mod tests {
         fn collect(shape: &egui::Shape, clip: Rect, out: &mut Vec<PaintedText>) {
             match shape {
                 egui::Shape::Text(t) => {
-                    let ink = t.visual_bounding_rect().intersect(clip);
+                    let full = t.visual_bounding_rect();
+                    let ink = full.intersect(clip);
                     if ink.is_positive() {
                         out.push(PaintedText {
                             text: t.galley.text().to_owned(),
@@ -11369,6 +11386,7 @@ mod tests {
                             pos: t.pos,
                             size: t.galley.size(),
                             ink,
+                            full,
                         });
                     }
                 }
@@ -15077,6 +15095,81 @@ mod tests {
             "with the property off the new set is drawn at once: {unanimated} vs {settled}"
         );
         eprintln!("  -> A travels {before:.1} to {mid:.1} to {settled:.1} pt; off it jumps straight to {unanimated:.1}\n");
+    }
+
+    /// **A chart's `Title` is painted whole, in every chart type.**
+    ///
+    /// The title lives in the chart's TOP MARGIN, above the plot — and the
+    /// painter is rebound to the plot's own clip (`plot.expand(8.0)`) a few
+    /// lines before the title is drawn. Drawing the title through that painter
+    /// cut it off 8 pt above the plot: at a 320x240 chart the top band is 30 pt
+    /// and only the bottom sliver of the glyphs survived; past a 36 pt band
+    /// nothing did (operator, 2026-09-04: "all 6 chart types are clipping the
+    /// title on the top").
+    ///
+    /// Counting shapes would have proved nothing here — the text shape is
+    /// emitted either way, carrying the clip rect that erases it. What is
+    /// measured is how much of the run actually reaches the screen: the
+    /// harness intersects each run with its own clip rect, so `rect()` is the
+    /// VISIBLE ink and `size` is what was laid out.
+    #[test]
+    fn a_chart_title_is_painted_whole_in_every_chart_type() {
+        const TITLE: &str = "Quarterly revenue";
+        let kinds = [
+            ControlType::BarChart,
+            ControlType::LineChart,
+            ControlType::AreaChart,
+            ControlType::ScatterChart,
+            ControlType::PieChart,
+            ControlType::DonutChart,
+        ];
+        eprintln!("\n  chart type     glyph ink   visible   shown   inside the control");
+        eprintln!("  ------------   --------   -------   -----   ------------------");
+        let mut failures = Vec::new();
+        for kind in kinds {
+            let controls = vec![ctrlp(
+                "Ch",
+                kind.clone(),
+                20,
+                20,
+                320,
+                240,
+                &[
+                    ("__ChartData", "Alpha\t30\nBeta\t20\nGamma\t50"),
+                    ("Title", TITLE),
+                ],
+            )];
+            let (runs, placed) = painted_captions(&controls);
+            let frame = *placed.get("Ch").expect("the chart is placed");
+            match runs.iter().find(|r| r.text == TITLE) {
+                None => {
+                    eprintln!("  {kind:<12?}   {:>8}   {:>7}   {:>5}   {}", "-", "0.0", "0%", "-");
+                    failures.push(format!("{kind:?}: the title never reached the screen"));
+                }
+                Some(run) => {
+                    let shown = run.shown();
+                    let inside = frame.contains_rect(run.rect());
+                    eprintln!(
+                        "  {kind:<12?}   {:>8.1}   {:>7.1}   {:>4.0}%   {}",
+                        run.full.height(),
+                        run.rect().height(),
+                        shown * 100.0,
+                        if inside { "yes" } else { "NO" }
+                    );
+                    if shown < 0.95 {
+                        failures.push(format!(
+                            "{kind:?}: only {:.0}% of the title is visible",
+                            shown * 100.0
+                        ));
+                    }
+                    if !inside {
+                        failures.push(format!("{kind:?}: the title escapes the control"));
+                    }
+                }
+            }
+        }
+        eprintln!();
+        assert!(failures.is_empty(), "{}", failures.join("; "));
     }
 
     /// A chart honours its own visual properties. All were seeded, shown in the
