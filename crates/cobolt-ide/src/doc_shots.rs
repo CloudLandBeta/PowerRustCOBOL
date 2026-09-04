@@ -225,8 +225,70 @@ impl WindowTarget {
 /// skill drives, so a shot taken by hand and one taken here come out of the same
 /// pipe. Capturing a *region* rather than a window id keeps this free of
 /// CoreGraphics bindings — the rectangle is what egui already knows.
+/// What macOS says when the permission is missing — the whole remedy, in the
+/// popup, where the operator is.
+#[cfg(target_os = "macos")]
+const NO_SCREEN_RECORDING: &str = "macOS is not letting PowerRustCOBOL see \
+     other windows, so the picture would have been the desktop wallpaper with \
+     every window missing. Turn on System Settings → Privacy & Security → \
+     Screen Recording for the app that STARTED PowerRustCOBOL — Terminal, \
+     iTerm, VS Code — not for “cobolt-ide”, which will not be in the list. \
+     Then quit that app and start the IDE again.";
+
+/// Does this process have macOS's **Screen Recording** permission?
+///
+/// Without it `screencapture` still exits 0 and still writes a perfectly valid
+/// PNG — of the desktop wallpaper, with every window omitted. The exit code,
+/// the file size and the image all look like success, which is how two
+/// photographs of a redwood forest reached `assets/images/screenshots/`
+/// (operator, 2026-09-04: "F12 is capturing the desktop instead the window
+/// where it was called"). Both were exactly 1280×828 points — the window's own
+/// outer rectangle — so the region was never the fault.
+///
+/// The permission belongs to the **responsible** process, not to this binary:
+/// a `cobolt-ide` started from a shell inherits the grant of the terminal
+/// application that owns that shell. That is why the app to switch on is
+/// Terminal (or iTerm, or VS Code), and why "cobolt-ide" never appears in the
+/// Screen Recording list.
+///
+/// `CGPreflightScreenCaptureAccess` reads the answer without prompting;
+/// `CGRequestScreenCaptureAccess` asks, which is what puts the responsible app
+/// INTO that list the first time. Neither one grants anything — only the
+/// operator can, in System Settings.
+#[cfg(target_os = "macos")]
+fn screen_recording_allowed() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+    // SAFETY: both take no arguments and return a C `bool`; they are the
+    // documented way to read and to ask for this permission (CoreGraphics,
+    // macOS 10.15+), and neither touches memory this side owns.
+    unsafe {
+        if CGPreflightScreenCaptureAccess() {
+            return true;
+        }
+        CGRequestScreenCaptureAccess()
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn capture_window(target: &WindowTarget) -> Result<ColorImage, String> {
+    capture_window_when(screen_recording_allowed(), target)
+}
+
+/// [`capture_window`] with the permission answer supplied, so the refusal can
+/// be tested without depending on how the test machine is configured.
+#[cfg(target_os = "macos")]
+fn capture_window_when(allowed: bool, target: &WindowTarget) -> Result<ColorImage, String> {
+    if !allowed {
+        tracing::warn!(
+            target: "doc_shots",
+            "no Screen Recording permission: refusing to photograph the desktop"
+        );
+        return Err(NO_SCREEN_RECORDING.to_owned());
+    }
     let temp = std::env::temp_dir().join(format!(
         "prc-doc-shot-{}.png",
         std::process::id() as u64 * 31 + Instant::now().elapsed().subsec_nanos() as u64
@@ -1307,6 +1369,35 @@ Next section.
         );
         // Its images sit beside it, not one directory up.
         assert_eq!(rel_shots_path(&readme, &root), SHOTS_REL);
+    }
+
+    /// **No permission means no picture — never a picture of the desktop.**
+    ///
+    /// macOS answers a capture from a process without Screen Recording
+    /// permission with a valid PNG of the wallpaper, every window omitted, and
+    /// `screencapture` exits 0. Two of those reached the repository before this
+    /// gate existed, both exactly the window's own size, which is why neither
+    /// the exit code nor the region could have caught it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_capture_without_permission_is_refused_rather_than_faked() {
+        let target = WindowTarget {
+            rect: egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(1280.0, 828.0)),
+            scale: 2.0,
+        };
+        let message = capture_window_when(false, &target)
+            .expect_err("a capture with no permission must fail, not return the desktop");
+        for expected in [
+            "Screen Recording",     // the setting, by its exact name
+            "System Settings",      // where it lives
+            "STARTED PowerRustCOBOL", // whose permission it is
+            "Terminal",             // and the usual answer to that
+        ] {
+            assert!(
+                message.contains(expected),
+                "the refusal must name {expected:?}, said: {message}"
+            );
+        }
     }
 
     /// The region handed to `screencapture`, rounded **outwards**.

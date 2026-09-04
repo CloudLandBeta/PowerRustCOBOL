@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.18] — 2026-09-04
+
+### F12 refuses to photograph the desktop
+
+Every F12 capture since the feature landed has been a photograph of the macOS
+wallpaper with every window missing. Two of them reached
+`assets/images/screenshots/` (operator, 2026-09-04: "F12 is capturing the
+desktop instead the window where it was called").
+
+The region was never the fault. Both files back-scale to exactly 1280×828
+points — the window's own outer rectangle, title bar included. What was wrong
+is that macOS answers a capture request from a process **without Screen
+Recording permission** by returning the desktop picture, omitting every
+window, and exiting 0. A valid PNG, the right size, no error: nothing in the
+exit code or the file could tell success from silent refusal, and the existing
+permission message only appeared when the PNG failed to *decode*, which it
+never does.
+
+The permission belongs to the **responsible** process, not to this binary. A
+`cobolt-ide` started from a shell inherits the grant of the terminal
+application that owns that shell — here `/System/Applications/Utilities/
+Terminal.app`, four processes up. That is why "cobolt-ide" does not appear in
+the Screen Recording list, and why looking for it there finds nothing.
+
+So the capture now asks first, through CoreGraphics'
+`CGPreflightScreenCaptureAccess`, and refuses when the answer is no. Refusing
+means the popup says this, and no file is written:
+
+> macOS is not letting PowerRustCOBOL see other windows, so the picture would
+> have been the desktop wallpaper with every window missing. Turn on System
+> Settings → Privacy & Security → Screen Recording for the app that STARTED
+> PowerRustCOBOL — Terminal, iTerm, VS Code — not for "cobolt-ide", which will
+> not be in the list. Then quit that app and start the IDE again.
+
+`CGRequestScreenCaptureAccess` follows the preflight, because asking is what
+puts the responsible app into that list in the first place. Neither call
+grants anything: only the operator can, in System Settings.
+
+The refusal takes the permission answer as an argument, so the test pins the
+message on any machine regardless of how that machine is configured.
+
 ## [PowerRustCOBOL 1.64.17] — 2026-09-04
 
 ### A chart's title stops being cut off by its own plot
