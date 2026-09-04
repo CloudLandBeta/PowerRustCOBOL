@@ -155,7 +155,7 @@ PowerRustCOBOL を*構成している* 14 個の crate。すべてワークス�
 
 ## C をコンパイルする 2 つの crate
 
-マシンを用意するときに知っておくとよいことです（[BUILDING-en.md](BUILDING-en.md)
+マシンを用意するときに知っておくとよいことです（[BUILDING-jp.md](BUILDING-jp.md)
 を参照）:
 
 | Crate | 経由 | 何をコンパイルするか |

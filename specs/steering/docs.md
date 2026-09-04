@@ -16,6 +16,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | `README.md` | current | repo landing page |
 | `docs/developers-guide-en.md` | **canonical English** | developers using the IDE |
 | `docs/<doc>-{es,pt,fr,jp,cn}.md` | translations — **regenerated whole on every minor/major, deleted whenever their English changes** (operator ruling 2026-08-24, see Localization policy). Never patched, never partially updated. | localized readers |
+| `docs/cobol-support-matrix-en.md` | current | **the capability overview** — one row per capability, marked COBOL-85 / COBOL 2002–2023-26 / PowerRustCOBOL extension, with a support status. Holds the detail moved out of `README.md` (operator, 2026-09-03: the README's `What's implemented` and `COBOL-85 standard support` sections were comma-separated prose and hard to scan). The README now summarises and links here; a new capability is added as a ROW, never as a README bullet |
 | `docs/cobol85-supported-syntax-en.md` | current | language reference **and the NIST CCVS85 conformance scoreboard** — the PASS/FAIL/N-A table is the document's headline and must be re-measured (`cargo run -p cobolt-semantic --example nist_conformance -- strict`) and updated whenever a `specs/nist/` fix lands |
 | `docs/cobol85-verb-test-matrix-en.md` | current | verb coverage |
 | `CHANGELOG.md` | current (English only — release notes are not translated) | release notes |

@@ -159,7 +159,7 @@ compilation ni à la taille du binaire tant que vous ne l'activez pas.
 ## Les deux crates qui compilent du C
 
 Bon à savoir au moment de préparer une machine (voir
-[BUILDING-en.md](BUILDING-en.md)) :
+[BUILDING-fr.md](BUILDING-fr.md)) :
 
 | Crate | Atteint via | Ce qu'il compile |
 |---|---|---|

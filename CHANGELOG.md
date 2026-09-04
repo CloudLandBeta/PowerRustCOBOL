@@ -1,5 +1,68 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.0] — 2026-09-03
+
+### The README stops being a wall of prose, and eight documents speak five more languages
+
+Two pieces of one job: the capability information was unreadable, and it was
+English-only.
+
+**The support matrix.** "There are several parts containing information + the
+COBOL85 overview … move those details out of the README into a separate
+documentation and have it easily recognizable there (no comma-separated
+list… could be in table form, including sub-headers and a column for COBOL85,
+COBOL2023/2026 and PowerRust extension" (operator, 2026-09-03). The README's
+`What's implemented` and `COBOL-85 standard support` sections were 235 lines of
+dense comma-separated bullets — the only way to learn whether a feature existed
+was to read paragraphs looking for it.
+
+New: **[`docs/cobol-support-matrix-en.md`](docs/cobol-support-matrix-en.md)**.
+One row per capability, grouped under sub-headers (source format and program
+structure, DATA DIVISION, verbs, conditions and expressions, intrinsics, file
+organizations, the INDEXED engine, runtime integrations, out of scope, and the
+platform itself), and three origin columns saying where each capability comes
+from — **COBOL-85**, a **later ISO standard (2002–2023/26)**, or a
+**PowerRustCOBOL extension** — beside the support status (✅ 🚧 ⛔ 🚫) the README
+already carried. The README keeps a summary and a link; it went from 534 lines
+to 347.
+
+Writing the origins down corrected a claim the README had been making: its
+intrinsic-function list was labelled "the complete COBOL-85 standard intrinsic
+set", but `TRIM`, `CONCATENATE`, `BYTE-LENGTH`, `NUMVAL-F` and `TEST-NUMVAL`
+are COBOL 2002 or later. Free-form source, `LOCAL-STORAGE`, `GOBACK`,
+`EXIT PERFORM`/`PARAGRAPH`/`SECTION`, pointers and `CALL … ON EXCEPTION` were
+in the same position — listed flatly as COBOL support when they postdate the
+85 standard. Each is now marked in the `20xx` column instead. Registered in
+`specs/steering/docs.md` with the rule that keeps it true: a new capability is
+added as a **row**, never as a README bullet.
+
+**The localization cycle.** The `x`/`y` bump makes the regeneration cycle
+eligible to run (it never runs on a fix), so it ran: **eight English documents
+× five languages = 40 files**, whole-document regeneration from the English
+canonical, never patched. `BUILDING`, `cobol85-verb-test-matrix`,
+`cobol85-supported-syntax`, `database-runtime`, `ide-collaboration-design`,
+`indexed-file-format`, `indexed-file-internals` and `observability` now exist
+in es, pt, fr, jp and cn. `cobol85-supported-syntax` (78 KB) took the split
+path the policy prescribes — ten fragments by ToC entry, translated
+separately, concatenated back in original order, temp files deleted — and its
+three intra-document anchors were recomputed from the *translated* headings, so
+every `](#…)` resolves in every language.
+
+Every generated file was checked before being called done: clean `iconv`
+round-trip, zero double-encoded sequences, heading and table-row counts equal
+to the English, not byte-identical to the English, and no dangling
+cross-document link. 55 translation files pass.
+
+Along the way the run repaired links that had been dangling since August: the
+`DEPENDENCIES-*` translations pointed at `BUILDING-en.md` because no
+translation existed when they were written, and `indexed-file-internals-*`
+pointed at `indexed-file-format-en.md` for the same reason. Ten links now
+resolve to the reader's own language.
+
+Still English-only, deliberately: `developers-guide-en.md` (437 KB — its own
+run) and the new support matrix, which should settle before it is translated
+five times.
+
 ## [PowerRustCOBOL 1.63.40] — 2026-09-03
 
 ### A collapsed rail with more icons than it has room for now scrolls

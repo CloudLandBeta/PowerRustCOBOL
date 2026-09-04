@@ -158,7 +158,7 @@ tiempo de compilación ni al tamaño del binario a menos que usted la encienda:
 ## Los dos crates que compilan C
 
 Conviene saberlo al preparar una máquina (véase
-[BUILDING-en.md](BUILDING-en.md)):
+[BUILDING-es.md](BUILDING-es.md)):
 
 | Crate | Se alcanza vía | Qué compila |
 |---|---|---|

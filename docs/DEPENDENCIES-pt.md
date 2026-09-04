@@ -158,7 +158,7 @@ feature:
 ## Os dois crates que compilam C
 
 Vale saber na hora de preparar uma máquina (veja
-[BUILDING-en.md](BUILDING-en.md)):
+[BUILDING-pt.md](BUILDING-pt.md)):
 
 | Crate | Alcançado via | O que ele compila |
 |---|---|---|
