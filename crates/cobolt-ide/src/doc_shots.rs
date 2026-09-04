@@ -595,7 +595,9 @@ impl DocShots {
         // the compositor: the key arriving, the request going out, and the
         // image coming back. When it fails, which of the three is missing says
         // where — guessing cost two wrong diagnoses (2026-09-04).
-        // `RUST_LOG=doc_shots=info` to see them.
+        // `COBOLT_LOG=doc_shots=info` to see them — this binary filters on
+        // COBOLT_LOG (not RUST_LOG) and defaults to WARN, so info is silent
+        // until that variable asks for it.
         if now || delayed {
             tracing::info!(
                 target: "doc_shots",
