@@ -540,12 +540,34 @@ where
                 continuation_pages: 0,
             });
         }
-        return Err(format!(
-            "The model returned {reasoning_chars} reasoning character(s) but no assistant \
-             message content. PowerRustCOBOL cannot apply hidden reasoning as form \
-             operations. Use a non-reasoning/chat model or disable thinking/reasoning for \
-             this model."
-        ));
+        // WHY it produced nothing decides what to do about it, and the two
+        // causes need opposite answers. Until 1.64.25 this said "disable
+        // thinking/reasoning for this model" — advice PowerRustCOBOL offers no
+        // way to follow, since no provider surface here turns reasoning off
+        // (operator, 2026-09-04: "How do I disable thinking/reasoning for this
+        // model?"). The budget is the lever that exists.
+        let budget = call.max_tokens as u64;
+        let spent = usage.output_tokens;
+        let exhausted = budget > 0 && spent + spent / 20 >= budget;
+        return Err(if exhausted {
+            format!(
+                "The model spent its whole {budget}-token output budget on hidden reasoning \
+                 ({reasoning_chars} characters, {spent} tokens) and never began the answer. \
+                 Raise the budget for \"{}\": add a rule to model_policies.json in the Cobolt \
+                 data directory — [{{\"provider\": \"\", \"model\": \"{}\", \"policy\": \
+                 {{\"min_max_tokens\": 32768}}}}] — or pick a model that answers without \
+                 reasoning first. PowerRustCOBOL cannot apply hidden reasoning as form \
+                 operations.",
+                call.model, call.model
+            )
+        } else {
+            format!(
+                "The model returned {reasoning_chars} character(s) of hidden reasoning and no \
+                 answer, without exhausting its {budget}-token budget ({spent} tokens used), so \
+                 a larger budget will not help. PowerRustCOBOL cannot apply hidden reasoning as \
+                 form operations: use a model that answers in assistant text."
+            )
+        });
     }
     if text.trim().is_empty() {
         return Err("the model returned no assistant text".to_string());

@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.25] — 2026-09-04
+
+### A reasoning model gets room to answer, and the failure says which fault it is
+
+The proficiency judge returned 25,507 characters of hidden reasoning and no
+assistant text (operator, 2026-09-04). The default output budget is 8192
+tokens; the model spent all of it thinking, and the answer never began.
+
+`gpt-oss` and `nemotron` now carry the same 32,768-token floor the Kimi and
+extended-thinking families already had. The rules are keyed on the family, not
+the provider, because those weights serve through Ollama Cloud, OpenRouter,
+Groq and HuggingFace alike — and a higher ceiling never forces a longer reply,
+so it is fail-safe for the variants that did not need it. An ordinary chat
+model is untouched, and a test pins that too: a floor that spreads everywhere
+is one that hides the next real case.
+
+The message that reports this was also wrong in a way that cost the operator
+time. It advised disabling thinking for the model — something PowerRustCOBOL
+offers no way to do, because no surface here turns reasoning off. It now
+distinguishes the two causes, which need opposite answers: when the reply
+exhausted the budget it says so, gives the budget, the reasoning size and the
+tokens spent, and shows the exact `model_policies.json` rule that raises it;
+when it did not, it says a larger budget will not help and the model simply
+does not answer in assistant text.
+
 ## [PowerRustCOBOL 1.64.24] — 2026-09-04
 
 ### The judge gets the key, and a failure stops outliving its subject

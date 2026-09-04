@@ -129,6 +129,38 @@ pub fn builtin_rules() -> Vec<ModelPolicyRule> {
                 ..Default::default()
             },
         },
+        // Observed live (ollama_cloud, COBOL proficiency judge): 25,507
+        // characters of hidden reasoning and NO assistant text on the default
+        // 8192-token budget — the whole budget spent thinking, the answer
+        // never started (operator, 2026-09-04). gpt-oss reasons before every
+        // answer by design, and the same weights serve through Ollama Cloud,
+        // OpenRouter, Groq and HuggingFace, so the rule is provider-agnostic
+        // like the Kimi one. A higher ceiling never forces a longer reply.
+        ModelPolicyRule {
+            provider: String::new(),
+            model: "gpt-oss".into(),
+            policy: ModelPolicy {
+                min_max_tokens: 32_768,
+                note: "reasoning-first model: the default budget is spent thinking and the \
+                       answer never begins"
+                    .into(),
+                ..Default::default()
+            },
+        },
+        // Same generation, same failure: the nano variant answered inside the
+        // default budget, the larger ones reason for longer and do not. Keyed
+        // on the family for the same reason as gpt-oss.
+        ModelPolicyRule {
+            provider: String::new(),
+            model: "nemotron".into(),
+            policy: ModelPolicy {
+                min_max_tokens: 32_768,
+                note: "reasoning-first model: larger variants exhaust a small budget before \
+                       answering"
+                    .into(),
+                ..Default::default()
+            },
+        },
         // Observed live: ever-longer generations (6s→28s) returning empty
         // final content on large task prompts — the signature of a hidden-
         // reasoning model exhausting its output budget. Also observed live
@@ -233,6 +265,41 @@ pub fn policy_from_rules(
 
 #[cfg(test)]
 mod tests {
+
+    /// **The judge must be able to answer.**
+    ///
+    /// Observed live: 25,507 characters of hidden reasoning and no assistant
+    /// text on the default 8192-token budget — the whole budget spent
+    /// thinking (operator, 2026-09-04). These weights serve through several
+    /// routes, so the rule is keyed on the family, not the provider.
+    #[test]
+    fn a_reasoning_first_open_model_gets_room_to_answer() {
+        for (provider, model) in [
+            ("ollama_cloud", "gpt-oss:120b"),
+            ("openrouter", "openai/gpt-oss-120b"),
+            ("ollama_cloud", "nemotron-3-super:120b"),
+            ("huggingface", "nvidia/nemotron-3-ultra"),
+        ] {
+            let policy = effective_policy(&builtin_rules(), provider, model);
+            assert!(
+                policy.min_max_tokens >= 32_768,
+                "{provider}/{model} must get a budget its answer can start in, got {}",
+                policy.min_max_tokens
+            );
+        }
+    }
+
+    /// The floor must not spread to models that never needed it: a rule that
+    /// matches everything is a rule that hides the next real one.
+    #[test]
+    fn an_ordinary_chat_model_keeps_its_configured_budget() {
+        let policy = effective_policy(&builtin_rules(), "openai", "gpt-4o-mini");
+        assert_eq!(
+            policy.min_max_tokens, 0,
+            "a non-reasoning model needs no floor"
+        );
+    }
+
     use super::*;
 
     #[test]
