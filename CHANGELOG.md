@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.14] — 2026-09-04
+
+### No failure of the capture is silent any more
+
+"F12 is not working anywhere in 1.64.13" (operator, 2026-09-04). Three faults in
+this path have now looked identical from the outside — nothing happens — and
+that is the property being fixed, not any one of them.
+
+Two places produced no output at all:
+
+- **`WindowTarget::of` returning `None`.** If a window does not report its
+  `outer_rect` there is nothing to photograph, so `take()` set a status string
+  and returned — without claiming the popup and without logging. The status was
+  written to a field that nothing would ever render. It now warns with the
+  viewport id, the `outer_rect` it actually got and the scale factor, and claims
+  the popup so the message is shown.
+- **The popup refusing to draw without an image.** `ui()` began
+  `if !self.open || self.pending.is_none() { return; }`, so *every* failed
+  capture — a missing rectangle, `screencapture` refused by Screen Recording
+  permission — opened nothing. The failure now gets its own small window
+  carrying the reason.
+
+An authoring tool that fails invisibly costs more than one that fails loudly: it
+sends the next person hunting the wrong layer, which is exactly what happened
+here across 1.64.8, 1.64.9 and 1.64.12.
+
 ## [PowerRustCOBOL 1.64.13] — 2026-09-04
 
 ### The placement popup opens in the window that took the shot

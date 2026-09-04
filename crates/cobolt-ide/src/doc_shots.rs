@@ -789,7 +789,24 @@ impl DocShots {
     /// designer window run the identical path, each passing its own window.
     fn take(&mut self, ctx: &Context) {
         let Some(target) = WindowTarget::of(ctx) else {
-            self.status = Some("✗ this window does not report its position".into());
+            // The one path that used to fail in total silence: no capture, no
+            // popup (it never claimed a viewport), and no log line. If a
+            // window does not report `outer_rect`, say so where it can be
+            // seen — and still claim the popup, so the message reaches the
+            // operator instead of dying in a field nobody reads.
+            let (rect, ppp) = ctx.input(|i| (i.viewport().outer_rect, i.pixels_per_point()));
+            tracing::warn!(
+                target: "doc_shots",
+                "no capture: viewport={:?} reports outer_rect={rect:?} ppp={ppp}",
+                ctx.viewport_id(),
+            );
+            self.status = Some(
+                "✗ this window does not report its position, so there is \
+                 nothing to photograph"
+                    .into(),
+            );
+            self.open = true;
+            self.popup_viewport = Some(ctx.viewport_id());
             return;
         };
         match capture_window(&target) {
@@ -846,7 +863,31 @@ impl DocShots {
         if self.popup_viewport != Some(ctx.viewport_id()) {
             return;
         }
-        if !self.open || self.pending.is_none() {
+        if !self.open {
+            return;
+        }
+        // A failed capture has a status and NO image. It still has to be shown:
+        // silence is what made three of these faults look identical from the
+        // outside (operator, 2026-09-04: "F12 is not working anywhere").
+        if self.pending.is_none() {
+            let mut open = true;
+            egui::Window::new("📷 Documentation screenshot")
+                .id(egui::Id::new("doc_shots_popup"))
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(true)
+                .show(ctx, |ui| {
+                    ui.label(
+                        self.status
+                            .clone()
+                            .unwrap_or_else(|| "✗ the capture produced no image".into()),
+                    );
+                });
+            if !open {
+                self.open = false;
+                self.status = None;
+                self.popup_viewport = None;
+            }
             return;
         }
         let mut open = true;
