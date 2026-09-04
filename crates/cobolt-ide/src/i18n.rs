@@ -559,6 +559,18 @@ pub struct Tr {
     pub agents_proficiency_reviewed: &'static str,
     pub models_proficiency_hint: &'static str,
 
+    // ── Proficiency run progress (operator, 2026-09-04) ──────────────────────
+    /// Round line: "{step}: {what that round is}".
+    pub bench_step: &'static str,
+    pub bench_stage_primary: &'static str,
+    pub bench_stage_review: &'static str,
+    pub bench_stage_revision: &'static str,
+    pub bench_stage_final: &'static str,
+    /// Before the first token arrives — often minutes on a large model.
+    pub bench_waiting: &'static str,
+    /// "{size} received · {time} elapsed".
+    pub bench_received: &'static str,
+
     // ── Model Leaderboard (spec 040) ─────────────────────────────────────────
     pub leaderboard_open: &'static str,
     pub leaderboard_open_hint: &'static str,
@@ -1982,6 +1994,13 @@ const EN: Tr = Tr {
     agents_check_proficiency: "Check proficiency",
     agents_proficiency_reviewed: "Tests this model's COBOL proficiency, reviewed by its pedantic companion.",
     models_proficiency_hint: "Scores this model's COBOL proficiency on its own — no reviewer, so the result is this model alone.",
+    bench_step: "Step {}: {}",
+    bench_stage_primary: "Primary model — writing the assessment",
+    bench_stage_review: "Reviewer — checking the assessment",
+    bench_stage_revision: "Primary model — correcting after the review",
+    bench_stage_final: "Reviewer — final scoring",
+    bench_waiting: "Waiting for the model's first reply…",
+    bench_received: "{} received · {} elapsed",
 
     leaderboard_open: "Model Leaderboard",
     leaderboard_open_hint: "Ranks every model that has taken the COBOL proficiency test, on this machine.",
@@ -3221,6 +3240,13 @@ const ES: Tr = Tr {
     agents_check_proficiency: "Comprobar competencia",
     agents_proficiency_reviewed: "Prueba la competencia COBOL de este modelo, revisada por su compañero pedante.",
     models_proficiency_hint: "Puntúa la competencia COBOL de este modelo por sí solo: sin revisor, así que el resultado es de este modelo únicamente.",
+    bench_step: "Paso {}: {}",
+    bench_stage_primary: "Modelo principal: redactando la evaluación",
+    bench_stage_review: "Revisor: comprobando la evaluación",
+    bench_stage_revision: "Modelo principal: corrigiendo tras la revisión",
+    bench_stage_final: "Revisor: puntuación final",
+    bench_waiting: "Esperando la primera respuesta del modelo…",
+    bench_received: "{} recibidos · {} transcurridos",
 
     leaderboard_open: "Clasificación de modelos",
     leaderboard_open_hint: "Clasifica todos los modelos que han hecho la prueba de competencia COBOL en esta máquina.",
@@ -4460,6 +4486,13 @@ const PT: Tr = Tr {
     agents_check_proficiency: "Verificar competência",
     agents_proficiency_reviewed: "Testa a competência COBOL deste modelo, revisada pelo seu companheiro pedante.",
     models_proficiency_hint: "Pontua a competência COBOL deste modelo sozinho: sem revisor, portanto o resultado é apenas deste modelo.",
+    bench_step: "Passo {}: {}",
+    bench_stage_primary: "Modelo principal: escrevendo a avaliação",
+    bench_stage_review: "Revisor: verificando a avaliação",
+    bench_stage_revision: "Modelo principal: corrigindo após a revisão",
+    bench_stage_final: "Revisor: pontuação final",
+    bench_waiting: "Aguardando a primeira resposta do modelo…",
+    bench_received: "{} recebidos · {} decorridos",
 
     leaderboard_open: "Classificação de modelos",
     leaderboard_open_hint: "Classifica todos os modelos que fizeram o teste de competência COBOL nesta máquina.",
@@ -5697,6 +5730,13 @@ const JA: Tr = Tr {
     agents_check_proficiency: "習熟度チェック",
     agents_proficiency_reviewed: "このモデルの COBOL 習熟度を、厳密コンパニオンのレビュー付きでテストします。",
     models_proficiency_hint: "このモデル単体の COBOL 習熟度を採点します。レビュアーなしなので、結果はこのモデルだけのものです。",
+    bench_step: "ステップ {}: {}",
+    bench_stage_primary: "主モデル: 評価を作成中",
+    bench_stage_review: "レビュアー: 評価を検証中",
+    bench_stage_revision: "主モデル: レビューを受けて修正中",
+    bench_stage_final: "レビュアー: 最終採点",
+    bench_waiting: "モデルの最初の応答を待っています…",
+    bench_received: "{} 受信 · 経過 {}",
 
     leaderboard_open: "モデルリーダーボード",
     leaderboard_open_hint: "このマシンで COBOL 習熟度テストを受けたすべてのモデルを順位付けします。",
@@ -6941,6 +6981,13 @@ const ZH: Tr = Tr {
     agents_check_proficiency: "检查熟练度",
     agents_proficiency_reviewed: "测试此模型的 COBOL 熟练度，由其严苛同伴评审。",
     models_proficiency_hint: "单独评估此模型的 COBOL 熟练度：无评审者，因此结果仅代表该模型本身。",
+    bench_step: "步骤 {}：{}",
+    bench_stage_primary: "主模型：正在撰写评估",
+    bench_stage_review: "评审者：正在检查评估",
+    bench_stage_revision: "主模型：正在根据评审修订",
+    bench_stage_final: "评审者：最终评分",
+    bench_waiting: "正在等待模型的首次回复…",
+    bench_received: "已接收 {} · 已用时 {}",
 
     leaderboard_open: "模型排行榜",
     leaderboard_open_hint: "对本机上参加过 COBOL 熟练度测试的所有模型进行排名。",
@@ -8180,6 +8227,13 @@ const FR: Tr = Tr {
     agents_check_proficiency: "Vérifier la compétence",
     agents_proficiency_reviewed: "Teste la compétence COBOL de ce modèle, révisée par son compagnon pédant.",
     models_proficiency_hint: "Évalue la compétence COBOL de ce modèle seul : sans réviseur, le résultat ne concerne donc que ce modèle.",
+    bench_step: "Étape {} : {}",
+    bench_stage_primary: "Modèle principal : rédaction de l'évaluation",
+    bench_stage_review: "Réviseur : vérification de l'évaluation",
+    bench_stage_revision: "Modèle principal : correction après la révision",
+    bench_stage_final: "Réviseur : notation finale",
+    bench_waiting: "En attente de la première réponse du modèle…",
+    bench_received: "{} reçu · {} écoulé",
 
     leaderboard_open: "Classement des modèles",
     leaderboard_open_hint: "Classe tous les modèles ayant passé le test de compétence COBOL sur cette machine.",

@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.20] — 2026-09-04
+
+### The proficiency check says what it is doing
+
+A proficiency run takes many minutes, and the window said one fixed sentence
+over a spinner for all of them: a run that was working looked exactly like a
+run that had hung (operator, 2026-09-04: "it would be nice to have some
+feedback of what is going on as this takes a long time to run").
+
+The information was already on the wire. A tandem run announces every round on
+its own stream — primary assessment, pedantic review, the revision when the
+reviewer finds defects, then the final scoring — and streams the answer between
+those headers. `poll_llm_benchmark` matched the chunk and threw it away.
+
+It now reads them. The window shows which round is running and its number, how
+much transcript has arrived, and how long the run has been going; before the
+first token — often minutes on a large model — it says it is waiting for the
+model's first reply rather than implying work is arriving. The elapsed clock
+advances on its own repaint, because the moment the operator wonders whether
+anything is still happening is exactly the moment nothing is arriving.
+
+A round header is matched as the whole chunk, exactly as the run writes it, so
+an assessment that quotes the separator mid-answer cannot invent a step. The
+round titles are English constants in the LLM layer, so they are mapped to
+translated labels in all six languages rather than shown raw; an unrecognised
+title still displays, since a wrong-looking round name beats a missing one.
+
 ## [PowerRustCOBOL 1.64.19] — 2026-09-04
 
 ### The Screen Recording message becomes readable

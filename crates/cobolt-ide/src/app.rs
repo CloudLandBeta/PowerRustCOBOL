@@ -128,6 +128,69 @@ impl NewFormDialog {
     }
 }
 
+/// Live progress of a COBOL proficiency run.
+///
+/// The run already announces each round on its own stream as a `━━━ TITLE ━━━`
+/// header (`llm::spawn_cobol_proficiency_tandem`) and streams the answer
+/// between the headers. Until 1.64.20 `poll_llm_benchmark` threw every chunk
+/// away and re-displayed one fixed sentence, so a run that legitimately takes
+/// many minutes was indistinguishable from one that had hung — the operator
+/// had a spinner and nothing else (2026-09-04: "it would be nice to have some
+/// feedback of what is going on as this takes a long time to run").
+struct BenchmarkProgress {
+    started: std::time::Instant,
+    /// Which round the stream is in, 1-based. 0 until the first header, which
+    /// is the single-model run's permanent state: it announces no rounds.
+    step: usize,
+    /// That round's title, exactly as the run announced it.
+    stage: Option<String>,
+    /// Characters of transcript streamed so far — the proof of life a spinner
+    /// cannot give.
+    chars: usize,
+}
+
+impl BenchmarkProgress {
+    fn new() -> Self {
+        Self {
+            started: std::time::Instant::now(),
+            step: 0,
+            stage: None,
+            chars: 0,
+        }
+    }
+
+    /// Feed one streamed chunk.
+    ///
+    /// A round header is matched as the whole chunk, exactly as the run writes
+    /// it, so an assessment that merely quotes the character mid-answer cannot
+    /// invent a step.
+    fn chunk(&mut self, c: &str) {
+        const BAR: &str = "\u{2501}\u{2501}\u{2501}";
+        let t = c.trim();
+        if t.len() > BAR.len() * 2 && t.starts_with(BAR) && t.ends_with(BAR) {
+            self.step += 1;
+            self.stage = Some(t.trim_matches('\u{2501}').trim().to_string());
+            return;
+        }
+        self.chars += c.chars().count();
+    }
+
+    /// `4m 12s` — how long the operator has been waiting.
+    fn elapsed_text(&self) -> String {
+        let secs = self.started.elapsed().as_secs();
+        if secs < 60 {
+            format!("{secs}s")
+        } else {
+            format!("{}m {:02}s", secs / 60, secs % 60)
+        }
+    }
+
+    /// How much has arrived, in a unit that needs no translation.
+    fn size_text(&self) -> String {
+        format!("{:.1} KB", self.chars as f32 / 1024.0)
+    }
+}
+
 struct NewProjectDialog {
     open: bool,
     name: String,
@@ -592,6 +655,8 @@ pub struct CoboltApp {
     llm_benchmark_config: Option<crate::llm::LlmConfig>,
     llm_benchmark_rx: Option<std::sync::mpsc::Receiver<crate::llm::LlmResponse>>,
     llm_benchmark_status: Option<String>,
+    /// What the running check is doing right now (see [`BenchmarkProgress`]).
+    llm_benchmark_progress: Option<BenchmarkProgress>,
     llm_benchmark_report: Option<String>,
     /// Machine-wide ranked record of every proficiency test (spec 040).
     leaderboard: crate::leaderboard::Leaderboard,
@@ -1524,6 +1589,7 @@ impl CoboltApp {
             llm_benchmark_config: None,
             llm_benchmark_rx: None,
             llm_benchmark_status: None,
+            llm_benchmark_progress: None,
             llm_benchmark_report: None,
             leaderboard: crate::leaderboard::Leaderboard::load(),
             leaderboard_modal: None,
@@ -6614,14 +6680,47 @@ impl CoboltApp {
         self.poll_llm_detect();
     }
 
+    /// The round line: a step number and what that round is, in the
+    /// operator's language.
+    ///
+    /// The titles the run puts on the stream are English constants in
+    /// `llm.rs`, so they are MAPPED to translated labels rather than shown
+    /// raw; an unrecognised title still shows, because a wrong-looking round
+    /// name is better than a missing one.
+    fn benchmark_stage_line(p: &BenchmarkProgress, tr: &crate::i18n::Tr) -> String {
+        let Some(stage) = p.stage.as_deref() else {
+            // A single-model run announces no rounds at all.
+            return tr.bench_stage_primary.to_string();
+        };
+        let up = stage.to_ascii_uppercase();
+        let label = if up.contains("FINAL") {
+            tr.bench_stage_final
+        } else if up.contains("REVISION") {
+            tr.bench_stage_revision
+        } else if up.contains("REVIEW") {
+            tr.bench_stage_review
+        } else if up.contains("BENCHMARK") {
+            tr.bench_stage_primary
+        } else {
+            stage
+        };
+        tr.bench_step
+            .replacen("{}", &p.step.to_string(), 1)
+            .replacen("{}", label, 1)
+    }
+
     fn poll_llm_benchmark(&mut self) {
         let Some(rx) = &self.llm_benchmark_rx else {
             return;
         };
         let final_result = loop {
             match rx.try_recv() {
-                Ok(crate::llm::LlmResponse::Chunk(_)) => {
-                    self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+                Ok(crate::llm::LlmResponse::Chunk(c)) => {
+                    // The chunk IS the progress: the run announces each round
+                    // on this stream and streams the answer between them.
+                    self.llm_benchmark_progress
+                        .get_or_insert_with(BenchmarkProgress::new)
+                        .chunk(&c);
                 }
                 Ok(crate::llm::LlmResponse::Ok(report)) => {
                     break Ok(report);
@@ -6636,6 +6735,7 @@ impl CoboltApp {
             }
         };
         self.llm_benchmark_rx = None;
+        self.llm_benchmark_progress = None;
         match final_result {
             Ok(report) => {
                 self.llm_benchmark_status = Some("COBOL proficiency check complete.".into());
@@ -6655,6 +6755,7 @@ impl CoboltApp {
     /// token limits land on the same leaderboard row (spec 040).
     fn start_proficiency_benchmark(&mut self, cfg: crate::llm::LlmConfig) {
         self.llm_benchmark_status = Some("Running COBOL proficiency check...".into());
+        self.llm_benchmark_progress = Some(BenchmarkProgress::new());
         self.llm_benchmark_config = Some(cfg.clone());
         self.llm_benchmark_rx = Some(crate::llm::spawn_cobol_proficiency_benchmark(&cfg));
         self.start_capability_probe(&cfg);
@@ -8359,6 +8460,22 @@ impl CoboltApp {
                             .as_deref()
                             .unwrap_or("Running COBOL proficiency check..."),
                     );
+                    if let Some(p) = &self.llm_benchmark_progress {
+                        let tr = self.lang.tr();
+                        ui.add_space(6.0);
+                        ui.label(Self::benchmark_stage_line(p, &tr));
+                        ui.label(if p.chars == 0 {
+                            tr.bench_waiting.to_string()
+                        } else {
+                            tr.bench_received
+                                .replacen("{}", &p.size_text(), 1)
+                                .replacen("{}", &p.elapsed_text(), 1)
+                        });
+                        // The elapsed clock must advance while nothing arrives
+                        // — which is exactly when the operator is wondering
+                        // whether anything still is.
+                        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+                    }
                     ui.add(egui::Spinner::new());
                 });
         }
@@ -18974,5 +19091,117 @@ mod error_modal_tests {
             settled.y,
             sizes.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod benchmark_progress_tests {
+    use super::*;
+
+    /// The exact header the run writes (`spawn_cobol_proficiency_tandem`).
+    fn hdr(t: &str) -> String {
+        format!("\n\n\u{2501}\u{2501}\u{2501} {t} \u{2501}\u{2501}\u{2501}\n\n")
+    }
+
+    #[test]
+    fn each_announced_round_advances_the_step_and_names_itself() {
+        let mut p = BenchmarkProgress::new();
+        assert_eq!(p.step, 0, "no round has been announced yet");
+
+        p.chunk(&hdr("PRIMARY AGENT — BENCHMARK RUN"));
+        assert_eq!(p.step, 1);
+        assert_eq!(p.stage.as_deref(), Some("PRIMARY AGENT — BENCHMARK RUN"));
+
+        p.chunk(&hdr("PEDANTIC AGENT — REVIEW"));
+        assert_eq!(p.step, 2);
+        assert_eq!(p.stage.as_deref(), Some("PEDANTIC AGENT — REVIEW"));
+    }
+
+    #[test]
+    fn streamed_answer_counts_towards_the_size_and_never_as_a_round() {
+        let mut p = BenchmarkProgress::new();
+        p.chunk(&hdr("PRIMARY AGENT — BENCHMARK RUN"));
+        p.chunk("IDENTIFICATION DIVISION.");
+        p.chunk(" PROGRAM-ID. X.");
+        assert_eq!(p.step, 1, "answer text must not look like a new round");
+        assert_eq!(p.chars, "IDENTIFICATION DIVISION.".len() + " PROGRAM-ID. X.".len());
+        // A header is structure, not content: it must not inflate the size.
+        assert!(!p.size_text().is_empty());
+    }
+
+    /// An assessment that DISCUSSES the separator must not fake a round —
+    /// the model is writing about COBOL, and anything can appear mid-answer.
+    #[test]
+    fn a_quoted_separator_inside_the_answer_is_not_a_round() {
+        let mut p = BenchmarkProgress::new();
+        p.chunk("the report uses \u{2501}\u{2501}\u{2501} as a rule, like \u{2501}\u{2501}\u{2501} here");
+        assert_eq!(p.step, 0, "text that merely contains the bars is answer text");
+        assert!(p.stage.is_none());
+    }
+
+    #[test]
+    fn every_round_of_a_tandem_run_maps_to_a_translated_label() {
+        let tr = crate::i18n::Language::English.tr();
+        let mut p = BenchmarkProgress::new();
+        for (title, expected) in [
+            ("PRIMARY AGENT — BENCHMARK RUN", tr.bench_stage_primary),
+            ("PEDANTIC AGENT — REVIEW", tr.bench_stage_review),
+            ("PRIMARY AGENT — FULL REVISION", tr.bench_stage_revision),
+            ("PEDANTIC AGENT — FINAL ASSESSMENT", tr.bench_stage_final),
+        ] {
+            p.chunk(&hdr(title));
+            let line = CoboltApp::benchmark_stage_line(&p, &tr);
+            assert!(
+                line.contains(expected),
+                "{title} must show as {expected:?}, showed: {line}"
+            );
+            assert!(
+                line.contains(&p.step.to_string()),
+                "the line must carry the step number, showed: {line}"
+            );
+            assert!(
+                !line.contains('\u{2501}'),
+                "the raw header must never reach the operator: {line}"
+            );
+        }
+    }
+
+    /// A single-model run (no reviewer) announces no rounds at all, so the
+    /// line must still say something rather than going blank.
+    #[test]
+    fn a_run_that_announces_no_rounds_still_names_what_is_happening() {
+        let tr = crate::i18n::Language::English.tr();
+        let p = BenchmarkProgress::new();
+        let line = CoboltApp::benchmark_stage_line(&p, &tr);
+        assert_eq!(line, tr.bench_stage_primary);
+    }
+
+    #[test]
+    fn elapsed_reads_as_minutes_and_seconds_past_a_minute() {
+        let mut p = BenchmarkProgress::new();
+        p.started = std::time::Instant::now() - std::time::Duration::from_secs(252);
+        assert_eq!(p.elapsed_text(), "4m 12s");
+        p.started = std::time::Instant::now() - std::time::Duration::from_secs(45);
+        assert_eq!(p.elapsed_text(), "45s");
+    }
+
+    /// Every language must carry the two placeholders the code fills, or the
+    /// operator sees a literal "{}" (or loses the number entirely).
+    #[test]
+    fn the_progress_strings_carry_their_placeholders_in_every_language() {
+        for &lang in crate::i18n::Language::ALL {
+            let tr = lang.tr();
+            assert_eq!(
+                tr.bench_step.matches("{}").count(),
+                2,
+                "{lang:?}: bench_step needs the step and the round name"
+            );
+            assert_eq!(
+                tr.bench_received.matches("{}").count(),
+                2,
+                "{lang:?}: bench_received needs the size and the time"
+            );
+            assert!(!tr.bench_waiting.trim().is_empty(), "{lang:?}: bench_waiting");
+        }
     }
 }
