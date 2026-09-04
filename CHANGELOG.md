@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.22] — 2026-09-04
+
+### The Ollama model list is authenticated, and it is on the record
+
+An Ollama id includes its tag — `nemotron-3-super:120b`, `gpt-oss:120b` — and
+the tag is not decoration: the untagged name is a different id, and asking for
+it is one way a perfectly good credential produces a 401 that reads like a bad
+key (operator, 2026-09-04: "nemotron-3-super:120b is listed as
+nemotron-3-super").
+
+PowerRustCOBOL never trimmed those names, and there is now a test that proves
+it against a realistic `/api/tags` body. What it did do was ask for them
+without the credential: alone among the providers, the Ollama branch sent a
+bare GET with no `Authorization` header, so `ollama_cloud` — a hosted API
+behind a key — was answered with whatever that host serves anonymously rather
+than with the account's own models. The request now carries the key, exactly
+as every other provider's list request does. A local Ollama has no key and
+still sends no header.
+
+That branch also logged nothing, so the one question worth asking when a name
+looks wrong — did the provider shorten it, or did we? — could not be answered
+from the connection log at all. It now records the request and the raw response
+body like every other provider, so Refresh models followed by Details shows the
+exact names the provider returned.
+
+Its failures are no longer one blanket sentence either. A non-200 reports the
+status and the body, a body that is not JSON says so, and a 200 that carries no
+`models` array quotes what arrived instead — three different faults that used
+to be indistinguishable.
+
 ## [PowerRustCOBOL 1.64.21] — 2026-09-04
 
 ### A connection test tests the model you are using, and says which

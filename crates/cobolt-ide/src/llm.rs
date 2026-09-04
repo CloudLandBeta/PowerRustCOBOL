@@ -6915,21 +6915,52 @@ pub fn spawn_list_models(
                         .trim_end_matches("/v1")
                         .trim_end_matches('/')
                 );
-                if let Ok(res) = client.get(&url).send().await {
-                    if let Ok(json) = res.json::<serde_json::Value>().await {
-                        if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
-                            let mut names = Vec::new();
-                            for m in models {
-                                if let Some(name) = m.get("name").and_then(|n| n.as_str()) {
-                                    names.push(name.to_string());
-                                }
-                            }
-                            let _ = tx.send(Ok(filter_retired_models(names)));
+                // The CREDENTIAL goes with it. A local Ollama needs none, but
+                // `ollama_cloud` is a hosted API behind a key, and this branch
+                // sent a bare GET: the request either failed outright or came
+                // back as whatever the host serves anonymously, which is not
+                // the account's model list (operator, 2026-09-04: cloud model
+                // names arriving without their size tag).
+                let mut req = client.get(&url);
+                for (name, value) in model_list_headers(&pid, &key) {
+                    req = req.header(name, value);
+                }
+                push_connection_log(&format!(
+                    "=== MODEL LIST REQUEST ===\nprovider: {pid}\nurl: {url}\napi_key_present: {}\n",
+                    !key.trim().is_empty()
+                ));
+                match req.send().await {
+                    Ok(res) => {
+                        let status = res.status();
+                        let body = res.text().await.unwrap_or_default();
+                        // The RAW body, exactly as the generic path records it.
+                        // Without it there is no way to answer the only
+                        // question that matters when a name looks wrong —
+                        // whether the provider or PowerRustCOBOL shortened it.
+                        push_connection_log(&format!(
+                            "=== MODEL LIST RESPONSE ===\nstatus: {status}\nbody:\n{body}\n"
+                        ));
+                        if !status.is_success() {
+                            let _ = tx.send(Err(format!(
+                                "Failed to fetch models from Ollama ({status}): {}",
+                                body.chars().take(500).collect::<String>()
+                            )));
                             return;
                         }
+                        match ollama_model_names(&body) {
+                            Ok(names) => {
+                                let _ = tx.send(Ok(filter_retired_models(names)));
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Err(e));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        push_connection_log(&format!("=== MODEL LIST ERROR ===\n{e}\n"));
+                        let _ = tx.send(Err(format!("Failed to reach Ollama at {url}: {e}")));
                     }
                 }
-                let _ = tx.send(Err("Failed to fetch models from Ollama".into()));
             } else {
                 let url = model_list_url(&pid, &ep);
 
@@ -7095,6 +7126,40 @@ fn is_openai_chat_model(model: &str) -> bool {
         || m.starts_with("o3")
         || m.starts_with("o4")
         || m == "chat-latest"
+}
+
+/// The model ids in an Ollama `/api/tags` body.
+///
+/// An Ollama id INCLUDES its tag — `nemotron-3-super:120b`, `gpt-oss:120b` —
+/// and the tag is not decoration: the untagged name is a different id, and
+/// asking for it is how a working credential produces a 401/404 that reads
+/// like a bad key (operator, 2026-09-04). Nothing here splits, trims or
+/// prettifies a name; whatever the provider called the model is what gets
+/// stored, sent, and shown.
+pub fn ollama_model_names(body: &str) -> Result<Vec<String>, String> {
+    let json: serde_json::Value = serde_json::from_str(body).map_err(|e| {
+        format!(
+            "Ollama's model list was not JSON ({e}): {}",
+            body.chars().take(300).collect::<String>()
+        )
+    })?;
+    let Some(models) = json.get("models").and_then(|m| m.as_array()) else {
+        return Err(format!(
+            "Ollama's model list carried no \"models\" array: {}",
+            body.chars().take(300).collect::<String>()
+        ));
+    };
+    Ok(models
+        .iter()
+        .filter_map(|m| {
+            // `name` is the tagged id; `model` is the same string on current
+            // builds and the fallback for any that omit `name`.
+            m.get("name")
+                .and_then(|n| n.as_str())
+                .or_else(|| m.get("model").and_then(|n| n.as_str()))
+                .map(str::to_string)
+        })
+        .collect())
 }
 
 pub fn filter_retired_models(models: Vec<String>) -> Vec<String> {
@@ -8745,6 +8810,79 @@ mod tests {
                 "o4-mini",
                 "chat-latest",
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod ollama_model_list_tests {
+    use super::*;
+
+    /// A realistic `/api/tags` body: every id carries its size tag.
+    const TAGS: &str = r#"{"models":[
+        {"name":"nemotron-3-super:120b","model":"nemotron-3-super:120b","size":65000000000},
+        {"name":"gpt-oss:120b","model":"gpt-oss:120b","size":65000000000},
+        {"name":"gemma4:27b","model":"gemma4:27b","size":17000000000}
+    ]}"#;
+
+    /// **The tag is part of the id.**
+    ///
+    /// `nemotron-3-super` and `nemotron-3-super:120b` are different names, and
+    /// only the second one runs. A list that drops the tag produces requests
+    /// the provider rejects with 401/404 — which reads as a bad credential and
+    /// sends the developer to the wrong place entirely (operator, 2026-09-04).
+    #[test]
+    fn a_models_size_tag_survives_the_listing() {
+        let names = ollama_model_names(TAGS).expect("a well-formed tags body parses");
+        assert_eq!(
+            names,
+            vec!["nemotron-3-super:120b", "gpt-oss:120b", "gemma4:27b"],
+            "every id must keep the tag exactly as Ollama gave it"
+        );
+        for n in &names {
+            assert!(n.contains(':'), "{n} lost its tag");
+        }
+    }
+
+    /// Some builds report only `model`. The id must still arrive whole.
+    #[test]
+    fn an_entry_without_a_name_falls_back_to_its_model_id() {
+        let body = r#"{"models":[{"model":"deepseek-v3.1:671b"}]}"#;
+        assert_eq!(
+            ollama_model_names(body).unwrap(),
+            vec!["deepseek-v3.1:671b"]
+        );
+    }
+
+    /// A 200 that is not a model list (a login page, an error object) must be
+    /// reported as itself, not collapsed into one blanket sentence that fits
+    /// every possible cause.
+    #[test]
+    fn a_body_that_is_not_a_model_list_says_what_arrived() {
+        let err = ollama_model_names(r#"{"error":"unauthorized"}"#).unwrap_err();
+        assert!(err.contains("models"), "must name what was missing: {err}");
+        assert!(err.contains("unauthorized"), "must quote the body: {err}");
+
+        let err = ollama_model_names("<html>login</html>").unwrap_err();
+        assert!(err.contains("not JSON"), "must say it was not JSON: {err}");
+        assert!(err.contains("html"), "must quote the body: {err}");
+    }
+
+    /// The cloud provider is a hosted API behind a key; the list request must
+    /// carry it, exactly as every other provider's does.
+    #[test]
+    fn the_cloud_model_list_is_authenticated() {
+        let headers = model_list_headers("ollama_cloud", "sk-live-key");
+        assert!(
+            headers
+                .iter()
+                .any(|(n, v)| *n == "Authorization" && v == "Bearer sk-live-key"),
+            "ollama_cloud must present its credential, got: {headers:?}"
+        );
+        // A local Ollama has no key and must not grow an empty header.
+        assert!(
+            model_list_headers("ollama", "").is_empty(),
+            "a keyless local Ollama sends no authorization header"
         );
     }
 }
