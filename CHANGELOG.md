@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.16] — 2026-09-04
+
+### F12 photographs the window again, not the desktop around it
+
+egui reports a window's rectangle in **its own points** — screen points divided
+by the context-wide zoom factor (egui-winit's `outer_rect_in_points` is
+`outer_rect_px / (zoom × native)`). `WindowTarget::of` passed that rectangle to
+`screencapture -R`, which wants **screen points**. At zoom 1.0 the two agree; at
+anything else the region is the wrong size and the wrong distance from the
+origin — at 0.5 it is twice the window, and the shot is mostly desktop with the
+window in one corner.
+
+Two things in the IDE move that factor, and neither puts it back: egui's own
+Cmd+= / Cmd+- (on by default), and the doc viewer's Zoom In / Zoom Out, which
+call `set_zoom_factor` on the shared context.
+
+The target now multiplies the zoom back before it asks for the region, and
+`region()` treats a hair under a whole number as that number, so the float
+round trip cannot shave a point off the left edge. A new test drives a real
+`egui::Context` at zoom 1.0, 0.5, 1.5 and 1.331 and expects the same
+`100,50,1200,800` from all four.
+
 ## [PowerRustCOBOL 1.64.15] — 2026-09-04
 
 ### Retire the key probe; keep the four traces worth having

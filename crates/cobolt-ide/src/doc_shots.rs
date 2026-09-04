@@ -180,12 +180,24 @@ impl WindowTarget {
     /// does not report a rectangle, which is the honest answer — better than
     /// photographing the wrong part of the screen.
     pub fn of(ctx: &Context) -> Option<Self> {
+        // egui hands out every rectangle in *its own* points: screen points
+        // divided by the context-wide zoom factor (egui-winit
+        // `outer_rect_in_points` is `outer_rect_px / (zoom × native)`).
+        // `screencapture -R` wants screen points, so the zoom is multiplied
+        // back. At 1.0 that is the identity; at anything else it is the
+        // difference between the window and a slab of desktop around it —
+        // and two things in the IDE move it: egui's own Cmd+= / Cmd+-, and the
+        // doc viewer's Zoom In/Out, which set it for the whole context.
+        let zoom = ctx.zoom_factor();
+        if !(zoom > 0.0) {
+            return None;
+        }
         ctx.input(|input| {
             let viewport = input.viewport();
-            let rect = viewport.outer_rect?;
+            let rect = viewport.outer_rect? * zoom;
             let scale = viewport
                 .native_pixels_per_point
-                .unwrap_or_else(|| input.pixels_per_point());
+                .unwrap_or_else(|| input.pixels_per_point() / zoom);
             (rect.width() >= 1.0 && rect.height() >= 1.0 && scale > 0.0)
                 .then_some(Self { rect, scale })
         })
@@ -193,11 +205,16 @@ impl WindowTarget {
 
     /// The `x,y,w,h` region argument, rounded outwards so a fractional window
     /// edge never shaves a pixel off the shot.
+    ///
+    /// A hair under a whole number is treated as that whole number: the zoom
+    /// round trip in [`Self::of`] can turn 100 into 99.99999, and flooring
+    /// that would move the region one point left of the window.
     pub fn region(&self) -> String {
-        let x = self.rect.min.x.floor() as i64;
-        let y = self.rect.min.y.floor() as i64;
-        let w = self.rect.width().ceil().max(1.0) as i64;
-        let h = self.rect.height().ceil().max(1.0) as i64;
+        const HAIR: f32 = 1.0 / 1024.0;
+        let x = (self.rect.min.x + HAIR).floor() as i64;
+        let y = (self.rect.min.y + HAIR).floor() as i64;
+        let w = (self.rect.width() - HAIR).ceil().max(1.0) as i64;
+        let h = (self.rect.height() - HAIR).ceil().max(1.0) as i64;
         format!("{x},{y},{w},{h}")
     }
 }
@@ -1321,6 +1338,54 @@ Next section.
             scale: 1.0,
         };
         assert_eq!(sliver.region(), "5,5,1,1");
+    }
+
+    /// egui reports window rectangles in its own points — screen points
+    /// divided by the context-wide zoom factor (egui-winit
+    /// `outer_rect_in_points`). Anything that moves that factor — the doc
+    /// viewer's Zoom In/Out, egui's Cmd+= / Cmd+- — used to move the region
+    /// F12 asked `screencapture` for: at zoom 0.5 the region was twice the
+    /// window, and the shot was mostly desktop.
+    #[test]
+    fn the_capture_region_is_in_screen_points_whatever_the_zoom() {
+        fn target_at(zoom: f32) -> WindowTarget {
+            let ctx = Context::default();
+            ctx.set_zoom_factor(zoom);
+            // A window at screen (100, 50), 1200×800 points, on a 2× display —
+            // reported the way egui-winit reports it, divided by the zoom.
+            let input = || egui::RawInput {
+                viewport_id: ViewportId::ROOT,
+                viewports: std::iter::once((
+                    ViewportId::ROOT,
+                    egui::ViewportInfo {
+                        outer_rect: Some(
+                            egui::Rect::from_min_size(
+                                egui::pos2(100.0, 50.0),
+                                egui::vec2(1200.0, 800.0),
+                            ) / zoom,
+                        ),
+                        native_pixels_per_point: Some(2.0),
+                        ..Default::default()
+                    },
+                ))
+                .collect(),
+                ..Default::default()
+            };
+            // The zoom takes effect at the start of the next pass. Each pass
+            // hands back font-texture deltas that egui insists are handled;
+            // there is no painter here, so they are dropped on purpose.
+            ctx.run_ui(input(), |_| {}).textures_delta.clear();
+            let mut seen = None;
+            ctx.run_ui(input(), |ui| seen = WindowTarget::of(ui.ctx()))
+                .textures_delta
+                .clear();
+            seen.expect("a viewport that reports its rectangle yields a target")
+        }
+        for zoom in [1.0, 0.5, 1.5, 1.1_f32.powi(3)] {
+            let target = target_at(zoom);
+            assert_eq!(target.region(), "100,50,1200,800", "at zoom {zoom}");
+            assert_eq!(target.scale, 2.0, "at zoom {zoom}");
+        }
     }
 
     #[test]
