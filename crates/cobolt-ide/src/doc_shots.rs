@@ -559,9 +559,17 @@ impl DocShots {
 
         let (mut now, mut delayed) = (false, false);
         ctx.input(|input| {
-            if !input.focused {
-                return;
-            }
+            // NO `input.focused` GATE.
+            //
+            // It used to return early unless the viewport reported focus, and
+            // that is what made F12 dead in the Form Designer while it worked
+            // in the main window (operator, 2026-09-04: "Debug settings shows
+            // the F12 is enabled, but RAD does not open it"). The flag is not
+            // dependable for an immediate child viewport, and it was never
+            // needed: the OS routes a key press to the FOCUSED window only, so
+            // an F12 event sitting in this viewport's queue is already proof
+            // that this viewport had focus. Asking twice, with the weaker
+            // question second, could only ever lose events.
             for event in &input.events {
                 if let egui::Event::Key {
                     key: Key::F12,
@@ -583,6 +591,19 @@ impl DocShots {
             }
         });
 
+        // Three traces, because this path spans two windows and a round trip to
+        // the compositor: the key arriving, the request going out, and the
+        // image coming back. When it fails, which of the three is missing says
+        // where — guessing cost two wrong diagnoses (2026-09-04).
+        // `RUST_LOG=doc_shots=info` to see them.
+        if now || delayed {
+            tracing::info!(
+                target: "doc_shots",
+                "F12 seen (delayed={delayed}) viewport={:?} focused={}",
+                ctx.viewport_id(),
+                ctx.input(|i| i.focused),
+            );
+        }
         if now {
             ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
@@ -610,6 +631,13 @@ impl DocShots {
             })
         });
         if let Some(image) = captured {
+            tracing::info!(
+                target: "doc_shots",
+                "capture landed in viewport={:?} ({}x{}) — raising the main window",
+                ctx.viewport_id(),
+                image.size[0],
+                image.size[1],
+            );
             self.pending = Some(image);
             self.status = None;
             self.name_input.clear();

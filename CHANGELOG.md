@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.9] — 2026-09-04
+
+### F12 was dead in the Form Designer because it asked the wrong question
+
+"Debug settings shows the F12 is enabled, but RAD does not open it" (operator,
+2026-09-04). The switch was on, the designer's viewport polls the key first
+thing every frame, and nothing else binds F12 — the capture was being thrown
+away one line into `poll`:
+
+```rust
+ctx.input(|input| {
+    if !input.focused { return; }   // ← every child viewport, every time
+```
+
+That flag is not dependable for an immediate child viewport, and it was never
+needed. The OS routes a key press to the **focused window only**, so an `F12`
+event sitting in a viewport's own queue is already proof that viewport had
+focus. Asking a second, weaker question could only ever lose events — which is
+exactly what it did everywhere except the main window.
+
+**Three traces added on the same path**, because it spans two windows and a
+round trip to the compositor: the key arriving, the screenshot request going
+out, and the image coming back. Which of the three is missing says where a
+future failure lives. `RUST_LOG=doc_shots=info` shows them.
+
+This is the second fault behind one symptom. 1.64.8 fixed the popup opening
+*behind* the designer window; this one is why the popup was never reached at
+all. Both had to go.
+
 ## [PowerRustCOBOL 1.64.8] — 2026-09-04
 
 ### F12 in the Form Designer opened its popup behind the window you were looking at
