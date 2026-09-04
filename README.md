@@ -1,13 +1,13 @@
 <!--
 SPDX-License-Identifier: Apache-2.0
-Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL AI contributors
 
 Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
 <p align="center">
-  <img src="assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL — a chibi samurai robot mascot" width="360">
+  <img src="assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL AI — a chibi samurai robot mascot" width="360">
 </p>
 
 <p align="center">
@@ -25,12 +25,13 @@ See the LICENSE file in the project root for full license information.
 
 ## Overview
 
-**PowerRustCOBOL** brings COBOL into a modern desktop development experience. It pairs a
+**PowerRustCOBOL AI** brings COBOL into a modern desktop development experience. It pairs a
 practical subset of the **COBOL-85 standard** with a visual form designer, a rich widget
 toolbox, an interactive debugger, and a compiler that turns a project into one
 **self-contained native binary** — no COBOL source shipped inside it.
 
-[SCREENSHOT]
+<!-- 📷 powerrustcobol-ide.png — **self-contained native binary** — no COBOL source shipped inside it. […] | Name | Role | -->
+<p align="center"><img src="assets/images/screenshots/powerrustcobol-ide.png" alt="self-contained native binary — no COBOL source shipped inside it" width="900"></p>
 
 | Name | Role |
 |------|------|
@@ -54,19 +55,25 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 
 ## What's implemented
 
-[SCREENSHOT]
+<!-- 📷 theide.png — ## What's implemented […] PowerRustCOBOL AI is a working visual -->
+<p align="center"><img src="assets/images/screenshots/theide.png" alt="## What's implemented […] PowerRustCOBOL AI is a working visual" width="900"></p>
 
-PowerRustCOBOL is a working visual RAD environment for COBOL, not a prototype: a
+PowerRustCOBOL AI is a working visual RAD environment for COBOL, not a prototype: a
 form designer with **42 widgets** and pixel-parity rendering from canvas to
 compiled binary, a COBOL-85 language core with **exact fixed-point arithmetic**,
 **INDEXED (ISAM)** files with real transactions, SQL / REST / chart integrations,
 an **agentic AI assistant mesh**, and a compiler that emits a **single native
 binary** with no `.cbl` source inside it.
 
+[SCREENSHOT]
+<p align="center"><img src="assets/images/screenshots/therad.png" alt="## The RAD (Rapid Application Development) environment" width="900"></p>
+
+
+
 > **Every capability has its own row in the
-> [PowerRustCOBOL Support Matrix](docs/cobol-support-matrix-en.md)** — including
+> [PowerRustCOBOL AI Support Matrix](docs/cobol-support-matrix-en.md)** — including
 > whether it comes from **COBOL-85**, a **later ISO standard (2002–2023/26)**, or
-> is a **PowerRustCOBOL extension**, and whether it is supported, partial,
+> is a **PowerRustCOBOL AI extension**, and whether it is supported, partial,
 > planned or out of scope.
 
 | Looking for | Document |
@@ -78,7 +85,7 @@ binary** with no `.cbl` source inside it.
 | Indexed files — format, internals, redb engine | [format](docs/indexed-file-format-en.md) · [internals](docs/indexed-file-internals-en.md) · [redb](docs/indexed-redb-engine-en.md) |
 | SQL runtime · logging and metrics | [database](docs/database-runtime-en.md) · [observability](docs/observability-en.md) |
 
-![PowerRustCOBOL Agentic AI assistant architecture](docs/AI_Assistant_Architecture.jpg)
+![PowerRustCOBOL AI Agentic AI assistant architecture](docs/AI_Assistant_Architecture.jpg)
 
 ## Getting started
 
@@ -164,13 +171,13 @@ cargo run -p cobolt-ide
 > **Tip:** for the smoothest UI, run a release build: `cargo run --release -p cobolt-ide`
 > (slower to compile the first time, much faster at runtime).
 
-That's it — the **PowerRustCOBOL** window opens and you can start designing forms
+That's it — the **PowerRustCOBOL AI** window opens and you can start designing forms
 and writing RustCOBOL. To work from the command line instead, see
 [Run / check a program from the CLI](#run--check-a-program-from-the-cli-rcrun) below.
 
 ## Running applications
 
-A PowerRustCOBOL **project** is a directory with a `cobolt.toml` manifest plus its
+A PowerRustCOBOL AI **project** is a directory with a `cobolt.toml` manifest plus its
 `.cbl` sources and `.cfrm` forms:
 
 ```toml
@@ -242,14 +249,14 @@ required `LICENSE` / `NOTICE` / runtime-notice files.
 > Prefer a short command? Build once with `cargo build --release` and use the produced
 > `target/release/rcrun` binary directly: `rcrun run main.cbl`, `rcrun build cobolt.toml`, …
 
-## Powered by PowerRustCOBOL
+## Powered by PowerRustCOBOL AI
 
 <p align="center">
-  <img src="assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL" width="320">
+  <img src="assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL AI" width="320">
 </p>
 
-Built something with PowerRustCOBOL? Show it off — add the **"Powered by
-PowerRustCOBOL"** badge to your application's **About box** (and, if you like, your
+Built something with PowerRustCOBOL AI? Show it off — add the **"Powered by
+PowerRustCOBOL AI"** badge to your application's **About box** (and, if you like, your
 own README).
 
 - Badge image: [`assets/images/made-with-powerrustcobol.png`](assets/images/made-with-powerrustcobol.png) (800×268, transparent PNG).
@@ -260,29 +267,29 @@ own README).
 Markdown:
 
 ```markdown
-[![Powered by PowerRustCOBOL](assets/images/made-with-powerrustcobol.png)](https://github.com/CloudLandBeta/PowerRustCOBOL)
+[![Powered by PowerRustCOBOL AI](assets/images/made-with-powerrustcobol.png)](https://github.com/CloudLandBeta/PowerRustCOBOL)
 ```
 
 HTML:
 
 ```html
 <a href="https://github.com/CloudLandBeta/PowerRustCOBOL">
-  <img src="made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL" width="320">
+  <img src="made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL AI" width="320">
 </a>
 ```
 
 ## COBOL-85 standard support
 
-PowerRustCOBOL targets a **practical, application-oriented subset** of COBOL-85
+PowerRustCOBOL AI targets a **practical, application-oriented subset** of COBOL-85
 plus visual RAD extensions. It is **not** (yet) a certified COBOL-85
 implementation — and conformance here is **measured** against the official NIST
 CCVS85 validation suite rather than asserted.
 
 The full picture is one table per area, with a column for each origin
-(**COBOL-85**, **COBOL 2002–2023/26**, **PowerRustCOBOL extension**) and a
+(**COBOL-85**, **COBOL 2002–2023/26**, **PowerRustCOBOL AI extension**) and a
 status for every row:
 
-> ### → [PowerRustCOBOL Support Matrix](docs/cobol-support-matrix-en.md)
+> ### → [PowerRustCOBOL AI Support Matrix](docs/cobol-support-matrix-en.md)
 
 It covers source format and program structure, the DATA DIVISION, every verb,
 conditions and expressions, the complete intrinsic-function set, file
@@ -293,8 +300,8 @@ statement and the NIST scoreboard, see the
 
 ## Repository layout
 
-PowerRustCOBOL is a Rust workspace. The internal build crates use a `cobolt-*` prefix
-(build-only identifiers; the product is **PowerRustCOBOL**, the language **RustCOBOL**,
+PowerRustCOBOL AI is a Rust workspace. The internal build crates use a `cobolt-*` prefix
+(build-only identifiers; the product is **PowerRustCOBOL AI**, the language **RustCOBOL**,
 the CLI **rcrun**):
 
 | Path | Responsibility |
@@ -317,7 +324,7 @@ the CLI **rcrun**):
 | `cobolt-codegen` | Form → RustCOBOL source generator. |
 | `cobolt-compiler` | Embed-and-bundle single-binary compiler. |
 | `cobolt-cli` | The `rcrun` command-line tool. |
-| `cobolt-ide` | The PowerRustCOBOL desktop app (egui/eframe). |
+| `cobolt-ide` | The PowerRustCOBOL AI desktop app (egui/eframe). |
 
 ```sh
 # Build everything
@@ -329,16 +336,16 @@ cargo test
 
 ## License
 
-PowerRustCOBOL is licensed under the **Apache License, Version 2.0**.
+PowerRustCOBOL AI is licensed under the **Apache License, Version 2.0**.
 
 Applications, source code, forms, assets, project files, binaries, and packages **created
-by users** with PowerRustCOBOL are owned by their respective authors and may be licensed
+by users** with PowerRustCOBOL AI are owned by their respective authors and may be licensed
 under any terms they choose, including proprietary commercial terms.
 
-PowerRustCOBOL's own components (runtime, standard library, compiler support code,
+PowerRustCOBOL AI's own components (runtime, standard library, compiler support code,
 generated support modules, form-engine components, templates, helper libraries, and any
-other PowerRustCOBOL-provided components bundled with a user application) remain
-PowerRustCOBOL components licensed under the Apache License, Version 2.0. Distributions
+other PowerRustCOBOL AI-provided components bundled with a user application) remain
+PowerRustCOBOL AI components licensed under the Apache License, Version 2.0. Distributions
 that include them must preserve the required copyright, license, attribution, and NOTICE
 information.
 
