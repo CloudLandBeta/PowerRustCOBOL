@@ -645,9 +645,6 @@ pub struct DocShots {
     /// keeps the window they were working in (operator, 2026-09-04: "draw the
     /// popup in the window that took the shot").
     popup_viewport: Option<ViewportId>,
-    /// Viewports `poll` has run in at least once — so the probe announces each
-    /// window once instead of every frame.
-    seen_viewports: std::collections::HashSet<ViewportId>,
     docs: Vec<DocEntry>,
     selected: Option<usize>,
     /// File name for a bare `[SCREENSHOT]`, which names no target itself.
@@ -669,47 +666,6 @@ impl DocShots {
     pub fn poll(&mut self, ctx: &Context, enabled: bool) {
         if !enabled {
             return;
-        }
-
-        // ── Probe: is this viewport polling, and does it see keys at all? ───
-        //
-        // `COBOLT_LOG=doc_shots=info` printed NOTHING when F12 was pressed over
-        // the Form Designer (operator, 2026-09-04), which rules out the popup,
-        // the focus flag and the debug switch — the key never reaches here. Two
-        // things could produce that silence and they need different fixes:
-        // `poll` not running for that viewport at all (an immediate child only
-        // runs inside its parent's frame), or running but receiving no key
-        // events. One line each, so the next run says which.
-        {
-            let first_time = self.seen_viewports.insert(ctx.viewport_id());
-            if first_time {
-                tracing::info!(
-                    target: "doc_shots",
-                    "poll is live for viewport={:?}",
-                    ctx.viewport_id(),
-                );
-            }
-            let keys: Vec<Key> = ctx.input(|input| {
-                input
-                    .events
-                    .iter()
-                    .filter_map(|event| match event {
-                        egui::Event::Key {
-                            key, pressed: true, ..
-                        } => Some(*key),
-                        _ => None,
-                    })
-                    .collect()
-            });
-            if !keys.is_empty() {
-                tracing::info!(
-                    target: "doc_shots",
-                    "viewport={:?} focused={} keys={:?}",
-                    ctx.viewport_id(),
-                    ctx.input(|i| i.focused),
-                    keys,
-                );
-            }
         }
 
         let (mut now, mut delayed) = (false, false);
@@ -746,13 +702,11 @@ impl DocShots {
             }
         });
 
-        // Three traces, because this path spans two windows and a round trip to
-        // the compositor: the key arriving, the request going out, and the
-        // image coming back. When it fails, which of the three is missing says
-        // where — guessing cost two wrong diagnoses (2026-09-04).
-        // `COBOLT_LOG=doc_shots=info` to see them — this binary filters on
-        // COBOLT_LOG (not RUST_LOG) and defaults to WARN, so info is silent
-        // until that variable asks for it.
+        // The key arriving, and (in `take`) the picture that came back or the
+        // reason none did. Enough to place a failure without reading code, now
+        // that the capture is synchronous and there is no round trip to lose an
+        // answer in. `COBOLT_LOG=doc_shots=info` to see them: this binary
+        // filters on COBOLT_LOG, not RUST_LOG, and defaults to WARN.
         if now || delayed {
             tracing::info!(
                 target: "doc_shots",

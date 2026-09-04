@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.15] — 2026-09-04
+
+### Retire the key probe; keep the four traces worth having
+
+1.64.11's probe logged **every key press in every viewport** to find out where
+F12 was being lost. It did its job — the answer it produced ruled out the popup,
+the focus flag and the debug switch in one run — and it is noise now.
+
+What stays is the short account of one capture: the key arriving, the picture
+that came back, or the reason none did. Four lines, none of them per-keystroke:
+
+| Trace | Says |
+|---|---|
+| `F12 seen (delayed=…) viewport=… focused=…` | the key reached the tool |
+| `captured viewport=… region=… -> WxH` | the picture arrived, with the region it asked for |
+| `no capture: viewport=… reports outer_rect=…` | the window would not say where it is |
+| `capture failed: …` | `screencapture` refused, with the reason |
+
+The comment above them dropped its talk of "a round trip to the compositor",
+which stopped being true in 1.64.12: the capture is synchronous, so there is no
+longer a gap between asking and answering for a reply to be lost in.
+
+Nothing about the capture changed. This removes instrumentation, and the
+`seen_viewports` set it needed, now that the fault it was built for is
+understood.
+
 ## [PowerRustCOBOL 1.64.14] — 2026-09-04
 
 ### No failure of the capture is silent any more
