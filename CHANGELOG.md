@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.2] — 2026-09-03
+
+### A Switch you can actually give a border to — and the test that should have caught the rim
+
+"Switch has no border properties (color, style, thickness etc)" (operator,
+2026-09-03). Correct, and it is the missing half of the white-rim story.
+
+1.63.35 gave the Switch a `BorderStyle` and said it was "the developer's own
+choice … when a developer turns one on". Nothing ever offered the row to turn
+it on with: the inspector's Switch arm rendered `Checked` and the accent
+colour and stopped — it never called `border_rows`. `Control::new` seeded
+`BorderStyle` and `BorderColor` but not `BorderWidth`, and `border_rows` shows
+a row only for a property that is **present**, so even a reachable arm would
+have shown two rows out of three.
+
+That is exactly how the rim became unfixable from the UI: the property existed
+on the control, the load-time seed set it to `Single` (1.63.36 through
+1.63.39), the painter drew it, and the pane showed nothing at all.
+
+Now: the Switch arm calls `border_rows`; `Control::new` seeds all three keys;
+and the load path gets its own Switch arm, so a switch already sitting in a
+saved `.cfrm` gains the colour and width rows too instead of only the style.
+The default is still no border — `BorderStyle` is `"None"`, and a Switch that
+is left alone paints exactly the track and knob it always did.
+
+**The test that was missing.** Two tests passed through this entire episode
+because both started from the wrong end.
+`a_switch_with_default_border_style_draws_no_developer_border` (1.63.35)
+builds its control with `Control::new` — the control that was never broken —
+and 1.63.39's guard checked the seeding without painting. The rim belonged to
+a control that came off **disk**, and nothing loaded a `.cfrm` and painted it.
+`a_switch_loaded_from_a_cfrm_paints_no_border` does: it loads XML shaped like
+the operator's own `switch-form.cfrm`, asserts the load path left it
+frameless, asserts all three border keys exist so the pane can offer them, and
+then paints the control and asserts no stroked shape reaches the surface.
+Mutation-tested against the defect — with the seed flipped back to `Single` it
+fails with `left: Some("Single")`.
+
+Note for anyone chasing the rim in a build older than 1.63.39: it is not fixed
+there. 1.63.37 — the version in the operator's screenshots — carries 1.63.35's
+pill-border painting and 1.63.36's `Single` seed and neither half of the cure,
+so it draws the rim from a `.cfrm` that has no border property in it at all.
+
 ## [PowerRustCOBOL 1.64.1] — 2026-09-03
 
 ### The support matrix, corrected against the code instead of the README

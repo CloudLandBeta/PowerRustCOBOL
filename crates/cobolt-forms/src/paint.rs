@@ -13631,6 +13631,80 @@ mod theme_render_tests {
         );
     }
 
+    /// **The guard the previous two were missing: a Switch read from a
+    /// `.cfrm`, painted.**
+    ///
+    /// `a_switch_with_default_border_style_draws_no_developer_border` builds
+    /// its control with `Control::new`, which is exactly the control that was
+    /// never broken. The rim the operator kept photographing belonged to a
+    /// control that came off DISK: `Control::new` does not run for one, so the
+    /// load path's own seed decided its `BorderStyle`, and between 1.63.36 and
+    /// 1.63.39 that seed was `"Single"` — a border the pane did not show and
+    /// the developer could not turn off. Two tests passed through the whole
+    /// episode because both started from the wrong end.
+    ///
+    /// This one starts from the XML, like the operator's own
+    /// `switch-form.cfrm`: no border keys at all, exactly as it sits on disk.
+    #[test]
+    fn a_switch_loaded_from_a_cfrm_paints_no_border() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#43698C">
+  <Control id="Switch-1" type="Switch" x="10" y="10" w="56" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Checked">true</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+</Form>"##;
+        let form = crate::xml::load_form_from_str(xml).expect("the fixture should load");
+        let c = form.find_control("Switch-1").expect("Switch-1");
+
+        // What the load path decided, stated plainly — this is the value that
+        // used to be "Single".
+        assert_eq!(
+            c.get_prop("BorderStyle").map(|v| v.as_str().to_owned()),
+            Some("None".to_owned()),
+            "a saved Switch must load frameless"
+        );
+        // …and the pane can offer all three rows, which is what makes an
+        // unwanted border removable by hand rather than only by a code fix.
+        for key in ["BorderStyle", "BorderColor", "BorderWidth"] {
+            assert!(
+                c.get_prop(key).is_some(),
+                "{key} must exist on a loaded Switch or `border_rows` hides its row"
+            );
+        }
+
+        // Now paint it and prove no stroked shape reaches the surface.
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(300.0, 120.0)));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    draw_control(&painter, egui::Pos2::ZERO, c, false, true, 1.0, 1.0, None);
+                });
+        });
+        full.textures_delta.clear();
+        fn walk(s: &egui::Shape, out: &mut Vec<(f32, Color32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 => {
+                    out.push((r.stroke.width, r.stroke.color))
+                }
+                _ => {}
+            }
+        }
+        let mut strokes = Vec::new();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut strokes);
+        }
+        assert!(
+            strokes.is_empty(),
+            "a Switch loaded from a .cfrm grew a border nobody asked for: {strokes:?}"
+        );
+    }
+
     /// Setting `BorderStyle` explicitly draws a border on the track's OWN
     /// pill radius — never the control's generic rectangular frame — so the
     /// result reads as part of the switch's outline on every side rather than

@@ -5203,6 +5203,12 @@ impl Control {
                 // and Animator use.
                 props.insert("BorderStyle".into(), PropValue::String("None".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
+                // All THREE keys, because `border_rows` shows a row only for a
+                // property that is present: seeding two of them would offer a
+                // style and a colour with no width beside them (operator,
+                // 2026-09-03: "Switch has no border properties (color, style,
+                // thickness etc)").
+                props.insert("BorderWidth".into(), PropValue::Int(1));
             }
             // FileDropZone (spec 039): egui-elegance's `FileDropZone`.
             // DroppedFiles is runtime-only (populated by a drop or the

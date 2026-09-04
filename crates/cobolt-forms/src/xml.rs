@@ -595,6 +595,25 @@ fn seed_missing_props(form: &mut Form) {
             // `border_rows` — which shows a row only when the key is present —
             // would leave the pane rows hidden forever while `draw_control`
             // went on painting its "Single"/1px fallback box.
+            // A Switch takes the same backfill for the same reason, with its
+            // own colour default: before 1.63.41 a saved switch reached the
+            // pane with only the `BorderStyle` the generic seed gave it, so
+            // the style row could appear with no colour or width beside it —
+            // and on a build between 1.63.36 and 1.63.39 that seed was
+            // `Single`, which drew a rim the developer could neither see in
+            // the pane nor turn off (operator screenshots, 2026-09-03).
+            ControlType::Switch => {
+                let defaults: &[(&str, PropValue)] = &[
+                    ("BorderStyle", PropValue::String("None".into())),
+                    ("BorderColor", PropValue::String("#888888".into())),
+                    ("BorderWidth", PropValue::Int(1)),
+                ];
+                for (key, value) in defaults {
+                    if c.get_prop(*key).is_none() {
+                        c.set_prop(*key, value.clone());
+                    }
+                }
+            }
             ControlType::CheckBox | ControlType::RadioButton => {
                 let defaults: &[(&str, PropValue)] = &[
                     ("BorderStyle", PropValue::String("None".into())),

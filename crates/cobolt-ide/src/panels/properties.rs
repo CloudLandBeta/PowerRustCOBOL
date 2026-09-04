@@ -6449,6 +6449,14 @@ impl PropertiesPanel {
                 // were a palette word from one theme ("Accent") and six of the
                 // sixteen million colours the switch can actually paint.
                 accent_row(ui, id, ctrl, action, tr.lbl_switch_checked_color);
+                // 1.63.35 gave the Switch a BorderStyle "when a developer turns
+                // one on", and nothing ever offered the row to turn it on with:
+                // this arm showed Checked and the accent colour and stopped
+                // (operator, 2026-09-03: "Switch has no border properties
+                // (color, style, thickness etc)"). The property existed on the
+                // control the whole time, which is how a seeded value could
+                // paint a rim that could not be seen or removed from here.
+                border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
 
