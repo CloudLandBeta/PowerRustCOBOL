@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.8] — 2026-09-04
+
+### F12 in the Form Designer opened its popup behind the window you were looking at
+
+"F12 does not work in RAD" (operator, 2026-09-04). The capture always worked;
+what failed was seeing the result.
+
+The key is polled in every viewport on purpose — the shots that matter are of a
+designer, a preview, the running form — and the placement popup is drawn by the
+**main window alone**, equally on purpose, so it can never be part of the frame
+being photographed. Nothing connected the two. Press F12 over a designer and the
+screenshot is taken, the popup opens, and it opens *behind* the window you are
+looking at. A background viewport may not repaint either, so the popup could be
+both hidden and undrawn — indistinguishable from the key doing nothing.
+
+When a capture lands anywhere but the root viewport, the root is now asked for
+focus and a repaint. The capture path itself was always correct.
+
+**Not verified by a test.** Raising an OS window is not something a headless
+test can observe, and this project does not drive its own UI. The reasoning is
+pinned in the code instead, and the behaviour needs an eye on it after a
+rebuild: press F12 over a designer window and the placement popup should come
+to the front.
+
 ## [PowerRustCOBOL 1.64.7] — 2026-09-04
 
 ### Pin the README to the screenshot picker, against the real repository

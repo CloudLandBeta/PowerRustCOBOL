@@ -615,6 +615,26 @@ impl DocShots {
             self.name_input.clear();
             self.refresh();
             self.open = true;
+            // ── Raise the window that draws the popup ────────────────────────
+            //
+            // The capture follows focus — the whole point, since the shots that
+            // matter are of a designer, a preview or the running form — but the
+            // placement popup is drawn by the MAIN window alone, deliberately,
+            // so it is never part of the frame being photographed.
+            //
+            // Nothing brought that window forward. Press F12 over a designer and
+            // the shot is taken, the popup opens, and it opens BEHIND the window
+            // being looked at — indistinguishable from the key doing nothing
+            // (operator, 2026-09-04: "F12 does not work in RAD"). A background
+            // viewport may not even repaint, so the popup could be both hidden
+            // and undrawn.
+            //
+            // Asking the root viewport for focus and a repaint is the whole fix;
+            // the capture path itself was always correct.
+            if ctx.viewport_id() != ViewportId::ROOT {
+                ctx.send_viewport_cmd_to(ViewportId::ROOT, egui::ViewportCommand::Focus);
+                ctx.request_repaint_of(ViewportId::ROOT);
+            }
         }
     }
 
