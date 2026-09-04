@@ -2256,7 +2256,7 @@ pub fn run_grace_workflow_with_control(
         .filter(|name| !name.trim().is_empty())
         .unwrap_or("none; select by capability");
     let context = if routing.context.trim().is_empty() {
-        "(no additional surface context)"
+        NO_SURFACE_CONTEXT
     } else {
         routing.context.trim()
     };
@@ -2579,6 +2579,11 @@ pub(crate) fn inject_task_context_for_test(context: &str, plan: &mut [TaskSpec])
     inject_task_context(context, plan)
 }
 
+/// What the planner sends in place of a surface context when there is none.
+/// It is a note to the reader, never material to work from, so it must not be
+/// forwarded to a specialist as if it were.
+pub(crate) const NO_SURFACE_CONTEXT: &str = "(no additional surface context)";
+
 fn inject_task_context(context: &str, plan: &mut [TaskSpec]) {
     inject_task_context_with_project(context, plan, None)
 }
@@ -2668,9 +2673,23 @@ fn inject_task_context_with_project(
                 }
                 ctx.push_str(&block);
             }
-            if !ctx.trim().is_empty() {
-                task.context = ctx;
-            }
+            // The excerpt parser understood NOTHING in this surface's
+            // context. That is not the same as there being no context: the RAD
+            // event-handler chatbot's is prose plus the handler source
+            // (`designer.rs`: "Editing handler `X` for `Y.onClick`." + CURRENT
+            // HANDLER), carrying none of the CONTROLS / EVENTS BY TYPE markers
+            // these excerpts look for. Every excerpt came back empty, the task
+            // was delegated with an EMPTY context block, and the specialist
+            // correctly refused a task it could plainly have done — it was
+            // asked to edit code it had never been shown (operator,
+            // 2026-09-04). Pass through what Grace herself was given.
+            task.context = if !ctx.trim().is_empty() {
+                ctx
+            } else if task_context.trim() == NO_SURFACE_CONTEXT {
+                String::new()
+            } else {
+                task_context.trim().to_string()
+            };
         } else {
             // The event agent must bind to real control ids/events AND call real
             // methods on them (e.g. `PictureBox-2::PlayAnimation()`). Without the
@@ -2698,9 +2717,23 @@ fn inject_task_context_with_project(
                 }
                 ctx.push_str(&block);
             }
-            if !ctx.trim().is_empty() {
-                task.context = ctx;
-            }
+            // The excerpt parser understood NOTHING in this surface's
+            // context. That is not the same as there being no context: the RAD
+            // event-handler chatbot's is prose plus the handler source
+            // (`designer.rs`: "Editing handler `X` for `Y.onClick`." + CURRENT
+            // HANDLER), carrying none of the CONTROLS / EVENTS BY TYPE markers
+            // these excerpts look for. Every excerpt came back empty, the task
+            // was delegated with an EMPTY context block, and the specialist
+            // correctly refused a task it could plainly have done — it was
+            // asked to edit code it had never been shown (operator,
+            // 2026-09-04). Pass through what Grace herself was given.
+            task.context = if !ctx.trim().is_empty() {
+                ctx
+            } else if task_context.trim() == NO_SURFACE_CONTEXT {
+                String::new()
+            } else {
+                task_context.trim().to_string()
+            };
         }
     }
 }
@@ -5328,6 +5361,92 @@ mod tests {
             plan[0].context.contains("Timer: onTick"),
             "the specialist still gets the type its objective names"
         );
+    }
+
+    /// **A specialist must be shown the code it is asked to edit.**
+    ///
+    /// The RAD event-handler chatbot's surface context is prose plus the
+    /// handler source — no `CONTROLS:`, no `EVENTS BY TYPE`, none of the
+    /// markers the excerpt helpers parse. Every excerpt therefore came back
+    /// empty, the task went out with an EMPTY context block, and the
+    /// specialist refused: "The current source code for the
+    /// BTN-MARKERS--CLICK event handler was not provided in the task context"
+    /// — which was exactly true (operator, 2026-09-04: "the agent could not
+    /// get a proper response to a request to add comments to a code").
+    #[test]
+    fn a_rad_handler_surface_reaches_the_specialist_verbatim() {
+        let context = "Editing handler `BTN-MARKERS--CLICK` for `BTN-MARKERS.onClick`.\n\n\
+             CURRENT HANDLER:\n```cobol\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20          INVOKE MAP-1 \"AddMarker\" USING\n\
+             \x20              \"ANA\"    \"40.4168\" \"-3.7038\" \"Ana\" \"Madrid\"\n\
+             ```";
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::EVENT_HANDLER.into(),
+            objective: "Add comments before each INVOKE line in the BTN-MARKERS--CLICK handler"
+                .into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+
+        inject_task_context(context, &mut plan);
+
+        assert!(
+            plan[0].context.contains("INVOKE MAP-1"),
+            "the specialist must receive the code it is asked to edit, got: {:?}",
+            plan[0].context
+        );
+        assert!(
+            plan[0].context.contains("BTN-MARKERS--CLICK"),
+            "and the handler it belongs to: {:?}",
+            plan[0].context
+        );
+    }
+
+    /// The fallback must not override a context the excerpts DID understand —
+    /// the structured view is the better one where it exists.
+    #[test]
+    fn a_structured_context_still_wins_over_the_raw_fallback() {
+        let context = "CONTEXT\nFORM: MAIN-FORM (800x600)\n\
+             CONTROLS:\n  Button-1 (Button) @(10,10) 80x30\n\
+             EVENTS BY TYPE (for all available controls):\n  Button: onClick\n\
+             CONTROL API BY ID:\n  Button-1 (Button): properties [Caption]; methods [SetCaption]\n\
+             PROCEDURES: (none)";
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::EVENT_HANDLER.into(),
+            objective: "wire Button-1 onClick".into(),
+            context: String::new(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+
+        inject_task_context(context, &mut plan);
+        assert!(plan[0].context.contains("Button-1 (Button)"));
+        assert!(
+            !plan[0].context.contains("PROJECT USER CONTROLS"),
+            "the structured excerpts are still what is sent"
+        );
+    }
+
+    /// Grace's own explicit context keeps precedence over both.
+    #[test]
+    fn graces_own_context_is_never_overwritten() {
+        let mut plan = vec![TaskSpec {
+            id: "T1".into(),
+            agent: crate::agents_db::EVENT_HANDLER.into(),
+            objective: "anything".into(),
+            context: "GRACE SAID THIS".into(),
+            reviewer: None,
+            depends_on: vec![],
+            acceptance: String::new(),
+        }];
+        inject_task_context("Editing handler `X` for `Y.onClick`.", &mut plan);
+        assert_eq!(plan[0].context, "GRACE SAID THIS");
     }
 
     /// A context without the legend markers must pass through untouched rather

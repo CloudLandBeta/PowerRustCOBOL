@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.26] — 2026-09-04
+
+### The specialist is shown the code it is asked to edit
+
+Asked to add a comment before each INVOKE line, the COBOL Event Handler Script
+Agent answered that the handler's source "was not provided in the task
+context". It was right, and it was the only agent in the chain behaving
+correctly: its task arrived with an empty CONTEXT block (operator, 2026-09-04,
+with the full verbose log).
+
+Grace had the handler — the RAD chatbot puts it in her prompt as
+`Editing handler ... CURRENT HANDLER: ```cobol ...` ` — and the delegation
+step lost it. `inject_task_context` builds a specialist's context out of
+structured excerpts: `CONTROLS:`, `EVENTS BY TYPE`, `CONTROL API BY ID`,
+`PROCEDURES`, `EVENT HANDLERS`. The RAD event-handler surface carries none of
+those markers, so every excerpt came back empty, and an empty result was passed
+on as no context at all — on the one surface whose whole purpose is editing the
+handler in front of you.
+
+An unparsed context is not an absent one. When no excerpt matches, the surface
+context now reaches the specialist verbatim: what Grace was given, the
+specialist is given. A context the excerpts DO understand still wins, since the
+structured view is the better one, and a context Grace wrote herself still
+overrides both — both pinned by tests. The "(no additional surface context)"
+placeholder is named as a constant and never forwarded: it is a note to the
+reader, not material to work from.
+
 ## [PowerRustCOBOL 1.64.25] — 2026-09-04
 
 ### A reasoning model gets room to answer, and the failure says which fault it is
