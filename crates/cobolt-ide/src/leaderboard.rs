@@ -403,6 +403,34 @@ impl Leaderboard {
         added
     }
 
+    /// Put a model on the board because the developer asked for it.
+    ///
+    /// The difference from [`Self::ensure_models`] is WHO is asking.
+    /// `ensure_models` is the implicit path — an agent points at a model, so
+    /// the board follows — and it must not resurrect a retirement, because the
+    /// agent still pointing at a retired model is exactly what the developer
+    /// is being asked to re-point. "Add to board" IS the developer saying so,
+    /// so it drops the tombstone.
+    ///
+    /// Until 1.64.23 the button ran the implicit path, so adding a model that
+    /// had ever been removed was skipped in silence: the row never appeared
+    /// and nothing said why (operator, 2026-09-04: "can't add a model to the
+    /// leaderboard (button does nothing)"). Reviving needed a test, and a test
+    /// needed a row — a model removed once could not be added back at all.
+    ///
+    /// Returns `false` only when the row is already there.
+    pub fn add_on_request(&mut self, provider: &str, model: &str, endpoint: &str) -> bool {
+        if provider.trim().is_empty() || model.trim().is_empty() {
+            return false;
+        }
+        if self.get(provider, model).is_some() {
+            return false;
+        }
+        self.revive(provider, model);
+        self.entries.push(Entry::new(provider, model, endpoint));
+        true
+    }
+
     /// Is this model tombstoned?
     pub fn is_retired(&self, provider: &str, model: &str) -> bool {
         self.retired.iter().any(|r| r.matches(provider, model))
@@ -696,6 +724,73 @@ mod tests {
             "the sync must not resurrect a retired model"
         );
         assert!(lb.get("anthropic", "claude-opus-4").is_none());
+    }
+
+    /// **"Add to board" must put the model on the board.**
+    ///
+    /// Removing a row tombstones it, and the button ran the same implicit sync
+    /// the agent table runs — which is required to skip a tombstone. So a model
+    /// the developer had removed once could never be added back: the dropdown
+    /// offered it, the button was enabled, the click was handled, and nothing
+    /// happened (operator, 2026-09-04). Reviving needed a test run, and a test
+    /// run needed a row on the board.
+    #[test]
+    fn asking_for_a_removed_model_puts_it_back_on_the_board() {
+        let mut lb = Leaderboard::default();
+        let assigned = vec![(
+            "ollama_cloud".to_string(),
+            "nemotron-3-nano:30b".to_string(),
+            String::new(),
+        )];
+        lb.ensure_models(&assigned);
+        lb.retire("ollama_cloud", "nemotron-3-nano:30b", RetiredBecause::Removed);
+        assert!(lb.is_retired("ollama_cloud", "nemotron-3-nano:30b"));
+
+        assert!(
+            lb.add_on_request("ollama_cloud", "nemotron-3-nano:30b", ""),
+            "the developer's own say-so must add the row"
+        );
+        assert!(lb.get("ollama_cloud", "nemotron-3-nano:30b").is_some());
+        assert!(
+            !lb.is_retired("ollama_cloud", "nemotron-3-nano:30b"),
+            "and must drop the tombstone, or the next sync deletes it again"
+        );
+    }
+
+    /// The implicit path keeps its rule: an agent still pointing at a retired
+    /// model is what the developer is being asked to re-point, and must not
+    /// quietly bring the row back.
+    #[test]
+    fn an_explicit_add_is_not_a_licence_for_the_implicit_sync() {
+        let mut lb = Leaderboard::default();
+        lb.retire("anthropic", "claude-opus-4", RetiredBecause::Removed);
+        let assigned = vec![(
+            "anthropic".to_string(),
+            "claude-opus-4".to_string(),
+            String::new(),
+        )];
+        assert!(!lb.ensure_models(&assigned), "the sync still refuses");
+        assert!(lb.get("anthropic", "claude-opus-4").is_none());
+    }
+
+    /// The one case that legitimately changes nothing — and the caller reports
+    /// it rather than leaving the click looking broken.
+    #[test]
+    fn asking_for_a_model_already_on_the_board_changes_nothing() {
+        let mut lb = Leaderboard::default();
+        assert!(lb.add_on_request("ollama_cloud", "gpt-oss:120b", ""));
+        assert!(
+            !lb.add_on_request("ollama_cloud", "gpt-oss:120b", ""),
+            "a second ask is a no-op, and says so"
+        );
+        assert_eq!(
+            lb.entries
+                .iter()
+                .filter(|e| e.matches("ollama_cloud", "gpt-oss:120b"))
+                .count(),
+            1,
+            "and never duplicates the row"
+        );
     }
 
     /// …and it is not a life sentence. A model that answers again is alive,

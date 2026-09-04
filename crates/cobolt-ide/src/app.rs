@@ -6861,13 +6861,21 @@ impl CoboltApp {
             // Spec 048 R20 — a model can be benchmarked without any agent
             // running it, so the board takes it on the developer's say-so.
             let endpoint = self.llm.provider_endpoint(&provider);
-            if self
-                .leaderboard
-                .ensure_models(&[(provider.clone(), model.clone(), endpoint)])
-            {
+            // The EXPLICIT path (`add_on_request`), not `ensure_models`: this
+            // is the developer's say-so, so a model they once removed comes
+            // back rather than being skipped in silence.
+            let status = if self.leaderboard.add_on_request(&provider, &model, &endpoint) {
                 self.save_leaderboard();
-                self.output
-                    .push_status(format!("Leaderboard: added {provider}/{model}."));
+                format!("Leaderboard: added {provider}/{model}.")
+            } else {
+                // The only remaining case. A click that changes nothing must
+                // still say something — the whole defect was a button that
+                // looked broken because it reported neither outcome.
+                format!("Leaderboard: {provider}/{model} is already on the board.")
+            };
+            self.output.push_status(status.clone());
+            if let Some(m) = self.leaderboard_modal.as_mut() {
+                m.set_status(status);
             }
         }
         if let Some((provider, model)) = act.retire {

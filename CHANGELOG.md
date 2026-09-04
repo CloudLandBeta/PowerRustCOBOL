@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.23] — 2026-09-04
+
+### "Add to board" adds the model to the board
+
+Removing a row from the Model Leaderboard tombstones it, so that the automatic
+sync cannot bring it back the moment it notices an agent still pointing at it —
+that agent is precisely what the developer is being asked to re-point.
+
+**Add to board** ran that same automatic sync. So a model the developer had
+removed even once could never be put back: the dropdown offered it, the button
+was enabled, the click was handled, and `ensure_models` skipped the tombstone
+in silence. The documented way to revive a retirement is to test the model
+again, and a test needs a row on the board — so there was no way back at all
+(operator, 2026-09-04: "can't add a model to the leaderboard (button does
+nothing)").
+
+The button now takes the explicit path, which is the developer's own say-so and
+drops the tombstone. The automatic sync keeps its rule, unchanged and still
+tested: it never resurrects a retirement.
+
+The click also reports itself now, in the board's own status line as well as
+the output panel — added, or already on the board. There is no third outcome,
+and a click that changes nothing must still say so; a button that reports
+neither outcome is indistinguishable from a broken one, which is what this
+was.
+
 ## [PowerRustCOBOL 1.64.22] — 2026-09-04
 
 ### The Ollama model list is authenticated, and it is on the record
