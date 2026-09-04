@@ -1550,7 +1550,13 @@ fn render_chat_bubble(ui: &mut egui::Ui, role: &str, content: &str, font_size: f
         chat_bubble_fill(is_user)
     };
     let fg = egui::Color32::WHITE;
-    let max_w = (ui.available_width() * 0.82).max(120.0);
+    // The DEVELOPER's balloon is capped at half the frame: their turns are
+    // short, and at 82% a one-line request stretched into a single band across
+    // the whole pane instead of wrapping (operator, 2026-09-04). An agent's
+    // reply keeps the wider cap — it carries code and tables that a narrow
+    // column makes harder to read, not easier.
+    let share = if is_user { 0.5 } else { 0.82 };
+    let max_w = (ui.available_width() * share).max(120.0);
 
     // Typographic rule: Markdown content in the history is rendered as
     // Markdown, not shown as raw text. The card uses the theme background so

@@ -113,6 +113,48 @@ pub struct AgentChangeSet {
     pub note: Option<String>,
 }
 
+/// What the developer should READ, and the handler body to APPLY, from a reply
+/// that may be a change-set rather than prose.
+///
+/// A Grace workflow puts the specialist's `{"operations": …}` block on the
+/// reply so the surface that receives it can apply the work. The RAD designer
+/// parses that JSON and never shows it; the COBOL Event Editor looked only for
+/// a ```` ```cobol ```` block, found none, concluded "Grace answered in prose"
+/// and displayed the raw JSON as the assistant's answer — machinery where a
+/// sentence belonged (operator, 2026-09-04).
+///
+/// Returns the text to show and, when the change-set carries a handler for
+/// exactly this control and event, its code.
+pub fn event_handler_reply(
+    reply: &str,
+    control_id: &str,
+    event: &str,
+    fallback: &str,
+) -> (String, Option<String>) {
+    let Ok(cs) = parse_change_set(reply) else {
+        // Not a change-set at all: prose, a question, or a plain code block —
+        // all of which the caller already handles correctly.
+        return (reply.to_string(), None);
+    };
+    let code = cs.operations.iter().find_map(|op| match op {
+        AgentOp::GenerateEventHandler {
+            control_id: c,
+            event: e,
+            code,
+        } if c.eq_ignore_ascii_case(control_id) && e.eq_ignore_ascii_case(event) => {
+            Some(code.clone())
+        }
+        _ => None,
+    });
+    // The agent's own note is the best answer it wrote; the fallback is used
+    // only when it wrote none. Either way the JSON itself is never shown.
+    let text = match cs.note.as_deref().map(str::trim) {
+        Some(note) if !note.is_empty() => note.to_string(),
+        _ => fallback.to_string(),
+    };
+    (text, code)
+}
+
 /// Parse the model reply into a change-set. The agent must reply with a single JSON
 /// object; we accept it inside a ```json fence (preferred), a bare ``` fence, or as
 /// the whole trimmed message. Any structural problem is a hard error — the caller
@@ -2091,6 +2133,74 @@ fn prop_display(v: &PropValue) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A change-set is machinery, not an answer.**
+    ///
+    /// A Grace workflow puts the specialist's `{"operations": …}` block on the
+    /// reply so the surface can apply it. The COBOL Event Editor looked only
+    /// for a ```cobol block, found none, and showed the developer raw JSON in
+    /// the balloon (operator, 2026-09-04) — while the handler itself had been
+    /// updated correctly.
+    #[test]
+    fn a_change_set_reply_yields_the_handler_and_never_shows_its_json() {
+        let reply = r#"```json
+{"operations":[{"op":"generate_event_handler","control_id":"BTN-MARKERS","event":"onClick",
+"code":"       PROCEDURE DIVISION.\n      *> Add a marker for Ana\n           INVOKE MAP-1 \"AddMarker\"."}],
+"note":"Added a comment before each INVOKE line."}
+```"#;
+        let (text, code) =
+            event_handler_reply(reply, "BTN-MARKERS", "onClick", "Updated this handler.");
+
+        assert_eq!(text, "Added a comment before each INVOKE line.");
+        assert!(!text.contains("operations"), "the JSON must never be shown: {text}");
+        assert!(!text.contains('{'), "no braces reach the balloon: {text}");
+        let code = code.expect("the handler body must be extracted");
+        assert!(code.contains("INVOKE MAP-1"));
+        assert!(code.contains("*> Add a marker for Ana"));
+    }
+
+    /// With no note of its own, the developer still gets a sentence.
+    #[test]
+    fn a_change_set_without_a_note_falls_back_to_a_plain_line() {
+        let reply = r#"```json
+{"operations":[{"op":"generate_event_handler","control_id":"BTN-MARKERS","event":"onClick","code":"       PROCEDURE DIVISION.\n           CONTINUE."}]}
+```"#;
+        let (text, code) =
+            event_handler_reply(reply, "BTN-MARKERS", "onClick", "Updated this handler.");
+        assert_eq!(text, "Updated this handler.");
+        assert!(code.is_some());
+    }
+
+    /// A change-set for ANOTHER control must not be applied to this handler,
+    /// but its note is still the answer to show.
+    #[test]
+    fn a_change_set_for_another_control_yields_no_code_for_this_one() {
+        let reply = r#"```json
+{"operations":[{"op":"generate_event_handler","control_id":"BTN-OTHER","event":"onClick","code":"       PROCEDURE DIVISION.\n           CONTINUE."}],"note":"Wired the other button."}
+```"#;
+        let (text, code) =
+            event_handler_reply(reply, "BTN-MARKERS", "onClick", "Updated this handler.");
+        assert_eq!(text, "Wired the other button.");
+        assert!(
+            code.is_none(),
+            "another control's handler must never land in this one"
+        );
+    }
+
+    /// Prose and plain code blocks are untouched — the paths that already
+    /// worked must keep working.
+    #[test]
+    fn a_prose_reply_passes_through_unchanged() {
+        let prose = "The INVOKE calls place five markers on the map.";
+        let (text, code) = event_handler_reply(prose, "BTN-MARKERS", "onClick", "fallback");
+        assert_eq!(text, prose);
+        assert!(code.is_none());
+
+        let with_code = "Here you go:\n```cobol\n       PROCEDURE DIVISION.\n```";
+        let (text, code) = event_handler_reply(with_code, "BTN-MARKERS", "onClick", "fallback");
+        assert_eq!(text, with_code, "a plain code reply is left for extract_code");
+        assert!(code.is_none());
+    }
     use super::*;
 
     /// Reading an async answer is not "a hallucinated property".

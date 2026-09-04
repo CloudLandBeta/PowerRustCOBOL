@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.27] — 2026-09-04
+
+### The event editor answers in a sentence, and the developer's balloon wraps
+
+The agents did the work — the comments landed on every INVOKE line — and then
+the chat showed the developer the change-set JSON that carried them (operator,
+2026-09-04).
+
+A Grace workflow puts the specialist's `{"operations": …}` block on the reply so
+the surface that receives it can apply the work; the RAD designer parses that
+JSON and never shows it. The COBOL Event Editor looked only for a ```` ```cobol ````
+block, found none, concluded "Grace answered in prose" and pushed the whole
+reply into the balloon. `extract_code` had already taken the handler body out
+of the change-set, which is why the code was correct while the answer was
+machinery.
+
+The editor now reads a change-set as one: it takes the handler for THIS control
+and event — stricter than the previous first-handler-wins, so another control's
+body can never land here — and shows the agent's own note, or a plain
+translated line when it wrote none. Prose replies and plain code blocks are
+untouched.
+
+The developer's balloon is also capped at half the pane instead of 82%. Their
+turns are short, and at the wider cap a one-line request stretched into a single
+band across the whole width instead of wrapping. An agent's reply keeps the
+wider cap: it carries code and tables that a narrow column makes harder to read,
+not easier.
+
 ## [PowerRustCOBOL 1.64.26] — 2026-09-04
 
 ### The specialist is shown the code it is asked to edit

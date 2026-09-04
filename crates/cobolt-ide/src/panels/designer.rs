@@ -9210,7 +9210,18 @@ impl DesignerPanel {
         if let Some(resp) = ai_reply {
             match resp {
                 crate::llm::LlmResponse::Ok(reply) => {
-                    match crate::llm::extract_code(&reply) {
+                    // A Grace workflow answers with the specialist's change-set
+                    // so this surface can apply it. That JSON is machinery, not
+                    // an answer: take the handler out of it and show the note
+                    // (or a plain line) instead of dumping it in a balloon
+                    // (operator, 2026-09-04).
+                    let (reply, change_set_code) = crate::agent::event_handler_reply(
+                        &reply,
+                        &ctrl_id,
+                        &event_name,
+                        tr.ai_handler_updated,
+                    );
+                    match change_set_code.or_else(|| crate::llm::extract_code(&reply)) {
                         Some(code) => {
                             // Always record the assistant's turn (even when its
                             // code is rejected, so the fix round-trip has the
