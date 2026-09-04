@@ -116,8 +116,11 @@ right answer. A CCVS85 program also prints its own `PASS`/`FAIL` tally when it
 runs, and scoring that output is the **next stage** of this work — it is not
 included in the 332 — see the execution scoreboard below. Two measured cases show why the distinction matters:
 
-- 30 of the 35 RELATIVE‑file programs compile cleanly, and the runtime has **no
-  RELATIVE engine at all** — they would run and produce wrong results silently.
+- 30 of the 35 RELATIVE‑file programs once compiled cleanly while the runtime
+  had **no RELATIVE engine at all** — they ran and produced wrong results
+  silently. That gap is **closed**: the engine landed at 1.62.76 and the module
+  finished at 1.62.77 (35 / 35 compile, 34 / 34 execution). It is kept here as
+  the clearest example of what the compile axis alone cannot tell you.
 - A literal continued across two lines can reassemble incorrectly and still
   parse, leaving the program holding the wrong data.
 
@@ -214,7 +217,7 @@ cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
 | IX | Indexed I/O | **42 / 42** | ✅ complete |
 | SG | Segmentation | **13 / 13** | ✅ complete |
 | ST | Sort / Merge | 38 / 40 | `COLLATING SEQUENCE` / `ALPHABET` |
-| RL | Relative I/O | 34 / 35 | ⚠️ **compiles only — no runtime engine.** `ORGANIZATION IS RELATIVE` parses and is never matched at run time, so this row overstates real capability. The one failure is a dangling `ELSE` |
+| RL | Relative I/O | 35 / 35 | ✅ **finished on both axes** (1.62.77) — execution 34 / 34, 354 assertions, 0 failures. A real engine (`cobolt-runtime/src/relative.rs`, `PRCREL1` container) landed at 1.62.76; all seven file verbs dispatch on `FileOrganization::Relative`. RL301M is excluded from execution by the same ruling as IX301M and still counts in the compile census, where it passes |
 | SM | Source text manipulation (COPY/REPLACE) | 14 / 17 | a `$` inside a data-name; qualified/subscripted pseudo-text; a `PERFORM … VARYING` form |
 | DB | Debug | 11 / 15 | `GO-TO` used as a user-defined word, colliding with the `GO TO` keyword pair; one program uses the Communication verb `DISABLE` |
 | **In scope** | | **422 / 434** | |
@@ -1184,16 +1187,10 @@ gaps above, which are defects being worked through:
    (single run‑unit model).
 3. **Object‑Oriented COBOL** (class/method definitions) — `INVOKE` is a no‑op
    for COBOL objects (it drives GUI/runtime objects only).
-4. ⚠️ **RELATIVE** file organization (SEQUENTIAL / LINE SEQUENTIAL / INDEXED
-   done). **This one is a trap, not a clean gap:** `ORGANIZATION IS RELATIVE`
-   *parses*, and nothing in the runtime ever dispatches on it — so a RELATIVE
-   program compiles and then misbehaves with no diagnostic. 30 of the NIST RL
-   module's 35 programs are in exactly that state. Treat it as unimplemented.
-   Spec: [relative‑organization](../specs/nist/NIST-spec-relative-organization.md).
-5. Unrecognised intrinsic‑function names still return **0** — the same silent
+4. Unrecognised intrinsic‑function names still return **0** — the same silent
    failure mode. Spec:
    [intrinsics](../specs/nist/NIST-spec-intrinsic-function-gaps.md).
-6. ⚠️ **An invalid `ACCESS MODE` / `ORGANIZATION` value is swallowed without a
+5. ⚠️ **An invalid `ACCESS MODE` / `ORGANIZATION` value is swallowed without a
    diagnostic** — the same trap again, and this one is triggered by an ordinary
    user typo. `ACCESS MODE IS` accepts only `SEQUENTIAL`, `RANDOM` or `DYNAMIC`
    (`INDEXED` is an *organization*, not an access mode), but the SELECT clause
@@ -1205,12 +1202,12 @@ gaps above, which are defects being worked through:
    no NC program carries an `ACCESS MODE` clause; the clause appears only in
    the DB, IC, IX, OBSQ, RL, RW, SQ and ST modules, so under GOLDEN RULE #9
    this waits until NC is finished.
-7. ⚠️ **`ALPHABET … IS EBCDIC` is accepted but leaves native (ASCII) ordering
+6. ⚠️ **`ALPHABET … IS EBCDIC` is accepted but leaves native (ASCII) ordering
    in force.** The literal phrase (`"A" THRU "H" "I" ALSO "J" …`), `NATIVE`,
    `STANDARD‑1` and `STANDARD‑2` are all implemented and drive
    `PROGRAM COLLATING SEQUENCE` for real; only the EBCDIC table is missing, and
    naming it silently gets ASCII order. Same trap family as 4–6.
-8. **The Communication module and Report Writer** — see
+7. **The Communication module and Report Writer** — see
    [N/A above](#-na--what-is-out-of-rustcobols-scope-and-why).
 
 > **Resolved (1.5.0):** the flat data model became hierarchical / occurrence‑aware,

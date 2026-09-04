@@ -4576,8 +4576,10 @@ extensions. Highlights a working COBOL programmer will rely on:
 > `docs/cobol85-verb-test-matrix-en.md`. When in doubt, those files (and the test
 > suite) are definitive.
 
-> ⚠️ **Out of scope (today):** RELATIVE file organisation, cross-process record
-> locking, and OO `CLASS`/`METHOD` definitions are not implemented.
+> ⚠️ **Out of scope (today):** cross-process record locking and OO
+> `CLASS`/`METHOD` definitions are not implemented. **RELATIVE file
+> organisation is implemented** — see
+> [Addressing records by number](#addressing-records-by-number-organization-is-relative).
 
 ### Writing it the way the standard lets you
 

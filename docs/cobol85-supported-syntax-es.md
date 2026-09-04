@@ -121,9 +121,12 @@ la respuesta correcta. Un programa de CCVS85 también imprime su propio recuento
 de este trabajo — no está incluida en los 332 — véase el marcador de ejecución
 de más abajo. Dos casos medidos muestran por qué importa la distinción:
 
-- 30 de los 35 programas de ficheros RELATIVE compilan limpiamente, y el runtime
-  **no tiene ningún motor RELATIVE** — se ejecutarían y producirían resultados
-  incorrectos en silencio.
+- 30 de los 35 programas de ficheros RELATIVE compilaban limpiamente en su día
+  mientras el runtime **no tenía ningún motor RELATIVE** — se ejecutaban y
+  producían resultados incorrectos en silencio. Esa carencia está **cerrada**: el
+  motor llegó en 1.62.76 y el módulo quedó terminado en 1.62.77 (35 / 35 en
+  compilación, 34 / 34 en ejecución). Se conserva aquí como el ejemplo más claro
+  de lo que el eje de compilación por sí solo no puede decirte.
 - Un literal continuado a lo largo de dos líneas puede reensamblarse mal y aun
   así analizarse, dejando al programa con los datos equivocados.
 
@@ -224,7 +227,7 @@ cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
 | IX | E/S indexada | **42 / 42** | ✅ completo |
 | SG | Segmentación | **13 / 13** | ✅ completo |
 | ST | Ordenación / Fusión | 38 / 40 | `COLLATING SEQUENCE` / `ALPHABET` |
-| RL | E/S relativa | 34 / 35 | ⚠️ **solo compila — sin motor de ejecución.** `ORGANIZATION IS RELATIVE` se analiza y nunca se atiende en tiempo de ejecución, así que esta fila exagera la capacidad real. El único fallo es un `ELSE` colgante |
+| RL | E/S relativa | 35 / 35 | ✅ **terminado en ambos ejes** (1.62.77) — ejecución 34 / 34, 354 aserciones, 0 fallos. Un motor de verdad (`cobolt-runtime/src/relative.rs`, contenedor `PRCREL1`) llegó en 1.62.76; los siete verbos de fichero despachan sobre `FileOrganization::Relative`. RL301M queda excluido de la ejecución por el mismo criterio que IX301M y sigue contando en el censo de compilación, donde pasa |
 | SM | Manipulación del texto fuente (COPY/REPLACE) | 14 / 17 | un `$` dentro de un nombre de dato; pseudotexto cualificado/con subíndice; una forma de `PERFORM … VARYING` |
 | DB | Depuración | 11 / 15 | `GO-TO` usado como palabra definida por el usuario, chocando con el par de palabras clave `GO TO`; un programa usa el verbo de Comunicación `DISABLE` |
 | **Dentro del alcance** | | **422 / 434** | |
@@ -1249,18 +1252,10 @@ resolución:
    ejecución única).
 3. **COBOL orientado a objetos** (definiciones de clase/método) — `INVOKE` es una
    no‑operación para los objetos COBOL (sólo gobierna objetos de GUI/runtime).
-4. ⚠️ Organización de ficheros **RELATIVE** (SEQUENTIAL / LINE SEQUENTIAL /
-   INDEXED están hechas). **Esta es una trampa, no una carencia limpia:**
-   `ORGANIZATION IS RELATIVE` *se analiza*, y nada en el runtime despacha nunca
-   sobre ella, así que un programa RELATIVE compila y luego se comporta mal sin
-   ningún diagnóstico. 30 de los 35 programas del módulo RL de NIST están
-   exactamente en ese estado. Trátala como no implementada.
-   Especificación:
-   [organización RELATIVE](../specs/nist/NIST-spec-relative-organization.md).
-5. Los nombres de función intrínseca no reconocidos siguen devolviendo **0** — el
+4. Los nombres de función intrínseca no reconocidos siguen devolviendo **0** — el
    mismo modo de fallo silencioso. Especificación:
    [intrínsecas](../specs/nist/NIST-spec-intrinsic-function-gaps.md).
-6. ⚠️ **Un valor inválido de `ACCESS MODE` / `ORGANIZATION` se traga sin
+5. ⚠️ **Un valor inválido de `ACCESS MODE` / `ORGANIZATION` se traga sin
    diagnóstico** — otra vez la misma trampa, y esta la dispara una errata
    corriente del usuario. `ACCESS MODE IS` sólo acepta `SEQUENTIAL`, `RANDOM` o
    `DYNAMIC` (`INDEXED` es una *organización*, no un modo de acceso), pero el
@@ -1273,12 +1268,12 @@ resolución:
    una cláusula `ACCESS MODE`; la cláusula aparece sólo en los módulos DB, IC,
    IX, OBSQ, RL, RW, SQ y ST, así que bajo la REGLA DE ORO n.º 9 esto espera a
    que NC esté terminado.
-7. ⚠️ **`ALPHABET … IS EBCDIC` se acepta pero deja en vigor el orden nativo
+6. ⚠️ **`ALPHABET … IS EBCDIC` se acepta pero deja en vigor el orden nativo
    (ASCII).** La frase literal (`"A" THRU "H" "I" ALSO "J" …`), `NATIVE`,
    `STANDARD‑1` y `STANDARD‑2` están todos implementados y gobiernan de verdad
    `PROGRAM COLLATING SEQUENCE`; sólo falta la tabla EBCDIC, y nombrarla da
    calladamente el orden ASCII. La misma familia de trampas que 4–6.
-8. **El módulo de Comunicaciones y el Report Writer** — véase
+7. **El módulo de Comunicaciones y el Report Writer** — véase
    [N/A más arriba](#-na--qué-queda-fuera-del-alcance-de-rustcobol-y-por-qué).
 
 > **Resuelto (1.5.0):** el modelo de datos plano pasó a ser jerárquico /

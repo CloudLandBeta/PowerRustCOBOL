@@ -1,5 +1,81 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.1] — 2026-09-03
+
+### The support matrix, corrected against the code instead of the README
+
+The matrix shipped in 1.64.0 was built from what `README.md` claimed. Three of
+those claims were out of date, and the operator caught two of them
+("ORGANIZATION IS RELATIVE — this was implemented during the NIST support
+marathon last week. Check the code"). Everything below was verified by reading
+the code and, for the language extensions, by running it.
+
+**RELATIVE files are implemented, not planned.** `cobolt-runtime/src/relative.rs`
+is a real engine with a `PRCREL1` container and disk/MEMORY backends; all seven
+file verbs dispatch on `FileOrganization::Relative`; `RELATIVE KEY IS` addresses
+records by integer record number, including the `KEY`-less `RELATIVE data-name`
+spelling. The NIST ledger records the RL module **finished on both axes** —
+35/35 compile, 34/34 execution, 354 assertions, 0 failures (engine 1.62.76,
+module 1.62.77). The matrix row said ⛔ Planned.
+
+The same stale fact was still being asserted in two other documents, both
+corrected here: `cobol85-supported-syntax-en.md` said "**no RELATIVE engine at
+all**" in three places (the per-module table row, the compile-versus-execution
+example, and avoid-list item 4, now deleted with the list renumbered 1–7); and
+`developers-guide-en.md` contradicted itself, documenting RELATIVE properly in
+its own section while still listing it as out of scope earlier in the file.
+
+**Fixed-form source is a switch, and there are two fixed formats.**
+`SourceFormat::Fixed` is the relaxed default — sequence area and indicator
+column honoured, no column-72 cut, which is what generated form `.cbl` and
+`EXEC RUST` blocks need. `SourceFormat::FixedStrict` is the classic COBOL-85
+reference format: columns 1–6 sequence, 7 indicator, 8–72 source, 73–80
+**discarded**, standard continuation joining. It is selected explicitly
+(`--source-format fixed`, or `COBOLT_SOURCE_FORMAT`) and **never by
+detection** — applying those rules to source not written for them silently
+deletes code. The matrix had one undifferentiated row and no mention of the
+switch.
+
+**Value methods on a data item are now documented** (operator: "several
+extensions were made to the language, such as methods for PIC X"). `item::Method(args)`
+calls a method on the value of an ordinary data item, not just on a control:
+`Trim()`, `UpperCase()`/`ToUpperCase()`/`Upper()`, `LowerCase()` and its
+spellings, `Replace(from, to)`, `Len()`/`Length()`, and `Split(sep)` —
+subscript it, `Split(sep)(n)`, for the *n*-th field, 1-based. Verified by
+running COBOL through `rcrun`, which also pinned down two things worth knowing:
+methods **chain** (`WS-TEXT::Trim()::Len()` answers 11 where `::Len()` alone
+answers the field's full 20), and a **literal receiver does not parse** —
+the interpreter accepts one, the parser rejects `::` after a literal, so the
+text has to be in a data item first. Both are recorded in the matrix rather
+than left for the next developer to discover.
+
+**Three more extensions, all verified by running them.** The operator named
+type inference, the STRING verb and the OPEN lock phrases; the code says:
+
+- **An expression wherever COBOL-85 allows only an item.** `MOVE WS-N * 2 TO
+  WS-OUT`, `SET target TO <expression>`, and a `STRING` sending item that is an
+  arithmetic expression or a value-method call (`STRING WS-A::UpperCase() …`).
+  The standard restricts all three positions to an identifier or a literal;
+  lifting that is what removes the scratch working-storage item.
+- **Type inference** — the project's own term for a `Ctrl::Property` read being
+  a first-class typed value: the numeric/text type flows through the
+  expression, so a property drops straight into arithmetic, a condition or a
+  sending position with no `PIC` item in between, and a numeric-looking value
+  is read back as numeric so comparisons stay algebraic rather than
+  character-wise.
+- **The OPEN lock phrases, stated honestly.** `OPEN … SHARING WITH ALL OTHER |
+  NO OTHER | READ ONLY` and `OPEN … WITH LOCK` parse and are carried on the
+  statement, but they are **advisory** — the runtime takes the argument and
+  does not use it, because there is one run unit. The one lock phrase with a
+  real effect today is `READ … WITH NO LOCK`, which releases the lock the
+  engine takes under `I-O`. The previous row claimed all of them "drive
+  per-run record locks", which was true of the READ form and not of OPEN.
+
+The five `cobol85-supported-syntax` translations carried the RELATIVE claim
+too, and were corrected in place rather than deleted: this is an error inside
+the regeneration cycle that produced them an hour earlier, not the accumulated
+drift the delete-and-rebuild rule exists to stop.
+
 ## [PowerRustCOBOL 1.64.0] — 2026-09-03
 
 ### The README stops being a wall of prose, and eight documents speak five more languages

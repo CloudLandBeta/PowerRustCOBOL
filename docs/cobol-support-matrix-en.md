@@ -56,8 +56,10 @@ not yet implemented · `🚫` out of scope by design, will never be implemented.
 
 | Capability | 85 | 20xx | PRC | Status | Notes |
 |---|:--:|:--:|:--:|:--:|---|
-| Fixed-form source (columns 7/8–72) | ● | ○ | — | ✅ | |
-| Free-form source | — | ● | — | ✅ | COBOL 2002 |
+| Fixed-form source, **relaxed** (`fixed-relaxed`) | ● | ○ | ○ | ✅ | **The default.** Sequence area and indicator column are honoured, but the line runs as far as the developer typed — no column-72 cut. Generated form `.cbl` and `EXEC RUST` blocks need this |
+| Fixed-form source, **classic COBOL-85 reference format** (`--source-format=fixed`) | ● | ○ | — | ✅ | Every column rule applied: 1–6 sequence, 7 indicator (`*` `/` comment, `-` continuation, `D` debugging line), 8–72 source, **73–80 discarded**, standard continuation joining including a continued alphanumeric literal. What the NIST CCVS85 card-image suite is written in. **Chosen explicitly, never by detection** — applying these rules to source not written for them silently deletes code |
+| Free-form source | — | ● | — | ✅ | COBOL 2002 (`--source-format=free`) |
+| Source-format switch — `--source-format free\|fixed\|fixed-relaxed\|auto` | — | — | ● | ✅ | Also `COBOLT_SOURCE_FORMAT`; `auto` inspects the first lines and never selects the strict format |
 | IDENTIFICATION DIVISION | ● | ○ | — | ✅ | |
 | ENVIRONMENT DIVISION (CONFIGURATION, INPUT-OUTPUT / FILE-CONTROL) | ● | ○ | — | ✅ | |
 | DATA DIVISION | ● | ○ | — | ✅ | |
@@ -154,6 +156,45 @@ not yet implemented · `🚫` out of scope by design, will never be implemented.
 | **Exact fixed-point arithmetic** | ● | ○ | ○ | ✅ | `i128` integer mantissa, no `f64` round-trips: 18-digit standard and **31-digit extended** precision stay exact |
 | Concise property expressions (`Output::Value`) | — | — | ● | ✅ | Get/set a control property inside a formula, with no temporary working-storage item |
 
+### 4.1 Value methods on a data item
+
+`item::Method(args)` calls a method on the **value of an ordinary data item** —
+a `PIC X` field, a group, a table occurrence, a reference-modified slice or an
+arithmetic expression — not just on a control. None of this is standard COBOL.
+
+Usable anywhere an expression is: as a `MOVE` source, in a `COMPUTE`, inside a
+condition, and inline in a `DISPLAY`. Methods **chain**:
+`WS-TEXT::Trim()::Len()`.
+
+| Method | Returns | Status | Notes |
+|---|---|:--:|---|
+| `Trim()` | text | ✅ | Leading and trailing spaces removed |
+| `UpperCase()` · `ToUpperCase()` · `Upper()` | text | ✅ | Three accepted spellings of one method |
+| `LowerCase()` · `ToLowerCase()` · `Lower()` | text | ✅ | |
+| `Replace(from, to)` | text | ✅ | Every occurrence |
+| `Len()` · `Length()` | numeric | ✅ | The **field's** length, so a `PIC X(20)` holding `hello` answers `20`. Chain `::Trim()::Len()` for the length of the content |
+| `Split(sep)` | text | ✅ | The **first** field |
+| `Split(sep)(n)` | text | ✅ | The *n*-th field, 1-based. The subscript is only accepted on a data-item receiver |
+
+| Receiver | Status | Notes |
+|---|:--:|---|
+| Data item (`PIC X`, group, `01`/`77`) | ✅ | The ordinary case |
+| Table occurrence, reference modification, qualified name, arithmetic expression | ✅ | Accepted by the evaluator |
+| **Literal** (`"a-b-c"::Split("-")`) | ⛔ | The interpreter accepts a literal receiver, but the parser does not: `::` after a literal is a syntax error. Assign the literal to a data item first |
+
+### 4.2 An expression wherever COBOL-85 allows only an item
+
+COBOL-85 restricts most sending positions to an identifier or a literal.
+RustCOBOL evaluates a full expression there instead, which is what removes the
+scratch working-storage item the standard forces you to declare.
+
+| Capability | 85 | 20xx | PRC | Status | Notes |
+|---|:--:|:--:|:--:|:--:|---|
+| `MOVE <expression> TO target` | — | — | ● | ✅ | `MOVE WS-N * 2 TO WS-OUT`. The standard allows only an identifier or literal as the sending field |
+| `SET target TO <expression>` | — | — | ● | ✅ | Equivalent to the `COMPUTE` form; the target may be a data item or a control-property lvalue |
+| `STRING <expression> … INTO` | — | — | ● | ✅ | A sending item may be an arithmetic expression (`STRING WS-N * 2 …`) or a value-method call (`STRING WS-A::UpperCase() …`); `DELIMITED BY` and the rest stay standard |
+| **Type inference** — a `Ctrl::Property` read is a first-class typed value | — | — | ● | ✅ | The numeric/text type flows through the expression, so a property goes straight into arithmetic, a condition or a sending position with **no `PIC` item in between**: `IF Slider-1::Value > 50`, `COMPUTE Total-Lbl::Value = Qty-Box::Value * Price-Box::Value`. A numeric-looking property value is read back as numeric so comparisons and arithmetic stay algebraic rather than character-wise |
+
 ## 5. Intrinsic functions
 
 The COBOL-85 intrinsic set arrived with the **1989 amendment** (ANSI
@@ -183,7 +224,8 @@ column. All of the below are implemented.
 | `ORGANIZATION IS SEQUENTIAL` | ● | ○ | — | ✅ | Fixed-length records |
 | `ORGANIZATION IS LINE SEQUENTIAL` | — | ● | — | ✅ | Newline-terminated text; trailing spaces dropped on write |
 | `ORGANIZATION IS INDEXED` | ● | ○ | — | ✅ | Built-in, dependency-free ISAM engine |
-| `ORGANIZATION IS RELATIVE` | ● | ○ | — | ⛔ | Planned |
+| `ORGANIZATION IS RELATIVE` | ● | ○ | — | ✅ | Own engine (`cobolt-runtime/src/relative.rs`, `PRCREL1` container, disk and MEMORY). `RELATIVE KEY IS` addresses records by integer record number from 1; all three access modes; all seven file verbs dispatch on it. NIST **RL module finished on both axes** — 35/35 compile, 34/34 execution, 354 assertions, 0 failures (engine 1.62.76, module 1.62.77) |
+| `RELATIVE KEY IS data-name` (incl. the `KEY`-less spelling) | ● | ○ | — | ✅ | A `RELATIVE data-name` clause with the word `KEY` omitted is the key, not a bare organization clause |
 | `ACCESS MODE SEQUENTIAL` / `RANDOM` / `DYNAMIC` | ● | ○ | — | ✅ | All three execute |
 | `RECORD KEY`, `ALTERNATE RECORD KEY [WITH DUPLICATES]` | ● | ○ | — | ✅ | Ascending on-disk key order |
 | `OPEN INPUT` / `OUTPUT` / `EXTEND` / `I-O` | ● | ○ | — | ✅ | |
@@ -193,7 +235,10 @@ column. All of the below are implemented.
 | `START … KEY IS = / > / >= / < / <=` | ● | ○ | — | ✅ | Including `GREATER/LESS THAN`, `NOT LESS THAN` |
 | `INVALID KEY` / `NOT INVALID KEY` | ● | ○ | — | ✅ | |
 | `FILE STATUS` codes | ● | ○ | — | ✅ | 00/02/10/22/23/30/35/39/… |
-| `OPEN … SHARING` / `READ … WITH [NO] LOCK` | — | ● | — | 🚧 | Parse and drive per-run record locks; **not** enforced across separate OS processes |
+| `OPEN … SHARING WITH ALL OTHER \| NO OTHER \| READ ONLY` | — | ● | — | 🚧 | Parsed and carried on the statement, **advisory** — there is one run unit, so nothing contends |
+| `OPEN … WITH LOCK` (open the file exclusively) | — | ● | — | 🚧 | Same: accepted and advisory in the single-run-unit model |
+| `READ … WITH LOCK` | — | ● | — | ✅ | The engine already holds the record under `I-O`; the phrase states the intent |
+| `READ … WITH NO LOCK` | — | ● | — | ✅ | Actually releases the lock the engine takes under `I-O` — the one lock phrase with a runtime effect today. `UNLOCK` is in §3 with the other verbs |
 | Cross-process file sharing / record-lock enforcement | — | ● | — | ⛔ | Planned; single run-unit model today |
 
 ## 7. File I/O — the INDEXED engine (PowerRustCOBOL)

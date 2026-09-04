@@ -107,8 +107,10 @@ lexer、parser、语义分析器 — 而且**零错误**。
 打印自己的 `PASS`/`FAIL` 统计，给那份输出计分是这项工作的**下一阶段** — 它不包含
 在那 332 之内 — 见下面的执行记分板。两个实测案例说明了这个区分为什么重要：
 
-- 35 个 RELATIVE 文件程序中有 30 个编译得干干净净，而 runtime **根本没有
-  RELATIVE 引擎** — 它们会照跑不误，然后悄悄产生错误结果。
+- 35 个 RELATIVE 文件程序中曾有 30 个编译得干干净净，而那时的 runtime **根本没有
+  RELATIVE 引擎** — 它们照跑不误，然后悄悄产生错误结果。这个缺口已经**补上**：
+  引擎在 1.62.76 落地，模块在 1.62.77 完成（编译 35 / 35，执行 34 / 34）。它被留在
+  这里，因为它最清楚地说明了只看编译这条轴所无法告诉你的东西。
 - 跨两行续写的 literal 可能被错误地重新拼接，却依然能通过解析，让程序捧着错误的
   数据继续跑。
 
@@ -199,7 +201,7 @@ cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
 | IX | 索引 I/O | **42 / 42** | ✅ 完成 |
 | SG | 分段 | **13 / 13** | ✅ 完成 |
 | ST | 排序 / 归并 | 38 / 40 | `COLLATING SEQUENCE` / `ALPHABET` |
-| RL | 相对 I/O | 34 / 35 | ⚠️ **只能编译 — 没有运行引擎。** `ORGANIZATION IS RELATIVE` 能解析，但运行时从未被真正对上，所以这一行夸大了实际能力。唯一的失败是一个悬空的 `ELSE` |
+| RL | 相对 I/O | 35 / 35 | ✅ **两个轴上都已完成**（1.62.77）— 执行 34 / 34，354 条断言，0 个失败。一个真正的引擎（`cobolt-runtime/src/relative.rs`，`PRCREL1` 容器）在 1.62.76 落地；全部七个文件动词都会基于 `FileOrganization::Relative` 进行分派。RL301M 按照与 IX301M 相同的裁定被排除在执行之外，但它仍计入编译统计，并且在那里是通过的 |
 | SM | 源文本操作（COPY/REPLACE） | 14 / 17 | 数据名里的一个 `$`；带限定/带下标的伪文本；`PERFORM … VARYING` 的一种写法 |
 | DB | 调试 | 11 / 15 | `GO-TO` 被当作用户自定义字使用，与关键字对 `GO TO` 冲突；有一个程序用了通信动词 `DISABLE` |
 | **范围内** | | **422 / 434** | |
@@ -1079,15 +1081,9 @@ must fit on one line.
    模型）。
 3. **面向对象的 COBOL**（类／方法定义）—— 对 COBOL 对象而言 `INVOKE` 是空操作
    （它只驱动 GUI／运行时对象）。
-4. ⚠️ **RELATIVE** 文件组织（SEQUENTIAL / LINE SEQUENTIAL / INDEXED 已完成）。
-   **这一项是陷阱，而不是一个干净的差距：** `ORGANIZATION IS RELATIVE` 是*能解析*
-   的，而运行时从来不会据此进行分派 —— 于是一个 RELATIVE 程序能编译通过，随后就
-   在没有任何诊断的情况下行为失常。NIST RL 模块的 35 个程序中有 30 个正处于这种
-   状态。请把它当作未实现来对待。规格说明：
-   [RELATIVE 组织方式](../specs/nist/NIST-spec-relative-organization.md)。
-5. 无法识别的内部函数名仍然返回 **0** —— 同样是这种无声失败的方式。规格说明：
+4. 无法识别的内部函数名仍然返回 **0** —— 同样是这种无声失败的方式。规格说明：
    [内部函数](../specs/nist/NIST-spec-intrinsic-function-gaps.md)。
-6. ⚠️ **无效的 `ACCESS MODE` ／ `ORGANIZATION` 取值会被悄悄吞掉，不给任何
+5. ⚠️ **无效的 `ACCESS MODE` ／ `ORGANIZATION` 取值会被悄悄吞掉，不给任何
    诊断** —— 又是同一个陷阱，而且这一个是由用户一次普通的笔误触发的。
    `ACCESS MODE IS` 只接受 `SEQUENTIAL`、`RANDOM` 或 `DYNAMIC`（`INDEXED` 是一种
    *组织方式*，不是访问模式），但 SELECT 子句的解析器在检验完这三者之后，会让其余
@@ -1097,11 +1093,11 @@ must fit on one line.
    核心（Nucleus）的问题** —— 没有任何 NC 程序带有 `ACCESS MODE` 子句；该子句只
    出现在 DB、IC、IX、OBSQ、RL、RW、SQ 和 ST 这些模块中，因此按照黄金法则 #9，这
    件事要等到 NC 完成之后再做。
-7. ⚠️ **`ALPHABET … IS EBCDIC` 会被接受，但仍旧沿用本机（ASCII）的排序。**
+6. ⚠️ **`ALPHABET … IS EBCDIC` 会被接受，但仍旧沿用本机（ASCII）的排序。**
    字面短语（`"A" THRU "H" "I" ALSO "J" …`）、`NATIVE`、`STANDARD‑1` 与
    `STANDARD‑2` 都已实现，并且会真正驱动 `PROGRAM COLLATING SEQUENCE`；唯独缺少
    EBCDIC 表，写上它就会悄无声息地得到 ASCII 顺序。与第 4–6 项属于同一族陷阱。
-8. **通信模块与 Report Writer** —— 参见
+7. **通信模块与 Report Writer** —— 参见
    [上文的 N/A](#-na--哪些在-rustcobol-范围之外以及为什么)。
 
 > **已解决（1.5.0）：** 扁平的数据模型变为层次化／按出现次数感知，从而解锁了
