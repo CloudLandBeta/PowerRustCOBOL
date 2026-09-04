@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.29] — 2026-09-04
+
+### A question is shown as a question again
+
+Nothing was wrong with Grace. 1.64.27 broke the channel her specialists ask
+through (operator, 2026-09-04: "why is grace no longer fixing the text nor
+making questions to clarify the request?").
+
+The event agent's contract is explicit — "If you must ask a question or
+explain, use the `message` operation" — and the helper that stopped the raw
+change-set reaching the balloon read only the change-set NOTE. A question
+therefore arrived with no note, fell through to the "Updated this handler."
+fallback, and the developer was told work had been done in place of the
+question that was actually asked. Message operations now outrank everything
+else, all of them are shown, and a question with no code still reaches the
+question balloon.
+
+The same change could also lose real work. Filtering the handler by an exact
+control-and-event match was stricter than the `extract_code` it replaced, which
+took the first handler in the change-set: an agent that answered `onClick` with
+the event spelled `Click` had its handler silently discarded. A change-set
+carrying exactly ONE handler is now applied whatever it called the event, while
+one carrying several still requires the exact match — so another control's body
+can never land in the open one.
+
 ## [PowerRustCOBOL 1.64.28] — 2026-09-04
 
 ### The event editor stops reading the code back to you

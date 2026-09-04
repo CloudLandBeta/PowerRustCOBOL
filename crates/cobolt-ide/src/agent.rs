@@ -163,21 +163,58 @@ pub fn event_handler_reply(
         // all of which the caller already handles correctly.
         return (reply.to_string(), None);
     };
-    let code = cs.operations.iter().find_map(|op| match op {
-        AgentOp::GenerateEventHandler {
-            control_id: c,
-            event: e,
-            code,
-        } if c.eq_ignore_ascii_case(control_id) && e.eq_ignore_ascii_case(event) => {
-            Some(code.clone())
+    let handlers = cs
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            AgentOp::GenerateEventHandler {
+                control_id: c,
+                event: e,
+                code,
+            } => Some((c.as_str(), e.as_str(), code.as_str())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    // The handler for THIS control and event, so a change-set touching several
+    // can never drop another control's body into the open one.
+    //
+    // When nothing matches exactly but the change-set carries exactly ONE
+    // handler, that is the one this surface asked for: an agent that spells
+    // the event `Click` for `onClick` would otherwise have its work silently
+    // discarded — which is what `extract_code` (first-handler-wins) never did.
+    let code = handlers
+        .iter()
+        .find(|(c, e, _)| c.eq_ignore_ascii_case(control_id) && e.eq_ignore_ascii_case(event))
+        .or(if handlers.len() == 1 {
+            handlers.first()
+        } else {
+            None
+        })
+        .map(|(_, _, code)| (*code).to_string());
+    // A `message` operation IS the agent talking to the developer — its own
+    // contract says "If you must ask a question or explain, use the `message`
+    // operation" — so it outranks everything else here.
+    //
+    // 1.64.27 read only the note and fell through to the fallback, which turned
+    // a clarifying question into "Updated this handler.": a claim that work was
+    // done, in place of the question that was actually asked (operator,
+    // 2026-09-04: "why is grace no longer making questions to clarify the
+    // request?"). Nothing was wrong with Grace.
+    let messages = cs
+        .operations
+        .iter()
+        .filter_map(|op| match op {
+            AgentOp::Message { message } if !message.trim().is_empty() => Some(message.trim()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let text = if !messages.is_empty() {
+        messages.join("\n\n")
+    } else {
+        match cs.note.as_deref().map(str::trim) {
+            Some(note) if !note.is_empty() => note.to_string(),
+            _ => fallback.to_string(),
         }
-        _ => None,
-    });
-    // The agent's own note is the best answer it wrote; the fallback is used
-    // only when it wrote none. Either way the JSON itself is never shown.
-    let text = match cs.note.as_deref().map(str::trim) {
-        Some(note) if !note.is_empty() => note.to_string(),
-        _ => fallback.to_string(),
     };
     (text, code)
 }
@@ -2161,6 +2198,62 @@ fn prop_display(v: &PropValue) -> String {
 #[cfg(test)]
 mod tests {
 
+    /// A lone handler is the one this surface asked for, whatever the agent
+    /// called the event — dropping it is a silent loss of real work.
+    #[test]
+    fn a_single_handler_applies_even_when_the_event_is_spelled_differently() {
+        let reply = r#"```json
+{"operations":[{"op":"generate_event_handler","control_id":"BTN-MARKERS","event":"Click","code":"       PROCEDURE DIVISION.\n           INVOKE MAP-1 \"AddMarker\"."}]}
+```"#;
+        let (_, code) = event_handler_reply(reply, "BTN-MARKERS", "onClick", "fallback");
+        assert!(
+            code.expect("the only handler must apply").contains("AddMarker"),
+            "a lone handler must not be discarded over an event spelling"
+        );
+    }
+
+    /// **A question must arrive as a question.**
+    ///
+    /// The event agent asks through a `message` operation — its contract says
+    /// so. 1.64.27 read only the change-set note, found none, and showed the
+    /// "Updated this handler." fallback: the developer was told work had been
+    /// done instead of being asked what was meant (operator, 2026-09-04).
+    #[test]
+    fn a_message_operation_reaches_the_developer_as_itself() {
+        let reply = r#"```json
+{"operations":[{"op":"message","message":"Which label should the marker show — the control id BTN-MARKERS, or its caption?"}]}
+```"#;
+        let (text, code) =
+            event_handler_reply(reply, "BTN-MARKERS", "onClick", "Updated this handler.");
+        assert!(
+            text.starts_with("Which label should the marker show"),
+            "the question itself must be shown, got: {text}"
+        );
+        assert_ne!(text, "Updated this handler.", "never claim work that was not done");
+        assert!(code.is_none(), "a question carries no handler");
+    }
+
+    /// Several messages all reach the developer, in order.
+    #[test]
+    fn every_message_operation_is_shown() {
+        let reply = r#"```json
+{"operations":[{"op":"message","message":"First question?"},{"op":"message","message":"Second question?"}]}
+```"#;
+        let (text, _) = event_handler_reply(reply, "X", "onClick", "fallback");
+        assert!(text.contains("First question?") && text.contains("Second question?"), "got: {text}");
+    }
+
+    /// A message alongside real work is still the answer to read.
+    #[test]
+    fn a_message_outranks_the_note_when_both_are_present() {
+        let reply = r#"```json
+{"operations":[{"op":"generate_event_handler","control_id":"BTN-MARKERS","event":"onClick","code":"       PROCEDURE DIVISION.\n           CONTINUE."},{"op":"message","message":"I assumed metres; say the word if you meant feet."}],"note":"Handler rewritten."}
+```"#;
+        let (text, code) = event_handler_reply(reply, "BTN-MARKERS", "onClick", "fallback");
+        assert!(text.contains("I assumed metres"), "got: {text}");
+        assert!(code.is_some(), "the work still applies");
+    }
+
     /// **The balloon shows the answer, never the code just applied.**
     ///
     /// With Grace's own summary empty, the workflow fell back to the
@@ -2245,8 +2338,13 @@ mod tests {
     /// but its note is still the answer to show.
     #[test]
     fn a_change_set_for_another_control_yields_no_code_for_this_one() {
+        // TWO handlers, neither this one: the lone-handler rescue must not
+        // fire, because there is nothing to be sure about.
         let reply = r#"```json
-{"operations":[{"op":"generate_event_handler","control_id":"BTN-OTHER","event":"onClick","code":"       PROCEDURE DIVISION.\n           CONTINUE."}],"note":"Wired the other button."}
+{"operations":[
+{"op":"generate_event_handler","control_id":"BTN-OTHER","event":"onClick","code":"       PROCEDURE DIVISION.\n           CONTINUE."},
+{"op":"generate_event_handler","control_id":"BTN-THIRD","event":"onClick","code":"       PROCEDURE DIVISION.\n           CONTINUE."}],
+"note":"Wired the other button."}
 ```"#;
         let (text, code) =
             event_handler_reply(reply, "BTN-MARKERS", "onClick", "Updated this handler.");
