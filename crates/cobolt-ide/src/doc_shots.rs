@@ -227,12 +227,24 @@ impl WindowTarget {
 /// CoreGraphics bindings — the rectangle is what egui already knows.
 /// What macOS says when the permission is missing — the whole remedy, in the
 /// popup, where the operator is.
+///
+/// Written as short paragraphs and a list rather than one block: the popup is
+/// a narrow window in a large UI font, and a single paragraph came out as a
+/// twelve-line wall nobody reads (operator, 2026-09-04: "this text is hard to
+/// read", with the format to use). The line breaks here are deliberate — the
+/// label wraps inside each one.
 #[cfg(target_os = "macos")]
-const NO_SCREEN_RECORDING: &str = "macOS is not letting PowerRustCOBOL see \
-     other windows, so the picture would have been the desktop wallpaper with \
-     every window missing. Turn on System Settings → Privacy & Security → \
-     Screen Recording for the app that STARTED PowerRustCOBOL — Terminal, \
-     iTerm, VS Code — not for “cobolt-ide”, which will not be in the list. \
+const NO_SCREEN_RECORDING: &str = "macOS is preventing PowerRustCOBOL from \
+     seeing other windows, so the screenshot would show only the desktop \
+     wallpaper, with all windows missing.\n\n\
+     Turn on Screen Recording permission under System Settings → Privacy & \
+     Security → Screen Recording for the app that launched PowerRustCOBOL, \
+     such as:\n\n\
+     \u{2022} Terminal\n\
+     \u{2022} iTerm\n\
+     \u{2022} VS Code\n\
+     \u{2022} etc.\n\n\
+     Do not look for “cobolt-ide”; it will not appear in the list.\n\
      Then quit that app and start the IDE again.";
 
 /// Does this process have macOS's **Screen Recording** permission?
@@ -909,7 +921,12 @@ impl DocShots {
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(true)
+                // Wide enough for a sentence. Left to size itself, the window
+                // takes the width of its title and wraps the message into a
+                // four-word column (operator, 2026-09-04).
+                .default_width(560.0)
                 .show(ctx, |ui| {
+                    ui.set_max_width(560.0);
                     ui.label(
                         self.status
                             .clone()
@@ -1388,16 +1405,32 @@ Next section.
         let message = capture_window_when(false, &target)
             .expect_err("a capture with no permission must fail, not return the desktop");
         for expected in [
-            "Screen Recording",     // the setting, by its exact name
-            "System Settings",      // where it lives
-            "STARTED PowerRustCOBOL", // whose permission it is
-            "Terminal",             // and the usual answer to that
+            "Screen Recording",       // the setting, by its exact name
+            "System Settings",        // where it lives
+            "launched PowerRustCOBOL", // whose permission it actually is
+            "Terminal",               // and the usual answer to that
+            "cobolt-ide",             // the name NOT to go looking for
         ] {
             assert!(
                 message.contains(expected),
                 "the refusal must name {expected:?}, said: {message}"
             );
         }
+
+        // Shape, not just content: one paragraph of this is a wall of text in
+        // a narrow popup, which is the complaint that produced this format.
+        assert!(
+            message.matches("\n\n").count() >= 3,
+            "the remedy must be broken into paragraphs, said: {message}"
+        );
+        let bullets = message.lines().filter(|l| l.starts_with('\u{2022}')).count();
+        assert!(
+            bullets >= 3,
+            "the apps must be listed one per line, found {bullets}: {message}"
+        );
+        // Deliberately NOT a line-length assertion: a paragraph is one logical
+        // line and the label wraps it to the window. What must be pinned is
+        // that the paragraphs and the list exist at all.
     }
 
     /// The region handed to `screencapture`, rounded **outwards**.

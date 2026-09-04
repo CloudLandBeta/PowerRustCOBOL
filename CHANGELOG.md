@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.19] — 2026-09-04
+
+### The Screen Recording message becomes readable
+
+1.64.18 put the whole remedy in one paragraph. In a popup that sizes itself to
+its title, in the IDE's large UI font, that came out as a twelve-line column
+of four-word lines — every fact present, none of them findable (operator,
+2026-09-04: "this text is hard to read", with the format to use).
+
+Same facts, laid out: what happened, then what to turn on, then the apps as a
+list one per line, then the two things to do afterwards. The window now opens
+560 points wide instead of taking the width of its own title bar, so a
+sentence reads as a sentence.
+
+The test gained the shape as well as the content — paragraph breaks and one
+app per line — because "hard to read" is a real regression and a substring
+check cannot see it. It deliberately does not assert a line length: a
+paragraph is one logical line and the label wraps it to the window.
+
 ## [PowerRustCOBOL 1.64.18] — 2026-09-04
 
 ### F12 refuses to photograph the desktop
