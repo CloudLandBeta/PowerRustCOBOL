@@ -1056,6 +1056,40 @@ Next section.
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **`README.md` must actually reach the picker** (operator, 2026-09-04:
+    /// "I still can't see the other documents" … "README.md has [SCREENSHOT]").
+    ///
+    /// Two conditions have to hold together, and each failed at some point:
+    /// the scan must reach a file that is **not** under `docs/` (it did a plain
+    /// `read_dir("docs")` until 1.64.5), and the picker only lists a document
+    /// that holds at least one slot — so this asserts the README's markers are
+    /// recognised too. They are the bare `[SCREENSHOT]` spelling, not the `📷`
+    /// one, which is precisely what a `grep` for the camera misses.
+    #[test]
+    fn the_readme_is_offered_with_its_screenshot_slots() {
+        let Some(root) = repo_root() else { return };
+        let docs = english_docs(&root);
+        assert!(
+            docs.iter()
+                .any(|p| p.file_name().and_then(|n| n.to_str()) == Some("README.md")),
+            "README.md must be among the documents the picker scans: {:?}",
+            docs.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>()
+        );
+
+        let readme = root.join("README.md");
+        let Ok(text) = std::fs::read_to_string(&readme) else {
+            return;
+        };
+        let slots = scan(&text);
+        assert!(
+            !slots.is_empty(),
+            "README.md carries [SCREENSHOT] markers, so the picker must offer it — \
+             a document with no slots is skipped"
+        );
+        // Its images sit beside it, not one directory up.
+        assert_eq!(rel_shots_path(&readme, &root), SHOTS_REL);
+    }
+
     #[test]
     fn flattening_removes_every_trace_of_transparency() {
         // A fully transparent pixel must come back as the backdrop, not a hole:

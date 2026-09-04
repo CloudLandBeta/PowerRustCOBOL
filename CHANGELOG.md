@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.7] — 2026-09-04
+
+### Pin the README to the screenshot picker, against the real repository
+
+1.64.5 widened the F12 scan to the repository root, which is what makes
+`README.md` reachable. This proves it end to end instead of asserting it:
+`the_readme_is_offered_with_its_screenshot_slots` runs against the actual
+checkout and requires all three conditions that must hold together —
+`README.md` is among the documents `english_docs` returns, `scan` finds its
+markers, and `rel_shots_path` gives it `assets/images/screenshots` with no
+`../` climb.
+
+The markers matter to the test's point: the README uses the bare
+`[SCREENSHOT]` spelling, not the `📷` one. Checking for the camera alone says a
+document has no slots when it has two — which is exactly the mistake that sent
+this investigation down a wrong path, and the reason the guard reads the real
+file rather than a fixture.
+
 ## [PowerRustCOBOL 1.64.6] — 2026-09-04
 
 ### The support matrix reads in Spanish, French and Portuguese
