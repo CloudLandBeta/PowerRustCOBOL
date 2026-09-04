@@ -113,6 +113,33 @@ pub struct AgentChangeSet {
     pub note: Option<String>,
 }
 
+/// The sentence to SHOW once a handler reply's code has been applied.
+///
+/// The handler is already on screen in the editor above, and the surface
+/// re-sends it as CURRENT HANDLER on every turn, so repeating it in the
+/// balloon is noise — and when the workflow summary is a bare
+/// ``Grace: ```cobol ENVIRONMENT DIVISION. DATA DIVISION. …`` it is noise that
+/// says nothing at all (operator, 2026-09-04). Dropping it also stops the
+/// transcript from carrying a second copy of the code into every later turn.
+///
+/// Keeps whatever prose the agent wrote AROUND its code; falls back to a plain
+/// line when what remains is only a label ("Grace:") or punctuation.
+pub fn readable_handler_answer(reply: &str, fallback: &str) -> String {
+    // Fences can open mid-line ("Grace: ```cobol"), so split on the marker
+    // itself rather than testing line starts: the even segments are outside.
+    let outside = reply
+        .split("```")
+        .step_by(2)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = outside.trim().trim_end_matches(':').trim().to_string();
+    // A dozen letters is the line between "an answer" and "a label".
+    if trimmed.chars().filter(|c| c.is_alphanumeric()).count() < 12 {
+        return fallback.to_string();
+    }
+    trimmed
+}
+
 /// What the developer should READ, and the handler body to APPLY, from a reply
 /// that may be a change-set rather than prose.
 ///
@@ -2133,6 +2160,49 @@ fn prop_display(v: &PropValue) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// **The balloon shows the answer, never the code just applied.**
+    ///
+    /// With Grace's own summary empty, the workflow fell back to the
+    /// specialist's submission, so the balloon read
+    /// "Grace: ```cobol ENVIRONMENT DIVISION. DATA DIVISION. …" — the handler
+    /// echoed back at the developer, who can see it in the editor above
+    /// (operator, 2026-09-04).
+    #[test]
+    fn a_reply_that_is_only_code_shows_the_plain_line_instead() {
+        let reply = "Grace: ```cobol\n       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n\
+                     \x20      WORKING-STORAGE SECTION.\n       LINKAGE SECTION.\n```";
+        assert_eq!(
+            readable_handler_answer(reply, "Updated this handler."),
+            "Updated this handler."
+        );
+    }
+
+    /// Prose the agent wrote around its code IS the answer, and survives.
+    #[test]
+    fn prose_around_the_code_is_kept_and_the_code_is_dropped() {
+        let reply = "I added a comment before each INVOKE line describing the marker.\n\
+                     ```cobol\n       PROCEDURE DIVISION.\n           INVOKE MAP-1 \"AddMarker\".\n```";
+        let shown = readable_handler_answer(reply, "fallback");
+        assert!(shown.starts_with("I added a comment before each INVOKE line"));
+        // NOT "INVOKE": the prose legitimately names it. The CODE is what
+        // must be gone.
+        assert!(
+            !shown.contains("PROCEDURE DIVISION") && !shown.contains("AddMarker"),
+            "the code must not be echoed: {shown}"
+        );
+        assert!(!shown.contains("```"), "no fence reaches the balloon: {shown}");
+    }
+
+    /// A fence opened mid-line ("Grace: ```cobol") must still be recognised —
+    /// testing only line starts is what let the code through.
+    #[test]
+    fn a_fence_that_opens_mid_line_is_still_a_fence() {
+        let reply = "Done. ```cobol\n       PROCEDURE DIVISION.\n``` and that is all it needed.";
+        let shown = readable_handler_answer(reply, "fallback");
+        assert!(!shown.contains("PROCEDURE DIVISION"), "got: {shown}");
+        assert!(shown.contains("and that is all it needed"), "got: {shown}");
+    }
 
     /// **A change-set is machinery, not an answer.**
     ///

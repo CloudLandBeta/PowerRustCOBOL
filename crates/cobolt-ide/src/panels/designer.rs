@@ -9227,7 +9227,15 @@ impl DesignerPanel {
                             // code is rejected, so the fix round-trip has the
                             // full context).
                             if let Some(m) = self.event_modal.as_mut() {
-                                m.ai_history.push(crate::llm::ChatTurn::assistant(&reply));
+                                // What the developer reads is the agent's own
+                                // prose, never the code it just applied: that
+                                // code is in the editor above, and the surface
+                                // re-sends it as CURRENT HANDLER every turn.
+                                let shown = crate::agent::readable_handler_answer(
+                                    &reply,
+                                    tr.ai_handler_updated,
+                                );
+                                m.ai_history.push(crate::llm::ChatTurn::assistant(&shown));
                                 save_event_history(project_root, &program_id, &m.ai_history);
                             }
                             // Validate the returned handler BEFORE it replaces the

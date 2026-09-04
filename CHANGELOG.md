@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.28] — 2026-09-04
+
+### The event editor stops reading the code back to you
+
+1.64.27 stopped the change-set JSON reaching the balloon. What arrived next was
+the other shape of the same fault: with Grace's own summary empty, the workflow
+falls back to the specialist's submission, so the balloon read
+``Grace: ```cobol ENVIRONMENT DIVISION. DATA DIVISION. …`` — the handler echoed
+back at the developer, who is looking at it in the editor directly above
+(operator, 2026-09-04).
+
+The balloon now shows the agent's prose and never the code it just applied. Any
+prose written around the code survives; when there is none — a label, a colon,
+under a dozen letters — the plain translated line is shown instead. Fences are
+found wherever they open, including mid-line after a "Grace: " prefix, which is
+exactly the case that slipped through.
+
+Dropping the code from the transcript also stops it being carried into every
+later turn: the surface re-sends the handler as CURRENT HANDLER on each request,
+so the conversation never needed a second copy.
+
 ## [PowerRustCOBOL 1.64.27] — 2026-09-04
 
 ### The event editor answers in a sentence, and the developer's balloon wraps
