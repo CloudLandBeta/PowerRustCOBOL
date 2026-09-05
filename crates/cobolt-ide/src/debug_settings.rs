@@ -44,7 +44,6 @@ pub struct DebugSettings {
     pub frame_diagnostics: bool,
     /// Outline every internal DataGrid sub-component.
     pub datagrid_diagnostics: bool,
-    /// Experimental rounded-corner GL clip (spec 017).
     // ── Data binding ──────────────────────────────────────────────────────
     /// Run-form data-binding trace: `databinding.log` in the platform's
     /// diagnostics directory, plus the state-key mismatch dump.
@@ -143,8 +142,8 @@ impl DebugSettings {
     /// anything the IDE inherited from its own environment; `COBOLT_LOG` is
     /// passed only when set, leaving the child's own default in place.
     ///
-    /// Rounded clip and AI-pane debug are IDE-only (an egui paint hook and the
-    /// IDE's AI pane) and are deliberately not forwarded.
+    /// AI-pane debug is IDE-only (it sizes the IDE's own AI pane) and is
+    /// deliberately not forwarded.
     pub fn child_env(&self) -> Vec<(&'static str, String)> {
         let onoff = |b: bool| if b { "1" } else { "0" }.to_string();
         let mut env = vec![
