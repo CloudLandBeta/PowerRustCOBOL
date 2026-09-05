@@ -25,19 +25,23 @@ See the LICENSE file in the project root for full license information.
 
 ## Overview
 
+<!-- 📷 welcome.png — ## Overview […] **PowerRustCOBOL AI** brings COBOL into -->
+<p align="center"><img src="assets/images/screenshots/welcome.png" alt="## Overview […] PowerRustCOBOL AI brings COBOL into" width="900"></p>
+
 **PowerRustCOBOL AI** brings COBOL into a modern desktop development experience. It pairs a
 practical subset of the **COBOL-85 standard** with a visual form designer, a rich widget
 toolbox, an interactive debugger, and a compiler that turns a project into one
 **self-contained native binary** — no COBOL source shipped inside it.
 
-<!-- 📷 powerrustcobol-ide.png — **self-contained native binary** — no COBOL source shipped inside it. […] | Name | Role | -->
-<p align="center"><img src="assets/images/screenshots/powerrustcobol-ide.png" alt="self-contained native binary — no COBOL source shipped inside it" width="900"></p>
+<!-- 📷 theide.png — **self-contained native binary** — no COBOL source shipped inside it. […] | Name | Role | -->
+<p align="center"><img src="assets/images/screenshots/theide.png" alt="self-contained native binary — no COBOL source shipped inside it" width="900"></p>
 
-| Name | Role |
-|------|------|
-| **RustCOBOL** | The language and compiler (a COBOL dialect with visual RAD extensions). |
+
+| Name                  | Role                                                                                                                                                                                                            |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **RustCOBOL**         | The language and compiler (a COBOL dialect with visual RAD extensions).                                                                                                                                         |
 | **PowerRustCOBOL AI** | The RAD IDE — the desktop application you design and build with. Window titles, the welcome screen and the About dialog all show the product under this name; folder names on disk keep the original spelling. |
-| **rcrun** | The command-line runtime/build tool. |
+| **rcrun**             | The command-line runtime/build tool.                                                                                                                                                                            |
 
 > ⚠️ COBOL data-item names, paragraph names, and all generated COBOL source always remain
 > in **English**, regardless of the IDE's selected interface language.
@@ -46,6 +50,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 
 - **Make COBOL approachable** with a visual, drag-and-drop form designer and live preview.
 - **Run COBOL fast** on a clean tree-walking interpreter — no external runtime required.
+- **Create modern applications** with Agentic AI capabilities, themed forms, GPU support, solid COBOL-85 support (NIST tested)
 - **Ship real apps**: compile a project into a single native executable that embeds its
   forms and program logic.
 - **Stay self-contained**: the default toolchain needs no system COBOL, no FFmpeg, and no
@@ -55,20 +60,15 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 
 ## What's implemented
 
-<!-- 📷 theide.png — ## What's implemented […] PowerRustCOBOL AI is a working visual -->
-<p align="center"><img src="assets/images/screenshots/theide.png" alt="## What's implemented […] PowerRustCOBOL AI is a working visual" width="900"></p>
+<!-- 📷 therad.png — ## What's implemented […] PowerRustCOBOL AI is an IDE -->
+<p align="center"><img src="assets/images/screenshots/therad.png" alt="## What's implemented […] PowerRustCOBOL AI is an IDE" width="900"></p>
 
-PowerRustCOBOL AI is a working visual RAD environment for COBOL, not a prototype: a
-form designer with **42 widgets** and pixel-parity rendering from canvas to
+PowerRustCOBOL AI is an IDE and a working visual RAD environment for COBOL, not a prototype: a
+form designer with over **40 widgets** and pixel-parity rendering from canvas to
 compiled binary, a COBOL-85 language core with **exact fixed-point arithmetic**,
 **INDEXED (ISAM)** files with real transactions, SQL / REST / chart integrations,
 an **agentic AI assistant mesh**, and a compiler that emits a **single native
 binary** with no `.cbl` source inside it.
-
-[SCREENSHOT]
-<p align="center"><img src="assets/images/screenshots/therad.png" alt="## The RAD (Rapid Application Development) environment" width="900"></p>
-
-
 
 > **Every capability has its own row in the
 > [PowerRustCOBOL AI Support Matrix](docs/cobol-support-matrix-en.md)** — including
@@ -76,14 +76,15 @@ binary** with no `.cbl` source inside it.
 > is a **PowerRustCOBOL AI extension**, and whether it is supported, partial,
 > planned or out of scope.
 
-| Looking for | Document |
-|---|---|
-| Does it support X, and is X standard COBOL? | [Support matrix](docs/cobol-support-matrix-en.md) |
-| Which exact spelling of a statement is accepted + the NIST CCVS85 scoreboard | [Supported syntax reference](docs/cobol85-supported-syntax-en.md) |
-| What to test for each verb | [Verb test matrix](docs/cobol85-verb-test-matrix-en.md) |
-| How to build applications with it | [Developer's guide](docs/developers-guide-en.md) |
-| Indexed files — format, internals, redb engine | [format](docs/indexed-file-format-en.md) · [internals](docs/indexed-file-internals-en.md) · [redb](docs/indexed-redb-engine-en.md) |
-| SQL runtime · logging and metrics | [database](docs/database-runtime-en.md) · [observability](docs/observability-en.md) |
+
+| Looking for                                                                  | Document                                                                                                                             |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Does it support X, and is X standard COBOL?                                  | [Support matrix](docs/cobol-support-matrix-en.md)                                                                                    |
+| Which exact spelling of a statement is accepted + the NIST CCVS85 scoreboard | [Supported syntax reference](docs/cobol85-supported-syntax-en.md)                                                                    |
+| What to test for each verb                                                   | [Verb test matrix](docs/cobol85-verb-test-matrix-en.md)                                                                              |
+| How to build applications with it                                            | [Developer's guide](docs/developers-guide-en.md)                                                                                     |
+| Indexed files — format, internals, redb engine                              | [format](docs/indexed-file-format-en.md) · [internals](docs/indexed-file-internals-en.md) · [redb](docs/indexed-redb-engine-en.md) |
+| SQL runtime · logging and metrics                                           | [database](docs/database-runtime-en.md) · [observability](docs/observability-en.md)                                                 |
 
 ![PowerRustCOBOL AI Agentic AI assistant architecture](docs/AI_Assistant_Architecture.jpg)
 
@@ -96,11 +97,12 @@ artifacts land, and what to do when the build fails — see
 
 ### 1. Install the requirements
 
-| Requirement | Why | Install |
-|-------------|-----|---------|
-| **Rust toolchain** (stable, **1.92 or newer**) | builds the whole workspace | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| **Git** | clone the repository | [git-scm.com](https://git-scm.com/downloads) |
-| **A C toolchain + native GUI libraries** | the platform linker Rust itself needs, two C dependencies (bundled SQLite and the Oniguruma regex engine), and the native file dialogs | see the per-OS notes below |
+
+| Requirement                                    | Why                                                                                                                                    | Install                                                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Rust toolchain** (stable, **1.92 or newer**) | builds the whole workspace                                                                                                             | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+| **Git**                                        | clone the repository                                                                                                                   | [git-scm.com](https://git-scm.com/downloads)                                                 |
+| **A C toolchain + native GUI libraries**       | the platform linker Rust itself needs, two C dependencies (bundled SQLite and the Oniguruma regex engine), and the native file dialogs | see the per-OS notes below                                                                   |
 
 There is **no Python, Node, JVM, CMake, NASM or C++ compiler** anywhere in the
 build — a C compiler and a linker are the whole of it, and on every platform they
@@ -109,7 +111,6 @@ arrive with the package Rust already needs in order to link.
 Per-OS native dependencies:
 
 - **macOS** — install the Xcode Command Line Tools: `xcode-select --install`. Nothing else is needed.
-
 - **Windows** — install the **Visual Studio Build Tools** with the *"Desktop
   development with C++"* workload ([download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)),
   then install Rust from [rustup.rs](https://rustup.rs) — it selects the MSVC
@@ -122,7 +123,6 @@ Per-OS native dependencies:
   rustc --version
   cargo build --release -p cobolt-ide -p cobolt-cli
   ```
-
 - **Linux (Debian/Ubuntu)** — install the build + GUI/dialog libraries:
 
   ```sh
@@ -177,7 +177,7 @@ and writing RustCOBOL. To work from the command line instead, see
 
 ## Running applications
 
-A PowerRustCOBOL AI **project** is a directory with a `cobolt.toml` manifest plus its
+A PowerRustCOBOL AI **project** is a directory with a `<project name>.toml` manifest plus its
 `.cbl` sources and `.cfrm` forms:
 
 ```toml
@@ -304,27 +304,29 @@ PowerRustCOBOL AI is a Rust workspace. The internal build crates use a `cobolt-*
 (build-only identifiers; the product is **PowerRustCOBOL AI**, the language **RustCOBOL**,
 the CLI **rcrun**):
 
-| Path | Responsibility |
-|------|----------------|
-| `specs/` | Spec-driven development — steering docs, templates, and per-feature `NNN-<slug>/` specs (`specs/README.md`). |
-| `.claude/skills/` | Slash-command skills for the workflow (`/specify`, `/plan`, `/implement`, `/docsync`, …). |
-| `docs/` | Developer guide (English canonical), language reference, and internals docs. |
-| `tests/cobol/` | COBOL integration programs exercised against the runtime. |
 
-| Crate | Responsibility |
-|-------|----------------|
-| `cobolt-lexer` | COBOL tokenizer (fixed + free form). |
-| `cobolt-ast` | AST node types. |
-| `cobolt-parser` | Recursive-descent parser. |
-| `cobolt-semantic` | Semantic analysis / diagnostics. |
-| `cobolt-runtime` | Tree-walking interpreter, file I/O, SQL/HTTP/GUI built-ins. |
-| `cobolt-stdlib` | Standard-library support. |
-| `cobolt-forms` | `.cfrm` form model + XML serialization. |
-| `cobolt-media` | Animated-image (GIF/WebP/APNG) decode + playback for the Animator. |
-| `cobolt-codegen` | Form → RustCOBOL source generator. |
-| `cobolt-compiler` | Embed-and-bundle single-binary compiler. |
-| `cobolt-cli` | The `rcrun` command-line tool. |
-| `cobolt-ide` | The PowerRustCOBOL AI desktop app (egui/eframe). |
+| Path              | Responsibility                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| `specs/`          | Spec-driven development — steering docs, templates, and per-feature`NNN-<slug>/` specs (`specs/README.md`). |
+| `.claude/skills/` | Slash-command skills for the workflow (`/specify`, `/plan`, `/implement`, `/docsync`, …).                   |
+| `docs/`           | Developer guide (English canonical), language reference, and internals docs.                                 |
+| `tests/cobol/`    | COBOL integration programs exercised against the runtime.                                                    |
+
+
+| Crate             | Responsibility                                                     |
+| ----------------- | ------------------------------------------------------------------ |
+| `cobolt-lexer`    | COBOL tokenizer (fixed + free form).                               |
+| `cobolt-ast`      | AST node types.                                                    |
+| `cobolt-parser`   | Recursive-descent parser.                                          |
+| `cobolt-semantic` | Semantic analysis / diagnostics.                                   |
+| `cobolt-runtime`  | Tree-walking interpreter, file I/O, SQL/HTTP/GUI built-ins.        |
+| `cobolt-stdlib`   | Standard-library support.                                          |
+| `cobolt-forms`    | `.cfrm` form model + XML serialization.                            |
+| `cobolt-media`    | Animated-image (GIF/WebP/APNG) decode + playback for the Animator. |
+| `cobolt-codegen`  | Form → RustCOBOL source generator.                                |
+| `cobolt-compiler` | Embed-and-bundle single-binary compiler.                           |
+| `cobolt-cli`      | The`rcrun` command-line tool.                                      |
+| `cobolt-ide`      | The PowerRustCOBOL AI desktop app (egui/eframe).                   |
 
 ```sh
 # Build everything

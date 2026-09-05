@@ -1,0 +1,5 @@
+           SELECT MENU-FILE ASSIGN TO "BurguerTime/data/menu.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS NUMERO
+               STORAGE MODE IS DISK.

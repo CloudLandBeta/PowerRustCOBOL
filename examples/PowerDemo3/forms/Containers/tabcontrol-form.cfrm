@@ -1,0 +1,828 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TABCONTROL-FORM" title="TabControl - pages in one rectangle" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="TABCONTROL-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "ready - page " Tab-Order::SelectedTab " of 3" INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+    <Event name="onClose" paragraph="TABCONTROL-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="32" y="20" w="936" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">TabControl</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E8ECF4</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Sub" type="Label" x="32" y="54" w="936" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">A TabControl stacks several pages in one place. Tabs holds the captions one per line, SelectedTab is the page on show, and every control carries the page number it belongs to. Switching pages raises onTabChanged.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Log-Cap" type="Label" x="32" y="424" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Event log</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Txt-Log" type="TextBox" x="32" y="448" w="936" h="184" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="ScrollBars">Vertical</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Tab-Order" type="TabControl" x="48" y="130" w="912" h="220" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Tabs">Customer
+Items
+Shipping</Property>
+    <Property name="TabPosition">Top</Property>
+    <Property name="SelectedTab">0</Property>
+    <Property name="ActiveTabColor">#488DFFFF</Property>
+    <Property name="TabPadding">7</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="mcp_tool">{&quot;name&quot;:&quot;manage_tab_control_tabs&quot;,&quot;description&quot;:&quot;Creates, updates, reorders, selects, or removes tabs that belong to a TabControl in the form designer. A tab is a child container owned by exactly one TabControl and represents one selectable page within that control. Tabs must not be created as independent top-level form controls. Controls placed on a tab belong to that tab page and are visible only when the tab is active, unless the designer is explicitly displaying inactive pages for editing.&quot;,&quot;inputSchema&quot;:{&quot;type&quot;:&quot;object&quot;,&quot;required&quot;:[&quot;operation&quot;,&quot;tab_control_id&quot;],&quot;properties&quot;:{&quot;operation&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;enum&quot;:[&quot;create&quot;,&quot;update&quot;,&quot;remove&quot;,&quot;reorder&quot;,&quot;select&quot;],&quot;description&quot;:&quot;The operation to perform on a tab belonging to the specified TabControl.&quot;},&quot;tab_control_id&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The unique identifier of the parent TabControl that owns the tab. The referenced control must exist and must be a TabControl.&quot;},&quot;tab_id&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The stable unique identifier of the tab page. Required for update, remove, reorder, and select operations. The tab must belong to the specified TabControl.&quot;},&quot;caption&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;The text displayed in the tab header. Changing the caption does not change the tab identifier or the ownership of controls placed inside the tab.&quot;},&quot;index&quot;:{&quot;type&quot;:&quot;integer&quot;,&quot;minimum&quot;:0,&quot;description&quot;:&quot;The zero-based position of the tab within the parent TabControl. Tabs are displayed according to this order. Reordering a tab must preserve its identifier and child controls.&quot;},&quot;selected&quot;:{&quot;type&quot;:&quot;boolean&quot;,&quot;description&quot;:&quot;Determines whether this tab becomes the active page of the TabControl. Only one tab within the same TabControl may be selected at a time.&quot;},&quot;enabled&quot;:{&quot;type&quot;:&quot;boolean&quot;,&quot;description&quot;:&quot;Determines whether the user can activate the tab at runtime. A disabled tab remains part of the TabControl and retains its child controls.&quot;},&quot;visible&quot;:{&quot;type&quot;:&quot;boolean&quot;,&quot;description&quot;:&quot;Determines whether the tab header and its page are available at runtime. Hiding a tab must not delete the tab or its child controls.&quot;},&quot;tooltip&quot;:{&quot;type&quot;:&quot;string&quot;,&quot;description&quot;:&quot;Optional explanatory text displayed when the user points to the tab header.&quot;},&quot;icon&quot;:{&quot;type&quot;:[&quot;string&quot;,&quot;null&quot;],&quot;description&quot;:&quot;Optional icon resource associated with the tab header. The value must reference a valid project resource or be null to remove the icon.&quot;},&quot;confirm_remove_with_children&quot;:{&quot;type&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;description&quot;:&quot;Confirms removal of a tab that contains child controls. Removing a tab may also remove or orphan its contained controls, depending on the designer policy. The tool must reject destructive removal unless this value is true.&quot;}},&quot;allOf&quot;:[{&quot;if&quot;:{&quot;properties&quot;:{&quot;operation&quot;:{&quot;const&quot;:&quot;create&quot;}}},&quot;then&quot;:{&quot;required&quot;:[&quot;caption&quot;]}},{&quot;if&quot;:{&quot;properties&quot;:{&quot;operation&quot;:{&quot;enum&quot;:[&quot;update&quot;,&quot;remove&quot;,&quot;reorder&quot;,&quot;select&quot;]}}},&quot;then&quot;:{&quot;required&quot;:[&quot;tab_id&quot;]}},{&quot;if&quot;:{&quot;properties&quot;:{&quot;operation&quot;:{&quot;const&quot;:&quot;reorder&quot;}}},&quot;then&quot;:{&quot;required&quot;:[&quot;index&quot;]}}]}}</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTabChanged" paragraph="TAB-ORDER--ONTABCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "page -> " Tab-Order::SelectedTab INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+  </Control>
+  <Control id="Lbl-P0" type="Label" x="76" y="186" w="200" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+    <Property name="Caption">Customer name</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Txt-Name" type="TextBox" x="280" y="182" w="320" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Emerson Lopes</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-P0b" type="Label" x="76" y="226" w="200" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+    <Property name="Caption">Loyalty tier</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Cbo-Tier" type="ComboBox" x="280" y="222" w="220" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="0">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">Bronze
+Silver
+Gold</Property>
+    <Property name="SelectedIndex">2</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="DropDownStyle">DropDown</Property>
+    <Property name="DropDownHeight">200</Property>
+    <Property name="Editable">true</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lst-Items" type="ListBox" x="76" y="182" w="400" h="140" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">Rust in Action
+COBOL for the curious
+A year of forms</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="MultiSelect">false</Property>
+    <Property name="ShowCheckBoxes">false</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-P1" type="Label" x="500" y="182" w="420" h="60" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="1">
+    <Property name="Caption">Controls on this page exist all the time; only the visible page is painted.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Chk-Gift" type="CheckBox" x="76" y="186" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="2">
+    <Property name="Caption">Gift wrap</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E8ECF4</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Checked">false</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CheckBoxBorderStyle">None</Property>
+    <Property name="CheckBoxBorderColor">#8C8CA0</Property>
+    <Property name="CheckBoxBorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Dtp-When" type="DateTimePicker" x="76" y="224" w="240" h="28" tab-order="0" z-order="0" visible="true" enabled="true" parent="Tab-Order" tab="2">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Value">2026-09-30</Property>
+    <Property name="Format">Short</Property>
+    <Property name="ShowUpDown">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Btn-Next" type="Button" x="32" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Next page</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-NEXT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Three pages, numbered from zero - wrap round at the end.
+      *> EN: EXTENSION - a numeric property compares and computes algebraically; no PIC item needed.
+      *> PT: EXTENSAO - propriedade numerica compara e calcula algebricamente; sem item PIC.
+      *> ES: EXTENSION - la propiedad numerica compara y calcula algebraicamente; sin item PIC.
+      *> FR: EXTENSION - une propriete numerique compare et calcule algebriquement; sans item PIC.
+      *> JP: EXTENSION - 数値プロパティは代数的に比較・計算できる。中間の PIC 項目は不要。
+      *> CN: EXTENSION - 数值属性按代数方式比较与计算；无需中间 PIC 数据项。
+           IF Tab-Order::SelectedTab < 2
+      *> EN: EXTENSION - arithmetic writes straight into the property, which is a receiving field.
+      *> PT: EXTENSAO - a aritmetica escreve direto na propriedade, que e um campo receptor.
+      *> ES: EXTENSION - la aritmetica escribe directo en la propiedad, que es campo receptor.
+      *> FR: EXTENSION - l'arithmetique ecrit directement dans la propriete, champ recepteur.
+      *> JP: EXTENSION - 算術演算はプロパティへ直接書き込む。プロパティは受取項目である。
+      *> CN: EXTENSION - 算术运算直接写入属性，因为属性是接收项。
+               ADD 1 TO Tab-Order::SelectedTab
+      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+           ELSE
+               MOVE 0 TO Tab-Order::SelectedTab
+           END-IF.
+]]></Event>
+  </Control>
+  <Control id="Btn-Ship" type="Button" x="204" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Jump to Shipping</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-SHIP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+           MOVE 2 TO Tab-Order::SelectedTab.
+]]></Event>
+  </Control>
+  <Control id="Btn-Read" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Read every page</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-READ--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> A control on a hidden page is still live and still readable.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING Txt-Name::Text " / " Cbo-Tier::GetSelected()
+                  " / gift=" Chk-Gift::IsChecked() INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+  </Control>
+  <Control id="Btn-Bottom" type="Button" x="548" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Tabs at the bottom</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-BOTTOM--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+           MOVE "Bottom" TO Tab-Order::TabPosition.
+]]></Event>
+  </Control>
+</Form>

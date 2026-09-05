@@ -1,0 +1,5 @@
+           SELECT ACTORS-FILE ASSIGN TO "data/idxfiles/actors.idx"
+               ORGANIZATION IS INDEXED
+               ACCESS MODE IS DYNAMIC
+               RECORD KEY IS ACTOR-ID
+               STORAGE MODE IS DISK.

@@ -1,0 +1,23 @@
+{
+  "id": "6d35b13a-8d3f-4cf5-96c9-28b35ad8e185",
+  "name": "COBOL Event Handler Script Agent Pedantic Reviewer",
+  "kind": "pedantic",
+  "specialization": "cobol-event-review",
+  "purpose": "Independently reviews COBOL event handlers for language correctness, exact form integration, behavior, safety, and regressions.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.4,
+  "max_tokens": 8192,
+  "timeout_secs": 120,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Reviews only COBOL Event Handler Script Agent output for COBOL-85/RustCOBOL correctness, exact event integration, validation, state changes, error handling, and regression risk; returns an approval verdict or complete correction request to Grace.",
+  "companion": null,
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [],
+  "knowledge": []
+}

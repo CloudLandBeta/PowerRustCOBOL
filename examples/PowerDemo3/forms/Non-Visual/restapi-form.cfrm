@@ -1,0 +1,831 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="RESTAPI-FORM" title="REST Client - a call, narrated" width="1280" height="720" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" glass-style="Neumorphic Dark" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="RESTAPI-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Everything the control will use, read back from the control itself.
+      *> The token is NEVER printed - only whether one is configured.
+
+           INVOKE TextBox-LOG::AppendText("RestClient-1 configuration")
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE RestClient-1::BaseURL TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   BaseURL:   ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE RestClient-1::DefaultMethod TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   Method:    ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE RestClient-1::AuthType TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   AuthType:  ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE RestClient-1::AuthToken TO WS-LINE
+           IF FUNCTION TRIM(WS-LINE) = SPACES
+               INVOKE TextBox-LOG::AppendText("   AuthToken: (none configured)")
+           ELSE
+               INVOKE TextBox-LOG::AppendText("   AuthToken: (configured, sent as X-API-Key)")
+           END-IF
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE RestClient-1::Mode TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   Mode:      ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(" (Async returns at once; the answer arrives as an event)")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE "ready" TO Label-STATUS::Caption
+           DISPLAY "restapi-form ready".
+]]></Event>
+    <Event name="onClose" paragraph="RESTAPI-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Label-TITLE" type="Label" x="24" y="20" w="1232" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">REST Client - a call, narrated</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">19</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Transparency">0</Property>
+  </Control>
+  <Control id="Label-HINT" type="Label" x="24" y="56" w="1232" h="30" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Every step is logged: what is sent, where, with what payload, and which event answered. The API key is never printed - only whether one is configured.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Transparency">0</Property>
+  </Control>
+  <Control id="Button-REST-GET" type="Button" x="24" y="96" w="300" h="40" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">1  GET using the control&apos;s BaseURL</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-GET--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> The idiomatic call: the address is configured in the designer and the
+      *> handler asks for it with NO argument. Before 1.62.144 this requested
+      *> the empty string and could only fail.
+      *> Mode is Async, so Get() RETURNS IMMEDIATELY and the answer arrives at
+      *> onComplete / onError / onTimeout. Nothing below this line has the
+      *> response yet - that is what the log is for.
+
+           MOVE "calling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- GET (BaseURL, no argument)")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE RestClient-1::BaseURL TO WS-LINE
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   url:     ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE RestClient-1::AuthType TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   auth:    ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE RestClient-1::TimeoutMs TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   timeout: ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(" ms")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           INVOKE RestClient-1::Get()
+
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   sent - waiting for onComplete / onError / onTimeout")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: GET issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-GETURL" type="Button" x="340" y="96" w="300" h="40" tab-order="0" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">2  GET an explicit URL</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-GETURL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> An argument that carries its own scheme WINS over BaseURL, so a
+      *> handler can go somewhere else without disturbing the designed address.
+
+           MOVE "calling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- GET (explicit url)")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/api/users?page=2")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE RestClient-1::Get("https://reqres.in/api/users?page=2")
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   sent")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: GET explicit issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-POST" type="Button" x="656" y="96" w="300" h="40" tab-order="0" z-order="4" visible="true" enabled="true">
+    <Property name="Caption">3  POST a payload</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-POST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       01 WS-BODY PIC X(200).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> POST carries a body; GET and DELETE do not. Build the payload in
+      *> COBOL first - it is data, not a format string.
+
+           MOVE "calling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- POST")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE '{"name":"morpheus","job":"leader"}' TO WS-BODY
+           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/users")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE TextBox-LOG::AppendText("   payload: ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-BODY))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           INVOKE RestClient-1::Post("https://reqres.in/users", FUNCTION TRIM(WS-BODY))
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   sent")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: POST issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-404" type="Button" x="972" y="96" w="284" h="40" tab-order="0" z-order="5" visible="true" enabled="true">
+    <Property name="Caption">4  Force a 404</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-404--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> A 4xx is a REAL RESPONSE, not a transport failure: it arrives at
+      *> onComplete with its own StatusCode and body. onError is for the call
+      *> never completing at all - DNS, TLS, a refused connection.
+
+           MOVE "calling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- GET a path that does not exist")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/unknown/99999")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE RestClient-1::Get("https://reqres.in/unknown/99999")
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   sent - expect onComplete with status 404")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: 404 probe issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-BADHOST" type="Button" x="24" y="152" w="300" h="40" tab-order="0" z-order="6" visible="true" enabled="true">
+    <Property name="Caption">5  Force a transport error</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-BADHOST--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> A host that cannot be resolved never produces an HTTP status at all,
+      *> so this is the onError path. LastError carries the reason.
+
+           MOVE "calling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- GET a host that does not resolve")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE TextBox-LOG::AppendText("   url:     https://no-such-host.invalid/x")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE RestClient-1::Get("https://no-such-host.invalid/x")
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   sent - expect onError")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: bad host issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-TIMEOUT" type="Button" x="340" y="152" w="300" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
+    <Property name="Caption">6  Force a timeout</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-TIMEOUT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> SetTimeout is in SECONDS. One second against a deliberately slow
+      *> endpoint gives onTimeout rather than onComplete. The timeout is put
+      *> back afterwards so the other buttons still work.
+
+           MOVE "calling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- GET with a 1 second timeout")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE RestClient-1::SetTimeout(1)
+           INVOKE TextBox-LOG::AppendText("   url:     https://reqres.in/users?delay=6")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE RestClient-1::Get("https://reqres.in/users?delay=6")
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   sent - expect onTimeout")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: timeout probe issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-CANCEL" type="Button" x="656" y="152" w="300" h="40" tab-order="0" z-order="8" visible="true" enabled="true">
+    <Property name="Caption">7  Cancel the call in flight</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Cancel() abandons whatever is running on THIS control. It fires
+      *> onCancelled; the response, if it ever arrives, is discarded.
+
+           MOVE "cancelling..." TO Label-STATUS::Caption
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- Cancel()")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           INVOKE RestClient-1::Cancel()
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   cancel requested")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST: cancel issued".
+]]></Event>
+  </Control>
+  <Control id="Button-REST-CLEAR" type="Button" x="972" y="152" w="284" h="40" tab-order="0" z-order="9" visible="true" enabled="true">
+    <Property name="Caption">8  Clear the log</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-REST-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Clear() on a TextBox empties its Text - unlike Clear() on a Snackbar,
+      *> which empties its button row and leaves the message alone.
+
+           INVOKE TextBox-LOG::Clear()
+           INVOKE TextBox-BODY::Clear()
+           MOVE "ready" TO Label-STATUS::Caption
+           DISPLAY "REST: log cleared".
+]]></Event>
+  </Control>
+  <Control id="Label-STATUSCAP" type="Label" x="24" y="208" w="72" h="30" tab-order="0" z-order="10" visible="true" enabled="true">
+    <Property name="Caption">Status:</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">19</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Transparency">0</Property>
+  </Control>
+  <Control id="Label-STATUS" type="Label" x="96" y="208" w="1232" h="30" tab-order="0" z-order="11" visible="true" enabled="true">
+    <Property name="Caption">ready</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">19</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Transparency">0</Property>
+  </Control>
+  <Control id="Label-LOGCAP" type="Label" x="24" y="240" w="1232" h="30" tab-order="0" z-order="12" visible="true" enabled="true">
+    <Property name="Caption">Call log</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Transparency">0</Property>
+  </Control>
+  <Control id="Label-BODYCAP" type="Label" x="648" y="240" w="1232" h="30" tab-order="0" z-order="13" visible="true" enabled="true">
+    <Property name="Caption">Response body</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="Transparency">0</Property>
+  </Control>
+  <Control id="TextBox-LOG" type="TextBox" x="24" y="272" w="600" h="424" tab-order="0" z-order="14" visible="true" enabled="true">
+    <Property name="Multiline">true</Property>
+    <Property name="ScrollBars">Vertical</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#4E5866FF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="TextBox-BODY" type="TextBox" x="648" y="272" w="608" h="424" tab-order="0" z-order="15" visible="true" enabled="true">
+    <Property name="Multiline">true</Property>
+    <Property name="ScrollBars">Vertical</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#4E5866FF</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+  </Control>
+  <Control id="RestClient-1" type="RestClient" x="1096" y="16" w="56" h="56" tab-order="0" z-order="16" visible="true" enabled="true">
+    <Property name="BaseURL">https://reqres.in/api/users?page=2</Property>
+    <Property name="DefaultMethod">GET</Property>
+    <Property name="AuthType">APIKey</Property>
+    <Property name="AuthToken">free_user_3I5ErhiWCn6hRqaDzpjBWSSIp7O</Property>
+    <Property name="TimeoutSeconds">30</Property>
+    <Property name="TimeoutMs">30000</Property>
+    <Property name="FollowRedirects">true</Property>
+    <Property name="VerifyTLS">true</Property>
+    <Property name="Mode">Async</Property>
+    <Property name="Busy">false</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onComplete" paragraph="RESTCLIENT-1--ONCOMPLETE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       01 WS-N PIC X(12).
+       01 WS-BODY PIC X(4000).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> The call finished and produced an HTTP STATUS - including 4xx and 5xx.
+      *> StatusCode and ResponseBody are written BEFORE this handler runs.
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("++ onComplete")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE RestClient-1::StatusCode TO WS-N
+           INVOKE TextBox-LOG::AppendText("   status:  ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+
+           MOVE RestClient-1::ResponseBody TO WS-BODY
+           INVOKE TextBox-BODY::Clear()
+           INVOKE TextBox-BODY::AppendText(FUNCTION TRIM(WS-BODY))
+
+           IF FUNCTION TRIM(WS-N) = "200" OR FUNCTION TRIM(WS-N) = "201"
+               MOVE "success" TO Label-STATUS::Caption
+           ELSE
+               MOVE "the server answered, but not with 2xx"
+                 TO Label-STATUS::Caption
+           END-IF
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("   body shown in the panel on the right")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           DISPLAY "REST onComplete".
+]]></Event>
+    <Event name="onError" paragraph="RESTCLIENT-1--ONERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       01 WS-N PIC X(12).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> The call never produced a status: DNS, TLS, a refused connection, a
+      *> malformed URL. LastError carries the reason.
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("!! onError")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE RestClient-1::LastError TO WS-LINE
+           INVOKE TextBox-LOG::AppendText("   reason:  ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-LINE))
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE "FAILED - see the log" TO Label-STATUS::Caption
+           DISPLAY "REST onError".
+]]></Event>
+    <Event name="onTimeout" paragraph="RESTCLIENT-1--ONTIMEOUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       01 WS-N PIC X(12).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> The call outlived its timeout. Nothing is retried automatically.
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("!! onTimeout")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE RestClient-1::TimeoutMs TO WS-N
+           INVOKE TextBox-LOG::AppendText("   after:   ")
+           INVOKE TextBox-LOG::AppendText(FUNCTION TRIM(WS-N))
+           INVOKE TextBox-LOG::AppendText(" ms")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE "TIMED OUT" TO Label-STATUS::Caption
+           DISPLAY "REST onTimeout".
+]]></Event>
+    <Event name="onCancelled" paragraph="RESTCLIENT-1--ONCANCELLED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(200).
+       01 WS-NL   PIC X.
+       01 WS-N PIC X(12).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Cancel() was called while this control had something in flight.
+           MOVE FUNCTION CHAR(11) TO WS-NL
+           INVOKE TextBox-LOG::AppendText("-- onCancelled")
+           INVOKE TextBox-LOG::AppendText(WS-NL)
+           MOVE "cancelled" TO Label-STATUS::Caption
+           DISPLAY "REST onCancelled".
+]]></Event>
+  </Control>
+</Form>

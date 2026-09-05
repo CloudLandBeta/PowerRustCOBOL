@@ -1,0 +1,1015 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="CHARTS-FORM" title="Charts - the six types" width="1280" height="788" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="CHARTS-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Fill every chart as the form opens, so it never shows the sample
+      *> preview before the first click.
+
+           INVOKE BarChart-1::Clear()
+           INVOKE BarChart-1::AddPoint("Q1", 128)
+           INVOKE BarChart-1::AddPoint("Q2", 174)
+           INVOKE BarChart-1::AddPoint("Q3", 151)
+           INVOKE BarChart-1::AddPoint("Q4", 209)
+
+           INVOKE LineChart-1::Clear()
+           INVOKE LineChart-1::AddPoint("Jan", 42)
+           INVOKE LineChart-1::AddPoint("Feb", 55)
+           INVOKE LineChart-1::AddPoint("Mar", 48)
+           INVOKE LineChart-1::AddPoint("Apr", 71)
+           INVOKE LineChart-1::AddPoint("May", 66)
+           INVOKE LineChart-1::AddPoint("Jun", 88)
+
+           INVOKE PieChart-1::Clear()
+           INVOKE PieChart-1::AddPoint("North", 34)
+           INVOKE PieChart-1::AddPoint("South", 21)
+           INVOKE PieChart-1::AddPoint("East", 28)
+           INVOKE PieChart-1::AddPoint("West", 17)
+
+           INVOKE AreaChart-1::Clear()
+           INVOKE AreaChart-1::AddPoint("Wk1", 120)
+           INVOKE AreaChart-1::AddPoint("Wk2", 260)
+           INVOKE AreaChart-1::AddPoint("Wk3", 415)
+           INVOKE AreaChart-1::AddPoint("Wk4", 590)
+           INVOKE AreaChart-1::AddPoint("Wk5", 720)
+
+           INVOKE ScatterChart-1::Clear()
+           INVOKE ScatterChart-1::AddPoint("0.4", 12)
+           INVOKE ScatterChart-1::AddPoint("0.9", 19)
+           INVOKE ScatterChart-1::AddPoint("1.3", 26)
+           INVOKE ScatterChart-1::AddPoint("1.8", 24)
+           INVOKE ScatterChart-1::AddPoint("2.4", 37)
+           INVOKE ScatterChart-1::AddPoint("3.1", 41)
+
+           INVOKE DonutChart-1::Clear()
+           INVOKE DonutChart-1::AddPoint("Used", 68)
+           INVOKE DonutChart-1::AddPoint("Free", 32)
+
+           DISPLAY "charts loaded".
+]]></Event>
+    <Event name="onClose" paragraph="CHARTS-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Label-TITLE" type="Label" x="24" y="16" w="1232" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Charts - the six types (value changes are animated)</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#70F3FCFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">19</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+  <Control id="BarChart-1" type="BarChart" x="24" y="64" w="392" h="240" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="Title">Revenue by quarter</Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="XAxisLabel">Period</Property>
+    <Property name="YAxisLabel">Value</Property>
+    <Property name="Horizontal">false</Property>
+    <Property name="Stacked">false</Property>
+    <Property name="BarCornerRadius">4</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">true</Property>
+  </Control>
+  <Control id="LineChart-1" type="LineChart" x="440" y="64" w="392" h="240" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="Title">Orders per month</Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="XAxisLabel">Period</Property>
+    <Property name="YAxisLabel">Value</Property>
+    <Property name="Smooth">true</Property>
+    <Property name="ShowPoints">true</Property>
+    <Property name="PointRadius">4</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">true</Property>
+  </Control>
+  <Control id="PieChart-1" type="PieChart" x="856" y="64" w="392" h="240" tab-order="0" z-order="3" visible="true" enabled="true">
+    <Property name="Title">Share by region</Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="ShowLabels">true</Property>
+    <Property name="LabelFormat">percent</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">true</Property>
+  </Control>
+  <Control id="AreaChart-1" type="AreaChart" x="24" y="320" w="392" h="240" tab-order="0" z-order="4" visible="true" enabled="true">
+    <Property name="Title">Cumulative volume</Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="XAxisLabel">Period</Property>
+    <Property name="YAxisLabel">Value</Property>
+    <Property name="Smooth">true</Property>
+    <Property name="ShowPoints">true</Property>
+    <Property name="PointRadius">4</Property>
+    <Property name="FillAlpha">40</Property>
+    <Property name="Stacked">false</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">true</Property>
+  </Control>
+  <Control id="ScatterChart-1" type="ScatterChart" x="440" y="320" w="392" h="240" tab-order="0" z-order="5" visible="true" enabled="true">
+    <Property name="Title">Price against weight</Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="XAxisLabel">Period</Property>
+    <Property name="YAxisLabel">Value</Property>
+    <Property name="BubbleScale">20</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">true</Property>
+  </Control>
+  <Control id="DonutChart-1" type="DonutChart" x="856" y="320" w="392" h="240" tab-order="0" z-order="6" visible="true" enabled="true">
+    <Property name="Title">Storage in use</Property>
+    <Property name="ShowLegend">true</Property>
+    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowXAxis">true</Property>
+    <Property name="ShowYAxis">true</Property>
+    <Property name="ShowTooltips">true</Property>
+    <Property name="AnimateOnLoad">true</Property>
+    <Property name="AnimateValues">true</Property>
+    <Property name="AnimationDuration">2000</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="Monochrome">false</Property>
+    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="MonochromeGradient">false</Property>
+    <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
+    <Property name="ShowLabels">true</Property>
+    <Property name="LabelFormat">percent</Property>
+    <Property name="InnerRadius">40</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="ShadowEnabled">true</Property>
+  </Control>
+  <Control id="Button-CHART-LOAD" type="Button" x="24" y="584" w="236" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
+    <Property name="Caption">Load the first data set</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-LOAD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Every chart takes its data the same way: Clear() drops what it
+      *> holds, then one AddPoint(label, value) per point. Each AddPoint
+      *> pushes the WHOLE series to the renderer, so the chart redraws as it
+      *> fills - there is no separate "commit" step.
+      *> A chart with NO data draws a representative sample instead, which is
+      *> why the designer canvas never looks empty.
+
+           INVOKE BarChart-1::Clear()
+           INVOKE BarChart-1::AddPoint("Q1", 128)
+           INVOKE BarChart-1::AddPoint("Q2", 174)
+           INVOKE BarChart-1::AddPoint("Q3", 151)
+           INVOKE BarChart-1::AddPoint("Q4", 209)
+
+           INVOKE LineChart-1::Clear()
+           INVOKE LineChart-1::AddPoint("Jan", 42)
+           INVOKE LineChart-1::AddPoint("Feb", 55)
+           INVOKE LineChart-1::AddPoint("Mar", 48)
+           INVOKE LineChart-1::AddPoint("Apr", 71)
+           INVOKE LineChart-1::AddPoint("May", 66)
+           INVOKE LineChart-1::AddPoint("Jun", 88)
+
+           INVOKE PieChart-1::Clear()
+           INVOKE PieChart-1::AddPoint("North", 34)
+           INVOKE PieChart-1::AddPoint("South", 21)
+           INVOKE PieChart-1::AddPoint("East", 28)
+           INVOKE PieChart-1::AddPoint("West", 17)
+
+           INVOKE AreaChart-1::Clear()
+           INVOKE AreaChart-1::AddPoint("Wk1", 120)
+           INVOKE AreaChart-1::AddPoint("Wk2", 260)
+           INVOKE AreaChart-1::AddPoint("Wk3", 415)
+           INVOKE AreaChart-1::AddPoint("Wk4", 590)
+           INVOKE AreaChart-1::AddPoint("Wk5", 720)
+
+           INVOKE ScatterChart-1::Clear()
+           INVOKE ScatterChart-1::AddPoint("0.4", 12)
+           INVOKE ScatterChart-1::AddPoint("0.9", 19)
+           INVOKE ScatterChart-1::AddPoint("1.3", 26)
+           INVOKE ScatterChart-1::AddPoint("1.8", 24)
+           INVOKE ScatterChart-1::AddPoint("2.4", 37)
+           INVOKE ScatterChart-1::AddPoint("3.1", 41)
+
+           INVOKE DonutChart-1::Clear()
+           INVOKE DonutChart-1::AddPoint("Used", 68)
+           INVOKE DonutChart-1::AddPoint("Free", 32)
+
+           DISPLAY "charts loaded".
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-LOAD2" type="Button" x="276" y="584" w="236" h="40" tab-order="0" z-order="8" visible="true" enabled="true">
+    <Property name="Caption">Load a second data set</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-LOAD2--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> The same six charts, different numbers. Values are auto-scaled into
+      *> the plot, so nothing here sets a maximum: the tallest point defines
+      *> the top of the band.
+
+           INVOKE BarChart-1::Clear()
+           INVOKE BarChart-1::AddPoint("Q1", 96)
+           INVOKE BarChart-1::AddPoint("Q2", 88)
+           INVOKE BarChart-1::AddPoint("Q3", 143)
+           INVOKE BarChart-1::AddPoint("Q4", 261)
+
+           INVOKE LineChart-1::Clear()
+           INVOKE LineChart-1::AddPoint("Jan", 91)
+           INVOKE LineChart-1::AddPoint("Feb", 77)
+           INVOKE LineChart-1::AddPoint("Mar", 64)
+           INVOKE LineChart-1::AddPoint("Apr", 52)
+           INVOKE LineChart-1::AddPoint("May", 58)
+           INVOKE LineChart-1::AddPoint("Jun", 40)
+
+           INVOKE PieChart-1::Clear()
+           INVOKE PieChart-1::AddPoint("North", 12)
+           INVOKE PieChart-1::AddPoint("South", 44)
+           INVOKE PieChart-1::AddPoint("East", 19)
+           INVOKE PieChart-1::AddPoint("West", 25)
+
+           INVOKE AreaChart-1::Clear()
+           INVOKE AreaChart-1::AddPoint("Wk1", 80)
+           INVOKE AreaChart-1::AddPoint("Wk2", 140)
+           INVOKE AreaChart-1::AddPoint("Wk3", 190)
+           INVOKE AreaChart-1::AddPoint("Wk4", 205)
+           INVOKE AreaChart-1::AddPoint("Wk5", 212)
+
+           INVOKE ScatterChart-1::Clear()
+           INVOKE ScatterChart-1::AddPoint("0.4", 38)
+           INVOKE ScatterChart-1::AddPoint("0.9", 31)
+           INVOKE ScatterChart-1::AddPoint("1.3", 33)
+           INVOKE ScatterChart-1::AddPoint("1.8", 18)
+           INVOKE ScatterChart-1::AddPoint("2.4", 14)
+           INVOKE ScatterChart-1::AddPoint("3.1", 9)
+
+           INVOKE DonutChart-1::Clear()
+           INVOKE DonutChart-1::AddPoint("Used", 23)
+           INVOKE DonutChart-1::AddPoint("Free", 77)
+
+           DISPLAY "charts loaded".
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-CLEAR" type="Button" x="528" y="584" w="236" h="40" tab-order="0" z-order="9" visible="true" enabled="true">
+    <Property name="Caption">Clear every chart</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Clear() drops the pushed series. The renderer falls back to its
+      *> representative sample until new points arrive - an empty chart and an
+      *> unpopulated one look the same on purpose.
+
+           INVOKE BarChart-1::Clear()
+           INVOKE LineChart-1::Clear()
+           INVOKE PieChart-1::Clear()
+           INVOKE AreaChart-1::Clear()
+           INVOKE ScatterChart-1::Clear()
+           INVOKE DonutChart-1::Clear()
+
+           MOVE "cleared - the sample preview is back"
+             TO Label-STATUS::Caption
+           DISPLAY "charts cleared".
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-MONO" type="Button" x="780" y="584" w="236" h="40" tab-order="0" z-order="10" visible="true" enabled="true">
+    <Property name="Caption">Monochrome on / off</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-MONO--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FLAG PIC X(8).
+       01 WS-MSG  PIC X(32).
+       01 WS-OUT  PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Monochrome draws every element in tonal variations of one base
+      *> colour (MonochromeColor) instead of the SeriesColors palette.
+
+           MOVE BarChart-1::Monochrome TO WS-FLAG
+           IF FUNCTION TRIM(WS-FLAG) = "true"
+               MOVE "false" TO WS-FLAG
+           ELSE
+               MOVE "true" TO WS-FLAG
+           END-IF
+
+           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::Monochrome
+           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::Monochrome
+           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::Monochrome
+           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::Monochrome
+           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::Monochrome
+           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::Monochrome
+
+           MOVE "Monochrome = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-GRADIENT" type="Button" x="1032" y="584" w="236" h="40" tab-order="0" z-order="11" visible="true" enabled="true">
+    <Property name="Caption">Monochrome gradient</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-GRADIENT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FLAG PIC X(8).
+       01 WS-MSG  PIC X(32).
+       01 WS-OUT  PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> With the gradient on, each element shades from about 20 per cent
+      *> lighter at the top left to 20 per cent darker at the bottom right.
+      *> It only shows while Monochrome is on.
+
+           MOVE BarChart-1::MonochromeGradient TO WS-FLAG
+           IF FUNCTION TRIM(WS-FLAG) = "true"
+               MOVE "false" TO WS-FLAG
+           ELSE
+               MOVE "true" TO WS-FLAG
+           END-IF
+
+           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::MonochromeGradient
+           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::MonochromeGradient
+           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::MonochromeGradient
+           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::MonochromeGradient
+           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::MonochromeGradient
+           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::MonochromeGradient
+
+           MOVE "MonochromeGradient = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-GRID" type="Button" x="24" y="632" w="236" h="40" tab-order="0" z-order="12" visible="true" enabled="true">
+    <Property name="Caption">Grid lines on / off</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-GRID--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FLAG PIC X(8).
+       01 WS-MSG  PIC X(32).
+       01 WS-OUT  PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> The grid, the legend, the two axis lines and the tooltips are four
+      *> independent switches - turning the grid off leaves the axes.
+
+           MOVE BarChart-1::ShowGridLines TO WS-FLAG
+           IF FUNCTION TRIM(WS-FLAG) = "true"
+               MOVE "false" TO WS-FLAG
+           ELSE
+               MOVE "true" TO WS-FLAG
+           END-IF
+
+           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::ShowGridLines
+           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::ShowGridLines
+           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::ShowGridLines
+           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::ShowGridLines
+           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::ShowGridLines
+           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::ShowGridLines
+
+           MOVE "ShowGridLines = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-LEGEND" type="Button" x="276" y="632" w="236" h="40" tab-order="0" z-order="13" visible="true" enabled="true">
+    <Property name="Caption">Legend on / off</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-LEGEND--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FLAG PIC X(8).
+       01 WS-MSG  PIC X(32).
+       01 WS-OUT  PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> ShowLegend is independent of ShowLabels on the pie and the donut:
+      *> one names the series, the other writes on the slices.
+
+           MOVE BarChart-1::ShowLegend TO WS-FLAG
+           IF FUNCTION TRIM(WS-FLAG) = "true"
+               MOVE "false" TO WS-FLAG
+           ELSE
+               MOVE "true" TO WS-FLAG
+           END-IF
+
+           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::ShowLegend
+           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::ShowLegend
+           MOVE FUNCTION TRIM(WS-FLAG) TO PieChart-1::ShowLegend
+           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::ShowLegend
+           MOVE FUNCTION TRIM(WS-FLAG) TO ScatterChart-1::ShowLegend
+           MOVE FUNCTION TRIM(WS-FLAG) TO DonutChart-1::ShowLegend
+
+           MOVE "ShowLegend = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-HORIZONTAL" type="Button" x="528" y="632" w="236" h="40" tab-order="0" z-order="14" visible="true" enabled="true">
+    <Property name="Caption">Bar: horizontal on / off</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-HORIZONTAL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FLAG PIC X(8).
+       01 WS-MSG  PIC X(32).
+       01 WS-OUT  PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Horizontal is a BAR chart property - the other five do not have it.
+      *> Stacked and BarCornerRadius are its companions.
+
+           MOVE BarChart-1::Horizontal TO WS-FLAG
+           IF FUNCTION TRIM(WS-FLAG) = "true"
+               MOVE "false" TO WS-FLAG
+           ELSE
+               MOVE "true" TO WS-FLAG
+           END-IF
+           MOVE FUNCTION TRIM(WS-FLAG) TO BarChart-1::Horizontal
+
+           MOVE "BarChart-1 Horizontal = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-SMOOTH" type="Button" x="780" y="632" w="236" h="40" tab-order="0" z-order="15" visible="true" enabled="true">
+    <Property name="Caption">Line / Area: smooth on / off</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-SMOOTH--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FLAG PIC X(8).
+       01 WS-MSG  PIC X(32).
+       01 WS-OUT  PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Smooth, ShowPoints and PointRadius belong to the LINE and AREA
+      *> charts. Off, the line is drawn as straight segments between points.
+
+           MOVE LineChart-1::Smooth TO WS-FLAG
+           IF FUNCTION TRIM(WS-FLAG) = "true"
+               MOVE "false" TO WS-FLAG
+           ELSE
+               MOVE "true" TO WS-FLAG
+           END-IF
+           MOVE FUNCTION TRIM(WS-FLAG) TO LineChart-1::Smooth
+           MOVE FUNCTION TRIM(WS-FLAG) TO AreaChart-1::Smooth
+
+           MOVE "Smooth = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FLAG) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-SLICES" type="Button" x="1032" y="632" w="236" h="40" tab-order="0" z-order="16" visible="true" enabled="true">
+    <Property name="Caption">Pie / Donut: labels and hole</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-SLICES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-FMT       PIC X(12).
+       01 WS-HOLE      PIC 9(3).
+       01 WS-HOLE-TEXT PIC ZZ9.
+       01 WS-MSG       PIC X(32).
+       01 WS-OUT       PIC X(80).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> LabelFormat is percent | value | label, and InnerRadius is the
+      *> donut's hole as a percentage of the outer radius. Each press moves
+      *> both on one step.
+
+           MOVE PieChart-1::LabelFormat TO WS-FMT
+           EVALUATE FUNCTION TRIM(WS-FMT)
+               WHEN "percent" MOVE "value"   TO WS-FMT
+               WHEN "value"   MOVE "label"   TO WS-FMT
+               WHEN OTHER     MOVE "percent" TO WS-FMT
+           END-EVALUATE
+           MOVE FUNCTION TRIM(WS-FMT) TO PieChart-1::LabelFormat
+           MOVE FUNCTION TRIM(WS-FMT) TO DonutChart-1::LabelFormat
+
+           MOVE DonutChart-1::InnerRadius TO WS-HOLE
+           EVALUATE WS-HOLE
+               WHEN 40 MOVE 60 TO WS-HOLE
+               WHEN 60 MOVE 20 TO WS-HOLE
+               WHEN OTHER MOVE 40 TO WS-HOLE
+           END-EVALUATE
+           MOVE WS-HOLE TO DonutChart-1::InnerRadius
+
+           MOVE WS-HOLE TO WS-HOLE-TEXT
+           MOVE "LabelFormat " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-FMT) DELIMITED BY SIZE
+                  ", InnerRadius "       DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-HOLE-TEXT) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-CHART-ANIMMS" type="Button" x="24" y="680" w="952" h="40" tab-order="0" z-order="17" visible="true" enabled="true">
+    <Property name="Caption">Animation: off / 400 / 2000 / 5000 ms</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-CHART-ANIMMS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ON      PIC X(8).
+       01 WS-MS      PIC 9(5).
+       01 WS-MS-TEXT PIC ZZZZ9.
+       01 WS-MSG     PIC X(32).
+       01 WS-OUT     PIC X(80).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> AnimateValues travels from the values the chart IS showing to the
+      *> ones just pushed, over AnimationDuration, for the WHOLE series at once
+      *> - so a chart settles in the same time with four points or forty.
+      *> The floor is 250 ms: below that the eye reads a jump, so a smaller
+      *> number is raised rather than honoured as written.
+      *> The FIRST fill is never animated, and could not be. A plot auto-scales
+      *> to its own largest value, so a series rising uniformly from zero would
+      *> paint the same bars the whole way up. Only a change in how the values
+      *> relate to EACH OTHER can be seen - press the two data buttons
+      *> alternately to see it.
+
+           MOVE BarChart-1::AnimationDuration TO WS-MS
+           MOVE BarChart-1::AnimateValues TO WS-ON
+
+           IF FUNCTION TRIM(WS-ON) NOT = "true"
+               MOVE "true" TO WS-ON
+               MOVE 400 TO WS-MS
+           ELSE
+               EVALUATE WS-MS
+                   WHEN 400  MOVE 2000 TO WS-MS
+                   WHEN 2000 MOVE 5000 TO WS-MS
+                   WHEN OTHER
+                       MOVE "false" TO WS-ON
+                       MOVE 2000 TO WS-MS
+               END-EVALUATE
+           END-IF
+
+           MOVE FUNCTION TRIM(WS-ON) TO BarChart-1::AnimateValues
+           MOVE WS-MS TO BarChart-1::AnimationDuration
+           MOVE FUNCTION TRIM(WS-ON) TO LineChart-1::AnimateValues
+           MOVE WS-MS TO LineChart-1::AnimationDuration
+           MOVE FUNCTION TRIM(WS-ON) TO PieChart-1::AnimateValues
+           MOVE WS-MS TO PieChart-1::AnimationDuration
+           MOVE FUNCTION TRIM(WS-ON) TO AreaChart-1::AnimateValues
+           MOVE WS-MS TO AreaChart-1::AnimationDuration
+           MOVE FUNCTION TRIM(WS-ON) TO ScatterChart-1::AnimateValues
+           MOVE WS-MS TO ScatterChart-1::AnimationDuration
+           MOVE FUNCTION TRIM(WS-ON) TO DonutChart-1::AnimateValues
+           MOVE WS-MS TO DonutChart-1::AnimationDuration
+
+           MOVE WS-MS TO WS-MS-TEXT
+           IF FUNCTION TRIM(WS-ON) = "true"
+               MOVE "AnimateValues on, " TO WS-MSG
+               STRING FUNCTION TRIM(WS-MSG)     DELIMITED BY SIZE
+                      FUNCTION TRIM(WS-MS-TEXT) DELIMITED BY SIZE
+                      " ms"                     DELIMITED BY SIZE
+                      INTO WS-OUT
+           ELSE
+               MOVE "AnimateValues off - data changes are instant" TO WS-OUT
+           END-IF
+           MOVE FUNCTION TRIM(WS-OUT) TO Label-STATUS::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Label-STATUS" type="Label" x="24" y="732" w="1232" h="24" tab-order="0" z-order="18" visible="true" enabled="true">
+    <Property name="Caption">Clear() then AddPoint(label, value). AnimateValues is ON at 2000 ms - press the two data buttons alternately to watch the bars travel.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#9AA6B8FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+</Form>

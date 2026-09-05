@@ -1,0 +1,28 @@
+{
+  "id": "4a23aad6-76a7-49b8-ac6b-b4c86a0d8ac7",
+  "name": "Documentation Agent",
+  "kind": "specialist",
+  "specialization": "documentation",
+  "purpose": "Creates and maintains indexed project documentation for Grace and specialists.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "gemma4:31b",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives Knowledge Base authoring tasks from Grace after authoritative domain-specialist handoff; writes only under Knowledge Base/ through documentation tools; retrieves project Knowledge Base evidence before model training, and for indexed-file work establishes file name and purpose, applies 1NF/2NF/3NF, requires the developer's UUID-or-PIC ID choice, and returns schema/helper-file requests to Grace without mutating .cidx files.",
+  "companion": "ce3cc64a-8ae5-4021-a68c-4877809d2c8b",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "documentation.write",
+    "documentation.read",
+    "documentation.list",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

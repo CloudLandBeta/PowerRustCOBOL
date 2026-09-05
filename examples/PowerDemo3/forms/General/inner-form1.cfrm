@@ -1,0 +1,756 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="INNER-FORM1" title="Customers" width="1280" height="848" background="00000000" transparency="0" grid-size="16" snap-to-grid="true" target="Custom" theme="elegance" form-format="Embedded">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="INNER-FORM1--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       PROCEDURE DIVISION.
+           MOVE "-23.5614" TO MAPS-1::CenterLat
+           MOVE "-46.6558" TO MAPS-1::CenterLng
+
+           MOVE 8 TO MAPS-1::Zoom
+
+           INVOKE MAPS-1 "AddMarker" USING "M1" "-23.5614" "-46.6558" "Av. Paulista" "1578"
+
+           CONTINUE.
+]]></Event>
+    <Event name="onClose" paragraph="INNER-FORM1--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="CheckBox-1" type="CheckBox" x="128" y="320" w="120" h="22" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">CheckBox-1</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Checked">false</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="RadioButton-1" type="RadioButton" x="128" y="352" w="144" h="27" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">RadioButton-1</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFF4F4FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="GroupName">name</Property>
+    <Property name="Selected">false</Property>
+  </Control>
+  <Control id="ListBox-1" type="ListBox" x="128" y="128" w="176" h="128" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFF4F4FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">1
+2
+3
+4
+5
+6
+7
+8
+9
+10</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="MultiSelect">false</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderWidth">1</Property>
+  </Control>
+  <Control id="NumericUpDown-1" type="NumericUpDown" x="128" y="512" w="64" h="24" tab-order="0" z-order="3" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Value">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Step">1</Property>
+    <Property name="DecimalPlaces">0</Property>
+    <Property name="ThousandsSeparator">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Switch-1" type="Switch" x="128" y="480" w="48" h="24" tab-order="0" z-order="5" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Checked">false</Property>
+    <Property name="Accent">Blue</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="RadioButton-2" type="RadioButton" x="128" y="384" w="144" h="27" tab-order="0" z-order="7" visible="true" enabled="true">
+    <Property name="Caption">RadioButton-2</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFF4F4FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="GroupName">name</Property>
+    <Property name="Selected">false</Property>
+  </Control>
+  <Control id="DateTimePicker-2" type="DateTimePicker" x="128" y="272" w="200" h="40" tab-order="0" z-order="8" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Format">Short</Property>
+    <Property name="ShowUpDown">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Knob-1" type="Knob" x="416" y="144" w="160" h="144" tab-order="0" z-order="9" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">28</Property>
+    <Property name="Step">1</Property>
+    <Property name="Size">Large</Property>
+    <Property name="Accent">#16A34AFF</Property>
+    <Property name="Bipolar">false</Property>
+    <Property name="ShowValue">true</Property>
+    <Property name="DefaultValue">0</Property>
+    <Property name="FaceColor">#334155FF</Property>
+    <Property name="RimColor">#1E293BFF</Property>
+    <Property name="TrackColor">#1E293BFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onValueChanged" paragraph="KNOB-1--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           IF Knob-1::Value > 100
+               SET Knob-1::Value  TO 0
+           END-IF
+
+           MOVE Knob-1::Value TO ProgressBar-1::Value
+                                 Gauge-1::Value
+                                 Slider-2::Value
+
+           CONTINUE.
+]]></Event>
+  </Control>
+  <Control id="Gauge-1" type="Gauge" x="416" y="304" w="160" h="144" tab-order="0" z-order="10" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="GaugeStyle">Radial</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">80</Property>
+    <Property name="Color">#16A34AFF</Property>
+    <Property name="ShowNeedle">true</Property>
+    <Property name="ShowScale">true</Property>
+    <Property name="BarHeight">6</Property>
+    <Property name="ShowThumb">true</Property>
+    <Property name="StrokeWidth">15</Property>
+    <Property name="Unit">Parts</Property>
+    <Property name="NeedleColor">#E2E8F0FF</Property>
+    <Property name="ReadoutPosition">Down</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Maps-1" type="Maps" x="608" y="96" w="656" h="736" tab-order="0" z-order="11" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CenterLat">0</Property>
+    <Property name="CenterLng">0</Property>
+    <Property name="Zoom">2</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="ProgressBar-1" type="ProgressBar" x="128" y="608" w="200" h="22" tab-order="0" z-order="13" visible="true" enabled="true">
+    <Property name="BackgroundColor">#000000FF</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#00A6FDFF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E2E8F0FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">45</Property>
+    <Property name="BarColor">#16A34AFF</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="Style">Blocks</Property>
+    <Property name="ShowValue">true</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Slider-2" type="Slider" x="128" y="560" w="400" h="36" tab-order="0" z-order="16" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Minimum">0</Property>
+    <Property name="Maximum">100</Property>
+    <Property name="Value">45</Property>
+    <Property name="Step">10</Property>
+    <Property name="LargeChange">20</Property>
+    <Property name="Orientation">Horizontal</Property>
+    <Property name="TickFrequency">10</Property>
+    <Property name="TickStyle">Bottom</Property>
+    <Property name="TrackColor">#AAAAAA</Property>
+    <Property name="ThumbColor">#0078D7</Property>
+    <Property name="FillColor">#16A34AFF</Property>
+    <Property name="ShowValue">false</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Timer-1" type="Timer" x="1232" y="0" w="48" h="48" tab-order="0" z-order="17" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Interval">25</Property>
+    <Property name="Enabled">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           COMPUTE Knob-1::Value = Knob-1::Value + 1
+
+           CONTINUE.
+]]></Event>
+  </Control>
+  <Control id="ToolBar-1" type="ToolBar" x="16" y="0" w="1184" h="64" tab-order="0" z-order="18" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">100</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="ToolbarLayout">{&quot;groups&quot;:[{&quot;id&quot;:&quot;group-1&quot;,&quot;label&quot;:&quot;File&quot;,&quot;buttons&quot;:[{&quot;id&quot;:&quot;button-1&quot;,&quot;tooltip&quot;:&quot;Open&quot;,&quot;icon&quot;:&quot;folder-open&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#00B800FF&quot;}},{&quot;id&quot;:&quot;button-2&quot;,&quot;icon&quot;:&quot;doc-save&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#7C3AEDFF&quot;}},{&quot;id&quot;:&quot;button-3&quot;,&quot;icon&quot;:&quot;printer&quot;,&quot;action&quot;:&quot;print:&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#D97706FF&quot;}}],&quot;border_style&quot;:&quot;Single&quot;,&quot;border_width&quot;:1,&quot;corner_radius&quot;:10,&quot;padding&quot;:6,&quot;separator_after&quot;:true,&quot;separator_width&quot;:7,&quot;button_defaults&quot;:{&quot;icon_size&quot;:42}},{&quot;id&quot;:&quot;group-2&quot;,&quot;label&quot;:&quot;Edit&quot;,&quot;buttons&quot;:[{&quot;id&quot;:&quot;button-4&quot;,&quot;icon&quot;:&quot;doc-copy&quot;,&quot;action&quot;:&quot;copy&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#38BDF8FF&quot;}},{&quot;id&quot;:&quot;button-5&quot;,&quot;icon&quot;:&quot;clipboard-paste&quot;,&quot;style&quot;:{&quot;background_color&quot;:&quot;#94A3B8FF&quot;}},{&quot;id&quot;:&quot;button-6&quot;,&quot;icon&quot;:&quot;eraser&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}}],&quot;border_width&quot;:1,&quot;corner_radius&quot;:10,&quot;padding&quot;:6,&quot;separator_width&quot;:12,&quot;button_defaults&quot;:{&quot;icon_size&quot;:42}},{&quot;id&quot;:&quot;group-3&quot;,&quot;label&quot;:&quot;Group 3&quot;,&quot;buttons&quot;:[{&quot;id&quot;:&quot;button-7&quot;,&quot;label&quot;:&quot;Button 1&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;,&quot;gradient&quot;:false,&quot;shadow&quot;:false}},{&quot;id&quot;:&quot;button-8&quot;,&quot;label&quot;:&quot;Button 2&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-9&quot;,&quot;label&quot;:&quot;Button 3&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-10&quot;,&quot;label&quot;:&quot;Button 4&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-11&quot;,&quot;label&quot;:&quot;Button 5&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}},{&quot;id&quot;:&quot;button-12&quot;,&quot;label&quot;:&quot;Button 6&quot;,&quot;style&quot;:{&quot;icon_color&quot;:&quot;#E7E7E7FF&quot;,&quot;background_color&quot;:&quot;#2563EBFF&quot;,&quot;foreground_color&quot;:&quot;#EAE1E1FF&quot;}}],&quot;border_style&quot;:&quot;None&quot;,&quot;border_width&quot;:1,&quot;corner_radius&quot;:10,&quot;padding&quot;:18,&quot;separator_width&quot;:12,&quot;button_defaults&quot;:{&quot;width&quot;:64}}],&quot;button_gap&quot;:4}</Property>
+  </Control>
+  <Control id="Line-1" type="Line" x="0" y="64" w="1280" h="4" tab-order="0" z-order="19" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="LineColor">#64748BFF</Property>
+    <Property name="LineThickness">1</Property>
+    <Property name="LineDirection">Horizontal</Property>
+    <Property name="DashStyle">Solid</Property>
+    <Property name="RoundedEnds">false</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="FileDropZone-1" type="FileDropZone" x="128" y="640" w="448" h="100" tab-order="0" z-order="20" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="MaximumFileSizeKB">0</Property>
+    <Property name="StageOnly">false</Property>
+    <Property name="FileListControl">ListBox-2</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="ListBox-2" type="ListBox" x="128" y="752" w="448" h="80" tab-order="0" z-order="21" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="MultiSelect">false</Property>
+    <Property name="ShowCheckBoxes">true</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="ComboBox-1" type="ComboBox" x="128" y="432" w="208" h="32" tab-order="0" z-order="22" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E2E8F0FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">6
+9
+1
+2
+3
+4
+5
+11
+7
+8
+9
+12
+10</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="Sorted">true</Property>
+    <Property name="DropDownStyle">DropDown</Property>
+    <Property name="DropDownHeight">200</Property>
+    <Property name="Editable">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderColor">#888888</Property>
+  </Control>
+</Form>

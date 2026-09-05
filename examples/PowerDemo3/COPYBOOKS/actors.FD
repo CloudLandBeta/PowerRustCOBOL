@@ -1,0 +1,8 @@
+       FD  ACTORS-FILE.
+           RECORD CONTAINS 111 CHARACTERS.
+           01 ACTORS-RECORD.
+               05 ACTOR-ID PIC 9(9).
+               05 ACTOR-THUMB PIC X(60).
+               05 ACTOR-CAPTION PIC X(30).
+               05 ACTOR-SALARY PIC 9(9)V99.
+               05 ACTOR-AWARDS PIC X.

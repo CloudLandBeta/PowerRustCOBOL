@@ -1,0 +1,310 @@
+menu:
+- id: item-7
+  label: Home
+  type: action
+  icon: home
+  action: home
+  enabled: true
+- id: item-1
+  label: Samples
+  type: action
+  icon: diamond
+  enabled: true
+  items:
+  - id: sample-folder-1001
+    label: Common
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: item-9
+      label: Buttons
+      type: action
+      icon: control-button
+      action: open-form:buttons-form
+      enabled: true
+    - id: item-8
+      label: Labels
+      type: action
+      icon: control-label
+      action: open-form:labels-form
+      enabled: true
+      preserve_previous_form: true
+    - id: item-7
+      label: Textboxes
+      type: action
+      icon: type-text
+      action: open-form:textboxes-form
+      enabled: true
+    - id: sample-1002
+      label: CheckBoxes
+      type: action
+      icon: control-check-box
+      action: open-form:checkbox-form
+      enabled: true
+    - id: sample-1003
+      label: RadioButton
+      type: action
+      icon: control-radio-button
+      action: open-form:radiobuttons-form
+      enabled: true
+    - id: sample-1004
+      label: ComboBox
+      type: action
+      icon: control-combo-box
+      action: open-form:combobox-form
+      enabled: true
+    - id: sample-1005
+      label: ListBox
+      type: action
+      icon: control-list-box
+      action: open-form:listbox-form
+      enabled: true
+    - id: sample-1006
+      label: NumericUpDown
+      type: action
+      icon: control-numeric-up-down
+      action: open-form:numericupdown-form
+      enabled: true
+    - id: sample-1007
+      label: DateTimePicker
+      type: action
+      icon: control-date-time-picker
+      action: open-form:datetimepicker-form
+      enabled: true
+    - id: sample-1008
+      label: Switch
+      type: action
+      icon: control-switch
+      action: open-form:switch-form
+      enabled: true
+    - id: sample-1009
+      label: FileDropZone
+      type: action
+      icon: control-file-drop-zone
+      action: open-form:filedropzone-form
+      enabled: true
+    - id: sample-1010
+      label: Knob
+      type: action
+      icon: control-knob
+      action: open-form:knob-form
+      enabled: true
+    - id: sample-1011
+      label: Gauge
+      type: action
+      icon: control-gauge
+      action: open-form:gauge-form
+      enabled: true
+    - id: item-5
+      label: Maps (Neumorphic Light)
+      type: action
+      icon: map-pin
+      action: open-form:maps-demo
+      enabled: true
+  - id: sample-folder-1002
+    label: Containers
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: sample-1013
+      label: GroupBox
+      type: action
+      icon: control-group-box
+      action: open-form:groupbox-form
+      enabled: true
+    - id: sample-1014
+      label: Panel
+      type: action
+      icon: control-panel
+      action: open-form:panel-form
+      enabled: true
+    - id: sample-1015
+      label: TabControl
+      type: action
+      icon: control-tab-control
+      action: open-form:tabcontrol-form
+      enabled: true
+    - id: sample-1016
+      label: Splitter
+      type: action
+      icon: control-splitter
+      action: open-form:splitter-form
+      enabled: true
+  - id: sample-folder-1003
+    label: Data
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: item-10
+      label: Datagrid
+      type: action
+      icon: control-data-grid
+      action: open-form:datagrid-form
+      enabled: true
+    - id: sample-1018
+      label: TreeView
+      type: action
+      icon: control-tree-view
+      action: open-form:treeview-form
+      enabled: true
+  - id: sample-folder-1004
+    label: Graphics
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: sample-1020
+      label: PictureBox
+      type: action
+      icon: control-picture-box
+      action: open-form:picturebox-form
+      enabled: true
+    - id: sample-1021
+      label: Animator
+      type: action
+      icon: control-animator
+      action: open-form:animator-form
+      enabled: true
+    - id: sample-1022
+      label: ProgressBar
+      type: action
+      icon: control-progress-bar
+      action: open-form:progressbar-form
+      enabled: true
+    - id: sample-1023
+      label: Slider
+      type: action
+      icon: control-slider
+      action: open-form:slider-form
+      enabled: true
+    - id: sample-1024
+      label: Line
+      type: action
+      icon: control-line
+      action: open-form:line-form
+      enabled: true
+    - id: sample-1025
+      label: Shape
+      type: action
+      icon: control-shape
+      action: open-form:shape-form
+      enabled: true
+  - id: sample-folder-1005
+    label: Menus & Bars
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: sample-1027
+      label: MenuBar
+      type: action
+      icon: control-menu-bar
+      action: open-form:menubar-form
+      enabled: true
+    - id: sample-1028
+      label: SideMenu
+      type: action
+      icon: control-side-menu
+      action: open-form:sidebar-demo-form
+      enabled: true
+    - id: sample-1029
+      label: ToolBar
+      type: action
+      icon: control-tool-bar
+      action: open-form:toolbar-form
+      enabled: true
+    - id: sample-1030
+      label: StatusBar
+      type: action
+      icon: control-status-bar
+      action: open-form:statusbar-form
+      enabled: true
+  - id: sample-folder-1006
+    label: Non-Visual
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: sample-1032
+      label: Timer
+      type: action
+      icon: control-timer
+      action: open-form:timer-form
+      enabled: true
+    - id: sample-1033
+      label: Agent
+      type: action
+      icon: control-agent-object
+      action: open-form:agent-form
+      enabled: true
+    - id: item-13
+      label: Rest API
+      type: action
+      icon: api
+      action: open-form:restapi-form
+      enabled: true
+    - id: sample-1034
+      label: SqlDatabase
+      type: action
+      icon: control-sql-database
+      action: open-form:sqldatabase-form
+      enabled: true
+    - id: sample-1035
+      label: IndexedFile
+      type: action
+      icon: control-indexed-file
+      action: open-form:indexedfile-form
+      enabled: true
+    - id: sample-1036
+      label: WebSearch
+      type: action
+      icon: control-web-search
+      action: open-form:websearch-form
+      enabled: true
+    - id: sample-1037
+      label: Snackbar
+      type: action
+      icon: control-snackbar
+      action: open-form:snackbar-form
+      enabled: true
+  - id: sample-folder-1007
+    label: Charts
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: sample-1039
+      label: Charts (all six types)
+      type: action
+      icon: control-bar-chart
+      action: open-form:charts-form
+      enabled: true
+  - id: sample-folder-1008
+    label: General
+    type: action
+    icon: folder
+    enabled: true
+    items:
+    - id: item-12
+      label: COBOL+Rust
+      type: action
+      icon: plugin
+      action: open-form:ferris-says-form
+      enabled: true
+    - id: item-3
+      label: Controls (Elegance)
+      type: action
+      icon: form
+      action: open-form:inner-form1
+      enabled: true
+    - id: item-4
+      label: Form 2 (Neumorphic Dark)
+      type: action
+      icon: object
+      action: open-form:inner-form2
+      enabled: true
+      preserve_previous_form: true
+hash: 30fc7fe27f7fd75dc98f1c4c3b175ebbb9b926e8a023f45db852850b1cf0203e

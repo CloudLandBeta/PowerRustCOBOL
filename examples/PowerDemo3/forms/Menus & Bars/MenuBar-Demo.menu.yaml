@@ -1,0 +1,66 @@
+menu:
+- id: mb-file
+  label: File
+  type: action
+  icon: folder-open
+  enabled: true
+  items:
+  - id: mb-file-new
+    label: New order
+    type: action
+    icon: plus
+    enabled: true
+  - id: mb-file-open
+    label: Open order...
+    type: action
+    icon: folder-open
+    enabled: true
+  - id: mb-file-save
+    label: Save
+    type: action
+    icon: save
+    enabled: true
+- id: mb-edit
+  label: Edit
+  type: action
+  icon: pencil
+  enabled: true
+  items:
+  - id: mb-edit-copy
+    label: Copy
+    type: action
+    icon: copy
+    enabled: true
+  - id: mb-edit-paste
+    label: Paste
+    type: action
+    icon: paste
+    enabled: true
+- id: mb-view
+  label: View
+  type: action
+  icon: eye
+  enabled: true
+  items:
+  - id: mb-view-grid
+    label: Show the grid
+    type: action
+    icon: grid
+    enabled: true
+  - id: mb-view-log
+    label: Show the log
+    type: action
+    icon: doc-text
+    enabled: true
+- id: mb-help
+  label: Help
+  type: action
+  icon: help
+  enabled: true
+  items:
+  - id: mb-help-about
+    label: About
+    type: action
+    icon: info
+    enabled: true
+hash: c19aa3c25a80c2883f1f238187b99dacdb403deaeda4ab45a8c5fc40d9267a1e

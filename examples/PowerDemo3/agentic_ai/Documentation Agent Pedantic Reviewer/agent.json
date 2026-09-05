@@ -1,0 +1,23 @@
+{
+  "id": "ce3cc64a-8ae5-4021-a68c-4877809d2c8b",
+  "name": "Documentation Agent Pedantic Reviewer",
+  "kind": "pedantic",
+  "specialization": "documentation-review",
+  "purpose": "Independently reviews project documentation for source fidelity, technical accuracy, structure, allowed paths, and indexability.",
+  "enabled": true,
+  "provider": "",
+  "endpoint": "",
+  "model": "",
+  "temperature": 0.4,
+  "max_tokens": 8192,
+  "timeout_secs": 120,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Reviews only Documentation Agent output for fidelity to approved specialist source material, required structure, allowed project path, technical accuracy, readability, indexability, and unsupported invention; returns an approval verdict or complete correction request to Grace.",
+  "companion": null,
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [],
+  "knowledge": []
+}

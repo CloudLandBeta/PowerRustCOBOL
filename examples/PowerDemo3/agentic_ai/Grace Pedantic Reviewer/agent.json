@@ -1,0 +1,23 @@
+{
+  "id": "ddddec11-8212-4c72-add9-413c03ff53cf",
+  "name": "Grace Pedantic Reviewer",
+  "kind": "pedantic",
+  "specialization": "orchestration-review",
+  "purpose": "Independently reviews Grace's plans, delegation, evidence, and completion claims.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": true,
+  "routing": "Reviews only Grace's orchestration plans, delegation, evidence, integration, and final completion claims; returns an approval verdict or complete correction request to Grace.",
+  "companion": null,
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [],
+  "knowledge": []
+}

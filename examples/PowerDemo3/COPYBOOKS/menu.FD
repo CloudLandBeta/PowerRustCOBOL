@@ -1,0 +1,9 @@
+       FD  MENU-FILE.
+           RECORD CONTAINS 424 CHARACTERS.
+           01 MENU-RECORD.
+               05 NUMERO PIC 99.
+               05 TITULO PIC X(50).
+               05 DESCRICAO PIC X(100).
+               05 CAMINHO-FOTO PIC X(255).
+               05 PRECO PIC 9(5)V99.
+               05 UNIDADE PIC X(10).

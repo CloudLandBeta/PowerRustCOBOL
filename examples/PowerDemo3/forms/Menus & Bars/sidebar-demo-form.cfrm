@@ -1,0 +1,565 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="SIDEBAR-DEMO-FORM" title="SideBar - the navigation rail" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="SIDEBAR-DEMO-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "ready - " SideMenu-Demo::AppTitle ", icons at "
+                  SideMenu-Demo::IconSize " px" INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+    <Event name="onClose" paragraph="SIDEBAR-DEMO-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="272" y="20" w="696" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">SideBar</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E8ECF4</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Sub" type="Label" x="272" y="54" w="696" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">A SideBar (SideMenu) is a vertical navigation rail. Its rows come from a .menu.yaml beside the form, exactly like a MenuBar&apos;s, and a row can carry a badge. Collapsed folds it to icons only. Put one on the MAIN form and the whole application opens as a shell.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Log-Cap" type="Label" x="272" y="424" w="60" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Event log</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Txt-Log" type="TextBox" x="272" y="448" w="696" h="184" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="ScrollBars">Vertical</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="SideMenu-Demo" type="SideMenu" x="0" y="0" w="240" h="660" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E1E6FA</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="HighlightBgColor">#2C7BE5</Property>
+    <Property name="HighlightFgColor">#FFFFFF</Property>
+    <Property name="SelectedBgColor">#3366CC</Property>
+    <Property name="SelectedFgColor">#FFFFFF</Property>
+    <Property name="FullHeight">true</Property>
+    <Property name="Collapsed">false</Property>
+    <Property name="IconEffect">None</Property>
+    <Property name="IconSize">20</Property>
+    <Property name="IconSizeCollapsed">22</Property>
+    <Property name="CollapsedWidth">48</Property>
+    <Property name="AppTitle">Titan Voyages</Property>
+    <Property name="HeaderHeight">96</Property>
+    <Property name="FooterHeight">0</Property>
+    <Property name="BreadcrumbHeight">28</Property>
+    <Property name="BreadcrumbTextAlign">Middle</Property>
+    <Property name="BreadcrumbFontSize">0</Property>
+    <Property name="BreadcrumbIconSize">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onMenuClick" paragraph="SIDEMENU-DEMO--ONMENUCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "rail -> " COBOL-CONTROL-ID INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+           MOVE WS-LINE TO Lbl-Nav::Caption.
+]]></Event>
+  </Control>
+  <Control id="Lbl-Nav" type="Label" x="288" y="140" w="660" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">(click a row on the rail)</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#E8ECF4</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">17</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Rail" type="Label" x="288" y="184" w="660" h="160" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Collapsed folds the rail to its icons; CollapsedWidth says how narrow. A row&apos;s badge is a pill, a count or an outline, set per item in the menu file.</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Btn-Fold" type="Button" x="288" y="380" w="180" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Fold / unfold</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-FOLD--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - a property reads as a value anywhere an operand is allowed.
+      *> PT: EXTENSAO - a propriedade e lida como valor onde um operando for permitido.
+      *> ES: EXTENSION - la propiedad se lee como valor donde se permita un operando.
+      *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
+      *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
+      *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
+           IF SideMenu-Demo::Collapsed = 1
+      *> EN: EXTENSION - TRUE and FALSE are usable as operands; they are sugar for 1 and 0.
+      *> PT: EXTENSAO - TRUE e FALSE servem como operandos; sao acucar sintatico para 1 e 0.
+      *> ES: EXTENSION - TRUE y FALSE sirven como operandos; son azucar sintactico para 1 y 0.
+      *> FR: EXTENSION - TRUE et FALSE s'emploient comme operandes; sucre syntaxique pour 1 et 0.
+      *> JP: EXTENSION - TRUE と FALSE はオペランドとして使える。1 と 0 の糖衣構文である。
+      *> CN: EXTENSION - TRUE 与 FALSE 可作为操作数使用；它们是 1 和 0 的语法糖。
+               SET SideMenu-Demo::Collapsed TO FALSE
+           ELSE
+               SET SideMenu-Demo::Collapsed TO TRUE
+           END-IF.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "collapsed = " SideMenu-Demo::Collapsed INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+  </Control>
+  <Control id="Btn-Title" type="Button" x="488" y="380" w="180" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Rename the app</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-TITLE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+           MOVE "PowerRustCOBOL AI" TO SideMenu-Demo::AppTitle.
+]]></Event>
+  </Control>
+  <Control id="Btn-Clear" type="Button" x="688" y="380" w="180" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Clear log</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::Clear().
+]]></Event>
+  </Control>
+</Form>

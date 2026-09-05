@@ -1,0 +1,955 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="SQLDATABASE-FORM" title="SqlDatabase - SQL from COBOL" width="1000" height="660" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="SQLDATABASE-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "ready - driver " Db-Local::Driver ", " Db-Local::Mode " mode" INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+    <Event name="onClose" paragraph="SQLDATABASE-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Lbl-Title" type="Label" x="32" y="20" w="936" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">SqlDatabase</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2B2F38</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Sub" type="Label" x="32" y="54" w="936" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">One control, three back ends: the ConnectionString&apos;s scheme picks SQLite, PostgreSQL or MySQL. Open, Execute, Query, Fetch and Close are its methods. NOTE that COBOL&apos;s own COMMIT / ROLLBACK verbs are INDEXED-file transactions - SQL transactions are executed as statements through this control.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Top</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Log-Cap" type="Label" x="32" y="424" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Event log</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Txt-Log" type="TextBox" x="32" y="448" w="936" h="184" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">true</Property>
+    <Property name="ScrollBars">Vertical</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Db-Local" type="SqlDatabase" x="48" y="250" w="64" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Driver">sqlite</Property>
+    <Property name="ConnectionString">sqlite::memory:</Property>
+    <Property name="AutoConnect">false</Property>
+    <Property name="MaximumConnections">5</Property>
+    <Property name="Mode">Sync</Property>
+    <Property name="Busy">false</Property>
+    <Property name="TimeoutMs">0</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onConnectOk" paragraph="DB-LOCAL--ONCONNECTOK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "connected: " Db-Local::ConnectionString INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+    <Event name="onConnectError" paragraph="DB-LOCAL--ONCONNECTERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "connect failed: " Db-Local::LastError INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+    <Event name="onQueryError" paragraph="DB-LOCAL--ONQUERYERROR"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "query failed: " Db-Local::LastError INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+  </Control>
+  <Control id="Lbl-Tray" type="Label" x="48" y="300" w="150" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Db-Local  sqlite</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Sql-Cap" type="Label" x="140" y="130" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Statement</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Txt-Sql" type="TextBox" x="140" y="154" w="560" h="70" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">SELECT id, name FROM city ORDER BY name</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Rows-Cap" type="Label" x="140" y="232" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Rows</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lst-Rows" type="ListBox" x="140" y="256" w="560" h="88" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Menlo</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="MultiSelect">false</Property>
+    <Property name="ShowCheckBoxes">false</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Lbl-Count" type="Label" x="728" y="154" w="232" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">0 rows</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#2B2F38</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">22</Property>
+    <Property name="Bold">true</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Btn-Open" type="Button" x="32" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Open + create</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-OPEN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> An in-memory SQLite database needs no server and no file.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Db-Local::Open(Db-Local::ConnectionString).
+      *> EN: EXTENSION - fenced block literal: multi-line text taken verbatim, quotes never doubled.
+      *> PT: EXTENSAO - literal em bloco cercado: texto multilinha literal, aspas sem duplicar.
+      *> ES: EXTENSION - literal de bloque cercado: texto multilinea literal, comillas sin duplicar.
+      *> FR: EXTENSION - litteral de bloc cloture: texte multiligne verbatim, guillemets non doubles.
+      *> JP: EXTENSION - フェンス付きブロック リテラル。複数行をそのまま取り、引用符の二重化は不要。
+      *> CN: EXTENSION - 围栏块字面量：逐字保留多行文本，引号无需重复书写。
+           Db-Local::Execute(
+```sql
+CREATE TABLE IF NOT EXISTS city (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+```
+           ).
+      *> EN: EXTENSION - fenced block literal: multi-line text taken verbatim, quotes never doubled.
+      *> PT: EXTENSAO - literal em bloco cercado: texto multilinha literal, aspas sem duplicar.
+      *> ES: EXTENSION - literal de bloque cercado: texto multilinea literal, comillas sin duplicar.
+      *> FR: EXTENSION - litteral de bloc cloture: texte multiligne verbatim, guillemets non doubles.
+      *> JP: EXTENSION - フェンス付きブロック リテラル。複数行をそのまま取り、引用符の二重化は不要。
+      *> CN: EXTENSION - 围栏块字面量：逐字保留多行文本，引号无需重复书写。
+           Db-Local::Execute(
+```sql
+INSERT INTO city (name) VALUES ('Rio de Janeiro'), ('Sao Paulo'), ('Recife'), ('Porto Alegre')
+```
+           ).
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "table created and seeded" INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+  </Control>
+  <Control id="Btn-Query" type="Button" x="204" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Run the query</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-QUERY--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ROW  PIC X(200).
+       01 WS-N    PIC S9(9) COMP-5.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Lst-Rows::Clear().
+      *> Query returns the row count; Fetch walks the result set one row at a time.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           MOVE Db-Local::Query(Txt-Sql::Text) TO WS-N.
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING WS-N " rows" INTO WS-LINE.
+      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
+      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
+      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
+      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
+      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
+      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+           MOVE WS-LINE TO Lbl-Count::Caption.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+           PERFORM UNTIL 1 = 2
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+               MOVE Db-Local::Fetch() TO WS-ROW
+               IF WS-ROW = SPACES
+                   EXIT PERFORM
+               END-IF
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+               Lst-Rows::AddItem(FUNCTION TRIM(WS-ROW))
+           END-PERFORM.
+]]></Event>
+  </Control>
+  <Control id="Btn-Tx" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">A transaction</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-TX--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-LINE PIC X(160).
+       01 WS-NL   PIC X.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+           MOVE FUNCTION CHAR(11) TO WS-NL.
+      *> SQL transactions are STATEMENTS here - COBOL's COMMIT verb is for INDEXED files.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Db-Local::Execute("BEGIN").
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Db-Local::Execute("INSERT INTO city (name) VALUES ('Salvador')").
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Db-Local::Execute("COMMIT").
+      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
+      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
+      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+           STRING "one row inserted inside a transaction" INTO WS-LINE.
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).
+
+]]></Event>
+  </Control>
+  <Control id="Btn-Close" type="Button" x="548" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Close</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CLOSE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Db-Local::Close().
+]]></Event>
+  </Control>
+  <Control id="Btn-Clear" type="Button" x="720" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Clear log</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-CLEAR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Txt-Log::Clear().
+]]></Event>
+  </Control>
+</Form>

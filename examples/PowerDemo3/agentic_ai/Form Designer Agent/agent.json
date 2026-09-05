@@ -1,0 +1,31 @@
+{
+  "id": "4a82345f-794c-49bf-a9bb-720461651b8b",
+  "name": "Form Designer Agent",
+  "kind": "specialist",
+  "specialization": "form-design",
+  "purpose": "Designs and edits project forms and delegates event implementation.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "gemma4:31b",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Preferred for RAD Form Designer requests; receives form design and change tasks from Grace; delegates event implementation to COBOL Event Handler Script Agent; supplies form facts to Documentation Agent; returns validated form change sets to Grace.",
+  "companion": "49320007-5d42-4447-b1d4-4e89aca977a5",
+  "steering": [],
+  "policies": [],
+  "skills": [
+    "container-controls-move-as-a-whole.md",
+    "overlap-free-control-moves.md",
+    "grid-aligned-placement.md"
+  ],
+  "tools": [
+    "egui.tree",
+    "egui.rects",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

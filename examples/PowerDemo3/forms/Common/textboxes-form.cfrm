@@ -1,0 +1,1411 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="TEXTBOXES-FORM" title="Textbox Demo" width="802" height="573" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="false" target="Custom" glass-style="Neumorphic Dark" form-format="Embedded" x="107" y="127" start-position="Center">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="TEXTBOXES-FORM--ONLOAD">
+    </Event>
+    <Event name="onClose" paragraph="TEXTBOXES-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="txt1" type="TextBox" x="62" y="90" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#333333</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 1</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTextChanged" paragraph="TXT1--ONTEXTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-TEXT  PIC X(255).
+
+       PROCEDURE DIVISION.
+           MOVE txt1::Text TO WS-TEXT
+           MOVE FUNCTION UPPER-CASE(WS-TEXT) TO txt1::Text
+           MOVE "Converte o texto para maiúsculas" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt2" type="TextBox" x="304" y="87" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#444444</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 2</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onGotFocus" paragraph="TXT2--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE "#FF0000" TO txt2::ForegroundColor
+           MOVE "Altera a cor da fonte para vermelho" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt3" type="TextBox" x="544" y="87" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 3</Property>
+    <Property name="TextAlignment">Right</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="TXT3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-SIZE  PIC S9(4) COMP-5.
+
+       PROCEDURE DIVISION.
+           MOVE txt3::FontSize TO WS-SIZE
+           SUBTRACT 2 FROM WS-SIZE
+           MOVE WS-SIZE TO txt3::FontSize
+           MOVE "Diminui o tamanho da fonte em 2 unidades" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt4" type="TextBox" x="64" y="137" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#222222</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 4</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onEnterPressed" paragraph="TXT4--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE "#00FF00" TO txt4::BackgroundColor
+           SET  txt4::BackgroundGradientEnabled TO 0
+           MOVE "Altera a cor do fundo para verde" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt5" type="TextBox" x="304" y="137" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#333333</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 5</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onLostFocus" paragraph="TXT5--ONLOSTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE "#333333" TO txt5::BackgroundColor
+           SET  txt5::BackgroundGradientEnabled TO 0
+           MOVE "Restaura a cor do fundo para cinza escuro" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt6" type="TextBox" x="544" y="137" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#444444</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 6</Property>
+    <Property name="TextAlignment">Right</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTextChanged" paragraph="TXT6--ONTEXTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-TEXT  PIC X(255).
+
+       PROCEDURE DIVISION.
+           MOVE txt6::Text TO WS-TEXT
+           IF WS-TEXT NOT = SPACES
+               MOVE "#FFFF00" TO txt6::ForegroundColor
+           END-IF
+           MOVE "Altera a cor da fonte para amarelo se não estiver vazio" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt7" type="TextBox" x="64" y="187" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 7</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="TXT7--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE "Center" TO txt7::TextAlignment
+           MOVE "Centraliza o alinhamento do texto" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt8" type="TextBox" x="304" y="187" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#666666</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 8</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onEnterPressed" paragraph="TXT8--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           SET txt8::ShadowEnabled TO 1
+           MOVE "Ativa a sombra do controle" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt9" type="TextBox" x="544" y="187" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#777777</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 9</Property>
+    <Property name="TextAlignment">Right</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onGotFocus" paragraph="TXT9--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE "#FFFF00" TO txt9::BackgroundColor
+           SET  txt9::BackgroundGradientEnabled TO 0
+           MOVE "Altera a cor do fundo para amarelo" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt10" type="TextBox" x="64" y="237" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#888888</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 10</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTextChanged" paragraph="TXT10--ONTEXTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-LEN  PIC S9(4) COMP-5.
+
+       PROCEDURE DIVISION.
+           COMPUTE WS-LEN = FUNCTION LENGTH(txt10::Text)
+           IF WS-LEN > 10
+               SET txt10::Bold TO 1
+           ELSE
+               SET txt10::Bold TO 0
+           END-IF
+           MOVE "Ativa o negrito se o texto tiver mais de 10 caracteres" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt11" type="TextBox" x="304" y="237" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#999999</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 11</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="TXT11--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE "Clicado!" TO txt11::Text
+           MOVE "Altera o texto para 'Clicado!'" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt12" type="TextBox" x="544" y="237" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#AAAAAA</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 12</Property>
+    <Property name="TextAlignment">Right</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onEnterPressed" paragraph="TXT12--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           SET txt12::BackgroundGradientEnabled TO 1
+           MOVE "Ativa o gradiente de fundo" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt13" type="TextBox" x="184" y="287" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#BBBBBB</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 13</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onGotFocus" paragraph="TXT13--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 14 TO txt13::FontSize
+           MOVE "Aumenta o tamanho da fonte para 14" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt14" type="TextBox" x="424" y="287" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#CCCCCC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Campo 14</Property>
+    <Property name="TextAlignment">Center</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">false</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTextChanged" paragraph="TXT14--ONTEXTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+
+       PROCEDURE DIVISION.
+           IF txt14::Text = "OK"
+               MOVE "#0000FF" TO txt14::ForegroundColor
+           END-IF
+           MOVE "Altera a cor da fonte para azul se o texto for 'OK'" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="txt15" type="TextBox" x="66" y="353" w="673" h="100" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#333333</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">Observações gerais...</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onTextChanged" paragraph="TXT15--ONTEXTCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-FULL-TEXT  PIC X(2000).
+
+       PROCEDURE DIVISION.
+           INITIALIZE WS-FULL-TEXT
+           STRING txt1::Text " "
+                  txt2::Text " "
+                  txt3::Text " "
+                  txt4::Text " "
+                  txt5::Text " "
+                  txt6::Text " "
+                  txt7::Text " "
+                  txt8::Text " "
+                  txt9::Text " "
+                  txt10::Text " "
+                  txt11::Text " "
+                  txt12::Text " "
+                  txt13::Text " "
+                  txt14::Text " "
+                  txt15::Text
+             DELIMITED BY SIZE INTO WS-FULL-TEXT
+           MOVE WS-FULL-TEXT TO lblSummary::Caption
+           MOVE "Concatena todos os campos no lblSummary" TO Label-1::Caption.]]></Event>
+  </Control>
+  <Control id="lblSummary" type="Label" x="65" y="474" w="673" h="75" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Resumo:</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderColor">#6C6C6CFF</Property>
+  </Control>
+  <Control id="Label-1" type="Label" x="71" y="15" w="667" h="42" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">Label-1</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#717171FF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="RadioButton-1" type="RadioButton" x="30" y="301" w="140" h="22" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">RadioButton-1</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Selected">false</Property>
+    <Property name="CheckAlignment">Left</Property>
+    <Property name="CheckColor">#0078D7</Property>
+    <Property name="CheckSize">70</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#8C8CA0</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="CheckBoxBorderStyle">None</Property>
+    <Property name="CheckBoxBorderColor">#8C8CA0</Property>
+    <Property name="CheckBoxBorderWidth">1</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <deleted-controls>
+    <DeletedControl id="txt15" deleted-at="designer-delete-1785461358-14">
+      <Event name="onChange" paragraph="TXT15--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           CALL "UPDATE-CONCATENATION".
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt14" deleted-at="designer-delete-1785461358-13">
+      <Event name="onChange" paragraph="TXT14--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-CLEAN-TEXT  PIC X(100).
+       
+       PROCEDURE DIVISION.
+           *> Simple numeric filter simulation
+           MOVE txt14::Text TO WS-CLEAN-TEXT.
+           *> Logic to strip non-numeric would go here
+           CALL "UPDATE-CONCATENATION".
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt13" deleted-at="designer-delete-1785461358-12">
+      <Event name="onKeyDown" paragraph="TXT13--ONKEYDOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  KEY-CODE  PIC S9(4) COMP-5.
+       
+       PROCEDURE DIVISION USING KEY-CODE.
+           IF KEY-CODE = 13
+               MOVE "#FF0000" TO txt13::BorderColor
+           END-IF.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt12" deleted-at="designer-delete-1785461358-11">
+      <Event name="onClick" paragraph="TXT12--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-BOLD-STATE  PIC S9(1) COMP-5.
+       
+       PROCEDURE DIVISION.
+           SET WS-BOLD-STATE TO txt12::Bold.
+           IF WS-BOLD-STATE = 0
+               SET txt12::Bold TO 1
+           ELSE
+               SET txt12::Bold TO 0
+           END-IF.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt11" deleted-at="designer-delete-1785461358-10">
+      <Event name="onChange" paragraph="TXT11--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE FUNCTION LOWER-CASE(txt11::Text) TO txt11::Text.
+           CALL "UPDATE-CONCATENATION".
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt10" deleted-at="designer-delete-1785461358-9">
+      <Event name="onGotFocus" paragraph="TXT10--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#2F2F2F" TO txt10::BackgroundColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt9" deleted-at="designer-delete-1785461358-8">
+      <Event name="onKeyDown" paragraph="TXT9--ONKEYDOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  KEY-CODE  PIC S9(4) COMP-5.
+       
+       PROCEDURE DIVISION USING KEY-CODE.
+           IF KEY-CODE = 13
+               MOVE "Center" TO txt9::TextAlignment
+           END-IF.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt8" deleted-at="designer-delete-1785461358-7">
+      <Event name="onChange" paragraph="TXT8--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-TEMP-TEXT  PIC X(100).
+       
+       PROCEDURE DIVISION.
+           IF FUNCTION TRIM(txt8::Text) NOT ALike "ID: %*"
+               MOVE FUNCTION CONCATENATE("ID: ", txt8::Text) TO WS-TEMP-TEXT
+               MOVE WS-TEMP-TEXT TO txt8::Text
+           END-IF.
+           CALL "UPDATE-CONCATENATION".
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt7" deleted-at="designer-delete-1785461358-6">
+      <Event name="onClick" paragraph="TXT7--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-GRAD-STATE  PIC S9(1) COMP-5.
+       
+       PROCEDURE DIVISION.
+           SET WS-GRAD-STATE TO txt7::BackgroundGradientEnabled.
+           IF WS-GRAD-STATE = 0
+               SET txt7::BackgroundGradientEnabled TO 1
+           ELSE
+               SET txt7::BackgroundGradientEnabled TO 0
+           END-IF.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt6" deleted-at="designer-delete-1785461358-5">
+      <Event name="onLostFocus" paragraph="TXT6--ONLOSTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#FFFFFF" TO txt6::ForegroundColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt5" deleted-at="designer-delete-1785461358-4">
+      <Event name="onChange" paragraph="TXT5--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-LEN   PIC S9(4) COMP-5.
+       
+       PROCEDURE DIVISION.
+           COMPUTE WS-LEN = FUNCTION LENGTH(txt5::Text).
+           IF WS-LEN > 10
+               MOVE "#0000FF" TO txt5::BackgroundColor
+           ELSE
+               MOVE "#444444" TO txt5::BackgroundColor
+           END-IF.
+           CALL "UPDATE-CONCATENATION".
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt4" deleted-at="designer-delete-1785461358-3">
+      <Event name="onKeyDown" paragraph="TXT4--ONKEYDOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  KEY-CODE  PIC S9(4) COMP-5.
+       
+       PROCEDURE DIVISION USING KEY-CODE.
+           *> Enter key is typically 13
+           IF KEY-CODE = 13
+               SET txt4::ShadowEnabled TO 1
+               MOVE "#FF0000" TO txt4::ShadowColor
+           END-IF.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt3" deleted-at="designer-delete-1785461358-2">
+      <Event name="onClick" paragraph="TXT3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           COMPUTE txt3::FontSize = txt3::FontSize - 2.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt2" deleted-at="designer-delete-1785461358-1">
+      <Event name="onGotFocus" paragraph="TXT2--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#FFFF00" TO txt2::ForegroundColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt1" deleted-at="designer-delete-1785461358-0">
+      <Event name="onChange" paragraph="TXT1--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE FUNCTION UPPER-CASE(txt1::Text) TO txt1::Text.
+           CALL "UPDATE-CONCATENATION".
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt15" deleted-at="designer-delete-1785505913-14">
+      <Event name="onChange" paragraph="TXT15--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           PERFORM UPDATE-CONCATENATION.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt14" deleted-at="designer-delete-1785505913-13">
+      <Event name="onGotFocus" paragraph="TXT14--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#00FF00" TO txt14::ForegroundColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt13" deleted-at="designer-delete-1785505913-12">
+      <Event name="onChange" paragraph="TXT13--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           IF txt13::Text NOT LIKE "ID: %"
+               STRING "ID: " txt13::Text DELIMITED BY SIZE INTO txt13::Text
+           END-IF.
+           PERFORM UPDATE-CONCATENATION.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt12" deleted-at="designer-delete-1785505913-11">
+      <Event name="onEnterPressed" paragraph="TXT12--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "" TO txt12::Text.
+           PERFORM UPDATE-CONCATENATION.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt11" deleted-at="designer-delete-1785505913-10">
+      <Event name="onClick" paragraph="TXT11--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#2F2F2F" TO txt11::BackgroundColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt10" deleted-at="designer-delete-1785505913-9">
+      <Event name="onGotFocus" paragraph="TXT10--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE 16 TO txt10::FontSize.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt9" deleted-at="designer-delete-1785505913-8">
+      <Event name="onChange" paragraph="TXT9--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-CHAR PIC X.
+       01  WS-IDX  PIC 9(4) COMP-5.
+       01  WS-RES  PIC X(255).
+       
+       PROCEDURE DIVISION.
+           INITIALIZE WS-RES.
+           MOVE 1 TO WS-IDX.
+           PERFORM UNTIL WS-IDX > FUNCTION LENGTH(txt9::Text)
+               MOVE FUNCTION SUBSTRING(txt9::Text, WS-IDX, 1) TO WS-CHAR
+               IF FUNCTION UPPER-CASE(WS-CHAR) = WS-CHAR
+                   MOVE FUNCTION LOWER-CASE(WS-CHAR) TO WS-CHAR
+               ELSE
+                   MOVE FUNCTION UPPER-CASE(WS-CHAR) TO WS-CHAR
+               END-IF
+               STRING WS-CHAR DELIMITED BY SIZE INTO WS-RES
+               ADD 1 TO WS-IDX
+           END-PERFORM.
+           MOVE WS-RES TO txt9::Text.
+           PERFORM UPDATE-CONCATENATION.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt8" deleted-at="designer-delete-1785505913-7">
+      <Event name="onEnterPressed" paragraph="TXT8--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#FF0000" TO txt8::BorderColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt7" deleted-at="designer-delete-1785505913-6">
+      <Event name="onClick" paragraph="TXT7--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           IF txt7::TextAlignment = "Left"
+               MOVE "Right" TO txt7::TextAlignment
+           ELSE
+               MOVE "Left" TO txt7::TextAlignment
+           END-IF.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt6" deleted-at="designer-delete-1785505913-5">
+      <Event name="onGotFocus" paragraph="TXT6--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           SET txt6::BackgroundGradientEnabled TO 1.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt5" deleted-at="designer-delete-1785505913-4">
+      <Event name="onChange" paragraph="TXT5--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-LEN PIC 9(4) COMP-5.
+       
+       PROCEDURE DIVISION.
+           COMPUTE WS-LEN = FUNCTION LENGTH(txt5::Text).
+           IF WS-LEN > 10
+               MOVE "#0000FF" TO txt5::BackgroundColor
+           ELSE
+               MOVE "#222222" TO txt5::BackgroundColor
+           END-IF.
+           PERFORM UPDATE-CONCATENATION.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt4" deleted-at="designer-delete-1785505913-3">
+      <Event name="onEnterPressed" paragraph="TXT4--ONENTERPRESSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           SET txt4::ShadowEnabled TO 1.
+           MOVE "#FF0000" TO txt4::ShadowColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt3" deleted-at="designer-delete-1785505913-2">
+      <Event name="onClick" paragraph="TXT3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE 8 TO txt3::FontSize.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt2" deleted-at="designer-delete-1785505913-1">
+      <Event name="onGotFocus" paragraph="TXT2--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE "#FFFF00" TO txt2::ForegroundColor.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt1" deleted-at="designer-delete-1785505913-0">
+      <Event name="onChange" paragraph="TXT1--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       
+       PROCEDURE DIVISION.
+           MOVE FUNCTION UPPER-CASE(txt1::Text) TO txt1::Text.
+           PERFORM UPDATE-CONCATENATION.
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt15" deleted-at="designer-delete-1785511298-14">
+      <Event name="onChange" paragraph="TXT15--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           PERFORM UPDATE-CONCATENATION
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt14" deleted-at="designer-delete-1785511298-13">
+      <Event name="onGotFocus" paragraph="TXT14--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE 0.7 TO txt14::Opacity
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt13" deleted-at="designer-delete-1785511298-12">
+      <Event name="onChange" paragraph="TXT13--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-TEMP       PIC X(255).
+       PROCEDURE DIVISION.
+           *> Verifica se o texto não está vazio e se já não começa com "ID: " para evitar loop
+           IF txt13::Text NOT = SPACES
+               IF FUNCTION TRIM(txt13::Text) NOT = "ID: "
+                   MOVE SPACES TO WS-TEMP
+                   STRING "ID: " DELIMITED BY SIZE
+                          txt13::Text DELIMITED BY SIZE
+                          INTO WS-TEMP
+                   MOVE WS-TEMP TO txt13::Text
+               END-IF
+           END-IF
+           PERFORM UPDATE-CONCATENATION
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt12" deleted-at="designer-delete-1785511298-11">
+      <Event name="onKeyDown" paragraph="TXT12--ONKEYDOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  KEY-CODE       PIC S9(4) COMP-5.
+       PROCEDURE DIVISION USING KEY-CODE.
+           IF KEY-CODE = 13
+               MOVE 20 TO txt12::CornerRadius
+           END-IF
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt11" deleted-at="designer-delete-1785511298-10">
+      <Event name="onClick" paragraph="TXT11--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE 1 TO txt11::Italic
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt10" deleted-at="designer-delete-1785511298-9">
+      <Event name="onGotFocus" paragraph="TXT10--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE "#FFFF00" TO txt10::BorderColor
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt9" deleted-at="designer-delete-1785511298-8">
+      <Event name="onChange" paragraph="TXT9--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION LOWER-CASE(txt9::Text) TO txt9::Text
+           PERFORM UPDATE-CONCATENATION
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt8" deleted-at="designer-delete-1785511298-7">
+      <Event name="onKeyDown" paragraph="TXT8--ONKEYDOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  KEY-CODE       PIC S9(4) COMP-5.
+       PROCEDURE DIVISION USING KEY-CODE.
+           IF KEY-CODE = 13
+               MOVE "Right" TO txt8::TextAlignment
+           END-IF
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt7" deleted-at="designer-delete-1785511298-6">
+      <Event name="onClick" paragraph="TXT7--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           IF txt7::Bold
+               MOVE 0 TO txt7::Bold
+           ELSE
+               MOVE 1 TO txt7::Bold
+           END-IF
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt6" deleted-at="designer-delete-1785511298-5">
+      <Event name="onGotFocus" paragraph="TXT6--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE 1 TO txt6::BackgroundGradientEnabled
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt5" deleted-at="designer-delete-1785511298-4">
+      <Event name="onChange" paragraph="TXT5--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-LEN         PIC S9(4) COMP-5.
+       PROCEDURE DIVISION.
+           COMPUTE WS-LEN = FUNCTION LENGTH(txt5::Text)
+           IF WS-LEN > 10
+               MOVE "#FF0000" TO txt5::BackgroundColor
+           ELSE
+               MOVE "#444444" TO txt5::BackgroundColor
+           END-IF
+           PERFORM UPDATE-CONCATENATION
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt4" deleted-at="designer-delete-1785511298-3">
+      <Event name="onKeyDown" paragraph="TXT4--ONKEYDOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       LINKAGE SECTION.
+       01  KEY-CODE       PIC S9(4) COMP-5.
+       PROCEDURE DIVISION USING KEY-CODE.
+           IF KEY-CODE = 13 *> Enter Key
+               MOVE 1 TO txt4::ShadowEnabled
+               MOVE "#000000" TO txt4::ShadowColor
+           END-IF
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt3" deleted-at="designer-delete-1785511298-2">
+      <Event name="onClick" paragraph="TXT3--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE 8 TO txt3::FontSize
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt2" deleted-at="designer-delete-1785511298-1">
+      <Event name="onGotFocus" paragraph="TXT2--ONGOTFOCUS"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE "#00FF00" TO txt2::ForegroundColor
+           CONTINUE.]]></Event>
+    </DeletedControl>
+    <DeletedControl id="txt1" deleted-at="designer-delete-1785511298-0">
+      <Event name="onChange" paragraph="TXT1--ONCHANGE"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       PROCEDURE DIVISION.
+           MOVE FUNCTION UPPER-CASE(txt1::Text) TO txt1::Text
+           PERFORM UPDATE-CONCATENATION
+           CONTINUE.]]></Event>
+    </DeletedControl>
+  </deleted-controls>
+</Form>

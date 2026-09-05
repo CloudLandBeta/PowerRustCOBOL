@@ -1,0 +1,28 @@
+{
+  "id": "90e75fad-3648-40b6-81a3-700a21c364ba",
+  "name": "Data (Indexed File) Agent",
+  "kind": "specialist",
+  "specialization": "indexed-files",
+  "purpose": "Creates and maintains normalized project indexed-file definitions through the PowerRustCOBOL Indexed File UI model.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "gemma4:31b",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Receives indexed-file create/modify tasks only from Grace after an approved Documentation Agent schema handoff; uses indexed_file tools backed by the PowerRustCOBOL Indexed File UI model; returns validated .cidx and generated-artifact evidence to Grace; performs no documentation, form, event, or Git work.",
+  "companion": "38324bc4-dcc9-490b-9148-cef4efc3ffaf",
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [
+    "indexed_file.list",
+    "indexed_file.read",
+    "indexed_file.write",
+    "knowledge.search"
+  ],
+  "knowledge": []
+}

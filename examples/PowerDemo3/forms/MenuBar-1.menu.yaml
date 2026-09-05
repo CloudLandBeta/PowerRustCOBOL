@@ -1,0 +1,18 @@
+menu:
+- id: item-1
+  label: Home
+  type: action
+  icon: home
+  action: close-application
+  enabled: true
+  items:
+  - id: item-3
+    label: CRM
+    type: action
+    icon: pencil
+    enabled: true
+- id: item-2
+  label: New Item
+  type: action
+  enabled: true
+hash: bc73fc4d7e5379286e89e7614a7d6ab0a9cf3a17f9952aec7e74194e41a05eb8

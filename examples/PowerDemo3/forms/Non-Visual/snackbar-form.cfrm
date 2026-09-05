@@ -1,0 +1,1006 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Form name="SNACKBAR-FORM" title="Snackbar - every capability" width="1000" height="720" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" form-format="Both">
+  <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
+           CLASS RUST-CHAR IS "Rust.char"
+           CLASS RUST-I8 IS "Rust.i8"
+           CLASS RUST-I16 IS "Rust.i16"
+           CLASS RUST-I32 IS "Rust.i32"
+           CLASS RUST-I64 IS "Rust.i64"
+           CLASS RUST-I128 IS "Rust.i128"
+           CLASS RUST-ISIZE IS "Rust.isize"
+           CLASS RUST-U8 IS "Rust.u8"
+           CLASS RUST-U16 IS "Rust.u16"
+           CLASS RUST-U32 IS "Rust.u32"
+           CLASS RUST-U64 IS "Rust.u64"
+           CLASS RUST-U128 IS "Rust.u128"
+           CLASS RUST-USIZE IS "Rust.usize"
+           CLASS RUST-F32 IS "Rust.f32"
+           CLASS RUST-F64 IS "Rust.f64"
+           CLASS RUST-STR IS "Rust.str"
+           CLASS RUST-UNIT IS "Rust.unit"
+           CLASS RUST-STRING IS "Rust.String"
+           CLASS RUST-OSSTRING IS "Rust.OsString"
+           CLASS RUST-OSSTR IS "Rust.OsStr"
+           CLASS RUST-CSTRING IS "Rust.CString"
+           CLASS RUST-CSTR IS "Rust.CStr"
+           CLASS RUST-PATH IS "Rust.Path"
+           CLASS RUST-PATHBUF IS "Rust.PathBuf"
+           CLASS RUST-VEC IS "Rust.Vec"
+           CLASS RUST-VECDEQUE IS "Rust.VecDeque"
+           CLASS RUST-LINKEDLIST IS "Rust.LinkedList"
+           CLASS RUST-HASHMAP IS "Rust.HashMap"
+           CLASS RUST-BTREEMAP IS "Rust.BTreeMap"
+           CLASS RUST-HASHSET IS "Rust.HashSet"
+           CLASS RUST-BTREESET IS "Rust.BTreeSet"
+           CLASS RUST-BINARYHEAP IS "Rust.BinaryHeap"
+           CLASS RUST-OPTION IS "Rust.Option"
+           CLASS RUST-RESULT IS "Rust.Result"
+           CLASS RUST-BOX IS "Rust.Box"
+           CLASS RUST-RC IS "Rust.Rc"
+           CLASS RUST-ARC IS "Rust.Arc"
+           CLASS RUST-WEAK IS "Rust.Weak"
+           CLASS RUST-CELL IS "Rust.Cell"
+           CLASS RUST-REFCELL IS "Rust.RefCell"
+           CLASS RUST-MUTEX IS "Rust.Mutex"
+           CLASS RUST-RWLOCK IS "Rust.RwLock"
+           CLASS RUST-COW IS "Rust.Cow"
+           CLASS RUST-DURATION IS "Rust.Duration"
+           CLASS RUST-INSTANT IS "Rust.Instant"
+           CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
+           CLASS RUST-RANGE IS "Rust.Range"]]></repository>
+  <form-events>
+    <Event name="onLoad" paragraph="SNACKBAR-FORM--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Nothing to set up: the Snackbar is NON-VISUAL and paints nothing
+      *> where it sits. Every button below mints its own notification from
+      *> the template's values at the moment it calls Show().
+
+           DISPLAY "snackbar-form ready - 12 demonstrations".
+]]></Event>
+    <Event name="onClose" paragraph="SNACKBAR-FORM--ONCLOSE">
+    </Event>
+  </form-events>
+  <Control id="Label-TITLE" type="Label" x="24" y="20" w="952" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">Snackbar - every capability</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#70F3FCFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">20</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+  <Control id="Label-HINT" type="Label" x="24" y="56" w="952" h="56" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="Caption">One control, one template: every Show() mints a NEW notification from the values current at that moment. They arrive one at a time. DISPLAY output goes to the IDE Output panel.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#E8F0FFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+  <Control id="Button-SNACK-CATEGORIES" type="Button" x="24" y="128" w="464" h="40" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">1  Five categories, one after another</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-CATEGORIES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 1 - THE FIVE CATEGORIES.
+      *> Category supplies the background, the ink, the icon AND the timeout
+      *> for everything you did not set yourself. Timeout -1 means "take the
+      *> category's own": 4000 / 6000 / 6000 / 8000, and Critical's 0, which
+      *> is why the last one stays until it is dismissed.
+      *> They arrive ONE AT A TIME - the second waits for the first to land.
+
+           INVOKE SNACKBAR-1::Clear()
+           MOVE -1 TO SNACKBAR-1::Timeout
+
+           MOVE "Info" TO SNACKBAR-1::Category
+           MOVE "Record saved." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Question" TO SNACKBAR-1::Category
+           MOVE "Overwrite the existing file?" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Warning" TO SNACKBAR-1::Category
+           MOVE "Index rebuilt with warnings." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Error" TO SNACKBAR-1::Category
+           MOVE "Could not reach the server." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Critical" TO SNACKBAR-1::Category
+           MOVE "Disk almost full - 2 per cent free." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           DISPLAY "1 - five categories raised; Critical stays until dismissed".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-TWOBUTTONS" type="Button" x="24" y="176" w="464" h="40" tab-order="0" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">2  Clear() + AddButton() - two buttons</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-TWOBUTTONS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 2 - CLEAR() AND ADDBUTTON().
+      *> Buttons is ONE LINE PER BUTTON and a COBOL literal cannot carry a
+      *> newline, so a MOVE into Buttons can only ever declare ONE. Declare
+      *> them a call at a time instead. Clear() empties the row and NOTHING
+      *> else - the Text and Category below still apply.
+      *> position is the ordinal, 1-based, left to right.
+      *> dismiss=false leaves the notification up when that button is clicked.
+
+           INVOKE SNACKBAR-1::Clear()
+           INVOKE SNACKBAR-1::AddButton("id=undo,caption=Undo,icon=undo,position=1")
+           INVOKE SNACKBAR-1::AddButton("id=later,caption=Later,position=2,dismiss=false")
+
+           MOVE "Warning" TO SNACKBAR-1::Category
+           MOVE "Saved. Undo?" TO SNACKBAR-1::Text
+           MOVE 0 TO SNACKBAR-1::Timeout
+           INVOKE SNACKBAR-1::Show()
+
+           DISPLAY "2 - Undo dismisses, Later stays up; watch onButtonClick".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-THREEBUTTONS" type="Button" x="24" y="224" w="464" h="40" tab-order="0" z-order="4" visible="true" enabled="true">
+    <Property name="Caption">3  Three buttons - icon left, right, none</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-THREEBUTTONS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 3 - THREE BUTTONS, AND THE ICON POSITIONS.
+      *> Three is the limit; a fourth is reported, never silently dropped.
+      *> iconposition is None | Left | Right, and defaults to Left when an
+      *> icon is given. A button with an icon and NO caption is icon-only.
+
+           INVOKE SNACKBAR-1::Clear()
+           INVOKE SNACKBAR-1::AddButton("id=retry,caption=Retry,icon=refresh,iconposition=Left,position=1")
+           INVOKE SNACKBAR-1::AddButton("id=help,caption=Help,icon=check,iconposition=Right,position=2")
+           INVOKE SNACKBAR-1::AddButton("id=close,icon=x-mark,position=3")
+
+           MOVE "Error" TO SNACKBAR-1::Category
+           MOVE "Could not reach the server." TO SNACKBAR-1::Text
+           MOVE 0 TO SNACKBAR-1::Timeout
+           INVOKE SNACKBAR-1::Show()
+
+           DISPLAY "3 - icon Left, icon Right, icon-only".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-SIZES" type="Button" x="24" y="272" w="464" h="40" tab-order="0" z-order="5" visible="true" enabled="true">
+    <Property name="Caption">4  Small . Medium . Large</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-SIZES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 4 - THE THREE SIZE CLASSES.
+      *> Size fixes the padding, the font, the button height and how many
+      *> lines the text may use before it is ellipsized.
+
+           INVOKE SNACKBAR-1::Clear()
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Info" TO SNACKBAR-1::Category
+
+           MOVE "Small" TO SNACKBAR-1::Size
+           MOVE "Small - compact, one line." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Medium" TO SNACKBAR-1::Size
+           MOVE "Medium - the default size class." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Large" TO SNACKBAR-1::Size
+           MOVE "Large - room for a longer explanation." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Medium" TO SNACKBAR-1::Size
+           DISPLAY "4 - Small, Medium, Large; template left on Medium".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-ANCHOR" type="Button" x="24" y="320" w="464" h="40" tab-order="0" z-order="6" visible="true" enabled="true">
+    <Property name="Caption">5  Cycle the nine StackAnchor positions</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-ANCHOR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ANCHOR PIC X(16).
+       01 WS-MSG    PIC X(32).
+       01 WS-OUT    PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 5 - THE NINE ANCHOR POSITIONS.
+      *> Each press moves to the next. A TOP anchor grows DOWNWARD with the
+      *> newest at the top; a BOTTOM anchor grows UPWARD. The anchor is
+      *> resolved against THIS FORM'S OWN SURFACE, never the desktop.
+
+           MOVE SNACKBAR-1::StackAnchor TO WS-ANCHOR
+           EVALUATE FUNCTION TRIM(WS-ANCHOR)
+               WHEN "BottomRight"  MOVE "BottomCenter" TO WS-ANCHOR
+               WHEN "BottomCenter" MOVE "BottomLeft"   TO WS-ANCHOR
+               WHEN "BottomLeft"   MOVE "CenterLeft"   TO WS-ANCHOR
+               WHEN "CenterLeft"   MOVE "Center"       TO WS-ANCHOR
+               WHEN "Center"       MOVE "CenterRight"  TO WS-ANCHOR
+               WHEN "CenterRight"  MOVE "TopRight"     TO WS-ANCHOR
+               WHEN "TopRight"     MOVE "TopCenter"    TO WS-ANCHOR
+               WHEN "TopCenter"    MOVE "TopLeft"      TO WS-ANCHOR
+               WHEN OTHER          MOVE "BottomRight"  TO WS-ANCHOR
+           END-EVALUATE
+           MOVE FUNCTION TRIM(WS-ANCHOR) TO SNACKBAR-1::StackAnchor
+
+           INVOKE SNACKBAR-1::Clear()
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Info" TO SNACKBAR-1::Category
+           MOVE "Oldest of the run" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "Newest of the run" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "5 - StackAnchor = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-ANCHOR) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-ORDER" type="Button" x="24" y="368" w="464" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
+    <Property name="Caption">6  StackOrder - Auto / NewestFirst / NewestLast</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-ORDER--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ORDER PIC X(16).
+       01 WS-MSG   PIC X(32).
+       01 WS-OUT   PIC X(64).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 6 - STACKORDER.
+      *> Auto follows the anchor. NewestFirst and NewestLast override it, so
+      *> you can put the newest at the top of a bottom-anchored run.
+
+           MOVE SNACKBAR-1::StackOrder TO WS-ORDER
+           EVALUATE FUNCTION TRIM(WS-ORDER)
+               WHEN "Auto"        MOVE "NewestFirst" TO WS-ORDER
+               WHEN "NewestFirst" MOVE "NewestLast"  TO WS-ORDER
+               WHEN OTHER         MOVE "Auto"        TO WS-ORDER
+           END-EVALUATE
+           MOVE FUNCTION TRIM(WS-ORDER) TO SNACKBAR-1::StackOrder
+
+           INVOKE SNACKBAR-1::Clear()
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Info" TO SNACKBAR-1::Category
+           MOVE "1 - raised first" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "2 - raised second" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "3 - raised last" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "6 - StackOrder = " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-ORDER) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-OVERFLOW" type="Button" x="512" y="128" w="464" h="40" tab-order="0" z-order="8" visible="true" enabled="true">
+    <Property name="Caption">7  Overflow - Queue / DiscardOldest / DiscardNewest</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-OVERFLOW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-OVF PIC X(16).
+       01 WS-MSG PIC X(48).
+       01 WS-OUT PIC X(80).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 7 - MAXIMUMVISIBLE AND OVERFLOWBEHAVIOR.
+      *> Two at a time, four raised. Queue holds the surplus and lets it in as
+      *> room frees; DiscardOldest closes the oldest to make room and reports
+      *> it as Overflow; DiscardNewest drops the arrival, which never appears.
+
+           MOVE SNACKBAR-1::OverflowBehavior TO WS-OVF
+           EVALUATE FUNCTION TRIM(WS-OVF)
+               WHEN "Queue"         MOVE "DiscardOldest" TO WS-OVF
+               WHEN "DiscardOldest" MOVE "DiscardNewest" TO WS-OVF
+               WHEN OTHER           MOVE "Queue"         TO WS-OVF
+           END-EVALUATE
+           MOVE FUNCTION TRIM(WS-OVF) TO SNACKBAR-1::OverflowBehavior
+           MOVE 2 TO SNACKBAR-1::MaximumVisible
+
+           INVOKE SNACKBAR-1::Clear()
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Warning" TO SNACKBAR-1::Category
+           MOVE "1 of 4" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "2 of 4" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "3 of 4" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "4 of 4" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "7 - MaximumVisible 2, OverflowBehavior " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-OVF) DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption
+           DISPLAY FUNCTION TRIM(WS-OUT).
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-STYLE" type="Button" x="512" y="176" w="464" h="40" tab-order="0" z-order="9" visible="true" enabled="true">
+    <Property name="Caption">8  Colours, corners, border and shadow by hand</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-STYLE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 8 - EVERY COLOUR AND SHAPE SET BY HAND.
+      *> Leave a colour EMPTY to mean "the category decides"; set one and it
+      *> wins ALONE, so the category's icon and ink stay put unless you also
+      *> set those. On a Snackbar, ShadowBlur is a RADIUS IN PIXELS and
+      *> ShadowDirection is DEGREES clockwise from up - not the compass string
+      *> the rest of the catalogue uses.
+
+           INVOKE SNACKBAR-1::Clear()
+           INVOKE SNACKBAR-1::AddButton("id=ok,caption=Got it,icon=check")
+
+           MOVE "#2B3B55FF" TO SNACKBAR-1::BackgroundColor
+           MOVE "#E8F0FFFF" TO SNACKBAR-1::ForegroundColor
+           MOVE "#70F3FCFF" TO SNACKBAR-1::CategoryIconColor
+           MOVE 24 TO SNACKBAR-1::CornerRadius
+           MOVE "Single" TO SNACKBAR-1::BorderStyle
+           MOVE "#70F3FCFF" TO SNACKBAR-1::BorderColor
+           MOVE 2 TO SNACKBAR-1::BorderWidth
+           MOVE 45 TO SNACKBAR-1::ShadowOpacity
+           MOVE 18 TO SNACKBAR-1::ShadowBlur
+           MOVE 6 TO SNACKBAR-1::ShadowDistance
+           MOVE 270 TO SNACKBAR-1::ShadowDirection
+
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Brand colours, 24pt corners, a cyan rim." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           DISPLAY "8 - styled by hand; press Reset to go back to the design".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-CRITICAL" type="Button" x="512" y="224" w="464" h="40" tab-order="0" z-order="10" visible="true" enabled="true">
+    <Property name="Caption">9  Critical - 200 ms entrance, never expires</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-CRITICAL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 9 - CRITICAL.
+      *> The only category that changes an EFFECT: it enters in 200 ms rather
+      *> than 600, because the most urgent message should already be there
+      *> when the operator looks up. Its own default Timeout is 0, so -1
+      *> ("take the category's") leaves it up until it is dismissed.
+
+           INVOKE SNACKBAR-1::Clear()
+           INVOKE SNACKBAR-1::AddButton("id=ack,caption=Acknowledge,icon=check")
+
+           MOVE "Critical" TO SNACKBAR-1::Category
+           MOVE -1 TO SNACKBAR-1::Timeout
+           MOVE "Disk almost full - 2 per cent free." TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           DISPLAY "9 - Critical: 200 ms entrance, never expires by itself".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-PIN" type="Button" x="512" y="272" w="464" h="40" tab-order="0" z-order="11" visible="true" enabled="true">
+    <Property name="Caption">10  Pin three (Timeout 0) - dismiss the middle</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-PIN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 10 - PINNED, AND THE REFLOW.
+      *> Timeout 0 never expires. Dismiss the MIDDLE one and watch the two
+      *> survivors GLIDE into the gap over 300 ms rather than snapping.
+      *> Hold the pointer over one and its timeout pauses - with Timeout 0
+      *> there is nothing to pause, so raise these with a timeout to see it.
+
+           INVOKE SNACKBAR-1::Clear()
+           INVOKE SNACKBAR-1::AddButton("id=close,caption=Close,icon=x-mark")
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Info" TO SNACKBAR-1::Category
+
+           MOVE "Pinned 1 - dismiss the MIDDLE one" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "Pinned 2 - this is the middle" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+           MOVE "Pinned 3 - the newest" TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           DISPLAY "10 - three pinned; close the middle and watch the glide".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-WRAP" type="Button" x="512" y="320" w="464" h="40" tab-order="0" z-order="12" visible="true" enabled="true">
+    <Property name="Caption">11  Long text - wrap and the line budget</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-WRAP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 11 - LONG TEXT: WRAP, AND THE LINE BUDGET.
+      *> Each size class allows a different number of lines before the text is
+      *> ellipsized. The same sentence is shown Large then Small.
+      *> Text is DATA, never a format string - build it with STRING or MOVE.
+
+           INVOKE SNACKBAR-1::Clear()
+           MOVE 0 TO SNACKBAR-1::Timeout
+           MOVE "Warning" TO SNACKBAR-1::Category
+
+           MOVE "Large" TO SNACKBAR-1::Size
+           MOVE "The nightly rebuild finished with 3 warnings: two indexes we"
+             TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Small" TO SNACKBAR-1::Size
+           MOVE "The nightly rebuild finished with 3 warnings: two indexes we"
+             TO SNACKBAR-1::Text
+           INVOKE SNACKBAR-1::Show()
+
+           MOVE "Medium" TO SNACKBAR-1::Size
+           DISPLAY "11 - same text, Large then Small; the budget cuts it".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-DISMISS" type="Button" x="512" y="368" w="464" h="40" tab-order="0" z-order="13" visible="true" enabled="true">
+    <Property name="Caption">12  DismissAll()</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-DISMISS--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> 12 - DISMISSALL().
+      *> Every notification THIS control raised, with reason Programmatic, and
+      *> anything it had queued is discarded too. Other Snackbar controls on
+      *> the form are untouched. There is no Hide(): with Show() as a factory
+      *> it could not say WHICH notification it meant.
+
+           INVOKE SNACKBAR-1::DismissAll()
+           MOVE "12 - DismissAll(): all cleared, reason Programmatic"
+             TO LABEL-LAST::Caption
+           DISPLAY "12 - DismissAll(): reason Programmatic".
+]]></Event>
+  </Control>
+  <Control id="Button-SNACK-RESET" type="Button" x="24" y="424" w="952" h="40" tab-order="0" z-order="14" visible="true" enabled="true">
+    <Property name="Caption">Reset the template to its designed defaults</Property>
+    <Property name="BackgroundColor">#36383EFF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
+    <Property name="BackgroundGradientEndColor">#000000FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Transparency">63</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000FF</Property>
+    <Property name="ShadowLightColor">#4E4E4EFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-SNACK-RESET--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> RESET THE TEMPLATE.
+      *> Show() is a snapshot, so this changes nothing already on screen - it
+      *> puts the TEMPLATE back where the Form Designer left it.
+
+           INVOKE SNACKBAR-1::DismissAll()
+           INVOKE SNACKBAR-1::Clear()
+
+           MOVE "Info" TO SNACKBAR-1::Category
+           MOVE "Medium" TO SNACKBAR-1::Size
+           MOVE -1 TO SNACKBAR-1::Timeout
+           MOVE 5 TO SNACKBAR-1::MaximumVisible
+           MOVE "Queue" TO SNACKBAR-1::OverflowBehavior
+           MOVE "BottomRight" TO SNACKBAR-1::StackAnchor
+           MOVE "Auto" TO SNACKBAR-1::StackOrder
+           MOVE SPACES TO SNACKBAR-1::BackgroundColor
+           MOVE SPACES TO SNACKBAR-1::ForegroundColor
+           MOVE SPACES TO SNACKBAR-1::CategoryIconColor
+           MOVE 12 TO SNACKBAR-1::CornerRadius
+           MOVE "None" TO SNACKBAR-1::BorderStyle
+           MOVE 12 TO SNACKBAR-1::ShadowBlur
+           MOVE 25 TO SNACKBAR-1::ShadowOpacity
+           MOVE 4 TO SNACKBAR-1::ShadowDistance
+           MOVE 270 TO SNACKBAR-1::ShadowDirection
+           MOVE "Record saved" TO SNACKBAR-1::Text
+
+           MOVE "Template reset to its designed defaults"
+             TO LABEL-LAST::Caption
+           DISPLAY "reset - template back to the designed defaults".
+]]></Event>
+  </Control>
+  <Control id="Label-LASTCAP" type="Label" x="24" y="484" w="952" h="24" tab-order="0" z-order="15" visible="true" enabled="true">
+    <Property name="Caption">Last button click:</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#9AA6B8FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+  <Control id="Label-LAST" type="Label" x="24" y="508" w="952" h="32" tab-order="0" z-order="16" visible="true" enabled="true">
+    <Property name="Caption">(nothing yet)</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#E8F0FFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">16</Property>
+    <Property name="Bold">true</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+  <Control id="Label-FOOT" type="Label" x="24" y="552" w="952" h="40" tab-order="0" z-order="17" visible="true" enabled="true">
+    <Property name="Caption">Notifications anchor to THIS form&apos;s own surface. The entrance grows from one pixel over 600 ms - 200 ms for Critical; movement and fade-out take 300 ms.</Property>
+    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="ForegroundColor">#9AA6B8FF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="TextAlignment">MiddleLeft</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="ShadowEnabled">false</Property>
+  </Control>
+  <Control id="Snackbar-1" type="Snackbar" x="24" y="616" w="56" h="56" tab-order="0" z-order="18" visible="true" enabled="true">
+    <Property name="Text">Record saved</Property>
+    <Property name="Category">Info</Property>
+    <Property name="Size">Medium</Property>
+    <Property name="ShowCategoryIcon">true</Property>
+    <Property name="CategoryIconSize">0</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="TextWrap">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#00000000</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowOpacity">25</Property>
+    <Property name="ShadowBlur">12</Property>
+    <Property name="ShadowDirection">270</Property>
+    <Property name="ShadowDistance">4</Property>
+    <Property name="Timeout">-1</Property>
+    <Property name="PauseTimeoutOnHover">true</Property>
+    <Property name="StackAnchor">BottomRight</Property>
+    <Property name="Margin">16</Property>
+    <Property name="StackSpacing">8</Property>
+    <Property name="StackOrder">Auto</Property>
+    <Property name="MaximumVisible">5</Property>
+    <Property name="OverflowBehavior">Queue</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Event name="onShown" paragraph="SNACKBAR-1--ONSHOWN"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Fires when the message joins the stack - which is BEFORE it has
+      *> waited its turn in the arrival queue and before it has finished
+      *> growing in. No event ever waits on an animation.
+           DISPLAY "onShown".
+]]></Event>
+    <Event name="onTimeout" paragraph="SNACKBAR-1--ONTIMEOUT"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Its time ran out. Fires BEFORE onClosing.
+           DISPLAY "onTimeout".
+]]></Event>
+    <Event name="onClosing" paragraph="SNACKBAR-1--ONCLOSING"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> About to leave. The reason (Timeout / User / Action / Programmatic /
+      *> Overflow) travels with the event.
+           DISPLAY "onClosing".
+]]></Event>
+    <Event name="onClosed" paragraph="SNACKBAR-1--ONCLOSED"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> Gone. Both this and onClosing fire the MOMENT it closes - the slot it
+      *> held is free for the next Show() immediately, and only the picture
+      *> lingers for 300 ms.
+           DISPLAY "onClosed".
+]]></Event>
+    <Event name="onButtonClick" paragraph="SNACKBAR-1--ONBUTTONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-ID  PIC X(32).
+       01 WS-IX  PIC X(8).
+       01 WS-MSG PIC X(16).
+       01 WS-OUT PIC X(80).
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> WHICH button was pressed: LastButtonId is your own id from the
+      *> AddButton spec, LastButtonIndex is its 0-based place in the row.
+      *> Both are written BEFORE this handler runs.
+      *> A button whose dismiss is true closes the notification AFTER this
+      *> fires, so you can still read the message it was clicked on.
+
+           MOVE SNACKBAR-1::LastButtonId TO WS-ID
+           MOVE SNACKBAR-1::LastButtonIndex TO WS-IX
+
+           EVALUATE FUNCTION TRIM(WS-ID)
+               WHEN "undo"  DISPLAY "onButtonClick: undo - undoing"
+               WHEN "later" DISPLAY "onButtonClick: later - left up"
+               WHEN "retry" DISPLAY "onButtonClick: retry - retrying"
+               WHEN "close" DISPLAY "onButtonClick: close"
+               WHEN "ack"   DISPLAY "onButtonClick: acknowledged"
+               WHEN OTHER   DISPLAY "onButtonClick: " FUNCTION TRIM(WS-ID)
+           END-EVALUATE
+
+           MOVE "button " TO WS-MSG
+           STRING FUNCTION TRIM(WS-MSG) DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-ID)  DELIMITED BY SIZE
+                  " at index "          DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-IX)  DELIMITED BY SIZE
+                  INTO WS-OUT
+           MOVE FUNCTION TRIM(WS-OUT) TO LABEL-LAST::Caption.
+]]></Event>
+  </Control>
+</Form>

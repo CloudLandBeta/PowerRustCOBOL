@@ -1,0 +1,23 @@
+{
+  "id": "7720ca0a-3374-4821-90ea-376a0352453f",
+  "name": "COBOL Proficiency Judge",
+  "kind": "pedantic",
+  "specialization": "proficiency-review",
+  "purpose": "Independently re-scores a model's COBOL proficiency assessment, so a ranked score is never one the model gave itself.",
+  "enabled": true,
+  "provider": "ollama_cloud",
+  "endpoint": "https://ollama.com/api/chat",
+  "model": "gpt-oss:120b",
+  "temperature": 0.7,
+  "max_tokens": 8192,
+  "timeout_secs": 30,
+  "model_profile": null,
+  "no_model": false,
+  "routing": "Invoked by the COBOL proficiency test; reviews the model under test and returns the authoritative scores. Calls nothing.",
+  "companion": null,
+  "steering": [],
+  "policies": [],
+  "skills": [],
+  "tools": [],
+  "knowledge": []
+}

@@ -1,0 +1,46 @@
+menu:
+- id: sb-home
+  label: Dashboard
+  type: action
+  icon: home
+  enabled: true
+- id: sb-inbox
+  label: Inbox
+  type: action
+  icon: mail
+  enabled: true
+  badge: '6'
+  badge_style: count
+- id: sb-sales
+  label: Sales
+  type: action
+  icon: chart
+  enabled: true
+  items:
+  - id: sb-sales-orders
+    label: Orders
+    type: action
+    icon: doc-text
+    enabled: true
+  - id: sb-sales-invoices
+    label: Invoices
+    type: action
+    icon: doc-text
+    enabled: true
+- id: sb-people
+  label: Customers
+  type: action
+  icon: user
+  enabled: true
+- id: sb-new
+  label: What's new
+  type: action
+  icon: diamond
+  enabled: true
+  badge: New
+- id: sb-settings
+  label: Settings
+  type: action
+  icon: gear
+  enabled: true
+hash: d59eceb44501a6f073cd835156e1402fe93bcee4cbba84d9d903165a9378f993
