@@ -37,268 +37,157 @@ Institute of Standards and Technology used to certify COBOL compilers. It is
 lives in this repository at `NIST/newcob.val,cbl`.
 
 It is the source of truth. Where RustCOBOL and CCVS85 disagree, **CCVS85 is
-right and RustCOBOL is wrong**, and the gap is recorded as a defect in
-[`specs/nist/`](../specs/nist/README.md) — one spec per fix, with the failing
-programs named.
+right and RustCOBOL is wrong**.
+
+The machine-readable ledger is [`NIST/progress.json`](../NIST/progress.json) —
+committed, updated after every verified change. The figures below are taken
+from it rather than retyped.
 
 ### The scoreboard
 
-Measured 2026‑08‑28 at version 1.62.43, on the untouched distribution:
+Measured **2026‑08‑31 at 1.62.132**, on the untouched distribution. The compile
+census closed at 1.62.129.
 
-| | Programs | Share | Meaning |
-|---|---:|---:|---|
-| ✅ **PASS** | **422** | **97.2 %** | of the 434 in‑scope programs |
-| ❌ **FAIL** | **12** | 2.8 % | of the 434 in‑scope programs |
-| ⬜ **N/A** | **25** | — | modules outside RustCOBOL's scope (below) |
-| | **459** | | total programs in the suite |
+| Axis | Result | Meaning |
+|---|---:|---|
+| **Compile** | **420 / 420** | every in-scope program is accepted by the front end. FAIL 0. |
+| **Execution** | **380 / 380** | every scored program runs and reports **zero failures** in its own CCVS report. |
+| **Assertions** | **8 362 PASS / 0 FAIL** | the checks those programs make on themselves. |
 
-Reproduce it:
-
-```bash
-cargo run -p cobolt-semantic --example nist_conformance -- strict
-```
-
-#### ⚠️ Compiling is the weaker claim
-
-The table above counts programs the **front end accepts**. It does not say they
-run. The suite scores itself — every CCVS85 program prints its own
-`PASS` / `FAIL*` report — so there is a second, strictly stronger number: how
-many run to completion and report **zero failures**.
+Reproduce either axis:
 
 ```bash
-cargo build --release -p cobolt-cli          # always: the harness runs the real binary
+cargo run -p cobolt-semantic --example nist_conformance -- strict     # compile
+cargo build --release -p cobolt-cli                                   # the harness runs the real binary
 cargo run --release -p cobolt-semantic --example nist_conformance -- run NC
 ```
 
-Both numbers are reported per module, and never conflated:
+#### The two axes are never conflated
 
-| Module | Compile | Execution (0 failures) |
-|---|---:|---:|
-| **NC (Nucleus)** | **95 / 95** | **83 / 95** |
+Compile is the strictly weaker claim: it says the front end accepts every
+construct in a program, not that the program computes the right answer. The
+suite scores itself — every CCVS85 program prints its own `PASS` / `FAIL*`
+tally — so the execution axis is the one that means "it works". Both are
+reported per module below, with their own denominators, and neither is ever
+quoted as the other.
 
-Work proceeds **one module at a time**: NC is finished only when both numbers
-reach 95, and no other module is worked on until it does. A broad compile score
-across ten modules says nothing about whether any of them work.
-
-##### The five NC members that need more than a print file — all scored
-
-The execution score counts a program clean when its **own CCVS report** shows
-no failures. Five NC members print no such report, and not because anything is
-broken. Each needed harness work rather than compiler work, and each now
-scores:
-
-| Member | What it needs | How it is scored |
-|---|---|---|
-| **NC302M**, **NC303M**, **NC401M** | *Flagging* tests. They carry no `PASS`/`FAIL` machinery at all — each ends `TOTAL NUMBER OF FLAGS EXPECTED = n`, and the result being validated is the set of **diagnostics the compiler emits** for obsolete constructs (NC302M/NC303M) or for constructs above the high subset (NC401M). | The harness compares the diagnostics against the member's own expectation list, by line. The two classes are run as **separate passes**: `DATE-COMPILED` is both obsolete *and* above the high subset, so one combined pass gives each member the other's flags as false positives. |
-| **NC110M** | Writes its report with `DISPLAY`, to the operator's console, not to the CCVS print file the harness reads. | The child's console output is captured to a file and scored from there. |
-| **NC109M**, **NC204M** | Test Format 1 `ACCEPT`, which reads from the operator — NC109M writing it bare, NC204M through a mnemonic `SPECIAL-NAMES` associates with the input device. The validator is expected to supply the input; with no stdin every comparison fails. | The harness supplies an operator deck on the child's stdin. The deck is **recovered from the source, not invented**: each accepted item is compared against a paired item whose value the program sets just above the `ACCEPT`, so every line of the deck is that value. |
-
-There is therefore **no structural ceiling below 95** on the execution axis:
-every in-scope NC program compiles, and every one of them is scored on what it
-itself reports.
-
-The comparable case that **was** settled is the external switch. NC174A, NC253A
-and NC254A test `ON STATUS` / `OFF STATUS` against a switch the operator sets
-before the run — nothing inside COBOL can set one — so the harness now passes
-`--switch XXXXX051=ON --switch XXXXX052=OFF` (and the substituted `SWITCH-1` /
-`SWITCH-2` spellings) exactly as the CCVS85 run instructions require. That is
-configuration the validation procedure calls for, not a thumb on the scale: a
-program that declares no switch is unaffected.
-
-#### ⚠️ What PASS actually means — read this before quoting the number
-
-A program counts as **PASS** when it goes through the RustCOBOL front end —
-lexer, parser, semantic analyser — with **zero errors**, using
-`--source-format=fixed`.
-
-That is *compilation* conformance. It is **not** proof the program computes the
-right answer. A CCVS85 program also prints its own `PASS`/`FAIL` tally when it
-runs, and scoring that output is the **next stage** of this work — it is not
-included in the 332 — see the execution scoreboard below. Two measured cases show why the distinction matters:
-
-- 30 of the 35 RELATIVE‑file programs once compiled cleanly while the runtime
-  had **no RELATIVE engine at all** — they ran and produced wrong results
-  silently. That gap is **closed**: the engine landed at 1.62.76 and the module
-  finished at 1.62.77 (35 / 35 compile, 34 / 34 execution). It is kept here as
-  the clearest example of what the compile axis alone cannot tell you.
-- A literal continued across two lines can reassemble incorrectly and still
-  parse, leaving the program holding the wrong data.
-
-So: **PASS = "RustCOBOL accepts every construct in this program."** Nothing more,
-yet.
-
-#### 🔴 The execution scoreboard — the number that means "it works"
-
-Everything above measures **compilation**. A CCVS85 program also *runs* and
-prints its own `PASS`/`FAIL` tally, and that tally is what the suite exists to
-produce. Since 1.62.15 the harness runs them:
-
-```bash
-cargo run -p cobolt-semantic --example nist_conformance -- run
-```
-
-Measured 2026‑08‑28 at 1.62.43. Under GOLDEN RULE #9 one module is finished
-before the next is started: **NC (Nucleus) is complete on both axes**, so
-**SQ (Sequential I/O)** is the module in flight.
-
-**NC — Nucleus**
-
-| | Programs |
-|---|---:|
-| in scope | 95 |
-| did not compile | 0 |
-| ran to completion | 95 |
-| **…reporting 0 failures** | **95** |
-| …reporting failures | 0 |
-| ran but printed no report | 0 |
-| timed out (>20 s) | 0 |
-| crashed or were refused by the runtime | 0 |
-
-The assertions the programs themselves report: **4 614 PASS / 0 FAIL**,
-100 % of 4 614 scored. (5 more are `DELETED` — CCVS's own marker for a test the
-program itself skips.)
-
-For contrast, the same table at 1.62.23 read 65 clean of 95, 4 278 PASS /
-226 FAIL. The gap between "compiles" and "works" is what closed.
-
-**SQ — Sequential I/O (in flight)**
-
-| | Programs |
-|---|---:|
-| in scope | 85 |
-| did not compile | 0 |
-| ran to completion | 83 |
-| **…reporting 0 failures** | **84** |
-| …reporting failures | 1 |
-| ran but printed no report | 0 |
-| timed out (>20 s) | 0 |
-| runaway output (>2 MB) | 0 |
-| crashed or were refused by the runtime | 0 |
-
-Assertions: **623 PASS / 1 FAIL**, 99.8 % of 624 scored, and **every program
-runs to completion**. At 1.62.42 the same table read **10** clean of 85, 20
-crashed, 1 timed out and 215 PASS / 190 FAIL — the crash cluster was one defect,
-declarative paragraphs losing their names; at 1.62.43 it read 44 clean and
-471 PASS / 162 FAIL. Variable-length records, the shared record area, `FILLER`
-widths, `READ … INTO` and sequential `REWRITE` landed in 1.62.44;
-mode-qualified `USE`, `CLOSE REEL/UNIT`, `SELECT OPTIONAL`, `LINAGE-COUNTER` at
-`OPEN` and out-of-range record lengths in 1.62.45; data-name `LINAGE` values and
-the sequential-I/O flagging detectors in 1.62.46.
-
-One member is still short:
-
-| Member | What is left |
-|---|---|
-| SQ203A | Needs `XXXXD001`, a data file the CCVS85 **installation** supplies. No member of the suite writes it, so the "file present" half of its `SELECT OPTIONAL` test cannot run here; the "file absent" half passes. This is a missing installation input, not a defect in RustCOBOL. |
-
-> A `FAIL*` detail line is written **twice** on purpose — CCVS's `PRINT-DETAIL`
-> runs `IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE` — while `PASS ` is
-> written once. Any raw marker count taken from the print file has to halve the
-> failures before it means anything.
-
-To read *why* a program fails, a third pass prints the failure detail its own
-report carries, ready to bucket across a whole module:
-
-```bash
-cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
-```
-
-> This is why the compilation figure is always reported as "RustCOBOL **accepts**
-> these constructs". Quoting it as a conformance level would be wrong.
+The clearest illustration is in this repository's own history: 30 of the 35
+RELATIVE‑file programs compiled cleanly while the runtime had **no RELATIVE
+engine at all**. They ran and produced wrong results silently. The engine
+landed at 1.62.76 and the module finished at 1.62.77.
 
 #### Per module
 
-| Module | What it tests | PASS / Total | |
-|---|---|---:|---|
-| NC | Nucleus | **95 / 95** | ✅ complete — and complete on **execution** too (see the scoreboard above) |
-| SQ | Sequential I/O | **85 / 85** | ✅ complete on compile; **44 / 85 on execution** — the module in flight |
-| IC | Inter‑program communication | 45 / 47 | `END-CALL` reaches the statement dispatcher instead of being consumed by its `CALL`; one subscripted condition-name |
-| IF | Intrinsic functions | **45 / 45** | ✅ complete |
-| IX | Indexed I/O | **42 / 42** | ✅ complete |
-| SG | Segmentation | **13 / 13** | ✅ complete |
-| ST | Sort / Merge | 38 / 40 | `COLLATING SEQUENCE` / `ALPHABET` |
-| RL | Relative I/O | 35 / 35 | ✅ **finished on both axes** (1.62.77) — execution 34 / 34, 354 assertions, 0 failures. A real engine (`cobolt-runtime/src/relative.rs`, `PRCREL1` container) landed at 1.62.76; all seven file verbs dispatch on `FileOrganization::Relative`. RL301M is excluded from execution by the same ruling as IX301M and still counts in the compile census, where it passes |
-| SM | Source text manipulation (COPY/REPLACE) | 14 / 17 | a `$` inside a data-name; qualified/subscripted pseudo-text; a `PERFORM … VARYING` form |
-| DB | Debug | 11 / 15 | `GO-TO` used as a user-defined word, colliding with the `GO TO` keyword pair; one program uses the Communication verb `DISABLE` |
-| **In scope** | | **422 / 434** | |
-| CM | Communication | — | ⬜ N/A |
-| RW | Report Writer | — | ⬜ N/A |
-| OBSQ / OBIC / OBNC | Obsolete‑feature flagging | — | ⬜ N/A |
-| EXEC85 | NIST's own COBOL driver program | — | ⬜ N/A |
+Compile and execution carry different denominators, for two stated reasons.
+The `*301M` members test *intermediate-subset flagging* of features RustCOBOL
+implements as standard, which is unreachable by design and excluded from
+execution by operator ruling (IX301M, RL301M, ST301M, SM301M); they still count
+on the compile census, where they pass. And most IC members are **callees** —
+subprograms with no report of their own — so only the calling programs are
+scored.
+
+| Module | What it tests | Compile | Execution | Assertions | State |
+|---|---|---:|---:|---:|---|
+| **NC** | Nucleus | **95 / 95** | **95 / 95** | 4 614 | ✅ finished |
+| **SQ** | Sequential I/O | **85 / 85** | **85 / 85** | 624 | ✅ finished |
+| **IX** | Indexed I/O | **42 / 42** | **41 / 41** | 574 | ✅ finished |
+| **IF** | Intrinsic functions | **45 / 45** | **45 / 45** | 841 | ✅ finished |
+| **IC** | Inter‑program communication | **47 / 47** | **25 / 25** | 309 | ✅ finished |
+| **ST** | Sort / Merge | **40 / 40** | **39 / 39** | 735 | ✅ finished |
+| **SM** | Source text manipulation | **17 / 17** | **16 / 16** | 311 | ✅ finished |
+| **RL** | Relative I/O | **35 / 35** | **34 / 34** | 354 | ✅ finished |
+| **DB** | Debug | **14 / 14** | — | — | compile axis only (below) |
+| **In scope** | | **420 / 420** | **380 / 380** | **8 362** | |
+| SG | Segmentation | 13 / 13 | — | — | ⬜ ruled out of scope (below) |
+| CM · RW · OBSQ · OBIC · OBNC · EXEC85 | | — | — | — | ⬜ N/A |
+
+**DB (Debug)** is scored on compile only. Its 14 programs are accepted; the
+debug module's *runtime* semantics are not implemented, and the execution axis
+for it has not been ruled in. It is listed here rather than hidden, so the gap
+stays visible.
+
+#### The DELETED count — 24, and what it means
+
+`***** ****TEST DELETED****` is CCVS's own marker for a case the program itself
+skipped. It is **not** a pass, and it is tracked separately for that reason:
+the count fell 108 → 1 at 1.62.53 while the clean-program count barely moved,
+which was real progress a failures-only reading would have missed.
+
+Across the finished modules 24 cases are DELETED: NC 5, SQ 6, IX 1, IC 4,
+SM 3, RL 5. **Only SM's 3 are documented as the distribution's own** — SM206A
+PST‑TEST‑008 and PST‑TEST‑11, and SM208A REP‑TEST‑7, ship commented out, so a
+conforming run of the shipped source reports exactly those three. The other 21
+are recorded but not yet individually explained in the ledger; do not quote
+them as by‑design.
 
 ### ⬜ N/A — what is out of RustCOBOL's scope, and why
 
-These 25 programs are **not counted as failures**. They are features RustCOBOL
-does not implement and is not planning to. Full reasoning in
+These modules are **not counted as failures** — 38 programs excluded from every
+score. Full reasoning in
 [`NIST-spec-out-of-scope-modules.md`](../specs/nist/NIST-spec-out-of-scope-modules.md).
 
 | Module | Programs | Why it is out of scope |
 |---|---:|---|
 | **CM** — Communication | 9 | `COMMUNICATION SECTION`, `CD` entries, `SEND` / `RECEIVE` / `ENABLE` / `DISABLE`. Targets 1980s teleprocessing monitors — message queues owned by a transaction manager. There is no such runtime here, and the module was removed from later COBOL standards. |
 | **RW** — Report Writer | 6 | `REPORT SECTION`, `RD` entries, `INITIATE` / `GENERATE` / `TERMINATE`, control breaks. A large declarative sub‑language; PowerRustCOBOL's answer to reporting is the Form Designer and PDF export. Could become a *feature* later if wanted — it is the one exclusion with real user value. |
+| **SG** — Segmentation | 13 | Operator ruling, 2026‑08‑29. Segmentation exists to fit a program into a machine too small to hold it: `SECTION` headers carry a segment number and the runtime overlays independent segments over one another. RustCOBOL is a 64‑bit runtime with more address space than any COBOL program can exhaust, so a segment number **compiles and has no effect at all**. There is no behaviour for the module to measure. Its 13 programs still compile, and are reported N‑A rather than deleted so the exclusion stays visible. |
 | **OBSQ / OBIC / OBNC** | 9 | These re‑test earlier modules and expect the compiler to *flag* obsolete COBOL‑85 elements. Their language content is covered by the in‑scope specs; obsolete‑feature **flagging** is what is out of scope. |
 | **EXEC85** | 1 | Not a test. It is NIST's own COBOL executive that splits the distribution and drives the suite — replaced here by a Rust harness, so it does not need to compile. |
 
 **Object‑Oriented COBOL** is also outside RustCOBOL's scope, but CCVS85 predates
 it entirely — there are no OO programs in the suite.
 
-### Where the remaining 192 failures come from
+### What is left
 
-Each is a specified defect, not an unknown. Ranked by the number of programs
-whose *first* error it is:
+On the scored modules, nothing: both axes are closed and no assertion fails.
+What remains is not a defect list but three standing rulings — DB's execution
+axis, SG, and the `*301M` flagging members — each recorded above with its
+reason, plus the 21 DELETED cases that have not been individually explained.
 
-| Programs | Root cause | Spec |
-|---:|---|---|
-| 31 | separator comma — `MOVE ZERO TO A, B, C` | [separators](../specs/nist/NIST-spec-separators.md) |
-| 15 | `FUNCTION MAX(TBL(ALL))` | [intrinsics](../specs/nist/NIST-spec-intrinsic-function-gaps.md) |
-| 12 | `WHEN -0.000020 THRU 0.000020` | [statement gaps](../specs/nist/NIST-spec-statement-grammar-gaps.md) |
-| 11 | space‑separated subscripts — `TBL (1  2)` | [separators](../specs/nist/NIST-spec-separators.md) |
-| 10 | `SET SW-1 TO ON` (switch names) and `SET A, B, C TO 1` | [special‑names](../specs/nist/NIST-spec-special-names.md), [separators](../specs/nist/NIST-spec-separators.md) |
-| 9 | `CLOSE … WITH LOCK` / `WITH NO REWIND` | [statement gaps](../specs/nist/NIST-spec-statement-grammar-gaps.md) |
-| 7 | `COPY` deep in Area B or split across lines | [COPY/REPLACE](../specs/nist/NIST-spec-copy-and-replace.md) |
-| 5 | separator semicolon — `START F ; INVALID KEY` | [separators](../specs/nist/NIST-spec-separators.md) |
-| 4 | `OCCURS` integer on a following line | [separators](../specs/nist/NIST-spec-separators.md) |
-| 4 | `SECTION` with a priority number — `SORT-PARA SECTION 69.` | [segmentation](../specs/nist/NIST-spec-segmentation.md) |
+The harness prints the failure detail behind any regression, ready to bucket
+across a module:
 
-> **The ranking moves after every fix, and the moves are informative.** Three
-> rows that led this table in earlier releases are gone — IDENTIFICATION
-> comment-entries, numeric literals, and the stray quotation mark. Each time,
-> most of the programs in the cleared row did **not** start passing; they moved
-> to the row below. The four SG programs freed at 1.62.12 now stop at
-> `SORT-PARA SECTION 69.`, which is why Segmentation still reads 0 / 13.
-> Re-measure rather than trusting a previous ranking.
+```bash
+cargo run --release -p cobolt-semantic --example nist_conformance -- fails NC
+```
+
+> A `FAIL*` detail line is written **twice** on purpose — CCVS's `PRINT-DETAIL`
+> runs `IF P-OR-F EQUAL TO "FAIL*" PERFORM WRITE-LINE` — while `PASS ` is
+> written once. Any raw marker count taken from the print file has to halve the
+> failures before it means anything.
 
 ### Conformance history
 
-| Version | PASS / 434 | What changed |
-|---|---:|---|
-| 1.62.7 | **0** | Nothing compiled. Two rules of the classic reference format were missing: columns 73‑80 were read as source, and continuation lines were never joined. |
-| 1.62.8 | **222** | `--source-format=fixed` — the classic reference format, including continuation. See [Source formats](#source-formats). |
-| 1.62.10 | **237** | Numeric literals may begin with a decimal point (`.999`). Intrinsic functions 21 → 29, Nucleus 25 → 29, Sort/Merge 27 → 30. |
-| 1.62.11 | 241 | IDENTIFICATION comment-entry paragraphs. Debug 5 → 9. A smaller gain than the 32-program bucket suggests: 9 of those are Communication programs (N/A), and most of the rest hit a second blocker immediately after. |
-| 1.62.12 | 242 | A literal is confined to its line, so one stray quotation mark can no longer shift the parity of a whole file. Nucleus 29 → 30. The 6‑program bucket cleared: 4 moved on to segment priority numbers, 1 now passes. |
-| 1.62.13 | 292 | Separator comma and semicolon are punctuation, not tokens; subscripts may be separated by spaces alone; a subscript may follow a complete qualified name; a doubled delimiter inside a literal is one character. Nucleus 30 → 56, Inter-program 32 → 44, Indexed 31 → 38. Three whole diagnostic buckets emptied. |
-| 1.62.14 | 317 | `FUNCTION MAX(TBL(ALL))` — a whole table as an intrinsic argument; `MOVE ALL "X"` fills the field; `CLOSE … WITH LOCK` / `NO REWIND` / `REEL`; a signed literal as a `WHEN` object; `PERFORM … TIMES` with a data-item count; an integer count written on a continuation line. **Intrinsic functions 45 / 45 — module complete.** |
-| 1.62.15 | 332 | An unknown `FUNCTION` name is a compile error instead of returning 0; a user-defined word may begin with a digit (`25COUNT`, `3-DEM-TBL`, `0 SECTION.`); a `D` line is a comment unless `WITH DEBUGGING MODE`. Segmentation 0 → 10, Nucleus 58 → 61. |
-| 1.62.16 | 376 | The `AT` in `AT END` is optional, so a bare `END` phrase no longer swallows the next paragraph header (33 programs). The COPY/REPLACE preprocessor confines a literal to its line, so the word COPY in the copyright banner is not a directive. A numeric literal may open an `ADD`/`SUBTRACT` operand list with its decimal point. **Indexed I/O complete, 42 / 42.** |
-| 1.62.17 | 380 | `LINAGE` page layout, `LINAGE-COUNTER`, and `WRITE … AT END-OF-PAGE` / `AT EOP` — implemented, not stubbed. Sequential I/O 77 → 81. |
-| **1.62.19** | **396** | A numeric-edited item is a numeric item. The editing decimal point keeps a digit that follows it (`PIC ZZ,ZZZ.9` no longer truncates to `ZZ,ZZZ`), and a picture built only from editing characters — `ZZZZ`, `$.**`, `$**.**CR` — is numeric-edited rather than alphanumeric. Both made a legal arithmetic `GIVING` receiver look non-numeric. |
-| **1.62.18** | **391** | A number opening a continuation line is an operand where an expression is expected. The `IS` is optional in a class or sign condition, and a condition may be an `EVALUATE` subject. A procedure-name may be written entirely in digits, in references and headers alike. |
-| **1.62.21** | **417** | The Nucleus pass. `ALTER` is a series and `GO TO.` is the altered GO TO; an all-digit procedure-name keeps its leading zeros; a condition-name may be subscripted or qualified; a parenthesised arithmetic expression is an operand, not a nested condition; `MULTIPLY`/`DIVIDE` format 1 take a receiver series; `WITH TEST` may precede `VARYING` and a repeat count may be subscripted; `PERFORM imperative … END-PERFORM` needs no phrase; a paragraph-name may be qualified by its section; `ELSE` is not swallowed by an `ON SIZE ERROR` imperative or a nested ELSE branch; abbreviated combined relations accept arithmetic and class/sign objects; `INSPECT` carries its ALL/LEADING category across operands and `CONVERTING` takes a region; `UNSTRING TALLYING` follows `WITH POINTER`. **Nucleus 76 → 92 of 95 compiling, 16 → 28 executing clean.** |
-| **1.62.43** | **422** | **The Sequential I/O module compiles completely — 85 of 85 — and goes 10 → 44 of 85 on execution.** A declarative's paragraphs keep their names, so a `USE` handler can `PERFORM` and `GO TO` them (20 programs stopped crashing); a `FILE STATUS` item declared as a two-character *group* receives the code; `OPEN` of an already-open file is `41` and does not re-open it; a sequential `READ` after `AT END` is `46`; and one `OPEN` may carry several mode groups (`OPEN INPUT f1 OUTPUT f2`), which is the whole of the compile gain. |
-| **1.62.42** | **420** | **The Nucleus module is finished — 95 of 95 compiling *and* 95 of 95 executing clean, 4 614 assertions with none failing.** A `66 RENAMES` is qualified by its record, covers every occurrence of a table it reaches over, and is the item it renames when it renames exactly one; an 88 declared on a group tests the group's bytes; a figurative constant is sized to the other operand, `VALUE` included; a group operand is category alphanumeric; `NOT` before an abbreviation object negates the relation; an `INSPECT … REPLACING` series shares one scan and a signed DISPLAY item has no `-` among its characters; `REDEFINES` overlays nest; and `PERFORM … WITH TEST AFTER VARYING` is honoured, an `AFTER` variable is reset when its loop ends, and a subscripted `VARYING` identifier follows its subscript. That last group is why NC201A finished at all. |
+Compile axis, against the in‑scope denominator of the day. The denominator
+itself moved when SG was ruled out and when DB205A was re‑scored under CM, so
+the early rows are out of 434 and the closing row out of 420.
 
-> **The honest summary.** RustCOBOL accepts **97.2 %** of the in‑scope NIST
-> suite today, up from none nine releases ago. The remaining 12 are not
-> mysterious — they are named defects, each specified with the programs it
-> blocks. This table is the measure of progress, and it is updated with every
-> release.
->
-> **And one module is finished on the axis that counts.** The Nucleus runs
-> 95 of 95 programs clean, not merely compiles them — see the execution
-> scoreboard above. Under GOLDEN RULE #9 that is the gate for starting the next
-> module, so **Sequential I/O is now in flight**: complete on compile, 44 of 85
-> on execution.
+| Version | Compile | What changed |
+|---|---:|---|
+| 1.62.7 | **0** / 434 | Nothing compiled. Two rules of the classic reference format were missing: columns 73‑80 were read as source, and continuation lines were never joined. |
+| 1.62.8 | 222 / 434 | `--source-format=fixed` — the classic reference format, including continuation. See [Source formats](#source-formats). |
+| 1.62.13 | 292 / 434 | Separator comma and semicolon are punctuation, not tokens; subscripts may be separated by spaces alone; a doubled delimiter inside a literal is one character. Three whole diagnostic buckets emptied. |
+| 1.62.14 | 317 / 434 | A whole table as an intrinsic argument; `CLOSE … WITH LOCK` / `NO REWIND` / `REEL`. **Intrinsic functions 45 / 45 on compile.** |
+| 1.62.16 | 376 / 434 | The `AT` in `AT END` is optional, so a bare `END` phrase no longer swallows the next paragraph header (33 programs). **Indexed I/O 42 / 42 on compile.** |
+| 1.62.21 | 417 / 434 | The Nucleus pass — `ALTER` series, subscripted condition‑names, abbreviated combined relations, `INSPECT` categories across operands. Nucleus 76 → 92 compiling. |
+| **1.62.42** | 420 / 434 | **Nucleus finished on both axes** — 95 / 95 compiling *and* executing clean, 4 614 assertions with none failing. |
+| **1.62.43** | 422 / 434 | Sequential I/O compiles completely, 85 / 85, and goes 10 → 44 of 85 on execution. A declarative's paragraphs keep their names, so a `USE` handler can `PERFORM` and `GO TO` them — 20 programs stopped crashing. |
+| **1.62.47** | — | **Sequential I/O finished** — 85 / 85 on both axes. The last gap was `XXXXD001`, a data file the CCVS85 *installation* supplies and no member writes; the harness now plants it. |
+| **1.62.76** | — | The **RELATIVE engine** lands (`cobolt-runtime/src/relative.rs`, container `PRCREL1`). All seven file verbs dispatch on `FileOrganization::Relative`. |
+| **1.62.77** | — | **Relative I/O finished** (34 / 34) from a 14 / 35 baseline in one session, and **Indexed I/O finished** — the relative engine closed IX106A's last four failures, which were the relative file it exercises alongside the sequential and indexed ones. |
+| **1.62.81** | — | **Intrinsic functions finished** on execution, 45 / 45, from a 24 / 45 baseline. Five causes, none of them in the module's own subject matter: a lexer separator rule twice, a flagging gap, `NUMVAL`'s argument grammar, an argument‑list comparison, and a division overflow path. |
+| **1.62.107** | — | **Inter‑program communication finished**, 25 / 25. |
+| **1.62.119** | — | **Sort / Merge finished**, 39 / 39, 735 PASS. The final step was `[COLLATING] SEQUENCE [IS] alphabet-name` on SORT/MERGE, ordering alphanumeric keys by the named `SPECIAL-NAMES` alphabet. |
+| **1.62.127** | — | **Source text manipulation finished**, 16 / 16. String‑literal operands keep their quotes; identifier operands span their `IN`/`OF` chain and subscript; pairs apply in one pass with no rescan of replacements. |
+| **1.62.129** | **420 / 420** | **The compile census closes at 100 %.** DB205A is scored under CM by ruling, which puts the in‑scope suite at 420. |
+
+> **The honest summary.** Every in‑scope program compiles, and every scored
+> program runs clean: **420 / 420 on compile, 380 / 380 on execution, 8 362
+> assertions with none failing.** Nine releases before the first of those rows
+> the compile figure was zero. What is still open is stated above as rulings
+> rather than hidden inside a percentage — DB's execution axis, SG, the `*301M`
+> flagging members, and 21 DELETED cases that have not been individually
+> explained.
 
 ---
 
@@ -940,7 +829,10 @@ A declarative may also `PERFORM` a paragraph of the non-declarative portion.
   own time of day, not UTC — including the date, which differs either side of
   midnight. `CURRENT-DATE`'s last five characters carry the **real** offset from
   GMT (`…-0300`), so a program can tell which zone it is running in.
-  ⚠️ Any unrecognised `FUNCTION` name still parses but returns **0** at runtime.
+  ✅ An unrecognised `FUNCTION` name is a **compile error** naming the function,
+  with a suggestion when a real one is close enough to be a likely typo. It used
+  to parse and return **0** at runtime, which turned a misspelling into a
+  confidently wrong answer (1.62.15).
 - ✅ Literals: integer, decimal, string, all figurative constants
   (`SPACES/SPACE, ZEROS/ZERO/ZEROES, HIGH-VALUES, LOW-VALUES, QUOTES, NULLS`,
   `ALL "x"`).
@@ -1187,9 +1079,12 @@ gaps above, which are defects being worked through:
    (single run‑unit model).
 3. **Object‑Oriented COBOL** (class/method definitions) — `INVOKE` is a no‑op
    for COBOL objects (it drives GUI/runtime objects only).
-4. Unrecognised intrinsic‑function names still return **0** — the same silent
-   failure mode. Spec:
-   [intrinsics](../specs/nist/NIST-spec-intrinsic-function-gaps.md).
+4. ✅ **Resolved (1.62.15).** An unrecognised intrinsic‑function name used to
+   return **0** silently, so a program computed a confidently wrong answer from
+   a typo. It is now a **compile error** that names the function and suggests
+   the nearest real one when there is a close enough match
+   (`cobolt-semantic/src/resolver.rs`, `Expr::FunctionCall`). Kept here because
+   the silent‑zero shape is the trap items 5 and 6 still carry.
 5. ⚠️ **An invalid `ACCESS MODE` / `ORGANIZATION` value is swallowed without a
    diagnostic** — the same trap again, and this one is triggered by an ordinary
    user typo. `ACCESS MODE IS` accepts only `SEQUENTIAL`, `RANDOM` or `DYNAMIC`
@@ -1197,11 +1092,12 @@ gaps above, which are defects being worked through:
    parser tests those three and lets anything else fall through to the generic
    "skip an unknown token" arm, so the file silently keeps the default
    `SEQUENTIAL` and misbehaves at run time instead of failing to compile.
-   `ORGANIZATION IS` has the identical shape. Both should raise a clear
-   compile‑time error naming the offending word. **Not a Nucleus problem** —
-   no NC program carries an `ACCESS MODE` clause; the clause appears only in
-   the DB, IC, IX, OBSQ, RL, RW, SQ and ST modules, so under GOLDEN RULE #9
-   this waits until NC is finished.
+   `ORGANIZATION IS` has the identical shape (`cobolt-parser/src/parser.rs`,
+   the `Token::Access` arm and the organization arm above it). Both should
+   raise a clear compile‑time error naming the offending word. **No NIST module
+   will ever catch this** — the suite writes only valid clauses, so every
+   module can finish at 100 % with the gap still open. It is a user‑typo trap,
+   and it needs a test of its own rather than a module score.
 6. ⚠️ **`ALPHABET … IS EBCDIC` is accepted but leaves native (ASCII) ordering
    in force.** The literal phrase (`"A" THRU "H" "I" ALSO "J" …`), `NATIVE`,
    `STANDARD‑1` and `STANDARD‑2` are all implemented and drive

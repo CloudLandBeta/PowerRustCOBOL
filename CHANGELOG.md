@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.6] — 2026-09-05
+
+### The support matrix caught up with the NIST ledger
+
+`docs/cobol85-supported-syntax-en.md` still reported the suite as it stood on
+2026-08-28 at 1.62.43: 422 of 434 compiling, 97.2 %, Sequential I/O "in
+flight" at 44 of 85, and a section headed "Where the remaining 192 failures
+come from". None of that has been true since 1.62.129.
+
+Rewritten from `NIST/progress.json`, which is the committed ledger and the
+figure of record rather than a number retyped into prose:
+
+- **Compile 420 / 420**, FAIL 0. The census closed at 1.62.129, when DB205A
+  was re-scored under CM and the in-scope suite became 420 rather than 434.
+- **Execution 380 / 380** across the eight scored modules, **8 362 assertions
+  PASS / 0 FAIL**.
+- A per-module table now carries BOTH axes with their own denominators, and
+  says why they differ: the `*301M` members test intermediate-subset flagging
+  of features implemented as standard and are excluded from execution by
+  ruling, and most IC members are callees with no report of their own.
+- DB is shown as compile-only and SG as ruled out of scope, in the table
+  rather than omitted, so neither gap hides.
+- The DELETED count is stated as what it is: 24 cases, of which only SM's 3
+  are documented as the distribution's own. The old text implied all were.
+
+Three claims elsewhere in the document contradicted the code, and were checked
+against it rather than against the README:
+
+- An unrecognised `FUNCTION` name has been a compile error with a suggestion
+  since 1.62.15, yet the document said twice that it "returns 0 at runtime" —
+  once in the intrinsics section and once in the avoid-list, while its own
+  history table recorded the fix.
+- The invalid `ACCESS MODE` / `ORGANIZATION` trap is still real
+  (`cobolt-parser/src/parser.rs`), but was filed as waiting on GOLDEN RULE #9
+  until Nucleus finished. Nucleus finished long ago. No NIST module will ever
+  catch it, because the suite writes only valid clauses.
+- `ALPHABET IS EBCDIC` leaving ASCII order in force was re-checked and is
+  accurate (`cobolt-runtime/src/collation.rs` returns `None` for it).
+
+The five translations still carry the old figures. Under the standing
+English-only rule they are left alone.
+
 ## [PowerRustCOBOL 1.65.5] — 2026-09-05
 
 ### The AI-pane layout trace is gone
