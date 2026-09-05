@@ -2937,21 +2937,47 @@ remove a definition from the project, right-click in the designer and choose
 
 ### Per-control examples
 
-The repository ships a runnable test project for **every** control under
-`examples/<control>/`. Each one places a single instance of the control, prints
-a console line for every event it supports (`DISPLAY "<Event> working"`), and
-gives you one button per property that changes it from COBOL via
-`INVOKE … "SetProperty"`. They double as a reference for wiring events and
-setting properties from code.
+The repository ships **one** application that demonstrates every control:
+`examples/PowerDemo3`, **42 forms** under `forms/`, filed in the same categories
+the toolbox uses — `Common/` (15), `Non-Visual/` (7), `Graphics/` (6),
+`Containers/` (4), `Menus & Bars/` (4), `General/` (2), and one apiece in
+`Charts/`, `Data/` and `Rust/`. A form is named after its control, so the demo
+for whatever you are reading about is where you would expect it:
+`forms/Common/knob-form.cfrm`, `forms/Containers/splitter-form.cfrm`,
+`forms/Non-Visual/websearch-form.cfrm`.
+
+Each one places the control, wires the events it supports, and gives you a
+button per property that changes it from COBOL — so it doubles as a reference
+for wiring events and setting properties from code. The handlers are written in
+the **extended dialect** rather than the long form (an inline call on a control,
+a direct write to a property, `::` chaining, block literals), and 30 of the
+forms carry a comment above every line that uses an extension, in all six
+interface languages: 484 of them apiece in English, Portuguese, Spanish, French,
+Japanese and Chinese.
+
+Open the project with **File ▸ Open Project** and run it — it starts on a
+sidebar form that reaches every demo. Any single form also runs on its own from
+the designer, which is the quick way to try one control. From the command line:
 
 ```sh
-rcrun build examples/label/cobolt.toml     # build one
-examples/build-all.sh                      # build them all (reports 0 failed)
+rcrun build examples/PowerDemo3/PowerDemo3.project.toml
 ```
 
-The service controls (`agent-object`, `rest-client`, `sql-database`) build
-offline but need their local service to run; each project's `README.md` says
-which. See `examples/README.md` for the full index.
+It is a real project rather than a gallery: it carries its own `src/`,
+`COPYBOOKS/`, an indexed definition (`indexed/actors.cidx`) with its data under
+`data/`, assets, a Knowledge Base, and a vendored Project's Crates library that
+`forms/Rust/ferris-says-form.cfrm` calls from an `EXEC RUST` block.
+
+Three of the Non-Visual demos reach outside the machine — `agent-form`,
+`restapi-form` and `websearch-form`. They open and build offline, but need
+their service reachable, or their credential configured, to do anything.
+`sqldatabase-form` is not one of them: it connects to `sqlite::memory:`, and
+SQLite is bundled, so it runs with nothing installed.
+
+> **What did not work is written down too.** `forms/DEMOS-TO-FIX.md` is the
+> catalogue kept while the demos were built — each entry verified against the
+> source rather than assumed, and some of them are live in a shipped demo. Read
+> it before concluding that a demo is showing you a control's real behaviour.
 
 ### Default Theme Settings (what a theme means in *your* project)
 

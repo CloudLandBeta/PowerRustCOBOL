@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.16] — 2026-09-05
+
+### The guide described an examples layout that no longer exists
+
+*Per-control examples* in the control catalogue documented one project per
+control under `examples/<control>/`, built with
+`rcrun build examples/label/cobolt.toml` or all at once with
+`examples/build-all.sh`, and indexed by `examples/README.md`. **None of those
+paths exist.** PowerDemo3 replaced that layout and the section was never
+rewritten, so a reader following it hit four dead paths in a row.
+
+It now describes what is actually there: `examples/PowerDemo3`, 42 forms under
+`forms/` in the toolbox's own categories, named after their controls; the
+extended-dialect handlers and their 484 six-language annotations; the real
+project around them — `src/`, `COPYBOOKS/`, `indexed/actors.cidx`, assets, a
+Knowledge Base and the vendored Project's Crates library that
+`forms/Rust/ferris-says-form.cfrm` calls from an `EXEC RUST` block; and
+`forms/DEMOS-TO-FIX.md`, the catalogue of what did not work.
+
+Every path and count in the new text was checked against the directory, and the
+one command it gives was run rather than assumed:
+
+```sh
+rcrun build examples/PowerDemo3/PowerDemo3.project.toml
+```
+
+which builds all 42 forms into one binary in about 30 seconds.
+
+The old text's warning about service controls survives, corrected. Three demos
+need something outside the machine — `agent-form`, `restapi-form`,
+`websearch-form`. `sqldatabase-form` does not: it opens `sqlite::memory:`, and
+SQLite is bundled.
+
 ## [PowerRustCOBOL 1.65.15] — 2026-09-05
 
 ### The demo's six-language annotations are worth saying out loud
