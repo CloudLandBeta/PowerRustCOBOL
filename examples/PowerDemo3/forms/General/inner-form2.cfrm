@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="INNER-FORM2" title="Non-visual controls" width="904" height="752" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="/Users/emersonlopes/Documents/PowerDemo3/Assets/rio0.png" bg-image-mode="Stretch" form-format="Embedded">
+<Form name="INNER-FORM2" title="Non-visual controls" width="904" height="752" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/rio0.png" bg-image-mode="Stretch" form-format="Embedded">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -81,7 +81,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rio1.png</Property>
+    <Property name="ImagePath">assets/rio1.png</Property>
     <Property name="SizeMode">Stretch</Property>
     <Property name="ImageAlignment">TopLeft</Property>
     <Property name="BorderStyle">None</Property>
@@ -117,7 +117,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rio2.png</Property>
+    <Property name="ImagePath">assets/rio2.png</Property>
     <Property name="SizeMode">Normal</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>

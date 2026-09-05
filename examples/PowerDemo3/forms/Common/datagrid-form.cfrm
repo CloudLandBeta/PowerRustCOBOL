@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="DATAGRID-FORM" title="Datagrid DEMO" width="1288" height="720" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="/Users/emersonlopes/Documents/PowerDemo3/Assets/rust.png" bg-image-mode="Stretch" form-format="Embedded">
+<Form name="DATAGRID-FORM" title="Datagrid DEMO" width="1288" height="720" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/rust.png" bg-image-mode="Stretch" form-format="Embedded">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"

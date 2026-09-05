@@ -250,7 +250,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Source">/Users/emersonlopes/Documents/PowerDemo3/Assets/images/original-c0a1df52ccc41eead16747c887398c0d.webp</Property>
+    <Property name="Source">assets/images/original-c0a1df52ccc41eead16747c887398c0d.webp</Property>
     <Property name="AutoPlay">true</Property>
     <Property name="Loop">true</Property>
     <Property name="SizeMode">Fit</Property>

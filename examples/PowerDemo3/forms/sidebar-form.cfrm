@@ -89,9 +89,9 @@
     <Property name="Collapsed">true</Property>
     <Property name="IconEffect">Shadow</Property>
     <Property name="IconSize">25</Property>
-    <Property name="HeaderImage">/Users/emersonlopes/Documents/PowerDemo3/Assets/Titan_Voyages_Logo_270x80.png</Property>
+    <Property name="HeaderImage">assets/Titan_Voyages_Logo_270x80.png</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="HeaderIcon">/Users/emersonlopes/Documents/PowerDemo3/Assets/Titan_Voyages_Logo_45x45.png</Property>
+    <Property name="HeaderIcon">assets/Titan_Voyages_Logo_45x45.png</Property>
     <Property name="FooterHeight">144</Property>
     <Property name="HeaderHeight">112</Property>
     <Property name="IconSizeCollapsed">34</Property>
@@ -746,7 +746,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNABRIRNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
@@ -799,7 +799,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNALTERARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -848,7 +848,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNEXCLUIRNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -897,7 +897,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNAPROVARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -946,7 +946,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">MiddleLeft</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNREJEITARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -996,7 +996,7 @@
     <Property name="IconSize">32</Property>
     <Property name="TextAlignment">BottomRight</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Event name="onClick" paragraph="BTNENCAMINHARNEW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -1045,7 +1045,7 @@
     <Property name="IconSize">64</Property>
     <Property name="TextAlignment">MiddleRight</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="IconPath">/Users/emersonlopes/Documents/PowerDemo3/Assets/icon.png</Property>
+    <Property name="IconPath">assets/icon.png</Property>
     <Animation name="appear" trigger="OnFormLoad" kind="ZoomIn" duration="1800" delay="2400" easing="Elastic" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Switch-1" type="Switch" x="968" y="328" w="48" h="28" tab-order="0" z-order="23" visible="true" enabled="true" parent="Panel-8">

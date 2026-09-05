@@ -270,7 +270,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rust.png</Property>
+    <Property name="ImagePath">assets/rust.png</Property>
     <Property name="SizeMode">Normal</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
@@ -306,7 +306,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/chibi.png</Property>
+    <Property name="ImagePath">assets/chibi.png</Property>
     <Property name="SizeMode">Normal</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>

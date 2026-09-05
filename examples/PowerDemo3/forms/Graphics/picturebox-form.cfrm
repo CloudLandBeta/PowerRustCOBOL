@@ -285,7 +285,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rio1.png</Property>
+    <Property name="ImagePath">assets/rio1.png</Property>
     <Property name="SizeMode">Normal</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
@@ -383,7 +383,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rio1.png</Property>
+    <Property name="ImagePath">assets/rio1.png</Property>
     <Property name="SizeMode">Stretch</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
@@ -481,7 +481,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rio1.png</Property>
+    <Property name="ImagePath">assets/rio1.png</Property>
     <Property name="SizeMode">Zoom</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
@@ -579,7 +579,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="ImagePath">/Users/emersonlopes/Documents/PowerDemo3/Assets/rio1.png</Property>
+    <Property name="ImagePath">assets/rio1.png</Property>
     <Property name="SizeMode">CenterImage</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
@@ -669,10 +669,10 @@
       *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE "/Users/emersonlopes/Documents/PowerDemo3/Assets/rio2.png" TO Pic-Normal::ImagePath.
-           MOVE "/Users/emersonlopes/Documents/PowerDemo3/Assets/rio2.png" TO Pic-Stretch::ImagePath.
-           MOVE "/Users/emersonlopes/Documents/PowerDemo3/Assets/rio2.png" TO Pic-Zoom::ImagePath.
-           MOVE "/Users/emersonlopes/Documents/PowerDemo3/Assets/rio2.png" TO Pic-Center::ImagePath.
+           MOVE "assets/rio2.png" TO Pic-Normal::ImagePath.
+           MOVE "assets/rio2.png" TO Pic-Stretch::ImagePath.
+           MOVE "assets/rio2.png" TO Pic-Zoom::ImagePath.
+           MOVE "assets/rio2.png" TO Pic-Center::ImagePath.
       *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
       *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
       *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
@@ -742,7 +742,7 @@
       *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
       *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
       *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE "/Users/emersonlopes/Documents/PowerDemo3/Assets/no-such-picture.png" TO Pic-Zoom::ImagePath.
+           MOVE "assets/no-such-picture.png" TO Pic-Zoom::ImagePath.
 ]]></Event>
   </Control>
   <Control id="Btn-Frame" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
