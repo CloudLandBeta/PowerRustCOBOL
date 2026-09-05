@@ -11288,6 +11288,17 @@ pub fn restore_container_outline(
     radius: f32,
     glass: bool,
     masked: egui::CornerRadius,
+    // The alpha the control was DRAWN with (Transparency Ã ancestor opacity Ã
+    // animation) â the same value the notch mask folds into the shadow it
+    // re-composites.
+    //
+    // Restoring at FULL strength put a bright, opaque arc on each of the four
+    // masked corners of a faded container and nowhere else along its edge,
+    // which reads exactly like a bleed (operator, 2026-09-04: "all 4 corners
+    // have this problem ... it seems to be a transparency"). A shape dump shows
+    // the face drawn `#99999999` and its rim `#66666666`, then the restore
+    // redrawing that rim `#AAAAAAAA`.
+    alpha: f32,
 ) {
     // Stated positively, so a control type that later joins the notch mask has to
     // opt in deliberately rather than inherit an outline it never draws.
@@ -11352,22 +11363,40 @@ pub fn restore_container_outline(
 
     // Draw the container outline (glass rim first, user border on top), matching
     // draw_control. Called once per corner, clipped to that corner's square.
+    // Everything restored here is redrawn at the alpha the control was DRAWN
+    // with, so a faded container's corners match the rest of its edge instead
+    // of standing out as four bright arcs.
+    // The control's OWN Transparency is folded into its face colour by
+    // `draw_control`, not into the alpha the render loop tracks, so the restore
+    // has to apply both — otherwise a 40 %-transparent panel restores its rim
+    // at full strength and the four corners stand out.
+    let k = (alpha.clamp(0.0, 1.0) * opacity_of(ctrl)).clamp(0.0, 1.0);
+    let fade = |c: Color32| -> Color32 {
+        Color32::from_rgba_premultiplied(
+            (c.r() as f32 * k).round() as u8,
+            (c.g() as f32 * k).round() as u8,
+            (c.b() as f32 * k).round() as u8,
+            (c.a() as f32 * k).round() as u8,
+        )
+    };
     let draw_outline = |clip: egui::Rect| {
         let p = painter.with_clip_rect(clip);
         if glass {
             // Matches draw_glass's default Classic rim: 1.4px, white 170, inset by
             // half its width so it sits inside the rect like the original.
             let bw = 1.4_f32;
-            let half = bw * 0.5;
             p.rect_stroke(
                 rect,
                 rnd,
-                Stroke::new(bw, Color32::from_rgba_premultiplied(170, 170, 170, 170)),
+                Stroke::new(bw, fade(Color32::from_rgba_premultiplied(170, 170, 170, 170))),
                 egui::StrokeKind::Inside,
             );
         }
         if let Some((bw, bc)) = user_border {
-            let half = bw * 0.5;
+            // NOT faded: `draw_control` paints the user border at full strength
+            // on a transparent container too, and the restore's whole job is to
+            // reproduce what the face painted. Fading it here would trade a
+            // bright arc on the four corners for a faint one.
             p.rect_stroke(rect, rnd, Stroke::new(bw, bc), egui::StrokeKind::Inside);
         }
     };

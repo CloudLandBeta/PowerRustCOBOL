@@ -908,6 +908,7 @@ fn mask_container_notches(
             rad,
             input.glass,
             rounding,
+            alphas.get(&live.id).copied().unwrap_or(1.0),
         );
     }
 }
@@ -9510,7 +9511,7 @@ mod tests {
         input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
         let mut full = ctx.run_ui(input, |root_ui| {
             let painter = root_ui.painter_at(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(600.0, 400.0)));
-            crate::paint::restore_container_outline(&painter, &panel, rect, r, true, masked);
+            crate::paint::restore_container_outline(&painter, &panel, rect, r, true, masked, 1.0);
         });
         full.textures_delta.clear();
         let mut hit = std::collections::BTreeSet::new();
@@ -9596,7 +9597,7 @@ mod tests {
                     pos2(0.0, 0.0),
                     Vec2::new(1000.0, 800.0),
                 ));
-                crate::paint::restore_container_outline(&painter, &c, rect, r, true, all);
+                crate::paint::restore_container_outline(&painter, &c, rect, r, true, all, 1.0);
             });
             full.textures_delta.clear();
             fn count(s: &egui::Shape, n: &mut usize) {

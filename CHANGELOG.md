@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.1] — 2026-09-05
+
+### A translucent container's corners stop standing out
+
+A Panel with Transparency showed a wedge at all four corners, on the designer,
+the preview and the run form alike (operator, 2026-09-04).
+
+That it appeared on ALL THREE surfaces was the clue that named the layer: only
+the run form calls `restore_container_outline`, so an artifact everywhere is
+the mask or the face — except the designer paths in `render.rs` restore too,
+and a shape dump settled it outright. A 40 %-transparent Panel paints its face
+`#99999999` and its rim `#66666666` along the whole edge; the notch mask then
+repaints the backdrop over the four corner arcs, and the restore redrew that
+rim at `#AAAAAAAA` — full strength, on the corners only. Four bright arcs on an
+otherwise faded edge read exactly like a bleed.
+
+`restore_container_outline` now takes the alpha the control was drawn with —
+the same value the mask already folds into the shadow it re-composites — and
+multiplies it by the control's own `Transparency`, which `draw_control` bakes
+into the face colour rather than into the alpha the render loop tracks. Both
+were needed: the tracked alpha alone is 1.0 for a control faded by its own
+property.
+
+The user border is deliberately NOT faded: `draw_control` paints it at full
+strength on a transparent container too, and the restore's job is to reproduce
+what the face painted, not to improve on it. Fading it would have traded a
+bright arc for a faint one.
+
+Three guards, confirmed to fail without the fix: a translucent panel restores
+no full-strength rim, an opaque one still does, and the border matches the
+face either way.
+
 ## [PowerRustCOBOL 1.65.0] — 2026-09-04
 
 ### Asset paths are project-relative, and the bundle carries what the app reads
