@@ -2454,7 +2454,6 @@ Fortran
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
@@ -2469,8 +2468,6 @@ Fortran
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="ImagePath">assets/images/made-with-powerrustcobol.png</Property>
     <Property name="SizeMode">Normal</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
