@@ -137,8 +137,8 @@ impl DebugSettings {
     /// anything the IDE inherited from its own environment; `COBOLT_LOG` is
     /// passed only when set, leaving the child's own default in place.
     ///
-    /// AI-pane debug is IDE-only (it sizes the IDE's own AI pane) and is
-    /// deliberately not forwarded.
+    /// The doc-screenshot switch is not forwarded: it is an authoring tool for
+    /// this checkout and means nothing in a running form.
     pub fn child_env(&self) -> Vec<(&'static str, String)> {
         let onoff = |b: bool| if b { "1" } else { "0" }.to_string();
         let mut env = vec![
