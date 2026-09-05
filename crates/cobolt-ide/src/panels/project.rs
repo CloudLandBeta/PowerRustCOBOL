@@ -269,8 +269,14 @@ impl ProjectPanel {
     }
 
     /// Set the root directory shown in tree mode.
+    ///
+    /// This is also the one place the IDE learns which project is open, so it
+    /// anchors project-relative asset paths here: a form storing
+    /// `assets/logo.png` is read against THIS directory rather than against
+    /// whatever the IDE's working directory happens to be.
     pub fn set_root(&mut self, root: impl Into<PathBuf>) {
         let root = root.into();
+        cobolt_forms::assets::set_base(&root);
         self.expanded.clear();
         self.expand_first_level_dirs(&root);
         self.root = Some(root);

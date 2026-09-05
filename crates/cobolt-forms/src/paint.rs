@@ -6064,7 +6064,9 @@ pub fn cached_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::Tex
 }
 
 pub fn load_image_texture(ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
-    let bytes = std::fs::read(path).ok()?;
+    // Project-relative paths are anchored (`assets::resolve`); an absolute one
+    // passes straight through.
+    let bytes = std::fs::read(crate::assets::resolve(path)).ok()?;
     let ci = decode_image_bytes(path, &bytes)?;
     // Repeat wrap (identical to clamp for in-bounds [0,1] UVs) so a Tiled backdrop
     // can also tile inside the corner-notch mask (spec 017).
@@ -6228,7 +6230,7 @@ fn picturebox_svg_native_size(path: &str) -> Option<Vec2> {
     if let Some(size) = cache.lock().unwrap().get(path) {
         return *size;
     }
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = std::fs::read(crate::assets::resolve(path)).ok()?;
     let size = svg_native_size_from_bytes(&bytes);
     cache.lock().unwrap().insert(path.to_owned(), size);
     size
@@ -6249,7 +6251,7 @@ fn picturebox_svg_texture(
     if let Some(h) = ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
         return Some(h);
     }
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = std::fs::read(crate::assets::resolve(path)).ok()?;
     let image = decode_svg_bytes_at_size(&bytes, width, height)?;
     let handle = ctx.load_texture(
         format!("{path}@{width}x{height}"),
@@ -7563,7 +7565,7 @@ pub fn draw_animator(
         cobolt_media::play(
             painter.ctx(),
             key,
-            move || std::fs::read(&path).ok(),
+            move || std::fs::read(crate::assets::resolve(&path)).ok(),
             auto_play,
             looping,
             &ctrl.id,

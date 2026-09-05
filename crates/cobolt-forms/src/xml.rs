@@ -545,6 +545,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     let mut form = form.ok_or_else(|| FormError::MissingElement("Form".into()))?;
     // Empty REPOSITORY ⇒ seed the curated Rust-FFI type bridge; any
     // developer-authored content is preserved as-is (spec 005).
+    relativize_asset_paths(&mut form);
     form.seed_repository_if_empty();
     // Containers (spec 012): flatten any legacy <Children> nesting into the flat
     // editing list with `parent` links, and migrate the old Panel `Scrollable`
@@ -565,6 +566,62 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
 
 /// Seed properties that were added after a control was first created, so that
 /// existing .cfrm files gain the new UI without a manual re-create.
+/// Rewrite absolute asset paths that point INSIDE the project into the
+/// project-relative form, on load.
+///
+/// Forms saved before this existed carry the full path the designer's picker
+/// handed them — `/Users/<someone>/Documents/<project>/assets/logo.png` — which
+/// breaks on every other machine, and on the author's own as soon as the
+/// project moves (operator, 2026-09-04: the shipped demo project's images all
+/// pointed at a directory that no longer existed).
+///
+/// Healing on LOAD rather than in a migration tool means a form is corrected
+/// the first time it is opened and the correction is written out by the next
+/// ordinary save. A path outside the project is left absolute: the developer
+/// pointed there deliberately.
+fn relativize_asset_paths(form: &mut crate::model::Form) {
+    let Some(root) = crate::assets::current_base() else {
+        return;
+    };
+    let rewrite = |value: &str| -> Option<String> {
+        let p = std::path::Path::new(value.trim());
+        if !p.is_absolute() {
+            return None;
+        }
+        let rel = crate::assets::store(&root, p);
+        // `store` returns the input unchanged when it is not under the root.
+        (rel != value.trim()).then_some(rel)
+    };
+
+    if let Some(rel) = rewrite(&form.background_image) {
+        form.background_image = rel;
+    }
+    for ctrl in &mut form.controls {
+        // Any property whose value is a path: matched by NAME, because the
+        // catalogue spells them ImagePath, IconPath, HeaderImage,
+        // GridBackgroundImage, LeafIcon, ParentIcon and so on, and a new one
+        // must not have to be added here to be healed.
+        let keys: Vec<String> = ctrl
+            .properties
+            .keys()
+            .filter(|k| {
+                let k = k.to_ascii_lowercase();
+                k.ends_with("path") || k.ends_with("image") || k.ends_with("icon")
+            })
+            .cloned()
+            .collect();
+        for key in keys {
+            let Some(crate::model::PropValue::String(v)) = ctrl.properties.get(&key) else {
+                continue;
+            };
+            if let Some(rel) = rewrite(v) {
+                ctrl.properties
+                    .insert(key, crate::model::PropValue::String(rel));
+            }
+        }
+    }
+}
+
 fn seed_missing_props(form: &mut Form) {
     use crate::model::{ControlType, PropValue};
     for c in &mut form.controls {

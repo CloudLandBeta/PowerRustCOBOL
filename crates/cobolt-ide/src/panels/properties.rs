@@ -436,6 +436,21 @@ fn color_picker_body(ui: &mut Ui, id: egui::Id, color: &mut Color32) -> bool {
 /// egui's default button: the Toolbar Editor's group and button colours are
 /// picked here too (operator, 2026-08-17). The fixed grid is the active theme's
 /// palette, which is the part that would be lost by rolling a second picker.
+/// A picked file, stored the way a form must carry it: **project-relative**
+/// when it is inside the project, absolute only when it genuinely is not.
+///
+/// The pickers stored `p.to_string_lossy()` — the full path — so every form
+/// saved with an image carried `/Users/<someone>/…` into the repository, where
+/// it was broken for every other machine and for the author too as soon as the
+/// project moved (operator, 2026-09-04). The project directory is the asset
+/// anchor set when the project was opened.
+fn store_asset_path(p: &std::path::Path) -> String {
+    match cobolt_forms::assets::current_base() {
+        Some(root) => cobolt_forms::assets::store(&root, p),
+        None => p.to_string_lossy().to_string(),
+    }
+}
+
 pub(crate) fn color_edit_button_closing(ui: &mut Ui, color: &mut Color32) -> egui::Response {
     use egui::color_picker::show_color_at;
     use egui::{Area, Frame, Key, Order, Pos2, Sense, Stroke, UiKind, Vec2};
@@ -4026,7 +4041,7 @@ impl PropertiesPanel {
                 ui.ctx().request_repaint();
             }
             if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
-                let picked = p.to_string_lossy().to_string();
+                let picked = store_asset_path(&p);
                 *buf = picked.clone();
                 action
                     .set_props
@@ -9632,7 +9647,7 @@ impl PropertiesPanel {
                             ui.ctx().request_repaint();
                         }
                         if let Some(Some(p)) = crate::file_dialog::take(&pick_k) {
-                            let path_str = p.to_string_lossy().to_string();
+                            let path_str = store_asset_path(&p);
                             *buf = path_str.clone();
                             action.form_props.push(("BackgroundImage".into(), path_str));
                         }
@@ -10924,7 +10939,7 @@ fn image_browse_row(
             ui.ctx().request_repaint();
         }
         if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
-            let path_str = p.to_string_lossy().to_string();
+            let path_str = store_asset_path(&p);
             *buf = path_str.clone();
             action.set_props.push((
                 ctrl_id.to_owned(),

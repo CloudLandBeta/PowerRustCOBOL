@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.0] — 2026-09-04
+
+### Asset paths are project-relative, and the bundle carries what the app reads
+
+A form stored an image as the full path its picker returned —
+`/Users/<someone>/Documents/<project>/assets/logo.png`. That is broken on every
+other machine, and on the author's own as soon as the project moves: the shipped
+demo project's images all pointed at a directory that no longer existed
+(operator, 2026-09-04).
+
+Nothing resolved a relative path either. `paint.rs` handed the stored string
+straight to `std::fs::read`, so a relative one was resolved by the OS against
+the process's working directory — wherever the application happened to be
+launched from. Only absolute paths worked, which is why the designer wrote them.
+
+**The anchor.** `cobolt_forms::assets` holds the directory project-relative
+paths resolve against, set once at start-up: the project directory in the IDE
+(`ProjectPanel::set_root`, the one place it learns which project is open) and
+in `rcrun run-form`, and in a built application the first folder at or above the
+executable that HAS an `assets/`. That last rule makes both shapes work with no
+launch-directory ceremony — `dist/`, where the assets sit beside the binary,
+and `bin/`, which is inside the project one level below them.
+
+**Storing.** All three image pickers now store project-relative when the file is
+inside the project, absolute only when it genuinely is not — mirroring
+`cobolt_indexed::paths::store_path`, which has stored `.cidx` assign paths that
+way since indexed files were introduced. Forms simply never adopted it.
+
+**Healing.** A form carrying an absolute path INSIDE the project is corrected
+when it loads, so the next ordinary save writes it relative. Matched by property
+name — anything ending Path, Image or Icon — so a new path-bearing property is
+healed without being added to a list. A path outside the project is left alone:
+the developer pointed there deliberately.
+
+**The bundle.** `dist/` now carries `assets/` AND `data/`, both in their
+project-relative layout, so `assets/logo.png` and `data/idxfiles/actors.idx`
+resolve there exactly as they do in the project. The copy also no longer looks
+for a lowercase `assets` while the project spells it otherwise — a mismatch that
+worked only by accident on a case-insensitive filesystem and would have copied
+nothing on Linux. `bin/` gets neither, by design.
+
+Verified end to end: PowerDemo3 builds, and `dist/` carries 52 asset files and
+6 data files including the 4.5 MB indexed file the demos read.
+
 ## [PowerRustCOBOL 1.64.31] — 2026-09-04
 
 ### A container moved at run time carries its contents

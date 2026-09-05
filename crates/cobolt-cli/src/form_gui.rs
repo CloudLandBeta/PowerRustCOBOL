@@ -187,6 +187,18 @@ pub fn cmd_run_form(args: &[String]) {
             process::exit(2);
         }
     };
+    // Anchor project-relative asset paths before anything is loaded or drawn.
+    // The project directory is the one the form belongs to, found from the
+    // form's own location; a form outside any project anchors on its own
+    // folder, which is where its images sit in that case.
+    {
+        let anchor = cobolt_compiler::find_project_manifest(&cfrm_path)
+            .and_then(|m| m.parent().map(|p| p.to_path_buf()))
+            .or_else(|| cfrm_path.parent().map(|p| p.to_path_buf()));
+        if let Some(dir) = anchor {
+            cobolt_forms::assets::set_base(dir);
+        }
+    }
     // Before anything is loaded, parsed or drawn: may this form start at all?
     // `--designer` is passed by the IDE, and by nothing that ships.
     enforce_main_form(

@@ -1586,11 +1586,21 @@ fn build_core(
         }
     }
 
-    // Deep copy assets folder (if it exists) to destination folder
-    let assets_src = project_dir.join("assets");
-    if assets_src.exists() && assets_src.is_dir() {
-        let assets_dst = dest_path.join("assets");
-        let _ = copy_dir_all(&assets_src, &assets_dst);
+    // The hand-over bundle carries what the application READS at run time:
+    // `assets/` (images, animations, sounds, fonts) and `data/` (the indexed
+    // files a .cidx assign path points at, and any other data the program
+    // opens). Both keep their project-relative layout, so the same stored path
+    // — `assets/logo.png`, `data/idxfiles/actors.idx` — resolves here exactly
+    // as it does in the project (operator, 2026-09-04).
+    //
+    // `bin/` deliberately gets neither: it lives INSIDE the project, one level
+    // below the same folders, and the binary anchors on the project when its
+    // own directory carries no `assets/`.
+    for name in ["assets", "data"] {
+        let src = project_dir.join(name);
+        if src.is_dir() {
+            let _ = copy_dir_all(&src, &dest_path.join(name));
+        }
     }
 
     // `rcrun` is deliberately NOT shipped here. A built binary embeds its own
@@ -2447,6 +2457,30 @@ impl cobolt_form_host::HostHooks for BlockWindows {
 }
 
 fn run_form_app(program: cobolt_ast::program::Program) {
+    // Anchor project-relative asset paths, so a form storing `assets/logo.png`
+    // finds it wherever the application was started from — the working
+    // directory is whatever the user's shell or Finder happened to hand us.
+    //
+    // Two shapes, both of which must work (operator, 2026-09-04):
+    //   dist/  — the hand-over bundle, where `assets/` sits BESIDE the binary;
+    //   bin/   — the build output INSIDE the project, where `assets/` is one
+    //            level up beside the manifest and nothing is copied.
+    // Preferring the executable's own folder when it carries the assets, and
+    // otherwise walking up to the project, covers both without copying a
+    // megabyte of images into bin/ on every build.
+    if let Some(exe_dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+    {
+        // Walk up from the executable for the folder that HAS `assets/`.
+        // This code is emitted into the generated crate, so it can name only
+        // what that crate links — no compiler-side helper is in scope here.
+        let anchor = std::iter::successors(Some(exe_dir.as_path()), |p| p.parent())
+            .find(|d| d.join("assets").is_dir())
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| exe_dir.clone());
+        cobolt_forms::assets::set_base(anchor);
+    }
     use cobolt_form_host::state::CtrlState;
     use cobolt_forms::load_form_from_str;
     use cobolt_runtime::{Interpreter, FormEvent, StateUpdate};
