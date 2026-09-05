@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="INNER-FORM2" title="Non-visual controls" width="904" height="752" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/rio0.png" bg-image-mode="Stretch" form-format="Embedded">
+<Form name="INNER-FORM2" title="Non-visual controls" width="1672" height="888" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/rio0.png" bg-image-mode="Stretch" form-format="Embedded">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -49,12 +49,19 @@
            CLASS RUST-SYSTEMTIME IS "Rust.SystemTime"
            CLASS RUST-RANGE IS "Rust.Range"]]></repository>
   <form-events>
-    <Event name="onLoad" paragraph="INNER-FORM2--ONLOAD">
-    </Event>
+    <Event name="onLoad" paragraph="INNER-FORM2--ONLOAD"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           move 0 to Gauge-1::Value Gauge-2::Value Gauge-3::Value
+           CONTINUE.
+]]></Event>
     <Event name="onClose" paragraph="INNER-FORM2--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="PictureBox-1" type="PictureBox" x="0" y="240" w="904" h="515" tab-order="0" z-order="36" visible="true" enabled="true">
+  <Control id="PictureBox-1" type="PictureBox" x="0" y="208" w="1720" h="784" tab-order="0" z-order="36" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -69,7 +76,7 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">true</Property>
+    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -90,7 +97,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="1" trigger="OnFormLoad" kind="FadeIn" duration="5000" delay="5000" easing="EaseOut" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="PictureBox-2" type="PictureBox" x="0" y="216" w="904" h="515" tab-order="0" z-order="-311" visible="true" enabled="true">
+  <Control id="PictureBox-2" type="PictureBox" x="-288" y="72" w="1968" h="848" tab-order="0" z-order="-311" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -105,7 +112,7 @@
     <Property name="Strikethrough">false</Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">true</Property>
+    <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
@@ -118,7 +125,7 @@
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
     <Property name="ImagePath">assets/rio2.png</Property>
-    <Property name="SizeMode">Normal</Property>
+    <Property name="SizeMode">Stretch</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#888888</Property>
@@ -126,7 +133,7 @@
     <Property name="CornerRadius">0</Property>
     <Animation name="1" trigger="OnFormLoad" kind="FadeIn" duration="5000" delay="2000" easing="EaseOut" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="Panel-1" type="Panel" x="144" y="648" w="592" h="496" tab-order="0" z-order="1" visible="true" enabled="true">
+  <Control id="Panel-1" type="Panel" x="440" y="792" w="592" h="496" tab-order="0" z-order="1" visible="true" enabled="true">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F1F1F125</Property>
@@ -143,7 +150,7 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">5</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">8</Property>
     <Property name="ShadowColor">#6F9BFFFF</Property>
@@ -161,7 +168,7 @@
     <Property name="HideBackground">false</Property>
     <Property name="CornerRadius">26</Property>
   </Control>
-  <Control id="Gauge-1" type="Gauge" x="560" y="648" w="140" h="90" tab-order="0" z-order="3" visible="true" enabled="true" parent="Panel-1">
+  <Control id="Gauge-1" type="Gauge" x="856" y="800" w="140" h="90" tab-order="0" z-order="3" visible="true" enabled="true" parent="Panel-1">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -206,7 +213,7 @@
     <Property name="Color">#5A3333FF</Property>
     <Property name="WarningThreshold">0.70</Property>
   </Control>
-  <Control id="LineChart-1" type="LineChart" x="168" y="760" w="544" h="368" tab-order="0" z-order="4" visible="true" enabled="true" parent="Panel-1">
+  <Control id="LineChart-1" type="LineChart" x="464" y="904" w="544" h="368" tab-order="0" z-order="4" visible="true" enabled="true" parent="Panel-1">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -252,7 +259,7 @@
     <Property name="CornerRadius">26</Property>
     <Property name="BorderStyle">Single</Property>
   </Control>
-  <Control id="Gauge-2" type="Gauge" x="376" y="656" w="140" h="90" tab-order="0" z-order="5" visible="true" enabled="true" parent="Panel-1">
+  <Control id="Gauge-2" type="Gauge" x="672" y="800" w="140" h="90" tab-order="0" z-order="5" visible="true" enabled="true" parent="Panel-1">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -297,7 +304,7 @@
     <Property name="WarningThreshold">0.70</Property>
     <Property name="NeedleColor">#323131FF</Property>
   </Control>
-  <Control id="Gauge-3" type="Gauge" x="168" y="656" w="140" h="90" tab-order="0" z-order="6" visible="true" enabled="true" parent="Panel-1">
+  <Control id="Gauge-3" type="Gauge" x="472" y="800" w="140" h="90" tab-order="0" z-order="6" visible="true" enabled="true" parent="Panel-1">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -342,7 +349,7 @@
     <Property name="CriticalThreshold">0.85</Property>
     <Property name="WarningColor">#F5D200FF</Property>
   </Control>
-  <Control id="Timer-1" type="Timer" x="832" y="24" w="48" h="48" tab-order="0" z-order="37" visible="true" enabled="true">
+  <Control id="Timer-1" type="Timer" x="1432" y="8" w="48" h="48" tab-order="0" z-order="37" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -355,7 +362,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
@@ -370,9 +376,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
-    <Property name="Interval">100</Property>
+    <Property name="Interval">50</Property>
     <Property name="Enabled">true</Property>
     <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
@@ -381,7 +385,18 @@
        PROCEDURE DIVISION.
            IF Panel-1::Y > 50
                SUBTRACT 1 FROM Panel-1::Y
-           END-IF.
+           END-IF
+
+           IF Panel-1::Y < 712
+               MOVE 5  TO Panel-1::Transparency
+           END-IF
+
+           IF Gauge-1::Value < 100
+              COMPUTE Gauge-1::Value = Gauge-1::Value + 1
+              COMPUTE Gauge-2::Value = Gauge-2::Value + 2
+              COMPUTE Gauge-3::Value = Gauge-3::Value + 0.5
+           END-IF
+
            CONTINUE.]]></Event>
   </Control>
   <deleted-controls>
