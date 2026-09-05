@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.14] — 2026-09-05
+
+### The README never mentioned the example project
+
+`examples/PowerDemo3` is a complete 42-form application that ships in the
+repository — one form per control in the toolbox — and the front page did not
+name it once. It was not in the Repository layout table either, so a reader
+arriving at the repository had no way to find the one thing that shows what the
+product actually does.
+
+It now has a section of its own, placed where it is useful: immediately after
+the four steps that get the IDE open. The counts are the directory's real ones
+(15 `Common/`, 7 `Non-Visual/`, 6 `Graphics/`, 4 `Containers/`, 4
+`Menus & Bars/`, 2 `General/`, 1 each `Charts/` `Data/` `Rust/`), and
+`examples/` is now a row in the layout table.
+
 ## [PowerRustCOBOL 1.65.13] — 2026-09-05
 
 ### An accented caption crashed the IDE at startup

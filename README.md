@@ -175,6 +175,20 @@ That's it — the **PowerRustCOBOL AI** window opens and you can start designing
 and writing RustCOBOL. To work from the command line instead, see
 [Run / check a program from the CLI](#run--check-a-program-from-the-cli-rcrun) below.
 
+## The example project
+
+The repository ships a complete, runnable application to read and take apart:
+**`examples/PowerDemo3`** — **42 forms**, one for each control in the toolbox
+plus a few general and Rust-integration demos, grouped the way the toolbox
+groups them: 15 under `Common/`, 7 `Non-Visual/`, 6 `Graphics/`, 4 each in
+`Containers/` and `Menus & Bars/`, 2 `General/`, and one apiece for `Charts/`,
+`Data/` and `Rust/`.
+
+Open it from **File ▸ Open Project** (`examples/PowerDemo3`) and run it: the
+application starts on a sidebar form that reaches every demo. Each form also
+runs on its own from the designer, so a single control can be tried in
+isolation.
+
 ## Running applications
 
 A PowerRustCOBOL AI **project** is a directory with a `<project name>.toml` manifest plus its
@@ -311,6 +325,7 @@ the CLI **rcrun**):
 | `.claude/skills/` | Slash-command skills for the workflow (`/specify`, `/plan`, `/implement`, `/docsync`, …).                   |
 | `docs/`           | Developer guide (English canonical), language reference, and internals docs.                                 |
 | `tests/cobol/`    | COBOL integration programs exercised against the runtime.                                                    |
+| `examples/`       | `PowerDemo3` — the 42-form demo application described above.                                                 |
 
 
 | Crate             | Responsibility                                                     |
