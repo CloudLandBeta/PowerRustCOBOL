@@ -1251,41 +1251,6 @@
        GOBACK.]]></Event>
     <Animation name="appear" trigger="OnFormLoad" kind="Bounce" duration="400" delay="0" easing="EaseOut" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
-  <Control id="Label-9" type="Label" x="0" y="832" w="72" h="88" tab-order="0" z-order="127" visible="true" enabled="true" parent="SideMenu-1-Footer">
-    <Property name="Caption">12:00:00</Property>
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">16</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">8</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">6</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Center</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="CornerRadius">10</Property>
-  </Control>
   <Control id="Label-10" type="Label" x="632" y="432" w="184" h="32" tab-order="0" z-order="128" visible="true" enabled="true" parent="Panel-5">
     <Property name="Caption">Radio</Property>
     <Property name="BackgroundColor">#00000000</Property>
@@ -2063,75 +2028,6 @@ Fortran
     <Property name="LineColor"></Property>
     <Property name="GripColor"></Property>
   </Control>
-  <Control id="Timer-1" type="Timer" x="1504" y="56" w="48" h="48" tab-order="0" z-order="381" visible="true" enabled="false">
-    <Property name="BackgroundColor">#E1E6F8FF</Property>
-    <Property name="BackgroundGradientEnabled">true</Property>
-    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
-    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">18</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="Interval">125</Property>
-    <Property name="Enabled">false</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-
-       WORKING-STORAGE SECTION.
-       01 date-time  PIC 9(8).
-       01 date-time-edited.
-          05 hh      PIC 99.
-          05 FILLER  PIC x VALUE ":".
-          05 mm      PIC 99.
-          05 FILLER  PIC x VALUE ":".
-          05 ss      PIC 99.
-          05 FILLER  PIC x VALUE "_".
-          05 cc      PIC 99.
-
-       LINKAGE SECTION.
-
-       PROCEDURE DIVISION.
-           ACCEPT date-time FROM TIME
-
-           MOVE date-time(1:2) TO hh(1:)
-           MOVE date-time(3:2) TO mm(1:)
-           MOVE date-time(5:2) TO ss(1:)
-           MOVE date-time(7:2) TO cc(1:)
-
-           SET label-9::Caption TO date-time-edited
-
-           DISPLAY date-time " -> " date-time-edited
-
-           COMPUTE Knob-2::VALUE = Knob-2::VALUE + 1
-
-           IF Knob-2::VALUE > 100
-               COMPUTE Knob-2::VALUE = 100
-               SET Timer-1::Enabled TO false
-           END-IF
-
-           CONTINUE.
-]]></Event>
-  </Control>
   <Control id="Splitter-1-Pane1" type="Panel" x="634" y="722" w="453" h="148" tab-order="0" z-order="0" visible="true" enabled="true" parent="Splitter-1">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -2545,4 +2441,83 @@ Fortran
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
   </Control>
+  <Control id="PictureBox-1" type="PictureBox" x="64" y="840" w="168" h="106" tab-order="0" z-order="389" visible="true" enabled="true" parent="SideMenu-1-Footer">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Helvetica</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="ImagePath">assets/made-with-powerrustcobol.png</Property>
+    <Property name="SizeMode">Normal</Property>
+    <Property name="ImageAlignment">MiddleCenter</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="ShowFrame">false</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <deleted-controls>
+    <DeletedControl id="Timer-1" deleted-at="designer-delete-1788638031-47">
+      <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+
+       WORKING-STORAGE SECTION.
+       01 date-time  PIC 9(8).
+       01 date-time-edited.
+          05 hh      PIC 99.
+          05 FILLER  PIC x VALUE ":".
+          05 mm      PIC 99.
+          05 FILLER  PIC x VALUE ":".
+          05 ss      PIC 99.
+          05 FILLER  PIC x VALUE "_".
+          05 cc      PIC 99.
+
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           ACCEPT date-time FROM TIME
+
+           MOVE date-time(1:2) TO hh(1:)
+           MOVE date-time(3:2) TO mm(1:)
+           MOVE date-time(5:2) TO ss(1:)
+           MOVE date-time(7:2) TO cc(1:)
+
+           SET label-9::Caption TO date-time-edited
+
+           DISPLAY date-time " -> " date-time-edited
+
+           COMPUTE Knob-2::VALUE = Knob-2::VALUE + 1
+
+           IF Knob-2::VALUE > 100
+               COMPUTE Knob-2::VALUE = 100
+               SET Timer-1::Enabled TO false
+           END-IF
+
+           CONTINUE.
+]]></Event>
+    </DeletedControl>
+  </deleted-controls>
 </Form>

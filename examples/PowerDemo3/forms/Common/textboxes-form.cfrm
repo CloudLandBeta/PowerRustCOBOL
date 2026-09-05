@@ -54,7 +54,7 @@
     <Event name="onClose" paragraph="TEXTBOXES-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="txt1" type="TextBox" x="62" y="90" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt1" type="TextBox" x="61" y="66" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#333333</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -81,7 +81,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 1</Property>
+    <Property name="Text">Field 1</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -103,7 +103,7 @@
            MOVE FUNCTION UPPER-CASE(WS-TEXT) TO txt1::Text
            MOVE "Converte o texto para maiúsculas" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt2" type="TextBox" x="304" y="87" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt2" type="TextBox" x="303" y="63" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#444444</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -130,7 +130,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 2</Property>
+    <Property name="Text">Field 2</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -150,7 +150,7 @@
            MOVE "#FF0000" TO txt2::ForegroundColor
            MOVE "Altera a cor da fonte para vermelho" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt3" type="TextBox" x="544" y="87" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt3" type="TextBox" x="543" y="63" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -177,7 +177,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 3</Property>
+    <Property name="Text">Field 3</Property>
     <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -200,7 +200,7 @@
            MOVE WS-SIZE TO txt3::FontSize
            MOVE "Diminui o tamanho da fonte em 2 unidades" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt4" type="TextBox" x="64" y="137" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt4" type="TextBox" x="63" y="113" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#222222</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -227,7 +227,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 4</Property>
+    <Property name="Text">Field 4</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -248,7 +248,7 @@
            SET  txt4::BackgroundGradientEnabled TO 0
            MOVE "Altera a cor do fundo para verde" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt5" type="TextBox" x="304" y="137" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt5" type="TextBox" x="303" y="113" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#333333</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -275,7 +275,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 5</Property>
+    <Property name="Text">Field 5</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -296,7 +296,7 @@
            SET  txt5::BackgroundGradientEnabled TO 0
            MOVE "Restaura a cor do fundo para cinza escuro" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt6" type="TextBox" x="544" y="137" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt6" type="TextBox" x="543" y="113" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#444444</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -323,7 +323,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 6</Property>
+    <Property name="Text">Field 6</Property>
     <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -347,7 +347,7 @@
            END-IF
            MOVE "Altera a cor da fonte para amarelo se não estiver vazio" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt7" type="TextBox" x="64" y="187" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt7" type="TextBox" x="63" y="163" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -374,7 +374,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 7</Property>
+    <Property name="Text">Field 7</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -394,7 +394,7 @@
            MOVE "Center" TO txt7::TextAlignment
            MOVE "Centraliza o alinhamento do texto" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt8" type="TextBox" x="304" y="187" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt8" type="TextBox" x="303" y="163" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#666666</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -421,7 +421,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 8</Property>
+    <Property name="Text">Field 8</Property>
     <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -441,8 +441,8 @@
            SET txt8::ShadowEnabled TO 1
            MOVE "Ativa a sombra do controle" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt9" type="TextBox" x="544" y="187" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#777777</Property>
+  <Control id="txt9" type="TextBox" x="543" y="163" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
@@ -468,7 +468,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 9</Property>
+    <Property name="Text">Field 9</Property>
     <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -489,8 +489,8 @@
            SET  txt9::BackgroundGradientEnabled TO 0
            MOVE "Altera a cor do fundo para amarelo" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt10" type="TextBox" x="64" y="237" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#888888</Property>
+  <Control id="txt10" type="TextBox" x="63" y="213" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
@@ -516,8 +516,8 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 10</Property>
-    <Property name="TextAlignment">Left</Property>
+    <Property name="Text">Field 10</Property>
+    <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
     <Property name="MaximumLength">0</Property>
@@ -542,8 +542,8 @@
            END-IF
            MOVE "Ativa o negrito se o texto tiver mais de 10 caracteres" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt11" type="TextBox" x="304" y="237" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#999999</Property>
+  <Control id="txt11" type="TextBox" x="303" y="213" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
@@ -569,8 +569,8 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 11</Property>
-    <Property name="TextAlignment">Center</Property>
+    <Property name="Text">Field 11</Property>
+    <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
     <Property name="MaximumLength">0</Property>
@@ -589,8 +589,8 @@
            MOVE "Clicado!" TO txt11::Text
            MOVE "Altera o texto para 'Clicado!'" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt12" type="TextBox" x="544" y="237" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#AAAAAA</Property>
+  <Control id="txt12" type="TextBox" x="543" y="213" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
@@ -616,7 +616,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 12</Property>
+    <Property name="Text">Field 12</Property>
     <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -636,8 +636,8 @@
            SET txt12::BackgroundGradientEnabled TO 1
            MOVE "Ativa o gradiente de fundo" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt13" type="TextBox" x="184" y="287" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#BBBBBB</Property>
+  <Control id="txt13" type="TextBox" x="183" y="263" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
@@ -663,8 +663,8 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 13</Property>
-    <Property name="TextAlignment">Left</Property>
+    <Property name="Text">Field 13</Property>
+    <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
     <Property name="MaximumLength">0</Property>
@@ -683,8 +683,8 @@
            MOVE 14 TO txt13::FontSize
            MOVE "Aumenta o tamanho da fonte para 14" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt14" type="TextBox" x="424" y="287" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#CCCCCC</Property>
+  <Control id="txt14" type="TextBox" x="423" y="263" w="200" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#555555</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
     <Property name="BackgroundGradientEndColor">#000000FF</Property>
@@ -710,8 +710,8 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Campo 14</Property>
-    <Property name="TextAlignment">Center</Property>
+    <Property name="Text">Field 14</Property>
+    <Property name="TextAlignment">Right</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
     <Property name="MaximumLength">0</Property>
@@ -732,7 +732,7 @@
            END-IF
            MOVE "Altera a cor da fonte para azul se o texto for 'OK'" TO Label-1::Caption.]]></Event>
   </Control>
-  <Control id="txt15" type="TextBox" x="66" y="353" w="673" h="100" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="txt15" type="TextBox" x="66" y="376" w="673" h="81" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#333333</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -759,7 +759,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">Observações gerais...</Property>
+    <Property name="Text">General notes...</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -798,7 +798,7 @@
            MOVE "Concatena todos os campos no lblSummary" TO Label-1::Caption.]]></Event>
   </Control>
   <Control id="lblSummary" type="Label" x="65" y="474" w="673" h="75" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Resumo:</Property>
+    <Property name="Caption">Summary:</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -868,8 +868,8 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="RadioButton-1" type="RadioButton" x="30" y="301" w="140" h="22" tab-order="0" z-order="2" visible="true" enabled="true">
-    <Property name="Caption">RadioButton-1</Property>
+  <Control id="Button-1" type="Button" x="330" y="332" w="143" h="28" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Summarize</Property>
     <Property name="BackgroundColor">#36383EFF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#4E4E4EFF</Property>
@@ -882,6 +882,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
@@ -896,17 +897,47 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Selected">false</Property>
-    <Property name="CheckAlignment">Left</Property>
-    <Property name="CheckColor">#0078D7</Property>
-    <Property name="CheckSize">70</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="BorderColor">#8C8CA0</Property>
     <Property name="BorderWidth">1</Property>
-    <Property name="CheckBoxBorderStyle">None</Property>
-    <Property name="CheckBoxBorderColor">#8C8CA0</Property>
-    <Property name="CheckBoxBorderWidth">1</Property>
+    <Property name="IconPath"></Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
     <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01  WS-SUMMARY      PIC X(2000).
+       01  WS-TEMP-VAL     PIC X(255).
+
+       PROCEDURE DIVISION.
+           INITIALIZE WS-SUMMARY.
+
+           *> Collect and concatenate txt1 through txt15
+           STRING "txt1=" txt1::Text " "
+                  "txt2=" txt2::Text " "
+                  "txt3=" txt3::Text " "
+                  "txt4=" txt4::Text " "
+                  "txt5=" txt5::Text " "
+                  "txt6=" txt6::Text " "
+                  "txt7=" txt7::Text " "
+                  "txt8=" txt8::Text " "
+                  "txt9=" txt9::Text " "
+                  "txt10=" txt10::Text " "
+                  "txt11=" txt11::Text " "
+                  "txt12=" txt12::Text " "
+                  "txt13=" txt13::Text " "
+                  "txt14=" txt14::Text " "
+                  "txt15=" txt15::Text
+             DELIMITED BY SIZE INTO WS-SUMMARY
+
+           MOVE WS-SUMMARY TO lblSummary::Caption
+           MOVE "Summary generated successfully" TO Label-1::Caption.]]></Event>
   </Control>
   <deleted-controls>
     <DeletedControl id="txt15" deleted-at="designer-delete-1785461358-14">

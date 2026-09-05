@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.7] — 2026-09-05
+
+### Working-session edits, and the mascot lands where the guide looks for it
+
+The developer's guide gained a mascot image above the "Powered by
+PowerRustCOBOL" badge section. It was saved into the DEMO project's assets
+(`examples/PowerDemo3/assets/images/`), while the guide references
+`../assets/images/yesitiscobol.png`, which resolves to the repository's own
+`assets/images/` — where all 42 other guide images live. The link was broken
+and every demo build would have carried an unreferenced 1.7 MB file into
+`dist/`. The image moved to the repository assets; nothing in the demo
+referenced it.
+
+The badge PNG added under `examples/PowerDemo3/assets/` stays where it is:
+the demo's sidebar form loads it as `assets/made-with-powerrustcobol.png`,
+which is the project-relative form the 1.65.0 asset rule expects.
+
+Also committed: the textbox demo's colours and alignments, the sidebar demo
+losing its clock label, four appended model-benchmark results, and the
+project's `built_with_version` stamp following the build to 1.65.5.
+
 ## [PowerRustCOBOL 1.65.6] — 2026-09-05
 
 ### The support matrix caught up with the NIST ledger
