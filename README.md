@@ -270,14 +270,17 @@ required `LICENSE` / `NOTICE` / runtime-notice files.
 > `target/release/rcrun` binary directly: `rcrun run main.cbl`, `rcrun build cobolt.toml`, …
 
 ## Powered by PowerRustCOBOL AI
+<!-- 📷 yesitiscobol.png — main.cbl`, `rcrun build cobolt.toml`, … ## Powered by PowerRustCOBOL AI […] Built something with PowerRustCOBOL AI? -->
+<p align="center"><img src="assets/images/screenshots/yesitiscobol.png" alt="PowerDemo3's sidebar form in Preview: a navigation rail, toolbar groups, coloured buttons with icons, a progress bar, checkboxes, a switch, radio buttons, a knob, radial and donut gauges, a TreeView of the ALGOL language family, and a multiline text box beside a splitter" width="900"></p>
 
-<p align="center">
-  <img src="assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL AI" width="320">
-</p>
 
 Built something with PowerRustCOBOL AI? Show it off — add the **"Powered by
 PowerRustCOBOL AI"** badge to your application's **About box** (and, if you like, your
 own README).
+
+<p align="center">
+  <img src="assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL AI" width="320">
+</p>
 
 - Badge image: [`assets/images/made-with-powerrustcobol.png`](assets/images/made-with-powerrustcobol.png) (800×268, transparent PNG).
 - Need it larger / for print? A high-resolution master is provided at

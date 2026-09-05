@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.17] — 2026-09-05
+
+### The "Powered by" section leads with the demo, not the badge
+
+Operator's capture: `assets/images/screenshots/yesitiscobol.png` — PowerDemo3's
+sidebar form in Preview, showing buttons, a progress bar, checkboxes, a switch,
+radio buttons, a knob, two gauges, a TreeView and a splitter in one frame. It
+opens the README's *Powered by PowerRustCOBOL AI* section; the badge itself
+moves below the sentence that asks you to use it, where it illustrates the
+request instead of competing with it.
+
+Its `alt` text was rewritten by hand. The screenshot slot had filled it with
+the surrounding prose again — `"main.cbl, rcrun build cobolt.toml, … ##
+Powered by PowerRustCOBOL AI […] Built something with PowerRustCOBOL AI?"` —
+which is the same defect 1.65.11 corrected in the three other README images.
+**The slot tool reproduces it on every capture**; the generator is what needs
+fixing, and has not been.
+
+⚠️ The developer's guide's badge section is left holding a bare `[SCREENSHOT]`
+marker where its image was. That is an unfilled slot, not a finished edit.
+
 ## [PowerRustCOBOL 1.65.16] — 2026-09-05
 
 ### The guide described an examples layout that no longer exists
