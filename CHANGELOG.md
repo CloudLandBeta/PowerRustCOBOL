@@ -1,5 +1,16 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.12] — 2026-09-05
+
+### The guide's badge image was described as the mascot
+
+Operator correction, carried over from the README pass: `yesitiscobol.png`
+sits above the "Powered by PowerRustCOBOL" section and had been given the
+mascot's `alt` text, which describes a different picture.
+
+The demo project's `built_with_version` stamp moves 1.65.5 → 1.65.9, written
+by the IDE on its last build.
+
 ## [PowerRustCOBOL 1.65.11] — 2026-09-05
 
 ### The README's screenshots described themselves with the prose next to them

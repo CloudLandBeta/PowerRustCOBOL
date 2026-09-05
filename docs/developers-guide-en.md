@@ -7401,7 +7401,7 @@ rcrun build --clean [cobolt.toml]   # same thing, spelled the other way
 
 ### The "Powered by PowerRustCOBOL" badge
 <p align="center">
-  <img src="../assets/images/yesitiscobol.png" alt="PowerRustCOBOL mascot" width="300">
+  <img src="../assets/images/yesitiscobol.png" alt="Powered by PowerRustCOBOL" width="300">
 </p>
 
 If you ship an application built with PowerRustCOBOL, please add the **"Powered by
