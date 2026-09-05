@@ -189,6 +189,12 @@ application starts on a sidebar form that reaches every demo. Each form also
 runs on its own from the designer, so a single control can be tried in
 isolation.
 
+Its handlers are written in the extended dialect rather than the long form —
+inline calls on a control, direct writes to a property, `::` chaining, block
+literals — and 30 of the forms explain every line that uses an extension in all
+six interface languages: 484 annotations apiece in English, Portuguese,
+Spanish, French, Japanese and Chinese.
+
 ## Running applications
 
 A PowerRustCOBOL AI **project** is a directory with a `<project name>.toml` manifest plus its

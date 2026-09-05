@@ -1,5 +1,14 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.15] — 2026-09-05
+
+### The demo's six-language annotations are worth saying out loud
+
+Measured while checking the previous entry's claims: 30 of PowerDemo3's 42
+forms carry 484 comment blocks apiece in English, Portuguese, Spanish, French,
+Japanese and Chinese, one above every handler line that uses a dialect
+extension. The README's new section now says so.
+
 ## [PowerRustCOBOL 1.65.14] — 2026-09-05
 
 ### The README never mentioned the example project
