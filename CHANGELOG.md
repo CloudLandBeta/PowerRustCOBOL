@@ -1,5 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.3] — 2026-09-05
+
+### F12 no longer waits for the IDE, and it can record a clip
+
+Two changes to the documentation capture tool (Help → Debug Settings → Doc
+screenshot capture).
+
+**The capture runs on its own thread.** It used to run inside the egui update:
+`screencapture` needs ~120 ms for one window, so every shot stalled the frame
+loop, and anything the UI thread was already busy with — an agent request and
+its response, a build, a long re-render — got in front of the capture
+(operator, 2026-09-05). The UI thread now does only the one part it alone can
+do, reading the window rectangle, and hands the rest to a worker; the popup
+opens on a later frame, whenever one arrives. A second F12 while a capture is
+outstanding is ignored rather than queued.
+
+The temp file the capture writes went with it. Its uniquifier was
+`Instant::now().elapsed()` — a handful of nanoseconds, near enough to a
+constant — which was harmless while captures were serialized on one thread and
+is a race now that they are not. It is a process id plus a counter.
+
+**Ctrl+F12 records a clip; any F12 stops it.** Some things cannot be shown with
+one photograph: a drag, a menu opening, an entrance effect, a build running.
+The recording is written as an **animated PNG**, so it drops into an existing
+`📷 Screenshot needed` slot with no change to the document format — the slot,
+the markdown and the `<img>` are the same, and a document cannot tell a still
+from a clip.
+
+Frames are scaled to 900 px (what the guide renders) and each one after the
+first is stored as only the rectangle that changed, with `BlendOp::Source` and
+`DisposeOp::None` — APNG's own inter-frame compression. A frame identical to
+its predecessor is not stored at all; its time is added to that predecessor's
+delay, so a window sitting still costs nothing. Per-frame delays carry the
+timings the recording actually had, so playback runs at the recorded speed even
+though `screencapture` cannot hold a steady cadence. It stops itself at 90
+seconds, 900 frames or 384 MB of retained frames, and says which.
+
+**The pointer is drawn, and smoothed.** `screencapture -C` would bake the
+system cursor into each frame — correct at each instant, and jerky, because at
+~8 frames a second that is all the sampling there is. Instead the pointer is
+polled on its own thread every 8 ms with a timestamp, and the arrow is drawn
+afterwards at a **centred** weighted average of the samples around each frame's
+own timestamp. Centred, not trailing: the whole track exists before any frame is
+drawn, so the filter removes tremor without adding lag — a trailing average
+would have put the arrow behind every click it made. It is rasterized at the
+exact sub-pixel position, so travel does not stair-step.
+
 ## [PowerRustCOBOL 1.65.2] — 2026-09-05
 
 ### Corners are drawn rounded, not repaired (spec 057)

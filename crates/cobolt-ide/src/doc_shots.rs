@@ -287,13 +287,60 @@ fn screen_recording_allowed() -> bool {
 
 #[cfg(target_os = "macos")]
 pub fn capture_window(target: &WindowTarget) -> Result<ColorImage, String> {
-    capture_window_when(screen_recording_allowed(), target)
+    Ok(as_color_image(capture_rgba_when(
+        screen_recording_allowed(),
+        target,
+    )?))
 }
 
-/// [`capture_window`] with the permission answer supplied, so the refusal can
+/// One photograph of `target`, as the pixels came out of the capture — straight
+/// (unpremultiplied) RGBA.
+///
+/// The raw form is what [`crate::doc_movie`] wants: it flattens and scales every
+/// frame itself, and converting a few hundred of them through [`ColorImage`]
+/// first would allocate twice per frame inside the capture cadence for nothing.
+#[cfg(target_os = "macos")]
+pub fn capture_rgba(target: &WindowTarget) -> Result<image::RgbaImage, String> {
+    capture_rgba_when(screen_recording_allowed(), target)
+}
+
+/// The still path's view of a capture.
+#[cfg(target_os = "macos")]
+fn as_color_image(rgba: image::RgbaImage) -> ColorImage {
+    let (width, height) = (rgba.width() as usize, rgba.height() as usize);
+    ColorImage {
+        size: [width, height],
+        pixels: rgba
+            .pixels()
+            .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+            .collect(),
+        source_size: egui::Vec2::new(width as f32, height as f32),
+    }
+}
+
+/// A temp file name no other capture can collide with.
+///
+/// Captures used to be taken on the UI thread, one at a time, so a name derived
+/// from the process id was unique by construction. They are not any more — a
+/// recording captures on a worker while a still can be taken from another — and
+/// the old uniquifier was `Instant::now().elapsed()`, which is a handful of
+/// nanoseconds and near enough to a constant. Two captures sharing a path would
+/// have raced over one file: one deletes it while the other reads it.
+#[cfg(target_os = "macos")]
+fn temp_shot_path() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    std::env::temp_dir().join(format!(
+        "prc-doc-shot-{}-{}.png",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+/// [`capture_rgba`] with the permission answer supplied, so the refusal can
 /// be tested without depending on how the test machine is configured.
 #[cfg(target_os = "macos")]
-fn capture_window_when(allowed: bool, target: &WindowTarget) -> Result<ColorImage, String> {
+fn capture_rgba_when(allowed: bool, target: &WindowTarget) -> Result<image::RgbaImage, String> {
     if !allowed {
         tracing::warn!(
             target: "doc_shots",
@@ -301,10 +348,7 @@ fn capture_window_when(allowed: bool, target: &WindowTarget) -> Result<ColorImag
         );
         return Err(NO_SCREEN_RECORDING.to_owned());
     }
-    let temp = std::env::temp_dir().join(format!(
-        "prc-doc-shot-{}.png",
-        std::process::id() as u64 * 31 + Instant::now().elapsed().subsec_nanos() as u64
-    ));
+    let temp = temp_shot_path();
     let status = std::process::Command::new("/usr/sbin/screencapture")
         .args(["-x", "-o", "-R", &target.region()])
         .arg(&temp)
@@ -324,18 +368,16 @@ fn capture_window_when(allowed: bool, target: &WindowTarget) -> Result<ColorImag
         )
     })?;
     let rgba = decoded.to_rgba8();
-    let (width, height) = (rgba.width() as usize, rgba.height() as usize);
-    if width == 0 || height == 0 {
+    if rgba.width() == 0 || rgba.height() == 0 {
         return Err("the capture came back empty".into());
     }
-    Ok(ColorImage {
-        size: [width, height],
-        pixels: rgba
-            .pixels()
-            .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
-            .collect(),
-        source_size: egui::Vec2::new(width as f32, height as f32),
-    })
+    Ok(rgba)
+}
+
+/// Every other platform: say so rather than pretend.
+#[cfg(not(target_os = "macos"))]
+pub fn capture_rgba(_target: &WindowTarget) -> Result<image::RgbaImage, String> {
+    Err("window capture is implemented for macOS only".into())
 }
 
 /// Every other platform: say so rather than pretend.
@@ -718,14 +760,53 @@ impl DocEntry {
     }
 }
 
+/// What a capture came back with. Both arms are already finished work — the
+/// worker did the waiting.
+enum Shot {
+    Still(Result<ColorImage, String>),
+    Movie(Result<Box<crate::doc_movie::Movie>, String>),
+}
+
+/// A capture running on its own thread.
+///
+/// **The whole reason this type exists.** A capture used to run inside
+/// [`DocShots::take`], on the egui update thread: `screencapture` needs ~120 ms
+/// for one window, and a recording needs minutes. Anything the UI thread is
+/// already busy with — an agent request, a build, a long re-render — delayed the
+/// capture behind it, and the capture in turn froze the UI. Now the UI thread
+/// only reads the window rectangle (which only it can) and hands the work over;
+/// the answer is collected on a later frame, whenever one comes.
+struct InFlight {
+    answer: std::sync::mpsc::Receiver<Shot>,
+    /// The viewport that asked, so the popup opens where the operator is.
+    viewport: ViewportId,
+    /// Set to stop a recording. `None` for a still, which cannot be cancelled —
+    /// it is over in a fraction of a second.
+    stop: Option<Arc<std::sync::atomic::AtomicBool>>,
+    started: Instant,
+}
+
+/// What the pending capture is, for the popup to describe.
+enum Capture {
+    Still(Arc<ColorImage>),
+    Movie(Arc<crate::doc_movie::Movie>),
+}
+
 /// Capture state and the placement popup. Lives on the app; [`Self::poll`] runs
 /// in every viewport, [`Self::ui`] only in the main window.
 #[derive(Default)]
 pub struct DocShots {
-    /// The frame waiting to be placed.
-    pending: Option<Arc<ColorImage>>,
+    /// The capture waiting to be placed.
+    pending: Option<Capture>,
+    /// The capture being taken right now, on its own thread.
+    inflight: Option<InFlight>,
     /// A Shift+F12 countdown, and the viewport that asked for it.
     delay: Option<(ViewportId, Instant)>,
+    /// The colour a transparent capture is flattened onto, refreshed by
+    /// [`Self::poll`]. A still is flattened when it is placed, but a recording
+    /// scales and discards each frame as it arrives, so the recorder has to be
+    /// told the backdrop when it starts rather than when it finishes.
+    backdrop: Color32,
     open: bool,
     /// The viewport that took the pending shot — and therefore the one that
     /// draws the placement popup. The popup used to live on the main window
@@ -750,16 +831,29 @@ impl DocShots {
         at.checked_duration_since(Instant::now())
     }
 
+    /// How long the recording in progress has been running, for a caller that
+    /// wants to say so somewhere the capture cannot see.
+    pub fn recording(&self) -> Option<Duration> {
+        let flight = self.inflight.as_ref()?;
+        flight.stop.is_some().then(|| flight.started.elapsed())
+    }
+
     /// Hotkeys and the capture reply, for one viewport, for one frame.
     ///
     /// Modifiers are matched exactly: `key_pressed(F12)` alone would also fire
     /// on Shift+F12 and take the instant shot the operator wanted delayed.
-    pub fn poll(&mut self, ctx: &Context, enabled: bool) {
+    pub fn poll(&mut self, ctx: &Context, enabled: bool, backdrop: Color32) {
+        self.backdrop = backdrop;
         if !enabled {
+            // A recording already running is NOT abandoned because the switch
+            // was turned off mid-take — it is stopped, so the frames it has
+            // already paid for still reach a file.
+            self.request_stop();
+            self.collect(ctx);
             return;
         }
 
-        let (mut now, mut delayed) = (false, false);
+        let (mut now, mut delayed, mut movie) = (false, false, false);
         ctx.input(|input| {
             // NO `input.focused` GATE.
             //
@@ -781,10 +875,16 @@ impl DocShots {
                     ..
                 } = event
                 {
-                    if modifiers.ctrl || modifiers.alt || modifiers.command {
+                    if modifiers.alt || modifiers.command {
                         continue;
                     }
-                    if modifiers.shift {
+                    // Ctrl+F12 starts and stops a recording. It is the one
+                    // modifier combination the capture keys did not already
+                    // use, and it is deliberately not Shift — Shift+F12 has
+                    // meant "wait three seconds" since this tool existed.
+                    if modifiers.ctrl {
+                        movie = true;
+                    } else if modifiers.shift {
                         delayed = true;
                     } else {
                         now = true;
@@ -794,23 +894,39 @@ impl DocShots {
         });
 
         // The key arriving, and (in `take`) the picture that came back or the
-        // reason none did. Enough to place a failure without reading code, now
-        // that the capture is synchronous and there is no round trip to lose an
-        // answer in. `COBOLT_LOG=doc_shots=info` to see them: this binary
-        // filters on COBOLT_LOG, not RUST_LOG, and defaults to WARN.
-        if now || delayed {
+        // reason none did. Enough to place a failure without reading code:
+        // the capture runs elsewhere now, so these lines and the popup are the
+        // only account of what happened. `COBOLT_LOG=doc_shots=info` to see
+        // them: this binary filters on COBOLT_LOG, not RUST_LOG, and defaults
+        // to WARN.
+        if now || delayed || movie {
             tracing::info!(
                 target: "doc_shots",
-                "F12 seen (delayed={delayed}) viewport={:?} focused={}",
+                "F12 seen (delayed={delayed} movie={movie}) viewport={:?} focused={} recording={}",
                 ctx.viewport_id(),
                 ctx.input(|i| i.focused),
+                self.recording().is_some(),
             );
         }
-        if now {
-            self.take(ctx);
-        }
-        if delayed {
-            self.delay = Some((ctx.viewport_id(), Instant::now() + DELAY));
+
+        if now || delayed || movie {
+            if self.recording().is_some() {
+                // ANY of the three keys stops a recording. Reaching for the
+                // one that started it is the instinct, but so is reaching for
+                // plain F12 — and a recording that will not stop is far worse
+                // than one stopped a moment early.
+                self.request_stop();
+            } else if self.inflight.is_some() {
+                // A still is already being taken. Ignore rather than queue: two
+                // captures of the same window a frame apart are the same
+                // picture, and the second would overwrite the first's popup.
+            } else if movie {
+                self.start_movie(ctx);
+            } else if now {
+                self.take(ctx);
+            } else {
+                self.delay = Some((ctx.viewport_id(), Instant::now() + DELAY));
+            }
         }
 
         // Fire a countdown only from the viewport that started it, so the shot
@@ -826,59 +942,181 @@ impl DocShots {
             }
         }
 
+        self.collect(ctx);
     }
 
-    /// Photograph THIS window and open the placement popup.
+    /// Ask a recording to finish. Harmless when nothing is recording.
+    fn request_stop(&mut self) {
+        if let Some(stop) = self.inflight.as_ref().and_then(|f| f.stop.as_ref()) {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Pick up a finished capture, if one has finished.
+    ///
+    /// Runs in every viewport: whichever one gets a frame first collects the
+    /// answer, and the popup then opens in the viewport that asked. While a
+    /// capture is outstanding this keeps asking for frames, so the answer is
+    /// not left sitting in the channel until something else happens to repaint.
+    fn collect(&mut self, ctx: &Context) {
+        use std::sync::mpsc::TryRecvError;
+        let Some(flight) = &self.inflight else { return };
+        match flight.answer.try_recv() {
+            Err(TryRecvError::Empty) => {
+                ctx.request_repaint_after(Duration::from_millis(60));
+                return;
+            }
+            Err(TryRecvError::Disconnected) => {
+                let viewport = flight.viewport;
+                self.inflight = None;
+                tracing::warn!(target: "doc_shots", "the capture thread stopped without answering");
+                self.fail(viewport, "the capture thread stopped without answering".into());
+            }
+            Ok(shot) => {
+                let (viewport, took) = (flight.viewport, flight.started.elapsed());
+                self.inflight = None;
+                match shot {
+                    Shot::Still(Ok(image)) => {
+                        tracing::info!(
+                            target: "doc_shots",
+                            "captured viewport={viewport:?} -> {}x{} in {} ms",
+                            image.size[0],
+                            image.size[1],
+                            took.as_millis(),
+                        );
+                        self.hold(viewport, Capture::Still(Arc::new(image)), None);
+                    }
+                    Shot::Movie(Ok(movie)) => {
+                        let report = movie.report();
+                        tracing::info!(target: "doc_shots", "recorded {report}");
+                        self.hold(
+                            viewport,
+                            Capture::Movie(Arc::new(*movie)),
+                            Some(format!("🎬 {report}")),
+                        );
+                    }
+                    Shot::Still(Err(message)) | Shot::Movie(Err(message)) => {
+                        tracing::warn!(target: "doc_shots", "capture failed: {message}");
+                        self.fail(viewport, message);
+                    }
+                }
+            }
+        }
+        ctx.request_repaint();
+    }
+
+    /// A finished capture, waiting for the operator to place it.
+    fn hold(&mut self, viewport: ViewportId, capture: Capture, status: Option<String>) {
+        self.pending = Some(capture);
+        self.status = status;
+        self.name_input.clear();
+        self.refresh();
+        self.open = true;
+        self.popup_viewport = Some(viewport);
+    }
+
+    /// A capture that produced nothing. Reported in the window that tried, for
+    /// the same reason the popup is: that is where the operator is.
+    fn fail(&mut self, viewport: ViewportId, message: String) {
+        self.status = Some(format!("✗ {message}"));
+        self.open = true;
+        self.popup_viewport = Some(viewport);
+    }
+
+    /// The window this viewport would photograph, or `None` with the reason
+    /// already reported.
+    ///
+    /// This is the one part that has to happen on the UI thread: only egui
+    /// knows where its own window sits, and it will only say so from inside a
+    /// frame. Everything after it belongs to the worker.
+    fn aim(&mut self, ctx: &Context) -> Option<WindowTarget> {
+        if let Some(target) = WindowTarget::of(ctx) {
+            return Some(target);
+        }
+        // The one path that used to fail in total silence: no capture, no
+        // popup (it never claimed a viewport), and no log line. If a window
+        // does not report `outer_rect`, say so where it can be seen — and
+        // still claim the popup, so the message reaches the operator instead
+        // of dying in a field nobody reads.
+        let (rect, ppp) = ctx.input(|i| (i.viewport().outer_rect, i.pixels_per_point()));
+        tracing::warn!(
+            target: "doc_shots",
+            "no capture: viewport={:?} reports outer_rect={rect:?} ppp={ppp}",
+            ctx.viewport_id(),
+        );
+        self.fail(
+            ctx.viewport_id(),
+            "this window does not report its position, so there is nothing to \
+             photograph"
+                .into(),
+        );
+        None
+    }
+
+    /// Photograph THIS window, on a thread of its own.
     ///
     /// Called by whichever viewport saw the key — the main window and every
     /// designer window run the identical path, each passing its own window.
+    /// Returns as soon as the thread is running; [`Self::collect`] opens the
+    /// popup when the picture arrives.
     fn take(&mut self, ctx: &Context) {
-        let Some(target) = WindowTarget::of(ctx) else {
-            // The one path that used to fail in total silence: no capture, no
-            // popup (it never claimed a viewport), and no log line. If a
-            // window does not report `outer_rect`, say so where it can be
-            // seen — and still claim the popup, so the message reaches the
-            // operator instead of dying in a field nobody reads.
-            let (rect, ppp) = ctx.input(|i| (i.viewport().outer_rect, i.pixels_per_point()));
-            tracing::warn!(
-                target: "doc_shots",
-                "no capture: viewport={:?} reports outer_rect={rect:?} ppp={ppp}",
-                ctx.viewport_id(),
-            );
-            self.status = Some(
-                "✗ this window does not report its position, so there is \
-                 nothing to photograph"
-                    .into(),
-            );
-            self.open = true;
-            self.popup_viewport = Some(ctx.viewport_id());
-            return;
-        };
-        match capture_window(&target) {
-            Ok(image) => {
-                tracing::info!(
-                    target: "doc_shots",
-                    "captured viewport={:?} region={} -> {}x{}",
-                    ctx.viewport_id(),
-                    target.region(),
-                    image.size[0],
-                    image.size[1],
-                );
-                self.pending = Some(Arc::new(image));
-                self.status = None;
-                self.name_input.clear();
-                self.refresh();
-                self.open = true;
-                self.popup_viewport = Some(ctx.viewport_id());
+        let Some(target) = self.aim(ctx) else { return };
+        tracing::info!(
+            target: "doc_shots",
+            "capturing viewport={:?} region={}",
+            ctx.viewport_id(),
+            target.region(),
+        );
+        let (tx, answer) = std::sync::mpsc::channel();
+        match std::thread::Builder::new()
+            .name("doc-shot".into())
+            .spawn(move || {
+                let _ = tx.send(Shot::Still(capture_window(&target)));
+            }) {
+            Ok(_) => {
+                self.inflight = Some(InFlight {
+                    answer,
+                    viewport: ctx.viewport_id(),
+                    stop: None,
+                    started: Instant::now(),
+                });
             }
-            Err(message) => {
-                // The failure is reported in the window that tried, for the
-                // same reason the popup is: that is where the operator is.
-                tracing::warn!(target: "doc_shots", "capture failed: {message}");
-                self.status = Some(format!("✗ {message}"));
-                self.open = true;
-                self.popup_viewport = Some(ctx.viewport_id());
+            Err(error) => self.fail(ctx.viewport_id(), format!("no capture thread: {error}")),
+        }
+    }
+
+    /// Record THIS window until the key is pressed again.
+    ///
+    /// The backdrop is resolved here rather than at insert time: the recorder
+    /// scales and discards each frame as it arrives, so the transparent pixels
+    /// have to be flattened while the frame still exists.
+    fn start_movie(&mut self, ctx: &Context) {
+        let Some(target) = self.aim(ctx) else { return };
+        let backdrop = self.backdrop;
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&stop);
+        tracing::info!(
+            target: "doc_shots",
+            "recording viewport={:?} region={}",
+            ctx.viewport_id(),
+            target.region(),
+        );
+        let (tx, answer) = std::sync::mpsc::channel();
+        match std::thread::Builder::new()
+            .name("doc-movie".into())
+            .spawn(move || {
+                let movie = crate::doc_movie::record(target, backdrop, flag).map(Box::new);
+                let _ = tx.send(Shot::Movie(movie));
+            }) {
+            Ok(_) => {
+                self.inflight = Some(InFlight {
+                    answer,
+                    viewport: ctx.viewport_id(),
+                    stop: Some(stop),
+                    started: Instant::now(),
+                });
             }
+            Err(error) => self.fail(ctx.viewport_id(), format!("no capture thread: {error}")),
         }
     }
 
@@ -942,7 +1180,13 @@ impl DocShots {
         }
         let mut open = true;
         let mut close = false;
-        let size = self.pending.as_ref().map(|i| i.size).unwrap_or([0, 0]);
+        let headline = match &self.pending {
+            Some(Capture::Still(image)) => {
+                format!("Captured {} × {} px.", image.size[0], image.size[1])
+            }
+            Some(Capture::Movie(movie)) => format!("Recorded {}.", movie.report()),
+            None => String::new(),
+        };
 
         egui::Window::new("📷 Documentation screenshot")
             .id(egui::Id::new("doc_shots_popup"))
@@ -951,7 +1195,7 @@ impl DocShots {
             .resizable(true)
             .default_size([700.0, 460.0])
             .show(ctx, |ui| {
-                ui.label(format!("Captured {} × {} px.", size[0], size[1]));
+                ui.label(headline);
                 if repo_root().is_none() {
                     ui.colored_label(
                         ui.visuals().error_fg_color,
@@ -1051,7 +1295,11 @@ impl DocShots {
         backdrop: Color32,
     ) -> Result<String, String> {
         let root = repo_root().ok_or("the documentation tree is gone")?;
-        let image = self.pending.clone().ok_or("nothing captured")?;
+        let capture = match &self.pending {
+            Some(Capture::Still(image)) => Capture::Still(Arc::clone(image)),
+            Some(Capture::Movie(movie)) => Capture::Movie(Arc::clone(movie)),
+            None => return Err("nothing captured".into()),
+        };
         let entry = &self.docs[doc_index];
         let slot = &entry.slots[slot_index];
 
@@ -1071,7 +1319,22 @@ impl DocShots {
         };
 
         let target = root.join(SHOTS_REL).join(&name);
-        let (width, height) = save_png(&image, backdrop, &target)?;
+        // A recording is already an encoded PNG — an animated one — so it goes
+        // to disk verbatim. That is exactly why APNG was the format to write:
+        // the slot, the markdown and the `<img>` are the same either way, and a
+        // document cannot tell a still from a clip.
+        let (width, height) = match &capture {
+            Capture::Still(image) => save_png(image, backdrop, &target)?,
+            Capture::Movie(movie) => {
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|error| format!("{}: {error}", parent.display()))?;
+                }
+                std::fs::write(&target, &movie.apng)
+                    .map_err(|error| format!("{}: {error}", target.display()))?;
+                (movie.width, movie.height)
+            }
+        };
 
         let text = std::fs::read_to_string(&entry.path)
             .map_err(|error| format!("{}: {error}", entry.path.display()))?;
@@ -1402,7 +1665,7 @@ Next section.
             rect: egui::Rect::from_min_size(egui::pos2(100.0, 50.0), egui::vec2(1280.0, 828.0)),
             scale: 2.0,
         };
-        let message = capture_window_when(false, &target)
+        let message = capture_rgba_when(false, &target)
             .expect_err("a capture with no permission must fail, not return the desktop");
         for expected in [
             "Screen Recording",       // the setting, by its exact name

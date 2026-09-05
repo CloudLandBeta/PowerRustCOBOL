@@ -47,6 +47,11 @@ egui_extras = { version = "0.36", features = ["image"] }
 egui_inspection = { version = "0.36", features = ["plugin"] }
 
 image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "gif", "webp", "avif"] }
+# Animated PNG writing for the F12 screen recorder (doc_movie). `image` decodes
+# APNG but only ever encodes a single still, and the recorder needs per-frame
+# delays and changed-rectangle frames — which is the whole of its compression.
+# This is the same version `image` already pulls in, so it costs no new build.
+png = "0.17"
 
 # System font enumeration (Font property dropdown)
 fontdb = "0.23"

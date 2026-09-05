@@ -1443,6 +1443,7 @@ dependencies = [
  "indexmap",
  "mermaid-rs-renderer",
  "native-tls",
+ "png 0.17.16",
  "pollster 0.3.0",
  "pulldown-cmark 0.12.2",
  "rand 0.8.6",

@@ -25,6 +25,7 @@ pub mod contrast;
 pub mod crash;
 pub mod data_binding_guardian;
 pub mod debug_settings;
+pub mod doc_movie;
 pub mod doc_shots;
 pub mod flags;
 pub mod docs_embed;

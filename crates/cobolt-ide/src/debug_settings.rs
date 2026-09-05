@@ -238,11 +238,15 @@ static SECTIONS: &[Section] = &[
                 label: "Doc screenshot capture (F12)",
                 hint: "Authoring tool for this checkout, not a product feature: F12 captures \
                        the focused window (Shift+F12 waits 3 s, for states that must be held \
-                       with the mouse), then a popup places the shot into a \
-                       `📷 Screenshot needed` slot of ANY English Markdown document — the \
-                       guide, README.md, or anything under docs/ — saving the PNG under \
-                       assets/images/screenshots/ and writing the markdown. English documents \
-                       only; the translated guides reference the same images.",
+                       with the mouse; Ctrl+F12 starts a screen RECORDING and any F12 stops \
+                       it), then a popup places the shot into a `📷 Screenshot needed` slot \
+                       of ANY English Markdown document — the guide, README.md, or anything \
+                       under docs/ — saving the PNG under assets/images/screenshots/ and \
+                       writing the markdown. A recording is saved as an animated PNG, so it \
+                       fills an ordinary screenshot slot; it runs at about 8 frames a second \
+                       with a smoothed pointer, and stops itself after 90 seconds. Capture \
+                       runs on its own thread, so a busy IDE does not delay it. English \
+                       documents only; the translated guides reference the same images.",
                 env: "PRC_DOC_SCREENSHOTS",
                 get: |s| &mut s.doc_screenshots,
             },
