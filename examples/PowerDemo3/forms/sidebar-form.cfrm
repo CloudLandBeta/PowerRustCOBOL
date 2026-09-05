@@ -156,9 +156,9 @@
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#0021F2FF</Property>
+    <Property name="ShadowColor">#000000FF</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">6</Property>
