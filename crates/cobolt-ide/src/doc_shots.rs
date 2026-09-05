@@ -77,6 +77,11 @@ const MAX_COMMENT: usize = 400;
 /// Longest `alt` text.
 const MAX_ALT: usize = 120;
 
+/// What `bare_context` puts between the words before a marker and the words
+/// after it. Load-bearing: its presence is how a context built to *locate* a
+/// slot is told apart from one written to *describe* the picture.
+const BARE_JOIN: &str = " […] ";
+
 // ── Document discovery ────────────────────────────────────────────────────────
 
 /// Root of the PowerRustCOBOL checkout this binary was built from.
@@ -412,6 +417,8 @@ pub struct Slot {
     /// What must be on screen — the placeholder's own words, or the surrounding
     /// text for a bare `[SCREENSHOT]`.
     pub context: String,
+    /// The nearest heading above the slot, if the document has one.
+    pub heading: Option<String>,
 }
 
 impl Slot {
@@ -421,6 +428,36 @@ impl Slot {
             (Some(name), SlotKind::Filled) => format!("{name}  (filled)"),
             (Some(name), _) => name.clone(),
             (None, _) => format!("[SCREENSHOT] · line {}", self.line + 1),
+        }
+    }
+
+    /// Words that describe the **picture**, for the image's `alt` attribute —
+    /// empty when the document offers none.
+    ///
+    /// `context` is not always a description. For a bare `[SCREENSHOT]` it is
+    /// built by [`bare_context`] to *locate* the slot for the operator — ten
+    /// words before the marker and five after, joined by `[…]`. Reusing that
+    /// as `alt` is what put
+    /// `"## Overview […] PowerRustCOBOL AI brings COBOL into"` on the README's
+    /// own screenshots: a sentence fragment, heading marks and all, shown as
+    /// hover text, read out by a screen reader, and displayed when the image
+    /// fails to load.
+    ///
+    /// Only a `📷 Screenshot needed` block carries words written about the
+    /// shot. Failing that, the section heading at least says what the picture
+    /// is of, which beats the file name.
+    pub fn describes(&self) -> &str {
+        let authored = match self.kind {
+            SlotKind::Needed => true,
+            SlotKind::Bare => false,
+            // A re-take reads its context back out of our own marker, so it is
+            // authored only if the slot it replaced was.
+            SlotKind::Filled => !self.context.contains(BARE_JOIN),
+        };
+        if authored && !self.context.trim().is_empty() {
+            &self.context
+        } else {
+            self.heading.as_deref().unwrap_or("")
         }
     }
 }
@@ -442,7 +479,8 @@ pub fn scan(text: &str) -> Vec<Slot> {
                 } else {
                     1
                 };
-                out.push(Slot { kind: SlotKind::Filled, line: i, span, name, context });
+                let heading = nearest_heading(&lines, i);
+                out.push(Slot { kind: SlotKind::Filled, line: i, span, name, context, heading });
                 i += span;
                 continue;
             }
@@ -461,7 +499,8 @@ pub fn scan(text: &str) -> Vec<Slot> {
                 }
             }
             let (name, context) = split_needed(&join_block(&lines[i..i + span]));
-            out.push(Slot { kind: SlotKind::Needed, line: i, span, name, context });
+            let heading = nearest_heading(&lines, i);
+            out.push(Slot { kind: SlotKind::Needed, line: i, span, name, context, heading });
             i += span;
             continue;
         }
@@ -474,6 +513,7 @@ pub fn scan(text: &str) -> Vec<Slot> {
                 span: 1,
                 name: None,
                 context: bare_context(&lines, i),
+                heading: nearest_heading(&lines, i),
             });
             i += 1;
             continue;
@@ -598,7 +638,42 @@ fn bare_context(lines: &[&str], index: usize) -> String {
     let head = head_words[head_words.len().saturating_sub(10)..].join(" ");
     let tail = tail.split_whitespace().take(5).collect::<Vec<_>>().join(" ");
 
-    normalize_ws(&format!("{head} […] {tail}"))
+    normalize_ws(&format!("{head}{BARE_JOIN}{tail}"))
+}
+
+/// The nearest markdown heading above `index`, stripped of its `#` marks and
+/// inline emphasis. `None` when the slot sits above the document's first one.
+///
+/// This is the fallback description for a slot the document never described:
+/// "Powered by PowerRustCOBOL AI" says more about a picture than
+/// `yesitiscobol` does.
+fn nearest_heading(lines: &[&str], index: usize) -> Option<String> {
+    // Forward, keeping the last one seen, because fenced blocks have to be
+    // tracked from the top: `# Build everything` inside a ```sh block is a
+    // shell comment, not a heading.
+    let mut fenced = false;
+    let mut last = None;
+    for line in &lines[..index] {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced {
+            continue;
+        }
+        let rest = trimmed.trim_start_matches('#');
+        // `#` marks only, and at least one, then a space: `###Foo` is not one.
+        if rest.len() == trimmed.len() || !rest.starts_with(' ') {
+            continue;
+        }
+        let text = normalize_ws(rest).replace(['`', '*', '_'], "");
+        let text = text.trim().to_string();
+        if !text.is_empty() {
+            last = Some(text);
+        }
+    }
+    last
 }
 
 fn normalize_ws(text: &str) -> String {
@@ -623,11 +698,15 @@ pub fn rel_shots_path(doc: &Path, root: &Path) -> String {
 }
 
 /// The two lines that replace a marker.
-pub fn render_block(name: &str, rel: &str, instruction: &str) -> String {
+///
+/// The comment keeps the slot's whole context — that is what lets a later
+/// re-take find this position again. The `alt` attribute gets only what
+/// [`Slot::describes`] is willing to call a description of the picture.
+pub fn render_block(name: &str, rel: &str, slot: &Slot) -> String {
     format!(
         "<!-- 📷 {name} — {} -->\n<p align=\"center\"><img src=\"{rel}/{name}\" alt=\"{}\" width=\"{DOC_WIDTH}\"></p>",
-        comment_safe(instruction),
-        alt_text(instruction, name),
+        comment_safe(&slot.context),
+        alt_text(slot.describes(), name),
     )
 }
 
@@ -637,7 +716,7 @@ pub fn apply(text: &str, slot: &Slot, name: &str, rel: &str) -> String {
     let mut out = String::with_capacity(text.len() + 256);
     for (index, line) in text.lines().enumerate() {
         if index == slot.line {
-            out.push_str(&render_block(name, rel, &slot.context));
+            out.push_str(&render_block(name, rel, slot));
             out.push('\n');
             continue;
         }
@@ -1439,9 +1518,22 @@ Body text.
         assert!(slots[0].context.ends_with("alpha beta gamma delta epsilon"));
     }
 
+    /// A slot of the given kind, as `scan` would have built it.
+    fn slot_of(kind: SlotKind, context: &str, heading: Option<&str>) -> Slot {
+        Slot {
+            kind,
+            line: 0,
+            span: 1,
+            name: None,
+            context: context.to_string(),
+            heading: heading.map(str::to_string),
+        }
+    }
+
     #[test]
     fn a_double_hyphen_can_never_close_the_html_comment_early() {
-        let block = render_block("x.png", "../img", "before -- after");
+        let slot = slot_of(SlotKind::Needed, "before -- after", None);
+        let block = render_block("x.png", "../img", &slot);
         let comment = block.lines().next().unwrap();
         assert!(comment.ends_with("-->"));
         assert_eq!(comment.matches("-->").count(), 1);
@@ -1449,8 +1541,88 @@ Body text.
 
     #[test]
     fn alt_text_takes_the_first_sentence_and_drops_markdown() {
-        let block = render_block("x.png", "../img", "Capture the `Form Designer`. Then more.");
+        let slot = slot_of(
+            SlotKind::Needed,
+            "Capture the `Form Designer`. Then more.",
+            None,
+        );
+        let block = render_block("x.png", "../img", &slot);
         assert!(block.contains("alt=\"Capture the Form Designer\""), "{block}");
+    }
+
+    /// The regression this whole distinction exists for. A bare `[SCREENSHOT]`
+    /// has no description, so its context is the prose that happens to sit
+    /// around it — and that prose must never reach the `alt` attribute.
+    #[test]
+    fn a_bare_slots_surrounding_prose_never_becomes_the_alt_text() {
+        let junk = "## Overview […] PowerRustCOBOL AI brings COBOL into";
+        let slot = slot_of(SlotKind::Bare, junk, Some("Overview"));
+        let block = render_block("welcome.png", "assets/images/screenshots", &slot);
+
+        // The image line is what a reader ever sees.
+        let img = block.lines().nth(1).unwrap();
+        assert!(!img.contains(junk), "{img}");
+        assert!(!img.contains("##"), "a heading mark reached the alt: {img}");
+        assert!(!img.contains("[…]"), "positional context reached the alt: {img}");
+        // The heading describes it instead …
+        assert!(img.contains("alt=\"Overview\""), "{img}");
+        // … while the comment still carries the whole context, so a re-take
+        // finds this position again.
+        assert!(block.lines().next().unwrap().contains(junk), "{block}");
+    }
+
+    /// With no heading above it either, the file name is the last resort —
+    /// poor, but honest, and never a mangled sentence.
+    #[test]
+    fn a_bare_slot_with_no_heading_falls_back_to_the_file_name() {
+        let slot = slot_of(SlotKind::Bare, "words before […] words after", None);
+        let block = render_block("first-form-designer.png", "../img", &slot);
+        assert!(block.contains("alt=\"first form designer\""), "{block}");
+    }
+
+    /// Re-taking a shot reads the context back out of our own marker. If that
+    /// slot was bare to begin with, the context is still positional and must
+    /// still be kept out of the alt.
+    #[test]
+    fn re_taking_a_shot_does_not_resurrect_positional_context() {
+        let positional = slot_of(
+            SlotKind::Filled,
+            "self-contained binary […] | Name | Role |",
+            Some("What's implemented"),
+        );
+        let block = render_block("theide.png", "../img", &positional);
+        assert!(block.contains("alt=\"What's implemented\""), "{block}");
+
+        // An authored one is unchanged — a re-take keeps its description.
+        let authored = slot_of(
+            SlotKind::Filled,
+            "The search window over a project, showing grouped results",
+            Some("Project-wide code search"),
+        );
+        let block = render_block("code-search.png", "../img", &authored);
+        assert!(
+            block.contains("alt=\"The search window over a project, showing grouped results\""),
+            "{block}"
+        );
+    }
+
+    /// A shell comment in a fenced block is not a heading, however much it
+    /// looks like one from below.
+    #[test]
+    fn a_hash_inside_a_code_fence_is_not_read_as_a_heading() {
+        let doc = "## Repository layout\n\n```sh\n# Build everything\ncargo build\n```\n\n[SCREENSHOT]\n";
+        let slots = scan(doc);
+        assert_eq!(slots.len(), 1, "{slots:?}");
+        assert_eq!(slots[0].heading.as_deref(), Some("Repository layout"));
+    }
+
+    #[test]
+    fn a_slot_takes_the_heading_it_sits_under() {
+        let doc = "# Title\n\ntext\n\n## Powered by `PowerRustCOBOL` AI\n\n[SCREENSHOT]\n";
+        let slots = scan(doc);
+        assert_eq!(slots.len(), 1, "{slots:?}");
+        assert_eq!(slots[0].heading.as_deref(), Some("Powered by PowerRustCOBOL AI"));
+        assert_eq!(slots[0].describes(), "Powered by PowerRustCOBOL AI");
     }
 
     #[test]

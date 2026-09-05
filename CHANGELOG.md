@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.18] — 2026-09-05
+
+### The screenshot slot described pictures with the prose around them
+
+Fixed at source. Filling a slot wrote the image's `alt` attribute from
+`Slot::context`, and for a bare `[SCREENSHOT]` that context is built by
+`bare_context` — ten words before the marker, five after, joined by `[…]` —
+whose own doc comment says it exists "so the popup can say where in the
+document it sits". Position, reused as description.
+
+That is what put `alt="## Overview […] PowerRustCOBOL AI brings COBOL into"`
+and `alt="## 3"` into the shipped documents. GitHub emits the attribute
+verbatim: it is the hover text, the screen-reader text, and what shows when an
+image does not load. Every capture made another one — three were corrected by
+hand in 1.65.11 and a fourth in 1.65.17, while the generator kept producing
+them.
+
+`Slot::describes()` now decides what may be called a description:
+
+- a `📷 Screenshot needed` block's own words — someone wrote them about the
+  shot;
+- failing that, the **nearest heading** above the slot, which at least says
+  what the picture is of;
+- failing that, the file name.
+
+A re-take reads its context back out of our own marker, so it is trusted only
+when the slot it replaces was authored — which means **re-taking one of the bad
+shots now repairs its alt text** instead of copying it forward. The HTML
+comment still carries the whole context either way; that is what lets a re-take
+find the position again.
+
+The heading lookup tracks fenced blocks, so `# Build everything` inside a
+```sh block is a shell comment rather than the section title.
+
+Five tests cover it, including the README's exact fragment. The IDE suite
+passes: 1044 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.17] — 2026-09-05
 
 ### The "Powered by" section leads with the demo, not the badge
