@@ -1,5 +1,16 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.10] — 2026-09-05
+
+### The README's badge snippet named a file that is not there
+
+The "Powered by PowerRustCOBOL AI" section offers the badge twice, as a
+Markdown snippet and as an HTML one. The Markdown snippet points at
+`assets/images/made-with-powerrustcobol.png`; the HTML snippet still named a
+bare `made-with-powerrustcobol.png`, which is not a path this repository has —
+the same leftover the 1.65.8 move corrected elsewhere. The two snippets now
+name the same file.
+
 ## [PowerRustCOBOL 1.65.9] — 2026-09-05
 
 ### The developer's guide is stamped RC4

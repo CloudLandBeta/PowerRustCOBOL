@@ -274,7 +274,7 @@ HTML:
 
 ```html
 <a href="https://github.com/CloudLandBeta/PowerRustCOBOL">
-  <img src="made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL AI" width="320">
+  <img src="assets/images/made-with-powerrustcobol.png" alt="Powered by PowerRustCOBOL AI" width="320">
 </a>
 ```
 
