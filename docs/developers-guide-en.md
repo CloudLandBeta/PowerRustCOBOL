@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# PowerRustCOBOL AI Developer's Guide
+# PowerRustCOBOL AI Developer's Guide RC4
 
 <p align="center">
   <img src="../assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL mascot" width="300">

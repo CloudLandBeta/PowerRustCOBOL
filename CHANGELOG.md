@@ -1,5 +1,12 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.9] — 2026-09-05
+
+### The developer's guide is stamped RC4
+
+Its H1 now reads "PowerRustCOBOL AI Developer's Guide RC4", so a printed or
+exported copy says which candidate it documents.
+
 ## [PowerRustCOBOL 1.65.8] — 2026-09-05
 
 ### The demo's badge moves to assets/images/
