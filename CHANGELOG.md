@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.11] — 2026-09-05
+
+### The README's screenshots described themselves with the prose next to them
+
+The documentation screenshot slot writes an HTML marker naming the file and the
+prose it sits beside, and the same prose fragment was being reused as the
+image's `alt` attribute. So the repository's front page carried three images
+described as "## Overview […] PowerRustCOBOL AI brings COBOL into",
+"self-contained native binary — no COBOL source shipped inside it" and
+"## What's implemented […] PowerRustCOBOL AI is an IDE" — sentence fragments,
+heading marks and all.
+
+GitHub emits that attribute verbatim, so it is the hover text, the
+screen-reader text, and what a reader sees if the image does not load. The
+three now say what is in the picture: the welcome screen, the IDE with a
+project open, and the Form Designer editing the Maps demo. The slot markers
+themselves are untouched, so the capture tool still matches its slots.
+
+The developer's guide carries nine screenshots with the same defect; they are
+not part of this change.
+
 ## [PowerRustCOBOL 1.65.10] — 2026-09-05
 
 ### The README's badge snippet named a file that is not there

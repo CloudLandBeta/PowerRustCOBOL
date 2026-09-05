@@ -26,7 +26,7 @@ See the LICENSE file in the project root for full license information.
 ## Overview
 
 <!-- 📷 welcome.png — ## Overview […] **PowerRustCOBOL AI** brings COBOL into -->
-<p align="center"><img src="assets/images/screenshots/welcome.png" alt="## Overview […] PowerRustCOBOL AI brings COBOL into" width="900"></p>
+<p align="center"><img src="assets/images/screenshots/welcome.png" alt="The PowerRustCOBOL AI welcome screen: product name, version and Apache-2.0 licence over the full-window background image, with the menu bar and toolbar above" width="900"></p>
 
 **PowerRustCOBOL AI** brings COBOL into a modern desktop development experience. It pairs a
 practical subset of the **COBOL-85 standard** with a visual form designer, a rich widget
@@ -34,7 +34,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 **self-contained native binary** — no COBOL source shipped inside it.
 
 <!-- 📷 theide.png — **self-contained native binary** — no COBOL source shipped inside it. […] | Name | Role | -->
-<p align="center"><img src="assets/images/screenshots/theide.png" alt="self-contained native binary — no COBOL source shipped inside it" width="900"></p>
+<p align="center"><img src="assets/images/screenshots/theide.png" alt="The IDE with a project open: the project tree listing Forms, Indexed Files, Common Code, Generated Code, Project's Crates, Assets and Knowledge Base; the Project Settings form in the main pane; the Output panel along the bottom" width="900"></p>
 
 
 | Name                  | Role                                                                                                                                                                                                            |
@@ -61,7 +61,7 @@ toolbox, an interactive debugger, and a compiler that turns a project into one
 ## What's implemented
 
 <!-- 📷 therad.png — ## What's implemented […] PowerRustCOBOL AI is an IDE -->
-<p align="center"><img src="assets/images/screenshots/therad.png" alt="## What's implemented […] PowerRustCOBOL AI is an IDE" width="900"></p>
+<p align="center"><img src="assets/images/screenshots/therad.png" alt="The Form Designer editing a Maps demo form: the Forms list and control toolbox on the left, the design canvas with an OpenStreetMap view in the centre, and the properties pane on the right showing Geometry, Form Properties and COBOL Structure" width="900"></p>
 
 PowerRustCOBOL AI is an IDE and a working visual RAD environment for COBOL, not a prototype: a
 form designer with over **40 widgets** and pixel-parity rendering from canvas to
