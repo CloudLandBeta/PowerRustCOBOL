@@ -642,15 +642,20 @@ fn picturebox_container_border(
     // live+expand_repeating_groups in render_form). This prevents OOB when
     // instanced members (after databound ControlArray expansion) are indexed
     // and their (instanced) parents must be looked up in the same list.
-    let parent_id = controls.get(idx).and_then(|c| c.parent.as_ref())?;
-    let parent = controls.iter().find(|c| &c.id == parent_id)?;
+    let parent_id = controls.get(idx).and_then(|c| c.parent.clone())?;
+    let p = controls.iter().position(|c| c.id == parent_id)?;
     if !matches!(
-        parent.control_type,
+        controls[p].control_type,
         ControlType::GroupBox | ControlType::Panel
     ) {
         return None;
     }
-    let plive = state.live(parent);
+    // …through `live_control`, exactly as `ancestor_clip_rect` resolves the
+    // straight edges: a pane's rectangle is DERIVED from its splitter, so
+    // `state.live()` returns where the pane was DESIGNED and the drag is
+    // invisible to it. One resolution for both, or a child is clipped to the
+    // content rect where the pane IS and lifted to the arc where it WAS.
+    let plive = live_control(controls, p, state);
     let rad = crate::paint::corner_radius(&plive);
     if rad < 0.5 {
         return None;
@@ -661,7 +666,7 @@ fn picturebox_container_border(
                         // ancestors (e.g. a rounded GroupBox card that lives inside a scrolling
                         // Panel). This keeps _ContainerClip correct for PictureBox children both
                         // directly under a scroll panel and deep inside databound repeating cards.
-    let parent_has_scroll = matches!(parent.control_type, ControlType::Panel)
+    let parent_has_scroll = matches!(controls[p].control_type, ControlType::Panel)
         && (plive.get_prop("HScroll").map_or(false, |vv| vv.as_bool())
             || plive.get_prop("VScroll").map_or(false, |vv| vv.as_bool()));
     let off = if parent_has_scroll {
@@ -13679,6 +13684,70 @@ mod tests {
         form.controls.push(sp);
         form.sync_splitter_panes();
         form.controls
+    }
+
+    /// **A child of a dragged pane is clipped to where the pane IS.**
+    ///
+    /// A pane's rectangle is DERIVED from its splitter, so `state.live(pane)`
+    /// returns where the pane was DESIGNED — the drag is only visible through
+    /// `live_control`, which runs `resolved_rect`. `ancestor_clip_rect` already
+    /// resolves it that way; `picturebox_container_border` did not, so the
+    /// container clip a child carries described a rectangle the pane had left.
+    ///
+    /// Harmless while that clip only rounded a corner, and very visible once it
+    /// also cut the child's SHADOW to the container (spec 057): the shadow was
+    /// clipped against the old pane while the face drew at the new one, so a
+    /// control came away from its own shadow as soon as the divider moved
+    /// (operator, 2026-09-05, on the splitter demo).
+    #[test]
+    fn a_childs_container_clip_follows_its_pane_across_a_drag() {
+        let mut controls = splitter_with_panes(300, 200);
+        // Round the first pane, so its children carry a container clip at all.
+        controls[1].set_prop("CornerRadius", PropValue::Int(20));
+        let mut child = ctrl("LBL", ControlType::Label, 10, 10, 80, 30);
+        child.parent = Some(controls[1].id.clone());
+        controls.push(child);
+        let child_idx = controls.len() - 1;
+
+        let mut overrides: Map<String, Map<String, String>> = Map::new();
+        overrides
+            .entry("SPLIT-1".into())
+            .or_default()
+            .insert("SplitPosition".into(), "25".into());
+        let cell = RefCell::new(overrides);
+        let st = MapState(&cell);
+
+        let designed = DesignedState;
+        let before = live_control(&controls, 1, &designed).rect;
+        let after = live_control(&controls, 1, &st).rect;
+        assert_ne!(before.w, after.w, "the drag must actually move the pane");
+
+        let (border, _rad) = picturebox_container_border(
+            &controls,
+            &st,
+            child_idx,
+            egui::pos2(0.0, 0.0),
+            egui::Vec2::ZERO,
+        )
+        .expect("a child of a rounded pane carries a container clip");
+
+        // The clip describes the pane's CONTENT box, so compare against the
+        // pane where it actually is this frame.
+        let live_pane = live_control(&controls, 1, &st);
+        let c = live_pane.content_rect();
+        let want = Rect::from_min_max(
+            pos2(c.x as f32, c.y as f32),
+            pos2((c.x + c.w) as f32, (c.y + c.h) as f32),
+        );
+        println!(
+            "\n  pane designed {}pt wide, dragged to {}pt — clip {:?}, pane content {:?}\n",
+            before.w, after.w, border, want
+        );
+        assert!(
+            (border.min - want.min).length() < 0.5 && (border.max - want.max).length() < 0.5,
+            "the container clip must describe the pane where it IS ({want:?}), not where it \
+             was designed; got {border:?}"
+        );
     }
 
     /// The panes are DERIVED: they follow `SplitPosition` at run time without

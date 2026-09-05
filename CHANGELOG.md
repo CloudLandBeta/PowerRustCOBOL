@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.4] — 2026-09-05
+
+### A dragged splitter left its children's shadows behind
+
+Dragging the divider pulled controls away from their own shadows and left the
+panels looking doubled (operator, 2026-09-05, on the splitter demo).
+
+A pane's rectangle is DERIVED from its splitter rather than written as
+properties, so `state.live(pane)` answers with where the pane was DESIGNED;
+the drag only appears through `live_control`, which runs `resolved_rect`. The
+axis-aligned clip a child is drawn inside already resolved it that way, and
+says so in its own comment. The container clip did not: it read the parent
+with a bare `state.live`, so a child was clipped to the content box where the
+pane IS and lifted to the arc where the pane WAS.
+
+That mismatch was nearly invisible while the container clip only rounded a
+child's corners. Spec 057 gave it a second job — every ring of a child's drop
+shadow and Neumorphic halo is now cut to the same container arc — so the
+stale rectangle started cutting shadows against a pane the divider had
+already left, which is what detached them.
+
+One resolution for both now. Pinned by a test that drags a splitter to 25 %
+and asserts the clip describes the pane where it is: 73 pt after the drag,
+where it used to report the designed 147 pt.
+
 ## [PowerRustCOBOL 1.65.3] — 2026-09-05
 
 ### F12 no longer waits for the IDE, and it can record a clip
