@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.8] — 2026-09-05
+
+### The demo's badge moves to assets/images/
+
+Operator correction: the badge belongs at
+`assets/images/made-with-powerrustcobol.png`, matching where the repository
+keeps the same file and where the demo's own `assets/images/` folder already
+holds its other 36 images. It had been committed one level up, directly under
+`assets/`.
+
+The sidebar form's `ImagePath` follows it. The path stays project-relative, so
+the 1.65.0 asset rule still applies unchanged: it resolves against the project
+root in the designer and against the executable's own folder in a build, and
+`dist/` carries the whole `assets/` tree either way.
+
 ## [PowerRustCOBOL 1.65.7] — 2026-09-05
 
 ### Working-session edits, and the mascot lands where the guide looks for it

@@ -2471,7 +2471,7 @@ Fortran
     <Property name="ZOrder">0</Property>
     <Property name="DataItem"></Property>
     <Property name="DataFormat"></Property>
-    <Property name="ImagePath">assets/made-with-powerrustcobol.png</Property>
+    <Property name="ImagePath">assets/images/made-with-powerrustcobol.png</Property>
     <Property name="SizeMode">Normal</Property>
     <Property name="ImageAlignment">MiddleCenter</Property>
     <Property name="BorderStyle">None</Property>
