@@ -45,7 +45,6 @@ pub struct DebugSettings {
     /// Outline every internal DataGrid sub-component.
     pub datagrid_diagnostics: bool,
     /// Experimental rounded-corner GL clip (spec 017).
-    pub rounded_clip: bool,
     // ── Data binding ──────────────────────────────────────────────────────
     /// Run-form data-binding trace: `databinding.log` in the platform's
     /// diagnostics directory, plus the state-key mismatch dump.
@@ -81,7 +80,6 @@ impl Default for DebugSettings {
         Self {
             frame_diagnostics: false,
             datagrid_diagnostics: false,
-            rounded_clip: false,
             databind_trace: false,
             event_trace: false,
             ai_pane_debug: false,
@@ -124,7 +122,6 @@ impl DebugSettings {
     pub fn any_enabled(&self) -> bool {
         self.frame_diagnostics
             || self.datagrid_diagnostics
-            || self.rounded_clip
             || self.databind_trace
             || self.event_trace
             || self.ai_pane_debug
@@ -138,7 +135,6 @@ impl DebugSettings {
     pub fn apply_in_process(&self) {
         cobolt_forms::paint::set_frame_diagnostics(self.frame_diagnostics);
         cobolt_forms::paint::set_datagrid_diagnostics(self.datagrid_diagnostics);
-        crate::panels::rounded_clip::set_enabled(self.rounded_clip);
         crate::panels::designer::set_ai_pane_debug(self.ai_pane_debug);
     }
 
@@ -228,15 +224,6 @@ static SECTIONS: &[Section] = &[
                        part is obvious.",
                 env: "COBOLT_DATAGRID_DIAGNOSTICS",
                 get: |s| &mut s.datagrid_diagnostics,
-            },
-            Switch::Flag {
-                label: "Rounded-corner GL clip",
-                hint: "Experimental (spec 017): capture the framebuffer behind a rounded \
-                       container and re-blit its corner notches through a rounded mask, \
-                       fixing child-content bleed over translucent surfaces. Design canvas \
-                       only.",
-                env: "COBOLT_ROUNDED_CLIP",
-                get: |s| &mut s.rounded_clip,
             },
             Switch::Flag {
                 label: "Disable window effects",
@@ -582,6 +569,23 @@ mod tests {
         let back: DebugSettings = toml::from_str("frame_diagnostics = true\n").unwrap();
         assert!(back.frame_diagnostics);
         assert_eq!(back.indexed_log, "off");
+    }
+
+    /// Spec 057 AC8 — a file written while the "Rounded-corner GL clip" switch
+    /// existed (it never did anything on the wgpu build, and is gone) must
+    /// still load, with the stale key ignored and every other switch intact.
+    #[test]
+    fn a_file_naming_the_removed_gl_clip_switch_still_loads() {
+        let back: DebugSettings =
+            toml::from_str("rounded_clip = true\nframe_diagnostics = true\n").unwrap();
+        assert!(back.frame_diagnostics);
+        assert!(
+            !SECTIONS
+                .iter()
+                .flat_map(|s| s.switches.iter())
+                .any(|sw| matches!(sw, Switch::Flag { env, .. } if *env == "COBOLT_ROUNDED_CLIP")),
+            "the switch is no longer offered"
+        );
     }
 }
 

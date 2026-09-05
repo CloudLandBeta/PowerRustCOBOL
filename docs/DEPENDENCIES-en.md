@@ -62,7 +62,6 @@ The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
 | `egui` | 0.35.0 | cli, forms, ide, media | Immediate-mode GUI toolkit — the whole UI |
 | `eframe` | 0.35.0 | cli, ide | Window + event loop host for egui |
 | `egui_extras` | 0.35.0 | cli, ide | Tables, image loaders, extra widgets |
-| `egui_glow` | 0.35.0 | ide | OpenGL painter — the rounded-corner clip hook needs it |
 | `egui_commonmark` | 0.24.0 | ide | Markdown rendering in docs/chat panels |
 | `egui_inspection` | 0.35.0 | ide | Live widget/layout inspector |
 | `image` | 0.25.10 | cli, forms, ide, media | PNG/JPEG/GIF/WebP/BMP decode |

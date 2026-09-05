@@ -95,7 +95,7 @@ fn capture(
                     let _ = render_form(ui, &inp);
                 } else {
                     let painter = ui.painter().clone();
-                    let _ = render_faces(&painter, pos2(0.0, 0.0), &inp, None);
+                    let _ = render_faces(&painter, pos2(0.0, 0.0), &inp);
                 }
             });
     });

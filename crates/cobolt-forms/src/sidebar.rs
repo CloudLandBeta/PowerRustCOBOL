@@ -333,6 +333,11 @@ pub struct SidebarState<'a> {
     /// passes the same one, so a translucent rail colour cannot resolve to a
     /// different shade depending on where you look at it.
     pub backdrop: Color32,
+    /// The container arc the rail is clipped to when it sits in a rounded
+    /// GroupBox/Panel ([`crate::paint::container_clip_of`]): the rail's face is
+    /// cut to it like every other frame (spec 057). `None` on the shell and for
+    /// a free-standing rail.
+    pub clip: Option<crate::paint::ContainerClip>,
     /// The rail's background gradient (start, end, direction) when the control
     /// enables one. It REPLACES [`Self::bg`] rather than layering over it —
     /// the same rule the form background follows.
@@ -416,6 +421,7 @@ pub fn state_for_control<'a>(
             .or_else(|| icon_size_prop(ctrl, "IconSize"))
             .unwrap_or(ICON),
         scroll: 0.0,
+        clip: crate::paint::container_clip_of(ctrl),
         // `parse_color` yields a PREMULTIPLIED colour, so fading it means
         // scaling all four channels — rebuilding it as straight alpha would
         // premultiply a second time and darken the rail.
@@ -919,28 +925,28 @@ pub fn paint(
     // It is drawn here rather than by the generic control frame because this is
     // the only code all four surfaces run.
     if let Some(sh) = state.shadow.filter(|s| !s.is_overlay()) {
-        sh.paint(painter, rect, 1.0);
+        sh.paint_in(painter, rect, 1.0, state.clip);
     }
+    // The rail's face is square on its own and lifted to a rounded parent's
+    // arc on any corner that lands on one, like every other frame (spec 057).
+    let (face, rounding) = crate::paint::lift_to_container(rect, egui::CornerRadius::ZERO, state.clip)
+        .unwrap_or((rect, egui::CornerRadius::ZERO));
     match &state.gradient {
         // A gradient REPLACES the plain colour. It still lands on the form's
         // backdrop first, so a translucent gradient shows the application
         // through it rather than the desktop.
         Some((start, end, dir)) => {
             if state.backdrop.a() > 0 {
-                painter.rect_filled(rect, 0.0, state.backdrop);
+                painter.rect_filled(face, rounding, state.backdrop);
             }
             painter.add(egui::Shape::mesh(crate::paint::background_gradient_mesh(
-                rect,
-                *start,
-                *end,
-                dir,
-                egui::CornerRadius::ZERO,
+                face, *start, *end, dir, rounding,
             )));
         }
         None => {
             let fill = crate::paint::composite_premultiplied_over(state.bg, state.backdrop);
             if fill.a() > 0 {
-                painter.rect_filled(rect, 0.0, fill);
+                painter.rect_filled(face, rounding, fill);
             }
         }
     }
@@ -966,7 +972,7 @@ pub fn paint(
     // A NEGATIVE `ShadowBlurStrength` is the sunken variant: it goes over the
     // face, after the rows, exactly as it does for every other control.
     if let Some(sh) = state.shadow.filter(|s| s.is_overlay()) {
-        sh.paint(painter, rect, 1.0);
+        sh.paint_in(painter, rect, 1.0, state.clip);
     }
 }
 
@@ -1550,6 +1556,7 @@ mod tests {
             scroll: 0.0,
             bg: Color32::TRANSPARENT,
             backdrop: Color32::TRANSPARENT,
+            clip: None,
             gradient: None,
             header_image: None,
             header_icon: None,

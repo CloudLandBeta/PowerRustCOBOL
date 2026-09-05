@@ -1434,7 +1434,6 @@ dependencies = [
  "egui",
  "egui_commonmark",
  "egui_extras",
- "egui_glow",
  "egui_inspection",
  "flate2",
  "fontdb",

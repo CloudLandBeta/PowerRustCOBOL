@@ -1,5 +1,61 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.2] — 2026-09-05
+
+### Corners are drawn rounded, not repaired (spec 057)
+
+A translucent, rounded Panel sitting over two PictureBoxes (`inner-form2` in
+PowerDemo3) showed a wedge of the wrong image in its corners, on the designer,
+the preview and the run form alike — and the same wedge has been chased, under
+one name or another, for months (operator, 2026-09-04/05: "we are fighting the
+effects, not the cause").
+
+The cause was the repair. A rounded container's children draw their frames
+lifted to the parent's arc, and then the corner-notch mask repainted the FORM
+backdrop over every corner a child so much as touched — never asking whether
+that child had already stayed inside the arc — and the form backdrop is not
+what is behind a panel that sits on a PictureBox. The one cure every note
+pointed at, an offscreen GL clip, targeted the `egui_glow` backend while the
+shipped build resolves to wgpu: it never ran once.
+
+Three things change, all measured rather than read:
+
+- **A corner that is drawn right is left alone.** `corners_already_correct`,
+  beside the existing guardian and shared by all three surfaces, zeroes any
+  corner whose reaching descendants stay inside the arc — an immediate child
+  of a type measured to clip itself, or any descendant whose rect never leaves
+  the arc (`inner-form2`'s LineChart corner is 10 px from a 26 px arc's
+  centre). The mask, the restore and their goldens are unchanged where a
+  grandchild or a type that cannot clip itself still needs them.
+- **Every frame painter lifts to the same arc.** The lift itself was a
+  deliberately conservative chord cut (19 px where the concentric value is 36)
+  that let every child poke 2–3 px past the arc, so no type could be trusted;
+  it is now the container arc's concentric twin. The drop shadow's rings, the
+  Neumorphic halo, the selection outline, the Slider, Knob/Gauge/Switch/
+  FileDropZone, Maps, ProgressBar, Shape, the non-visual badge, the Button's
+  highlight strip, the SideMenu rail and the interactive MenuBar/StatusBar/
+  DataGrid arms take it too. Children are held inside the parent's CONTENT
+  arc — the same rect their straight edges are clipped to — so a flush child
+  never covers the rim at the corners either.
+- **Which types clip themselves is a measurement**, not a list read off a
+  function: a harness renders every control type at a rounded corner on all
+  three surfaces, in eight variants, and counts paint outside the arc. It
+  asserts the result equals the allow-list, so neither can rot alone. 38 of 43
+  types stay inside; DataGrid, FileDropZone, Maps, TabControl and ToolBar still
+  need the mask, each for a reason the harness prints.
+
+The dead GL module, its debug switch and the `egui_glow` dependency are gone.
+The `rounded-corners` skill and the corner-bleed playbook no longer describe a
+cure that did not exist.
+
+Guards: `inner-form2` on all three surfaces (red before, green after), the R7
+harness, three still-masked-corner goldens byte-identical across the change,
+the selection outline and a child's shadow at a corner, and a translucent
+container over a form colour, a form image, a PictureBox and a Label with no
+corner repainted in any. The Elegance leaf-count baseline moved by exactly +1
+per row: the FileDropZone's dashed border is one continuous pattern along its
+outline now, 41 dashes where four restarting edges made 40.
+
 ## [PowerRustCOBOL 1.65.1] — 2026-09-05
 
 ### A translucent container's corners stop standing out

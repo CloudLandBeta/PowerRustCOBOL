@@ -129,7 +129,7 @@ the fill's **top** to cross `zone_top`.
 | A **tall** opaque fill (≥ `2*R` on both axes) reaching the corner | `rect_filled(rect, R, …)` — radius won't clamp | assume it's fine without checking height |
 | A **short / thin** opaque fill reaching the corner (last row, sliver, 1px band) | **arc-inset bands** (§3) — follow the curve per scanline | round it (clamps → bleed) OR inset the whole rect square (leaves a square notch — "got worse") |
 | The container **background** frost | already banded in `draw_glass` (`paint.rs`, the `arc_inset` closure) | — |
-| **Child content** (image/grid inside a rounded parent) | notch mask + restore outline (form-level) or GL rounded clip (`COBOLT_ROUNDED_CLIP=1`) for nested/translucent | flat-mask a nested/translucent corner |
+| **Child content** (anything inside a rounded parent) | the child's OWN frame lifted to the parent's arc — `control_border_rounding` / `lift_to_container` on every painter (spec 057); the notch mask + restore only on a corner reached by something that cannot clip itself (`corners_already_correct`) | flat-mask a corner whose children already clip themselves (it repaints the FORM backdrop, which is the wrong thing over a PictureBox); reach for a GL clip (it never ran on wgpu; removed 1.65.2) |
 
 The trap that cost the extra round-trip: for a short fill, **insetting the whole
 rect by `R` and drawing it square is WRONG** — it removes the bleed but leaves an
@@ -264,23 +264,40 @@ if reaches_corner && rs.fill.a() > 40 && !is_backdrop(rs.rect) && eff_sw < grid_
 
 ---
 
-## 5. When the flat approach genuinely can't win
+## 5. When the flat approach genuinely can't win — and what does
 
-Over a **translucent** backdrop, or for a **nested** container, a flat notch mask
-can't reproduce the see-through corner (it would repaint the *form* backdrop, not
-the parent/wallpaper). Symptoms and the ONLY correct fixes:
+Over a **translucent** backdrop, over **another control**, or for a **nested**
+container, a flat notch mask can't reproduce what is really behind the corner (it
+repaints the *form* backdrop, not the PictureBox / parent / wallpaper). For months
+these notes named a **GL rounded clip** as the cure. **There is no GL cure**: that
+module targeted `egui_glow`, the shipped build resolves eframe's default to
+**wgpu**, and it never ran once (`Unknown paint callback`). It was removed in
+1.65.2 (spec 057). What actually works:
 
-- Bleed over translucent surface → **GL rounded clip** (`COBOLT_ROUNDED_CLIP=1`,
-  `cobolt-ide/src/panels/rounded_clip.rs`): capture the real framebuffer, re-blit
-  through an arc mask. Currently covers **GroupBox/Panel in the designer only** —
-  NOT DataGrid, NOT Run Form. Extending it there is the real (sizable) fix if a
-  leaf/grid must composite its corner over a translucent parent.
+- **The children clip themselves, so the corner needs no repair.** Every child of
+  a rounded GroupBox/Panel carries a `_ContainerClip` (the parent's CONTENT rect
+  and concentric radius) and every frame painter — face, border, sheen, shadow
+  rings, Neumorphic halo, badge, early-return branches, interactive arms — lifts
+  its corner to that arc (`control_border_rounding`, `lift_to_container`,
+  `container_lift_radius` = `rad − max(inset_x, inset_y)`). A corner whose
+  reaching descendants all stay inside the arc is **left alone** by
+  `corners_already_correct`; the mask survives only for content that cannot
+  clip itself (a grandchild inside a square holder, DataGrid / FileDropZone /
+  Maps / TabControl / ToolBar per the R7 harness) — and there it still paints
+  the form backdrop, wrong or not, exactly as before (goldens in
+  `tests/goldens/057_*.txt`).
 - A rounded control nested in a translucent parent: its corner notch **correctly
   reveals the parent** (that dark/tinted reveal is not a bug — verify with the
   shape-dump that only the *parent's* fills, not the child's, reach the notch).
+- A new bleeder? Run the R7 harness
+  (`cargo test -p cobolt-forms --features render --test
+  a_child_at_a_rounded_corner_stays_inside_the_arc -- --nocapture`,
+  `COBOLT_R7_DUMP=<Type>` for its shapes) and lift the painter it names. Do not
+  add the type to the mask's list by hand: the harness asserts the list equals
+  the measurement.
 
 Do not "fix" this by squaring the child or flat-masking — you'll trade a bleed for
-a hole punched through the parent.
+a hole punched through the parent, or a wedge of the wrong image.
 
 ---
 
@@ -345,13 +362,46 @@ Current DataGrid corner fix (this playbook's subject), in two steps:
 
 ---
 
+### Spec 057 (1.65.2) — corners are drawn rounded, not repaired
+
+- `crates/cobolt-forms/src/paint.rs` — `container_lift_radius` (the concentric
+  lift, replacing the chord cut), `container_rounding_lift`, `lift_to_container`
+  (rings), `ContainerClipScope` / `scoped_container_clip` (surface painters
+  reached without the control), `rows_inside_rounded_rect` (strips too short for
+  their radius), `RegularDropShadow::clip`, `neumorphic_shadow_stack(.., clip)`,
+  `draw_neumorphic_shadow_only(.., clip)`, `DropShadowSpec::paint_in`, `nv_card`
+  with a rounding, `rounded_rect_outline_points_per_corner`.
+- `crates/cobolt-forms/src/render.rs` — `container_clip_geometry` (content rect +
+  concentric radius, seeded for EVERY type), `self_clipping_type`,
+  `descendant_stays_inside_arc`, `corners_already_correct`, wired into
+  `notch_mask_rounding`; the `RoundedClipHook` trait and `render_faces`'s hook
+  parameter are gone.
+- `crates/cobolt-forms/src/sidebar.rs` — `SidebarState::clip`; the rail's face
+  and shadow take the lift.
+- `crates/cobolt-ide/src/panels/designer.rs` — the notch loop runs
+  unconditionally over `controls_for_render` and passes the masked corners to
+  the grid pass; `panels/rounded_clip.rs`, its debug switch and `egui_glow` are
+  deleted.
+- Tests: `tests/a_child_at_a_rounded_corner_stays_inside_the_arc.rs` (R7),
+  `tests/inner_form2_corners_are_drawn_not_repaired.rs` (AC1/AC6),
+  `tests/mask_corner_goldens.rs` + `tests/goldens/057_*.txt` (AC4),
+  `tests/a_selected_frame_and_a_child_shadow_follow_the_arc.rs` (AC7),
+  `tests/a_translucent_container_shows_what_is_behind_it.rs` (AC10), and
+  `render::tests::{a_corner_reached_only_by_a_self_clipping_child_is_not_repainted,
+  a_self_clipping_child_and_a_grandchild_mask_exactly_one_corner,
+  a_grandchild_on_a_self_clipping_childs_corner_still_masks_it,
+  descendant_geometry_cases}` (AC2/AC3).
+
 ## 8. If it happens again — the 6-step drill
 
 1. Which surface/style? (§4.1) Reproduce from the **real** `.cfrm` params (§4.2).
 2. Shape-dump with **effective** radius; find the bleeder (§4.3, §3-scan).
 3. Is it a fill too short/thin to hold its radius? → **bands** (§3). Is it a
-   stroke? → `Inside` at integer face radius (§1.2). Is it translucent/nested? →
-   GL clip or accept the parent-reveal (§5).
+   stroke? → `Inside` at integer face radius (§1.2). Is it a child at a rounded
+   parent's corner? → the R7 harness names the painter; lift it (§5) — and if
+   the corner shows a wedge of the *form* image over something else, the mask
+   ran on a corner that was already right: `corners_already_correct` (§5).
+   Translucent/nested → accept the parent-reveal (§5); there is no GL clip.
    Is it a *thin line at a fixed y that flashes while scrolling*? → not a bleed at
    all, it's a **sub-pixel tiling gap** (§1.4): find the `eps` guard that skips a
    piece.

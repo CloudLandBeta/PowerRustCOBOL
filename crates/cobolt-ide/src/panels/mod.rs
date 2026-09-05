@@ -34,7 +34,6 @@ pub mod output;
 pub mod project;
 pub mod prompt_review;
 pub mod properties;
-pub mod rounded_clip;
 pub mod settings_form;
 pub mod target_picker;
 pub mod theme_defaults_modal;

@@ -41,10 +41,6 @@ cobolt-compiler = { path = "../cobolt-compiler" }
 egui       = "0.36"
 eframe     = { version = "0.36", features = ["default_fonts"] }
 egui_extras = { version = "0.36", features = ["image"] }
-# Low-level GL access for the offscreen rounded-corner clip (spec 017): captures
-# the real backdrop behind a rounded container and re-blits it through a rounded
-# mask, so translucent surfaces stop bleeding at the corners. Version tracks eframe's.
-egui_glow  = "0.36"
 # Agent access (spec 027 R3): serves the egui inspection protocol on localhost
 # so MCP clients (via the official egui-mcp bridge) and the in-IDE agents can
 # see and drive the IDE. Never linked by rcrun / packaged apps (R4).

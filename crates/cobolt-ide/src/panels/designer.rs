@@ -7174,22 +7174,6 @@ impl DesignerPanel {
                         })
                     })
                     .collect();
-                // ── Rounded-container child clip (spec 017) ─────────────────────
-                // When enabled, the render walk hands each rounded container to this
-                // GL hook right after its face+shadow are painted; the hook captures
-                // the backdrop+shadow behind the corners and re-blits the notches
-                // once children are drawn — clipping bleed without erasing the
-                // shadow. Opt-in via COBOLT_ROUNDED_CLIP; otherwise the flat notch
-                // mask below is used. `finish` is called inside `render_faces`.
-                let rounded_clip_on = crate::panels::rounded_clip::enabled();
-                let clip_hook = crate::panels::rounded_clip::RoundedClipHook::new();
-                let hook_ref: Option<&dyn cobolt_forms::render::RoundedClipHook> =
-                    if rounded_clip_on {
-                        Some(&clip_hook)
-                    } else {
-                        None
-                    };
-
                 // Agent control-move animation (spec 035): interpolate the DRAWN
                 // positions only. The model keeps its final coordinates; we render
                 // a lightweight clone shifted by each control's live offset.
@@ -7244,19 +7228,20 @@ impl DesignerPanel {
                         active_tabs: &active_tabs,
                         backdrop: cobolt_forms::render::Backdrop::default(),
                     };
-                    cobolt_forms::render::render_faces(&painter, origin, &input, hook_ref)
-                        .control_rects
+                    cobolt_forms::render::render_faces(&painter, origin, &input).control_rects
                 };
 
-                // ── Corner-notch masks (spec 017) ───────────────────────────────
-                // Legacy fallback: egui can't clip children to a rounded rect, so
-                // after the faces are drawn we repaint each rounded GroupBox/Panel's
-                // corner notches with the canvas backdrop (colour + image) to cover
-                // child bleed. Skipped when the GL rounded clip is active, which
-                // handles it correctly (backdrop + shadow) via `render_faces`.
-                if !rounded_clip_on {
+                // ── Corner-notch masks (spec 017 / 057) ─────────────────────────
+                // After the faces are drawn, repaint the corner notches of each
+                // rounded GroupBox/Panel that content which CANNOT clip itself
+                // reaches — `notch_mask_rounding` decides, the same rule the
+                // run/preview renderer applies (a self-clipping child draws its
+                // frame lifted to the arc and needs nothing repainted). Walk the
+                // list the faces were rendered from, which `control_rects` is
+                // keyed by, not the model.
+                {
                     let img_alpha = (255.0 * form_alpha_mul) as u8;
-                    for (idx, ctrl) in self.form.controls.iter().enumerate() {
+                    for (idx, ctrl) in controls_for_render.iter().enumerate() {
                         let rad = cobolt_forms::paint::corner_radius(ctrl);
                         if let Some(crect) = control_rects.get(&ctrl.id) {
                             // The SAME rule the run/preview renderer uses — which
@@ -7265,7 +7250,7 @@ impl DesignerPanel {
                             // canvas is where the divergence shows first, because
                             // it is where forms are designed.
                             let Some(rounding) = cobolt_forms::render::notch_mask_rounding(
-                                &self.form.controls,
+                                controls_for_render,
                                 idx,
                                 *crect,
                                 rad,
@@ -7311,7 +7296,10 @@ impl DesignerPanel {
                                     &painter,
                                     resp.rect,
                                     *crect,
-                                    egui::CornerRadius::same(crate::cr8(rad)),
+                                    // Only the corners the mask repainted: the
+                                    // grid lines under a self-clipping child's
+                                    // corner are still there.
+                                    rounding,
                                     self.form.grid_size.max(4) as f32,
                                     self.glass_mode,
                                     notch_fill,
@@ -7320,9 +7308,6 @@ impl DesignerPanel {
                         }
                     }
                 }
-
-                // (Rounded-clip re-blit is flushed inside `render_faces` via the
-                // hook's `finish`, so no separate designer pass is needed here.)
 
                 // ── Editor badges on top of the faces ───────────────────────────
                 for &idx in &render_order {

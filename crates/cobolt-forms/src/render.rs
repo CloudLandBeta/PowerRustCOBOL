@@ -321,20 +321,6 @@ pub struct RenderInput<'a> {
 /// goes in it.
 pub type ChromeUnderControls<'a> = &'a dyn Fn(&egui::Painter, Rect);
 
-/// Backend-agnostic hook the face-render walk calls so the host can clip a rounded
-/// container's children to its rounded arc. egui only axis-aligns clip rects, so a
-/// child's corner otherwise bleeds past the container's rounded corner (spec 017).
-/// The default (`None`) keeps the legacy flat notch-mask behaviour; the IDE supplies
-/// a GL implementation that captures the real backdrop + shadow behind each rounded
-/// container and re-blits it through a rounded mask.
-pub trait RoundedClipHook {
-    /// Called right after a rounded container's own face + shadow are painted and
-    /// before any of its children, with the container id, screen rect and radius.
-    fn on_container(&self, painter: &egui::Painter, id: &str, rect: egui::Rect, radius: f32);
-    /// Called once after the whole subtree is painted, to apply/flush the clip.
-    fn finish(&self, painter: &egui::Painter);
-}
-
 /// A UI event emitted by an interactive control. Neutral (no `cobolt-runtime`
 /// dependency); callers map it to their event type.
 #[derive(Clone, Debug)]
@@ -637,25 +623,14 @@ fn backdrop_gradient_color(color_hex: &str, transparency: u8) -> Color32 {
     )
 }
 
-/// Whether a control's drawn content (image, film, glass card, chart, â¦) should be
-/// clipped to a rounded GroupBox/Panel parent's border so it never bleeds past the
-/// container's rounded corner (spec 017). True for every visual control; the
-/// non-visual config objects (Timer/Agent/Sql/Rest) draw nothing that can bleed.
-fn clips_to_container_border(ct: &ControlType) -> bool {
-    !matches!(
-        ct,
-        ControlType::Timer
-            | ControlType::AgentObject
-            | ControlType::SqlDatabase
-            | ControlType::RestClient
-    )
-}
 
-/// Border path of a control's immediate rounded GroupBox/Panel parent, in screen
-/// pixels: the parent's **visual** rect (its actual border, not the inset content
-/// area) and its corner radius. A child is clipped to this shape, so any part that
-/// exceeds the parent's border is cut by the parent â not by the child's own bounds
-/// (spec 017, the container-clip rule). `None` when the parent isn't rounded.
+/// The arc a control's immediate rounded GroupBox/Panel parent clips it to, in
+/// screen pixels: the parent's CONTENT rect and the concentric radius
+/// (`container_clip_geometry`) — the same rect its straight edges are clipped
+/// to. A child draws its frame lifted to this arc, so any part that reaches a
+/// rounded corner is cut by the parent's shape, not by the child's own bounds
+/// (spec 017, the container-clip rule; spec 057: every type, one geometry).
+/// `None` when the parent isn't rounded.
 fn picturebox_container_border(
     controls: &[Control],
     state: &dyn FormState,
@@ -698,13 +673,41 @@ fn picturebox_container_border(
         origin + Vec2::new(v.x as f32, v.y as f32) - off,
         origin + Vec2::new((v.x + v.w) as f32, (v.y + v.h) as f32) - off,
     );
-    Some((border, rad))
+    Some(container_clip_geometry(&plive, border, rad))
 }
 
-/// `_ContainerClip` descriptor string for `draw_control`: the parent border rect,
-/// radius, and an all-corners-roundable flag set (every corner of a rounded
-/// container border is rounded; `draw_control` still only rounds the corners the
-/// image actually reaches).
+/// The arc a child is clipped to: the container's CONTENT rect (the border
+/// rect less the inset its children are clipped to on the straight edges) and
+/// the concentric radius that goes with it.
+///
+/// It used to be the border rect and the border radius, so a child flush with
+/// its parent was cut to the content rect on its straight edges but lifted to
+/// the OUTER arc at the corners — where it then covered the parent's rim, and
+/// only the notch mask's restore pass put the rim back. One geometry for all
+/// four sides means a self-clipping child never touches the rim, so no corner
+/// it reaches needs repainting (spec 057). Shared with
+/// [`corners_already_correct`], so the rule and the painter agree.
+pub fn container_clip_geometry(container: &Control, border: Rect, rad: f32) -> (Rect, f32) {
+    let r = container.rect;
+    let c = container.content_rect();
+    let (l, t) = ((c.x - r.x) as f32, (c.y - r.y) as f32);
+    let (rr, b) = (
+        ((r.x + r.w) - (c.x + c.w)) as f32,
+        ((r.y + r.h) - (c.y + c.h)) as f32,
+    );
+    let content = Rect::from_min_max(
+        border.min + Vec2::new(l.max(0.0), t.max(0.0)),
+        border.max - Vec2::new(rr.max(0.0), b.max(0.0)),
+    );
+    let inset = l.max(0.0).min(t.max(0.0)).min(rr.max(0.0)).min(b.max(0.0));
+    (content, (rad - inset).max(0.0))
+}
+
+/// `_ContainerClip` descriptor string for `draw_control`: the parent's CONTENT
+/// rect and the concentric radius that goes with it ([`container_clip_geometry`]),
+/// and an all-corners-roundable flag set (every corner of a rounded container is
+/// rounded; `draw_control` still only lifts the corners the child actually
+/// reaches).
 fn container_clip_prop(border: Rect, rad: f32) -> String {
     format!(
         "{},{},{},{},{},1,1,1,1",
@@ -770,10 +773,173 @@ pub fn notch_mask_rounding(
     }
     match ctrl.control_type {
         ControlType::Maps => Some(egui::CornerRadius::same(crate::paint::cr8(radius))),
-        ControlType::GroupBox | ControlType::Panel => containers::has_descendants(controls, idx)
-            .then(|| corner_notch_rounding(rect, radius, controls, idx, control_rects)),
+        ControlType::GroupBox | ControlType::Panel => {
+            if !containers::has_descendants(controls, idx) {
+                return None;
+            }
+            // The guardian says which corners a descendant REACHES; the rule
+            // beside it says which of those are drawn right already, because
+            // everything reaching them stays inside the arc on its own
+            // (spec 057). Only a corner that is reached AND not already
+            // correct is repainted.
+            let mut r = corner_notch_rounding(rect, radius, controls, idx, control_rects);
+            let ok = corners_already_correct(rect, radius, controls, idx, control_rects);
+            if ok[0] {
+                r.nw = 0;
+            }
+            if ok[1] {
+                r.ne = 0;
+            }
+            if ok[2] {
+                r.se = 0;
+            }
+            if ok[3] {
+                r.sw = 0;
+            }
+            // `None` rather than `Some(ZERO)`: nothing to repaint is the honest
+            // answer, and it spares the callers the shadow-stack build.
+            (r != egui::CornerRadius::ZERO).then_some(r)
+        }
         _ => None,
     }
+}
+
+/// Control types measured to draw their WHOLE frame — face, border, sheen,
+/// badge and shadow — inside a rounded parent's arc, on every surface and in
+/// every style (spec 057, R7).
+///
+/// The measurement is `tests/a_child_at_a_rounded_corner_stays_inside_the_arc.rs`,
+/// which asserts this list equals what it measures, so neither can rot on its
+/// own. A type is absent for one of the reasons the harness prints per type:
+/// it paints past the arc (its own painter, an egui widget it delegates to, or
+/// a part too small to hold the radius its corner would need), or it paints
+/// nothing at run time.
+pub fn self_clipping_type(ct: &ControlType) -> bool {
+    // Measured 2026-09-05 (1.65.2). Absent, and why:
+    //   DataGrid     — the interactive grid's header band is too short for the
+    //                  lifted radius and its border line runs square (96 px);
+    //   FileDropZone — the live egui widget paints its own frame (133 px);
+    //   Maps         — the basemap tiles are square (113 px);
+    //   TabControl   — a tab is too small to hold the radius its corner needs
+    //                  (up to 303 px with the Neumorphic halo);
+    //   ToolBar      — with a background colour or border, the live bar paints
+    //                  its own face past the arc (93 px).
+    !matches!(
+        ct,
+        ControlType::DataGrid
+            | ControlType::FileDropZone
+            | ControlType::Maps
+            | ControlType::TabControl
+            | ControlType::ToolBar
+            | ControlType::Custom { .. }
+    )
+}
+
+/// One corner of a container, in [`corner_notch_rounding`]'s order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContainerCorner {
+    Nw,
+    Ne,
+    Se,
+    Sw,
+}
+
+/// Can a descendant occupying `rect` paint outside the container's arc at
+/// `corner`? Pure geometry, sharing `paint::container_lift_radius` with the
+/// painter's lift so the two cannot disagree about the same child.
+///
+/// `lifted` says whether the descendant draws its frame lifted to the arc (an
+/// immediate child of a [`self_clipping_type`]). Without a lift the answer is
+/// "stays inside" only when the rect never enters the arc region: it lies
+/// outside the corner square, or its apex is within the arc — a descendant like
+/// that cannot bleed whatever it paints (`inner-form2`'s LineChart, whose
+/// corner is 10 px from a 26 px arc's centre). With a lift it also stays
+/// inside when the lifted radius fits the child (egui caps a radius at half
+/// the shorter side, so a child too small for the radius its corner needs is
+/// drawn with a smaller one and pokes out) and the child does not extend past
+/// the container's border on either side of that corner (the frame is drawn on
+/// the child's full rect, so a poking-out child's arc is centred where the
+/// visible part's is not).
+pub fn descendant_stays_inside_arc(
+    rect: Rect,
+    container: Rect,
+    radius: f32,
+    corner: ContainerCorner,
+    lifted: bool,
+) -> bool {
+    let (ix, iy) = match corner {
+        ContainerCorner::Nw => (rect.min.x - container.min.x, rect.min.y - container.min.y),
+        ContainerCorner::Ne => (container.max.x - rect.max.x, rect.min.y - container.min.y),
+        ContainerCorner::Se => (container.max.x - rect.max.x, container.max.y - rect.max.y),
+        ContainerCorner::Sw => (rect.min.x - container.min.x, container.max.y - rect.max.y),
+    };
+    // The visible part is what the clip leaves: nothing of the child lies past
+    // the container's border.
+    match crate::paint::container_lift_radius(ix.max(0.0), iy.max(0.0), radius) {
+        None => true,
+        Some(needed) => {
+            if !lifted {
+                return false;
+            }
+            let cap = 0.5 * rect.width().min(rect.height());
+            ix >= 0.0 && iy >= 0.0 && needed <= cap + 0.01
+        }
+    }
+}
+
+/// Per corner (NW, NE, SE, SW): does every descendant reaching that corner
+/// stay inside the container's arc on its own — so the corner is drawn right
+/// already and must not be repainted (spec 057, R1–R3)?
+///
+/// Same four squares as [`corner_notch_rounding`]; a corner nothing reaches is
+/// vacuously correct (the guardian leaves it alone anyway, R4). A grandchild
+/// counts like any other descendant: it draws lifted to ITS parent's arc, not
+/// this container's, so unless its rect keeps clear of this arc it needs the
+/// mask (R5).
+pub fn corners_already_correct(
+    container: Rect,
+    radius: f32,
+    controls: &[Control],
+    container_idx: usize,
+    control_rects: &HashMap<String, Rect>,
+) -> [bool; 4] {
+    let r = radius.max(0.0);
+    if r < 0.5 {
+        return [true; 4];
+    }
+    let Some(owner) = controls.get(container_idx) else {
+        return [false; 4];
+    };
+    // The guardian's squares are the BORDER corners; the arc a child is held
+    // inside is the content arc (`container_clip_geometry`) — the same one the
+    // painter lifts to.
+    let (content, inner_r) = container_clip_geometry(owner, container, r);
+    let square = |x: f32, y: f32| Rect::from_min_size(pos2(x, y), Vec2::new(r, r));
+    let squares = [
+        (ContainerCorner::Nw, square(container.min.x, container.min.y)),
+        (ContainerCorner::Ne, square(container.max.x - r, container.min.y)),
+        (ContainerCorner::Se, square(container.max.x - r, container.max.y - r)),
+        (ContainerCorner::Sw, square(container.min.x, container.max.y - r)),
+    ];
+    let mut ok = [true; 4];
+    for d in containers::collect_descendants(controls, container_idx) {
+        let Some(c) = controls.get(d) else {
+            continue;
+        };
+        let Some(&rect) = control_rects.get(&c.id) else {
+            continue;
+        };
+        let lifted = c.parent.as_deref() == Some(owner.id.as_str())
+            && self_clipping_type(&c.control_type);
+        for (i, (corner, sq)) in squares.iter().enumerate() {
+            if rect.intersects(*sq)
+                && !descendant_stays_inside_arc(rect, content, inner_r, *corner, lifted)
+            {
+                ok[i] = false;
+            }
+        }
+    }
+    ok
 }
 
 pub fn corner_notch_rounding(
@@ -2063,15 +2229,13 @@ fn render_form_inner(
             }
         }
 
-        // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
-        // BORDER path, so any overflow is cut by the container shape rather than the
-        // image's own bounds (spec 017). The image is allowed to reach the parent's
-        // border (not just its inset content area), so the clip widens to the border.
-        let pic_border = if clips_to_container_border(&base.control_type) {
-            picturebox_container_border(controls, input.state, idx, origin, scroll)
-        } else {
-            None
-        };
+        // A control inside a rounded GroupBox/Panel draws its frame lifted to the
+        // parent's BORDER arc, so any part that reaches a rounded corner is cut
+        // by the container shape rather than poking out square (spec 017; every
+        // type since spec 057 — the non-visual objects' canvas badge is a frame
+        // like any other). The straight edges stay clipped to `clip`, the
+        // parent's content rect, exactly as before.
+        let pic_border = picturebox_container_border(controls, input.state, idx, origin, scroll);
 
         let anc = containers::ancestor_opacity(controls, idx);
         let enabled = input.state.enabled(base);
@@ -2540,7 +2704,6 @@ pub fn render_faces(
     painter: &egui::Painter,
     origin: egui::Pos2,
     input: &RenderInput<'_>,
-    clip_hook: Option<&dyn RoundedClipHook>,
 ) -> RenderOutput {
     let mut out = RenderOutput::default();
     let controls = input.controls;
@@ -2566,11 +2729,8 @@ pub fn render_faces(
 
         // A PictureBox inside a rounded GroupBox/Panel is clipped to the parent's
         // BORDER path (spec 017) â see `render_form`.
-        let pic_border = if clips_to_container_border(&base.control_type) {
-            picturebox_container_border(input.controls, input.state, idx, origin, egui::Vec2::ZERO)
-        } else {
-            None
-        };
+        let pic_border =
+            picturebox_container_border(input.controls, input.state, idx, origin, egui::Vec2::ZERO);
 
         // Clip children to ancestor container content areas; top-level controls
         // draw to the painter's existing clip (the canvas), matching the designer.
@@ -2620,27 +2780,6 @@ pub fn render_faces(
             pic_tex,
         );
 
-        // Rounded-container child clip (spec 017): the face + shadow are now on the
-        // framebuffer and the depth-first walk is about to draw this container's
-        // children next, so let the host snapshot the backdrop behind its rounded
-        // corners here â captured after the shadow, so re-blitting the notch later
-        // restores backdrop + shadow instead of erasing it (the flat notch mask's bug).
-        if let Some(hook) = clip_hook {
-            if matches!(
-                base.control_type,
-                ControlType::GroupBox | ControlType::Panel
-            ) && containers::has_descendants(controls, idx)
-            {
-                let rad = crate::paint::corner_radius(&live);
-                if rad >= 0.5 {
-                    hook.on_container(painter, &live.id, screen, rad);
-                }
-            }
-        }
-    }
-    // All children are painted; flush the rounded clip (re-blit each captured notch).
-    if let Some(hook) = clip_hook {
-        hook.finish(painter);
     }
     draw_deferred_groupbox_captions(painter, input, &out);
     draw_deferred_tabcontrol_tabs(painter, input, &out);
@@ -6072,6 +6211,8 @@ fn render_interactive(
         }
         CT::DataGrid => {
             let painter = painter.with_clip_rect(painter.clip_rect().intersect(screen));
+            let _clip_scope =
+                paint::ContainerClipScope::enter(painter.ctx(), paint::container_clip_of(ctrl));
             // Cell text honours the grid's ForegroundColor when explicitly set,
             // falling back to the readable default (previously hardcoded).
             let cell_fg = {
@@ -6280,12 +6421,18 @@ fn render_interactive(
             let frozen_rows_height = row_h * frozen_rows as f32;
             let scrollable_row_count = displayed_row_indices.len().saturating_sub(frozen_rows);
 
+            // The grid's own radius, lifted to a rounded parent's arc on any
+            // corner that lands on one — one resolution for every frame painter
+            // (spec 057, R11); the header and the background image below take
+            // their corners from the same value.
+            let grid_round =
+                paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl));
             paint::draw_surface_auto_bg(
                 &painter,
                 screen,
                 grid_bg,
                 grid_bg_underlay,
-                paint::corner_radius(ctrl),
+                grid_round,
                 false,
                 alpha,
                 paint::SurfaceRole::Input,
@@ -6341,9 +6488,8 @@ fn render_interactive(
                         );
                         // Round only the corners where the image actually reaches a
                         // grid corner, so a smaller centred image is left square.
-                        let r = paint::cr8(paint::corner_radius(ctrl));
                         let eps = 0.5;
-                        let corner = |vx: f32, sx: f32, vy: f32, sy: f32| {
+                        let corner = |vx: f32, sx: f32, vy: f32, sy: f32, r: u8| {
                             if (vx - sx).abs() < eps && (vy - sy).abs() < eps {
                                 r
                             } else {
@@ -6351,10 +6497,10 @@ fn render_interactive(
                             }
                         };
                         let rounding = egui::CornerRadius {
-                            nw: corner(visible.min.x, screen.min.x, visible.min.y, screen.min.y),
-                            ne: corner(visible.max.x, screen.max.x, visible.min.y, screen.min.y),
-                            sw: corner(visible.min.x, screen.min.x, visible.max.y, screen.max.y),
-                            se: corner(visible.max.x, screen.max.x, visible.max.y, screen.max.y),
+                            nw: corner(visible.min.x, screen.min.x, visible.min.y, screen.min.y, grid_round.nw),
+                            ne: corner(visible.max.x, screen.max.x, visible.min.y, screen.min.y, grid_round.ne),
+                            sw: corner(visible.min.x, screen.min.x, visible.max.y, screen.max.y, grid_round.sw),
+                            se: corner(visible.max.x, screen.max.x, visible.max.y, screen.max.y, grid_round.se),
                         };
                         painter.add(egui::Shape::Rect(
                             egui::epaint::RectShape::new(
@@ -6762,12 +6908,11 @@ fn render_interactive(
                 }
             }
 
-            let header_radius = paint::corner_radius(ctrl) as f32;
             painter.rect_filled(
                 header_rect,
                 egui::CornerRadius {
-                    nw: crate::paint::cr8(header_radius),
-                    ne: crate::paint::cr8(header_radius),
+                    nw: grid_round.nw,
+                    ne: grid_round.ne,
                     sw: 0,
                     se: 0,
                 },
@@ -8129,6 +8274,10 @@ fn render_interactive(
             );
         }
         CT::MenuBar => {
+            // The bar paints its own surface: publish its container clip for
+            // the Neumorphic halo under it, as `draw_control` would (spec 057).
+            let _clip_scope =
+                paint::ContainerClipScope::enter(painter.ctx(), paint::container_clip_of(ctrl));
             // A menu's `Cursor` belongs to the things you point at â the titles
             // on the bar and the items under them, not the bar's own backdrop.
             let menu_cursor = ctrl
@@ -8168,7 +8317,7 @@ fn render_interactive(
                     &painter,
                     screen,
                     menu_bg,
-                    paint::corner_radius(ctrl),
+                    paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl)),
                     false,
                     alpha,
                     paint::SurfaceRole::Shape,
@@ -8180,7 +8329,7 @@ fn render_interactive(
                     &painter,
                     screen,
                     fill,
-                    paint::corner_radius(ctrl),
+                    paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl)),
                     false,
                     alpha,
                     paint::SurfaceRole::Card,
@@ -8596,11 +8745,13 @@ fn render_interactive(
             }
         }
         CT::StatusBar => {
+            let _clip_scope =
+                paint::ContainerClipScope::enter(painter.ctx(), paint::container_clip_of(ctrl));
             paint::draw_surface_auto(
                 &painter,
                 screen,
                 Color32::from_rgb(40, 46, 76),
-                paint::corner_radius(ctrl),
+                paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl)),
                 false,
                 alpha,
                 paint::SurfaceRole::Card,
@@ -9470,6 +9621,132 @@ mod tests {
         assert!(notch_mask_rounding(&label, 0, rect, 20.0, &prects).is_none());
     }
 
+    /// A 200×150 / r=20 Panel: border (0,0)-(200,150), content (2,2)-(198,148),
+    /// inner radius 18 — with `rects` for the guardian.
+    fn rounded_panel_scene(
+        children: Vec<(Control, Rect)>,
+    ) -> (Vec<Control>, Rect, std::collections::HashMap<String, Rect>) {
+        use std::collections::HashMap;
+        let container = ctrl("PANEL", ControlType::Panel, 0, 0, 200, 150);
+        let cont = Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(200.0, 150.0));
+        let mut rects = HashMap::new();
+        rects.insert("PANEL".to_string(), cont);
+        let mut controls = vec![container];
+        for (c, r) in children {
+            rects.insert(c.id.clone(), r);
+            controls.push(c);
+        }
+        (controls, cont, rects)
+    }
+
+    /// A Label big enough to hold the radius its SW corner needs (100×56 at a
+    /// 2 px inset from the content rect: needs 16, can hold 28).
+    fn self_clipping_child_at_sw(parent: &str) -> (Control, Rect) {
+        let mut c = ctrl("CHILD", ControlType::Label, 4, 90, 100, 56);
+        c.parent = Some(parent.into());
+        (c, Rect::from_min_size(pos2(4.0, 90.0), Vec2::new(100.0, 56.0)))
+    }
+
+    /// A square, faceless holder panel filling the container's content, and a
+    /// Label inside it reaching the NE corner.
+    fn holder_with_grandchild_at_ne() -> Vec<(Control, Rect)> {
+        let mut holder = ctrl("HOLDER", ControlType::Panel, 2, 2, 196, 146);
+        holder.parent = Some("PANEL".into());
+        holder.set_prop("CornerRadius", PropValue::Int(0));
+        holder.set_prop("HideBackground", PropValue::Bool(true));
+        let mut grand = ctrl("GRAND", ControlType::Label, 170, 2, 28, 20);
+        grand.parent = Some("HOLDER".into());
+        vec![
+            (holder, Rect::from_min_size(pos2(2.0, 2.0), Vec2::new(196.0, 146.0))),
+            (grand, Rect::from_min_size(pos2(170.0, 2.0), Vec2::new(28.0, 20.0))),
+        ]
+    }
+
+    /// **Spec 057 R1/R2 — a corner reached only by a self-clipping child is
+    /// already correct: nothing is repainted.** The guardian still sees the
+    /// child (it intersects the SW square), the rule zeroes the corner, and
+    /// with every corner zero the answer is `None`, as for a childless panel.
+    #[test]
+    fn a_corner_reached_only_by_a_self_clipping_child_is_not_repainted() {
+        let (controls, cont, rects) = rounded_panel_scene(vec![self_clipping_child_at_sw("PANEL")]);
+        assert_eq!(
+            corner_notch_rounding(cont, 20.0, &controls, 0, &rects).sw,
+            20,
+            "the guardian still reports the corner as reached"
+        );
+        assert_eq!(
+            corners_already_correct(cont, 20.0, &controls, 0, &rects),
+            [true, true, true, true],
+            "a Label lifted to the arc stays inside it, so every corner is correct"
+        );
+        assert_eq!(
+            notch_mask_rounding(&controls, 0, cont, 20.0, &rects),
+            None,
+            "nothing to repaint — the honest answer, not Some(ZERO)"
+        );
+    }
+
+    /// **AC3 (R3, R5) — one corner reached by a self-clipping child, another by
+    /// a grandchild: exactly one corner is masked.** A grandchild draws lifted
+    /// to ITS parent's arc (the square holder's: none), so it reaches the notch.
+    #[test]
+    fn a_self_clipping_child_and_a_grandchild_mask_exactly_one_corner() {
+        let mut children = holder_with_grandchild_at_ne();
+        children.push(self_clipping_child_at_sw("PANEL"));
+        let (controls, cont, rects) = rounded_panel_scene(children);
+        let r = notch_mask_rounding(&controls, 0, cont, 20.0, &rects)
+            .expect("the grandchild's corner needs the mask");
+        assert_eq!(
+            (r.nw, r.ne, r.se, r.sw),
+            (0, 20, 0, 0),
+            "NE (grandchild) masked; SW (self-clipping child) left alone; NW/SE unreached"
+        );
+    }
+
+    /// **R5 — a self-clipping child and a grandchild on the SAME corner: still
+    /// masked.** Every descendant reaching a corner must stay inside the arc.
+    #[test]
+    fn a_grandchild_on_a_self_clipping_childs_corner_still_masks_it() {
+        let mut children = holder_with_grandchild_at_ne();
+        // A self-clipping Label also reaching NE, big enough to hold its radius.
+        let mut c = ctrl("CHILD", ControlType::Label, 96, 4, 100, 56);
+        c.parent = Some("PANEL".into());
+        children.push((c, Rect::from_min_size(pos2(96.0, 4.0), Vec2::new(100.0, 56.0))));
+        let (controls, cont, rects) = rounded_panel_scene(children);
+        let r = notch_mask_rounding(&controls, 0, cont, 20.0, &rects).expect("masked");
+        assert_eq!(r.ne, 20, "the grandchild still reaches the NE notch");
+    }
+
+    /// **The geometry the rule and the painter share** (`descendant_stays_inside_arc`
+    /// over `paint::container_lift_radius`), case by case. Content rect
+    /// (2,2)-(198,148), inner radius 18.
+    #[test]
+    fn descendant_geometry_cases() {
+        let content = Rect::from_min_max(pos2(2.0, 2.0), pos2(198.0, 148.0));
+        let r = 18.0;
+        // inner-form2's LineChart, scaled: apex 10 px from a 26 px arc's centre —
+        // inside the arc, so it cannot bleed whatever it paints (not lifted).
+        let apex_inside = Rect::from_min_max(pos2(24.0, 60.0), pos2(120.0, 138.0));
+        assert!(descendant_stays_inside_arc(apex_inside, content, r, ContainerCorner::Sw, false));
+        // Outside the corner square altogether.
+        let far = Rect::from_min_max(pos2(60.0, 60.0), pos2(120.0, 100.0));
+        assert!(descendant_stays_inside_arc(far, content, r, ContainerCorner::Sw, false));
+        // Reaches the notch and is not lifted: bleeds.
+        let square_child = Rect::from_min_max(pos2(4.0, 90.0), pos2(104.0, 146.0));
+        assert!(!descendant_stays_inside_arc(square_child, content, r, ContainerCorner::Sw, false));
+        // The same rect lifted: needs 16, can hold 28 — stays inside.
+        assert!(descendant_stays_inside_arc(square_child, content, r, ContainerCorner::Sw, true));
+        // Too small to hold the radius its corner needs (20×20 at a 2 px inset
+        // needs 16, can hold 10): egui caps the radius and the corner pokes out.
+        let tiny = Rect::from_min_max(pos2(4.0, 126.0), pos2(24.0, 146.0));
+        assert!(!descendant_stays_inside_arc(tiny, content, r, ContainerCorner::Sw, true));
+        // Extending past the container's border on a side of that corner: the
+        // frame is drawn on the full rect, so its arc is centred off the visible
+        // part — not trusted.
+        let poking = Rect::from_min_max(pos2(-10.0, 90.0), pos2(104.0, 146.0));
+        assert!(!descendant_stays_inside_arc(poking, content, r, ContainerCorner::Sw, true));
+    }
+
     #[test]
     fn corner_notch_guardian_masks_only_the_reached_corner() {
         use std::collections::HashMap;
@@ -9903,10 +10180,13 @@ mod tests {
     }
 
     #[test]
-    fn picturebox_container_border_is_parent_visual_rect_and_radius() {
-        // A PictureBox child of a rounded GroupBox is clipped to the parent's
-        // BORDER path: the parent's full visual rect (NOT the inset content rect)
-        // and its corner radius, so overflow is cut by the container shape.
+    fn picturebox_container_border_is_parent_content_rect_and_concentric_radius() {
+        // A child of a rounded GroupBox is clipped to the parent's CONTENT arc:
+        // the content rect its straight edges are clipped to (2 px inside the
+        // 200×200 border) and the concentric radius (12 − 2), so a flush child
+        // never covers the rim at the corners (spec 057; it was the border rect
+        // and the border radius before, lifting past the rim the straight
+        // edges stopped at).
         let mut gb = ctrl("GB", ControlType::GroupBox, 0, 0, 200, 200);
         gb.set_prop("CornerRadius", 12);
         let mut pic = ctrl("Pic", ControlType::PictureBox, 10, 10, 180, 180);
@@ -9927,10 +10207,10 @@ mod tests {
         let (border, rad) = mk(&controls).expect("rounded parent â border clip");
         assert_eq!(
             border,
-            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(200.0, 200.0))
+            Rect::from_min_max(egui::pos2(2.0, 2.0), egui::pos2(198.0, 198.0))
         );
-        assert_eq!(rad, 12.0);
-        assert_eq!(container_clip_prop(border, rad), "0,0,200,200,12,1,1,1,1");
+        assert_eq!(rad, 10.0);
+        assert_eq!(container_clip_prop(border, rad), "2,2,198,198,10,1,1,1,1");
 
         // A square (non-rounded) container needs no clip.
         let mut panel = ctrl("P", ControlType::Panel, 0, 0, 200, 200);
@@ -12656,7 +12936,7 @@ mod tests {
                 rects_form = Some(render_form(ui, &input).control_rects);
                 let painter = ui.painter().clone();
                 let origin = ui.min_rect().min;
-                rects_faces = Some(render_faces(&painter, origin, &input, None).control_rects);
+                rects_faces = Some(render_faces(&painter, origin, &input).control_rects);
             });
         }).textures_delta.clear();
         let rf = rects_form.expect("render_form rects");
@@ -17981,13 +18261,23 @@ mod notch_ambient_tests {
         panel.rect = crate::model::Rect::new(40, 40, 400, 300);
         panel.set_prop("CornerRadius", PropValue::Int(RADIUS as i64));
         panel.set_prop("BackgroundColor", PropValue::String("#FFFFFFFF".into()));
-        // A child parked over the NW corner: that is what bleeds past the arc,
-        // and the only reason the mask touches a corner at all.
+        // Content parked over the NW corner: that is what bleeds past the arc,
+        // and the only reason the mask touches a corner at all. Since spec 057
+        // an immediate child draws its frame lifted to the arc and needs no
+        // mask, so the content is a GRANDCHILD inside a square holder panel —
+        // clipped to the holder's square, which is what still reaches the notch.
+        let mut holder = Control::new("HOLDER", ControlType::Panel, 40, 40);
+        holder.rect = crate::model::Rect::new(40, 40, 400, 300);
+        holder.parent = Some("PANEL".into());
+        holder.set_prop("CornerRadius", PropValue::Int(0));
+        holder.set_prop("HideBackground", PropValue::Bool(true));
+        holder.set_prop("BorderStyle", PropValue::String("None".into()));
+        holder.set_prop("ShadowEnabled", PropValue::Bool(false));
         let mut child = Control::new("CHILD", ControlType::Label, 40, 40);
         child.rect = crate::model::Rect::new(40, 40, 120, 60);
-        child.parent = Some("PANEL".into());
+        child.parent = Some("HOLDER".into());
         child.set_prop("BackgroundColor", PropValue::String("#2E7D32FF".into()));
-        let controls = vec![panel, child];
+        let controls = vec![panel, holder, child];
 
         let active_tabs: crate::containers::ActiveTabs = Default::default();
         let mut input = egui::RawInput::default();

@@ -63,7 +63,7 @@ fn needle_ink(mode: RenderMode, state: &dyn FormState, via_faces: bool, ctrl: &C
                 };
                 if via_faces {
                     let painter = ui.painter().clone();
-                    render_faces(&painter, ui.min_rect().min, &input, None);
+                    render_faces(&painter, ui.min_rect().min, &input);
                 } else {
                     render_form(ui, &input);
                 }

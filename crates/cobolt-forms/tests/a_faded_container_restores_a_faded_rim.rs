@@ -28,12 +28,22 @@ fn corner_strokes(transparency: i64) -> Vec<Color32> {
     panel.set_prop("CornerRadius", PropValue::Int(24));
     panel.set_prop("Transparency", PropValue::Int(transparency));
     panel.set_prop("BackgroundColor", PropValue::String("#FFFFFFFF".into()));
-    // A child reaching the corners, so the guardian masks them at all.
+    // Content reaching the corners, so the guardian masks them at all. Since
+    // spec 057 an immediate child draws its frame lifted to the arc and needs
+    // no mask, so the content is a GRANDCHILD inside a square holder panel —
+    // clipped to the holder's square, which is what still reaches the notch.
+    let mut holder = Control::new("Holder-1", ControlType::Panel, 80, 60);
+    holder.rect = MRect::new(80, 60, 400, 300);
+    holder.parent = Some("Panel-1".to_owned());
+    holder.set_prop("CornerRadius", PropValue::Int(0));
+    holder.set_prop("HideBackground", PropValue::Bool(true));
+    holder.set_prop("BorderStyle", PropValue::String("None".into()));
+    holder.set_prop("ShadowEnabled", PropValue::Bool(false));
     let mut child = Control::new("Label-1", ControlType::Label, 80, 60);
     child.rect = MRect::new(80, 60, 400, 300);
-    child.parent = Some("Panel-1".to_owned());
+    child.parent = Some("Holder-1".to_owned());
     child.set_prop("BackgroundColor", PropValue::String("#FF0000FF".into()));
-    let controls = vec![panel, child];
+    let controls = vec![panel, holder, child];
 
     let size = Vec2::new(700.0, 500.0);
     let ctx = egui::Context::default();
