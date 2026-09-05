@@ -232,7 +232,7 @@ written down in advance.
         updated; `cargo test -p cobolt-ide --bin cobolt-ide` green (KB
         freshness test included).
 
-- [ ] **T12 — Finalize** (plan S8)
+- [x] **T12 — Finalize** (plan S8)
   - Files: `crates/cobolt-ide/src/version.rs` (`1.65.1 → 1.65.2`);
         `CHANGELOG.md`
   - Do: CHANGELOG entry in the house voice — the cause (children already draw
