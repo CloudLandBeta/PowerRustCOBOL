@@ -315,14 +315,14 @@ fn strip_free_comment(line: &str) -> (&str, Option<String>) {
 
 // ── Flat source builder ───────────────────────────────────────────────────────
 
-/// Produce a single flat string for the logos lexer, replacing fixed-form
-/// dead zones (sequence numbers, identification area) with spaces to preserve
-/// byte offsets for accurate span reporting.
-/// Return the byte offset of the character boundary that is at or before
-/// `char_col` *columns* (0-based) from the start of `s`.
-/// Because COBOL fixed-format counts character positions (not bytes), we
-/// advance by characters and return the corresponding byte index.
-fn char_boundary_at_col(s: &str, char_col: usize) -> usize {
+/// Byte offset where character column `char_col` (0-based) begins.
+///
+/// COBOL's column rules count **characters**, not bytes, so this is what any
+/// "cut the line at column N" must use: slicing a `&str` by byte index panics
+/// when the index lands inside a multi-byte character, and an accented literal
+/// puts one there routinely. Returns `s.len()` for a line shorter than the
+/// column, so `&s[..char_boundary_at_col(s, n)]` is always a valid slice.
+pub fn char_boundary_at_col(s: &str, char_col: usize) -> usize {
     let mut col = 0usize;
     for (byte_idx, _ch) in s.char_indices() {
         if col >= char_col {
@@ -539,6 +539,9 @@ pub fn flatten_fixed_strict(source: &str) -> String {
     text
 }
 
+/// Produce a single flat string for the logos lexer, replacing fixed-form dead
+/// zones (sequence numbers, identification area) with spaces to preserve byte
+/// offsets for accurate span reporting.
 pub fn flatten_fixed(source: &str) -> String {
     // Same rule as the strict path — the two used to disagree about `D`.
     let debugging = requests_debugging_mode(source);

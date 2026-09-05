@@ -86,8 +86,14 @@ fn is_blank_or_comment(line: &str) -> bool {
 fn code_of(line: &str) -> String {
     // Columns 73+ are the identification area in fixed form and are not code.
     // Anything shorter is free form and is taken whole.
-    let body = if line.len() > 72 { &line[..72] } else { line };
-    body.trim().to_ascii_uppercase()
+    //
+    // A column is a CHARACTER, not a byte. `&line[..72]` panics the moment a
+    // line carries an accented literal long enough to put a multi-byte
+    // character across byte 72 — `VALUE 'Solicitações'` does exactly that — so
+    // the cut goes through the lexer's own column helper, which is where the
+    // rule is defined for the fixed-format reader.
+    let cut = cobolt_lexer::source::char_boundary_at_col(line, 72);
+    line[..cut].trim().to_ascii_uppercase()
 }
 
 /// Does this line open a block — a DIVISION, a SECTION, or a paragraph name?
@@ -401,6 +407,36 @@ mod empty_block_tests {
         let runs = hidden_runs(&lines);
         assert_eq!(runs.len(), 1, "{runs:?}");
         assert_eq!((runs[0].start, runs[0].end), (3, 5));
+    }
+
+    /// A COBOL column is a character, not a byte. A generated line carrying an
+    /// accented literal put an 'o' with a tilde across byte 72, and cutting the
+    /// identification area by byte index sliced it in half — panicking the IDE
+    /// on a file it was only trying to *display*.
+    #[test]
+    fn a_line_whose_column_72_falls_inside_a_character_does_not_panic() {
+        // The line from the report, verbatim.
+        let line =
+            "          05 WS-lblSolicitacoes-TEXT       PIC X(256) VALUE 'Solicita\u{e7}\u{f5}es'.";
+        assert_eq!(line.len(), 77, "77 bytes");
+        assert_eq!(line.chars().count(), 75, "but only 75 columns");
+
+        let code = code_of(line);
+        assert!(code.starts_with("05 WS-LBLSOLICITACOES-TEXT"), "{code}");
+        // Cut at character 72, then the ten leading spaces trimmed away.
+        assert_eq!(code.chars().count(), 62, "{code}");
+
+        // A line that fits is taken whole, accents and all. Only ASCII is
+        // uppercased, so the accented characters come back unchanged.
+        assert_eq!(
+            code_of("       MOVE 'Solicita\u{e7}\u{f5}es' TO WS-X."),
+            "MOVE 'SOLICITA\u{e7}\u{f5}ES' TO WS-X."
+        );
+
+        // And every caller that reads a line through code_of survives it.
+        assert!(block_header(line).is_none());
+        assert!(!is_placeholder_statement(&code_of(line)));
+        let _ = hidden_runs(&[line.to_string()]);
     }
 
     /// A statement is not a paragraph header just because it ends in a period.

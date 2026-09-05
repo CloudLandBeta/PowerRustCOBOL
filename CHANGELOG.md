@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.13] — 2026-09-05
+
+### An accented caption crashed the IDE at startup
+
+A form whose caption carries an accent generates a line like
+
+```cobol
+          05 WS-lblSolicitacoes-TEXT       PIC X(256) VALUE 'Solicitações'.
+```
+
+77 bytes, but only 75 columns. The "hide empty blocks" view filter cuts the
+fixed-format identification area off every line before reading it, and it did
+so with `&line[..72]` — a **byte** index, where a COBOL column is a
+**character**. On that line byte 72 falls inside the `õ`, and Rust panics
+rather than hand back half a character:
+
+```
+end byte index 72 is not a char boundary; it is inside 'õ' (bytes 71..73)
+```
+
+It took the whole IDE down, on a file it was only trying to *display*.
+
+The cut now goes through `cobolt_lexer::source::char_boundary_at_col`, the
+helper the fixed-format source reader already used for exactly this — the rule
+had been implemented twice and only the lexer's copy was right. It is `pub`
+now, so there is one definition of where column 72 is.
+
+A line that fits is still taken whole, accents and all, and a line past column
+72 is still cut there — at the character, not the byte.
+
+While making that helper public: its doc comment had two others fused onto it,
+one of them describing `flatten_fixed`, which had none of its own. The
+paragraphs are back with the functions they describe.
+
 ## [PowerRustCOBOL 1.65.12] — 2026-09-05
 
 ### The guide's badge image was described as the mascot
