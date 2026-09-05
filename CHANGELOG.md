@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.64.31] — 2026-09-04
+
+### A container moved at run time carries its contents
+
+A Timer decremented a Panel's `Y` on every tick. The panel slid up the form and
+every control inside it stayed exactly where it was (operator, 2026-09-04, with
+before-and-after screenshots).
+
+A control's rectangle is form-space ABSOLUTE with a `parent` link, so writing a
+container's `X` or `Y` moved that container's rectangle and nothing else.
+`MoveTo` is two property writes, so it behaved the same way — despite being the
+call whose whole purpose is moving a container.
+
+`resolved_rect` now adds each ancestor's run-time displacement to a control's
+rectangle, summed up the parent chain so nesting accumulates without
+double-counting. This is the rule `splitter_child_rect` already applies inside a
+Splitter pane, generalised: the bug belongs to the parent link, not to the Panel,
+so it was never Panel-specific — GroupBox and TabControl behaved identically and
+are covered by the same fix and the same tests. Clipping already followed the
+live rectangle, so only the position was wrong.
+
+A control moved by its OWN write is left alone: those coordinates are form-space
+and the developer meant them where they put them. All three cases are pinned by
+tests that were confirmed to fail without the fix.
+
 ## [PowerRustCOBOL 1.64.30] — 2026-09-04
 
 ### The clarity gate says what it decided

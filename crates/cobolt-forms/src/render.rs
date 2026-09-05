@@ -1512,7 +1512,61 @@ fn resolved_rect(
     if let Some(rect) = splitter_child_rect(controls, ctrl, live_rect, state, depth) {
         return rect;
     }
+    // A container MOVED at run time carries its contents with it.
+    //
+    // A control's rectangle is form-space absolute with a `parent` link, so a
+    // COBOL write to a container's X or Y moved that container's rectangle and
+    // nothing else: the panel slid up the form and every control inside it
+    // stayed where it was (operator, 2026-09-04, with a timer decrementing the
+    // panel's Y on each tick). `MoveTo` has exactly the same shape — it is two
+    // property writes — so it behaved identically.
+    //
+    // A control moved by its OWN write is left alone: those coordinates are
+    // form-space and the developer meant them where they put them.
+    let moved_itself = live_rect.x != ctrl.rect.x || live_rect.y != ctrl.rect.y;
+    if !moved_itself {
+        if let Some((dx, dy)) = moved_ancestor_offset(controls, ctrl, state, depth) {
+            return crate::model::Rect::new(
+                live_rect.x + dx,
+                live_rect.y + dy,
+                live_rect.w,
+                live_rect.h,
+            );
+        }
+    }
     live_rect
+}
+
+/// How far this control's ancestors have been moved at run time, summed up the
+/// parent chain — the offset its own rectangle must follow so a container
+/// carries its contents. `None` when nothing above it has moved.
+///
+/// Bounded by `depth` like the splitter walks beside it, so a malformed parent
+/// cycle cannot spin here.
+fn moved_ancestor_offset(
+    controls: &[Control],
+    ctrl: &Control,
+    state: &dyn FormState,
+    depth: usize,
+) -> Option<(i32, i32)> {
+    let (mut dx, mut dy) = (0, 0);
+    let mut parent = ctrl.parent.clone();
+    let mut hops = depth;
+    while hops > 0 {
+        let Some(pid) = parent else { break };
+        let Some(p) = controls.iter().find(|c| c.id == pid) else {
+            break;
+        };
+        // The ancestor's OWN displacement: its live position against the
+        // position it was designed at. Each ancestor contributes only its own,
+        // so nesting accumulates without double-counting.
+        let live = state.live(p);
+        dx += live.rect.x - p.rect.x;
+        dy += live.rect.y - p.rect.y;
+        parent = p.parent.clone();
+        hops -= 1;
+    }
+    (dx != 0 || dy != 0).then_some((dx, dy))
 }
 
 /// Where `owner` — a Splitter — actually sits this frame: its live rect with

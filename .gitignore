@@ -17,8 +17,37 @@ CLAUDE.md
 *.swp
 *~
 
-# Per-control example build outputs (binaries)
+# ── examples/ — the demo projects ────────────────────────────────────────────
+# What ships is the SOURCE of a demo: its manifest, forms, COBOL, indexed-file
+# definitions, copybooks, Knowledge Base and Assets. Everything below is
+# produced by opening or building the project, and is rebuilt on demand.
+#
+# PowerDemo3 measured 290 MB, of which 254 MB was dist/ + bin/ alone — a
+# quarter of a gigabyte that would live in the history for good (operator,
+# 2026-09-04).
+
+# Compiled binaries: the built application, and the hand-over bundle beside it.
 examples/*/bin/
+examples/*/dist/
+
+# Generated COBOL — a build artefact, rewritten on every Build/Run/Check.
+examples/*/generated/
+
+# Working folders the IDE creates and empties.
+examples/*/debug/
+examples/*/temp/
+
+# Knowledge-base indexes: derived from the project's own documents, rebuilt on
+# open. The DOCUMENTS are tracked; their embeddings are not.
+examples/*/data/*.redb
+examples/*/data/*.sqlite
+examples/*/data/*chunked.data
+
+# Grace's workflow run records — a log of past agent runs, not project source.
+examples/*/agentic_ai/Grace/
+
+# Per-run conversation state.
+examples/*/data/grace-conversation.json
 
 # Session handoff notes — working documents, kept on disk, never in the repo.
 # (operator, 2026-08-24)
