@@ -1487,7 +1487,6 @@ pub struct Tr {
     pub debug_tab_ui: &'static str,
     pub debug_tab_databind: &'static str,
     pub debug_tab_events: &'static str,
-    pub debug_tab_ai: &'static str,
     pub debug_tab_indexed: &'static str,
     pub debug_tab_logging: &'static str,
 
@@ -2787,7 +2786,6 @@ const EN: Tr = Tr {
     debug_tab_ui:       "User Interface",
     debug_tab_databind: "Data Binding",
     debug_tab_events:   "Events",
-    debug_tab_ai:       "Agentic AI",
     debug_tab_indexed:  "Indexed Files",
     debug_tab_logging:  "Logging",
 
@@ -4035,7 +4033,6 @@ const ES: Tr = Tr {
     debug_tab_ui:       "Interfaz de usuario",
     debug_tab_databind: "Enlace de datos",
     debug_tab_events:   "Eventos",
-    debug_tab_ai:       "IA agéntica",
     debug_tab_indexed:  "Archivos indexados",
     debug_tab_logging:  "Registro",
 
@@ -5283,7 +5280,6 @@ const PT: Tr = Tr {
     debug_tab_ui:       "Interface do usuário",
     debug_tab_databind: "Vinculação de dados",
     debug_tab_events:   "Eventos",
-    debug_tab_ai:       "IA agêntica",
     debug_tab_indexed:  "Arquivos indexados",
     debug_tab_logging:  "Registro",
 
@@ -6530,7 +6526,6 @@ const JA: Tr = Tr {
     debug_tab_ui:       "ユーザーインターフェース",
     debug_tab_databind: "データバインディング",
     debug_tab_events:   "イベント",
-    debug_tab_ai:       "エージェント AI",
     debug_tab_indexed:  "索引ファイル",
     debug_tab_logging:  "ログ",
 
@@ -7785,7 +7780,6 @@ const ZH: Tr = Tr {
     debug_tab_ui:       "用户界面",
     debug_tab_databind: "数据绑定",
     debug_tab_events:   "事件",
-    debug_tab_ai:       "智能体 AI",
     debug_tab_indexed:  "索引文件",
     debug_tab_logging:  "日志",
 
@@ -9033,7 +9027,6 @@ const FR: Tr = Tr {
     debug_tab_ui:       "Interface utilisateur",
     debug_tab_databind: "Liaison de données",
     debug_tab_events:   "Événements",
-    debug_tab_ai:       "IA agentique",
     debug_tab_indexed:  "Fichiers indexés",
     debug_tab_logging:  "Journalisation",
 

@@ -52,8 +52,6 @@ pub struct DebugSettings {
     /// own DISPLAY output, on one timeline in `prc-event-trace.log`.
     pub event_trace: bool,
     // ── Agentic AI ────────────────────────────────────────────────────────
-    /// `[ai-pane]` sizing lines on stderr each frame.
-    pub ai_pane_debug: bool,
     /// 038 R14 — machine-wide window-effects kill-switch: every entrance/exit
     /// effect is skipped (instant open/close/restore) without touching any
     /// project or form. Accessibility / weak-GPU escape hatch, NOT a
@@ -81,7 +79,6 @@ impl Default for DebugSettings {
             datagrid_diagnostics: false,
             databind_trace: false,
             event_trace: false,
-            ai_pane_debug: false,
             no_window_fx: false,
             doc_screenshots: false,
             indexed_log: "off".into(),
@@ -123,7 +120,6 @@ impl DebugSettings {
             || self.datagrid_diagnostics
             || self.databind_trace
             || self.event_trace
-            || self.ai_pane_debug
             || !self.log_filter.trim().is_empty()
             || self.indexed_log != "off"
     }
@@ -134,7 +130,6 @@ impl DebugSettings {
     pub fn apply_in_process(&self) {
         cobolt_forms::paint::set_frame_diagnostics(self.frame_diagnostics);
         cobolt_forms::paint::set_datagrid_diagnostics(self.datagrid_diagnostics);
-        crate::panels::designer::set_ai_pane_debug(self.ai_pane_debug);
     }
 
     /// Env pairs for a spawned `rcrun` child. The booleans are passed
@@ -277,16 +272,6 @@ static SECTIONS: &[Section] = &[
                    single delivery.",
             env: "COBOLT_EVENT_TRACE",
             get: |s| &mut s.event_trace,
-        }],
-    },
-    Section {
-        tab: |tr| tr.debug_tab_ai,
-        switches: &[Switch::Flag {
-            label: "AI-pane layout debug",
-            hint: "Emit [ai-pane] sizing lines on stderr each frame (max_rect, history \
-                   height, turn count) while the global AI pane is open.",
-            env: "COBOLT_AI_PANE_DEBUG",
-            get: |s| &mut s.ai_pane_debug,
         }],
     },
     Section {
@@ -574,13 +559,16 @@ mod tests {
         assert_eq!(back.indexed_log, "off");
     }
 
-    /// Spec 057 AC8 — a file written while the "Rounded-corner GL clip" switch
-    /// existed (it never did anything on the wgpu build, and is gone) must
-    /// still load, with the stale key ignored and every other switch intact.
+    /// A file written while a since-removed switch existed must still load,
+    /// with the stale key ignored and every other switch intact. Covers the
+    /// rounded-corner GL clip (spec 057 AC8, glow-only on a wgpu build) and
+    /// the AI-pane layout trace, whose only effect was terminal noise.
     #[test]
-    fn a_file_naming_the_removed_gl_clip_switch_still_loads() {
-        let back: DebugSettings =
-            toml::from_str("rounded_clip = true\nframe_diagnostics = true\n").unwrap();
+    fn a_file_naming_a_removed_switch_still_loads() {
+        let back: DebugSettings = toml::from_str(
+            "rounded_clip = true\nai_pane_debug = true\nframe_diagnostics = true\n",
+        )
+        .unwrap();
         assert!(back.frame_diagnostics);
         assert!(
             !SECTIONS

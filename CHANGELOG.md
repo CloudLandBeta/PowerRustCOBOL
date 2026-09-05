@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.5] — 2026-09-05
+
+### The AI-pane layout trace is gone
+
+`[ai-pane]` lines filled the terminal, thousands of them, burying everything
+else the IDE had to say (operator, 2026-09-05).
+
+The trace already collapsed repeats, which was enough when the pane sat
+still. It is not enough while the pane ANIMATES: the rectangle moves by a
+fraction of a point per frame, so every line differs from the last and every
+line prints. Making the comparison coarser would only have moved the
+threshold.
+
+The trace has outlived the sizing work it was written for, so it is removed
+rather than tuned: the emit site, the dedupe machinery, the switch whose only
+effect was those lines, and the now-empty "Agentic AI" tab with the label it
+carried in all six languages. An older `debug_settings.toml` naming the
+switch still loads and ignores it, which the compatibility test now covers
+alongside the rounded-corner clip removed in 1.65.2.
+
+A stray doc comment describing the COBOL Structure modal's sizing contract
+had drifted onto that trace's test module; it goes back to the tests it
+describes.
+
 ## [PowerRustCOBOL 1.65.4] — 2026-09-05
 
 ### A dragged splitter left its children's shadows behind
