@@ -926,6 +926,15 @@ fn write_control_group(out: &mut String, ctrl: &Control) {
     out.push('\n');
 }
 
+/// Form lifecycle events CALLed once from `COBOL-MAIN`, in this order, before
+/// `onLoad`.
+///
+/// They are one-shot hooks on the way up, so the event loop — which has not
+/// started when they are due — is the wrong carrier for them. `onLoad` and
+/// `onClose` are handled the same way and are named separately at each site,
+/// because their position in `COBOL-MAIN` is fixed rather than list-driven.
+const FORM_LIFECYCLE_CALLS: &[&str] = &["onCreate", "onInitialize"];
+
 fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) {
     out.push_str("       PROCEDURE DIVISION.\n");
 
@@ -951,6 +960,23 @@ fn write_procedure_division(out: &mut String, form: &Form, map: &mut SourceMap) 
         .filter(|c| c.control_type == ControlType::IndexedFile && prop_bool(c, "AutoOpen", false))
     {
         out.push_str(&format!("           PERFORM {}-OPEN\n", cobol_word(&ctrl.id)));
+    }
+
+    // The one-shot lifecycle hooks, in the order `FORM_EVENT_GROUPS` declares
+    // them: onCreate, then onInitialize, then onLoad.
+    //
+    // These are CALLED from here rather than dispatched through the event loop
+    // like every other form event, for the same reason `onLoad` always has
+    // been: they happen exactly once, on the way up, and there is nobody to
+    // send them — the loop has not started yet. Generating a `WHEN` arm for
+    // them (which is what used to happen) produced a handler that compiled,
+    // generated and wired, and could never run, because no host ever sends
+    // those two events (operator, 2026-09-06: an `onInitialize` that "does not
+    // do anything").
+    for name in FORM_LIFECYCLE_CALLS {
+        if let Some(ev) = form.form_events.iter().find(|e| &e.event == name) {
+            out.push_str(&format!("           CALL \"{}\"\n", ev.paragraph));
+        }
     }
 
     // Call OnLoad nested program
@@ -2416,14 +2442,23 @@ fn write_event_loop(out: &mut String, form: &Form) {
         }
     }
 
-    // Form-level events dispatched through the loop. `onLoad` / `onClose` are
-    // CALLed directly from COBOL-MAIN (not via the loop), so they're excluded
-    // here; every other bound form event (onShow, onActivate, onResize, …) is
-    // dispatched under a WHEN that matches the form's own id.
+    // Form-level events dispatched through the loop. `onLoad` / `onClose` and
+    // the two hooks in `FORM_LIFECYCLE_CALLS` are CALLed directly from
+    // COBOL-MAIN (not via the loop), so they're excluded here; every other
+    // bound form event (onShow, onActivate, onResize, …) is dispatched under a
+    // WHEN that matches the form's own id.
+    //
+    // Excluding them is not tidiness: an arm left here for an event that is
+    // also called directly would run the handler TWICE the day something
+    // starts sending it.
     let form_loop_events: Vec<_> = form
         .form_events
         .iter()
-        .filter(|e| e.event != "onLoad" && e.event != "onClose")
+        .filter(|e| {
+            e.event != "onLoad"
+                && e.event != "onClose"
+                && !FORM_LIFECYCLE_CALLS.contains(&e.event.as_str())
+        })
         .collect();
 
     if controls_with_events.is_empty() && form_loop_events.is_empty() && dispatchable.is_empty() {
@@ -3147,6 +3182,70 @@ mod tests {
         assert!(
             src.contains("CALL \"MAIN-FORM--ONRESIZE\""),
             "onResize not dispatched to its nested program"
+        );
+    }
+
+    /// **onCreate and onInitialize actually run.**
+    ///
+    /// They used to be generated as event-loop `WHEN` arms, waiting for events
+    /// nothing ever sends — so a handler attached to either compiled, generated,
+    /// wired and could never run (operator, 2026-09-06: an `onInitialize` that
+    /// "does not do anything"). They are one-shot hooks on the way up, so they
+    /// are CALLed from COBOL-MAIN like `onLoad`, in the order the catalogue
+    /// declares: onCreate, onInitialize, onLoad.
+    #[test]
+    fn the_lifecycle_hooks_are_called_in_order_before_on_load() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        form.form_events
+            .push(EventBinding::for_control("MAIN-FORM", "onCreate"));
+        form.form_events
+            .push(EventBinding::for_control("MAIN-FORM", "onInitialize"));
+        let src = generate(&form);
+
+        let at = |needle: &str| {
+            src.find(needle)
+                .unwrap_or_else(|| panic!("missing {needle}\n{src}"))
+        };
+        let create = at("CALL \"MAIN-FORM--ONCREATE\"");
+        let init = at("CALL \"MAIN-FORM--ONINITIALIZE\"");
+        let load = at("CALL \"MAIN-FORM--ONLOAD\"");
+        let loop_start = at("PERFORM COBOL-EVENT-LOOP");
+
+        assert!(create < init, "onCreate must run before onInitialize");
+        assert!(init < load, "onInitialize must run before onLoad");
+        assert!(
+            load < loop_start,
+            "all three run before the event loop starts"
+        );
+    }
+
+    /// …and are NOT also dispatched through the loop.
+    ///
+    /// An arm left behind for an event that is also CALLed directly would run
+    /// the handler TWICE the day something starts sending it.
+    #[test]
+    fn the_lifecycle_hooks_are_not_also_event_loop_arms() {
+        let mut form = Form::new("MAIN-FORM", "Test", 800, 600);
+        form.form_events
+            .push(EventBinding::for_control("MAIN-FORM", "onCreate"));
+        form.form_events
+            .push(EventBinding::for_control("MAIN-FORM", "onInitialize"));
+        form.form_events
+            .push(EventBinding::for_control("MAIN-FORM", "onResize"));
+        let src = generate(&form);
+
+        assert!(
+            !src.contains("WHEN \"onCreate\""),
+            "onCreate must not have a WHEN arm as well as its direct call"
+        );
+        assert!(
+            !src.contains("WHEN \"onInitialize\""),
+            "onInitialize must not have a WHEN arm as well as its direct call"
+        );
+        // …while an ordinary form event still goes through the loop.
+        assert!(
+            src.contains("WHEN \"onResize\""),
+            "an ordinary form event is still dispatched through the loop"
         );
     }
 

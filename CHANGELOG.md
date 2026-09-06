@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.32] — 2026-09-06
+
+### `onCreate` and `onInitialize` now run
+
+A form's `onInitialize` handler did nothing. It compiled, it generated a nested
+program, and codegen even wired a `WHEN "onInitialize"` arm into the event
+loop — but **nothing in the product ever sends that event**, so the arm could
+never be reached. `onCreate` was in the same position.
+
+They are one-shot hooks on the way up, so the event loop is the wrong carrier
+for them: it has not started when they are due, and there is nobody to send
+them. They are now **CALLed from `COBOL-MAIN`**, exactly as `onLoad` always has
+been, in the order the catalogue declares:
+
+```cobol
+       COBOL-MAIN.
+           CALL "COBOL-INIT-FORM" USING FORM-NAME
+           CALL "MY-FORM--ONCREATE"
+           CALL "MY-FORM--ONINITIALIZE"
+           CALL "MY-FORM--ONLOAD"
+           PERFORM COBOL-EVENT-LOOP
+```
+
+Both are also **removed from the event-loop arms**. That is not tidiness: an
+arm left behind for an event that is also called directly would run the handler
+twice the day something starts sending it.
+
+A write like `MOVE 712 TO Panel-1::Y` in one of these handlers works — runtime
+`X` / `Y` / `Width` / `Height` writes have always repositioned a control
+(`render.rs`'s `merge_props`). The event was the only thing missing.
+
+⚠️ **Where they sit, and why it may move.** They are called after the data
+bindings load and after any `AutoOpen` indexed file opens, because that is the
+smallest change to `COBOL-MAIN` that gets the order right relative to `onLoad`.
+If `onCreate` should genuinely be the *first* thing a form does, that is a
+separate decision about the prologue's order.
+
+> **The wider problem this is one instance of:** an audit of the catalogue
+> against what the host and runtime actually send finds **44 of the 68 form
+> events** and **3 of the 93 control events** are designable but never fired.
+> `onCreate` and `onInitialize` were two of the 44. The rest are still there.
+
 ## [PowerRustCOBOL 1.65.31] — 2026-09-06
 
 ### The blur tracks, properly this time
