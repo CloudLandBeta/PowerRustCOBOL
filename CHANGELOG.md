@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.26] — 2026-09-06
+
+### The dark half of a neumorphic shadow stopped taking over
+
+A neumorphic shadow is a **pair** — a light halo and a dark one — and the effect
+is the pair. Turning Opacity up broke that: the light side was boosted 3.25x and
+**clamped at 1.0**, so past about 31% it was pinned while the dark side kept
+climbing alone. At 100% both reached full alpha, and because the dark was
+painted **last** it won every pixel the two shared. The result read as a black
+halo rather than as relief.
+
+Two changes, which are the operator's own two clauses:
+
+- **Neither halo out-weighs the other by more than 20%**, at every opacity —
+  `NEUMORPHIC_HALO_TOLERANCE`, one named constant, so the balance is a number
+  someone can turn rather than an accident of two expressions.
+- **A collision leans light.** The halos are the same rect thrown a few points
+  either way, so they share most of the surround, and whichever is painted
+  second owns that ground. The light now goes second; the dark keeps only the
+  crescent the light never reaches.
+
+⚠️ **This changes how an existing neumorphic form looks at LOW opacity.** The
+light halo used to be 3.25x the dark one down there and is now 1.2x, so relief
+at the default 7% is subtler than before. `NEUMORPHIC_HALO_TOLERANCE` is the one
+dial: raise it to let the light lead again.
+
+### A Neumorphic bar looked different on the canvas and in the preview
+
+The three bars ship `BackgroundColor = #00000000`. That *parses*, so the designer
+canvas read it as a colour the developer had chosen and painted its hard-wired
+grey — while the run/preview renderer reads a transparent background as "not
+chosen" and lays down the neumorphic surface every other Neumorphic control
+gets. The same bar looked one way on the canvas and another in the preview.
+
+The canvas now asks `user_background_color`, the one rule for "did the developer
+actually pick a colour" (empty, fully transparent and the seeded defaults all
+mean no) — the same question the renderer asks. The soft lavender both surfaces
+fall back to is now one shared constant instead of a copy in each file, which is
+how they drifted apart. Classic/Enhanced are untouched.
+
+Forms engine: 850 tests, 0 failures. IDE: 1055 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.25] — 2026-09-06
 
 ### A MenuBar outside the designer had no menu at all

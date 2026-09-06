@@ -1414,6 +1414,18 @@ pub fn control_shadow_stack(
 /// The dual-halo stack that `draw_glass_neumorphic` and
 /// [`draw_neumorphic_shadow_only`] both paint. One definition, so the sampler the
 /// notch mask uses cannot drift from what was drawn.
+/// How far apart the two neumorphic halos may drift.
+///
+/// A neumorphic shadow is a light one and a dark one, and the effect is the
+/// PAIR — the moment one of them owns the picture it stops reading as relief
+/// and starts reading as a drop shadow. `1.20` is the operator's own number:
+/// "it should be 50/50 (light/dark) so no color pass more than 20% of other
+/// color area" (2026-09-06).
+///
+/// Turn this DOWN toward 1.0 for a stricter 50/50; turn it up to let the light
+/// side lead again the way it used to at low opacity.
+const NEUMORPHIC_HALO_TOLERANCE: f32 = 1.20;
+
 fn neumorphic_shadow_stack(
     params: &NeumorphicShadowParams,
     rect: egui::Rect,
@@ -1471,17 +1483,41 @@ fn neumorphic_shadow_stack(
         }
     };
 
-    // Light side: NW-outside when raised; SE-inside when sunken.
-    push(
-        if sunken { 1.0 } else { -1.0 },
-        params.light_color,
-        (params.shadow_opac * 3.25).clamp(0.0, 1.0),
-    );
+    // The two halos are a PAIR, and neither may take the picture over.
+    //
+    // The light side used to be boosted 3.25x and clamped at 1.0 while the dark
+    // side rose on its own. Past ~31% opacity the light was pinned and only the
+    // dark kept growing, so turning Opacity up turned the effect into a black
+    // halo — "when opacity grows, the dark shadow dominates the effect"
+    // (operator, 2026-09-06). At 100% both reached full alpha, and since the
+    // dark was painted LAST it won every square pixel the two shared.
+    //
+    // Now each is held within [`NEUMORPHIC_HALO_TOLERANCE`] of the other at
+    // every opacity, so the balance the operator asked for holds all the way up
+    // rather than only at the bottom of the range.
+    let dark_opac = params.shadow_opac;
+    let light_opac = (dark_opac * NEUMORPHIC_HALO_TOLERANCE).clamp(0.0, 1.0);
+    let dark_opac = dark_opac.min(light_opac * NEUMORPHIC_HALO_TOLERANCE);
+
+    // ORDER IS THE OTHER HALF OF THE FIX. The halos overlap over most of the
+    // surround — they are the same rect thrown a few points either way — and
+    // whichever is painted second owns that shared ground. The light goes
+    // second, so a collision lightens ("collision leans toward light though,
+    // lightening the dark collided shadow"); the dark keeps only the crescent
+    // the light never reaches.
+
     // Dark (user colour): SE-outside when raised; NW-inside when sunken.
     push(
         if sunken { -1.0 } else { 1.0 },
         params.shadow_color,
-        params.shadow_opac,
+        dark_opac,
+    );
+    // Light side: NW-outside when raised; SE-inside when sunken. Last, so it
+    // wins the overlap.
+    push(
+        if sunken { 1.0 } else { -1.0 },
+        params.light_color,
+        light_opac,
     );
     stack
 }
@@ -4085,14 +4121,32 @@ fn draw_control_body(
     // including containers. In Classic/Enhanced, containers ignore it (their
     // content comes from children).
 
+    // The three bars ship `BackgroundColor = #00000000`. That PARSES, so the
+    // generic branch below read it as a colour the developer had chosen and
+    // painted `control_colors`' hard-wired grey — while the run/preview
+    // renderer reads a transparent background as "not chosen" and lays down the
+    // neumorphic surface every other Neumorphic control gets. The same bar
+    // therefore looked one way on the canvas and another in the preview
+    // (operator, 2026-09-06: "has a different style in Preview").
+    //
+    // `user_background_color` is the ONE rule for "did the developer actually
+    // pick a colour" — empty, fully transparent and the seeded defaults all
+    // mean no — and the bars now ask it, exactly as `render.rs` does.
+    //
+    // Only the Neumorphic half is corrected here. Classic/Enhanced still fall
+    // through to `default_fill`: there the renderer draws no bar surface at all,
+    // and a canvas that showed nothing where a control sits is a separate
+    // decision, not a parity bug.
+    let is_bar = matches!(ctrl.control_type, CT::MenuBar | CT::ToolBar | CT::StatusBar);
     let fill = if is_container && !is_neumorphic {
         default_fill
+    } else if is_bar && is_neumorphic {
+        user_background_color(ctrl).unwrap_or(NEUMORPHIC_DEFAULT_SURFACE)
     } else {
         ctrl.get_prop("BackgroundColor")
             .map(|v| parse_color(v.as_str()))
             .unwrap_or(if is_neumorphic {
-                // Default neumorphic surface: soft lavender-blue (#E8EDFE)
-                Color32::from_rgb(232, 237, 254)
+                NEUMORPHIC_DEFAULT_SURFACE
             } else {
                 default_fill
             })
@@ -10080,6 +10134,14 @@ pub fn muted_ink(ground: Color32, ink: Color32) -> Color32 {
         mix(ground.b(), ink.b()),
     )
 }
+
+/// The soft lavender-blue every Neumorphic surface falls back to when the
+/// developer has chosen no colour of their own (`#E8EDFE`).
+///
+/// One constant because two surfaces have to agree on it: the designer canvas
+/// (this file) and the run/preview renderer (`render.rs`), which each carried
+/// their own copy and did not (operator, 2026-09-06).
+pub const NEUMORPHIC_DEFAULT_SURFACE: Color32 = Color32::from_rgb(232, 237, 254);
 
 pub fn user_background_color(ctrl: &Control) -> Option<Color32> {
     ctrl.get_prop("BackgroundColor")
@@ -18290,6 +18352,100 @@ mod border_3d_tests {
             "\n  Borders — Fixed3D / Raised / Sunken on a {radius}pt radius: every \
              point of the relief lies inside the rounded face\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod neumorphic_halo_balance_tests {
+    use super::*;
+
+    /// Peak alpha each halo reaches, told apart by hue: the dark side is
+    /// painted pure red here and the light side pure blue, so a layer's own
+    /// colour says which of the two put it there.
+    fn peaks(opacity: f32) -> (f32, f32, Vec<bool>) {
+        let params = NeumorphicShadowParams {
+            shadow_on: true,
+            shadow_color: Color32::from_rgb(255, 0, 0), // "dark" side
+            light_color: Color32::from_rgb(0, 0, 255),  // "light" side
+            shadow_opac: opacity,
+            shadow_dir: [0.707, 0.707],
+            distance: 6.0,
+            blur_strength: 20.0, // positive = raised, so the halos are drawn
+        };
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let stack = neumorphic_shadow_stack(&params, rect, egui::CornerRadius::same(8), 1.0, None);
+        let mut dark = 0.0_f32;
+        let mut light = 0.0_f32;
+        // `true` for a light layer, in paint order.
+        let mut order = Vec::new();
+        for layer in &stack.layers {
+            let a = layer.color.a() as f32 / 255.0;
+            let is_light = layer.color.b() > layer.color.r();
+            if is_light {
+                light = light.max(a);
+            } else {
+                dark = dark.max(a);
+            }
+            order.push(is_light);
+        }
+        (dark, light, order)
+    }
+
+    /// **Neither halo may take the picture over, at any opacity.**
+    ///
+    /// The light side used to be boosted 3.25x and clamped at 1.0 while the
+    /// dark rose alone, so past ~31% opacity only the dark kept growing and
+    /// turning Opacity up produced a black halo instead of relief (operator,
+    /// 2026-09-06: "when opacity grows, the dark shadow dominates the effect").
+    #[test]
+    fn the_two_halos_stay_within_the_tolerance_of_each_other() {
+        for pct in [1, 5, 7, 10, 25, 31, 40, 50, 75, 90, 100] {
+            let opacity = pct as f32 / 100.0;
+            let (dark, light, _) = peaks(opacity);
+            assert!(dark > 0.0 && light > 0.0, "both halos must be drawn at {pct}%");
+            let (hi, lo) = if dark > light { (dark, light) } else { (light, dark) };
+            // Layer alpha is an 8-bit value, so at the very bottom of the range
+            // the two sides are one or two STEPS apart and the ratio between
+            // them says more about rounding than about balance: at 1% they land
+            // on alpha 2 and alpha 3, which is 1.5x and invisible. Allow two
+            // steps of quantisation before calling it an imbalance.
+            let quantisation = 2.0 / 255.0;
+            assert!(
+                hi <= lo * NEUMORPHIC_HALO_TOLERANCE + quantisation,
+                "at {pct}% one halo out-weighs the other by more than the \
+                 tolerance: dark {dark:.3}, light {light:.3}"
+            );
+        }
+    }
+
+    /// **A collision leans toward the light.**
+    ///
+    /// The halos are the same rect thrown a few points either way, so they
+    /// share most of the surround; whichever is painted second owns that
+    /// ground. The dark used to go last and won every shared pixel (operator:
+    /// "collision leans toward light though, lightening the dark collided
+    /// shadow").
+    #[test]
+    fn the_light_halo_is_painted_over_the_dark_one() {
+        let (_, _, order) = peaks(1.0);
+        assert!(!order.is_empty(), "the stack must have layers");
+        let first_light = order.iter().position(|light| *light).expect("a light layer");
+        let last_dark = order.iter().rposition(|light| !*light).expect("a dark layer");
+        assert!(
+            first_light > last_dark,
+            "every light layer must be painted after every dark one, so the \
+             overlap reads light; got {order:?}"
+        );
+    }
+
+    /// The dark side still grows with the property — the balance rule holds it
+    /// beside the light, it does not freeze it.
+    #[test]
+    fn turning_the_property_up_still_turns_both_halos_up() {
+        let (dark_low, light_low, _) = peaks(0.10);
+        let (dark_high, light_high, _) = peaks(0.80);
+        assert!(dark_high > dark_low, "the dark halo must still answer Opacity");
+        assert!(light_high > light_low, "and so must the light one");
     }
 }
 

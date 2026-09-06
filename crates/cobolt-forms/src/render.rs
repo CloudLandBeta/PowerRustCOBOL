@@ -8311,7 +8311,7 @@ fn render_interactive(
             // The same soft lavender-blue every other Neumorphic surface
             // defaults to (paint.rs's generic container fill) when the
             // developer has not chosen a colour of their own.
-            let neumorphic_default_fill = Color32::from_rgb(232, 237, 254);
+            let neumorphic_default_fill = paint::NEUMORPHIC_DEFAULT_SURFACE;
             let fill = if menu_bg.a() > 0 {
                 menu_bg
             } else {
