@@ -1140,7 +1140,7 @@ pub fn draw_glass_neumorphic(
     // Negative blur is handled after the surface fill as an inset/front-plane
     // relief, so it can project inward from the rounded border.
     let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
-    let layers = blur_ring_count(spread);
+    let layers = blur_ring_count(spread, params.shadow_opac * 255.0);
 
     // The raised dual halo — light opposite the user direction, dark along it —
     // is the ONE definition in `neumorphic_shadow_stack` (the sampler the notch
@@ -1428,10 +1428,44 @@ pub fn control_shadow_stack(
 /// stepping.
 const BLUR_RINGS_PER_PX: f32 = 1.5;
 
-/// Rings for a blur of `spread` pixels. Floored so a tiny blur is still smooth,
-/// capped so a huge one cannot cost thousands of shapes.
-fn blur_ring_count(spread: f32) -> usize {
-    ((spread.abs() * BLUR_RINGS_PER_PX).ceil() as usize).clamp(12, 48)
+/// The steepest the falloff `exp(-3t²)` ever gets, `max |d/dt| = 1.485` at
+/// `t = 1/√6`. The alpha step between two neighbouring rings is
+/// `peak_alpha × this ÷ rings`, which is what turns a ring count into a
+/// banding prediction.
+const FALLOFF_MAX_SLOPE: f32 = 1.485;
+
+/// The largest alpha step, out of 255, that still reads as a gradient.
+///
+/// The eye picks up banding in a smooth ramp from about 1% — roughly three
+/// levels — and Mach banding makes an edge easier to see than the step itself.
+/// TWO, not three, so a full-opacity shadow lands at 0.8% rather than sitting
+/// exactly on the threshold: this was reported twice, and the second report was
+/// a ramp measured at 1.2% (operator, 2026-09-06).
+const MAX_ALPHA_STEP: f32 = 2.0;
+
+/// Rings for a blur of `spread` pixels whose densest ring reaches `peak_alpha`
+/// (0..255).
+///
+/// TWO things set the count, and the earlier version only had the first:
+///
+/// - **geometry** — rings must overlap on screen, so one per two thirds of a
+///   pixel of spread;
+/// - **alpha range** — the ramp is quantised into `rings` steps whatever its
+///   width, so a FAINT shadow is smooth with a handful of rings while a dense
+///   one needs many. Scaling on spread alone left the default 7% opacity clean
+///   and a 100% one visibly banded: 27 rings over a 255-deep ramp is a step of
+///   14, or 5.5%, where 1% is already visible (operator, 2026-09-06 — the
+///   tracks were still there after the first attempt).
+///
+/// Floored so a hairline blur is still smooth. Capped at 192: past that the
+/// step is already under a level and the rings are only costing shapes. A
+/// control at the default opacity is unaffected — geometry still wins there —
+/// so the extra rings are paid for only where the developer turned the shadow
+/// up.
+fn blur_ring_count(spread: f32, peak_alpha: f32) -> usize {
+    let by_geometry = spread.abs() * BLUR_RINGS_PER_PX;
+    let by_alpha = peak_alpha.clamp(0.0, 255.0) * FALLOFF_MAX_SLOPE / MAX_ALPHA_STEP;
+    (by_geometry.max(by_alpha).ceil() as usize).clamp(12, 192)
 }
 
 /// How far apart the two neumorphic halos may drift.
@@ -1464,7 +1498,14 @@ fn neumorphic_shadow_stack(
     let rnd = round_map(rounding, |c| c.max(0.0).min(cap));
 
     let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
-    let layers = blur_ring_count(spread);
+    // The two halo opacities are settled BEFORE the ring count, because the
+    // count depends on how deep the alpha ramp is — see `blur_ring_count`.
+    let dark_opac = params.shadow_opac;
+    let light_opac = (dark_opac * NEUMORPHIC_HALO_TOLERANCE).clamp(0.0, 1.0);
+    let dark_opac = dark_opac.min(light_opac * NEUMORPHIC_HALO_TOLERANCE);
+    // The denser of the two halos sets the count; both then use it, so the two
+    // sides step in lockstep rather than one being smoother than the other.
+    let layers = blur_ring_count(spread, dark_opac.max(light_opac) * am * 255.0);
     let ux = params.shadow_dir[0];
     let uy = params.shadow_dir[1];
     let distance = params.distance;
@@ -1514,10 +1555,8 @@ fn neumorphic_shadow_stack(
     //
     // Now each is held within [`NEUMORPHIC_HALO_TOLERANCE`] of the other at
     // every opacity, so the balance the operator asked for holds all the way up
-    // rather than only at the bottom of the range.
-    let dark_opac = params.shadow_opac;
-    let light_opac = (dark_opac * NEUMORPHIC_HALO_TOLERANCE).clamp(0.0, 1.0);
-    let dark_opac = dark_opac.min(light_opac * NEUMORPHIC_HALO_TOLERANCE);
+    // rather than only at the bottom of the range. (Both were computed above,
+    // where the ring count needed them.)
 
     // ORDER IS THE OTHER HALF OF THE FIX. The halos overlap over most of the
     // surround — they are the same rect thrown a few points either way — and
@@ -10011,7 +10050,7 @@ fn regular_shadow_stack(shadow: &RegularDropShadow, alpha_mul: f32) -> ShadowSta
     // finely it is sampled changes. One ring per unit of strength left a
     // visible step at every pixel of a wide blur.
     let spread = shadow.blur_strength as f32;
-    let layers = blur_ring_count(spread);
+    let layers = blur_ring_count(spread, shadow.opacity * alpha_mul * 255.0);
     for i in 0..=layers {
         let t = 1.0 - (i as f32 / layers as f32);
         let expand = t * spread;
@@ -11967,6 +12006,13 @@ impl Default for NeumorphicShadowParams {
     }
 }
 
+/// The temp-store key `draw_glass_neumorphic` reads its params from, for the
+/// one other module that has to publish them (`render.rs` paints some controls
+/// itself and must not leave the previous control's settings standing).
+pub(crate) fn neumorphic_params_id_pub() -> egui::Id {
+    neumorphic_params_id()
+}
+
 fn neumorphic_params_id() -> egui::Id {
     egui::Id::new("cobolt-neumorphic-shadow-params")
 }
@@ -12430,6 +12476,20 @@ fn menu_registry() -> &'static std::sync::RwLock<
         >,
     > = std::sync::OnceLock::new();
     REGISTRY.get_or_init(Default::default)
+}
+
+/// Serialises the tests that use the menu registry.
+///
+/// [`register_menus`] REPLACES the whole map, so two tests registering their
+/// own menus in parallel wipe each other — which showed up as an occasional
+/// single failure in an otherwise green suite. The registry being process-wide
+/// is the product's design; this is the test harness taking turns with it.
+#[cfg(test)]
+pub(crate) fn menu_registry_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 /// Register every menu this process's forms own, replacing any previous set.
@@ -18428,17 +18488,36 @@ mod neumorphic_halo_balance_tests {
     fn a_blur_lays_down_enough_rings_to_hide_its_steps() {
         for strength in [4.0_f32, 8.0, 20.0, 40.0] {
             let spread = (1.0 + strength.abs()).ln() * 8.0;
-            let rings = blur_ring_count(spread);
+            // A faint shadow: geometry is what has to carry the count here.
+            let rings = blur_ring_count(spread, 0.07 * 255.0);
             let step = spread / rings as f32;
             assert!(
                 step <= 1.0,
                 "blur strength {strength}: {rings} rings over {spread:.1}px is \
                  {step:.2}px per ring — a step that size is a visible track"
             );
-            assert!(rings <= 48, "and the cost stays bounded: {rings} rings");
+            assert!(rings <= 192, "and the cost stays bounded: {rings} rings");
         }
         // The floor holds for a blur so small the formula would ask for two.
-        assert!(blur_ring_count(0.5) >= 12);
+        assert!(blur_ring_count(0.5, 0.0) >= 12);
+
+        // **The alpha range sets the count too.** Scaling on spread alone is
+        // what left a 100%-opacity shadow banded after the first attempt: the
+        // ramp is quantised into `rings` steps however deep it is.
+        let spread = (1.0_f32 + 8.0) .ln() * 8.0;
+        let faint = blur_ring_count(spread, 0.07 * 255.0);
+        let dense = blur_ring_count(spread, 255.0);
+        assert!(
+            dense > faint * 3,
+            "a full-opacity shadow needs far more rings than a 7% one over the \
+             same spread: {dense} vs {faint}"
+        );
+        // …and at full opacity the predicted step is under the visible bound.
+        let step = 255.0 * FALLOFF_MAX_SLOPE / dense as f32;
+        assert!(
+            step <= MAX_ALPHA_STEP + 0.01,
+            "predicted alpha step {step:.2} over {dense} rings is still visible"
+        );
     }
 
     /// The alpha ramp is fine-grained too: no two neighbouring rings may differ
@@ -18473,7 +18552,7 @@ mod neumorphic_halo_balance_tests {
                 .max()
                 .unwrap_or(0);
             assert!(
-                worst <= 12,
+                worst as f32 <= MAX_ALPHA_STEP + 1.0,
                 "the {} halo jumps {worst} alpha between neighbouring rings — \
                  that reads as a track, not a gradient: {alphas:?}",
                 if want_light { "light" } else { "dark" }
@@ -18565,6 +18644,7 @@ mod menu_registry_tests {
     /// behind a mutex the product does not have.
     #[test]
     fn the_menu_registry_answers_a_host_and_yields_to_the_designer() {
+        let _guard = menu_registry_test_lock();
         let ctx = egui::Context::default();
         assert!(
             get_menu_cache(&ctx, "MenuBar-Never-Registered").is_none(),

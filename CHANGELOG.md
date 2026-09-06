@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.31] — 2026-09-06
+
+### The blur tracks, properly this time
+
+1.65.30 scaled the ring count with the blur's **spread** and left it at that.
+That fixed the default case and not the reported one, because the ramp is
+quantised into `rings` steps *however deep it is* — and depth is set by
+**opacity**, which the count ignored.
+
+The arithmetic, which is now in the code rather than in my head:
+
+```
+alpha step ≈ opacity × 255 × 1.485 ÷ rings      (1.485 = max slope of exp(-3t²))
+```
+
+At the reported settings — 100% opacity, blur strength 8, spread 17.6px, 27
+rings — that is **14 levels, 5.5%**. Banding is visible from about 1%. The
+first fix took the step from 38 to 14; the threshold is 2.
+
+`blur_ring_count` now takes the peak alpha as well as the spread and returns
+whichever demands more, targeting a step of **2 levels (0.8%)**, capped at 192
+rings. A shadow at the default 7% opacity is unchanged — 27 rings, geometry
+still wins — so the extra rings are paid for only where the developer turned
+the shadow up. At 100% it is 190 rings and 0.78%.
+
+The test bound that let this through was `worst <= 12`, a number I invented.
+It is now `MAX_ALPHA_STEP`, the same constant the code targets, and a second
+assertion checks the *predicted* step at full opacity so the arithmetic itself
+is pinned rather than one sampled case.
+
+### A MenuBar cast a shadow it never asked for
+
+`ShadowEnabled` was **false** and the bar still had a halo in Preview and Run
+Form — but not on the designer canvas.
+
+`draw_glass_neumorphic` reads its shadow settings from the egui temp store and
+falls back to a default whose `shadow_on` is **true**. `paint::draw_control`
+publishes each control's own settings before drawing it — but `render_interactive`
+paints some controls *itself* (MenuBar, ToolBar, …) and never reached that code,
+so those inherited whatever the previously drawn control had left in the store,
+or that default. The canvas was correct because it goes through `draw_control`.
+
+`render_interactive` now publishes the settings of the control it is about to
+paint, which is what `draw_control` has always done. Measured on the real
+`menubar-form.cfrm`: **48 translucent rings** around the bar before, **0** after.
+
+Forms engine: 857 tests, 0 failures. IDE: 1059 tests, 0 failures.
+
+### Also: a flake I had introduced
+
+Three tests now use the process-wide menu registry, and `register_menus`
+replaces the whole map — so in parallel they wiped each other, which showed up
+as an occasional single failure in an otherwise green suite. They take turns on
+a test-only lock now; three consecutive full runs are clean.
+
 ## [PowerRustCOBOL 1.65.30] — 2026-09-06
 
 ### The blur stopped showing its rings

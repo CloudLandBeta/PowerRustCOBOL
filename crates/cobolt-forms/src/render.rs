@@ -4095,6 +4095,25 @@ fn render_interactive(
         control_geometry_events(ui, screen, ctrl_id, id, out, &bound);
     }
 
+    // THIS control's Neumorphic shadow settings, published before any arm below
+    // paints a surface of its own.
+    //
+    // `draw_glass_neumorphic` reads these from the egui temp store and falls
+    // back to `NeumorphicShadowParams::default()`, whose `shadow_on` is TRUE.
+    // `paint::draw_control` publishes them for every control it draws — but the
+    // arms below that paint their OWN surface (MenuBar, ToolBar, …) never
+    // reached that code, so they inherited whatever the previous control had
+    // left in the store, or that default. A MenuBar with `ShadowEnabled` off
+    // therefore cast one anyway, in Preview and Run Form but not on the canvas,
+    // which draws through `draw_control` (operator, 2026-09-06: "menubar still
+    // shows a dropshadow in Preview/Run form when none has been set in RAD").
+    if paint::glass_config_applies(ui.ctx()) && paint::active_glass_style(ui.ctx()).is_neumorphic()
+    {
+        let params = paint::neumorphic_shadow_params(ctrl);
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(paint::neumorphic_params_id_pub(), params));
+    }
+
     match ct {
         CT::Button => {
             // WYSIWYG face; only the press/hover feedback is added here.
@@ -9366,6 +9385,7 @@ mod tests {
     /// Render a form with its MenuBar's first pulldown OPEN, under `visuals`.
     fn open_pulldown_frame(visuals: egui::Visuals) -> Vec<(Rect, egui::Color32)> {
         use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
 
         let bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
         let controls = vec![bar];
@@ -9416,6 +9436,92 @@ mod tests {
         let fills = painted_rect_fills(&run());
         crate::paint::register_menus(std::iter::empty());
         fills
+    }
+
+    /// **A MenuBar with ShadowEnabled off casts no shadow.**
+    ///
+    /// `draw_glass_neumorphic` reads its shadow settings from the egui temp
+    /// store and falls back to a default whose `shadow_on` is TRUE.
+    /// `paint::draw_control` publishes them per control — but `render_interactive`
+    /// paints a MenuBar's surface ITSELF and never did, so the bar inherited the
+    /// previous control's settings or that default and cast a shadow the RAD
+    /// never asked for. It showed in Preview and Run Form and not on the canvas,
+    /// which goes through `draw_control` (operator, 2026-09-06).
+    ///
+    /// The style-independence test above cannot catch this: a shadow that comes
+    /// from the CONTROL is identical under a light host and a dark one.
+    #[test]
+    fn a_menu_bar_with_its_shadow_off_paints_no_halo() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+
+        // A control painted BEFORE the bar, with its shadow ON and turned up —
+        // this is what used to be left standing in the store.
+        let mut loud = ctrl("LOUD", ControlType::Button, 0, 400, 120, 40);
+        loud.set_prop("ShadowEnabled", PropValue::Bool(true));
+        loud.set_prop("ShadowOpacity", PropValue::Int(100));
+
+        let mut bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
+        bar.set_prop("ShadowEnabled", PropValue::Bool(false));
+        bar.set_prop("BackgroundColor", PropValue::String("#C7C7C7FF".into()));
+        // z-order puts the loud button first, so its params are the stale ones.
+        let controls = vec![loud, bar];
+
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition {
+                menu: vec![MenuItem::new_action("file", "File")],
+                hash: String::new(),
+            },
+        )]);
+
+        let ctx = egui::Context::default();
+        crate::paint::set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+        let active = ActiveTabs::new();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    ui.set_min_size(Vec2::new(400.0, 300.0));
+                    let rin = RenderInput {
+                        controls: &controls,
+                        state: &DesignedVisibility,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+        });
+        out.textures_delta.clear();
+        crate::paint::register_menus(std::iter::empty());
+
+        // A halo ring is a translucent rect that reaches OUTSIDE the bar. The
+        // bar is 400x28 at the origin, so anything painted below y=28 and above
+        // the loud button (y=200) could only be the bar's own shadow.
+        // A halo ring is the bar's own rect EXPANDED, so it starts ABOVE the
+        // bar and reaches below it — the first version of this filter looked
+        // for rects STARTING below y=28 and therefore excluded the very thing
+        // it was hunting. Overlap is the question, not containment.
+        let strays: Vec<Rect> = painted_rect_fills(&out)
+            .into_iter()
+            .filter(|(r, fill)| {
+                // Anything faint anywhere NEAR the bar. Its own face is opaque
+                // (#C7C7C7FF), and the loud button sits far below at y=400 with
+                // its own legitimate halo, so whatever lands here is the bar's.
+                fill.a() > 0 && fill.a() < 250 && r.min.y < 100.0
+            })
+            .map(|(r, _)| r)
+            .collect();
+        assert!(
+            strays.is_empty(),
+            "a MenuBar with ShadowEnabled=false cast {} halo ring(s) around \
+             itself: {:?}",
+            strays.len(),
+            &strays[..strays.len().min(4)]
+        );
     }
 
     /// **An open pulldown looks the same whatever the host is wearing.**
