@@ -225,10 +225,10 @@
     <Property name="CornerRadius">10</Property>
   </Control>
   <Control id="SideMenu-Demo" type="SideMenu" x="0" y="0" w="240" h="660" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
+    <Property name="BackgroundColor">#2D3C67FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEndColor">#7C3AEDFF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#E1E6FA</Property>
     <Property name="FontName">Arial</Property>
@@ -270,6 +270,8 @@
     <Property name="BreadcrumbIconSize">0</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">Single</Property>
+    <Property name="HeaderIcon">assets/Titan_Voyages_Logo_45x45.png</Property>
+    <Property name="HeaderImage">assets/Titan_Voyages_Logo_270x80.png</Property>
     <Event name="onMenuClick" paragraph="SIDEMENU-DEMO--ONMENUCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -562,5 +564,45 @@
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
            Txt-Log::Clear().
 ]]></Event>
+  </Control>
+  <Control id="SideMenu-Demo-Footer" type="Panel" x="0" y="660" w="240" h="0" tab-order="0" z-order="0" visible="true" enabled="true" parent="SideMenu-Demo">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="HScroll">false</Property>
+    <Property name="VScroll">false</Property>
+    <Property name="HideBackground">false</Property>
+    <Property name="mcp_tool"></Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="IsSideMenuFooter">true</Property>
   </Control>
 </Form>

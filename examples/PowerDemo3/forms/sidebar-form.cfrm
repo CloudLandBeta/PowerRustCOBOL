@@ -1860,7 +1860,7 @@
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
+    <Property name="Transparency">100</Property>
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000</Property>
@@ -1987,6 +1987,7 @@ Fortran
     <Property name="IndentWidth">16</Property>
     <Property name="RowHeight">25</Property>
     <Property name="BorderStyle">None</Property>
+    <Animation name="anim1" trigger="OnFormLoad" kind="FlyFromTop" duration="400" delay="0" easing="Linear" repeat="Once" slide-dx="0" slide-dy="0"/>
   </Control>
   <Control id="Splitter-1" type="Splitter" x="632" y="720" w="912" h="152" tab-order="0" z-order="380" visible="true" enabled="true" parent="Panel-4">
     <Property name="BackgroundColor">#FFFFFFFF</Property>
@@ -2362,7 +2363,7 @@ Fortran
     <Property name="CornerRadius">10</Property>
   </Control>
   <Control id="RadioButton-5" type="RadioButton" x="1148" y="780" w="140" h="22" tab-order="0" z-order="387" visible="true" enabled="true" parent="Splitter-2-Pane1">
-    <Property name="Caption">RadioButton-5</Property>
+    <Property name="Caption">RadioButton</Property>
     <Property name="BackgroundColor">#E1E6F8FF</Property>
     <Property name="BackgroundGradientEnabled">true</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -2400,6 +2401,7 @@ Fortran
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
+    <Property name="GroupName"></Property>
   </Control>
   <Control id="Gauge-3" type="Gauge" x="1324" y="756" w="116" h="68" tab-order="0" z-order="388" visible="true" enabled="true" parent="Splitter-2-Pane1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>
