@@ -165,6 +165,26 @@ jobs:
           cp -R assets "$out/assets"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$out/"
 
+      # Build is a real `cargo build` against the platform's own crates, so an
+      # IDE shipped on its own can never build anything — and a project holding
+      # one `EXEC RUST` block anywhere cannot even be RUN, because every launch
+      # in such a project takes the build path. `examples/PowerDemo3` is one of
+      # those, which is how this was found: the flagship demo would not start
+      # from a release install on any platform.
+      #
+      # `stage_sdk` writes the tree `resolve_workspace_root` already looks for
+      # — <install>/sdk/Cargo.toml + <install>/sdk/crates — so nothing has to
+      # be configured on the user's machine.
+      - name: Stage the platform SDK
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --release --locked --target ${{ matrix.target }} \
+            -p cobolt-compiler --example stage_sdk -- "dist/$PKG/sdk"
+          test -f "dist/$PKG/sdk/Cargo.toml"
+          test -d "dist/$PKG/sdk/crates/cobolt-ast"
+
       # The Visual C++ runtime, deployed app-local (the form Microsoft supports
       # for applications that ship their own copy). Without these a clean
       # Windows 10 refuses to start the executables.
@@ -221,6 +241,15 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :LSMinimumSystemVersion string 11.0" "$plist"
           /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$plist"
 
+          # The platform SDK, inside Resources where the search already looks.
+          # It has to be staged BEFORE the signature: adding a file to a signed
+          # bundle breaks the seal, and `codesign --verify --strict` below is
+          # what would catch it.
+          cargo run --release --locked --target ${{ matrix.target }} \
+            -p cobolt-compiler --example stage_sdk -- "$app/Contents/Resources/sdk"
+          test -f "$app/Contents/Resources/sdk/Cargo.toml"
+          test -d "$app/Contents/Resources/sdk/crates/cobolt-ast"
+
           # Ad-hoc signature. Apple Silicon refuses to run an unsigned binary,
           # and assembling the bundle invalidates the one the linker applied.
           codesign --force --sign - "$app/Contents/MacOS/rcrun"
@@ -253,6 +282,19 @@ jobs:
               ls -l "dist/$PKG"/*.dll
               ;;
           esac
+
+          # The SDK is what makes Build work on a machine with no source
+          # checkout. Shipping without it is invisible until someone presses
+          # Build, so it is checked here rather than discovered by a user.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            sdk="dist/$PKG/PowerRustCOBOL.app/Contents/Resources/sdk"
+          else
+            sdk="dist/$PKG/sdk"
+          fi
+          test -f "$sdk/Cargo.toml" || { echo "::error::the platform SDK is missing from the package"; exit 1; }
+          for c in cobolt-ast cobolt-runtime cobolt-forms cobolt-form-host; do
+            test -d "$sdk/crates/$c" || { echo "::error::the platform SDK is incomplete: crates/$c"; exit 1; }
+          done
 
       # Artifact zips drop the Unix executable bit and flatten symlinks; a
       # tarball keeps both, so the app bundle survives the download intact.

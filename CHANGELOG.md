@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.21] — 2026-09-05
+
+### Every release shipped without the platform SDK, so PowerDemo3 could not run
+
+Reported from a Windows install: opening `examples/PowerDemo3` and pressing Run
+gives *"could not locate the PowerRustCOBOL workspace crates"*, with seven
+searched folders and none of them holding one.
+
+The searched list was right and the message was right. What was missing was the
+SDK itself: `.github/workflows/build-all-platforms.yml` staged the two
+executables, `assets/` and the licence files — and never ran `stage_sdk`, the
+tool written for exactly this. So **no published package on any platform has
+ever carried the platform crates**, and Build could not work from an installed
+copy anywhere.
+
+For PowerDemo3 that is worse than losing Build, because it loses **Run** too.
+`forms/Rust/ferris-says-form.cfrm` carries an `EXEC RUST` block, and one block
+anywhere in a project sends *every* launch in it down the build path — the
+forms of one application share a single compiled block registry, so the
+question is asked of the whole project rather than of the form you pressed Run
+on. The flagship 42-form demo therefore would not start at all from a release
+install.
+
+The workflow now stages the SDK into the place `resolve_workspace_root` already
+searches — `<install>/sdk` on Linux and Windows, `Contents/Resources/sdk` on
+macOS, where it goes in **before** the ad-hoc signature, since adding a file to
+a signed bundle breaks the seal. Nothing has to be configured on the user's
+machine.
+
+It is also checked: the package-verification step fails the build when the SDK
+is absent or incomplete. Shipping without it was invisible until someone
+pressed Build, which is how it survived this long.
+
+Measured here rather than assumed: `stage_sdk` writes 21.3 MB — `Cargo.toml`,
+`Cargo.lock`, `assets/` and all ten SDK crates — and the six `sdk_tests` that
+guard the crate set, the manifest and the compile-time assets pass. The
+workflow wiring itself can only be proved by a release run.
+
+⚠️ Existing downloads are unaffected: this fixes what the **next** package
+contains. On an install you already have, point Help → Platform SDK Location at
+a source checkout, or stage one into it with
+`cargo run -p cobolt-compiler --example stage_sdk -- <install-dir>/sdk`.
+
 ## [PowerRustCOBOL 1.65.20] — 2026-09-05
 
 ### The debugger's last two English labels
