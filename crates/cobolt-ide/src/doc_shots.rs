@@ -70,9 +70,22 @@ use std::time::{Duration, Instant};
 
 use egui::{Color32, ColorImage, Context, Key, ViewportId};
 
-/// Image directory, relative to the repository root. Fixed by the `/doc-shots`
-/// contract — both writers must agree or the guide ends up with two conventions.
+/// Still-image directory, relative to the repository root. Fixed by the
+/// `/doc-shots` contract — both writers must agree or the guide ends up with
+/// two conventions.
 pub const SHOTS_REL: &str = "assets/images/screenshots";
+
+/// Screen-**recording** directory, relative to the repository root.
+///
+/// A recording is an APNG, and an APNG is a valid PNG — which is why it can
+/// fill the same slot, keep the same `.png` name and need no special casing in
+/// the markdown. What it is *not* is the same kind of file: the operator's
+/// first take weighed 19.9 MB, filed among stills of about a hundred kilobytes
+/// (operator, 2026-09-06). Recordings therefore live in their own directory,
+/// where their size is visible and a `du` on the screenshots folder means
+/// something again. Only the destination differs; the name, the format and the
+/// `<img>` are untouched.
+pub const MOVIES_REL: &str = "assets/animations";
 
 /// Widest the saved PNG may be. A 1280×800 window captures at 2560×1600 on a
 /// HiDPI display; storing that verbatim would put multi-megabyte images in a
@@ -734,8 +747,13 @@ fn normalize_ws(text: &str) -> String {
 
 // ── Insertion ─────────────────────────────────────────────────────────────────
 
-/// Path from a document's directory to the screenshot directory.
-pub fn rel_shots_path(doc: &Path, root: &Path) -> String {
+/// Path from a document's directory to `asset_dir` (one of [`SHOTS_REL`] /
+/// [`MOVIES_REL`], both given relative to the repository root).
+///
+/// The directory is a parameter rather than a constant because a still and a
+/// recording no longer land in the same place, and the `<img src>` has to
+/// point at whichever one received the file.
+pub fn rel_asset_path(doc: &Path, root: &Path, asset_dir: &str) -> String {
     let depth = doc
         .parent()
         .and_then(|dir| dir.strip_prefix(root).ok())
@@ -745,8 +763,104 @@ pub fn rel_shots_path(doc: &Path, root: &Path) -> String {
     for _ in 0..depth {
         out.push_str("../");
     }
-    out.push_str(SHOTS_REL);
+    out.push_str(asset_dir);
     out
+}
+
+/// Where a capture of this kind is filed, relative to the repository root.
+fn asset_dir_for(capture: &Capture) -> &'static str {
+    match capture {
+        Capture::Still(_) => SHOTS_REL,
+        Capture::Movie(_) => MOVIES_REL,
+    }
+}
+
+/// Write a capture to `target`, creating the directory. Returns its dimensions.
+///
+/// A recording is already an encoded PNG — an animated one — so it goes to disk
+/// verbatim. That is exactly why APNG was the format to write: the slot, the
+/// markdown and the `<img>` are the same either way, and a document cannot tell
+/// a still from a clip.
+fn write_capture(
+    capture: &Capture,
+    backdrop: Color32,
+    target: &Path,
+) -> Result<(u32, u32), String> {
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("{}: {error}", parent.display()))?;
+    }
+    match capture {
+        Capture::Still(image) => save_png(image, backdrop, target),
+        Capture::Movie(movie) => {
+            std::fs::write(target, &movie.apng)
+                .map_err(|error| format!("{}: {error}", target.display()))?;
+            Ok((movie.width, movie.height))
+        }
+    }
+}
+
+/// Font size of the delayed still's countdown, in points (operator,
+/// 2026-09-06: "make font size 72px").
+const COUNTDOWN_SIZE: f32 = 72.0;
+
+/// Seconds still to go, as the countdown shows them: 3, then 2, then 1.
+///
+/// Ceiling, so the digit is the number of whole seconds the operator still
+/// has — 3 for the first second of a three-second wait, not 2. Never 0: the
+/// caller stops drawing before the remainder gets that small.
+pub fn countdown_digit(remaining: Duration) -> u32 {
+    (remaining.as_secs_f32().ceil() as u32).max(1)
+}
+
+/// Paint the countdown in the centre of the window that is about to be
+/// photographed.
+///
+/// A foreground `Area`, not a window: it must sit over whatever is being
+/// arranged, take no clicks, and — above all — never change the layout of the
+/// thing being photographed. Anchored to the screen centre so it lands in the
+/// middle whatever the window's size.
+fn paint_countdown(ctx: &Context, remaining: Duration) {
+    let digit = countdown_digit(remaining);
+    egui::Area::new(egui::Id::new("doc_shots_countdown"))
+        .order(egui::Order::Foreground)
+        .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+        .interactable(false)
+        .show(ctx, |ui| {
+            // A plain glyph is unreadable on a screenshot of unknown colour;
+            // the plate is what makes 3 · 2 · 1 legible over a dark editor and
+            // a light document alike.
+            egui::Frame::NONE
+                .fill(Color32::from_black_alpha(160))
+                .corner_radius(egui::CornerRadius::same(24))
+                .inner_margin(egui::Margin::symmetric(40, 16))
+                .show(ui, |ui| {
+                    ui.label(
+                        egui::RichText::new(digit.to_string())
+                            .size(COUNTDOWN_SIZE)
+                            .color(Color32::WHITE)
+                            .strong(),
+                    );
+                });
+        });
+}
+
+/// A file name for a recording nobody named: `recording-<epoch seconds>.png`.
+///
+/// `.png`, not `.apng`: the bytes are a valid PNG and every reader — a browser,
+/// GitHub's markdown, an `<img>` — already knows what to do with them. An
+/// extension no viewer agrees on would be a new problem in exchange for nothing.
+///
+/// Epoch seconds rather than a formatted date because this crate carries no
+/// date library, and one is not worth adding to name a file the operator is
+/// expected to rename anyway. Sorting still works, which is the only property
+/// the name has to have.
+fn default_movie_name() -> String {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("recording-{seconds}.png")
 }
 
 /// The two lines that replace a marker.
@@ -1103,11 +1217,22 @@ impl DocShots {
         // lands on the window the operator was arranging.
         if let Some((viewport, at)) = self.delay {
             if viewport == ctx.viewport_id() {
-                if Instant::now() >= at {
+                let now = Instant::now();
+                if now >= at {
                     self.delay = None;
                     self.take(ctx);
                 } else {
-                    ctx.request_repaint_after(Duration::from_millis(100));
+                    // 3 · 2 · 1, but the last SETTLE of the wait is left blank.
+                    // The counter is drawn INSIDE the very viewport about to be
+                    // photographed, so a take on the same frame would contain
+                    // it — the same trap the chooser had, and the same fix.
+                    if at - now > SETTLE {
+                        paint_countdown(ctx, at - now);
+                    }
+                    // Fast enough that the digit changes on time, and it keeps
+                    // frames coming through the blank tail so the counter is
+                    // actually off the screen before the shutter.
+                    ctx.request_repaint_after(Duration::from_millis(50));
                 }
             }
         }
@@ -1456,8 +1581,43 @@ impl DocShots {
                     );
                     return;
                 }
+                // A recording does not need a document. Filing it in
+                // `assets/animations/` is the part that always happens; putting
+                // it in the guide is an offer, taken or not (operator,
+                // 2026-09-06: "make it optional — it always will save the png
+                // file though"). Drawn ABOVE the document list so it is still
+                // reachable when no document holds a free slot.
+                if matches!(self.pending, Some(Capture::Movie(_))) {
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label(format!("File name — saved to {MOVIES_REL}/:"));
+                        ui.text_edit_singleline(&mut self.name_input);
+                        if ui.button("Save recording only").clicked() {
+                            match self.save_movie_only(backdrop) {
+                                Ok(message) => {
+                                    self.status = Some(message);
+                                    close = true;
+                                }
+                                Err(message) => self.status = Some(format!("✗ {message}")),
+                            }
+                        }
+                    });
+                    ui.label(
+                        egui::RichText::new(
+                            "Leave the name empty for a generated one. \
+                             Picking a slot below saves it AND puts it in the document.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
+
                 if self.docs.is_empty() {
                     ui.label("No English document holds a screenshot slot.");
+                    if let Some(status) = &self.status {
+                        ui.separator();
+                        ui.label(status.clone());
+                    }
                     return;
                 }
                 ui.separator();
@@ -1539,6 +1699,29 @@ impl DocShots {
         }
     }
 
+    /// Write a recording to [`MOVIES_REL`] and stop there — no document is
+    /// read, chosen or rewritten. Returns the report line.
+    fn save_movie_only(&mut self, backdrop: Color32) -> Result<String, String> {
+        let root = repo_root().ok_or("the documentation tree is gone")?;
+        let Some(Capture::Movie(movie)) = &self.pending else {
+            return Err("the pending capture is not a recording".into());
+        };
+        let capture = Capture::Movie(Arc::clone(movie));
+
+        let typed = self.name_input.trim();
+        let name = if typed.is_empty() {
+            default_movie_name()
+        } else if typed.ends_with(".png") {
+            typed.to_string()
+        } else {
+            format!("{typed}.png")
+        };
+
+        let target = root.join(MOVIES_REL).join(&name);
+        let (width, height) = write_capture(&capture, backdrop, &target)?;
+        Ok(format!("✓ {name} ({width}×{height}) → {MOVIES_REL}/"))
+    }
+
     /// Save the image and rewrite the document. Returns the report line.
     fn insert(
         &mut self,
@@ -1570,23 +1753,9 @@ impl DocShots {
             }
         };
 
-        let target = root.join(SHOTS_REL).join(&name);
-        // A recording is already an encoded PNG — an animated one — so it goes
-        // to disk verbatim. That is exactly why APNG was the format to write:
-        // the slot, the markdown and the `<img>` are the same either way, and a
-        // document cannot tell a still from a clip.
-        let (width, height) = match &capture {
-            Capture::Still(image) => save_png(image, backdrop, &target)?,
-            Capture::Movie(movie) => {
-                if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent)
-                        .map_err(|error| format!("{}: {error}", parent.display()))?;
-                }
-                std::fs::write(&target, &movie.apng)
-                    .map_err(|error| format!("{}: {error}", target.display()))?;
-                (movie.width, movie.height)
-            }
-        };
+        let asset_dir = asset_dir_for(&capture);
+        let target = root.join(asset_dir).join(&name);
+        let (width, height) = write_capture(&capture, backdrop, &target)?;
 
         let text = std::fs::read_to_string(&entry.path)
             .map_err(|error| format!("{}: {error}", entry.path.display()))?;
@@ -1598,7 +1767,12 @@ impl DocShots {
             .filter(|candidate| candidate.name == slot.name && candidate.kind == slot.kind)
             .ok_or("the document changed while the popup was open — capture again")?;
 
-        let updated = apply(&text, slot, &name, &rel_shots_path(&entry.path, &root));
+        let updated = apply(
+            &text,
+            slot,
+            &name,
+            &rel_asset_path(&entry.path, &root, asset_dir),
+        );
         std::fs::write(&entry.path, updated)
             .map_err(|error| format!("{}: {error}", entry.path.display()))?;
 
@@ -1813,15 +1987,103 @@ Body text.
         assert!(SETTLE < DELAY);
     }
 
+    /// A recording and a still are both PNGs and both fill the same slot, but
+    /// they are not filed together: the operator's first take was 19.9 MB in a
+    /// directory of hundred-kilobyte stills (operator, 2026-09-06).
+    #[test]
+    fn a_recording_is_filed_apart_from_a_still() {
+        let still = Capture::Still(Arc::new(ColorImage::filled([2, 2], Color32::WHITE)));
+        assert_eq!(asset_dir_for(&still), SHOTS_REL);
+        assert_eq!(asset_dir_for(&still), "assets/images/screenshots");
+
+        let movie = Capture::Movie(Arc::new(crate::doc_movie::Movie {
+            captured: 1,
+            written: 1,
+            seconds: 0.1,
+            width: 2,
+            height: 2,
+            apng: vec![0u8; 4],
+            stop: crate::doc_movie::Stop::Operator,
+        }));
+        assert_eq!(asset_dir_for(&movie), MOVIES_REL);
+        assert_eq!(asset_dir_for(&movie), "assets/animations");
+        assert_ne!(asset_dir_for(&still), asset_dir_for(&movie));
+    }
+
+    /// The `<img src>` has to follow the file. A recording written to
+    /// `assets/animations/` and linked into `assets/images/screenshots/` is a
+    /// broken image, so the climb-out is computed against the directory that
+    /// actually received it.
+    #[test]
+    fn the_relative_path_follows_the_directory_the_capture_went_to() {
+        let root = Path::new("/repo");
+        let doc = Path::new("/repo/docs/guide.md");
+        assert_eq!(rel_asset_path(doc, root, MOVIES_REL), "../assets/animations");
+        assert_eq!(
+            rel_asset_path(Path::new("/repo/docs/deep/guide.md"), root, MOVIES_REL),
+            "../../assets/animations"
+        );
+        // Same document, the other directory — the only thing that varies.
+        assert_eq!(
+            rel_asset_path(doc, root, SHOTS_REL),
+            "../assets/images/screenshots"
+        );
+    }
+
+    /// 3, then 2, then 1 — never 0, and never 4 on the first frame.
+    #[test]
+    fn the_countdown_counts_three_two_one() {
+        // The first frame of a three-second wait shows 3, not 4.
+        assert_eq!(countdown_digit(DELAY), 3);
+        assert_eq!(countdown_digit(Duration::from_millis(2_999)), 3);
+        assert_eq!(countdown_digit(Duration::from_millis(2_001)), 3);
+        assert_eq!(countdown_digit(Duration::from_millis(2_000)), 2);
+        assert_eq!(countdown_digit(Duration::from_millis(1_001)), 2);
+        assert_eq!(countdown_digit(Duration::from_millis(1_000)), 1);
+        assert_eq!(countdown_digit(Duration::from_millis(260)), 1);
+        // Below SETTLE the caller has already stopped drawing, but the digit
+        // must still never be 0 — a "0" on screen would read as a fault.
+        assert_eq!(countdown_digit(Duration::from_millis(1)), 1);
+        assert_eq!(countdown_digit(Duration::ZERO), 1);
+    }
+
+    /// The blank tail is what keeps the counter out of the picture: it is drawn
+    /// only while more than SETTLE remains, so the last SETTLE of the wait is
+    /// counter-free frames.
+    #[test]
+    fn the_countdown_stops_before_the_shutter() {
+        assert!(SETTLE < DELAY, "the blank tail must fit inside the wait");
+        let blank_from = DELAY - SETTLE;
+        assert!(
+            blank_from > Duration::ZERO,
+            "there must be some counting before the blank tail"
+        );
+        // At the moment drawing stops, a whole SETTLE is still to run.
+        assert_eq!(DELAY - blank_from, SETTLE);
+    }
+
+    /// A recording saved without a document still gets a usable `.png` name —
+    /// `.png` because an APNG is a valid PNG and every viewer already knows it.
+    #[test]
+    fn an_unnamed_recording_still_gets_a_png_name() {
+        let name = default_movie_name();
+        assert!(name.starts_with("recording-"), "{name}");
+        assert!(name.ends_with(".png"), "{name}");
+        assert!(
+            !name.ends_with(".apng"),
+            "an extension no viewer agrees on buys nothing: {name}"
+        );
+    }
+
     #[test]
     fn the_relative_path_climbs_out_of_the_document_directory() {
         let root = Path::new("/repo");
         assert_eq!(
-            rel_shots_path(Path::new("/repo/docs/guide.md"), root),
+            rel_asset_path(Path::new("/repo/docs/guide.md"), root, SHOTS_REL),
             "../assets/images/screenshots"
         );
         assert_eq!(
-            rel_shots_path(Path::new("/repo/docs/deep/guide.md"), root),
+            rel_asset_path(Path::new("/repo/docs/deep/guide.md"), root, SHOTS_REL),
             "../../assets/images/screenshots"
         );
     }
@@ -1970,7 +2232,7 @@ Next section.
         // A root-level document reaches the images without climbing out of a
         // directory it is not in.
         assert_eq!(
-            rel_shots_path(&dir.join("README.md"), &dir),
+            rel_asset_path(&dir.join("README.md"), &dir, SHOTS_REL),
             "assets/images/screenshots"
         );
 
@@ -2008,7 +2270,7 @@ Next section.
              a document with no slots is skipped"
         );
         // Its images sit beside it, not one directory up.
-        assert_eq!(rel_shots_path(&readme, &root), SHOTS_REL);
+        assert_eq!(rel_asset_path(&readme, &root, SHOTS_REL), SHOTS_REL);
     }
 
     /// **No permission means no picture — never a picture of the desktop.**

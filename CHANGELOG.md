@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.24] — 2026-09-06
+
+### A screen recording is filed with the recordings, and counts itself down
+
+The operator's first take weighed **19.9 MB** and landed in
+`assets/images/screenshots/`, among stills of about a hundred kilobytes. A
+recording is an APNG and an APNG is a valid PNG — which is exactly why it can
+fill the same slot, keep the same `.png` name and need no special casing in the
+markdown — but it is not the same *kind* of file, and filing it with the stills
+made `du` on that directory meaningless.
+
+Recordings now go to **`assets/animations/`**. Only the destination changed: the
+name, the format and the `<img>` are untouched, and the relative path written
+into the document follows the file rather than assuming one directory. Stills
+are exactly where they were.
+
+**A recording no longer needs a document.** Filing it is the part that always
+happens; putting it in the guide is an offer. The popup grew a *Save recording
+only* button that writes the file and rewrites nothing — useful when the clip is
+not going into a document at all, and reachable even when no document holds a
+free slot. Leave the name blank and it gets one.
+
+### The three-second still counts down where you can see it
+
+Shift+F12 waits three seconds so you can hold a menu open, and gave no sign it
+was waiting. It now paints **3, 2, 1** at 72 px in the centre of the window it is
+about to photograph.
+
+The counter is drawn inside that very window, so it stops a quarter-second
+before the shutter and the last frames are clean — the same trap the chooser
+had, and the same fix. A digit is never `0`: the countdown has stopped being
+drawn by then, and a zero on screen would read as a fault.
+
+IDE suite: 1055 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.23] — 2026-09-06
 
 ### A bound DataGrid looked for its indexed file in the wrong place

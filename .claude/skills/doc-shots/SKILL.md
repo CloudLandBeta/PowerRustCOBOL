@@ -29,11 +29,11 @@ Screenshot policy).
 4. **Insert into the doc.** Replace the placeholder line with a centered image:
    `<p align="center"><img src="<rel>/<name>.png" alt="…" width="…"></p>`, where
    `<rel>` climbs from **the document's own directory** to
-   `assets/images/screenshots` — `../assets/images/screenshots` for a file in
-   `docs/`, `../../…` one level deeper, and plain `assets/images/screenshots`
-   for `README.md` at the repository root. (`doc_shots::rel_shots_path` computes
-   exactly this; a hard-coded `../` breaks the README.) Keep the alt text
-   descriptive.
+   the directory the capture went to — `../assets/images/screenshots` for a
+   still in `docs/`, `../../…` one level deeper, and plain
+   `assets/images/screenshots` for `README.md` at the repository root.
+   (`doc_shots::rel_asset_path` computes exactly this; a hard-coded `../`
+   breaks the README.) Keep the alt text descriptive.
 5. **Report** which shots were captured/inserted and any still pending operator
    help.
 
@@ -41,5 +41,13 @@ Screenshot policy).
 
 - **English docs only** (GOLDEN RULE #3). Screenshots are language-neutral, so
   translations can reference the same files.
-- Save to `assets/images/screenshots/` with the placeholder's exact name.
+- Save a **still** to `assets/images/screenshots/` with the placeholder's exact
+  name. Save a **screen recording** to `assets/animations/` instead — it is an
+  APNG, which is a valid PNG, so it keeps the `.png` name and the same `<img>`;
+  what it does not keep is the directory, because a recording runs to tens of
+  megabytes and has no business among hundred-kilobyte stills (operator,
+  2026-09-06). `doc_shots::MOVIES_REL` is the one spelling of that path.
+- A recording **does not need a document**: the popup's *Save recording only*
+  writes it to `assets/animations/` and rewrites nothing. Filling a slot is the
+  offer, not the requirement — but the file is always written either way.
 - Don't commit/push unless asked.
