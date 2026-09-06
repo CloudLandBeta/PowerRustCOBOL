@@ -104,6 +104,27 @@ const CODE_LINE_H: f32 = 15.0;
 /// A blank source line, at the same 30 % proportion.
 const CODE_BLANK_H: f32 = 1.0;
 
+/// The stopped line's band. Lime, and opaque: the ink drawn on it is chosen
+/// for contrast against exactly this colour, so a translucent band over an
+/// unknown background would make that promise unkeepable.
+const CURRENT_BG: Color32 = Color32::from_rgb(140, 230, 60);
+
+/// Everything written on that band — source, line number, arrow, inline values.
+/// Near-black on lime is about 13:1, so the syntax palette is dropped for the
+/// one line that has to be readable at a glance.
+const CURRENT_INK: Color32 = Color32::from_rgb(12, 28, 6);
+
+/// Where one frame ends and the next begins. The panes used to meet with
+/// nothing drawn between them.
+const FRAME_LINE: Color32 = Color32::from_gray(110);
+
+/// Toolbar button footprint, and the icon inside it.
+const TB_BTN: Vec2 = Vec2::new(28.0, 24.0);
+const TB_ICON: f32 = 16.0;
+
+/// Longest value a hover tooltip prints before it is cut.
+const TIP_VALUE_CHARS: usize = 18;
+
 /// The data items a source line names, with their current values.
 ///
 /// Restrained on purpose (spec: "show restrained inline values only for
@@ -145,6 +166,131 @@ fn inline_values(line: &str, vars: &[VarSnapshot], limit: usize) -> Vec<(String,
         }
     }
     out
+}
+
+// ── Hover values ──────────────────────────────────────────────────────────────
+
+/// The COBOL word under character `index` of `line`, or `None` between words.
+///
+/// A word here is what the developer would double-click: letters, digits and
+/// the hyphens COBOL builds names from, plus the `::` that joins a control to
+/// one of its properties — `Gauge-1::Value` is one thing to ask about, not two.
+fn word_at(line: &str, index: usize) -> Option<String> {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    // A cursor at the very end of a word still means that word.
+    let at = index.min(chars.len().saturating_sub(1));
+    let part = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == ':';
+    if !part(chars[at]) {
+        return None;
+    }
+    let mut start = at;
+    while start > 0 && part(chars[start - 1]) {
+        start -= 1;
+    }
+    let mut end = at + 1;
+    while end < chars.len() && part(chars[end]) {
+        end += 1;
+    }
+    let word: String = chars[start..end].iter().collect();
+    // A lone separator run is not a name.
+    let word = word.trim_matches(|c| c == '-' || c == ':').to_string();
+    (!word.is_empty() && word.chars().any(|c| c.is_ascii_alphabetic())).then_some(word)
+}
+
+/// What the debuggee currently holds for `word`, if it holds anything.
+///
+/// Tried whole first, then cut back to the part before `::` — so hovering
+/// `Gauge-1::Value` answers about the property when the runtime reports one and
+/// about the control when it does not.
+fn lookup_value<'a>(word: &str, vars: &'a [VarSnapshot]) -> Option<(&'a str, &'a str)> {
+    let candidates = [word, word.split("::").next().unwrap_or(word)];
+    for want in candidates {
+        if want.is_empty() {
+            continue;
+        }
+        for v in vars {
+            let name = v.name.split('(').next().unwrap_or(&v.name);
+            if name.eq_ignore_ascii_case(want) && !v.value.trim().is_empty() {
+                return Some((name, v.value.trim()));
+            }
+        }
+    }
+    None
+}
+
+/// `name = value`, with a long value cut so the tooltip stays one short line.
+///
+/// Counted in **characters**: a value holding accented text has more bytes than
+/// columns, and cutting by byte would split one in half.
+fn hover_tip(name: &str, value: &str) -> String {
+    if value.chars().count() > TIP_VALUE_CHARS {
+        let head: String = value.chars().take(TIP_VALUE_CHARS).collect();
+        format!("{name} = {head}...")
+    } else {
+        format!("{name} = {value}")
+    }
+}
+
+// ── Toolbar buttons ───────────────────────────────────────────────────────────
+
+/// One icon-only toolbar button, drawn from the platform's own icon catalogue.
+///
+/// The label lives in the tooltip. A debugger toolbar is pressed by muscle
+/// memory, and the words cost more width than they buy once the shapes are
+/// learned — which is the whole reason the strip had run out of room.
+fn tool_icon(
+    ui: &mut egui::Ui,
+    icon: &str,
+    enabled: bool,
+    active: bool,
+    tint: Option<Color32>,
+    tip: impl Into<String>,
+) -> egui::Response {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(TB_BTN, sense);
+
+    let visuals = ui.visuals();
+    let (bg, fg) = if !enabled {
+        (Color32::TRANSPARENT, visuals.weak_text_color())
+    } else if active {
+        (visuals.selection.bg_fill, visuals.strong_text_color())
+    } else if resp.hovered() {
+        (visuals.widgets.hovered.bg_fill, visuals.strong_text_color())
+    } else {
+        (Color32::TRANSPARENT, visuals.text_color())
+    };
+    let fg = tint.filter(|_| enabled).unwrap_or(fg);
+
+    if bg != Color32::TRANSPARENT {
+        ui.painter().rect_filled(rect, 4.0, bg);
+    }
+    let icon_rect = egui::Rect::from_center_size(rect.center(), Vec2::splat(TB_ICON));
+    cobolt_forms::icons::draw_menu_icon(ui.painter(), icon_rect, icon, fg);
+    if enabled && resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.on_hover_text(tip.into())
+}
+
+/// A full-width rule between two frames.
+///
+/// The theme's own separator is drawn from the non-interactive widget stroke,
+/// which on this dark surface is close enough to the background that the panes
+/// looked like one undivided area.
+fn frame_rule(ui: &mut egui::Ui) {
+    ui.add_space(3.0);
+    let (rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.painter()
+        .hline(rect.x_range(), rect.center().y, egui::Stroke::new(1.0, FRAME_LINE));
+    ui.add_space(3.0);
 }
 
 // ── DebuggerPanel ─────────────────────────────────────────────────────────────
@@ -635,7 +781,7 @@ impl DebuggerPanel {
             if let Some(a) = self.toolbar(ui, tr) {
                 action = Some(a);
             }
-            ui.separator();
+            frame_rule(ui);
             if let Some(line) = self.split_body(ui, tr, need_scroll) {
                 action = Some(DebugAction::ToggleBreakpoint(line));
             }
@@ -730,7 +876,7 @@ impl DebuggerPanel {
                             if let Some(a) = self.toolbar(ui, tr) {
                                 action = Some(a);
                             }
-                            ui.separator();
+                            frame_rule(ui);
                             if let Some(line) = self.split_body(ui, tr, need_scroll) {
                                 action = Some(DebugAction::ToggleBreakpoint(line));
                             }
@@ -814,11 +960,10 @@ impl DebuggerPanel {
         let mut refold = false;
 
         ui.horizontal(|ui| {
-            if ui
-                .add(egui::Button::new(
-                    RichText::new("■  Stop").color(Color32::from_rgb(220, 80, 80)),
-                ))
-                .on_hover_text(tr.dbg_stop)
+            ui.spacing_mut().item_spacing.x = 2.0;
+            let paused = self.is_paused;
+
+            if tool_icon(ui, "stop", true, false, Some(Color32::from_rgb(220, 80, 80)), tr.dbg_stop)
                 .clicked()
             {
                 self.center_current_line_next_frame();
@@ -827,9 +972,7 @@ impl DebuggerPanel {
 
             ui.separator();
 
-            if ui
-                .add_enabled(self.is_paused, egui::Button::new("▶  Continue   F5"))
-                .on_hover_text(tr.dbg_continue)
+            if tool_icon(ui, "play", paused, false, None, format!("{} — F5", tr.dbg_continue))
                 .clicked()
             {
                 action = Some(DebugAction::Continue);
@@ -837,19 +980,22 @@ impl DebuggerPanel {
                 self.last_animate_step = None;
             }
 
-            if ui
-                .add_enabled(self.is_paused, egui::Button::new("⤵  Step over   F10"))
-                .on_hover_text(tr.dbg_step_over)
-                .clicked()
+            if tool_icon(
+                ui,
+                "corner-up-right",
+                paused,
+                false,
+                None,
+                format!("{} — F10", tr.dbg_step_over),
+            )
+            .clicked()
             {
                 action = Some(DebugAction::StepOver);
                 self.is_paused = false;
                 self.last_animate_step = None;
             }
 
-            if ui
-                .add_enabled(self.is_paused, egui::Button::new("↧  Step in   F11"))
-                .on_hover_text(tr.dbg_step_into)
+            if tool_icon(ui, "arrow-down", paused, false, None, format!("{} — F11", tr.dbg_step_into))
                 .clicked()
             {
                 action = Some(DebugAction::StepIn);
@@ -857,9 +1003,7 @@ impl DebuggerPanel {
                 self.last_animate_step = None;
             }
 
-            if ui
-                .add_enabled(self.is_paused, egui::Button::new("↥  Step out   ⇧F11"))
-                .on_hover_text(tr.dbg_step_out)
+            if tool_icon(ui, "arrow-up", paused, false, None, format!("{} — ⇧F11", tr.dbg_step_out))
                 .clicked()
             {
                 action = Some(DebugAction::StepOut);
@@ -871,16 +1015,18 @@ impl DebuggerPanel {
             // cursor would have to guess a target, and guessing here means
             // running the program to somewhere they did not ask for.
             let target = self.cursor_line;
-            if ui
-                .add_enabled(
-                    self.is_paused && target.is_some(),
-                    egui::Button::new("⇥  Run to cursor"),
-                )
-                .on_hover_text(match target {
+            if tool_icon(
+                ui,
+                "crosshair",
+                paused && target.is_some(),
+                false,
+                None,
+                match target {
                     Some(l) => format!("{} — line {l}", tr.dbg_run_to_cursor),
                     None => tr.dbg_run_to_cursor.to_owned(),
-                })
-                .clicked()
+                },
+            )
+            .clicked()
             {
                 if let Some(l) = target {
                     action = Some(DebugAction::RunToCursor(l));
@@ -891,62 +1037,78 @@ impl DebuggerPanel {
 
             ui.separator();
 
-            if ui
-                .add_enabled(!self.is_paused, egui::Button::new("⏸  Pause"))
-                .on_hover_text(tr.dbg_pause)
-                .clicked()
-            {
+            if tool_icon(ui, "pause", !paused, false, None, tr.dbg_pause).clicked() {
                 self.center_current_line_next_frame();
                 action = Some(DebugAction::Pause);
             }
 
             ui.separator();
 
-            if ui
-                .selectable_label(self.hide_empty_blocks, tr.dbg_hide_empty_blocks)
-                .on_hover_text(
-                    "Fold away divisions, sections and paragraphs that hold no \
+            if tool_icon(
+                ui,
+                "collapse",
+                true,
+                self.hide_empty_blocks,
+                None,
+                format!(
+                    "{}\n\nFold away divisions, sections and paragraphs that hold no \
                      executable statement. A view filter only — line numbers are \
                      unchanged and stepping is unaffected.",
-                )
-                .clicked()
+                    tr.dbg_hide_empty_blocks
+                ),
+            )
+            .clicked()
             {
                 self.hide_empty_blocks = !self.hide_empty_blocks;
                 refold = true;
             }
 
-            if ui
-                .selectable_label(self.hide_generated, tr.dbg_hide_generated)
-                .on_hover_text(
-                    "Fold the blocks the IDE generated — the event loop and its \
+            if tool_icon(
+                ui,
+                "eye-off",
+                true,
+                self.hide_generated,
+                None,
+                format!(
+                    "{}\n\nFold the blocks the IDE generated — the event loop and its \
                      plumbing. They are assumed to work; what is left is the code \
                      you wrote.",
-                )
-                .clicked()
+                    tr.dbg_hide_generated
+                ),
+            )
+            .clicked()
             {
                 self.hide_generated = !self.hide_generated;
                 refold = true;
             }
 
-            if ui
-                .selectable_label(self.only_user_code, "Only my code")
-                .on_hover_text(
-                    "Step through your own handlers and procedures only. \
-                     The generated event loop and the rest of the scaffolding \
-                     are crossed without stopping. Breakpoints still fire \
-                     wherever you set them.",
-                )
-                .clicked()
+            if tool_icon(
+                ui,
+                "user-check",
+                true,
+                self.only_user_code,
+                None,
+                "Only my code\n\nStep through your own handlers and procedures only. \
+                 The generated event loop and the rest of the scaffolding \
+                 are crossed without stopping. Breakpoints still fire \
+                 wherever you set them.",
+            )
+            .clicked()
             {
                 self.only_user_code = !self.only_user_code;
             }
 
             ui.separator();
 
-            if ui
-                .selectable_label(self.animate, "Animate")
-                .on_hover_text("Follow execution one statement at a time")
-                .clicked()
+            if tool_icon(
+                ui,
+                "fast-forward",
+                true,
+                self.animate,
+                None,
+                "Animate\n\nFollow execution one statement at a time",
+            )
+            .clicked()
             {
                 self.animate = !self.animate;
                 self.last_animate_step = None;
@@ -1137,6 +1299,12 @@ impl DebuggerPanel {
                         toggled = self.code_viewer(ui, need_scroll, pane_w, tr);
                     });
                     row.col(|ui| {
+                        // The two panes met with nothing drawn between them.
+                        ui.painter().vline(
+                            ui.max_rect().left(),
+                            ui.max_rect().y_range(),
+                            egui::Stroke::new(1.0, FRAME_LINE),
+                        );
                         self.data_tabs(ui, tr);
                     });
                 });
@@ -1156,7 +1324,7 @@ impl DebuggerPanel {
         ui.painter().hline(
             grip.x_range(),
             grip.center().y,
-            egui::Stroke::new(1.0, Color32::from_gray(70)),
+            egui::Stroke::new(1.0, FRAME_LINE),
         );
 
         let dock_rect = egui::Rect::from_min_size(
@@ -1276,9 +1444,9 @@ impl DebuggerPanel {
                             ui.allocate_exact_size(Vec2::new(pane_w, CODE_BLANK_H), egui::Sense::hover());
                         if is_current {
                             ui.painter().rect_filled(
-                                rect,
+                                egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), rect.y_range()),
                                 0.0,
-                                Color32::from_rgba_premultiplied(70, 55, 0, 180),
+                                CURRENT_BG,
                             );
                             if need_scroll {
                                 ui.scroll_to_cursor(Some(egui::Align::Center));
@@ -1287,21 +1455,14 @@ impl DebuggerPanel {
                         continue;
                     }
 
-                    // Amber background for the current line
-                    if is_current {
-                        let rect = ui.available_rect_before_wrap();
-                        let bg = egui::Rect::from_min_size(
-                            rect.min,
-                            Vec2::new(rect.width().max(pane_w), CODE_LINE_H),
-                        );
-                        ui.painter().rect_filled(
-                            bg,
-                            0.0,
-                            Color32::from_rgba_premultiplied(70, 55, 0, 180),
-                        );
-                    }
+                    // The band behind the stopped line. Reserved BEFORE the row
+                    // and filled in after it, from the row's own rectangle:
+                    // guessing the height ahead of the layout is what left the
+                    // band sitting above its text, and painting afterwards on
+                    // top of the painter's queue would bury the text instead.
+                    let band = is_current.then(|| ui.painter().add(egui::Shape::Noop));
 
-                    ui.horizontal(|ui| {
+                    let row = ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
 
                         // Line number
@@ -1311,7 +1472,11 @@ impl DebuggerPanel {
                                 RichText::new(format!("{:>4}", line_num))
                                     .monospace()
                                     .size(11.0)
-                                    .color(Color32::from_gray(80)),
+                                    .color(if is_current {
+                                        CURRENT_INK
+                                    } else {
+                                        Color32::from_gray(80)
+                                    }),
                             ),
                         );
 
@@ -1350,17 +1515,49 @@ impl DebuggerPanel {
                                 egui::Align2::CENTER_CENTER,
                                 "►",
                                 egui::FontId::monospace(11.0),
-                                Color32::from_rgb(230, 180, 40),
+                                CURRENT_INK,
                             );
                         }
 
                         // Syntax-highlighted source line. Clickable: clicking
                         // picks the Run-to-Cursor target, which is why that
                         // button stays disabled until there is one.
-                        let job = build_cobol_layout_job(line_text);
-                        let resp = ui.add(egui::Label::new(job).sense(egui::Sense::click()));
+                        let job = build_cobol_layout_job_inked(
+                            line_text,
+                            is_current.then_some(CURRENT_INK),
+                        );
+                        // Laid out by hand rather than through `Label`, because
+                        // the galley is what can answer "which word is the
+                        // pointer over" — and that is the whole of the hover
+                        // tooltip below.
+                        let galley = ui.painter().layout_job(job);
+                        let size = galley.size();
+                        let (text_rect, resp) = ui.allocate_exact_size(
+                            Vec2::new(size.x, size.y.max(CODE_LINE_H)),
+                            egui::Sense::click(),
+                        );
+                        let text_pos = egui::pos2(
+                            text_rect.left(),
+                            text_rect.center().y - size.y / 2.0,
+                        );
+                        ui.painter().galley(
+                            text_pos,
+                            galley.clone(),
+                            if is_current { CURRENT_INK } else { Color32::from_gray(210) },
+                        );
                         if resp.clicked() {
                             picked_line = Some(line_num);
+                        }
+                        // Hovering a data item says what it holds right now.
+                        // Only the paused frame has values to report, so this
+                        // is silent while the program runs.
+                        if let Some(pos) = resp.hover_pos() {
+                            let cursor = galley.cursor_from_pos(pos - text_pos);
+                            if let Some(word) = word_at(line_text, cursor.index.0) {
+                                if let Some((name, value)) = lookup_value(&word, vars) {
+                                    resp.clone().on_hover_text(hover_tip(name, value));
+                                }
+                            }
                         }
                         // Inline values, on the stopped line only.
                         if is_current {
@@ -1370,11 +1567,28 @@ impl DebuggerPanel {
                                     RichText::new(format!("{name} = {value}"))
                                         .monospace()
                                         .size(10.0)
-                                        .color(Color32::from_gray(135)),
+                                        .color(CURRENT_INK),
                                 );
                             }
                         }
                     });
+
+                    // Now the row's real extent is known: the band spans the
+                    // whole visible width, whatever the horizontal scroll, and
+                    // exactly the row's own height.
+                    if let Some(idx) = band {
+                        ui.painter().set(
+                            idx,
+                            egui::Shape::rect_filled(
+                                egui::Rect::from_x_y_ranges(
+                                    ui.clip_rect().x_range(),
+                                    row.response.rect.y_range(),
+                                ),
+                                0.0,
+                                CURRENT_BG,
+                            ),
+                        );
+                    }
 
                     // Auto-scroll when current line changes
                     if is_current && need_scroll {
@@ -2335,16 +2549,28 @@ fn is_cobol_keyword(word: &str) -> bool {
 }
 
 fn build_cobol_layout_job(line: &str) -> egui::text::LayoutJob {
+    build_cobol_layout_job_inked(line, None)
+}
+
+/// The same colouring, except that `ink` — when given — overrides every colour
+/// in it.
+///
+/// The stopped line is painted on a lime band, and a syntax palette tuned for a
+/// dark editor is close to unreadable there: the comment green and the string
+/// brown both sit near the band's own luminance. One high-contrast ink for that
+/// one line is worth more than the colouring it replaces.
+fn build_cobol_layout_job_inked(line: &str, ink: Option<Color32>) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     // Disable wrapping — code lines extend to the right.
     job.wrap.max_width = f32::INFINITY;
 
     let mono = egui::FontId::monospace(12.0);
-    let col_kw = Color32::from_rgb(86, 156, 214);
-    let col_str = Color32::from_rgb(206, 145, 120);
-    let col_cmt = Color32::from_rgb(87, 166, 74);
-    let col_num = Color32::from_rgb(181, 206, 168);
-    let col_def = Color32::from_gray(210);
+    let paint = |c: Color32| ink.unwrap_or(c);
+    let col_kw = paint(Color32::from_rgb(86, 156, 214));
+    let col_str = paint(Color32::from_rgb(206, 145, 120));
+    let col_cmt = paint(Color32::from_rgb(87, 166, 74));
+    let col_num = paint(Color32::from_rgb(181, 206, 168));
+    let col_def = paint(Color32::from_gray(210));
 
     let trimmed = line.trim_start();
     if trimmed.starts_with("*>") {
@@ -2668,6 +2894,90 @@ impl DebuggerPanel {
                 self.flatten_children(row.reference, depth + 1, filter, out);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod hover_value_tests {
+    use super::{hover_tip, lookup_value, word_at};
+    use cobolt_runtime::VarSnapshot;
+
+    fn v(name: &str, value: &str) -> VarSnapshot {
+        VarSnapshot {
+            name: name.into(),
+            scope: "WS".into(),
+            pic: String::new(),
+            origin: String::new(),
+            value: value.into(),
+        }
+    }
+
+    /// The whole point of the tooltip: the pointer lands somewhere in a word,
+    /// and the word is what gets looked up — not the character under it.
+    #[test]
+    fn a_word_is_found_from_anywhere_inside_it() {
+        let line = "           COMPUTE Gauge-1::Value = Gauge-1::Value + 1";
+        for at in [19, 24, 30] {
+            assert_eq!(word_at(line, at).as_deref(), Some("Gauge-1::Value"), "at {at}");
+        }
+        // A COBOL name keeps its hyphens.
+        assert_eq!(word_at("    MOVE WS-CUST-NO TO X.", 12).as_deref(), Some("WS-CUST-NO"));
+    }
+
+    /// Between words there is nothing to ask about, and a run of punctuation is
+    /// not a name however word-shaped its characters are.
+    #[test]
+    fn punctuation_and_gaps_name_nothing() {
+        let line = "    MOVE  A  TO  B.";
+        assert_eq!(word_at(line, 8), None, "a space");
+        assert_eq!(word_at("  ::  ", 2), None, "a bare separator");
+        assert_eq!(word_at("", 0), None, "an empty line");
+        // Past the end clamps to the last character rather than panicking —
+        // here a space, so there is nothing to report.
+        assert_eq!(word_at("  AB  ", 999), None);
+        // …and clamping still finds a word when the line ends in one.
+        assert_eq!(word_at("  AB", 999).as_deref(), Some("AB"));
+    }
+
+    /// A control property is asked about whole, then by the control it belongs
+    /// to — so a runtime that reports only one of the two still answers.
+    #[test]
+    fn a_property_falls_back_to_its_control() {
+        let whole = vec![v("Gauge-1::Value", "42")];
+        assert_eq!(lookup_value("Gauge-1::Value", &whole), Some(("Gauge-1::Value", "42")));
+
+        let control = vec![v("GAUGE-1", "42")];
+        assert_eq!(lookup_value("Gauge-1::Value", &control), Some(("GAUGE-1", "42")));
+
+        assert_eq!(lookup_value("Gauge-2::Value", &control), None);
+    }
+
+    /// A subscripted slot is a storage key; the line names its parent.
+    /// An empty value is not worth a tooltip.
+    #[test]
+    fn a_subscript_is_stripped_and_an_empty_value_is_no_answer() {
+        let vars = vec![v("WS-ROW(3)", "seven"), v("WS-BLANK", "   ")];
+        assert_eq!(lookup_value("ws-row", &vars), Some(("WS-ROW", "seven")));
+        assert_eq!(lookup_value("WS-BLANK", &vars), None);
+    }
+
+    /// Long values are cut so the tooltip stays one short line — counted in
+    /// characters, because a value carrying accents has more bytes than columns
+    /// and cutting by byte would split one in half.
+    #[test]
+    fn a_long_value_is_cut_at_eighteen_characters() {
+        assert_eq!(hover_tip("WS-X", "short"), "WS-X = short");
+        // Exactly eighteen is not long.
+        assert_eq!(hover_tip("WS-X", "123456789012345678"), "WS-X = 123456789012345678");
+        assert_eq!(
+            hover_tip("WS-X", "1234567890123456789"),
+            "WS-X = 123456789012345678..."
+        );
+        // Nineteen accented characters: cut at the character, never mid-byte.
+        let accented = "\u{e7}\u{f5}".repeat(10);
+        let tip = hover_tip("WS-X", &accented);
+        assert!(tip.ends_with("..."), "{tip}");
+        assert_eq!(tip.chars().count(), "WS-X = ".len() + 18 + 3);
     }
 }
 

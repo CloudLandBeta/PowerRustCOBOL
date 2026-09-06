@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.19] — 2026-09-05
+
+### Five things the debugger got wrong to look at
+
+**The stopped line's band sat above its own text.** It was painted before the
+row was laid out, from a guessed height and the pane width — so it missed the
+row vertically and stopped short of the edge horizontally. The band is now
+reserved as a shape *before* the row and filled in *after* it, from the row's
+real rectangle and the viewport's own width: it covers the whole line, at any
+horizontal scroll.
+
+**It is lime now, and what is written on it is legible.** The amber wash is a
+solid `#8CE63C`, and the stopped line drops the syntax palette for one
+near-black ink — line number, arrow, source and inline values together. That
+palette is tuned for a dark editor; its comment green and string brown both sit
+near the band's own luminance, so colouring the one line that has to be read at
+a glance was costing exactly the line that mattered.
+
+**Hover a data item and it says what it holds.** The source line is laid out as
+a galley rather than a `Label`, so the pointer position resolves to a character,
+the character to a COBOL word — hyphens and `::` included, so `Gauge-1::Value`
+is one thing to ask about — and the word to the frame's own value. A value
+longer than 18 characters is cut with an ellipsis. The lookup tries the whole
+`Control::Property` first and the control alone second, so a runtime that
+reports either one still answers.
+
+**The frames have edges.** A rule under the toolbar, a divider between the code
+pane and the data pane, and the grip above the dock, all in one visible grey.
+The theme's own separator is drawn from the non-interactive widget stroke,
+which on this surface is near enough the background to be no line at all.
+
+**The toolbar is icons.** Eleven buttons carried their captions *and* their
+shortcuts, which is what had run the strip out of room. They are now icon-only,
+drawn from the platform's own catalogue — stop, play, corner-up-right,
+arrow-down, arrow-up, crosshair, pause, collapse, eye-off, user-check,
+fast-forward — with the caption and the key in the tooltip.
+
+Five tests cover the word/value lookup, including the cut counted in characters
+rather than bytes. IDE suite: 1049 tests, 0 failures; release build clean. The
+look itself is yours to check — this session does not drive the application.
+
 ## [PowerRustCOBOL 1.65.18] — 2026-09-05
 
 ### The screenshot slot described pictures with the prose around them
