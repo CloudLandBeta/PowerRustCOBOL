@@ -7653,6 +7653,20 @@ impl PropertiesPanel {
                 if ui.button(tr.menu_edit_btn).clicked() {
                     action.open_menu_editor = Some(id.to_owned());
                 }
+                if ctrl.control_type == ControlType::MenuBar {
+                    // The bar's own axis, the mirror of the sidebar's
+                    // FullHeight: Free keeps the width it was drawn at,
+                    // Responsive runs the form's whole width and follows a
+                    // resize. Free is the default so no existing form moves.
+                    combo_row_inline(
+                        ui,
+                        id,
+                        "MenuBarStyle",
+                        ctrl,
+                        action,
+                        &cobolt_forms::model::MENU_BAR_STYLES,
+                    );
+                }
                 if ctrl.control_type == ControlType::SideMenu {
                     bool_row_inline(ui, id, "FullHeight", tr.prop_full_height, ctrl, action);
                     bool_row_inline(ui, id, "Collapsed", tr.prop_collapsed, ctrl, action);

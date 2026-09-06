@@ -7083,7 +7083,7 @@ fn render_interactive(
                         painter.with_clip_rect(left_rect).text(
                             left_rect.center(),
                             Align2::CENTER_CENTER,
-                            "â¹",
+                            "‹",
                             FontId::proportional(12.0),
                             header_fg,
                         );
@@ -7109,7 +7109,7 @@ fn render_interactive(
                         painter.with_clip_rect(right_rect).text(
                             right_rect.center(),
                             Align2::CENTER_CENTER,
-                            "âº",
+                            "›",
                             FontId::proportional(12.0),
                             header_fg,
                         );
@@ -7617,7 +7617,7 @@ fn render_interactive(
                         body_painter.text(
                             pos2(dropdown_rect.max.x - 9.0, dropdown_rect.center().y),
                             Align2::CENTER_CENTER,
-                            "â¼",
+                            "▼",
                             FontId::proportional(10.0),
                             cell_fg,
                         );
@@ -8495,7 +8495,7 @@ fn render_interactive(
                                                 // Sub-menu indicator
                                                 if !item.items.is_empty() {
                                                     ui.label(
-                                                        egui::RichText::new("â¸").color(item_fg),
+                                                        egui::RichText::new("▸").color(item_fg),
                                                     );
                                                 }
                                             });
@@ -8602,7 +8602,7 @@ fn render_interactive(
                 painter.text(
                     screen.center(),
                     egui::Align2::CENTER_CENTER,
-                    "â° MenuBar (empty)",
+                    "☰ MenuBar (empty)",
                     FontId::proportional(12.0),
                     fg,
                 );

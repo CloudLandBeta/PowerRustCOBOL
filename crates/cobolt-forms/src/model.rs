@@ -3788,6 +3788,18 @@ pub const DEFAULT_BREADCRUMB_HEIGHT: f32 = 28.0;
 /// the `render` feature and the property default is.
 pub const SIDE_MENU_COLLAPSED_WIDTH: f32 = 48.0;
 
+/// How a MenuBar decides its own width, in inspector order.
+///
+/// `Free` is the historical behaviour and the default: the bar is exactly as
+/// wide as it was drawn. `Responsive` pins it to the form's full width and
+/// keeps it there through a resize, which is what a menu bar is expected to do
+/// (operator, 2026-09-06: "menubar is not stretching to occupy the host window
+/// width \u2014 to not break existing forms make it optional through a property").
+///
+/// The first entry is the default, so a form saved before this property existed
+/// reads as `Free` and does not move.
+pub const MENU_BAR_STYLES: [&str; 2] = ["Free", "Responsive"];
+
 /// The narrowest a collapsed rail may be. Below this an icon row has nothing
 /// to fit in; `CollapsedWidth` values under it are raised to it, never obeyed.
 pub const SIDE_MENU_MIN_COLLAPSED_WIDTH: f32 = 24.0;
@@ -4874,6 +4886,20 @@ impl Control {
                     // rail shows this icon instead of shrinking the image.
                     props.insert("HeaderIcon".into(), PropValue::String(String::new()));
                 }
+                // The mirror of the SideMenu's `FullHeight`, for the axis a
+                // horizontal strip actually has. A menu bar is expected to run
+                // the width of the window it sits in, and this one did not
+                // (operator, 2026-09-06). Existing forms must not move, so the
+                // behaviour is a property and the DEFAULT IS `Free` — the
+                // width the bar was drawn at, exactly as before. `Responsive`
+                // pins it to the form's full width and keeps it there through
+                // a resize.
+                if matches!(control_type, ControlType::MenuBar) {
+                    props.insert(
+                        "MenuBarStyle".into(),
+                        PropValue::String(MENU_BAR_STYLES[0].into()),
+                    );
+                }
             }
             ControlType::StatusBar => {
                 props.insert("Items".into(), PropValue::String("".into()));
@@ -5773,6 +5799,19 @@ impl Control {
     /// **Absent means yes**: the property defaults to on, and a `.cfrm`
     /// written before it existed must behave like a freshly dropped SideMenu.
     /// Meaningless (and always `false`) on any other control type.
+    /// `true` when this MenuBar is set to run the form's full width.
+    ///
+    /// Anything but the exact word `Responsive` — including a missing property,
+    /// which is every form saved before it existed — means `Free`, so the
+    /// default can only ever be "leave the bar where it was drawn".
+    pub fn menu_bar_responsive(&self) -> bool {
+        self.control_type == ControlType::MenuBar
+            && self
+                .get_prop("MenuBarStyle")
+                .map(|v| v.as_str().trim().eq_ignore_ascii_case("Responsive"))
+                .unwrap_or(false)
+    }
+
     pub fn side_menu_full_height(&self) -> bool {
         if self.control_type != ControlType::SideMenu {
             return false;
@@ -6971,6 +7010,28 @@ impl Form {
         }
     }
 
+    /// Pin every `Responsive` MenuBar to the form's full width.
+    ///
+    /// The same shape as [`Self::sync_side_menu_full_height`], on the other
+    /// axis, and for the same reason: applying it to the MODEL means every
+    /// surface — designer canvas, preview, Run Form, a compiled application —
+    /// gets the corrected rect without any of them knowing the property
+    /// exists. Only x and width are taken; the bar's Y and Height stay the
+    /// developer's.
+    pub fn sync_menu_bar_responsive(&mut self) {
+        let form_w = self.width as i32;
+        fn walk(controls: &mut [Control], form_w: i32) {
+            for c in controls {
+                if c.menu_bar_responsive() {
+                    c.rect.x = 0;
+                    c.rect.w = form_w.max(1);
+                }
+                walk(&mut c.children, form_w);
+            }
+        }
+        walk(&mut self.controls, form_w);
+    }
+
     pub fn sync_side_menu_full_height(&mut self) {
         let form_h = self.height as i32;
         fn walk(controls: &mut [Control], form_h: i32) {
@@ -7843,6 +7904,104 @@ mod start_position_tests {
 
 #[cfg(test)]
 mod tests {
+
+    /// A MenuBar ships `Free`: the width it was drawn at, exactly as before
+    /// the property existed. Anything else would move every existing form.
+    #[test]
+    fn a_menu_bar_ships_free_and_a_free_bar_is_never_moved() {
+        let bar = Control::new("MB", ControlType::MenuBar, 10, 10);
+        assert_eq!(
+            bar.get_prop("MenuBarStyle").map(|v| v.as_str().to_string()),
+            Some("Free".to_string()),
+            "the default must be the historical behaviour"
+        );
+        assert!(!bar.menu_bar_responsive());
+
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut bar = Control::new("MB", ControlType::MenuBar, 10, 10);
+        bar.rect = Rect::new(10, 12, 400, 24);
+        form.add_control(bar);
+        form.sync_menu_bar_responsive();
+        let bar = form.find_control("MB").expect("bar");
+        assert_eq!(
+            (bar.rect.x, bar.rect.w),
+            (10, 400),
+            "a Free bar keeps the geometry it was drawn with"
+        );
+    }
+
+    /// A form saved before `MenuBarStyle` existed carries no such property, and
+    /// must read as `Free` rather than silently becoming responsive.
+    #[test]
+    fn a_bar_with_no_style_property_is_free() {
+        let mut bar = Control::new("MB", ControlType::MenuBar, 0, 0);
+        bar.properties.shift_remove("MenuBarStyle");
+        assert!(
+            !bar.menu_bar_responsive(),
+            "a missing property is the old behaviour, never the new one"
+        );
+    }
+
+    /// `Responsive` takes the form's full width — and ONLY the width. The
+    /// bar's Y and Height stay the developer's, which is what separates this
+    /// from the SideMenu's FullHeight taking the whole vertical extent.
+    #[test]
+    fn a_responsive_bar_spans_the_form_width_and_nothing_else() {
+        let mut form = Form::new("F", "F", 1288, 720);
+        let mut bar = Control::new("MB", ControlType::MenuBar, 10, 10);
+        bar.rect = Rect::new(40, 12, 400, 28);
+        bar.set_prop("MenuBarStyle", PropValue::String("Responsive".into()));
+        form.add_control(bar);
+
+        form.sync_menu_bar_responsive();
+        let bar = form.find_control("MB").expect("bar");
+        assert_eq!(bar.rect.x, 0, "a responsive bar starts at the left edge");
+        assert_eq!(bar.rect.w, 1288, "and runs the form's whole width");
+        assert_eq!((bar.rect.y, bar.rect.h), (12, 28), "Y and Height are untouched");
+    }
+
+    /// The bar follows a form resize, the way the sidebar follows one.
+    #[test]
+    fn a_responsive_bar_follows_a_form_resize() {
+        let mut form = Form::new("F", "F", 800, 600);
+        let mut bar = Control::new("MB", ControlType::MenuBar, 0, 0);
+        bar.set_prop("MenuBarStyle", PropValue::String("Responsive".into()));
+        form.add_control(bar);
+        form.sync_menu_bar_responsive();
+        assert_eq!(form.find_control("MB").unwrap().rect.w, 800);
+
+        form.width = 1440;
+        form.sync_menu_bar_responsive();
+        assert_eq!(
+            form.find_control("MB").unwrap().rect.w,
+            1440,
+            "the width is re-derived, not remembered"
+        );
+    }
+
+    /// The style is spelled case-insensitively but means only the one word:
+    /// a typo is Free, never a half-applied Responsive.
+    #[test]
+    fn only_the_word_responsive_turns_it_on() {
+        let mut bar = Control::new("MB", ControlType::MenuBar, 0, 0);
+        for word in ["Responsive", "responsive", "  RESPONSIVE  "] {
+            bar.set_prop("MenuBarStyle", PropValue::String(word.into()));
+            assert!(bar.menu_bar_responsive(), "{word:?} must turn it on");
+        }
+        for word in ["Free", "", "Responsivo", "Stretch", "true"] {
+            bar.set_prop("MenuBarStyle", PropValue::String(word.into()));
+            assert!(!bar.menu_bar_responsive(), "{word:?} must NOT turn it on");
+        }
+    }
+
+    /// The property belongs to the bar alone — a SideMenu is the vertical
+    /// mirror and has `FullHeight` for this.
+    #[test]
+    fn only_a_menu_bar_carries_the_style() {
+        let side = Control::new("SM", ControlType::SideMenu, 0, 0);
+        assert!(side.get_prop("MenuBarStyle").is_none());
+        assert!(!side.menu_bar_responsive());
+    }
     use super::*;
 
     /// Operator, 2026-07-28: switching a form from Neumorphic Dark to Light

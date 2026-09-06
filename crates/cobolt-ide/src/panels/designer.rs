@@ -5633,6 +5633,9 @@ impl DesignerPanel {
         // what makes the sidebar follow a form resize, a Height edit or a
         // FullHeight toggle without each of those knowing about the others.
         self.form.sync_side_menu_full_height();
+        // …and every Responsive MenuBar, so the bar follows a form resize
+        // and a MenuBarStyle edit the way the sidebar follows FullHeight.
+        self.form.sync_menu_bar_responsive();
         // …and its footer Panel with it: created if absent, re-pinned to the
         // footer band otherwise. Runs AFTER the height sync, because the band
         // is measured from the sidebar's bottom edge.

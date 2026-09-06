@@ -12320,13 +12320,67 @@ pub fn set_menu_cache(
     ctx.data_mut(|d| d.insert_temp(key, def));
 }
 
-/// Retrieve the cached MenuDefinition for a control (if any).
+/// Menu structures a HOST registered once at start-up, keyed by control id.
+///
+/// A menu's structure is **not** in the `.cfrm` — it lives in a
+/// `<control-id>.menu.yaml` sidecar — so something has to load it before a bar
+/// can paint. Only the Designer ever did: it warms the per-context cache above
+/// on every frame, which is why a MenuBar was full in the RAD and read
+/// "MenuBar (empty)" under Run Form and in a built application, neither of
+/// which loaded the sidecar at all (operator, 2026-09-06: "menubar works in the
+/// RAD, but fails in run form"). Both consulted it for a **SideMenu** only,
+/// because that is what puts an application into shell mode; a MenuBar
+/// deliberately does not, and so fell through every branch that reads a menu.
+///
+/// The SOURCE stays per-host — `rcrun run-form` reads the files beside the
+/// `.cfrm`, a compiled application parses its embedded `MENUS` table — exactly
+/// as the theme pack does. What is shared is the lookup.
+fn menu_registry() -> &'static std::sync::RwLock<
+    std::collections::HashMap<String, std::sync::Arc<crate::menu::MenuDefinition>>,
+> {
+    static REGISTRY: std::sync::OnceLock<
+        std::sync::RwLock<
+            std::collections::HashMap<String, std::sync::Arc<crate::menu::MenuDefinition>>,
+        >,
+    > = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// Register every menu this process's forms own, replacing any previous set.
+///
+/// Called once by a host that reads its menus from a fixed source. The
+/// Designer does **not** call this: it edits menus live, so its per-context
+/// cache — which wins over this — is the only thing that can stay current.
+pub fn register_menus(
+    defs: impl IntoIterator<Item = (String, crate::menu::MenuDefinition)>,
+) {
+    let map = defs
+        .into_iter()
+        .map(|(id, def)| (id.to_ascii_uppercase(), std::sync::Arc::new(def)))
+        .collect();
+    if let Ok(mut registry) = menu_registry().write() {
+        *registry = map;
+    }
+}
+
+/// Retrieve the MenuDefinition for a control (if any).
+///
+/// The per-context cache first — a Designer edit must be visible on the next
+/// frame — then the host's registered set.
 pub fn get_menu_cache(
     ctx: &egui::Context,
     ctrl_id: &str,
 ) -> Option<std::sync::Arc<crate::menu::MenuDefinition>> {
     let key = egui::Id::new("cobolt-menu-def").with(ctrl_id);
-    ctx.data(|d| d.get_temp::<std::sync::Arc<crate::menu::MenuDefinition>>(key))
+    if let Some(hit) = ctx.data(|d| d.get_temp::<std::sync::Arc<crate::menu::MenuDefinition>>(key))
+    {
+        return Some(hit);
+    }
+    menu_registry()
+        .read()
+        .ok()?
+        .get(&ctrl_id.to_ascii_uppercase())
+        .cloned()
 }
 
 fn active_theme_id() -> egui::Id {
@@ -18236,6 +18290,71 @@ mod border_3d_tests {
             "\n  Borders — Fixed3D / Raised / Sunken on a {radius}pt radius: every \
              point of the relief lies inside the rounded face\n"
         );
+    }
+}
+
+#[cfg(test)]
+mod menu_registry_tests {
+    use super::*;
+    use crate::menu::{MenuDefinition, MenuItem};
+
+    fn menu(label: &str) -> MenuDefinition {
+        MenuDefinition {
+            menu: vec![MenuItem::new_action("id", label)],
+            hash: String::new(),
+        }
+    }
+
+    /// **A host that registers its menus makes them findable — and a Designer
+    /// edit still wins.**
+    ///
+    /// The whole Run Form defect: only the Designer ever warmed the
+    /// per-context cache, so `rcrun run-form` and a compiled application found
+    /// nothing and painted "MenuBar (empty)" while the RAD showed the bar full
+    /// (operator, 2026-09-06).
+    ///
+    /// One test rather than four: the registry is process-global, so separate
+    /// `#[test]` functions would run in parallel threads and fight over it —
+    /// which is exactly what a shared registry means and not a thing to hide
+    /// behind a mutex the product does not have.
+    #[test]
+    fn the_menu_registry_answers_a_host_and_yields_to_the_designer() {
+        let ctx = egui::Context::default();
+        assert!(
+            get_menu_cache(&ctx, "MenuBar-Never-Registered").is_none(),
+            "an unknown id must still answer None"
+        );
+
+        // A host registers what it read from disk (or from its embedded table).
+        register_menus([("MenuBar-1".to_owned(), menu("File"))]);
+        let found = get_menu_cache(&ctx, "MenuBar-1").expect("the registered menu");
+        assert_eq!(found.menu.len(), 1);
+        assert_eq!(found.menu[0].label, "File");
+
+        // Control ids match the way every other id in this codebase does.
+        assert!(get_menu_cache(&ctx, "menubar-1").is_some(), "case-insensitive");
+        assert!(get_menu_cache(&ctx, "MENUBAR-1").is_some(), "case-insensitive");
+
+        // The Designer edits menus in place, so its per-context cache must beat
+        // anything a host registered.
+        set_menu_cache(&ctx, "MenuBar-1", std::sync::Arc::new(menu("fresh")));
+        assert_eq!(
+            get_menu_cache(&ctx, "MenuBar-1").expect("a menu").menu[0].label,
+            "fresh",
+            "an edit in the designer must beat whatever a host registered"
+        );
+
+        // Registering replaces rather than accumulates: one process, one set.
+        register_menus([("MenuBar-2".to_owned(), menu("second"))]);
+        assert!(get_menu_cache(&ctx, "MenuBar-2").is_some());
+        let fresh_ctx = egui::Context::default();
+        assert!(
+            get_menu_cache(&fresh_ctx, "MenuBar-1").is_none(),
+            "the previous set is gone, not merged"
+        );
+
+        register_menus(std::iter::empty());
+        assert!(get_menu_cache(&fresh_ctx, "MenuBar-2").is_none());
     }
 }
 

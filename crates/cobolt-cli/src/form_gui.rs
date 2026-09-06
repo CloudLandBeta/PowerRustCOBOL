@@ -442,6 +442,38 @@ pub fn cmd_run_form(args: &[String]) {
     // including one with a MenuBar — keeps the classic one-window mode
     // exactly as before.
     let shell_mode = form.has_side_menu();
+    // Every MenuBar / SideMenu's structure, read from the sidecars beside the
+    // `.cfrm` — the same files, and the same rule, the designer canvas loads.
+    //
+    // Only the SideMenu branch below used to read a menu at all, because a
+    // SideMenu is what puts an application into shell mode. A MenuBar
+    // deliberately does not, so nothing ever loaded its sidecar here and the
+    // bar painted "MenuBar (empty)" while the RAD showed it full (operator,
+    // 2026-09-06). Registering them all fixes the bar without touching the
+    // shell decision, which still turns on the SideMenu alone.
+    {
+        let dir = cfrm_path
+            .parent()
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let mut flat_all: Vec<cobolt_forms::Control> = Vec::new();
+        flatten_controls(&form.controls, &mut flat_all);
+        let menus: Vec<(String, cobolt_forms::menu::MenuDefinition)> = flat_all
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.control_type,
+                    cobolt_forms::ControlType::MenuBar | cobolt_forms::ControlType::SideMenu
+                )
+            })
+            .filter_map(|c| {
+                let yaml = cobolt_forms::menu::menu_yaml_path(&dir, &c.id);
+                let def = cobolt_forms::menu::load_menu(&yaml).ok()?;
+                Some((c.id.clone(), def))
+            })
+            .collect();
+        cobolt_forms::paint::register_menus(menus);
+    }
     let root_menu = if shell_mode {
         form.side_menu_control_id().and_then(|ctrl_id| {
             let dir = cfrm_path.parent()?;

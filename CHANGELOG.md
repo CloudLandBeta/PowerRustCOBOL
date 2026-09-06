@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.25] — 2026-09-06
+
+### A MenuBar outside the designer had no menu at all
+
+A MenuBar was full in the RAD and read **"MenuBar (empty)"** under Run Form —
+and in a built application, which had the same defect nobody had looked at yet.
+
+A menu's structure is not in the `.cfrm`; it lives in a `<control-id>.menu.yaml`
+sidecar, so something has to load it before a bar can paint. Only the Designer
+ever did. Run Form and the compiled application each read a sidecar for a
+**SideMenu** alone, because a SideMenu is what puts an application into shell
+mode — a MenuBar deliberately does not, so its sidecar fell through every branch
+that reads a menu and the bar had nothing to draw.
+
+Both hosts now register every MenuBar's and SideMenu's structure for the shared
+painter. The source stays per-host — `rcrun run-form` reads the files beside the
+`.cfrm`, a compiled application parses its embedded table — exactly as the theme
+pack does; what is now shared is the lookup. A Designer edit still wins over it,
+so editing a menu is as live as it ever was. The shell decision is untouched: it
+still turns on the SideMenu alone.
+
+### `MenuBarStyle` — a bar can run the width of its window
+
+A menu bar is expected to span the window it sits in, and this one stayed the
+width it was drawn at. Since changing that outright would move every existing
+form, it is a property: **`Free`** (the default, and exactly the old behaviour)
+or **`Responsive`**, which pins the bar to the form's full width and keeps it
+there through a resize.
+
+It is the horizontal mirror of the SideMenu's `FullHeight`, and works the same
+way — the rect is corrected in the *model*, so the designer canvas, the preview,
+Run Form and a compiled application all get it without any of them knowing the
+property exists. Only x and width are taken; the bar's Y and Height stay yours.
+
+### Five UI glyphs were mojibake
+
+`render.rs` carried double-encoded literals: `☰` had become `â˜°`, and with it
+the tab strip's `‹` and `›` chevrons, the dropdown `▼` and the submenu `▸`. The
+file had been through a byte-level re-encoding pass at some point — it is the
+only Rust file in the tree with the damage. The five runtime strings are
+repaired; the remaining occurrences are in comments and test messages, where
+they are cosmetic.
+
+Forms engine: 847 tests, 0 failures. IDE: 1055 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.24] — 2026-09-06
 
 ### A screen recording is filed with the recordings, and counts itself down

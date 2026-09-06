@@ -556,6 +556,9 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // means every consumer (designer, preview, run, shell, codegen) reads one
     // truthful rect, instead of each render path re-deriving it.
     form.sync_side_menu_full_height();
+    // …and every Responsive MenuBar to the form width, on load, for exactly
+    // the same reason: one truthful rect, derived once.
+    form.sync_menu_bar_responsive();
     // …and every Splitter's two pane Panels, for the same reason: they are
     // derived geometry, so deriving them once on load means the designer, the
     // preview, the running form, the shell and codegen all read the same two
