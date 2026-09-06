@@ -3590,11 +3590,9 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
             "onShow",
             "onHide",
             "onClose",
-            "onClosing",
             // 037 R17 — a close attempt was refused because FormState is
             // Waiting (or a Sync child of this form is Waiting).
             "onCloseRejected",
-            "onClosed",
             // 049 R26 — fired immediately before the form's storage is
             // released (a navigation-chain pop, a non-preserved sibling
             // replacement, a root-slot unwind). The teardown point: close
@@ -9999,11 +9997,8 @@ mod tests {
         }
         assert_eq!(
             all.len(),
-            59,
-            "expected 59 form events — 68 less the nine RETIRED on 2026-09-06: three \
-             per-frame (onPaint/onRepaint/onLayout) and six with no platform \
-             source (onFontChanged, onDisplayChanged, onPowerSuspend, \
-             onPowerResume, onSessionLock, onSessionUnlock)"
+            57,
+            "expected 57 form events — 68 less the ELEVEN retired on 2026-09-06"
         );
     }
 
@@ -10034,6 +10029,13 @@ mod tests {
             "onPowerResume",
             "onSessionLock",
             "onSessionUnlock",
+            // Retired with them: a FORM never received these two. The ones the
+            // host raises are SNACKBAR events carrying a control id, and the
+            // Snackbar keeps them — this removes them from the FORM catalogue
+            // only. A form's close path is onClose (a direct CALL after the
+            // event loop) and onDestroy.
+            "onClosing",
+            "onClosed",
         ] {
             assert!(
                 !all.contains(&ev),

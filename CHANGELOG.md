@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.38] — 2026-09-06
+
+### `onClosing` and `onClosed` retired from the form catalogue
+
+They never reached a form. The ones the host raises are **Snackbar** events
+carrying a control id — which is why an earlier audit mistook them for working
+form events. A form's close path is `onClose` (a direct `CALL` after the event
+loop) and `onDestroy`.
+
+**The Snackbar keeps both.** This removes them from the FORM catalogue only;
+`ControlType::Snackbar::supported_events()` is untouched, and the two demo forms
+that bind them — `snackbar-form` and `datagrid-form` — are control bindings and
+still work.
+
+Eleven form events are now retired, the catalogue is **57**, and the test that
+pins them covers all eleven.
+
+**53 of 57 fire.** The one left is `onUnhandledException`, which needs a
+decision about what happens *after* the handler runs — does the form carry on,
+or close? — rather than wiring.
+
+Forms engine: 858 tests, 0 failures. IDE: 1059. Host: 71. Compiler: 110.
+
 ## [PowerRustCOBOL 1.65.37] — 2026-09-06
 
 ### The mouse group fires, and a form's mouse events are its background

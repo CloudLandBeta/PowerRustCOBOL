@@ -3515,19 +3515,22 @@ Setting `X`/`Y` alone moves nothing unless `StartPosition` is also `"Custom"`.
 
 ## Form events — the complete catalogue
 
-A form supports **59** events, all `on`-prefixed, in these groups. Bind them the
+A form supports **57** events, all `on`-prefixed, in these groups. Bind them the
 way control events are bound.
 
-Nine were **retired on 2026-09-06** and are no longer offered: `onPaint`,
+Eleven were **retired on 2026-09-06** and are no longer offered: `onPaint`,
 `onRepaint` and `onLayout` are per-frame, so a COBOL handler on one would run
 about sixty times a second; `onFontChanged`, `onDisplayChanged`,
 `onPowerSuspend`, `onPowerResume`, `onSessionLock` and `onSessionUnlock` have no
-platform source behind them. A form saved with a handler on any of these keeps
+platform source behind them; and `onClosing` / `onClosed` never reached a form
+at all — the ones the host raises are **Snackbar** events carrying a control id,
+and the Snackbar keeps them. A form's close path is `onClose` (called after the
+event loop) and `onDestroy`. A form saved with a handler on any of these keeps
 its code — the inspector lists it under **Retired** so it stays editable — but
 nothing will ever call it.
 
 - **Lifecycle** — `onCreate`, `onInitialize`, `onLoad`, `onOpened`, `onShow`,
-  `onHide`, `onClose`, `onClosing`, `onCloseRejected`, `onClosed`, `onDestroy`
+  `onHide`, `onClose`, `onCloseRejected`, `onDestroy`
 - **Activation & Focus** — `onActivate`, `onActivated`, `onDeactivate`,
   `onDeactivated`, `onGotFocus`, `onLostFocus`
 - **Window State** — `onResize`, `onResizing`, `onMove`, `onMoving`,
