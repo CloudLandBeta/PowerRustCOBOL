@@ -296,6 +296,7 @@ Porto Alegre</Property>
     <Property name="DropDownHeight">200</Property>
     <Property name="Editable">true</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onSelectedIndexChanged" paragraph="CBO-CITY--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -425,6 +426,7 @@ First</Property>
     <Property name="DropDownHeight">200</Property>
     <Property name="Editable">true</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onSelectedIndexChanged" paragraph="CBO-CLASS--ONSELECTEDINDEXCHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
