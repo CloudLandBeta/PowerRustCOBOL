@@ -404,7 +404,7 @@ Actor Awards:string</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
     <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Top</Property>
+    <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">true</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
@@ -415,7 +415,7 @@ Actor Awards:string</Property>
 They offer numerous configuration options, optional per-column filters, CSV file import and
 export, data binding to indexed files, COBOL data items, and SQL tables, as well as a
 programmatic interface for creating content directly in code.</Property>
-    <Property name="CornerRadius">100</Property>
+    <Property name="CornerRadius">22</Property>
   </Control>
   <Control id="Button-1" type="Button" x="24" y="208" w="200" h="28" tab-order="0" z-order="66" visible="true" enabled="true">
     <Property name="Caption">Load data</Property>
@@ -457,11 +457,31 @@ programmatic interface for creating content directly in code.</Property>
     <Event name="onClick" paragraph="BUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
+       01 WS-ROW-COUNT      PIC 9(9).
+       01 WS-ROW-COUNT-TEXT PIC ZZZ,ZZZ,ZZ9.
+       01 WS-MESSAGE        PIC X(80).
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
-           CONTINUE.
+      *> The grid is bound to ACTORS-FILE (indexed/actors.cidx), so the rows
+      *> already arrived when the form loaded — an indexed source has no fill
+      *> step to wait for. RefreshBinding re-reads the file and returns how
+      *> many records it put in the grid, which is what this button is for:
+      *> picking up records another program has written since.
+           MOVE DataGrid-1::RefreshBinding() TO WS-ROW-COUNT
+           MOVE WS-ROW-COUNT TO WS-ROW-COUNT-TEXT
+
+           STRING "Loaded " DELIMITED BY SIZE
+                  FUNCTION TRIM(WS-ROW-COUNT-TEXT) DELIMITED BY SIZE
+                  " actors from ACTORS-FILE" DELIMITED BY SIZE
+                  INTO WS-MESSAGE
+           END-STRING
+
+           SET Snackbar-1::Category TO "Info"
+           SET Snackbar-1::Text TO FUNCTION TRIM(WS-MESSAGE)
+           INVOKE Snackbar-1::Show()
+           DISPLAY FUNCTION TRIM(WS-MESSAGE).
 ]]></Event>
   </Control>
   <Control id="Snackbar-1" type="Snackbar" x="24" y="24" w="56" h="56" tab-order="0" z-order="90" visible="true" enabled="true">

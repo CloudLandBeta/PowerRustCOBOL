@@ -1819,6 +1819,23 @@ source. This keeps one field from silently drifting away from the row contract.
 > populates it yet. Build against what is documented here as working, not
 > against what the Designer merely lets you configure.
 
+**Where an Indexed binding looks for its files.** Two paths are involved, and
+both are stored **relative to your project**: the `.cidx` recorded in the
+binding, and the data file recorded in that `.cidx`'s own assign path. Both are
+resolved against the **project folder** — not against whatever directory the
+program was launched from — so the same binding reads the same records in the
+Designer's Indexed File Browser, under **Run Form**, and in a built
+application. Point a path outside the project and it is stored absolute, which
+also keeps working; a relative path simply travels with the project, so a
+form committed to a repository and cloned onto another machine still finds its
+data.
+
+> ⚠️ **A built application carries its own idea of "the project".** It anchors
+> on the folder holding `assets/` — `bin/` inside the project during
+> development, and the hand-over folder in `dist/`. Ship the `indexed/` and
+> data folders alongside, keeping the same relative layout your project uses,
+> and the binding resolves identically.
+
 Each binding stores its source descriptor, target descriptor, ordered field
 mappings, read-only/writable mode, saved source metadata, and validation
 snapshot in the `.cfrm` file. Existing forms without binding metadata load and

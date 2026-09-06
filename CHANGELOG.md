@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.23] — 2026-09-06
+
+### A bound DataGrid looked for its indexed file in the wrong place
+
+A DataGrid bound to an indexed file is documented to fill itself the moment the
+form loads — an indexed source has no fill step to wait for, so no
+`RefreshBinding()` call is needed. PowerDemo3's Datagrid demo does exactly that
+and came up **empty**.
+
+The binding stores two paths, and the Designer stores both **project-relative**:
+the `.cidx` in the binding itself, and the data file in that `.cidx`'s own
+`assign-path`. The runtime handed each straight to the filesystem, so the OS
+resolved them against the **process working directory** — and that directory is
+never the project root. The IDE spawns `rcrun run-form` with the IDE's own
+directory, and a built application runs from `bin/`. The same file the IDE's
+Indexed File Browser reads perfectly (it has always resolved against the
+project) was simply not there, and the refresh reported the honest "no data
+file" outcome by blanking the grid.
+
+Both paths now go through the project anchor every other stored path already
+uses (`cobolt_forms::assets`), which the IDE, `rcrun run-form` and a built
+application each set at start-up. An absolute path still passes through
+untouched, and a relative path that is not under the anchor still falls back to
+the old behaviour, so nothing that worked before changes.
+
+The regression test that was missing: every existing binding test wrote
+**absolute** paths into its fixture, which is precisely why none of them could
+see this. The new one stores the paths the way the Designer does and asserts
+that they cannot be found from the test's own working directory before it
+starts.
+
+**Demo.** PowerDemo3's `Common/datagrid-form.cfrm` **Load data** button was an
+empty `CONTINUE.` — it now calls `DataGrid-1::RefreshBinding()`, reports the
+record count on the Snackbar, and re-reads the file so records written by
+another program since the form opened appear.
+
 ## [PowerRustCOBOL 1.65.22] — 2026-09-06
 
 ### F12 asks what to capture, and a recording is aimed by clicking

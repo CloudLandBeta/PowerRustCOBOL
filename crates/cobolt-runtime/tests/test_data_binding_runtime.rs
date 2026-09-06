@@ -422,3 +422,79 @@ fn data_binding_indexed_file_missing_data_file_yields_zero_rows_not_an_error() {
         "a read-only grid refresh must never create the data file as a side effect"
     );
 }
+
+#[test]
+fn data_binding_indexed_file_resolves_designer_paths_against_the_project_anchor() {
+    // The regression PowerDemo3's `datagrid-form.cfrm` hit: the Designer
+    // stores BOTH paths project-relative — the `.cidx` in the binding and the
+    // data file in the `.cidx`'s own `assign-path` — and the runtime resolved
+    // them against the PROCESS WORKING DIRECTORY. The IDE spawns `rcrun
+    // run-form` with its own directory and a built application runs from
+    // `bin/`, so neither is ever the project root: the grid that reads
+    // perfectly in the Indexed File Browser (which has always resolved
+    // against the project) came up empty. Every other test here uses absolute
+    // paths, which is exactly why none of them caught it.
+    let project = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(project.path().join("indexed")).unwrap();
+    std::fs::create_dir_all(project.path().join("data")).unwrap();
+
+    // Stored exactly as the Designer and the `.cidx` editor store them.
+    let stored_cidx = "indexed/actors.cidx";
+    let stored_assign = "data/actors.idx";
+    let cidx_path = project.path().join(stored_cidx);
+    let data_path = project.path().join(stored_assign);
+
+    let (def, fields) = actors_definition(stored_assign);
+    cobolt_indexed::save_indexed(&cidx_path, &def).expect("write .cidx");
+
+    let primary = KeySpec {
+        offset: 0,
+        len: 9,
+        duplicates: false,
+    };
+    let mut file = DiskIndexedFile::new(&data_path, 38, primary, Vec::new());
+    assert_eq!(file.open(OpenMode::Output), status::OK);
+    assert_eq!(
+        file.write(&encode_actor(&fields, "1", "Leonardo DiCaprio", "30000000")),
+        status::OK
+    );
+    assert_eq!(
+        file.write(&encode_actor(&fields, "2", "Joe Pesci", "12000000")),
+        status::OK
+    );
+    assert_eq!(file.close(), status::OK);
+
+    // The whole point of the test: neither stored path can be found from the
+    // working directory this test runs in. If the rows arrive, they arrived
+    // through the anchor.
+    assert!(
+        !std::path::Path::new(stored_cidx).exists(),
+        "the stored .cidx path must not resolve against the test's own cwd, \
+         or this test proves nothing"
+    );
+
+    cobolt_forms::assets::set_base(project.path());
+
+    let row = |id: &str, name: &str, salary: &str| {
+        let rec = encode_actor(&fields, id, name, salary);
+        [
+            cobolt_indexed::format_field_display(&fields[0], &rec[0..9]),
+            cobolt_indexed::format_field_display(&fields[1], &rec[9..29]),
+            cobolt_indexed::format_field_display(&fields[2], &rec[29..38]),
+        ]
+        .join("\t")
+    };
+    let expected = format!(
+        "{}\n{}",
+        row("1", "Leonardo DiCaprio", "30000000"),
+        row("2", "Joe Pesci", "12000000")
+    );
+
+    let form = indexed_binding_form(stored_cidx, "ActorGrid");
+    let rows = run_and_capture_rows(&form, "ActorGrid");
+    assert_eq!(
+        rows, expected,
+        "a project-relative binding must populate from the anchored project, \
+         not from the process working directory"
+    );
+}

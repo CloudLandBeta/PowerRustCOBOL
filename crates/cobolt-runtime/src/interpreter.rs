@@ -10424,11 +10424,23 @@ impl Interpreter {
         if fields.is_empty() {
             return 0;
         }
-        let def = match cobolt_indexed::load_indexed(def_path) {
+        // Both paths here are DESIGNER-stored and project-relative — the
+        // `.cidx` as the Designer saved it, the data file as the `.cidx`'s own
+        // `assign-path` — so they are anchored the way every other stored path
+        // is (`cobolt_forms::assets`), not left to the process's working
+        // directory. Left to the CWD they resolved against wherever the app
+        // happened to be launched from: the IDE spawns `rcrun run-form` with
+        // its OWN directory, and a built application runs from `bin/`, so a
+        // binding that reads perfectly in the Indexed File Browser (which has
+        // always resolved against the project root) found nothing at run time
+        // and blanked the grid. An absolute path still passes straight through.
+        let def_file = cobolt_forms::assets::resolve(def_path);
+        let def = match cobolt_indexed::load_indexed(&def_file) {
             Ok(def) => def,
             Err(e) => {
                 tracing::warn!(
-                    "IndexedFile binding on {control_id}: cannot read '{def_path}': {e:?}"
+                    "IndexedFile binding on {control_id}: cannot read '{}': {e:?}",
+                    def_file.display()
                 );
                 self.obj_set(control_id, "Rows", String::new());
                 return 0;
@@ -10438,7 +10450,8 @@ impl Interpreter {
             .record_root()
             .map(|root| root.all_leaves())
             .unwrap_or_default();
-        let data_path = std::path::Path::new(&def.assign_path);
+        let data_path = cobolt_forms::assets::resolve(&def.assign_path);
+        let data_path = data_path.as_path();
         // A missing data file is an empty grid, not a fault — the same
         // "nothing to read yet" outcome a plain OPEN INPUT reports as FILE
         // STATUS 35. This has to be checked BEFORE `GridSession::open`, which
