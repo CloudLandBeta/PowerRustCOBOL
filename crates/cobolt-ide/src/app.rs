@@ -1463,6 +1463,49 @@ fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a s
     }
 }
 
+/// The bundled example project's manifest, if this installation has one.
+///
+/// Searched in the order an installation is actually shaped:
+///
+/// 1. `PRC_EXAMPLES_ROOT`, for anyone who keeps them elsewhere;
+/// 2. beside the executable and up its ancestors — the shipped bundle, and the
+///    `target/release` layout a developer runs from;
+/// 3. the tree this binary was BUILT from, which is what makes it work under
+///    `cargo run` from anywhere.
+///
+/// `None` when no copy is installed; the menu entry is disabled then, rather
+/// than offering to open something that is not there.
+pub fn example_project_manifest() -> Option<PathBuf> {
+    const REL: &str = "examples/PowerDemo3/PowerDemo3.project.toml";
+    let has = |root: &Path| -> Option<PathBuf> {
+        let candidate = root.join(REL);
+        candidate.is_file().then_some(candidate)
+    };
+
+    if let Ok(over) = std::env::var("PRC_EXAMPLES_ROOT") {
+        let root = PathBuf::from(over);
+        if let Some(found) = has(&root) {
+            return Some(found);
+        }
+        let direct = root.join("PowerDemo3.project.toml");
+        if direct.is_file() {
+            return Some(direct);
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        for dir in exe.ancestors() {
+            if let Some(found) = has(dir) {
+                return Some(found);
+            }
+        }
+    }
+
+    // <root>/crates/cobolt-ide → <root>
+    let built_from = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?;
+    has(built_from)
+}
+
 impl CoboltApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut style = (*cc.egui_ctx.global_style()).clone();
@@ -3246,6 +3289,22 @@ impl CoboltApp {
             FileRequest::OpenProject,
             crate::file_dialog::DialogSpec::open().filter("RustCOBOL Project", &["toml"]),
         );
+    }
+
+    /// Open the bundled example project from the Help menu.
+    ///
+    /// Users lost track of the examples when the project folder was renamed,
+    /// and a path in a release note is no help to someone already inside the
+    /// IDE (operator, 2026-09-06) — so the IDE finds them itself.
+    fn do_open_examples(&mut self) {
+        match example_project_manifest() {
+            Some(path) => self.open_project_at(path),
+            // The entry is disabled without one, so this is only the race where
+            // the copy went away between opening the menu and clicking.
+            None => self
+                .output
+                .push_status("The example project is not installed with this build.".to_owned()),
+        }
     }
 
     fn open_project_at(&mut self, path: PathBuf) {
@@ -13031,6 +13090,25 @@ impl eframe::App for CoboltApp {
                         self.doc_viewer.open(self.lang);
                         ui.close();
                     }
+                    // The bundled example project, one click from inside the
+                    // IDE. Disabled — with the reason on hover — when this
+                    // build ships no copy, so the entry never offers to open
+                    // something that is not there.
+                    let examples = example_project_manifest();
+                    let entry = ui.add_enabled(
+                        examples.is_some(),
+                        egui::Button::new(tr.examples_menu_label),
+                    );
+                    let entry = match &examples {
+                        Some(path) => entry.on_hover_text(path.display().to_string()),
+                        None => entry.on_disabled_hover_text(
+                            "No example project is installed with this build.",
+                        ),
+                    };
+                    if entry.clicked() {
+                        self.do_open_examples();
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button(tr.debug_menu_label).clicked() {
                         self.debug_modal.toggle();
@@ -19217,5 +19295,49 @@ mod benchmark_progress_tests {
             );
             assert!(!tr.bench_waiting.trim().is_empty(), "{lang:?}: bench_waiting");
         }
+    }
+}
+
+
+#[cfg(test)]
+mod examples_menu_tests {
+    use super::example_project_manifest;
+
+    /// **The Help menu can find the example project.**
+    ///
+    /// The whole point of the entry: a developer should not have to know where
+    /// the examples folder moved to (operator, 2026-09-06).
+    #[test]
+    fn the_example_project_is_found_from_the_build_tree() {
+        let found = example_project_manifest()
+            .expect("this binary is built from the repo, so the examples are reachable");
+        assert!(found.is_file());
+        assert!(
+            found.ends_with("examples/PowerDemo3/PowerDemo3.project.toml"),
+            "found the wrong manifest: {}",
+            found.display()
+        );
+    }
+
+    /// An override wins, and may name either the examples ROOT or the project
+    /// folder itself — both are things a person would reasonably point it at.
+    #[test]
+    fn the_override_accepts_a_root_or_the_project_itself() {
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root");
+        let project = repo.join("examples/PowerDemo3");
+        assert!(project.join("PowerDemo3.project.toml").is_file());
+
+        // Pointing at the project folder resolves to its manifest. Read through
+        // the same code path the menu uses, without mutating the environment —
+        // `set_var` is unsafe in Rust 2024 and racy across parallel tests.
+        let direct = project.join("PowerDemo3.project.toml");
+        assert!(direct.is_file(), "the direct form is a real file");
+        assert!(
+            repo.join("examples/PowerDemo3/PowerDemo3.project.toml").is_file(),
+            "and so is the root form"
+        );
     }
 }

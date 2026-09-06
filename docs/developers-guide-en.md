@@ -1049,6 +1049,21 @@ sequenceDiagram
 > of the open file** are sent to whatever endpoint you configure. Point it only
 > at a model you trust.
 
+### The example project (Help → Examples)
+
+**Help → Examples** opens **PowerDemo3**, the project that carries one demo form
+per toolbox control — every widget, wired and running, with its COBOL beside it.
+It is the fastest way to see how a control is actually driven.
+
+The IDE finds the project itself, so you do not need to know where it lives:
+beside the executable in an installed build, or in the tree the IDE was built
+from when you are running it from source. Point `PRC_EXAMPLES_ROOT` at another
+copy if you keep one elsewhere. The entry is greyed out, with the reason on
+hover, in a build that ships no examples.
+
+> **Note.** Opening it replaces the project you currently have open, exactly as
+> *File → Open Project* would. Save your work first.
+
 ### Reading the docs in the IDE (Help → Documentation)
 
 **Help → Documentation** opens a dedicated window that renders this guide and the

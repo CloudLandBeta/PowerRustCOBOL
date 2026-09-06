@@ -119,6 +119,32 @@ Touch & Pointer (7), `onClosing`, `onClosed` and `onUnhandledException`.
 
 Host: 70 tests, 0 failures.
 
+## [PowerRustCOBOL 1.65.35] — 2026-09-06
+
+### Help → Examples opens the demo project
+
+Renaming the project folder cost people time hunting for the examples, and a
+path in a release note is no help to someone already inside the IDE. So the IDE
+finds them: **Help → Examples** opens **PowerDemo3**, the project carrying one
+demo form per toolbox control.
+
+It looks in the order an installation is actually shaped — `PRC_EXAMPLES_ROOT`
+first for anyone keeping a copy elsewhere, then beside the executable and up its
+ancestors (the shipped bundle, and the `target/release` layout a developer runs
+from), then the tree the binary was built from, which is what makes it work
+under `cargo run` from anywhere.
+
+A build that ships no examples greys the entry out and says why on hover, rather
+than offering to open something that is not there. When it is available, hovering
+shows the exact path it found.
+
+> Opening it replaces the currently open project, exactly as *File → Open
+> Project* would.
+
+**Version note.** This is `1.65.35` rather than `.32`: the `fixes` branch has
+taken `.32` through `.34` in parallel, and two branches must not mint the same
+version.
+
 ## [PowerRustCOBOL 1.65.34] — 2026-09-06
 
 ### Nine form events retired from the designer
@@ -239,7 +265,6 @@ separate decision about the prologue's order.
 > against what the host and runtime actually send finds **44 of the 68 form
 > events** and **3 of the 93 control events** are designable but never fired.
 > `onCreate` and `onInitialize` were two of the 44. The rest are still there.
-
 ## [PowerRustCOBOL 1.65.31] — 2026-09-06
 
 ### The blur tracks, properly this time
