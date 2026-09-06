@@ -8443,9 +8443,53 @@ fn render_interactive(
                             .order(egui::Order::Foreground)
                             .fixed_pos(dropdown_pos)
                             .show(ui.ctx(), |ui| {
-                                egui::Frame::popup(&ui.ctx().global_style())
+                                // The popup is the MENU's, so it is painted
+                                // in the menu's own colours. `Frame::popup`
+                                // reads the AMBIENT egui style, which is
+                                // whatever the HOST happens to be wearing —
+                                // light under `rcrun run-form`, the IDE's dark
+                                // glass in Preview. The same menu therefore came
+                                // out light in one and dark navy in the other,
+                                // and the developer's own black ForegroundColor
+                                // was left unreadable on the dark one (operator,
+                                // 2026-09-06: "preview colors are not matching
+                                // the defined colors of the menu").
+                                //
+                                // `fill` is the bar's own surface — the chosen
+                                // BackgroundColor, or the neumorphic default —
+                                // forced opaque, because a menu you can see
+                                // through is not a menu.
+                                let popup_bg =
+                                    Color32::from_rgb(fill.r(), fill.g(), fill.b());
+                                // A border derived from the surface rather than
+                                // from the style, for the same reason. Darker on
+                                // a light menu, lighter on a dark one, so the
+                                // edge reads either way.
+                                let popup_edge = if paint::relative_luminance(popup_bg) > 0.5 {
+                                    paint::shade(popup_bg, -0.18)
+                                } else {
+                                    paint::shade(popup_bg, 0.18)
+                                };
+                                // NO SHADOW. `Frame::popup` carries the ambient
+                                // style's `popup_shadow`, which is why Preview
+                                // and Run Form both dropped a shadow the RAD
+                                // never defined (operator, 2026-09-06). A menu
+                                // gets a shadow when its control asks for one,
+                                // like every other control.
+                                egui::Frame::NONE
+                                    .fill(popup_bg)
+                                    .stroke(Stroke::new(1.0, popup_edge))
+                                    .corner_radius(egui::CornerRadius::same(6))
                                     .inner_margin(egui::Margin::same(4))
                                     .show(ui, |ui| {
+                                        // The highlight of every row, reserved
+                                        // BEFORE the row is laid out and filled
+                                        // in afterwards — see the note at the
+                                        // end of this loop.
+                                        let mut row_highlights: Vec<(
+                                            egui::layers::ShapeIdx,
+                                            egui::Rect,
+                                        )> = Vec::new();
                                         for item in &entry.items {
                                             if item.item_type
                                                 == crate::menu::MenuItemType::Separator
@@ -8453,6 +8497,13 @@ fn render_interactive(
                                                 ui.separator();
                                                 continue;
                                             }
+                                            // Reserved now, painted last: a
+                                            // highlight added AFTER the row
+                                            // covers the row's own label, which
+                                            // is why the hovered item's text
+                                            // vanished under the blue bar.
+                                            let bg_idx =
+                                                ui.painter().add(egui::Shape::Noop);
                                             let item_resp = ui.horizontal(|ui| {
                                                 let dimmed = !item.enabled;
                                                 let item_fg = if dimmed {
@@ -8509,11 +8560,8 @@ fn render_interactive(
                                                 row_resp = row_resp.on_hover_cursor(icon);
                                             }
                                             if item.enabled && row_resp.hovered() {
-                                                ui.painter().rect_filled(
-                                                    item_resp.response.rect,
-                                                    2.0,
-                                                    highlight_bg,
-                                                );
+                                                row_highlights
+                                                    .push((bg_idx, item_resp.response.rect));
                                             }
                                             if item.enabled && row_resp.clicked() {
                                                 ui.data_mut(|d| {
@@ -8542,6 +8590,35 @@ fn render_interactive(
                                                     value: Some(path),
                                                 });
                                             }
+                                        }
+                                        // The selection bar runs the WIDTH OF
+                                        // THE PULLDOWN, minus the frame's own
+                                        // border (operator, 2026-09-06). It used
+                                        // to be drawn on the row's CONTENT rect,
+                                        // which is only as wide as that row's
+                                        // icon + label + accelerator, so the bar
+                                        // sat inset from both edges and changed
+                                        // width from row to row.
+                                        //
+                                        // Painted here because only now is the
+                                        // band known: `min_rect` is what the
+                                        // rows actually laid out, inside the
+                                        // frame's inner margin. Reading an
+                                        // AVAILABLE width instead would feed the
+                                        // popup's own size back into itself.
+                                        let band = ui.min_rect();
+                                        for (idx, row) in row_highlights {
+                                            ui.painter().set(
+                                                idx,
+                                                egui::epaint::RectShape::filled(
+                                                    egui::Rect::from_x_y_ranges(
+                                                        band.x_range(),
+                                                        row.y_range(),
+                                                    ),
+                                                    2.0,
+                                                    highlight_bg,
+                                                ),
+                                            );
                                         }
                                     });
                             });
@@ -9270,6 +9347,113 @@ mod tests {
     /// designer positions selection handles from, and an absent id means
     /// nothing was drawn. Checked against a visible sibling of the same type
     /// so a broken harness cannot pass this by drawing nothing at all.
+    /// Every `(rect, fill)` painted in one frame.
+    fn painted_rect_fills(out: &egui::FullOutput) -> Vec<(Rect, egui::Color32)> {
+        fn walk(s: &egui::Shape, into: &mut Vec<(Rect, egui::Color32)>) {
+            match s {
+                egui::Shape::Rect(r) if r.fill.a() > 0 => into.push((r.rect, r.fill)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                _ => {}
+            }
+        }
+        let mut out_v = Vec::new();
+        for cs in &out.shapes {
+            walk(&cs.shape, &mut out_v);
+        }
+        out_v
+    }
+
+    /// Render a form with its MenuBar's first pulldown OPEN, under `visuals`.
+    fn open_pulldown_frame(visuals: egui::Visuals) -> Vec<(Rect, egui::Color32)> {
+        use crate::menu::{MenuDefinition, MenuItem};
+
+        let bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
+        let controls = vec![bar];
+
+        let mut file = MenuItem::new_action("file", "File");
+        file.items = vec![
+            MenuItem::new_action("new", "New order"),
+            MenuItem::new_action("open", "A much longer second label"),
+        ];
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition { menu: vec![file], hash: String::new() },
+        )]);
+
+        let ctx = egui::Context::default();
+        ctx.set_visuals(visuals);
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new(("menu_open", "MenuBar-1")), Some(0usize))
+        });
+
+        let active = ActiveTabs::new();
+        let mut run = || {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+                // NO egui-styled panel frame: the only thing left to differ
+                // between the two runs is what `render_form` itself paints.
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let rin = RenderInput {
+                            controls: &controls,
+                            state: &DesignedVisibility,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let _ = render_form(ui, &rin);
+                    });
+            });
+            // Fonts rasterise on the first frame; an unapplied delta panics on drop.
+            out.textures_delta.clear();
+            out
+        };
+        // Two frames: an Area places itself on the first.
+        let _ = run();
+        let fills = painted_rect_fills(&run());
+        crate::paint::register_menus(std::iter::empty());
+        fills
+    }
+
+    /// **An open pulldown looks the same whatever the host is wearing.**
+    ///
+    /// It used to be built with `Frame::popup(global_style)`, which reads the
+    /// AMBIENT egui style — so the same menu came out light under
+    /// `rcrun run-form` and dark navy inside the IDE's Preview, with the
+    /// developer's own black ForegroundColor left unreadable on the dark one,
+    /// and a drop shadow the RAD never asked for (operator, 2026-09-06:
+    /// "preview colors are not matching the defined colors of the menu" /
+    /// "Preview and Run form shows dropshadow, but RAD did not define one").
+    ///
+    /// The popup is now painted from the MENU's own colours, so these two runs
+    /// must be identical shape for shape.
+    #[test]
+    fn an_open_pulldown_looks_the_same_under_any_ambient_style() {
+        let light = open_pulldown_frame(egui::Visuals::light());
+        let dark = open_pulldown_frame(egui::Visuals::dark());
+
+        assert!(
+            !light.is_empty(),
+            "the frame must paint something, or this test proves nothing"
+        );
+        assert_eq!(
+            light.len(),
+            dark.len(),
+            "the two runs painted a different NUMBER of rects — the popup is \
+             still following the ambient style (a style-supplied shadow or \
+             border adds shapes)"
+        );
+        for (i, (l, d)) in light.iter().zip(dark.iter()).enumerate() {
+            assert_eq!(
+                l, d,
+                "rect {i} differs between a light and a dark host: {l:?} vs {d:?}"
+            );
+        }
+    }
+
     #[test]
     fn an_invisible_label_is_not_drawn() {
         let shown = ctrl("Lbl-Shown", ControlType::Label, 10, 10, 120, 20);

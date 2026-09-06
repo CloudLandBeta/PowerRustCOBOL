@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.29] — 2026-09-06
+
+### A pulldown is painted in the menu's colours, not the host's
+
+Three defects, one cause. The popup was built with `Frame::popup(global_style)`,
+which reads the **ambient egui style** — whatever the host happens to be
+wearing. So:
+
+- the same menu came out **light** under `rcrun run-form` and **dark navy** in
+  the IDE's Preview, with the developer's own black `ForegroundColor` left
+  unreadable on the dark one;
+- it carried a **drop shadow the RAD never defined** — the style's
+  `popup_shadow`, on a control whose `ShadowEnabled` is `false`.
+
+The popup now takes the MenuBar's own surface (its `BackgroundColor`, or the
+neumorphic default), forced opaque because a menu you can see through is not a
+menu, with a border shaded from that surface and **no shadow**. A menu gets a
+shadow when its control asks for one, like every other control.
+
+### The selection bar spans the pulldown
+
+The highlight was drawn on the **row's content rect** — only as wide as that
+row's icon, label and accelerator — so the bar sat inset from both edges and
+changed width from row to row. It now spans the frame's whole content band,
+border to border.
+
+It is also drawn **behind** the row now, not over it. A highlight added after
+the row covered the row's own label, which is why the hovered item's text
+vanished under the blue bar. The shape is reserved before the row is laid out
+and filled in once the band is known.
+
+The test renders the same open menu under a light host and a dark one and
+requires the two frames to be identical shape for shape — which is the whole
+claim, and it fails on the old code at the shadow.
+
+Forms engine: 854 tests, 0 failures. IDE: 1059 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.28] — 2026-09-06
 
 ### Double-clicking a control opens its code
