@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.35] — 2026-09-06
+
+### Help → Examples opens the demo project
+
+Renaming the project folder cost people time hunting for the examples, and a
+path in a release note is no help to someone already inside the IDE. So the IDE
+finds them: **Help → Examples** opens **PowerDemo3**, the project carrying one
+demo form per toolbox control.
+
+It looks in the order an installation is actually shaped — `PRC_EXAMPLES_ROOT`
+first for anyone keeping a copy elsewhere, then beside the executable and up its
+ancestors (the shipped bundle, and the `target/release` layout a developer runs
+from), then the tree the binary was built from, which is what makes it work
+under `cargo run` from anywhere.
+
+A build that ships no examples greys the entry out and says why on hover, rather
+than offering to open something that is not there. When it is available, hovering
+shows the exact path it found.
+
+> Opening it replaces the currently open project, exactly as *File → Open
+> Project* would.
+
+**Version note.** This is `1.65.35` rather than `.32`: the `fixes` branch has
+taken `.32` through `.34` in parallel, and two branches must not mint the same
+version.
+
 ## [PowerRustCOBOL 1.65.31] — 2026-09-06
 
 ### The blur tracks, properly this time
