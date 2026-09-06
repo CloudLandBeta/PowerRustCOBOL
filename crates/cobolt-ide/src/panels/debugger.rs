@@ -1088,10 +1088,13 @@ impl DebuggerPanel {
                 true,
                 self.only_user_code,
                 None,
-                "Only my code\n\nStep through your own handlers and procedures only. \
-                 The generated event loop and the rest of the scaffolding \
-                 are crossed without stopping. Breakpoints still fire \
-                 wherever you set them.",
+                format!(
+                    "{}\n\nStep through your own handlers and procedures only. \
+                     The generated event loop and the rest of the scaffolding \
+                     are crossed without stopping. Breakpoints still fire \
+                     wherever you set them.",
+                    tr.dbg_only_my_code
+                ),
             )
             .clicked()
             {
@@ -1106,7 +1109,10 @@ impl DebuggerPanel {
                 true,
                 self.animate,
                 None,
-                "Animate\n\nFollow execution one statement at a time",
+                format!(
+                    "{}\n\nFollow execution one statement at a time",
+                    tr.dbg_animate
+                ),
             )
             .clicked()
             {

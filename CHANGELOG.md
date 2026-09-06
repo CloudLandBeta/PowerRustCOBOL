@@ -1,5 +1,18 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.20] — 2026-09-05
+
+### The debugger's last two English labels
+
+`Only my code` and `Animate` were written into the source in English, while
+every other toggle beside them read its caption from `Tr`. Moving them into
+tooltips in 1.65.19 did not make that better. Both are now `dbg_only_my_code`
+and `dbg_animate`, in all six interface languages.
+
+The paragraph under each caption — what the toggle actually does — is still
+English, as it is for the two fold toggles beside them. That is older debt and
+is untouched here.
+
 ## [PowerRustCOBOL 1.65.19] — 2026-09-05
 
 ### Five things the debugger got wrong to look at
