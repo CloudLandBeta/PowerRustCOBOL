@@ -1140,7 +1140,7 @@ pub fn draw_glass_neumorphic(
     // Negative blur is handled after the surface fill as an inset/front-plane
     // relief, so it can project inward from the rounded border.
     let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
-    let layers = 10_usize;
+    let layers = blur_ring_count(spread);
 
     // The raised dual halo — light opposite the user direction, dark along it —
     // is the ONE definition in `neumorphic_shadow_stack` (the sampler the notch
@@ -1414,6 +1414,26 @@ pub fn control_shadow_stack(
 /// The dual-halo stack that `draw_glass_neumorphic` and
 /// [`draw_neumorphic_shadow_only`] both paint. One definition, so the sampler the
 /// notch mask uses cannot drift from what was drawn.
+/// How many rings a blur lays down per pixel of spread.
+///
+/// A blur here is a STACK of rounded rects, each one a little wider and a
+/// little fainter than the last — so the number of rings is the resolution of
+/// the gradient, and too few of them are visible as concentric tracks in the
+/// shadow (operator, 2026-09-06: "the blur effect is leaving these tracks").
+/// The neumorphic halo used a FIXED ten, which at the default blur strength
+/// puts 1.8px and a visible alpha step between one ring and the next.
+///
+/// At 1.5 rings per pixel each ring advances two thirds of a pixel, so
+/// consecutive rings overlap and their antialiased edges blend instead of
+/// stepping.
+const BLUR_RINGS_PER_PX: f32 = 1.5;
+
+/// Rings for a blur of `spread` pixels. Floored so a tiny blur is still smooth,
+/// capped so a huge one cannot cost thousands of shapes.
+fn blur_ring_count(spread: f32) -> usize {
+    ((spread.abs() * BLUR_RINGS_PER_PX).ceil() as usize).clamp(12, 48)
+}
+
 /// How far apart the two neumorphic halos may drift.
 ///
 /// A neumorphic shadow is a light one and a dark one, and the effect is the
@@ -1444,7 +1464,7 @@ fn neumorphic_shadow_stack(
     let rnd = round_map(rounding, |c| c.max(0.0).min(cap));
 
     let spread = (1.0_f32 + params.blur_strength.abs()).ln() * 8.0;
-    let layers = 10_usize;
+    let layers = blur_ring_count(spread);
     let ux = params.shadow_dir[0];
     let uy = params.shadow_dir[1];
     let distance = params.distance;
@@ -1458,7 +1478,7 @@ fn neumorphic_shadow_stack(
             let t = 1.0 - (i as f32 / layers as f32);
             let expand = t * spread;
             let falloff = (-3.0 * t * t).exp();
-            let a_val = (opac * am * falloff * 255.0) as u8;
+            let a_val = (opac * am * falloff * 255.0).round() as u8;
             if a_val == 0 {
                 continue;
             }
@@ -9987,12 +10007,16 @@ fn regular_shadow_stack(shadow: &RegularDropShadow, alpha_mul: f32) -> ShadowSta
 
     // Outermost (faintest) first, so the painter's back-to-front order gives the
     // shadow a denser core.
-    let layers = shadow.blur_strength;
+    // The SPREAD is still the developer's blur strength in pixels; only how
+    // finely it is sampled changes. One ring per unit of strength left a
+    // visible step at every pixel of a wide blur.
+    let spread = shadow.blur_strength as f32;
+    let layers = blur_ring_count(spread);
     for i in 0..=layers {
         let t = 1.0 - (i as f32 / layers as f32);
-        let expand = t * shadow.blur_strength as f32;
+        let expand = t * spread;
         let falloff = (-3.0 * t * t).exp();
-        let alpha = (shadow.opacity * alpha_mul * falloff * 255.0) as u8;
+        let alpha = (shadow.opacity * alpha_mul * falloff * 255.0).round() as u8;
         // Each ring is cut to the container arc on its own: a ring that grows
         // past the parent's border takes the border's arc there, so no ring
         // reaches into a corner notch (spec 057, E13).
@@ -18389,6 +18413,72 @@ mod neumorphic_halo_balance_tests {
             order.push(is_light);
         }
         (dark, light, order)
+    }
+
+    /// **A blur must not show its rings.**
+    ///
+    /// The blur is a stack of rounded rects, so the ring count IS the
+    /// resolution of the gradient. Ten fixed rings put roughly 1.8px and a
+    /// visible alpha step between one and the next, which is what showed up as
+    /// concentric tracks in the shadow (operator, 2026-09-06).
+    ///
+    /// Smoothness is measured, not eyeballed: consecutive rings must advance
+    /// less than a pixel geometrically, and their edges must overlap.
+    #[test]
+    fn a_blur_lays_down_enough_rings_to_hide_its_steps() {
+        for strength in [4.0_f32, 8.0, 20.0, 40.0] {
+            let spread = (1.0 + strength.abs()).ln() * 8.0;
+            let rings = blur_ring_count(spread);
+            let step = spread / rings as f32;
+            assert!(
+                step <= 1.0,
+                "blur strength {strength}: {rings} rings over {spread:.1}px is \
+                 {step:.2}px per ring — a step that size is a visible track"
+            );
+            assert!(rings <= 48, "and the cost stays bounded: {rings} rings");
+        }
+        // The floor holds for a blur so small the formula would ask for two.
+        assert!(blur_ring_count(0.5) >= 12);
+    }
+
+    /// The alpha ramp is fine-grained too: no two neighbouring rings may differ
+    /// by a jump the eye reads as an edge.
+    #[test]
+    fn the_halo_alpha_ramp_has_no_visible_jump() {
+        let params = NeumorphicShadowParams {
+            shadow_on: true,
+            shadow_color: Color32::from_rgb(255, 0, 0),
+            light_color: Color32::from_rgb(0, 0, 255),
+            shadow_opac: 1.0, // the worst case: the widest alpha range
+            shadow_dir: [0.707, 0.707],
+            distance: 6.0,
+            blur_strength: 20.0,
+            };
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(200.0, 40.0));
+        let stack = neumorphic_shadow_stack(&params, rect, egui::CornerRadius::same(8), 1.0, None);
+
+        // Walk each halo separately — they are pushed one after the other, and
+        // the seam between them is not a step in either ramp.
+        for want_light in [false, true] {
+            let alphas: Vec<i32> = stack
+                .layers
+                .iter()
+                .filter(|l| (l.color.b() > l.color.r()) == want_light)
+                .map(|l| l.color.a() as i32)
+                .collect();
+            assert!(alphas.len() >= 5, "each halo lays down its own ramp");
+            let worst = alphas
+                .windows(2)
+                .map(|w| (w[1] - w[0]).abs())
+                .max()
+                .unwrap_or(0);
+            assert!(
+                worst <= 12,
+                "the {} halo jumps {worst} alpha between neighbouring rings — \
+                 that reads as a track, not a gradient: {alphas:?}",
+                if want_light { "light" } else { "dark" }
+            );
+        }
     }
 
     /// **Neither halo may take the picture over, at any opacity.**

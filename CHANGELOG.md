@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.30] — 2026-09-06
+
+### The blur stopped showing its rings
+
+A blur here is not a blur — it is a **stack of rounded rects**, each a little
+wider and a little fainter than the last. The ring count is therefore the
+resolution of the gradient, and the neumorphic halo used a fixed **ten** of
+them however wide the blur was. At the default strength that puts 1.8px and an
+alpha step of **38** between one ring and the next, which is what showed up as
+concentric tracks in the shadow.
+
+Both stacks now derive their ring count from the spread — `BLUR_RINGS_PER_PX`,
+one ring per two thirds of a pixel — so consecutive rings overlap and their
+antialiased edges blend instead of stepping. At the default blur the dark halo
+goes from 11 rings to 38, and the worst alpha step from 38 to under 12. Alpha is
+rounded rather than truncated on the way out, which removes one more source of
+banding at the faint end.
+
+The ring count is floored at 12 and capped at 48, so a hairline blur is still
+smooth and a very wide one cannot cost thousands of shapes.
+
+Smoothness is a **measured** property now, not an eyeballed one: one test
+requires consecutive rings to advance less than a pixel, another walks each
+halo's alpha ramp and rejects any jump the eye would read as an edge. Both fail
+on the old code, the second one reporting the exact ramp from the report —
+`[13, 22, 37, 59, 87, 120, 158, 195, 226, 247, 255]`.
+
+**Goldens regenerated.** The spec-057 masked-corner goldens pin every shape a
+masked corner paints, and that scene has a shadow. Every changed line is a
+shadow ring, plus the notch mask's own mesh — same geometry, same bounds, same
+clip, different vertex colours, because the mask's whole job is to reproduce
+what the shadow left at each point. Painter and sampler share one definition,
+so they moved together by construction.
+
+Forms engine: 856 tests, 0 failures. IDE: 1059 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.29] — 2026-09-06
 
 ### A pulldown is painted in the menu's colours, not the host's
