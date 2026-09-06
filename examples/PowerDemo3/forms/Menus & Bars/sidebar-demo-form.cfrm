@@ -269,6 +269,7 @@
     <Property name="BreadcrumbFontSize">0</Property>
     <Property name="BreadcrumbIconSize">0</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onMenuClick" paragraph="SIDEMENU-DEMO--ONMENUCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
