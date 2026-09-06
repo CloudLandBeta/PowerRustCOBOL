@@ -9790,6 +9790,78 @@ impl PropertiesPanel {
                         }
                     });
                 }
+
+                // ── Retired events that STILL CARRY CODE ────────────────────
+                //
+                // The catalogue above is what the designer offers today, and
+                // events leave it: nine were retired on 2026-09-06 because
+                // nothing could ever fire them. A form saved earlier may hold a
+                // handler for one, and listing only the catalogue would leave
+                // that code in the `.cfrm`, still generated, and INVISIBLE to
+                // the person who wrote it — undeletable because unreachable.
+                //
+                // So anything bound but no longer offered is listed here, with
+                // its code, and can still be opened and edited. Nothing is
+                // removed on the developer's behalf.
+                let retired: Vec<&cobolt_forms::model::EventBinding> = form
+                    .form_events
+                    .iter()
+                    .filter(|e| {
+                        e.has_code()
+                            && !cobolt_forms::model::form_supported_events()
+                                .any(|ev| ev == e.event)
+                    })
+                    .collect();
+                if !retired.is_empty() {
+                    egui::CollapsingHeader::new(
+                        RichText::new("Retired (no longer fired)")
+                            .strong()
+                            .color(Color32::from_rgb(210, 170, 100)),
+                    )
+                    .id_salt("form-evgrp-retired")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new(
+                                "These events are no longer raised. Your code is kept and \
+                                 still compiles — move it to an event that fires, then \
+                                 delete it here.",
+                            )
+                            .small()
+                            .color(Color32::GRAY),
+                        );
+                        for binding in retired {
+                            let ev_name = binding.event.clone();
+                            let lines = binding.code_line_count();
+                            property_row(ui, &ev_name, |ui| {
+                                ui.label(
+                                    RichText::new("●").color(Color32::from_rgb(210, 170, 100)),
+                                );
+                                let lbl = ui
+                                    .add(
+                                        egui::Label::new(
+                                            RichText::new("Edit")
+                                                .color(Color32::from_rgb(200, 200, 100)),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    )
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                ui.label(
+                                    RichText::new(format!("({lines} {})", tr.hint_lines))
+                                        .small()
+                                        .color(Color32::GRAY),
+                                );
+                                if lbl.double_clicked() {
+                                    action.open_event_in_code =
+                                        Some((String::new(), ev_name.clone()));
+                                } else if lbl.clicked() {
+                                    action.open_event_editor =
+                                        Some((String::new(), ev_name.clone()));
+                                }
+                            });
+                        }
+                    });
+                }
             }
             InspectorTab::Animations => {
                 section_header(ui, tr.sec_animations);

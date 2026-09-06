@@ -3636,14 +3636,13 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
         ],
     ),
     (
-        "Layout & Painting",
+        // Was "Layout & Painting" until the per-frame three (onLayout, onPaint,
+        // onRepaint) were retired on 2026-09-06 — a group by that name holding
+        // neither a layout nor a painting event is a label that lies.
+        "Appearance",
         &[
-            "onLayout",
-            "onPaint",
-            "onRepaint",
             "onThemeChanged",
             "onDpiChanged",
-            "onFontChanged",
         ],
     ),
     (
@@ -3691,11 +3690,6 @@ pub const FORM_EVENT_GROUPS: &[(&str, &[&str])] = &[
         "System / OS",
         &[
             "onSystemColorChanged",
-            "onDisplayChanged",
-            "onPowerSuspend",
-            "onPowerResume",
-            "onSessionLock",
-            "onSessionUnlock",
         ],
     ),
     ("Error Handling", &["onUnhandledException"]),
@@ -10003,7 +9997,54 @@ mod tests {
         ] {
             assert!(all.contains(&ev), "missing form event: {ev}");
         }
-        assert_eq!(all.len(), 68, "expected 68 form events (66 + 2 from 037)");
+        assert_eq!(
+            all.len(),
+            59,
+            "expected 59 form events — 68 less the nine RETIRED on 2026-09-06: three \
+             per-frame (onPaint/onRepaint/onLayout) and six with no platform \
+             source (onFontChanged, onDisplayChanged, onPowerSuspend, \
+             onPowerResume, onSessionLock, onSessionUnlock)"
+        );
+    }
+
+    /// **The nine retired form events are not offered again.**
+    ///
+    /// Retired 2026-09-06 (operator). Three are per-frame — a COBOL handler on
+    /// `onPaint`, `onRepaint` or `onLayout` would run about sixty times a
+    /// second — and six have no platform source: egui and eframe expose nothing
+    /// for fonts changing, displays being rearranged, power suspend/resume or
+    /// session lock/unlock, so the only honest options were per-OS integration
+    /// or withdrawal.
+    ///
+    /// A handler someone already wrote for one is NOT deleted: it stays in the
+    /// `.cfrm`, still generates, and the inspector lists it under "Retired" so
+    /// it can still be read and edited.
+    #[test]
+    fn the_retired_form_events_are_not_offered() {
+        let all: Vec<&str> = form_supported_events().collect();
+        for ev in [
+            // Per-frame.
+            "onPaint",
+            "onRepaint",
+            "onLayout",
+            // No platform source.
+            "onFontChanged",
+            "onDisplayChanged",
+            "onPowerSuspend",
+            "onPowerResume",
+            "onSessionLock",
+            "onSessionUnlock",
+        ] {
+            assert!(
+                !all.contains(&ev),
+                "{ev} was retired and must not be offered in the designer again \
+                 without a decision — it cannot fire"
+            );
+        }
+        // …and the neighbours that DO fire are still there.
+        for ev in ["onThemeChanged", "onDpiChanged", "onSystemColorChanged"] {
+            assert!(all.contains(&ev), "{ev} must survive the retirement");
+        }
     }
 
     #[test]

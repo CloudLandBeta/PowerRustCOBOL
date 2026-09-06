@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.34] — 2026-09-06
+
+### Nine form events retired from the designer
+
+They were offered in the inspector and could never fire. Withdrawing them is
+the honest half of the same job as wiring the others (operator ruling).
+
+**Per-frame — wiring them would be worse than the silence:**
+`onPaint`, `onRepaint`, `onLayout`. A COBOL handler on one of these would run
+about sixty times a second and make the form unusable.
+
+**No platform source:** `onFontChanged`, `onDisplayChanged`, `onPowerSuspend`,
+`onPowerResume`, `onSessionLock`, `onSessionUnlock`. egui and eframe expose
+nothing for any of them. Real support means per-OS integration — macOS
+`NSWorkspace` notifications, Windows `WM_POWERBROADCAST` +
+`WTSRegisterSessionNotification`, Linux logind D-Bus — which is a feature, not
+a wiring job.
+
+The catalogue is **59** events now, and a test pins the nine so they cannot
+drift back in without a decision.
+
+**`Layout & Painting` is renamed `Appearance`.** Losing the per-frame three left
+it holding `onThemeChanged` and `onDpiChanged` — a group by the old name
+containing neither a layout nor a painting event is a label that lies.
+
+### Nothing is deleted, and nothing goes invisible
+
+A form saved with a handler on a retired event **keeps its code**. It stays in
+the `.cfrm` and still generates.
+
+The inspector lists only catalogue events, so that code would have become
+unreachable — present, compiled, and impossible to find. The form's event tab
+now ends with a **Retired (no longer fired)** section listing any bound event no
+longer offered, with its line count, still openable in the editor. Nothing is
+removed on the developer's behalf; they are told it will not fire and left to
+decide.
+
+Forms engine: 858 tests, 0 failures. IDE: 1059. Host: 69. Compiler: 110.
+
 ## [PowerRustCOBOL 1.65.33] — 2026-09-06
 
 ### Nine more form events now fire (1 of N — window state and lifecycle)

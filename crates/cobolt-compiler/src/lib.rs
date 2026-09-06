@@ -3515,8 +3515,16 @@ Setting `X`/`Y` alone moves nothing unless `StartPosition` is also `"Custom"`.
 
 ## Form events — the complete catalogue
 
-A form supports **68** events, all `on`-prefixed, in these groups. Bind them the
+A form supports **59** events, all `on`-prefixed, in these groups. Bind them the
 way control events are bound.
+
+Nine were **retired on 2026-09-06** and are no longer offered: `onPaint`,
+`onRepaint` and `onLayout` are per-frame, so a COBOL handler on one would run
+about sixty times a second; `onFontChanged`, `onDisplayChanged`,
+`onPowerSuspend`, `onPowerResume`, `onSessionLock` and `onSessionUnlock` have no
+platform source behind them. A form saved with a handler on any of these keeps
+its code — the inspector lists it under **Retired** so it stays editable — but
+nothing will ever call it.
 
 - **Lifecycle** — `onCreate`, `onInitialize`, `onLoad`, `onOpened`, `onShow`,
   `onHide`, `onClose`, `onClosing`, `onCloseRejected`, `onClosed`, `onDestroy`
@@ -3525,8 +3533,7 @@ way control events are bound.
 - **Window State** — `onResize`, `onResizing`, `onMove`, `onMoving`,
   `onMinimize`, `onMaximize`, `onRestore`, `onFullscreen`, `onExitFullscreen`,
   `onFullScreenChanged`
-- **Layout & Painting** — `onLayout`, `onPaint`, `onRepaint`, `onThemeChanged`,
-  `onDpiChanged`, `onFontChanged`
+- **Appearance** — `onThemeChanged`, `onDpiChanged`
 - **Mouse** — `onClick`, `onDoubleClick`, `onMouseDown`, `onMouseUp`,
   `onMouseMove`, `onMouseEnter`, `onMouseLeave`, `onMouseWheel`, `onContextMenu`
 - **Touch & Pointer** — `onPointerDown`, `onPointerUp`, `onPointerMove`,
@@ -3535,8 +3542,7 @@ way control events are bound.
   `onHorizontalScroll`, `onVerticalScroll`
 - **Drag & Drop** — `onDragEnter`, `onDragLeave`, `onDragOver`, `onDrop`
 - **Clipboard** — `onCut`, `onCopy`, `onPaste`
-- **System / OS** — `onSystemColorChanged`, `onDisplayChanged`,
-  `onPowerSuspend`, `onPowerResume`, `onSessionLock`, `onSessionUnlock`
+- **System / OS** — `onSystemColorChanged`
 - **Error Handling** — `onUnhandledException`
 
 `onCloseRejected` fires when a close attempt was refused because the form (or a
