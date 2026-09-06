@@ -4144,6 +4144,60 @@ pub fn line_endpoints(
     }
 }
 
+/// How close the pointer must come to a Line's segment to count as on it,
+/// whatever the line's own thickness. A 1px hairline is impossible to hit
+/// otherwise, and a slack this size is what every drawing tool gives a
+/// zero-width path.
+pub const LINE_HIT_SLACK: f32 = 5.0;
+
+/// Distance from `(px, py)` to the segment `a`-`b`. Zero when the point is on
+/// it, so a caller only has to compare against its own tolerance.
+pub fn distance_to_segment(px: f32, py: f32, a: (f32, f32), b: (f32, f32)) -> f32 {
+    let (ax, ay) = a;
+    let (bx, by) = b;
+    let (vx, vy) = (bx - ax, by - ay);
+    let len_sq = vx * vx + vy * vy;
+    // A degenerate segment is a point.
+    if len_sq <= f32::EPSILON {
+        return ((px - ax).powi(2) + (py - ay).powi(2)).sqrt();
+    }
+    // Project onto the segment, clamped to its ends.
+    let t = (((px - ax) * vx + (py - ay) * vy) / len_sq).clamp(0.0, 1.0);
+    let (cx, cy) = (ax + t * vx, ay + t * vy);
+    ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+}
+
+/// Is `(px, py)` ON the line a control with this rect actually draws?
+///
+/// A Line's rect is axis-aligned and does NOT turn with `LineAngle`: rotate a
+/// 200x4 line to vertical and it is painted straight down while its rect is
+/// still a thin horizontal strip. Hit-testing the rect therefore asked the
+/// pointer to be somewhere the line is not, which is why a rotated line was
+/// almost unselectable (operator, 2026-09-06: "we cannot click anywhere in the
+/// line, but in its frame which can be thin since the line can rotate freely,
+/// but the frame remains still").
+///
+/// This asks the only question that matters: is the pointer near the segment
+/// [`line_endpoints`] draws? Half the stroke plus [`LINE_HIT_SLACK`], so a
+/// thick line is grabbable across its whole width and a hairline is still
+/// grabbable at all.
+#[allow(clippy::too_many_arguments)]
+pub fn line_contains_point(
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    angle: Option<i64>,
+    direction: &str,
+    thickness: f32,
+    px: f32,
+    py: f32,
+) -> bool {
+    let (a, b) = line_endpoints(x, y, w, h, angle, direction);
+    let reach = thickness.max(1.0) * 0.5 + LINE_HIT_SLACK;
+    distance_to_segment(px, py, a, b) <= reach
+}
+
 pub fn default_transparency(control_type: &ControlType) -> i64 {
     match control_type {
         ControlType::CheckBox => 100,
@@ -7904,6 +7958,96 @@ mod start_position_tests {
 
 #[cfg(test)]
 mod tests {
+
+    /// **A rotated line is clickable where it is DRAWN, not where its rect is.**
+    ///
+    /// A 200x4 line turned upright is painted as a vertical segment running far
+    /// above and below its own rect, while the rect stays a thin horizontal
+    /// strip. Hit-testing the rect asked the pointer to be somewhere the line
+    /// is not, which is why a rotated line was almost unselectable (operator,
+    /// 2026-09-06).
+    #[test]
+    fn a_rotated_line_is_hit_along_the_segment_it_draws() {
+        // The default Line rect, turned upright.
+        let (x, y, w, h) = (0.0, 0.0, 200.0, 4.0);
+        let upright = Some(90);
+        let rect = Rect::new(0, 0, 200, 4);
+
+        // The drawn segment runs vertically through the rect's centre, well
+        // outside the rect at both ends.
+        let (a, b) = line_endpoints(x, y, w, h, upright, "Horizontal");
+        // Approximately: cos(90 degrees) is not exactly zero in f32.
+        let near = |got: (f32, f32), want: (f32, f32)| {
+            assert!(
+                (got.0 - want.0).abs() < 0.01 && (got.1 - want.1).abs() < 0.01,
+                "got {got:?}, want {want:?}"
+            );
+        };
+        near(a, (100.0, -98.0));
+        near(b, (100.0, 102.0));
+
+        // A point ON that segment but OUTSIDE the rect: the whole defect.
+        assert!(
+            !rect.contains(100, 80),
+            "the point must be outside the rect, or this proves nothing"
+        );
+        assert!(
+            line_contains_point(x, y, w, h, upright, "Horizontal", 1.0, 100.0, 80.0),
+            "a click on the drawn line must select it"
+        );
+        assert!(
+            line_contains_point(x, y, w, h, upright, "Horizontal", 1.0, 100.0, -90.0),
+            "…at the other end too"
+        );
+
+        // And the converse: inside the rect but nowhere near the line. This is
+        // the deliberate trade — the clickable area IS the line now.
+        assert!(rect.contains(10, 2));
+        assert!(
+            !line_contains_point(x, y, w, h, upright, "Horizontal", 1.0, 10.0, 2.0),
+            "the rect is no longer the target; the segment is"
+        );
+    }
+
+    /// An unrotated line still behaves, and the slack makes a hairline grabbable.
+    #[test]
+    fn a_hairline_is_still_grabbable_and_a_thick_line_is_wider() {
+        let (x, y, w, h) = (0.0, 0.0, 200.0, 4.0);
+        // Horizontal preset: the segment runs along the rect's vertical centre.
+        let on = |px: f32, py: f32, thickness: f32| {
+            line_contains_point(x, y, w, h, None, "Horizontal", thickness, px, py)
+        };
+        assert!(on(100.0, 2.0, 1.0), "dead on the line");
+        assert!(on(100.0, 2.0 + LINE_HIT_SLACK, 1.0), "within the slack");
+        assert!(
+            !on(100.0, 2.0 + LINE_HIT_SLACK + 2.0, 1.0),
+            "and not beyond it"
+        );
+
+        // A thick line is grabbable across its own width, not just the slack.
+        assert!(
+            on(100.0, 2.0 + 10.0, 20.0),
+            "half of a 20px stroke is inside the line itself"
+        );
+
+        // Past the ends, not just past the sides.
+        assert!(!on(-20.0, 2.0, 1.0), "before the start");
+        assert!(!on(220.0, 2.0, 1.0), "past the end");
+    }
+
+    /// The distance helper is the ordinary point-to-segment one, ends included.
+    #[test]
+    fn distance_to_a_segment_clamps_at_both_ends() {
+        let a = (0.0, 0.0);
+        let b = (10.0, 0.0);
+        assert_eq!(distance_to_segment(5.0, 0.0, a, b), 0.0, "on it");
+        assert_eq!(distance_to_segment(5.0, 3.0, a, b), 3.0, "perpendicular");
+        // Beyond an end it is the distance to that END, not to the infinite line.
+        assert_eq!(distance_to_segment(-4.0, 0.0, a, b), 4.0);
+        assert_eq!(distance_to_segment(14.0, 0.0, a, b), 4.0);
+        // A degenerate segment is a point.
+        assert_eq!(distance_to_segment(3.0, 4.0, a, a), 5.0);
+    }
 
     /// A MenuBar ships `Free`: the width it was drawn at, exactly as before
     /// the property existed. Anything else would move every existing form.

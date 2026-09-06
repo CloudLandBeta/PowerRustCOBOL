@@ -732,6 +732,42 @@ impl DesignerPanel {
     }
 }
 
+/// Is the pointer on this control?
+///
+/// The rect, for everything with a rect — and for a **Line**, the segment it
+/// actually draws. A Line's rect is axis-aligned and does not turn with
+/// `LineAngle`, so a rotated line was painted in one place and clickable in
+/// another: a 200x4 line turned upright is drawn straight down while its rect
+/// is still a thin horizontal strip, which made it almost unselectable
+/// (operator, 2026-09-06). The geometry comes from the same
+/// `cobolt_forms::model` formula the painter uses, so the clickable line and
+/// the drawn line cannot drift apart.
+pub(crate) fn control_contains_point(ctrl: &Control, cx: i32, cy: i32) -> bool {
+    if ctrl.control_type != ControlType::Line {
+        return ctrl.rect.contains(cx, cy);
+    }
+    let angle = ctrl.get_prop("LineAngle").map(|v| v.as_i64());
+    let dir = ctrl
+        .get_prop("LineDirection")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "Horizontal".into());
+    let thickness = ctrl
+        .get_prop("LineThickness")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(1.0);
+    cobolt_forms::model::line_contains_point(
+        ctrl.rect.x as f32,
+        ctrl.rect.y as f32,
+        ctrl.rect.w as f32,
+        ctrl.rect.h as f32,
+        angle,
+        &dir,
+        thickness,
+        cx as f32,
+        cy as f32,
+    )
+}
+
 fn handle_cursor(h: Handle) -> CursorIcon {
     match h {
         Handle::TopLeft | Handle::BotRight => CursorIcon::ResizeNwSe,
@@ -3565,7 +3601,7 @@ impl DesignerPanel {
                     continue;
                 }
             }
-            if controls[idx].rect.contains(cx, cy) {
+            if control_contains_point(&controls[idx], cx, cy) {
                 return Some(controls[idx].id.clone());
             }
         }
@@ -7281,6 +7317,16 @@ impl DesignerPanel {
                     if let (Some(crect), Some(ctrl)) =
                         (control_rects.get(sid), self.form.find_control(sid))
                     {
+                        // A LINE gets no frame. Its rect is axis-aligned and
+                        // does not turn with `LineAngle`, so on a rotated line
+                        // the border is a box lying across the segment rather
+                        // than around it — chrome that describes something that
+                        // is not there. The endpoint handles below show what is
+                        // selected, and they sit ON the line (operator,
+                        // 2026-09-06: "hide the line selection frame").
+                        if ctrl.control_type == ControlType::Line {
+                            continue;
+                        }
                         let corner = cobolt_forms::paint::corner_radius(ctrl);
                         painter.rect_stroke(
                             *crect,
@@ -7563,6 +7609,11 @@ impl DesignerPanel {
                 // Draw secondary selection highlight boxes
                 for sid in self.selected_ids.iter().skip(1) {
                     if let Some(ctrl) = self.form.find_control(sid) {
+                        // Same reason as the primary border above: a Line's box
+                        // is not around the line.
+                        if ctrl.control_type == ControlType::Line {
+                            continue;
+                        }
                         let r = ctrl.rect;
                         let rect = egui::Rect::from_min_size(
                             origin + Vec2::new(r.x as f32, r.y as f32),

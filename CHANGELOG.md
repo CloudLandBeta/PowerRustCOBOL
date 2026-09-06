@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.27] — 2026-09-06
+
+### A rotated Line is clickable where it is drawn
+
+A Line's rect is axis-aligned and does **not** turn with `LineAngle`. Rotate a
+200×4 line upright and it is painted as a vertical segment running far above and
+below its own rect, while the rect stays a thin horizontal strip — so the
+pointer had to be somewhere the line is not, and a rotated line was almost
+impossible to select.
+
+Clicking now tests the **segment the canvas actually draws**, from the same
+`cobolt_forms::model` formula the painter reads, so the clickable line and the
+drawn line cannot drift apart. The reach is half the stroke plus a fixed
+`LINE_HIT_SLACK`, so a 20px line is grabbable across its whole width and a 1px
+hairline is grabbable at all.
+
+**The selection frame is gone on a Line.** For the same reason it was useless: a
+box around an axis-aligned rect lies *across* a rotated segment rather than
+around it, describing something that is not there. A selected Line already draws
+its two endpoint handles **on** the line, which is what shows it is selected.
+
+⚠️ The trade, deliberately: the clickable area *is* the line now. Clicking an
+empty part of a rotated line's old rect no longer selects it.
+
+Forms engine: 853 tests, 0 failures. IDE: 1055 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.26] — 2026-09-06
 
 ### The dark half of a neumorphic shadow stopped taking over
