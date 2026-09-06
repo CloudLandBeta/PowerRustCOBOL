@@ -4594,6 +4594,49 @@ impl DesignerPanel {
         }
     }
 
+    /// The event a double-click on `ctrl` should open.
+    ///
+    /// The first event the developer has actually WRITTEN CODE FOR, taken in
+    /// the control's own event order so the answer is the same one the
+    /// inspector lists first — a binding can exist with an empty body, and
+    /// landing on that would be indistinguishable from opening nothing.
+    ///
+    /// With nothing written yet, `onClick` when the control has one (it is what
+    /// a developer reaches for on a control they just dropped) and otherwise
+    /// the first event the control supports at all, so a control with no click
+    /// — a Timer, a chart — still opens somewhere useful.
+    fn double_click_event_of(ctrl: &Control) -> Option<&'static str> {
+        let supported = ctrl.control_type.supported_events();
+        let implemented = supported.iter().find(|name| {
+            ctrl.events
+                .iter()
+                .any(|b| b.event.eq_ignore_ascii_case(name) && !b.code.trim().is_empty())
+        });
+        implemented
+            .or_else(|| supported.iter().find(|n| n.eq_ignore_ascii_case("onClick")))
+            .or_else(|| supported.first())
+            .copied()
+    }
+
+    /// Open the handler a double-click asks for, and put the inspector on its
+    /// Events tab so the pane agrees with what just opened.
+    pub(crate) fn open_double_click_handler(&mut self, id: &str) {
+        let event = {
+            let Some(ctrl) = self.form.find_control(id) else {
+                return;
+            };
+            match Self::double_click_event_of(ctrl) {
+                Some(event) => event.to_owned(),
+                // A control with no events at all (Line, Shape, Splitter) has
+                // nothing to open; a double-click on one does nothing rather
+                // than opening an editor for an event it cannot raise.
+                None => return,
+            }
+        };
+        self.properties.show_events_tab();
+        self.open_event_modal(id, &event);
+    }
+
     /// Open the modal COBOL code editor for `event_name` on control `ctrl_id`.
     /// Pass an empty `ctrl_id` for form-level events (OnLoad, OnClose).
     pub fn open_event_modal(&mut self, ctrl_id: &str, event_name: &str) {
@@ -7050,6 +7093,10 @@ impl DesignerPanel {
                     if let Some((cx, cy)) = ptr_canvas {
                         if let Some(id) = self.splitter_division_at(cx, cy) {
                             self.centre_splitter_division(&id);
+                        } else if let Some(id) = self.hit_top_id(cx, cy) {
+                            // Double-clicking a control opens its code, the way
+                            // every RAD this product is aimed at behaves.
+                            self.open_double_click_handler(&id);
                         }
                     }
                 }
@@ -14301,6 +14348,111 @@ mod shell_prop_tests {
     /// repeatedly with content far taller than either box is what catches that:
     /// a ratchet shows up as a window that is bigger on frame 100 than on
     /// frame 5.
+    /// **A double-click opens the handler that has code in it.**
+    ///
+    /// Not merely a binding: a binding can exist with an empty body, and
+    /// opening that is indistinguishable from opening nothing (operator,
+    /// 2026-09-06: "double clicking a control take you to the first implemented
+    /// event handler").
+    #[test]
+    fn a_double_click_opens_the_first_implemented_handler() {
+        use cobolt_forms::model::EventBinding;
+        let mut button =
+            cobolt_forms::Control::new("Button-1", cobolt_forms::ControlType::Button, 10, 10);
+        // An EMPTY binding on the event that would otherwise win, and a real
+        // handler further down the list.
+        let later = button
+            .control_type
+            .supported_events()
+            .iter()
+            .find(|e| !e.eq_ignore_ascii_case("onClick"))
+            .expect("a Button supports more than one event")
+            .to_string();
+        button.events.push(EventBinding {
+            event: "onClick".into(),
+            paragraph: "BUTTON-1--ONCLICK".into(),
+            code: "   ".into(), // whitespace only: nothing written
+        });
+        button.events.push(EventBinding {
+            event: later.clone(),
+            paragraph: "BUTTON-1--LATER".into(),
+            code: "       PROCEDURE DIVISION.\n           CONTINUE.".into(),
+        });
+
+        assert_eq!(
+            DesignerPanel::double_click_event_of(&button).map(str::to_owned),
+            Some(later),
+            "an empty binding must not win over one with code in it"
+        );
+    }
+
+    /// Nothing written yet: onClick, because that is what a developer reaches
+    /// for on a control they have just dropped.
+    #[test]
+    fn a_control_with_no_handlers_opens_on_click() {
+        let button =
+            cobolt_forms::Control::new("Button-1", cobolt_forms::ControlType::Button, 0, 0);
+        assert!(button.events.is_empty());
+        assert_eq!(
+            DesignerPanel::double_click_event_of(&button),
+            Some("onClick"),
+            "a fresh control opens its click handler"
+        );
+    }
+
+    /// …and a control that has no click opens its FIRST supported event
+    /// instead, rather than nothing.
+    #[test]
+    fn a_control_without_a_click_opens_its_first_event() {
+        let timer =
+            cobolt_forms::Control::new("Timer-1", cobolt_forms::ControlType::Timer, 0, 0);
+        let supported = timer.control_type.supported_events();
+        assert!(
+            !supported.iter().any(|e| e.eq_ignore_ascii_case("onClick")),
+            "a Timer must have no onClick, or this test proves nothing"
+        );
+        assert_eq!(
+            DesignerPanel::double_click_event_of(&timer),
+            supported.first().copied(),
+            "it opens the first event the control actually supports"
+        );
+    }
+
+    /// **Every control type answers, and answers with an event it supports.**
+    ///
+    /// Written as a sweep rather than against one hand-picked type because the
+    /// obvious guess was wrong: `DEMOS-TO-FIX.md` records Line/Shape/Splitter
+    /// as having "no events of their own", and they in fact support `onClick`
+    /// and eight more. The rule is what is asserted — `None` if and only if the
+    /// control supports nothing — so it cannot rot the way that note did.
+    #[test]
+    fn the_double_click_event_is_always_one_the_control_supports() {
+        for ct in cobolt_forms::ControlType::ALL {
+            let ctrl = cobolt_forms::Control::new("C", ct.clone(), 0, 0);
+            let supported = ctrl.control_type.supported_events();
+            match DesignerPanel::double_click_event_of(&ctrl) {
+                Some(event) => {
+                    assert!(
+                        supported.contains(&event),
+                        "{ct:?} would open {event:?}, which it does not support"
+                    );
+                    // With nothing written, the choice is onClick when there is
+                    // one and the first supported event otherwise.
+                    let expected = supported
+                        .iter()
+                        .find(|e| e.eq_ignore_ascii_case("onClick"))
+                        .or_else(|| supported.first())
+                        .copied();
+                    assert_eq!(Some(event), expected, "{ct:?} opened the wrong event");
+                }
+                None => assert!(
+                    supported.is_empty(),
+                    "{ct:?} supports {supported:?} but would open nothing"
+                ),
+            }
+        }
+    }
+
     #[test]
     fn the_event_editor_boxes_do_not_inflate_on_their_own() {
         let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));

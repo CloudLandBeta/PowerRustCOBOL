@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.28] — 2026-09-06
+
+### Double-clicking a control opens its code
+
+The gesture every RAD this product is aimed at answers, and the canvas ignored
+it. Double-clicking a control now opens its handler in the COBOL editor and
+puts the inspector on its **Events** tab, so the pane agrees with what just
+opened.
+
+Which handler:
+
+- **The first event with code actually written in it**, taken in the control's
+  own event order. Not merely the first *binding* — a binding can exist with an
+  empty body, and landing on that is indistinguishable from opening nothing.
+- Nothing written yet → **`onClick`**, which is what a developer reaches for on
+  a control they have just dropped.
+- No `onClick` on that control (a Timer, a chart) → its **first supported
+  event**, so the gesture still lands somewhere useful.
+
+Double-clicking a Splitter's division still re-centres it: that gesture is
+checked first and spent there.
+
+> A note for anyone reading `forms/DEMOS-TO-FIX.md`: its claim that Line, Shape
+> and Splitter have "no events of their own" is **stale** — all three support
+> `onClick` and eight more. The test for this feature is written as a sweep over
+> every control type rather than against one hand-picked example, precisely so
+> it cannot rot the same way.
+
+Forms engine: 853 tests, 0 failures. IDE: 1059 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.27] — 2026-09-06
 
 ### A rotated Line is clickable where it is drawn

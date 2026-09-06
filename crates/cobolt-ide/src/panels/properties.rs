@@ -3514,6 +3514,16 @@ enum InspectorTab {
 }
 
 impl PropertiesPanel {
+    /// Put the inspector on its Events tab.
+    ///
+    /// Called when a double-click on the canvas opens a handler: the pane must
+    /// be showing the events when the modal closes, or the developer lands back
+    /// on the Visuals list with no sign of what they just edited (operator,
+    /// 2026-09-06).
+    pub fn show_events_tab(&mut self) {
+        self.active_tab = InspectorTab::Events;
+    }
+
     pub fn new() -> Self {
         Self {
             hints: Default::default(),
