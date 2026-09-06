@@ -16,9 +16,23 @@
 //! an open combo popup, the DateTimePicker calendar, a hover highlight — vanish
 //! the moment anything is clicked.
 //!
-//! This module turns that into one keystroke: arrange the view, press **F12**
-//! (or **Shift+F12** for a [`DELAY`] countdown when the state must be held with
-//! the mouse), then pick the slot to fill from a popup.
+//! This module turns that into one keystroke: arrange the view, press **F12**,
+//! and answer one question — *Still*, *Still after 3 seconds*, or *Recording* —
+//! then pick the slot to fill from a popup.
+//!
+//! The chooser exists because there are three things F12 could mean and only
+//! one key that reliably arrives. The modifier accelerators still work for
+//! anyone whose keyboard delivers them (**Shift+F12** goes straight to the
+//! [`DELAY`] countdown, **Ctrl+F12** straight to a recording of this window),
+//! but they are a shortcut past the question, not the way in: Ctrl+F12 in
+//! particular never reaches the application on some desktops.
+//!
+//! **Recording is aimed by clicking.** Choosing it arms the recorder and closes
+//! the chooser; the next click in any IDE window records *that* window, and
+//! F12 stops it. Clicking is what picks the subject — which also keeps the
+//! chooser out of the picture, since it is an egui window drawn inside the very
+//! viewport being photographed. The two stills solve the same problem with
+//! [`SETTLE`].
 //!
 //! # Why a key and not the title bar
 //!
@@ -70,6 +84,44 @@ const DOC_WIDTH: u32 = 900;
 
 /// Shift+F12 countdown — long enough to grab the mouse and open a menu.
 pub const DELAY: Duration = Duration::from_secs(3);
+
+/// The beat between the chooser closing and an immediate Still.
+///
+/// The chooser is an egui window drawn *inside* the viewport being
+/// photographed, so a capture taken on the same frame would contain it. One
+/// short wait is the whole of the fix, and it is below what a hand notices.
+pub const SETTLE: Duration = Duration::from_millis(250);
+
+/// How long an armed recorder ignores the pointer.
+///
+/// The click that picks "Recording" in the chooser is a press in the chooser's
+/// own viewport, and arming happens on that same frame — without this the take
+/// would start on the click that asked for it.
+const ARM_GRACE: Duration = Duration::from_millis(400);
+
+/// What a capture key does, once the operator has been asked.
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Default)]
+pub enum ShotMode {
+    /// One photograph, as soon as the chooser is out of the frame.
+    #[default]
+    Still,
+    /// One photograph after [`DELAY`], to hold a menu open.
+    Delayed,
+    /// A recording of whichever window is clicked next.
+    Movie,
+}
+
+/// How long to wait before photographing, for the two modes that photograph.
+///
+/// `Movie` waits for a click instead, which is not a duration — hence the
+/// `Option` rather than a zero.
+pub fn settle_for(mode: ShotMode) -> Option<Duration> {
+    match mode {
+        ShotMode::Still => Some(SETTLE),
+        ShotMode::Delayed => Some(DELAY),
+        ShotMode::Movie => None,
+    }
+}
 
 /// Longest instruction kept in the HTML comment.
 const MAX_COMMENT: usize = 400;
@@ -901,6 +953,14 @@ pub struct DocShots {
     /// File name for a bare `[SCREENSHOT]`, which names no target itself.
     name_input: String,
     status: Option<String>,
+    /// The mode chooser, and the viewport that opened it.
+    chooser: Option<ViewportId>,
+    /// What that chooser has selected.
+    mode: ShotMode,
+    /// A recorder waiting for its subject: the next click in ANY viewport
+    /// records that viewport. Carries the moment it was armed, so the click
+    /// that armed it cannot also be the click that starts the take.
+    armed: Option<Instant>,
 }
 
 impl DocShots {
@@ -995,16 +1055,47 @@ impl DocShots {
                 // plain F12 — and a recording that will not stop is far worse
                 // than one stopped a moment early.
                 self.request_stop();
+            } else if self.armed.take().is_some() {
+                // Armed, waiting for its subject: the same key calls it off,
+                // so an operator who changed their mind is not left with a
+                // recorder that starts on their next unrelated click.
+                self.status = Some("✗ recording cancelled".into());
+                self.open = true;
+                self.popup_viewport = Some(ctx.viewport_id());
+            } else if self.chooser.is_some() {
+                self.chooser = None;
             } else if self.inflight.is_some() {
                 // A still is already being taken. Ignore rather than queue: two
                 // captures of the same window a frame apart are the same
                 // picture, and the second would overwrite the first's popup.
             } else if movie {
+                // Ctrl+F12 still records this window outright — the accelerator
+                // for someone who knows what they want. It is kept because the
+                // chooser costs a click, not because it works everywhere: on
+                // some keyboards and desktops the combination never reaches the
+                // application at all, which is why plain F12 now asks.
                 self.start_movie(ctx);
-            } else if now {
-                self.take(ctx);
-            } else {
+            } else if delayed {
                 self.delay = Some((ctx.viewport_id(), Instant::now() + DELAY));
+            } else {
+                // Plain F12 asks what to capture rather than assuming a still.
+                self.chooser = Some(ctx.viewport_id());
+            }
+        }
+
+        // An armed recorder watches every viewport, and the one that is
+        // clicked is the one that gets recorded — which is how the operator
+        // chooses a subject without the chooser being in the picture.
+        if let Some(armed_at) = self.armed {
+            ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+            if self.inflight.is_none()
+                && armed_at.elapsed() >= ARM_GRACE
+                && ctx.input(|i| i.pointer.any_pressed())
+            {
+                self.armed = None;
+                self.start_movie(ctx);
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(100));
             }
         }
 
@@ -1220,7 +1311,89 @@ impl DocShots {
 
     /// The placement popup. Main window only — it must not appear in the very
     /// frame the operator is photographing.
+    /// `true` while a recorder is armed and waiting to be pointed at a window.
+    pub fn armed(&self) -> bool {
+        self.armed.is_some()
+    }
+
+    /// The chooser F12 opens: what kind of capture, asked once.
+    ///
+    /// Picking acts immediately — the radio *is* the button. Every option then
+    /// gets the chooser out of the frame before anything is captured, because
+    /// this is an egui window inside the very viewport being photographed.
+    fn chooser_ui(&mut self, ctx: &Context) {
+        if self.chooser != Some(ctx.viewport_id()) {
+            return;
+        }
+        let mut open = true;
+        let mut chosen: Option<ShotMode> = None;
+        let mut cancelled = false;
+
+        egui::Window::new("📷 Documentation capture")
+            .id(egui::Id::new("doc_shots_chooser"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(360.0)
+            .show(ctx, |ui| {
+                ui.set_max_width(360.0);
+                ui.label("What should F12 capture?");
+                ui.add_space(6.0);
+
+                for (mode, label, hint) in [
+                    (
+                        ShotMode::Still,
+                        "Still",
+                        "One photograph of this window, taken as soon as this \
+                         chooser is out of the frame.",
+                    ),
+                    (
+                        ShotMode::Delayed,
+                        "Still, after 3 seconds",
+                        "Long enough to grab the mouse and hold a menu open.",
+                    ),
+                    (
+                        ShotMode::Movie,
+                        "Recording",
+                        "Then click the window you want to record — that click \
+                         starts it, and F12 stops it.",
+                    ),
+                ] {
+                    if ui.radio_value(&mut self.mode, mode, label).clicked() {
+                        chosen = Some(mode);
+                    }
+                    ui.label(egui::RichText::new(hint).small().weak());
+                    ui.add_space(4.0);
+                }
+
+                ui.separator();
+                if ui.button("Cancel").clicked() {
+                    cancelled = true;
+                }
+            });
+
+        if cancelled {
+            self.chooser = None;
+            return;
+        }
+        if let Some(mode) = chosen {
+            self.chooser = None;
+            match settle_for(mode) {
+                // Both stills go through the same countdown the 3-second one
+                // always used; only the wait differs.
+                Some(wait) => self.delay = Some((ctx.viewport_id(), Instant::now() + wait)),
+                None => {
+                    self.armed = Some(Instant::now());
+                    tracing::info!(target: "doc_shots", "recorder armed — waiting for a click");
+                }
+            }
+        } else if !open {
+            self.chooser = None;
+        }
+    }
+
     pub fn ui(&mut self, ctx: &Context, backdrop: Color32) {
+        self.chooser_ui(ctx);
         // Every viewport calls this; the one that took the shot draws it.
         if self.popup_viewport != Some(ctx.viewport_id()) {
             return;
@@ -1623,6 +1796,21 @@ Body text.
         assert_eq!(slots.len(), 1, "{slots:?}");
         assert_eq!(slots[0].heading.as_deref(), Some("Powered by PowerRustCOBOL AI"));
         assert_eq!(slots[0].describes(), "Powered by PowerRustCOBOL AI");
+    }
+
+    /// The chooser is a window inside the viewport being photographed, so
+    /// every mode that photographs has to wait for it to be gone. Only the
+    /// recorder waits for something else — a click — which is why it has no
+    /// duration at all rather than a zero.
+    #[test]
+    fn each_mode_waits_for_its_own_thing() {
+        assert_eq!(settle_for(ShotMode::Still), Some(SETTLE));
+        assert_eq!(settle_for(ShotMode::Delayed), Some(DELAY));
+        assert_eq!(settle_for(ShotMode::Movie), None);
+        // The immediate still still waits — a zero here would put the chooser
+        // in the picture, which is the whole reason it exists.
+        assert!(SETTLE > Duration::ZERO);
+        assert!(SETTLE < DELAY);
     }
 
     #[test]

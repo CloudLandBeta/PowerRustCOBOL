@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.22] — 2026-09-06
+
+### F12 asks what to capture, and a recording is aimed by clicking
+
+Ctrl+F12 started a recording, and on the operator's keyboard it never arrived —
+which left the recorder reachable only by a key combination that does not
+reliably exist. There are three things F12 could mean and one key that gets
+through, so F12 now asks.
+
+Pressing it opens a chooser with three options, and picking one acts
+immediately — the radio *is* the button:
+
+| | |
+|---|---|
+| **Still** | one photograph, taken once the chooser is out of the frame |
+| **Still, after 3 seconds** | long enough to grab the mouse and hold a menu open |
+| **Recording** | arms the recorder — the next click picks its subject |
+
+**Recording is aimed by clicking.** Choosing it closes the chooser and arms
+the recorder; the next click in any IDE window records *that* window, and F12
+stops it. The pointer becomes a crosshair while it waits, F12 calls it off, and
+a 400 ms grace stops the click that chose "Recording" from also starting the
+take.
+
+That the chooser closes first is not tidiness. It is an egui window drawn
+inside the very viewport being photographed, so a capture on the same frame
+would contain it — which is why both stills now go through the countdown the
+3-second one always used, one at `SETTLE` (250 ms) and one at `DELAY`.
+
+The modifier accelerators still work for anyone whose keyboard delivers them:
+Shift+F12 goes straight to the countdown, Ctrl+F12 straight to a recording of
+the current window. They are a shortcut past the question now, not the way in.
+
+IDE suite: 1050 tests, 0 failures; release build clean. The interaction itself
+is yours to try — this session does not drive the application.
+
 ## [PowerRustCOBOL 1.65.21] — 2026-09-05
 
 ### Every release shipped without the platform SDK, so PowerDemo3 could not run
