@@ -7443,7 +7443,8 @@ rcrun build --clean [cobolt.toml]   # same thing, spelled the other way
 > starts instantly even if the user only ever opens one form.
 
 ### The "Powered by PowerRustCOBOL" badge
-[SCREENSHOT]
+<!-- 📷 everopen.png — ever opens one form. ### The "Powered by PowerRustCOBOL" badge […] If you ship an application -->
+<p align="center"><img src="../assets/animations/everopen.png" alt="Writing it the way the standard lets you" width="900"></p>
 
 If you ship an application built with PowerRustCOBOL, please add the **"Powered by
 PowerRustCOBOL"** badge to your app's **About box** (and, optionally, your README):
