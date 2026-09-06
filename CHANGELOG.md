@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.37] — 2026-09-06
+
+### The mouse group fires, and a form's mouse events are its background
+
+Sixteen more, on the operator's ruling: **a form's mouse events are its
+BACKGROUND**. A click that lands on a control belongs to that control and stops
+there; only a click on bare form surface raises the form's own event.
+
+There is **no bubbling**. A COBOL handler has no way to mark an event handled,
+and inventing one would be a language change — so the choice was between "the
+background" and "every click including on controls", and the background is what
+a developer means by clicking the form.
+
+The hit test uses the rects the engine actually **painted** last frame, so what
+counts as "on a control" is what you can see. One frame stale, which no click
+can outrun.
+
+| Event | Fires |
+|---|---|
+| `onClick` `onDoubleClick` `onMouseDown` `onMouseUp` `onContextMenu` | on bare form surface only |
+| `onMouseMove` | while the pointer moves over the background |
+| `onMouseEnter` / `onMouseLeave` | entering/leaving the **window** — crossing onto a control has not left the form |
+| `onMouseWheel` | anywhere in the window; the wheel is a window gesture |
+| `onGesture` | pinch and rotate, which have no mouse counterpart |
+
+**Touch & Pointer are aliases, not separate events.** egui reports touch *as*
+pointer input on every desktop, so a `onPointerDown` that fired only for real
+touch hardware would be dead on every machine this ships to. `onPointerDown` /
+`Up` / `Move` / `Enter` / `Leave` therefore ride alongside their mouse
+counterparts — binding both names gives two events per gesture, deliberately.
+`onPointerCancel` is the one that is genuinely its own: a press that ends
+because the pointer *vanished* (dragged out of the window, or the OS took it)
+rather than being released.
+
+The test drives the same click twice — once over a control, once beside it —
+because the half that is easy to get wrong is the negative one. It fails if the
+form claims a click that landed on a control.
+
+**56 of 59 form events now fire**, from 19 three versions ago. What is left is
+`onClosing`, `onClosed` and `onUnhandledException`, each of which needs a
+decision rather than wiring.
+
+Host: 71 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.36] — 2026-09-06
 
 ### Twenty-one more form events now fire (2 of N)

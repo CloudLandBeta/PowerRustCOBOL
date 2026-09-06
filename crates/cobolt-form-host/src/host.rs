@@ -546,6 +546,8 @@ impl FormHost {
             move_pending: false,
             drag_hovering: false,
             scrolling: false,
+            pointer_inside: false,
+            pointer_down: false,
             fx_transparent,
             fx_chrome_pending: fx_hide_chrome && form.title_visible,
             fx_chrome_hidden_for_exit: false,
@@ -2116,6 +2118,12 @@ pub struct FormHost {
     drag_hovering: bool,
     /// A scroll gesture is in flight, for `onScrollStart` / `onScrollEnd`.
     scrolling: bool,
+    /// The pointer was inside the window last frame, for `onMouseEnter` /
+    /// `onMouseLeave` (and their pointer aliases).
+    pointer_inside: bool,
+    /// A pointer button was down last frame, so a pointer that VANISHES can be
+    /// told from one merely released — `onPointerCancel`.
+    pointer_down: bool,
     /// The per-host seam (R30) — e.g. the compiled application's
     /// `cobolt_windows` replay.
     hooks: Box<dyn HostHooks>,
@@ -3330,6 +3338,16 @@ impl FormHost {
             // Window surface only: in Pane mode the viewport belongs to the
             // SHELL, so reading it here would report the shell's focus, DPI and
             // scrolling as though they were this embedded form's.
+            // Settled BEFORE `raise` borrows `self.root`: the hit test reads
+            // the rects the engine painted last frame, and the closure below
+            // holds a mutable borrow for the rest of the block.
+            let pointer_pos = ctx.input(|i| i.pointer.interact_pos());
+            let over_control = pointer_pos
+                .map(|p| self.root.last_control_rects.values().any(|r| r.contains(p)))
+                .unwrap_or(false);
+            // "On the form" = the pointer is in the window and NOT on a control.
+            let on_background = pointer_pos.is_some() && !over_control;
+
             let form = self.root.form_object.clone();
             let mut raise = |ev: &str| {
                 self.root.send_event(FormEvent::new(form.clone(), ev));
@@ -3454,8 +3472,8 @@ impl FormHost {
             // Scrolling. `onScroll` and the two axis events repeat with the
             // gesture; the start/end pair brackets it.
             let delta = ctx.input(|i| i.smooth_scroll_delta);
-            let moving = delta.x.abs() > 0.01 || delta.y.abs() > 0.01;
-            if moving {
+            let moving_scroll = delta.x.abs() > 0.01 || delta.y.abs() > 0.01;
+            if moving_scroll {
                 if !self.scrolling {
                     self.scrolling = true;
                     raise("onScrollStart");
@@ -3470,6 +3488,105 @@ impl FormHost {
             } else if self.scrolling {
                 self.scrolling = false;
                 raise("onScrollEnd");
+            }
+
+            // ── Mouse, and its pointer aliases ───────────────────────────────
+            //
+            // A FORM's mouse events are its BACKGROUND (operator ruling,
+            // 2026-09-06 — "B"). A click that lands on a control belongs to
+            // that control and stops there; only a click on bare form surface
+            // raises the form's event. There is no bubbling, because a COBOL
+            // handler has no way to mark an event handled and inventing one
+            // would be a language change.
+            //
+            // The hit test uses the rects the engine actually PAINTED last
+            // frame, so what counts as "on a control" is what the developer
+            // can see. One frame stale, which no click can outrun.
+            //
+            // TOUCH & POINTER are aliases, not separate events: egui reports
+            // touch AS pointer input on every desktop, so a pointer event that
+            // fired only for real touch hardware would be dead on every machine
+            // this ships to. Binding both names therefore gives two events per
+            // gesture — deliberate, and the alternative was leaving seven more
+            // events dead.
+            // Enter / leave is about the WINDOW, not the background: a pointer
+            // crossing onto a control has not left the form, and reporting that
+            // as a leave would fire constantly.
+            let inside = ctx.input(|i| i.pointer.has_pointer());
+            if inside != self.pointer_inside {
+                self.pointer_inside = inside;
+                if inside {
+                    raise("onMouseEnter");
+                    raise("onPointerEnter");
+                } else {
+                    raise("onMouseLeave");
+                    raise("onPointerLeave");
+                }
+            }
+
+            let (pressed, released, clicked, double, context, moving, gesture) =
+                ctx.input(|i| {
+                    let gesture = i.events.iter().any(|e| {
+                        matches!(e, egui::Event::Zoom(_) | egui::Event::Rotate(_))
+                    });
+                    (
+                        i.pointer.any_pressed(),
+                        i.pointer.any_released(),
+                        i.pointer.primary_clicked(),
+                        i.pointer.button_double_clicked(egui::PointerButton::Primary),
+                        i.pointer.secondary_clicked(),
+                        i.pointer.is_moving(),
+                        gesture,
+                    )
+                });
+
+            if on_background {
+                if pressed {
+                    raise("onMouseDown");
+                    raise("onPointerDown");
+                }
+                if released {
+                    raise("onMouseUp");
+                    raise("onPointerUp");
+                }
+                if clicked {
+                    raise("onClick");
+                }
+                if double {
+                    raise("onDoubleClick");
+                }
+                if context {
+                    raise("onContextMenu");
+                }
+                if moving {
+                    raise("onMouseMove");
+                    raise("onPointerMove");
+                }
+            }
+
+            // A press that ends because the pointer VANISHED — dragged out of
+            // the window, or the OS took it — is a cancel, not a release.
+            if self.pointer_down && !inside {
+                raise("onPointerCancel");
+            }
+            self.pointer_down = if pressed {
+                true
+            } else if released || !inside {
+                false
+            } else {
+                self.pointer_down
+            };
+
+            // The wheel is a WINDOW gesture, so it is not gated on the
+            // background — the same reasoning that lets `onScroll` above fire
+            // wherever the pointer is.
+            if moving_scroll {
+                raise("onMouseWheel");
+            }
+            // Pinch and rotate. These have no mouse counterpart, so `onGesture`
+            // is the only name for them.
+            if gesture {
+                raise("onGesture");
             }
         }
 
@@ -5628,6 +5745,73 @@ mod parity {
             ["onRestore"],
             "…and it sends the one event that names the transition"
         );
+    }
+
+    /// **A form's mouse events are its BACKGROUND** (operator ruling, "B").
+    ///
+    /// A click on a control belongs to that control and stops there; only bare
+    /// form surface raises the form's own event. This is the whole ruling, and
+    /// the half that is easy to get wrong is the negative one — so the same
+    /// click is driven twice, once over a control and once beside it.
+    #[test]
+    fn a_form_click_is_the_background_not_a_control() {
+        let (mut app, pipes) = host_with("none:0:linear", "none:0:linear", false);
+        let ctx = egui::Context::default();
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+        // A control occupying the top-left corner, as the engine painted it.
+        app.root.last_control_rects.insert(
+            "BTN".to_owned(),
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 40.0)),
+        );
+
+        let names = |pipes: &_| -> Vec<String> {
+            drain_events(pipes).into_iter().map(|(_, e)| e).collect()
+        };
+        let mut click_at = |app: &mut FormHost, at: egui::Pos2| {
+            // Press and release in one frame: egui reports the click on the
+            // release, which is the frame under test.
+            let mut input = raw();
+            input.viewports.insert(egui::ViewportId::ROOT, egui::ViewportInfo::default());
+            input.events.push(egui::Event::PointerMoved(at));
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+            input.events.push(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            frame(app, &ctx, input);
+        };
+
+        // ON the control — the form must stay silent about the click.
+        click_at(&mut app, egui::pos2(50.0, 20.0));
+        let on_ctrl = names(&pipes);
+        for ev in ["onClick", "onMouseDown", "onMouseUp", "onPointerDown"] {
+            assert!(
+                !on_ctrl.contains(&ev.to_owned()),
+                "a click ON a control must not raise the form's {ev}: {on_ctrl:?}"
+            );
+        }
+
+        // BESIDE it — the same gesture on bare form surface does raise them.
+        click_at(&mut app, egui::pos2(400.0, 300.0));
+        let on_bg = names(&pipes);
+        for ev in ["onMouseDown", "onMouseUp", "onClick"] {
+            assert!(
+                on_bg.contains(&ev.to_owned()),
+                "a click on the FORM must raise {ev}: {on_bg:?}"
+            );
+        }
+        // …and the pointer aliases ride along, deliberately.
+        assert!(on_bg.contains(&"onPointerDown".to_owned()));
+        assert!(on_bg.contains(&"onPointerUp".to_owned()));
     }
 
     /// **Focus, theme, DPI, geometry, clipboard, drag and scroll all reach the
