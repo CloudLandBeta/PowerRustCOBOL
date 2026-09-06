@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.33] — 2026-09-06
+
+### Nine more form events now fire (1 of N — window state and lifecycle)
+
+First tranche of wiring the 42 events the designer offered and nothing ever
+sent. These nine ride state the host was **already polling** every frame, so
+they cost nothing new:
+
+| Event | Fires when |
+|---|---|
+| `onOpened` | once, with the lifecycle one-shots, before `onShow` |
+| `onActivated` | after `onActivate` — its past-tense twin |
+| `onDeactivated` | after `onDeactivate`, in the shell |
+| `onFullscreen` / `onExitFullscreen` | the fullscreen edge, either direction |
+| `onMinimize` | the window is minimized |
+| `onHide` | with `onMinimize` — the form is out of sight but still alive |
+| `onMaximize` | the window is maximized |
+| `onRestore` | leaving minimized **or** maximized |
+
+`onFullScreenChanged` still fires alongside the directional pair, so forms
+already bound to it are untouched.
+
+⚠️ **One existing guarantee was deliberately narrowed.** Spec 038 R9 said a
+restore-after-minimize "fires no form events", and a test asserted exactly
+that. It was written when no window-state event existed, so "no form events"
+and "no load lifecycle" were the same sentence — but `onRestore` is the event
+that exists to name that transition, and a handler bound to it has to receive
+it. The test now pins what R9 is actually about: a restore must not re-run
+`onLoad` / `onOpened` / `onShow` / `onActivate` / `onActivated`, and must not
+replay control animations. Both still hold.
+
+Host: 69 tests, 0 failures. Forms engine: 857. IDE: 1059.
+
+**Still designable-only: 33.** Clipboard, drag & drop, scrolling, pointer/touch
+and DPI/theme are next. Four of the remaining — `onPowerSuspend`,
+`onPowerResume`, `onSessionLock`, `onSessionUnlock` — have no egui or eframe
+surface at all and need per-OS integration that does not exist in this
+codebase; three more (`onPaint`, `onRepaint`, `onLayout`) are per-frame and
+need a throttling decision before they can be wired without ruining frame time.
+
 ## [PowerRustCOBOL 1.65.32] — 2026-09-06
 
 ### `onCreate` and `onInitialize` now run

@@ -176,6 +176,13 @@ impl Resident for ChannelResident {
             self.form_object.clone(),
             "onDeactivate",
         ));
+        // The past-tense twin the designer has always offered beside it. Both
+        // names are bindable; only the present-tense one used to fire, so a
+        // handler on `onDeactivated` was silently dead.
+        let _ = self.ev_tx.send(cobolt_runtime::channels::FormEvent::new(
+            self.form_object.clone(),
+            "onDeactivated",
+        ));
     }
     fn destroy(&mut self) {
         let _ = self.ev_tx.send(cobolt_runtime::channels::FormEvent::new(
@@ -3052,7 +3059,11 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
                 .map(|(_, e)| e.as_str())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(of("MAIN"), ["onDeactivate"], "ancestor: deactivate only");
+        assert_eq!(
+            of("MAIN"),
+            ["onDeactivate", "onDeactivated"],
+            "ancestor: deactivate only (with its past-tense twin)"
+        );
         assert_eq!(
             of("CUST-LIST"),
             ["onDestroy"],
@@ -3060,7 +3071,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         );
         assert_eq!(
             of("LEADS"),
-            ["onDeactivate"],
+            ["onDeactivate", "onDeactivated"],
             "preserved sibling: deactivate only, never destroy"
         );
         assert_eq!(
@@ -3068,7 +3079,7 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             ["onDestroy"],
             "breadcrumb pop: destroy without a second deactivate"
         );
-        assert_eq!(of("CRM"), ["onDeactivate", "onDestroy"]);
+        assert_eq!(of("CRM"), ["onDeactivate", "onDeactivated", "onDestroy"]);
 
         println!(
             "049 AC13 — event discipline over ChannelResident: ancestor \

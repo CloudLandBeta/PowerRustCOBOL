@@ -533,6 +533,7 @@ impl FormHost {
                 h ^ form.width ^ form.height.rotate_left(16)
             },
             minimized_actual: form.window_state == cobolt_forms::model::WindowState::Minimized,
+            maximized_actual: form.window_state == cobolt_forms::model::WindowState::Maximized,
             fx_transparent,
             fx_chrome_pending: fx_hide_chrome && form.title_visible,
             fx_chrome_hidden_for_exit: false,
@@ -1743,8 +1744,15 @@ impl FormBody {
         if armed && !self.lifecycle_sent {
             self.lifecycle_sent = true;
             let name = self.form_name.clone();
+            // The catalogue's Lifecycle order: onLoad (a direct CALL in the
+            // generated program, already done by now), then onOpened, then
+            // onShow. `onActivated` is the past-tense twin of `onActivate` and
+            // follows it — both are offered in the designer, and only the
+            // present-tense one used to fire.
+            self.send_event(FormEvent::new(&name, "onOpened"));
             self.send_event(FormEvent::new(&name, "onShow"));
             self.send_event(FormEvent::new(&name, "onActivate"));
+            self.send_event(FormEvent::new(&name, "onActivated"));
         }
 
         let bg_fill = cobolt_forms::render::backdrop_color(&self.bg_hex, self.transparency);
@@ -2071,6 +2079,9 @@ pub struct FormHost {
     /// Last ACTUAL minimized state from ViewportInfo — the restore replay
     /// triggers on the true→false edge only (R9).
     minimized_actual: bool,
+    /// Last ACTUAL maximized state from ViewportInfo, for `onMaximize` /
+    /// `onRestore`. Same edge-triggered shape as the two above.
+    maximized_actual: bool,
     /// The per-host seam (R30) — e.g. the compiled application's
     /// `cobolt_windows` replay.
     hooks: Box<dyn HostHooks>,
@@ -3226,7 +3237,15 @@ impl FormHost {
                     instance_index: 0,
                 });
                 let form = self.root.form_object.clone();
-                self.root.send_event(FormEvent::new(form, "onFullScreenChanged"));
+                self.root.send_event(FormEvent::new(form.clone(), "onFullScreenChanged"));
+                // …and the DIRECTIONAL pair beside it. `onFullScreenChanged`
+                // makes the handler read `me::FullScreen` to learn which way it
+                // went; these two say so by which one arrives, which is what
+                // the designer has offered all along.
+                self.root.send_event(FormEvent::new(
+                    form,
+                    if fs { "onFullscreen" } else { "onExitFullscreen" },
+                ));
             }
 
             // 038 R9 — restore-after-minimize replays the ENTRANCE visuals
@@ -3241,6 +3260,31 @@ impl FormHost {
                     self.fx_entrance_done = false;
                     self.fx_entrance_start = None;
                 }
+                // The window-state events the designer offers, on the same
+                // observed edge the effect replay already used. `onHide` is
+                // paired with minimize rather than with teardown: the form is
+                // still alive and will come back.
+                let form = self.root.form_object.clone();
+                if minimized {
+                    self.root.send_event(FormEvent::new(form.clone(), "onMinimize"));
+                    self.root.send_event(FormEvent::new(form, "onHide"));
+                } else {
+                    self.root.send_event(FormEvent::new(form, "onRestore"));
+                }
+            }
+
+            // Maximize is the third window state, tracked the same way. A
+            // window leaving maximized without being minimized is also a
+            // restore — the catalogue has one `onRestore` for both, so both
+            // edges raise it.
+            let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+            if maximized != self.maximized_actual {
+                self.maximized_actual = maximized;
+                let form = self.root.form_object.clone();
+                self.root.send_event(FormEvent::new(
+                    form,
+                    if maximized { "onMaximize" } else { "onRestore" },
+                ));
             }
         }
 
@@ -5378,9 +5422,82 @@ mod parity {
             "the playback clock is fresh, not the first run's"
         );
         assert!(app.root.anim_started, "control animations do NOT replay");
+        // 038 R9 narrowed, deliberately (2026-09-06). The rule is that a
+        // restore must not look like the form LOADED AGAIN — it was written
+        // when no window-state event existed, so "no form events" and "no
+        // load lifecycle" were the same sentence. `onRestore` is the event
+        // that exists to describe exactly this transition, and a handler bound
+        // to it has to receive it, so the assertion now pins the part R9 is
+        // actually about.
+        let events = drain_events(&pipes);
+        let names: Vec<&str> = events.iter().map(|(_, ev)| ev.as_str()).collect();
+        for dead in ["onLoad", "onOpened", "onShow", "onActivate", "onActivated"] {
+            assert!(
+                !names.contains(&dead),
+                "a restore replay must not re-run the load lifecycle, but sent \
+                 {dead}: {names:?}"
+            );
+        }
+        assert_eq!(
+            names,
+            ["onRestore"],
+            "…and it sends the one event that names the transition"
+        );
+    }
+
+    /// **The window-state events fire on the OBSERVED edge, once each.**
+    ///
+    /// `onMinimize`, `onMaximize`, `onRestore`, `onFullscreen` and
+    /// `onExitFullscreen` were designable and never sent — a handler bound to
+    /// any of them was dead (operator, 2026-09-06). They ride the same
+    /// ViewportInfo the entrance replay already watched.
+    #[test]
+    fn the_window_state_events_fire_on_the_observed_edge() {
+        let (mut app, pipes) = host_with("none:0:linear", "none:0:linear", false);
+        let ctx = egui::Context::default();
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+
+        let step = |app: &mut FormHost, ctx: &egui::Context, info: egui::ViewportInfo| {
+            let mut input = raw();
+            input.viewports.insert(egui::ViewportId::ROOT, info);
+            frame(app, ctx, input);
+        };
+        let names = |pipes: &_| -> Vec<String> {
+            drain_events(pipes).into_iter().map(|(_, e)| e).collect()
+        };
+
+        // Maximize, then back.
+        step(&mut app, &ctx, egui::ViewportInfo { maximized: Some(true), ..Default::default() });
+        assert_eq!(names(&pipes), ["onMaximize"], "the maximize edge");
+        step(&mut app, &ctx, egui::ViewportInfo { maximized: Some(false), ..Default::default() });
+        assert_eq!(names(&pipes), ["onRestore"], "…and leaving it is a restore");
+
+        // Fullscreen carries BOTH the directional event and the historical
+        // `onFullScreenChanged`, which existing forms may already bind.
+        step(&mut app, &ctx, egui::ViewportInfo { fullscreen: Some(true), ..Default::default() });
+        assert_eq!(
+            names(&pipes),
+            ["onFullScreenChanged", "onFullscreen"],
+            "entering fullscreen"
+        );
+        step(&mut app, &ctx, egui::ViewportInfo { fullscreen: Some(false), ..Default::default() });
+        assert_eq!(
+            names(&pipes),
+            ["onFullScreenChanged", "onExitFullscreen"],
+            "and leaving it"
+        );
+
+        // Minimize hides the form; it is still alive, so this is not teardown.
+        step(&mut app, &ctx, egui::ViewportInfo { minimized: Some(true), ..Default::default() });
+        assert_eq!(names(&pipes), ["onMinimize", "onHide"], "minimize also hides");
+
+        // A steady state repeats nothing — these are EDGES.
+        step(&mut app, &ctx, egui::ViewportInfo { minimized: Some(true), ..Default::default() });
         assert!(
-            drain_events(&pipes).is_empty(),
-            "a restore replay fires no form events"
+            names(&pipes).is_empty(),
+            "an unchanged window state must send nothing"
         );
     }
 
