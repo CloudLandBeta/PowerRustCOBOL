@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.36] — 2026-09-06
+
+### Twenty-one more form events now fire (2 of N)
+
+Focus, appearance, geometry, clipboard, drag & drop and scrolling. **Four
+groups are now complete** — Activation & Focus, Window State, Appearance,
+Scrolling and Drag & Drop.
+
+| Events | Trigger |
+|---|---|
+| `onGotFocus` / `onLostFocus` | the window's focus edge |
+| `onThemeChanged` + `onSystemColorChanged` | the OS light/dark preference changed — one signal, and the catalogue offers two names for it, so both fire |
+| `onDpiChanged` | the device pixel ratio changed (a drag onto another display) |
+| `onResizing` / `onResize` | while the window size changes / once when it settles |
+| `onMoving` / `onMove` | the same split for position |
+| `onCut` / `onCopy` / `onPaste` | the clipboard gesture, whoever it was aimed at |
+| `onDragEnter` / `onDragOver` / `onDragLeave` / `onDrop` | files over the window; `onDragOver` repeats while hovering |
+| `onScrollStart` / `onScroll` / `onScrollEnd` | a scroll gesture, bracketed |
+| `onHorizontalScroll` / `onVerticalScroll` | per axis, only for the axis that moved |
+
+⚠️ **`onResizing` repeats, `onResize` settles** — the progressive name is the
+one that fires per frame. Note this is the opposite spelling from a CONTROL,
+which uses `onResize` (during) and `onResized` (settled); the form catalogue
+offers `onResizing` instead of `onResized`, so the base name had to be the
+settled one here.
+
+**Window surface only.** In Pane mode the viewport belongs to the *shell*, so
+reading it for an embedded form would report the shell's focus, DPI and
+scrolling as if they were the form's.
+
+### A correction to the earlier audit
+
+The count I reported at 1.65.33 was **wrong**. It matched each event *name*
+anywhere in the host and runtime — but `onResize`, `onClick` and the whole
+Mouse group also exist as **control** events, implemented for controls in
+`render.rs`, and those matches were counted as the *form* event firing. It does
+not.
+
+Re-audited against send sites that actually carry a form's id: the true figure
+was **19 firing, 40 dead**, not 26/24. In particular "Mouse — all nine fire" was
+false for forms, and `onClosing` / `onClosed` do not fire for a form either
+(the ones in the host are *Snackbar* events carrying a `ctrl_id`).
+
+Nothing built on the bad number is invalidated — every event wired in 1.65.33
+is genuinely form-targeted, and the nine retired in 1.65.34 were dead under
+either count.
+
+**Now: 40 fire, 19 designable-only.** What remains is the Mouse group (9),
+Touch & Pointer (7), `onClosing`, `onClosed` and `onUnhandledException`.
+
+Host: 70 tests, 0 failures.
+
 ## [PowerRustCOBOL 1.65.34] — 2026-09-06
 
 ### Nine form events retired from the designer

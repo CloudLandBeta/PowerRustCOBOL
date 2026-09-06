@@ -534,6 +534,18 @@ impl FormHost {
             },
             minimized_actual: form.window_state == cobolt_forms::model::WindowState::Minimized,
             maximized_actual: form.window_state == cobolt_forms::model::WindowState::Maximized,
+            // Seeded so the FIRST frame is never reported as a change: a window
+            // opens focused, and its theme/DPI/geometry are whatever the first
+            // frame observes rather than a transition into them.
+            focused_actual: true,
+            system_theme_actual: None,
+            dpi_actual: None,
+            window_size_actual: None,
+            window_pos_actual: None,
+            resize_pending: false,
+            move_pending: false,
+            drag_hovering: false,
+            scrolling: false,
             fx_transparent,
             fx_chrome_pending: fx_hide_chrome && form.title_visible,
             fx_chrome_hidden_for_exit: false,
@@ -2082,6 +2094,28 @@ pub struct FormHost {
     /// Last ACTUAL maximized state from ViewportInfo, for `onMaximize` /
     /// `onRestore`. Same edge-triggered shape as the two above.
     maximized_actual: bool,
+    /// Last observed window focus, for `onGotFocus` / `onLostFocus`.
+    focused_actual: bool,
+    /// Last observed OS light/dark preference, for `onThemeChanged` and
+    /// `onSystemColorChanged` — one signal, and the catalogue offers two names
+    /// for it, so both are raised together.
+    system_theme_actual: Option<egui::Theme>,
+    /// Last observed device pixel ratio, for `onDpiChanged`.
+    dpi_actual: Option<f32>,
+    /// Last observed window SIZE and POSITION. `onResizing` / `onMoving` fire
+    /// while these change; `onResize` / `onMove` fire once when they settle —
+    /// the progressive name is the one that repeats. (A CONTROL spells the same
+    /// split `onResize` / `onResized`; the form catalogue offers `onResizing`
+    /// instead, so the base name is the settled one here.)
+    window_size_actual: Option<egui::Vec2>,
+    window_pos_actual: Option<egui::Pos2>,
+    /// A resize/move is in flight and its settle event is still owed.
+    resize_pending: bool,
+    move_pending: bool,
+    /// Files were hovering over the window last frame, for the drag trio.
+    drag_hovering: bool,
+    /// A scroll gesture is in flight, for `onScrollStart` / `onScrollEnd`.
+    scrolling: bool,
     /// The per-host seam (R30) — e.g. the compiled application's
     /// `cobolt_windows` replay.
     hooks: Box<dyn HostHooks>,
@@ -3285,6 +3319,157 @@ impl FormHost {
                     form,
                     if maximized { "onMaximize" } else { "onRestore" },
                 ));
+            }
+
+            // ── The rest of the form's own events ────────────────────────────
+            //
+            // All edge- or gesture-triggered off this frame's input, and all
+            // raised with the FORM's id. They were designable and never sent
+            // (operator, 2026-09-06); a handler on any of them was dead.
+            //
+            // Window surface only: in Pane mode the viewport belongs to the
+            // SHELL, so reading it here would report the shell's focus, DPI and
+            // scrolling as though they were this embedded form's.
+            let form = self.root.form_object.clone();
+            let mut raise = |ev: &str| {
+                self.root.send_event(FormEvent::new(form.clone(), ev));
+            };
+
+            // Focus.
+            let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+            if focused != self.focused_actual {
+                self.focused_actual = focused;
+                raise(if focused { "onGotFocus" } else { "onLostFocus" });
+            }
+
+            // The OS light/dark preference. One signal, two catalogue names —
+            // a theme change IS a system colour change here — so both fire and
+            // a form may bind either.
+            let theme = ctx.input(|i| i.raw.system_theme);
+            if theme != self.system_theme_actual {
+                let first = self.system_theme_actual.is_none();
+                self.system_theme_actual = theme;
+                // Learning the theme on the first frame is not a change.
+                if !first {
+                    raise("onThemeChanged");
+                    raise("onSystemColorChanged");
+                }
+            }
+
+            // Device pixel ratio — dragging the window to a display with a
+            // different scale factor.
+            let dpi = ctx.input(|i| i.viewport().native_pixels_per_point);
+            if let Some(now) = dpi {
+                match self.dpi_actual {
+                    Some(was) if (was - now).abs() > 0.001 => {
+                        self.dpi_actual = Some(now);
+                        raise("onDpiChanged");
+                    }
+                    None => self.dpi_actual = Some(now),
+                    _ => {}
+                }
+            }
+
+            // Size and position. The progressive name repeats while the drag is
+            // in flight; the base name fires once when it settles.
+            let (inner, outer) =
+                ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect));
+            if let Some(rect) = inner {
+                let size = rect.size();
+                match self.window_size_actual {
+                    Some(was) if (was - size).length() > 0.5 => {
+                        self.window_size_actual = Some(size);
+                        self.resize_pending = true;
+                        raise("onResizing");
+                    }
+                    Some(_) if self.resize_pending => {
+                        self.resize_pending = false;
+                        raise("onResize");
+                    }
+                    None => self.window_size_actual = Some(size),
+                    _ => {}
+                }
+            }
+            if let Some(rect) = outer {
+                let pos = rect.min;
+                match self.window_pos_actual {
+                    Some(was) if (was - pos).length() > 0.5 => {
+                        self.window_pos_actual = Some(pos);
+                        self.move_pending = true;
+                        raise("onMoving");
+                    }
+                    Some(_) if self.move_pending => {
+                        self.move_pending = false;
+                        raise("onMove");
+                    }
+                    None => self.window_pos_actual = Some(pos),
+                    _ => {}
+                }
+            }
+
+            // Clipboard. egui reports the GESTURE, whoever it was aimed at, so
+            // a form learns that a cut/copy/paste happened in it.
+            let (cut, copy, paste) = ctx.input(|i| {
+                let mut c = (false, false, false);
+                for e in &i.events {
+                    match e {
+                        egui::Event::Cut => c.0 = true,
+                        egui::Event::Copy => c.1 = true,
+                        egui::Event::Paste(_) => c.2 = true,
+                        _ => {}
+                    }
+                }
+                c
+            });
+            if cut {
+                raise("onCut");
+            }
+            if copy {
+                raise("onCopy");
+            }
+            if paste {
+                raise("onPaste");
+            }
+
+            // Files dragged over the window, and dropped on it. `onDragOver`
+            // repeats while the pointer hovers — the drag is a gesture with a
+            // duration, and a handler that wants to track the position needs
+            // the frames. It is bounded by the drag itself.
+            let (hovering, dropped) =
+                ctx.input(|i| (!i.raw.hovered_files.is_empty(), !i.raw.dropped_files.is_empty()));
+            if hovering && !self.drag_hovering {
+                raise("onDragEnter");
+            }
+            if hovering {
+                raise("onDragOver");
+            }
+            if !hovering && self.drag_hovering && !dropped {
+                raise("onDragLeave");
+            }
+            self.drag_hovering = hovering;
+            if dropped {
+                raise("onDrop");
+            }
+
+            // Scrolling. `onScroll` and the two axis events repeat with the
+            // gesture; the start/end pair brackets it.
+            let delta = ctx.input(|i| i.smooth_scroll_delta);
+            let moving = delta.x.abs() > 0.01 || delta.y.abs() > 0.01;
+            if moving {
+                if !self.scrolling {
+                    self.scrolling = true;
+                    raise("onScrollStart");
+                }
+                raise("onScroll");
+                if delta.x.abs() > 0.01 {
+                    raise("onHorizontalScroll");
+                }
+                if delta.y.abs() > 0.01 {
+                    raise("onVerticalScroll");
+                }
+            } else if self.scrolling {
+                self.scrolling = false;
+                raise("onScrollEnd");
             }
         }
 
@@ -5443,6 +5628,107 @@ mod parity {
             ["onRestore"],
             "…and it sends the one event that names the transition"
         );
+    }
+
+    /// **Focus, theme, DPI, geometry, clipboard, drag and scroll all reach the
+    /// form.**
+    ///
+    /// Twenty-one events that were designable and never sent. Each is driven
+    /// here through the real input path, and the steady state is checked too:
+    /// these are edges and gestures, not per-frame chatter.
+    #[test]
+    fn the_input_and_environment_events_reach_the_form() {
+        let (mut app, pipes) = host_with("none:0:linear", "none:0:linear", false);
+        let ctx = egui::Context::default();
+        app.fx_entrance_done = true;
+        app.root.anim_started = true;
+        app.root.lifecycle_sent = true;
+
+        let names = |pipes: &_| -> Vec<String> {
+            drain_events(pipes).into_iter().map(|(_, e)| e).collect()
+        };
+        // A settled baseline, so the first frame's readings are not "changes".
+        let base = || egui::ViewportInfo {
+            focused: Some(true),
+            native_pixels_per_point: Some(2.0),
+            inner_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(800.0, 600.0),
+            )),
+            outer_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(10.0, 10.0),
+                egui::vec2(800.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let mut step = |app: &mut FormHost, info: egui::ViewportInfo, mutate: &dyn Fn(&mut egui::RawInput)| {
+            let mut input = raw();
+            input.viewports.insert(egui::ViewportId::ROOT, info);
+            mutate(&mut input);
+            frame(app, &ctx, input);
+        };
+        let nothing = |_: &mut egui::RawInput| {};
+
+        step(&mut app, base(), &nothing);
+        let _ = names(&pipes); // discard the settling frame
+
+        // Focus.
+        let mut unfocused = base();
+        unfocused.focused = Some(false);
+        step(&mut app, unfocused.clone(), &nothing);
+        assert_eq!(names(&pipes), ["onLostFocus"]);
+        step(&mut app, base(), &nothing);
+        assert_eq!(names(&pipes), ["onGotFocus"]);
+
+        // DPI — a drag onto a display with another scale factor.
+        let mut hidpi = base();
+        hidpi.native_pixels_per_point = Some(1.0);
+        step(&mut app, hidpi, &nothing);
+        assert_eq!(names(&pipes), ["onDpiChanged"]);
+
+        // Geometry: the progressive name repeats, the base name settles it.
+        let mut bigger = base();
+        bigger.native_pixels_per_point = Some(1.0);
+        bigger.inner_rect = Some(egui::Rect::from_min_size(
+            egui::pos2(0.0, 0.0),
+            egui::vec2(900.0, 600.0),
+        ));
+        step(&mut app, bigger.clone(), &nothing);
+        assert_eq!(names(&pipes), ["onResizing"], "while the size is changing");
+        step(&mut app, bigger.clone(), &nothing);
+        assert_eq!(names(&pipes), ["onResize"], "…and once when it settles");
+        step(&mut app, bigger.clone(), &nothing);
+        assert!(names(&pipes).is_empty(), "a settled window repeats nothing");
+
+        // Clipboard.
+        step(&mut app, bigger.clone(), &|i| {
+            i.events.push(egui::Event::Copy);
+            i.events.push(egui::Event::Paste("x".into()));
+        });
+        assert_eq!(names(&pipes), ["onCopy", "onPaste"]);
+
+        // Drag and drop.
+        step(&mut app, bigger.clone(), &|i| {
+            i.hovered_files.push(egui::HoveredFile::default());
+        });
+        assert_eq!(names(&pipes), ["onDragEnter", "onDragOver"]);
+        step(&mut app, bigger.clone(), &nothing);
+        assert_eq!(names(&pipes), ["onDragLeave"], "the pointer left without dropping");
+
+        // Scrolling brackets its gesture.
+        step(&mut app, bigger.clone(), &|i| {
+            i.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, -40.0),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            });
+        });
+        let scrolled = names(&pipes);
+        assert!(scrolled.starts_with(&["onScrollStart".to_owned(), "onScroll".to_owned()]),
+            "a gesture opens with start then scroll: {scrolled:?}");
+        assert!(scrolled.contains(&"onVerticalScroll".to_owned()));
+        assert!(!scrolled.contains(&"onHorizontalScroll".to_owned()), "no x movement");
     }
 
     /// **The window-state events fire on the OBSERVED edge, once each.**
