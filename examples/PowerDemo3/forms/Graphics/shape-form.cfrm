@@ -252,7 +252,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
+    <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
@@ -294,8 +294,9 @@
     <Property name="LineThickness">2</Property>
     <Property name="LineStyle">Solid</Property>
     <Property name="CornerRadius">16</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
-  <Control id="Lbl-Shp-Circle" type="Label" x="268" y="130" w="200" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Shp-Circle" type="Label" x="264" y="128" w="200" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Circle</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -323,7 +324,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
+    <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
@@ -332,8 +333,8 @@
   </Control>
   <Control id="Shp-Circle" type="Shape" x="268" y="154" w="190" h="190" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#DC2626FF</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -358,15 +359,16 @@
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
     <Property name="ShapeType">Circle</Property>
-    <Property name="FormStyle">true</Property>
+    <Property name="FormStyle">false</Property>
     <Property name="FillColor">#22A06B</Property>
     <Property name="FillStyle">Solid</Property>
     <Property name="LineColor">#1A1D24</Property>
     <Property name="LineThickness">2</Property>
     <Property name="LineStyle">Solid</Property>
     <Property name="CornerRadius">16</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
-  <Control id="Lbl-Shp-Tri" type="Label" x="488" y="130" w="200" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Shp-Tri" type="Label" x="472" y="128" w="200" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Triangle</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -394,17 +396,17 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
+    <Property name="TextAlignment">Center</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Shp-Tri" type="Shape" x="488" y="154" w="190" h="190" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Shp-Tri" type="Shape" x="480" y="144" w="190" h="190" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientStartColor">#1B24371C</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -429,13 +431,14 @@
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
     <Property name="ShapeType">Triangle</Property>
-    <Property name="FormStyle">true</Property>
-    <Property name="FillColor">#C77700</Property>
+    <Property name="FormStyle">false</Property>
+    <Property name="FillColor">#CBB0A0AB</Property>
     <Property name="FillStyle">Solid</Property>
     <Property name="LineColor">#1A1D24</Property>
     <Property name="LineThickness">2</Property>
     <Property name="LineStyle">Solid</Property>
     <Property name="CornerRadius">16</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Lbl-Note" type="Label" x="720" y="154" w="240" h="190" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Every shape is one control. Cycling ShapeType from COBOL turns a rectangle into a circle without touching the layout.</Property>

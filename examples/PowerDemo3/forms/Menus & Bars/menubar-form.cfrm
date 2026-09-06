@@ -79,7 +79,7 @@
     <Event name="onClose" paragraph="MENUBAR-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="Lbl-Title" type="Label" x="32" y="46" w="936" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Title" type="Label" x="32" y="96" w="936" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">MenuBar</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -114,7 +114,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Sub" type="Label" x="32" y="80" w="936" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Sub" type="Label" x="32" y="130" w="936" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">A MenuBar&apos;s structure is not a property: it lives in a &lt;control-id&gt;.menu.yaml file beside the form, edited in the designer&apos;s menu editor. The form gets onMenuClick / onMenuOpen / onMenuClose, and the item that was chosen arrives as the event&apos;s control id.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -184,7 +184,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Log" type="TextBox" x="32" y="458" w="936" h="184" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Log" type="TextBox" x="32" y="464" w="936" h="168" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -223,13 +223,13 @@
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="MenuBar-Demo" type="MenuBar" x="0" y="10" w="1000" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#00000000</Property>
+  <Control id="MenuBar-Demo" type="MenuBar" x="0" y="0" w="1000" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#C7C7C7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#E1E6FA</Property>
+    <Property name="ForegroundColor">#000000FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -241,7 +241,7 @@
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
@@ -254,8 +254,9 @@
     <Property name="HighlightFgColor">#FFFFFF</Property>
     <Property name="SelectedBgColor">#3366CC</Property>
     <Property name="SelectedFgColor">#FFFFFF</Property>
-    <Property name="CornerRadius">10</Property>
+    <Property name="CornerRadius">0</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="MenuBarStyle">Responsive</Property>
     <Event name="onMenuOpen" paragraph="MENUBAR-DEMO--ONMENUOPEN"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -319,7 +320,7 @@
            MOVE WS-LINE TO Lbl-Last::Caption.
 ]]></Event>
   </Control>
-  <Control id="Lbl-Last-Cap" type="Label" x="48" y="150" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Last-Cap" type="Label" x="48" y="200" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Last item chosen</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -354,7 +355,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Last" type="Label" x="48" y="174" w="900" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Last" type="Label" x="48" y="224" w="900" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">(open a menu above)</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -389,7 +390,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Where" type="Label" x="48" y="224" w="900" h="130" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Where" type="Label" x="48" y="274" w="900" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">The menu tree for this form is forms/Menus &amp; Bars/MenuBar-Demo.menu.yaml. It is keyed by the control id, so two forms in the same folder need two different ids. The file carries an integrity hash the designer maintains - edit it in the IDE rather than by hand.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>

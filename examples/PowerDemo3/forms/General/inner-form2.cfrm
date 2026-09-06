@@ -381,6 +381,7 @@
     <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
+       01 incdec PIC s9(3) value 1.
 
        PROCEDURE DIVISION.
            IF Panel-1::Y > 50
@@ -392,9 +393,11 @@
            END-IF
 
            IF Gauge-1::Value < 100
-              COMPUTE Gauge-1::Value = Gauge-1::Value + 1
-              COMPUTE Gauge-2::Value = Gauge-2::Value + 2
-              COMPUTE Gauge-3::Value = Gauge-3::Value + 0.5
+              COMPUTE Gauge-1::Value = Gauge-1::Value + incdec
+              COMPUTE Gauge-2::Value = Gauge-2::Value + incdec
+              COMPUTE Gauge-3::Value = Gauge-3::Value + (incdec / 2)
+           ELSE
+              compute incdec = incdec * -1
            END-IF
 
            CONTINUE.]]></Event>

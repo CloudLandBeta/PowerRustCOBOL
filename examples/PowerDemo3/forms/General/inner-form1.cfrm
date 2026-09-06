@@ -220,6 +220,7 @@
     <Property name="ReadOnly">false</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Switch-1" type="Switch" x="128" y="480" w="48" h="24" tab-order="0" z-order="5" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -251,6 +252,9 @@
     <Property name="Checked">false</Property>
     <Property name="Accent">Blue</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
   </Control>
   <Control id="RadioButton-2" type="RadioButton" x="128" y="384" w="144" h="27" tab-order="0" z-order="7" visible="true" enabled="true">
     <Property name="Caption">RadioButton-2</Property>
@@ -321,6 +325,7 @@
     <Property name="ShowUpDown">false</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Knob-1" type="Knob" x="416" y="144" w="160" h="144" tab-order="0" z-order="9" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -362,6 +367,7 @@
     <Property name="RimColor">#1E293BFF</Property>
     <Property name="TrackColor">#1E293BFF</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
     <Event name="onValueChanged" paragraph="KNOB-1--ONVALUECHANGED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -420,6 +426,7 @@
     <Property name="NeedleColor">#E2E8F0FF</Property>
     <Property name="ReadoutPosition">Down</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Maps-1" type="Maps" x="608" y="96" w="656" h="736" tab-order="0" z-order="11" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -452,6 +459,7 @@
     <Property name="CenterLng">0</Property>
     <Property name="Zoom">2</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="ProgressBar-1" type="ProgressBar" x="128" y="608" w="200" h="22" tab-order="0" z-order="13" visible="true" enabled="true">
     <Property name="BackgroundColor">#000000FF</Property>
@@ -488,6 +496,7 @@
     <Property name="Style">Blocks</Property>
     <Property name="ShowValue">true</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Slider-2" type="Slider" x="128" y="560" w="400" h="36" tab-order="0" z-order="16" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -529,6 +538,7 @@
     <Property name="FillColor">#16A34AFF</Property>
     <Property name="ShowValue">false</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Timer-1" type="Timer" x="1232" y="0" w="48" h="48" tab-order="0" z-order="17" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -669,6 +679,7 @@
     <Property name="StageOnly">false</Property>
     <Property name="FileListControl">ListBox-2</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="ListBox-2" type="ListBox" x="128" y="752" w="448" h="80" tab-order="0" z-order="21" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
@@ -752,5 +763,6 @@
     <Property name="Editable">true</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
 </Form>
