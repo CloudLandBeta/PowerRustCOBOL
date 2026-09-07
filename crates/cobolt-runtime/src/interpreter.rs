@@ -10470,6 +10470,58 @@ impl Interpreter {
         true
     }
 
+    /// Narrate one `AgentObject::Ask` into the program's output.
+    ///
+    /// It reports what the control WOULD use and what actually came back. That
+    /// second half is the point: nothing in this runtime writes `LastReply` —
+    /// the only other reference to it is the read in `ASK` — so a form running
+    /// under `rcrun run-form` has no LLM attached, `Ask` returns the empty
+    /// string it found, and `onResponse` never fires because it is guarded on a
+    /// non-empty reply. Silently. This says so out loud instead, so a developer
+    /// stops looking for the fault in their own handler.
+    fn agent_verbose(&mut self, obj: &str, prompt: &str, reply: &str) {
+        let shown = |v: String| {
+            if v.trim().is_empty() {
+                "(unset)".to_owned()
+            } else {
+                v
+            }
+        };
+        let model = shown(self.obj_get(obj, "AgentModel"));
+        let url = shown(self.obj_get(obj, "AgentURL"));
+        let keyed = if self.obj_get(obj, "AgentAPIKey").trim().is_empty() {
+            "(unset)"
+        } else {
+            "(set)"
+        };
+        // The key itself is never printed — a log is copied into bug reports.
+        self.agent_log(format!("[agent {obj}] Ask model={model} url={url} key={keyed}"));
+        self.agent_log(format!("[agent {obj}] prompt: {}", clip(prompt)));
+        if reply.trim().is_empty() {
+            self.agent_log(format!(
+                "[agent {obj}] LastReply is EMPTY, so onResponse did NOT fire. \
+                 Nothing in this runtime writes LastReply: a form running outside \
+                 the IDE has no model attached and Ask returns the empty string."
+            ));
+        } else {
+            self.agent_log(format!(
+                "[agent {obj}] reply: {} — onResponse will fire",
+                clip(reply)
+            ));
+        }
+    }
+
+    /// One verbose line, to wherever this program's DISPLAY goes — the IDE
+    /// output panel under a GUI run, stdout under the CLI.
+    fn agent_log(&mut self, line: String) {
+        if let Some(tx) = &self.display_tx {
+            cobolt_forms::diagnostics::trace_display(&line);
+            let _ = tx.send(line);
+        } else {
+            println!("{line}");
+        }
+    }
+
     /// Ask the host for a critical notification about `detail`.
     ///
     /// A pseudo-property on the FORM object, the same channel `Show()` uses for
@@ -12560,8 +12612,18 @@ impl Interpreter {
                 none
             }
             "ASK" => {
-                self.obj_set(obj, "Prompt", arg(0));
+                let prompt = arg(0);
+                self.obj_set(obj, "Prompt", prompt.clone());
                 let reply = self.obj_get(obj, "LastReply");
+                // `Verbose` narrates the call. An Ask that yields nothing looks
+                // exactly like an Ask that never happened — same empty log, same
+                // still window — and the difference is the whole of the
+                // debugging (operator, 2026-09-07: "I can't debug without
+                // this"). Off by default: this is a running program's output,
+                // not a trace nobody asked for.
+                if self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true") {
+                    self.agent_verbose(obj, &prompt, &reply);
+                }
                 // spec 021: a non-empty reply is a delivered response.
                 if !reply.trim().is_empty() {
                     self.queue_control_event(obj, "onResponse");
@@ -15233,6 +15295,23 @@ fn parse_chart_table(raw: &str, count: usize) -> Vec<(String, f64)> {
 }
 
 /// ANSI SGR prefix for a screen phrase's display attributes (`""` if none).
+/// A log-safe rendering of a prompt or reply: one line, bounded.
+///
+/// A prompt can be a whole block literal, and a reply a paragraph; either would
+/// bury the line that matters under text the developer already has.
+fn clip(text: &str) -> String {
+    let flat: String = text
+        .chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect();
+    let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= 160 {
+        return flat;
+    }
+    let head: String = flat.chars().take(159).collect();
+    format!("{head}…")
+}
+
 fn screen_attrs(sc: &cobolt_ast::stmt::ScreenPhrase) -> String {
     let mut s = String::new();
     if sc.highlight {

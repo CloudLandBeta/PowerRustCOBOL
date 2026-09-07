@@ -1,5 +1,58 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.56] — 2026-09-07
+
+### AgentObject gets a Verbose switch — and it reports the thing that was wrong
+
+The operator could not debug an AgentObject because nothing it did produced any
+output. `Verbose` (Bool, off by default) now narrates every `Ask` into the
+program's output: the model, the endpoint, whether an API key is set — never the
+key itself, a log gets pasted into bug reports — the prompt, and what came back.
+
+**What the switch reveals is the real finding.** Chasing this turned up
+something bigger than a missing flag: **nothing in the runtime writes
+`LastReply`.** The only other reference to it is the read inside `ASK`. So in a
+form running under `rcrun run-form`:
+
+1. `Ask` stores `Prompt`,
+2. reads `LastReply`, which is always empty,
+3. skips `onResponse` — that event is guarded on a non-empty reply,
+4. returns the empty string.
+
+No network call is made, no reply arrives, no event fires, and **nothing is
+logged**. An `Ask` that yields nothing and an `Ask` that never ran produce
+exactly the same empty log and the same still window. That is why the form
+"did nothing" and why the developer had nowhere to look.
+
+The verbose line now says it outright rather than leaving it to be inferred:
+
+```
+[agent Agent-Helper] Ask model=gemma4:31b url=https://ollama.com/api/chat key=(set)
+[agent Agent-Helper] prompt: What does STORAGE MODE IS DISK change…
+[agent Agent-Helper] LastReply is EMPTY, so onResponse did NOT fire. Nothing in
+this runtime writes LastReply: a form running outside the IDE has no model
+attached and Ask returns the empty string.
+```
+
+**This does not connect the control to a model.** It makes the disconnection
+visible. Wiring `AgentObject` to a real provider at run time is a separate piece
+of work, and the property table already records how far the control's own
+settings reach: `AgentAPIKey`, `AgentAPI`, `AgentEndpoint`, `Temperature`,
+`MaximumTokens`, `Stream` and `TargetControls` are all marked *Unread* — they
+never reach a request, because no request is made.
+
+Prompts and replies are clipped to one bounded line: a prompt can be a whole
+block literal and a reply a paragraph, and either would bury the line that
+matters.
+
+Seeded on AgentObject only, with an inspector row under Streaming mode and an
+entry in the System KB property table; `chunked.data` regenerated (1496
+records). The property-reader guard — which asserts that anything declared
+runtime-read really is read — covers it.
+
+Four tests. cobolt-runtime 839 passed / 0 failed, IDE 1102 passed / 0 failed,
+cobolt-forms 858 passed / 0 failed.
+
 ## [PowerRustCOBOL 1.65.55] — 2026-09-07
 
 ### The change-set account is taken by the apply, so every surface has it

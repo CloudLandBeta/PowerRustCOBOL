@@ -8069,6 +8069,9 @@ impl PropertiesPanel {
                     30,
                 );
                 bool_row_inline(ui, id, "Stream", "Streaming mode", ctrl, action);
+                // The debugging switch. An Ask that yields nothing looks exactly
+                // like an Ask that never ran, and this is what tells them apart.
+                bool_row_inline(ui, id, "Verbose", "Verbose log", ctrl, action);
 
                 section_header(ui, tr.sec_cobol_integration);
                 {

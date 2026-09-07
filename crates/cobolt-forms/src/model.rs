@@ -5167,6 +5167,12 @@ impl Control {
                 // Target controls — comma-sep list of IDs this agent is allowed to modify
                 props.insert("TargetControls".into(), PropValue::String("".into()));
                 props.insert("ResponseDataItem".into(), PropValue::String("".into()));
+                // Debugging switch, off by default: with it on the runtime
+                // narrates every Ask into the program's output — the prompt,
+                // the model and endpoint it would use, and what came back.
+                // Without it an Ask that yields nothing is indistinguishable
+                // from an Ask that was never made (operator, 2026-09-07).
+                props.insert("Verbose".into(), PropValue::Bool(false));
             }
             ControlType::Slider => {
                 props.insert("Minimum".into(), PropValue::Int(0));

@@ -4289,6 +4289,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "TimeoutSeconds" => ("seconds > 0", "Request timeout."),
         "TargetControls" => ("comma-separated control ids", "Controls this agent is allowed to modify."),
         "ResponseDataItem" => ("COBOL data-item name", "WORKING-STORAGE item that receives the response."),
+        "Verbose" => ("true | false", "Narrate every Ask into the program's output: the model, endpoint and whether an API key is set (never the key itself), the prompt, and what came back. Off by default. Turn it on when an Ask appears to do nothing — an Ask that returns no reply and an Ask that never ran produce the same empty log, and this is what separates them. Note that a form run outside the IDE has no model attached: LastReply stays empty, so onResponse does not fire, and the verbose line says so."),
 
         // ── RestClient ──
         "BaseURL" => ("HTTP(S) URL", "The address the control's verbs request. A verb called with no URL argument uses it as it stands; a relative argument is joined onto it; an argument carrying its own scheme (`https://...`) is used unchanged."),

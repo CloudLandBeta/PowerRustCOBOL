@@ -132,6 +132,7 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                     "the write allow-list is not enforced against this property",
                 )),
                 ("ResponseDataItem", Generated),
+                ("Verbose", Runtime),
             ],
         ),
         (
@@ -232,4 +233,34 @@ fn every_property_declared_runtime_read_is_actually_read_by_the_runtime() {
     }
 
     assert!(orphans.is_empty(), "\n{}\n", orphans.join("\n\n"));
+}
+
+#[cfg(test)]
+mod agent_verbose_tests {
+    use cobolt_forms::model::{Control, ControlType};
+
+    /// The switch exists, and is OFF until asked for — a running program's
+    /// output is the developer's, not a trace nobody requested.
+    #[test]
+    fn verbose_is_seeded_and_off_by_default() {
+        let a = Control::new("Agent-1", ControlType::AgentObject, 0, 0);
+        assert_eq!(
+            a.get_prop("Verbose").map(|v| v.as_bool()),
+            Some(false),
+            "AgentObject must seed Verbose, off"
+        );
+    }
+
+    /// Only the AgentObject gets it. A switch seeded on every control would
+    /// show a meaningless row on each one.
+    #[test]
+    fn no_other_control_carries_it() {
+        for ct in [ControlType::Button, ControlType::Label, ControlType::RestClient] {
+            let c = Control::new("C-1", ct.clone(), 0, 0);
+            assert!(
+                c.get_prop("Verbose").is_none(),
+                "{ct:?} must not carry Verbose"
+            );
+        }
+    }
 }
