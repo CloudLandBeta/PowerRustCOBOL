@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.39] — 2026-09-06
+
+### `onUnhandledException` — and a form that survives its own handlers
+
+The last of the 57. A COBOL failure inside an event handler used to end the
+run: the error travelled out of the handler, out of the event loop, out of
+`run()`, and the window was gone. **The form now continues** (operator ruling)
+— the failing handler is abandoned and the loop carries on with the next event,
+because losing the window over one bad path costs the operator everything they
+had on screen.
+
+**Bind `onUnhandledException`** and it is called, with the details published on
+the form as `LastException` — read `me::LastException`.
+
+**Bind nothing** and the operator gets a critical notification:
+
+> A critical exception has occurred: &lt;details&gt;. Implement the event handler
+> onUnhandledException to get better control over the exception.
+
+It never expires and carries the built-in ✕. It is minted from a **synthetic**
+template, so it needs no Snackbar on the form — a form that has not thought
+about errors is exactly the one that has no notification control on it, and
+that must not be the reason the message is lost.
+
+Three boundaries, each with a test:
+
+- an exception raised **inside** `onUnhandledException` is not handed back to
+  it (that would loop) — it is reported like any other failure;
+- a form that handles its own exceptions is **not talked over**: no
+  notification is raised when a handler is bound;
+- **a console program still fails to its caller.** The ruling is about forms; a
+  program with no window has nowhere to show a notification, and swallowing its
+  failure would hide it completely.
+
+The exact wording is reproduced in a test, so changing it has to be a deliberate
+edit in two places.
+
+**All 57 form events now fire.** From 19 when this started.
+
+Runtime: 835 tests, 0 failures. Host: 71. Forms engine: 858.
+
 ## [PowerRustCOBOL 1.65.38] — 2026-09-06
 
 ### `onClosing` and `onClosed` retired from the form catalogue

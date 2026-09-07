@@ -3553,6 +3553,24 @@ synchronous child of it) is `Waiting`. `onFullScreenChanged` fires when the
 actual fullscreen state changed in either direction — read `me`'s `FullScreen`
 for the new value.
 
+## `onUnhandledException` — the form keeps running
+
+A COBOL failure inside an event handler does **not** end the form. The failing
+handler is abandoned, and the event loop carries on with the next event.
+
+- Bind **`onUnhandledException`** and it is called, with the details published
+  on the form as **`LastException`** — read `me::LastException`.
+- Bind nothing and the operator sees a **critical notification** instead:
+  *"A critical exception has occurred: &lt;details&gt;. Implement the event handler
+  onUnhandledException to get better control over the exception."* It never
+  expires and carries the built-in ✕, and it needs no Snackbar on the form —
+  a form that has not thought about errors is exactly the one without one.
+
+An exception raised **inside** `onUnhandledException` is not handed back to it;
+it is reported like any other failure.
+
+This is forms only. A console program with no window still fails to its caller.
+
 ## Which teardown event to use: `onDeactivate` or `onDestroy`
 
 These two are constantly confused, and using the wrong one closes files that are

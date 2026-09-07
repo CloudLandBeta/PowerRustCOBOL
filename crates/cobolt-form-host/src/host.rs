@@ -830,6 +830,40 @@ impl FormBody {
             self.snackbars.dismiss_all(ctrl_id);
             return true;
         }
+        // An unhandled COBOL exception, with nobody bound to
+        // `onUnhandledException`. The form CONTINUES (operator ruling,
+        // 2026-09-06) and the operator is told, so a failure is never silent.
+        //
+        // Minted from a SYNTHETIC template rather than a designed control:
+        // a form that has not thought about errors is exactly the one with no
+        // Snackbar on it, and that must not be the reason the message is lost.
+        // Critical, and it never expires — `Timeout 0` — so it waits for the
+        // close button rather than vanishing while the operator is elsewhere.
+        if prop.eq_ignore_ascii_case("_CriticalException") {
+            let mut template = cobolt_forms::Control::new(
+                ctrl_id,
+                cobolt_forms::ControlType::Snackbar,
+                0,
+                0,
+            );
+            template.set_prop(
+                "Text",
+                cobolt_forms::PropValue::String(value.to_owned()),
+            );
+            template.set_prop(
+                "Category",
+                cobolt_forms::PropValue::String("Critical".into()),
+            );
+            // Never expires: it waits for the operator rather than vanishing
+            // while they are elsewhere. The ✕ that dismisses it is BUILT IN to
+            // every notification — not a property, and not a `Buttons` entry —
+            // so the operator's "with an x to close it" needs nothing here.
+            template.set_prop("Timeout", cobolt_forms::PropValue::Int(0));
+            let (visual, _) = cobolt_forms::snackbar::mint(&template);
+            self.snackbars
+                .raise(ctrl_id, visual, std::time::Instant::now());
+            return true;
+        }
         false
     }
 

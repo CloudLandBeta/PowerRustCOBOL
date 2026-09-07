@@ -1049,6 +1049,35 @@ sequenceDiagram
 > of the open file** are sent to whatever endpoint you configure. Point it only
 > at a model you trust.
 
+### When a handler fails (`onUnhandledException`)
+
+A COBOL failure inside an event handler does **not** close your form. The
+failing handler is abandoned and the event loop carries on with the next event,
+so one bad path does not cost the operator everything on screen.
+
+Bind **`onUnhandledException`** on the form to take control. The details arrive
+as **`LastException`** on the form itself:
+
+```cobol
+       PROCEDURE DIVISION.
+           SET Lbl-Status::Caption TO me::LastException
+           DISPLAY "handled: " me::LastException.
+```
+
+Bind nothing and the operator sees a **critical notification** instead:
+
+> A critical exception has occurred: &lt;details&gt;. Implement the event handler
+> onUnhandledException to get better control over the exception.
+
+It never expires and carries the ✕ that dismisses it, and it needs no Snackbar
+control on the form.
+
+> ⚠️ An exception raised **inside** `onUnhandledException` is not handed back to
+> it — that would loop. It is reported like any other failure.
+>
+> This is forms only. A console program that fails still fails: it has no window
+> to report into, and swallowing the error would hide it completely.
+
 ### The example project (Help → Examples)
 
 **Help → Examples** opens **PowerDemo3**, the project that carries one demo form

@@ -1387,6 +1387,9 @@ pub struct Interpreter {
     self_window_handle: String,
     /// The form's own object name — `me::` resolves to it (spec 037 D4).
     self_form_object: Option<String>,
+    /// Inside `onUnhandledException`. An exception handler that throws is not
+    /// handed to itself.
+    in_exception_handler: bool,
     /// 049 R28/R29 — the handle of the form that LOADED or OPENED this one:
     /// what `super` resolves to. `None` = no parent (the main form, a console
     /// run, or an async opener that closed — R32/R46).
@@ -1787,6 +1790,7 @@ impl Interpreter {
             form_host_tx: None,
             self_window_handle: crate::form_host::ROOT_HANDLE.to_string(),
             self_form_object: None,
+            in_exception_handler: false,
             super_window_handle: None,
             form_closed_rx: None,
             window_handle_vars: HashMap::new(),
@@ -10215,6 +10219,12 @@ impl Interpreter {
 
                 match result {
                     Ok(()) | Err(RuntimeError::GoBack) => {} // GOBACK = normal return
+                    // A handler that threw must not take the FORM down with it
+                    // (operator ruling, 2026-09-06: "the form continues").
+                    // `handle_unhandled_exception` answers whether it owned the
+                    // failure; when it did, the event loop carries on with the
+                    // next event.
+                    Err(e) if self.handle_unhandled_exception(&e) => {}
                     Err(e) => return Err(e),
                 }
             }
@@ -10361,6 +10371,83 @@ impl Interpreter {
         tracing::debug!(target: "databinding", "RUN-FORM DataGrid {} set Rows ({} rows)", control_id, row_count);
         self.obj_set(control_id, "Rows", rows_joined);
         row_count
+    }
+
+    /// A nested program threw. Deal with it without ending the run — or say
+    /// we did not, and let the error travel.
+    ///
+    /// Only under a FORM: a console program that fails must still fail loudly,
+    /// and it has no window to report into. Inside a form the ruling is that
+    /// the form CONTINUES (operator, 2026-09-06), because losing the window
+    /// over one bad handler loses everything the operator had on screen.
+    ///
+    /// Two outcomes, in order:
+    ///
+    /// - the form binds `onUnhandledException` → its details are published as
+    ///   `LastException` on the form object (so the handler can read
+    ///   `me::LastException`) and the handler is CALLed;
+    /// - it does not → the host is asked to show a **critical** notification
+    ///   naming the exception and the event that would have caught it.
+    ///
+    /// Re-entrant by design ONCE: an exception handler that throws is reported
+    /// like any other failure rather than being handed to itself forever.
+    fn handle_unhandled_exception(&mut self, err: &RuntimeError) -> bool {
+        // Not a form, or the failure IS the exception handler: let it travel.
+        let Some(form) = self.self_form_object.clone() else {
+            return false;
+        };
+        if self.in_exception_handler {
+            return false;
+        }
+        // A signal is not a failure — STOP RUN and GOBACK end a run normally.
+        if err.is_exit_signal() {
+            return false;
+        }
+
+        let detail = err.to_string();
+        self.obj_set(&form, "LastException", detail.clone());
+
+        let handler = format!("{form}--ONUNHANDLEDEXCEPTION");
+        if self.nested_registry.contains_key(&handler) {
+            self.in_exception_handler = true;
+            let ran = self.exec_call(
+                &Expr::Literal(Literal::String(handler.clone()), Span::new(0, 0, 0, 0)),
+                &[],
+                None,
+                &[],
+                &[],
+                Span::new(0, 0, 0, 0),
+            );
+            self.in_exception_handler = false;
+            // Whatever the handler did, the original failure is now owned.
+            let _ = ran;
+            return true;
+        }
+
+        // Nobody is listening. Tell the operator, in the words the ruling
+        // specifies, and keep the form alive.
+        self.report_critical_exception(&form, &detail);
+        true
+    }
+
+    /// Ask the host for a critical notification about `detail`.
+    ///
+    /// A pseudo-property on the FORM object, the same channel `Show()` uses for
+    /// a Snackbar control — so this needs no Snackbar on the form, which is the
+    /// point: the form that has not thought about errors is exactly the one
+    /// with no notification control on it.
+    fn report_critical_exception(&mut self, form: &str, detail: &str) {
+        let text = format!(
+            "A critical exception has occurred: {detail}. Implement the event \
+             handler onUnhandledException to get better control over the exception."
+        );
+        if let Some(tx) = &self.state_tx {
+            let _ = tx.send(crate::channels::StateUpdate::new(
+                form.to_owned(),
+                "_CriticalException".to_owned(),
+                text,
+            ));
+        }
     }
 
     fn refresh_binding(&mut self, control_id: &str) -> usize {
