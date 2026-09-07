@@ -114,6 +114,253 @@ pub const PROPS_TAB_W: f32 = 30.0;
 /// ◀/▶) so they are all the SAME size — ~2× the old `small_button` glyph.
 pub const COLLAPSE_CHEVRON_SIZE: f32 = 20.0;
 
+/// What [`show_props_drawer`] gives back: the content closure's value (absent
+/// while the drawer is collapsed) and whether the chevron was clicked.
+pub struct PropsDrawer<R> {
+    pub inner: Option<R>,
+    pub toggled: bool,
+}
+
+/// The ◀/▶ chevron that collapses and reopens the drawer.
+fn props_chevron(ui: &mut egui::Ui, hidden: bool, tr: &crate::i18n::Tr) -> bool {
+    // Cross-axis (height) read only — positions a fixed button, never sizes
+    // the strip's width.
+    let h = ui.available_height();
+    ui.add_space((h * 0.5 - 14.0).max(0.0));
+    let mut clicked = false;
+    ui.vertical_centered(|ui| {
+        // ▶ when the pane is open (points toward hiding it right),
+        // ◀ when hidden (points toward sliding it back in).
+        let (glyph, tip) = if hidden {
+            ("◀", tr.props_show)
+        } else {
+            ("▶", tr.props_hide)
+        };
+        clicked = ui
+            .button(egui::RichText::new(glyph).size(COLLAPSE_CHEVRON_SIZE))
+            .on_hover_text(tip)
+            .clicked();
+    });
+    clicked
+}
+
+/// Mount the properties DRAWER (spec 033) on `ui`:
+///
+/// ```text
+///   form │ ↔ │ [ ◀/▶ strip │ properties content ] │
+///          ^ the drag edge IS the pane's visible left border
+/// ```
+///
+/// ONE resizable right panel that CONTAINS the fixed collapse strip and the
+/// content, so the edge the developer grabs is the edge they can see.
+///
+/// It used to be two SIBLING panels — the content shown first, the strip shown
+/// second so it landed to the content's left. That works as a layout and is
+/// wrong as an affordance: a right panel's resize handle sits on its own left
+/// edge, which the strip then covered, leaving the handle at the seam ~20px
+/// inside the pane. Hovering the border you can see produced no ↔ cursor and
+/// no drag, and egui's own hover highlight lit up the seam instead of the
+/// border (operator report, 2026-09-07).
+///
+/// Nesting also hands the pane egui's separator-line affordance for free: the
+/// outer panel paints it at its own left edge and brightens it on hover.
+///
+/// Width is egui's to persist, per panel id: the drawer opens at a CONSTANT
+/// default and only the user's drag changes it. Nothing here reads the
+/// rendered width back into the default, so there is no self-inflation loop
+/// (GOLDEN RULE — a window may never resize itself).
+pub fn show_props_drawer<R>(
+    ui: &mut egui::Ui,
+    idx: usize,
+    hidden: bool,
+    max_w: f32,
+    tr: &crate::i18n::Tr,
+    content: impl FnOnce(&mut egui::Ui) -> R,
+) -> PropsDrawer<R> {
+    let style = ui.ctx().global_style();
+    // 10px right inner margin so the pane's content keeps a small gap from the
+    // window border instead of butting against it.
+    let props_frame = egui::Frame::side_top_panel(&style).inner_margin(egui::Margin {
+        left: 6,
+        right: 10,
+        top: 6,
+        bottom: 6,
+    });
+    let strip_frame = egui::Frame::side_top_panel(&style).inner_margin(2);
+    let strip_id = format!("props_strip_{idx}");
+
+    // Collapsed: only the strip remains and the form reclaims the width.
+    if hidden {
+        let mut toggled = false;
+        egui::Panel::right(strip_id)
+            .resizable(false)
+            .exact_size(PROPS_TAB_W)
+            .frame(strip_frame)
+            .show(ui, |ui| toggled = props_chevron(ui, true, tr));
+        return PropsDrawer {
+            inner: None,
+            toggled,
+        };
+    }
+
+    let mut toggled = false;
+    let outer = egui::Panel::right(format!("props_pane_{idx}"))
+        .resizable(true)
+        // The seed sizes describe the WHOLE drawer, strip included — the strip
+        // is inside it now, so the content still opens at `PROPS_DEFAULT_W`
+        // and still shrinks to `PROPS_MIN_W`.
+        .default_size(PROPS_DEFAULT_W + PROPS_TAB_W)
+        .min_size(PROPS_MIN_W + PROPS_TAB_W)
+        .max_size(max_w)
+        // No frame of its own: the strip and the content each paint one, and
+        // together they cover the drawer. A second fill here would only darken
+        // the seam between them.
+        .frame(egui::Frame::NONE)
+        .show(ui, |ui| {
+            egui::Panel::left(strip_id)
+                .resizable(false)
+                .exact_size(PROPS_TAB_W)
+                .frame(strip_frame)
+                .show_inside(ui, |ui| toggled = props_chevron(ui, false, tr));
+            egui::CentralPanel::default()
+                .frame(props_frame)
+                .show_inside(ui, content)
+        });
+
+    PropsDrawer {
+        inner: Some(outer.inner.inner),
+        toggled,
+    }
+}
+
+#[cfg(test)]
+mod props_drawer_tests {
+    use super::*;
+    use crate::i18n::Language;
+
+    const SCREEN: egui::Vec2 = egui::vec2(1600.0, 1000.0);
+
+    /// One frame of the real drawer. Returns the pane's visible LEFT border
+    /// (the parent's remaining space ends exactly there) and the cursor egui
+    /// asked the platform for.
+    fn frame(
+        ctx: &egui::Context,
+        hidden: bool,
+        tr: &crate::i18n::Tr,
+        pointer: Option<egui::Pos2>,
+    ) -> (f32, egui::CursorIcon) {
+        let mut input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN)),
+            ..Default::default()
+        };
+        if let Some(p) = pointer {
+            input.events.push(egui::Event::PointerMoved(p));
+        }
+        let mut border = 0.0;
+        let mut out = ctx.run_ui(input, |root| {
+            let half_win = (root.ctx().content_rect().width() * 0.5).max(320.0);
+            show_props_drawer(root, 0, hidden, half_win, tr, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for i in 0..40 {
+                        ui.label(format!("row {i}"));
+                    }
+                });
+            });
+            // A right panel sets the parent's cursor to end at its outer edge.
+            border = root.available_rect_before_wrap().right();
+            egui::CentralPanel::default().show_inside(root, |ui| {
+                ui.label("canvas");
+            });
+        });
+        out.textures_delta.clear();
+        (border, out.platform_output.cursor_icon)
+    }
+
+    fn is_resize(icon: egui::CursorIcon) -> bool {
+        matches!(
+            icon,
+            egui::CursorIcon::ResizeHorizontal
+                | egui::CursorIcon::ResizeEast
+                | egui::CursorIcon::ResizeWest
+                | egui::CursorIcon::ResizeColumn
+        )
+    }
+
+    /// Hold the pointer at `x` for three frames — egui hit-tests against the
+    /// PREVIOUS frame's widget rects, so one frame never settles a hover.
+    fn cursor_at(ctx: &egui::Context, tr: &crate::i18n::Tr, x: f32, y: f32) -> egui::CursorIcon {
+        frame(ctx, false, tr, Some(egui::pos2(x, y)));
+        frame(ctx, false, tr, None);
+        frame(ctx, false, tr, None).1
+    }
+
+    /// **The edge you can see is the edge you can drag.**
+    ///
+    /// The drawer used to be two sibling panels with the collapse strip covering
+    /// the border, which left the resize handle stranded ~20px inside it: the ↔
+    /// cursor never appeared where anyone would aim, so the pane could not be
+    /// resized at all (operator report, 2026-09-07). Assert the handle straddles
+    /// the visible border, in every language — the chevron's tooltip differs per
+    /// language and must not move the geometry.
+    #[test]
+    fn the_drag_edge_is_the_panes_visible_left_border() {
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            let ctx = egui::Context::default();
+            let mut border = 0.0;
+            for _ in 0..6 {
+                border = frame(&ctx, false, &tr, None).0;
+            }
+            assert!(
+                border > 0.0 && border < SCREEN.x,
+                "{lang:?}: drawer did not take a slice of the window (border {border})"
+            );
+
+            // Clear of the chevron, which sits at the strip's vertical centre.
+            let y = 200.0;
+            let on_border = cursor_at(&ctx, &tr, border, y);
+            assert!(
+                is_resize(on_border),
+                "{lang:?}: hovering the pane's visible left border ({border:.1}) gives \
+                 {on_border:?}, not a resize cursor — the handle is not on the edge \
+                 the developer can see"
+            );
+
+            // And the whole band, so a hand a couple of pixels off still finds it.
+            let band: Vec<f32> = (-4..=4)
+                .map(|d| border + d as f32)
+                .filter(|&x| is_resize(cursor_at(&ctx, &tr, x, y)))
+                .collect();
+            assert!(
+                band.len() >= 6,
+                "{lang:?}: only {} of 9 pixels around the border resize",
+                band.len()
+            );
+            println!(
+                "{lang:?}: border {border:.1}, resize band {:.0}..{:.0}",
+                band[0],
+                band[band.len() - 1]
+            );
+        }
+    }
+
+    /// Collapsed, only the fixed strip remains and the form reclaims the width.
+    #[test]
+    fn the_collapsed_drawer_is_just_the_strip() {
+        let tr = Language::English.tr();
+        let ctx = egui::Context::default();
+        let mut border = 0.0;
+        for _ in 0..6 {
+            border = frame(&ctx, true, &tr, None).0;
+        }
+        let width = SCREEN.x - border;
+        assert!(
+            (width - PROPS_TAB_W).abs() <= 2.0,
+            "collapsed drawer is {width:.1}px wide, expected the {PROPS_TAB_W}px strip"
+        );
+    }
+}
+
 /// Clamp a captured expanded left-sidebar width into `[min, max]`.
 ///
 /// The input is the panel's own resized outer width (user drag / persisted /

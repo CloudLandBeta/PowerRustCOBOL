@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.61] — 2026-09-07
+
+### The property pane's border was never the border you could drag
+
+The Form Designer's properties drawer could not be resized: hovering its left
+border produced no ↔ cursor and no drag. The handle was not missing — it was
+behind the collapse strip.
+
+A right panel's resize handle sits on its own left edge. The drawer was built as
+two SIBLING panels — the content shown first, the 30px ◀/▶ strip shown second so
+it landed to the content's left. Correct as a layout, wrong as an affordance:
+the strip then owned the border you can see, and the handle was stranded at the
+seam behind it, about 20px in. egui's own hover highlight lit up that seam too,
+so even the visual cue pointed at the wrong line.
+
+The drawer is now ONE resizable panel that CONTAINS the strip and the content,
+so the edge you grab is the edge you see — and egui paints its separator, and
+brightens it on hover, exactly there.
+
+The mount moved out of `app.rs` into `designer::show_props_drawer`, which is
+what let it be tested: `the_drag_edge_is_the_panes_visible_left_border` drives
+the real drawer, holds the pointer on the border for three frames (egui
+hit-tests against the previous frame, so one frame never settles a hover) and
+asserts a resize cursor, in all six languages. Against the old sibling layout it
+fails with the operator's exact symptom — `gives Default, not a resize cursor`.
+
+Nothing since the pane was last touched (1.61.139, 2026-08-21) had changed it,
+and neither the double-click-opens-the-handler change (1.65.28) nor the egui
+0.36 upgrade (1.65.2) moved the handle: 0.35 and 0.36 place it identically. The
+drawer had been undraggable since the strip was introduced on 2026-07-24.
+
+The Developer's Guide said "drag its edge to widen it", which was true of the
+intent and not of the build; it now names the left border and the hover
+highlight.
+
 ## [PowerRustCOBOL 1.65.60] — 2026-09-07
 
 ### A skill for the rule 1.65.59 was learned the hard way

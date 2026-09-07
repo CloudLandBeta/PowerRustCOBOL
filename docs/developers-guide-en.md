@@ -1299,7 +1299,8 @@ flowchart LR
 - **Properties pane (right).** Edits the selected control — or, with nothing
   selected, the **form** itself. The pane is organised into collapsible
   **section cards** (Form Properties, Target Device, Appearance, Background
-  Image, Size, Events). Drag its edge to widen it. It is a **drawer**: the
+  Image, Size, Events). Drag its **left border** to widen it — the border
+  brightens as you hover it. It is a **drawer**: the
   vertically-centered **◀** tab hides it (leaving a thin **▶** tab to slide it
   back), and it reopens at the width you last set.
 

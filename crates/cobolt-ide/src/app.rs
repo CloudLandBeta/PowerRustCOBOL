@@ -16194,30 +16194,9 @@ impl CoboltApp {
             .map(|project| project.files.indexed.clone())
             .unwrap_or_default();
 
-        // Allow the properties panel to be resized up to half the window width so
-        // long values (paths, titles) aren't clipped by the window border.
+        // Allow the properties drawer to be resized up to half the window width
+        // so long values (paths, titles) aren't clipped by the window border.
         let half_win = (ctx.content_rect().width() * 0.5).max(320.0);
-        // 10px right inner margin so the pane's content keeps a small gap from the
-        // window border instead of butting against it.
-        let props_frame =
-            egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(egui::Margin {
-                left: 6,
-                right: 10,
-                top: 6,
-                bottom: 6,
-            });
-        // Properties DRAWER (spec 033), rebuilt to the operator's target layout:
-        //   form | [ ◀/▶ strip ] | [ properties content ]
-        // The collapse control lives on its OWN fixed-width strip that pushes the
-        // properties content to its right. The content is an ordinary resizable
-        // egui right panel: egui persists the user's dragged width per its id, so
-        // it opens at a CONSTANT default and only the user's drag changes it. We
-        // never read the rendered width back into `default_size`, so there is no
-        // self-inflation feedback loop (the previous bug: the pane grew every
-        // frame and could not be dragged smaller). When collapsed, only the strip
-        // remains and the form reclaims the width.
-        use crate::panels::designer::{PROPS_DEFAULT_W, PROPS_MIN_W, PROPS_TAB_W};
-        let props_hidden = self.designers[idx].1.props_hidden;
 
         // The colour picker's fixed grid is the ACTIVE theme's palette, read
         // from the context — so this pane must publish its OWN form's theme
@@ -16235,79 +16214,47 @@ impl CoboltApp {
             cobolt_forms::paint::set_surface_theme(panel_ui.ctx(), surface);
         }
 
-        // Rightmost region: the resizable properties content (only when open).
-        let inspector_action = if !props_hidden {
-            egui::Panel::right(format!("props_{idx}"))
-                .resizable(true)
-                .default_size(PROPS_DEFAULT_W)
-                .min_size(PROPS_MIN_W)
-                .max_size(half_win)
-                .frame(props_frame)
-                .show(panel_ui, |ui| {
-                    // Sole vertical child of the pane (full width for its ScrollArea).
-                    let d = &mut self.designers[idx].1;
-                    let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
-                    // With several controls selected the pane speaks for all of
-                    // them: the primary supplies the values, the caller fans the
-                    // edits out (operator, 2026-08-21).
-                    let selection = crate::panels::properties::MultiSelection {
-                        count: d.selected_ids.len(),
-                        uniform: d.selection_is_uniform(),
-                        common_keys: d.common_property_keys(),
-                    };
-                    // SAFETY: form and properties are different fields — field-level split.
-                    let form = &d.form as *const cobolt_forms::Form;
-                    let props = &mut d.properties;
-                    // SAFETY: we only read *form; no aliased write exists.
-                    props.show_multi(
-                        ui,
-                        unsafe { &*form },
-                        sel_ctrl,
-                        &indexed_files,
-                        tr,
-                        selection,
-                    )
-                })
-                .inner
-        } else {
-            crate::panels::properties::InspectorAction::default()
-        };
-
-        // The collapse strip — added AFTER the content so it sits to its LEFT — a
-        // fixed-width, non-resizable panel with a vertically-centered tab: ◀ hides
-        // the pane, ▶ reopens it. Fixed width ⇒ it can never drive a resize.
-        let strip_frame = egui::Frame::side_top_panel(&ctx.global_style()).inner_margin(2);
-        let mut props_toggle = false;
-        egui::Panel::right(format!("props_strip_{idx}"))
-            .resizable(false)
-            .exact_size(PROPS_TAB_W)
-            .frame(strip_frame)
-            .show(panel_ui, |ui| {
-                // Cross-axis (height) read only — positions a fixed button, never
-                // sizes the strip's width.
-                let h = ui.available_height();
-                ui.add_space((h * 0.5 - 14.0).max(0.0));
-                ui.vertical_centered(|ui| {
-                    // ▶ when the pane is open (points toward hiding it right),
-                    // ◀ when hidden (points toward sliding it back in).
-                    let (glyph, tip) = if props_hidden {
-                        ("◀", tr.props_show)
-                    } else {
-                        ("▶", tr.props_hide)
-                    };
-                    if ui
-                        .button(
-                            egui::RichText::new(glyph)
-                                .size(crate::panels::designer::COLLAPSE_CHEVRON_SIZE),
-                        )
-                        .on_hover_text(tip)
-                        .clicked()
-                    {
-                        props_toggle = true;
-                    }
-                });
-            });
-        if props_toggle {
+        // Properties DRAWER (spec 033) — strip and content inside ONE resizable
+        // panel, so the drag edge is the pane's visible left border. See
+        // `designer::show_props_drawer` for why the two-sibling layout could not
+        // be dragged at all.
+        let props_hidden = self.designers[idx].1.props_hidden;
+        let drawer = crate::panels::designer::show_props_drawer(
+            panel_ui,
+            idx,
+            props_hidden,
+            half_win,
+            tr,
+            |ui| {
+                // Sole vertical child of the pane (full width for its ScrollArea).
+                let d = &mut self.designers[idx].1;
+                let sel_ctrl = sel_id.as_deref().and_then(|id| d.form.find_control(id));
+                // With several controls selected the pane speaks for all of
+                // them: the primary supplies the values, the caller fans the
+                // edits out (operator, 2026-08-21).
+                let selection = crate::panels::properties::MultiSelection {
+                    count: d.selected_ids.len(),
+                    uniform: d.selection_is_uniform(),
+                    common_keys: d.common_property_keys(),
+                };
+                // SAFETY: form and properties are different fields — field-level split.
+                let form = &d.form as *const cobolt_forms::Form;
+                let props = &mut d.properties;
+                // SAFETY: we only read *form; no aliased write exists.
+                props.show_multi(
+                    ui,
+                    unsafe { &*form },
+                    sel_ctrl,
+                    &indexed_files,
+                    tr,
+                    selection,
+                )
+            },
+        );
+        let inspector_action = drawer
+            .inner
+            .unwrap_or_else(crate::panels::properties::InspectorAction::default);
+        if drawer.toggled {
             self.designers[idx].1.props_hidden = !props_hidden;
         }
 
