@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.53] — 2026-09-07
+
+### The agents write the fences correctly now — and the change-set parser choked on them
+
+1.65.52 put the block-literal rule in the prompt the handler agent always
+receives, and the operator's next run shows it worked: all six handlers came
+back in the RIGHT form — no quotes, the opening fence ending its own line, the
+text between, `TO Lbl-Sub::Caption.` after the closing fence.
+
+The reply then failed to parse:
+
+```
+typed change-set extraction — deterministic parse failed:
+The agent change-set was not valid: EOF while parsing a string at line 2 column 245
+```
+
+Same bug class as 1.65.49 and 1.65.50, in the third extractor of the chain.
+`agent::extract_json` took the opening ``` and then the NEXT ``` anywhere in the
+text — which, now that a handler legitimately contains a block literal, is the
+literal's own opening fence INSIDE the JSON string. Column 245 is exactly where
+`MOVE \n` ends and that fence begins. The JSON was valid; the extractor cut it
+in half.
+
+It now matches braces from the first `{`, counting only those outside a JSON
+string — the same cure the prompt review got at 1.65.49 and the plan/change-set
+transport got at 1.65.50. The bare path is fixed with it: it used to take the
+LAST `}` in the reply, swallowing prose the model added after the object.
+
+**Nothing was lost in the operator's run** — a fallback model call re-extracted
+what was already valid. That is what the deterministic path exists to avoid: an
+extra round trip, and a second model's reading of a change-set that needed no
+interpretation.
+
+**Scope, stated plainly.** Three other fence scanners remain: one is a Markdown
+pretty-printer for display, and two are the benchmark-report path. None is on the
+change-set chain, none was touched, and none is claimed fixed. The chain the
+operator's task runs through — prompt review, plan, change-set — is now hardened
+end to end.
+
+Three tests: one handler carrying a block literal, six of them with prose after
+the block, and a reply with no JSON still rejected. The first two fail against
+the old extractor with the operator's own error text. IDE 1092 passed / 0 failed;
+cobolt-agents 58 passed / 0 failed.
+
 ## [PowerRustCOBOL 1.65.52] — 2026-09-07
 
 ### The agents were never told the fence syntax — and my own example destroyed itself

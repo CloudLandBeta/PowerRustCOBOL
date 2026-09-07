@@ -230,30 +230,58 @@ pub fn parse_change_set(reply: &str) -> Result<AgentChangeSet, String> {
         .map_err(|e| format!("The agent change-set was not valid: {e}"))
 }
 
-/// Pull the JSON body out of a reply: the contents of a ```json / ``` fence if
-/// present, otherwise the message trimmed to its first `{` … last `}`.
+/// Pull the JSON object out of a reply, fenced or bare.
+///
+/// Found by matching braces from the first `{`, counting only the ones OUTSIDE
+/// a JSON string. It used to look for the opening ``` and then the NEXT one,
+/// which cannot work once a handler contains a RustCOBOL block literal: the
+/// `code` string then holds ``` fences of its own, the scan stopped at the
+/// first of them, and the change-set came back truncated mid-string —
+/// *"EOF while parsing a string at line 2 column 245"* — for a reply that was
+/// perfectly valid JSON (operator's verbose log, 2026-09-07). The fallback then
+/// paid an extra model call to re-extract what was already there.
+///
+/// The brace scan also fixes the bare path, which took the LAST `}` in the
+/// reply and so swallowed any prose the model added after the object.
 fn extract_json(reply: &str) -> Option<&str> {
-    if let Some(start) = reply.find("```") {
-        let after = &reply[start + 3..];
-        // Skip an optional language tag on the fence line (e.g. `json`).
-        let body_start = after.find('\n').map(|n| n + 1).unwrap_or(0);
-        let body = &after[body_start..];
-        if let Some(end) = body.find("```") {
-            let inner = body[..end].trim();
-            if !inner.is_empty() {
-                return Some(inner);
+    // Prefer the region after a ```json marker when there is one, so prose
+    // before it cannot donate a stray brace.
+    let from = match reply.find("```json") {
+        Some(at) => at + "```json".len(),
+        None => 0,
+    };
+    let start = from + reply[from..].find('{')?;
+    let bytes = reply.as_bytes();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    // Every byte examined is ASCII, and a UTF-8 continuation byte can never
+    // equal one, so scanning bytes cannot land inside a character.
+    for i in start..bytes.len() {
+        let byte = bytes[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
             }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&reply[start..=i]);
+                }
+            }
+            _ => {}
         }
     }
-    // No usable fence — take the outermost braces.
-    let s = reply.trim();
-    let open = s.find('{')?;
-    let close = s.rfind('}')?;
-    if close > open {
-        Some(&s[open..=close])
-    } else {
-        None
-    }
+    None
 }
 
 // ── Preview state (T9) ───────────────────────────────────────────────────────
@@ -3636,5 +3664,63 @@ mod tests {
             !property_readable(&ControlType::Button, "LastButton"),
             "LastButton belongs to ToolBar; a Button has no such property"
         );
+    }
+}
+
+#[cfg(test)]
+mod block_literal_change_set_tests {
+    use super::*;
+
+    /// The reply the operator's run actually produced once the agents learned
+    /// the fence syntax: a valid JSON change-set whose `code` string contains a
+    /// RustCOBOL block literal, fences and all.
+    ///
+    /// It failed to parse — "EOF while parsing a string at line 2 column 245" —
+    /// because the extractor took the first ``` ANYWHERE after the opening
+    /// fence, which is the block literal's own opening fence inside the string.
+    /// A fallback model call then re-extracted what was already valid.
+    #[test]
+    fn a_handler_carrying_a_block_literal_parses_without_a_fallback() {
+        let code = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n\
+                    \n       PROCEDURE DIVISION.\n           MOVE \n```\n\
+                    An AgentObject is a configured model endpoint.\n\n\
+                    In order to run this example you need a valid API key.\n\
+                    ```\n           TO Lbl-Sub::Caption.";
+        let value = serde_json::json!({
+            "operations": [
+                {"op": "generate_event_handler", "control_id": "Btn-Lang-EN",
+                 "event": "onClick", "code": code}
+            ]
+        });
+        let reply = format!("```json\n{value}\n```");
+        let set = parse_change_set(&reply).expect("a valid change-set must parse");
+        assert_eq!(set.operations.len(), 1, "the one operation must survive");
+    }
+
+    /// Six of them, as the real task produced — and prose after the block, which
+    /// the old bare-JSON path would have swallowed by taking the last `}`.
+    #[test]
+    fn six_handlers_and_trailing_prose_still_parse() {
+        let ops: Vec<serde_json::Value> = ["EN", "ES", "FR", "PT", "CN", "JP"]
+            .iter()
+            .map(|lang| {
+                serde_json::json!({
+                    "op": "generate_event_handler",
+                    "control_id": format!("Btn-Lang-{lang}"),
+                    "event": "onClick",
+                    "code": "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n\n       PROCEDURE DIVISION.\n           MOVE \n```\ntexto\n```\n           TO Lbl-Sub::Caption.",
+                })
+            })
+            .collect();
+        let value = serde_json::json!({ "operations": ops });
+        let reply = format!("```json\n{value}\n```\n\nVoici les six gestionnaires. {{done}}");
+        let set = parse_change_set(&reply).expect("parses");
+        assert_eq!(set.operations.len(), 6, "all six handlers must survive");
+    }
+
+    /// A reply with no JSON at all is still a hard error, not an empty set.
+    #[test]
+    fn a_reply_without_json_is_still_rejected() {
+        assert!(parse_change_set("I could not do that.").is_err());
     }
 }
