@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="AGENT-FORM" title="AgentObject - asking a model a question" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+<Form name="AGENT-FORM" title="AgentObject - asking a model a question" width="1240" height="776" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -79,7 +79,7 @@
     <Event name="onClose" paragraph="AGENT-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="Lbl-Title" type="Label" x="32" y="20" w="936" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Title" type="Label" x="24" y="46" w="208" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">AgentObject</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -114,8 +114,12 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Sub" type="Label" x="32" y="54" w="936" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">An AgentObject is a configured model endpoint. SetPrompt and SetModel change it from COBOL, Ask sends the question, and the reply arrives as onResponse - which reads it back from LastReply. Nothing here needs a network unless you press Ask.</Property>
+  <Control id="Lbl-Sub" type="Label" x="24" y="80" w="1216" h="104" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">An AgentObject is a configured model endpoint. SetPrompt and SetModel change it from COBOL, Ask sends the question, and the reply arrives as onResponse - which reads it back from LastReply. Nothing here needs a network unless you press Ask.
+
+In order to run this example you need a valid API Key to access Ollama (a model provider). Create one at www.ollama.com
+
+After create your own API Key use it to set the AgentControl API KEY property.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -123,7 +127,7 @@
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ForegroundColor">#9AA6BF</Property>
     <Property name="FontName">Arial</Property>
-    <Property name="FontSize">13</Property>
+    <Property name="FontSize">18</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
@@ -149,7 +153,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Log-Cap" type="Label" x="32" y="424" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Log-Cap" type="Label" x="24" y="586" w="96" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Event log</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -184,7 +188,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Log" type="TextBox" x="32" y="448" w="936" h="184" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Log" type="TextBox" x="128" y="586" w="792" h="147" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -219,11 +223,11 @@
     <Property name="ReadOnly">true</Property>
     <Property name="ScrollBars">Vertical</Property>
     <Property name="WordWrap">true</Property>
-    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Agent-Helper" type="AgentObject" x="48" y="250" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Agent-Helper" type="AgentObject" x="8" y="658" w="99" h="66" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -250,8 +254,8 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="AgentURL">http://localhost:11434</Property>
-    <Property name="AgentModel">llama3.2</Property>
+    <Property name="AgentURL">https://ollama.com/api/chat</Property>
+    <Property name="AgentModel">gemma4:31b</Property>
     <Property name="AgentAPI">Ollama</Property>
     <Property name="SystemPrompt">You are a COBOL assistant. Answer in one short paragraph.</Property>
     <Property name="Temperature">30</Property>
@@ -259,6 +263,8 @@
     <Property name="Stream">true</Property>
     <Property name="TimeoutSeconds">60</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="AgentAPIKey">61602bacc0cb424aa2d7d32f6e17a7c6.SWgPJKCdcwvF-vM_biOJohtg</Property>
+    <Property name="Verbose">true</Property>
     <Event name="onResponse" paragraph="AGENT-HELPER--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -307,71 +313,20 @@
        01 WS-LINE PIC X(160).
        01 WS-NL   PIC X.
        LINKAGE SECTION.
+       01 ERROR-DESC PIC X(160).
 
-       PROCEDURE DIVISION.
+       PROCEDURE DIVISION USING ERROR-DESC.
 
            MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
-           MOVE "error" TO Lbl-State::Caption.
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "agent error - is " Agent-Helper::AgentURL " reachable?" INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
 
-]]></Event>
+           MOVE "error" TO Lbl-State::Caption.
+
+           MOVE ERROR-DESC TO WS-LINE.
+
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).]]></Event>
   </Control>
-  <Control id="Lbl-Tray" type="Label" x="48" y="300" w="150" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Agent-Helper</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#9AA6BF</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">11</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Center</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="CornerRadius">10</Property>
-  </Control>
-  <Control id="Lbl-Q-Cap" type="Label" x="140" y="130" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Q-Cap" type="Label" x="40" y="314" w="80" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Question</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -406,7 +361,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Question" type="TextBox" x="140" y="154" w="500" h="60" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Question" type="TextBox" x="128" y="314" w="672" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -433,7 +388,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">What does STORAGE MODE IS DISK change about an INDEXED file?</Property>
+    <Property name="Text">What does STORAGE MODE IS DISK change about an INDEXED file, as opposed to MEMORY mode?</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -442,11 +397,11 @@
     <Property name="ReadOnly">false</Property>
     <Property name="ScrollBars">None</Property>
     <Property name="WordWrap">true</Property>
-    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-A-Cap" type="Label" x="140" y="224" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-A-Cap" type="Label" x="40" y="418" w="64" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Reply</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -481,7 +436,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Reply" type="TextBox" x="140" y="248" w="500" h="96" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Reply" type="TextBox" x="128" y="394" w="792" h="119" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -516,11 +471,12 @@
     <Property name="ReadOnly">true</Property>
     <Property name="ScrollBars">Vertical</Property>
     <Property name="WordWrap">true</Property>
-    <Property name="BorderStyle">Fixed3D</Property>
+    <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="Picture">X(16384)</Property>
   </Control>
-  <Control id="Lbl-State-Cap" type="Label" x="672" y="130" w="280" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-State-Cap" type="Label" x="960" y="266" w="280" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">State</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -555,7 +511,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-State" type="Label" x="672" y="154" w="288" h="34" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-State" type="Label" x="960" y="298" w="288" h="34" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">idle</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -590,8 +546,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Cfg" type="Label" x="672" y="200" w="288" h="144" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">-</Property>
+  <Control id="Lbl-Cfg" type="Label" x="960" y="336" w="259" h="144" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -625,9 +580,9 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Btn-Ask" type="Button" x="32" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Ask" type="Button" x="816" y="326" w="99" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Ask</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#16A34AFF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -664,48 +619,55 @@
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BTN-ASK--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
+
        WORKING-STORAGE SECTION.
-       01 WS-LINE PIC X(160).
-       01 WS-NL   PIC X.
+       01 WS-LINE  PIC X(160).
+       01 WS-NL    PIC X.
+
        LINKAGE SECTION.
 
        PROCEDURE DIVISION.
 
+           *> EN: Setting WS-NL to newline character (CHAR(11)).
+           *> PT: Definindo WS-NL como caractere de nova linha (CHAR(11)).
+           *> ES: Estableciendo WS-NL como carácter de salto de línea (CHAR(11)).
+           *> FR: Définir WS-NL comme caractère de nouvelle ligne (CHAR(11)).
+           *> JP: WS-NL を改行文字 (CHAR(11)) に設定しています。
+           *> CN: 将 WS-NL 设置为换行字符 (CHAR(11)).
            MOVE FUNCTION CHAR(11) TO WS-NL.
-      *> EN: EXTENSION - a property IS a receiving field, so MOVE/SET writes it directly.
-      *> PT: EXTENSAO - a propriedade E um campo receptor, entao MOVE/SET escreve nela direto.
-      *> ES: EXTENSION - la propiedad ES un campo receptor, asi que MOVE/SET escribe en ella.
-      *> FR: EXTENSION - la propriete EST un champ recepteur, MOVE/SET y ecrit directement.
-      *> JP: EXTENSION - プロパティは受取項目そのもの。MOVE/SET で直接書き込める。
-      *> CN: EXTENSION - 属性本身就是接收项，MOVE/SET 可直接写入。
+
            MOVE "asking..." TO Lbl-State::Caption.
-      *> Ask sends the question; the answer comes back as onResponse.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Agent-Helper::Ask(Txt-Question::Text).
-      *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
-      *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
-      *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
-      *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "asked " Agent-Helper::AgentModel INTO WS-LINE.
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+
+           *> Log the raw question text before calling the agent
+           Txt-Log::AppendText(Txt-Question::Text).
            Txt-Log::AppendText(WS-NL).
 
-]]></Event>
+           *> EN: Inline method call to Agent-Helper::Ask with question text.
+           *> PT: Chamada inline ao método Agent-Helper::Ask com texto da pergunta.
+           *> ES: Llamada inline al método Agent-Helper::Ask con el texto de la pregunta.
+           *> FR: Appel inline à Agent-Helper::Ask avec le texte de la question.
+           *> JP: Agent-Helper::Ask メソッドへのインラインコールに質問テキストを使用。
+           *> CN: 使用问题文本进行的Agent-Helper::Ask内联方法调用。
+           Agent-Helper::Ask(Txt-Question::Text).
+
+           *> EN: Building line text by concatenating 'asked ' with AgentModel.
+           *> PT: Construindo texto da linha concatenando 'asked ' com AgentModel.
+           *> ES: Construyendo el texto de la línea concatenando 'asked ' con AgentModel.
+           *> FR: Construction de la chaîne de ligne en concaténant 'asked ' avec AgentModel.
+           *> JP: 'asked ' と AgentModel を連結して行テキストを作成。
+           *> CN: 通过连接 "asked " 和 AgentModel 来构建行文本。
+           STRING "asked " Agent-Helper::AgentModel INTO WS-LINE.
+
+           *> EN: Appending trimmed WS-LINE to log.
+           *> PT: Acrescentando WS-LINE ao log.
+           *> ES: Añadiendo WS-LINE al registro.
+           *> FR: Ajout de WS-LINE trimée au journal.
+           *> JP: トリムされたWS-LINEをログに追加。
+           *> CN: 将修剪后的WS-LINE追加到日志。
+           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
+           Txt-Log::AppendText(WS-NL).]]></Event>
   </Control>
-  <Control id="Btn-Persona" type="Button" x="204" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Persona" type="Button" x="792" y="210" w="120" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Change persona</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -755,68 +717,10 @@
       *> FR: EXTENSION - litteral de bloc cloture: texte multiligne verbatim, guillemets non doubles.
       *> JP: EXTENSION - フェンス付きブロック リテラル。複数行をそのまま取り、引用符の二重化は不要。
       *> CN: EXTENSION - 围栏块字面量：逐字保留多行文本，引号无需重复书写。
-           Agent-Helper::SetPrompt(
-```
-You are a terse reviewer. Answer with a single sentence, no preamble,
-and say "I don't know" rather than guessing.
-```
-           ).
+           Agent-Helper::SetPrompt( TextBox-1::Text ).
 ]]></Event>
   </Control>
-  <Control id="Btn-Model" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Switch model</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="IsDefault">false</Property>
-    <Property name="BorderColor">#888888</Property>
-    <Property name="BorderStyle">Single</Property>
-    <Property name="BorderWidth">1</Property>
-    <Property name="IconAlignment">Left</Property>
-    <Property name="IconPadding">10</Property>
-    <Property name="IconSize">32</Property>
-    <Property name="TextAlignment">MiddleCenter</Property>
-    <Property name="CornerRadius">10</Property>
-    <Event name="onClick" paragraph="BTN-MODEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
-       DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       LINKAGE SECTION.
-
-       PROCEDURE DIVISION.
-
-      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
-      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
-      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
-      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
-      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
-      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Agent-Helper::SetModel("llama3.2").
-]]></Event>
-  </Control>
-  <Control id="Btn-Cfg" type="Button" x="548" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Cfg" type="Button" x="368" y="530" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Show config</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -880,7 +784,7 @@ and say "I don't know" rather than guessing.
            MOVE WS-TEXT TO Lbl-Cfg::Caption.
 ]]></Event>
   </Control>
-  <Control id="Btn-Clear" type="Button" x="720" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Clear" type="Button" x="538" y="530" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Clear log</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -933,4 +837,535 @@ and say "I don't know" rather than guessing.
            Txt-Log::Clear().
 ]]></Event>
   </Control>
+  <Control id="ComboBox-1" type="ComboBox" x="128" y="260" w="156" h="32" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Items">gemma4:31b
+gpt-oss:120b
+gpt-oss:20b
+nemotron-3-nano:30b
+nemotron-3-super
+nemotron-3-ultra</Property>
+    <Property name="SelectedIndex">-1</Property>
+    <Property name="Sorted">false</Property>
+    <Property name="DropDownStyle">DropDown</Property>
+    <Property name="DropDownHeight">200</Property>
+    <Property name="Editable">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
+  </Control>
+  <Control id="Label-1" type="Label" x="40" y="266" w="80" h="20" tab-order="0" z-order="2" visible="true" enabled="true">
+    <Property name="Caption">Model</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Label-2" type="Label" x="304" y="266" w="536" h="20" tab-order="0" z-order="3" visible="true" enabled="true">
+    <Property name="Caption">Change the model to see how it would change the answer</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Label-3" type="Label" x="40" y="218" w="80" h="20" tab-order="0" z-order="4" visible="true" enabled="true">
+    <Property name="Caption">Persona</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#9AA6BF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">12</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="WordWrap">false</Property>
+    <Property name="AutoSize">false</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="TextBox-1" type="TextBox" x="128" y="210" w="624" h="32" tab-order="0" z-order="5" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">13</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Text">You are an intrepid COBOL developer. You have no time for caution</Property>
+    <Property name="TextAlignment">Left</Property>
+    <Property name="VerticalAlignment">Middle</Property>
+    <Property name="InnerPadding">3</Property>
+    <Property name="MaximumLength">0</Property>
+    <Property name="Multiline">true</Property>
+    <Property name="ReadOnly">false</Property>
+    <Property name="ScrollBars">None</Property>
+    <Property name="WordWrap">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="CornerRadius">10</Property>
+  </Control>
+  <Control id="Btn-Lang-EN" type="Button" x="952" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">EN</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath">flag_jp</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-LANG-EN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 
+```
+An AgentObject is a configured model endpoint. SetPrompt and SetModel change it from COBOL, Ask sends the question, and the reply arrives as onResponse - which reads it back from LastReply. Nothing here needs a network unless you press Ask.
+
+In order to run this example you need a valid API Key to access Ollama (a model provider). Create one at www.ollama.com
+
+After create your own API Key use it to set the AgentControl API KEY property.
+```
+           TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <Control id="Btn-Lang-ES" type="Button" x="1008" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">ES</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath">flag_jp</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-LANG-ES--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 
+```
+Un AgentObject es un punto final de modelo configurado. SetPrompt y SetModel lo cambian desde COBOL, Ask envía la pregunta, y la respuesta llega como onResponse - que la lee de LastReply. Nada aquí necesita una red a menos que presione Ask.
+
+Para ejecutar este ejemplo, necesita una clave API válida para acceder a Ollama (un proveedor de modelos). Cree una en www.ollama.com
+
+Después de crear su propia clave API, úsela para establecer la propiedad API KEY del AgentControl.
+```
+           TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <Control id="Btn-Lang-FR" type="Button" x="1064" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">FR</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath">flag_jp</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-LANG-FR--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 
+```
+Un AgentObject est un point de terminaison de modèle configuré. SetPrompt et SetModel le modifient depuis COBOL, Ask envoie la question, et la réponse arrive via onResponse - qui la lit depuis LastReply. Rien ici ne nécessite de réseau à moins que vous n'appuyiez sur Ask.
+
+Pour exécuter cet exemple, vous avez besoin d'une clé API valide pour accéder à Ollama (un fournisseur de modèles). Créez-en une sur www.ollama.com
+
+Après avoir créé votre propre clé API, utilisez-la pour définir la propriété API KEY de l'AgentControl.
+```
+           TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <Control id="Btn-Lang-PT" type="Button" x="1120" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">PT</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath">flag_jp</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-LANG-PT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 
+```
+Um AgentObject é um endpoint de modelo configurado. SetPrompt e SetModel o alteram a partir do COBOL, Ask envia a pergunta, e a resposta chega em onResponse - que a lê de LastReply. Nada aqui requer rede, a menos que você pressione Ask.
+
+Para executar este exemplo, você precisa de uma Chave de API válida para acessar o Ollama (um provedor de modelos). Crie uma em www.ollama.com
+
+Após criar sua própria Chave de API, use-a para definir a propriedade API KEY do AgentControl.
+```
+           TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <Control id="Btn-Lang-CN" type="Button" x="1176" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">CN</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath">flag_jp</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-LANG-CN--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 
+```
+AgentObject 是一个配置的模型端点。SetPrompt 和 SetModel 从 COBOL 更改它，Ask 发送问题，回复通过 onResponse 到达 - 它从 LastReply 中读取。除非您按下 Ask，否则这里不需要网络。
+
+为了运行此示例，您需要一个有效的 API 密钥来访问 Ollama (一个模型提供商)。请在 www.ollama.com 创建一个。
+
+创建自己的 API 密钥后，请使用它来设置 AgentControl 的 API KEY 属性。
+```
+           TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <Control id="Btn-Lang-JP" type="Button" x="1232" y="16" w="48" h="28" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="Caption">JP</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">false</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="IsDefault">false</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="IconPath">flag_jp</Property>
+    <Property name="IconAlignment">Left</Property>
+    <Property name="IconPadding">10</Property>
+    <Property name="IconSize">32</Property>
+    <Property name="TextAlignment">MiddleCenter</Property>
+    <Property name="CornerRadius">10</Property>
+    <Event name="onClick" paragraph="BTN-LANG-JP--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           MOVE 
+```
+AgentObjectは、設定済みのモデルエンドポイントです。SetPromptとSetModelでCOBOLから変更でき、Askで質問を送信すると、onResponseで応答が届きます。onResponseはLastReplyから内容を読み取ります。Askを押さない限り、ネットワーク通信は発生しません。
+
+この例を実行するには、Ollama（モデルプロバイダー）にアクセスするための有効なAPIキーが必要です。www.ollama.com で作成してください。
+
+APIキーを作成後、AgentControlのAPI KEYプロパティに設定して使用してください。
+```
+           TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <deleted-controls>
+    <DeletedControl id="Btn-Model" deleted-at="designer-delete-1788778367-15">
+      <Event name="onClick" paragraph="BTN-MODEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+
+      *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
+      *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
+      *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
+      *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
+      *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
+      *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
+           Agent-Helper::SetModel("llama3.2").
+]]></Event>
+    </DeletedControl>
+  </deleted-controls>
 </Form>
