@@ -6018,6 +6018,20 @@ impl Interpreter {
             // A CONSOLE program keeps the standard's silence, and it is not a
             // free choice: raising here costs twelve CCVS85 Nucleus programs
             // and 1,153 assertions (NC 95/95 -> 83/95, measured 2026-09-06).
+            //
+            // NIST IS THE SOURCE OF TRUTH (operator, 2026-09-06). No behaviour
+            // added for the IDE may cost the suite a single assertion. This
+            // gate is what keeps that true: a CCVS85 program runs through
+            // `rcrun run` with no form host, so `self_form_object` is None and
+            // the branch above is unreachable for the whole suite by
+            // construction — not by luck, and not by a threshold someone has
+            // to remember to re-check.
+            //
+            // Verified across every finished module after this change, not
+            // just the one that prompted it: NC 95/95, SQ 85/85, IF 45/45,
+            // IX 41/41, ST 39/39, RL 34/34, IC 25/25, SM 16/16 — 8,418
+            // assertions, and DB byte-identical before and after (56 pass /
+            // 50 fail, its own work in flight).
             // COBOL-85 leaves the result UNDEFINED when the phrase is absent,
             // so the suite is entitled to carry on, and NC is a finished,
             // protected module (GOLDEN RULE #9). The ruling that an unguarded

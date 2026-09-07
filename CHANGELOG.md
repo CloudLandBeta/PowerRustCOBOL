@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.41] — 2026-09-06
+
+### NIST is the source of truth — recorded as a rule, and verified in full
+
+1.65.40 checked only the module that prompted the change. That was not proof.
+The operator's ruling is absolute: **no behaviour added for the IDE may break a
+NIST rule or cost the suite a single assertion.**
+
+The whole suite re-run against 1.65.40, every finished module:
+
+| Module | Executed clean |
+|---|---|
+| NC (Nucleus) | 95 / 95 |
+| SQ (Sequential I/O) | 85 / 85 |
+| IF (Conditional) | 45 / 45 |
+| IX (Indexed I/O) | 41 / 41 |
+| ST (Sort-Merge) | 39 / 39 |
+| RL (Relative I/O) | 34 / 34 |
+| IC (Inter-program) | 25 / 25 |
+| SM (Source-text) | 16 / 16 |
+
+**8,418 assertions.** Every failure in the run belongs to **DB**, the module
+still in flight — and DB was measured **byte-identical before and after** the
+change (56 pass / 50 fail either way), by rebuilding `rcrun` from the previous
+interpreter and running it again.
+
+The rule now lives in two places rather than in someone's memory: at the gate in
+`run_size_error`, where the decision is made, and in `NIST/progress.json` as
+`nist_is_the_source_of_truth` alongside the other operator rulings.
+
+**Why the gate is safe by construction, not by luck:** a CCVS85 program runs
+through `rcrun run` with no form host, so `self_form_object` is `None` and the
+exception branch is unreachable for the entire suite. It is not a threshold
+anyone has to remember to re-check.
+
+No behaviour change in this version.
+
 ## [PowerRustCOBOL 1.65.40] — 2026-09-06
 
 ### An unguarded size error is now an exception
