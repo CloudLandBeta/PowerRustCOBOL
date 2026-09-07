@@ -649,7 +649,7 @@ pub struct DbAgentInvoker {
 /// *could* infer an answer — so an ambiguous "the button's name" was silently
 /// resolved to the control id and the whole workflow ran on a guess. The test
 /// is not "can I infer this?" but "would the readings deliver different work?".
-const RESPONSE_ROUTING_CONTRACT: &str = "RESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n   QUESTIONS ABOUT THE OPEN PROJECT — its controls, its form, its indexed files — are answered from the CONTEXT block above, not from memory or general platform knowledge: `CONTROLS` and `CONTROL API BY ID` for a control's real properties, their CURRENT values, and its real methods; `EVENTS BY TYPE` for which event names its type supports; `EVENT HANDLERS` / `FORM EVENT HANDLERS` for the ACTUAL COBOL bound to a specific control or form event — reproduce it VERBATIM when asked to show, list, or quote it, never a summary that reads plausible but is not the code that is actually there; the `INDEXED FILES` entry of `PROJECT TREE INVENTORY` for a file's record layout, fields, and keys; and `WINDOW EFFECTS` for the PROJECT's actual configured entrance/exit effect, duration, and easing (a form only carries the on/off switch — the effect itself is project-wide, and only this block has the value actually set, never the Knowledge Base, which documents the CATALOGUE of effects, not what this project picked). That block is the only ground truth for what THIS project's form and files actually contain — a control TYPE's generic capabilities are not the same claim as what one REAL control on this form is wired to do, and the two must never be answered as if they were. When the question needs a platform-level fact the CONTEXT itself does not explain — a method's parameter list and return type, what a property or method is FOR — that comes from Knowledge Base evidence, cited by PATH; call `knowledge.search` for it when the injected excerpts do not already cover the exact control type or method asked about, rather than guess or describe from general COBOL/GUI knowledge.\n2. DEVELOPER CLARIFICATION — the request admits more than one reasonable reading, and the readings would produce DIFFERENT artifacts: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n   WHEN IN DOUBT, ASK. Do not resolve an ambiguity by picking the reading you find most likely and proceeding: a plausible guess that is wrong costs the developer a whole workflow, while a question costs one message. Being ABLE to infer an answer is NOT a reason to skip the question — the test is whether the competing readings would change the delivered artifact, not whether you can pick a favourite.\n   Words that name a control's text are ambiguous BY CONSTRUCTION and are the most common trap: \"name\", \"nome\", \"nombre\", \"label\", \"text\", \"texto\", \"title\" may mean the control's IDENTIFIER (its id, e.g. Button-3) or its VISIBLE TEXT (its Caption or Text property). The two routinely differ — a form can hold a control whose id is \"Button-3\" while its Caption reads \"Button-2\". Never settle that silently: quote both candidate values for a concrete control and ask which one the developer means.\n   Ask as well when the request and its own example disagree, when a literal's exact spelling or punctuation is uncertain, when the target resource is not uniquely identified, or when a requested change could alter existing behavior in more than one way.\n   Put every question you need in ONE reply, each as a separate short question, and stop — do not plan or mutate anything in the same turn.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.";
+const RESPONSE_ROUTING_CONTRACT: &str = "RESPONSE ROUTING CONTRACT (you decide which applies):\n1. CONVERSATION OR QUESTION ANSWER — greetings, capability questions, explanations, summaries, recommendations: reply directly as readable Markdown for the chatbot. Answer from relevant project Knowledge Base evidence first and cite its PATH entries; state when no relevant evidence exists before offering clearly labeled general guidance. No workflow JSON, and do not claim project resources were changed.\n   QUESTIONS ABOUT THE OPEN PROJECT — its controls, its form, its indexed files — are answered from the CONTEXT block above, not from memory or general platform knowledge: `CONTROLS` and `CONTROL API BY ID` for a control's real properties, their CURRENT values, and its real methods; `EVENTS BY TYPE` for which event names its type supports; `EVENT HANDLERS` / `FORM EVENT HANDLERS` for the ACTUAL COBOL bound to a specific control or form event — reproduce it VERBATIM when asked to show, list, or quote it, never a summary that reads plausible but is not the code that is actually there; the `INDEXED FILES` entry of `PROJECT TREE INVENTORY` for a file's record layout, fields, and keys; and `WINDOW EFFECTS` for the PROJECT's actual configured entrance/exit effect, duration, and easing (a form only carries the on/off switch — the effect itself is project-wide, and only this block has the value actually set, never the Knowledge Base, which documents the CATALOGUE of effects, not what this project picked). That block is the only ground truth for what THIS project's form and files actually contain — a control TYPE's generic capabilities are not the same claim as what one REAL control on this form is wired to do, and the two must never be answered as if they were. When the question needs a platform-level fact the CONTEXT itself does not explain — a method's parameter list and return type, what a property or method is FOR — that comes from Knowledge Base evidence, cited by PATH; call `knowledge.search` for it when the injected excerpts do not already cover the exact control type or method asked about, rather than guess or describe from general COBOL/GUI knowledge.\n   QUESTIONS ABOUT WHAT YOU CHANGED — \"what did you do?\", \"why did you change X?\", \"why is Y still missing?\", \"why did you not do Z?\" — are answered from the RECENT CONVERSATION, never from recollection. An applied change-set records a CHANGE-SET OUTCOME line there listing every operation that was applied and every one that was NOT, each refused one with the reason the IDE gave. Quote that reason; it is the evidence. Say plainly what was not done and why, and never present an operation the outcome shows refused as though it had gone through. When the conversation carries no such record — the change predates it, or was made outside this chat — say you have no record of that change rather than reconstructing a plausible account: an invented reason is worse than an absent one, because the developer cannot tell them apart.\n2. DEVELOPER CLARIFICATION — the request admits more than one reasonable reading, and the readings would produce DIFFERENT artifacts: reply with ONLY your question(s) as plain readable Markdown and no JSON.\n   WHEN IN DOUBT, ASK. Do not resolve an ambiguity by picking the reading you find most likely and proceeding: a plausible guess that is wrong costs the developer a whole workflow, while a question costs one message. Being ABLE to infer an answer is NOT a reason to skip the question — the test is whether the competing readings would change the delivered artifact, not whether you can pick a favourite.\n   Words that name a control's text are ambiguous BY CONSTRUCTION and are the most common trap: \"name\", \"nome\", \"nombre\", \"label\", \"text\", \"texto\", \"title\" may mean the control's IDENTIFIER (its id, e.g. Button-3) or its VISIBLE TEXT (its Caption or Text property). The two routinely differ — a form can hold a control whose id is \"Button-3\" while its Caption reads \"Button-2\". Never settle that silently: quote both candidate values for a concrete control and ask which one the developer means.\n   Ask as well when the request and its own example disagree, when a literal's exact spelling or punctuation is uncertain, when the target resource is not uniquely identified, or when a requested change could alter existing behavior in more than one way.\n   Put every question you need in ONE reply, each as a separate short question, and stop — do not plan or mutate anything in the same turn.\n3. EXECUTABLE WORK — the request creates, inspects, or modifies project resources and you have what you need: plan the workflow per your tooling contract and END with exactly one fenced JSON block containing workflow_id and a non-empty tasks array, using only agent and reviewer names from the supplied registry, with nothing after the JSON block.";
 
 /// How a retrieved excerpt names the store it came from. Both stores hold
 /// files under a folder literally called `Knowledge Base`, so their paths are
@@ -5865,5 +5865,58 @@ mod tests {
             );
         }
         let _ = std::fs::remove_dir_all(project);
+    }
+}
+
+#[cfg(test)]
+mod change_accountability_tests {
+    use super::*;
+
+    /// Grace must be able to answer what she changed and why — and what she did
+    /// NOT change and why — from the record rather than from recollection
+    /// (operator, 2026-09-07). The record is the CHANGE-SET OUTCOME line the
+    /// designer now writes into the chat history; the contract has to point her
+    /// at it, or she answers from a plausible reconstruction instead.
+    #[test]
+    fn the_routing_contract_makes_her_answer_from_the_record() {
+        for expected in [
+            "QUESTIONS ABOUT WHAT YOU CHANGED",
+            "CHANGE-SET OUTCOME",
+            "never from recollection",
+            "Quote that reason; it is the evidence",
+        ] {
+            assert!(
+                RESPONSE_ROUTING_CONTRACT.contains(expected),
+                "the routing contract must say {expected:?}"
+            );
+        }
+    }
+
+    /// The header the contract names must be the one the ledger actually
+    /// writes, or the instruction points at nothing.
+    #[test]
+    fn the_contract_and_the_ledger_agree_on_the_header() {
+        let cs = crate::agent::AgentChangeSet {
+            operations: vec![crate::agent::AgentOp::SetProperty {
+                control_id: "Lbl-Sub".to_owned(),
+                key: "Caption".to_owned(),
+                value: serde_json::Value::String("x".to_owned()),
+            }],
+            note: None,
+        };
+        let ledger = crate::agent::outcome_ledger(&cs, &[None]);
+        assert!(
+            ledger.starts_with("CHANGE-SET OUTCOME"),
+            "the ledger must open with the header the contract names: {ledger}"
+        );
+    }
+
+    /// An absent record must be reported as absent. A reconstructed reason and
+    /// a real one are indistinguishable to the developer, which makes the
+    /// invented one the more damaging of the two.
+    #[test]
+    fn the_contract_forbids_inventing_a_reason() {
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("no record of that change"));
+        assert!(RESPONSE_ROUTING_CONTRACT.contains("an invented reason is worse than an absent one"));
     }
 }

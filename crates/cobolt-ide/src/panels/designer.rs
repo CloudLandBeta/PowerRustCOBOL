@@ -6648,6 +6648,17 @@ impl DesignerPanel {
 
                                 // Try to parse it as operations
                                 if let Ok(cs) = crate::agent::parse_change_set(&text) {
+                                    // Judged against the form as it stands NOW,
+                                    // before anything is applied — the same
+                                    // verdict `apply_agent_change_set` reaches
+                                    // internally, taken here while it is still
+                                    // reachable. `validate` is pure, so asking
+                                    // twice costs nothing and keeps the apply
+                                    // path's signature alone.
+                                    let ledger = crate::agent::outcome_ledger(
+                                        &cs,
+                                        &crate::agent::validate(&cs, &self.form),
+                                    );
                                     let applied = self.apply_agent_change_set(&cs);
                                     // Snapshot the post-change UI so the next
                                     // agent turn can verify its own edits
@@ -6662,7 +6673,17 @@ impl DesignerPanel {
                                     }
 
                                     let mut combined_note = String::new();
+                                    // The account of what was and was not done
+                                    // leads, so it survives any later trimming
+                                    // of the turn and is the first thing Grace
+                                    // reads when asked about this change.
+                                    if !ledger.is_empty() {
+                                        combined_note.push_str(&ledger);
+                                    }
                                     if !messages.is_empty() {
+                                        if !combined_note.is_empty() {
+                                            combined_note.push_str("\n\n");
+                                        }
                                         combined_note.push_str(&messages.join("\n"));
                                     }
                                     if let Some(n) = cs.note {

@@ -71,6 +71,76 @@ pub enum AgentOp {
     Message { message: String },
 }
 
+/// One line naming what an operation was going to do, without its payload.
+///
+/// Identifiers only — never the handler body or a property's full value. This
+/// text is written into the chat history, and the chat history becomes part of
+/// the next request's context, so a handler pasted in here would be paid for on
+/// every later turn.
+fn op_headline(op: &AgentOp) -> String {
+    match op {
+        AgentOp::DeployControl { control_type, id, .. } => format!(
+            "deploy_control {control_type} {}",
+            id.as_deref().unwrap_or("(designer-named)")
+        ),
+        AgentOp::SetProperty { control_id, key, .. } => {
+            format!("set_property {control_id}::{key}")
+        }
+        AgentOp::GenerateEventHandler { control_id, event, .. } => {
+            format!("generate_event_handler {control_id}::{event}")
+        }
+        AgentOp::CreateProcedure { name, .. } => format!("create_procedure {name}"),
+        AgentOp::SetFormStructure { block, .. } => format!("set_form_structure {block}"),
+        AgentOp::Message { .. } => "message".to_owned(),
+    }
+}
+
+/// What a change-set actually did — and what it did NOT do, and why.
+///
+/// [`validate`] already decides both, per operation, and returns the refusal
+/// reason for each one it turns away. Until now only the COUNT of applied
+/// operations survived: the chat recorded "Applied 1 changes." and every reason
+/// was discarded. So when a developer later asked why one of six handlers was
+/// missing, the answer existed nowhere Grace could read it, and she could only
+/// guess (operator, 2026-09-07: she "must be able to answer questions about the
+/// changes she did and why, as well the ones she didn't and why").
+///
+/// The ledger goes into the chat history, which is the RECENT CONVERSATION of
+/// the next request — so the account is in her context the next time she is
+/// asked, as evidence rather than recollection.
+///
+/// `status` is [`validate`]'s output for the SAME change-set, in the same order.
+/// Returns an empty string when there is nothing worth recording.
+pub fn outcome_ledger(cs: &AgentChangeSet, status: &[Option<String>]) -> String {
+    let mut applied: Vec<String> = Vec::new();
+    let mut refused: Vec<String> = Vec::new();
+    for (i, op) in cs.operations.iter().enumerate() {
+        if matches!(op, AgentOp::Message { .. }) {
+            continue;
+        }
+        match status.get(i).and_then(|s| s.as_ref()) {
+            None => applied.push(op_headline(op)),
+            Some(why) => refused.push(format!("{} — {why}", op_headline(op))),
+        }
+    }
+    if applied.is_empty() && refused.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "CHANGE-SET OUTCOME (what was applied, and what was not and why — \
+         answer from this when asked):",
+    );
+    for line in &applied {
+        out.push_str("\n- applied: ");
+        out.push_str(line);
+    }
+    for line in &refused {
+        out.push_str("\n- NOT applied: ");
+        out.push_str(line);
+    }
+    out
+}
+
 /// The five raw-COBOL blocks a `set_form_structure` operation may target,
 /// matching the COBOL Structure panel's own sections. Returns the canonical
 /// spelling, or `None` when the name is not one of them.
@@ -3722,5 +3792,105 @@ mod block_literal_change_set_tests {
     #[test]
     fn a_reply_without_json_is_still_rejected() {
         assert!(parse_change_set("I could not do that.").is_err());
+    }
+}
+
+#[cfg(test)]
+mod outcome_ledger_tests {
+    use super::*;
+
+    fn handler(id: &str) -> AgentOp {
+        AgentOp::GenerateEventHandler {
+            control_id: id.to_owned(),
+            event: "onClick".to_owned(),
+            code: "       ENVIRONMENT DIVISION.\n       PROCEDURE DIVISION.\n           CONTINUE.".to_owned(),
+        }
+    }
+
+    /// The operator's case: six handlers asked for, one refused. Grace must be
+    /// able to say which, and why, when asked afterwards.
+    #[test]
+    fn the_ledger_names_what_was_refused_and_the_reason() {
+        let cs = AgentChangeSet {
+            operations: vec![handler("Btn-Lang-EN"), handler("Btn-Lang-PT")],
+            note: None,
+        };
+        let status = vec![None, Some("control 'Btn-Lang-PT' does not exist".to_owned())];
+        let ledger = outcome_ledger(&cs, &status);
+
+        assert!(ledger.contains("- applied: generate_event_handler Btn-Lang-EN::onClick"));
+        assert!(ledger.contains("- NOT applied: generate_event_handler Btn-Lang-PT::onClick"));
+        assert!(
+            ledger.contains("control 'Btn-Lang-PT' does not exist"),
+            "the IDE's own reason is the evidence and must be carried verbatim: {ledger}"
+        );
+    }
+
+    /// The ledger is written into the chat history, and the chat history is part
+    /// of every later request — so it must carry identifiers, never payloads. A
+    /// handler body quoted here would be paid for on every subsequent turn.
+    #[test]
+    fn the_ledger_never_carries_a_handler_body() {
+        let cs = AgentChangeSet {
+            operations: vec![handler("Btn-Lang-EN")],
+            note: None,
+        };
+        let ledger = outcome_ledger(&cs, &[None]);
+        assert!(
+            !ledger.contains("ENVIRONMENT DIVISION"),
+            "the code must stay out of the ledger: {ledger}"
+        );
+        assert!(ledger.len() < 200, "the ledger must stay small: {ledger}");
+    }
+
+    /// A conversational reply changes nothing, so it earns no ledger — a bare
+    /// "CHANGE-SET OUTCOME:" header with no entries would be noise in every
+    /// later context.
+    #[test]
+    fn a_message_only_reply_produces_no_ledger() {
+        let cs = AgentChangeSet {
+            operations: vec![AgentOp::Message { message: "Which button?".to_owned() }],
+            note: None,
+        };
+        assert!(outcome_ledger(&cs, &[None]).is_empty());
+        assert!(outcome_ledger(&AgentChangeSet { operations: vec![], note: None }, &[]).is_empty());
+    }
+
+    /// Every operation kind is named by its identifiers, so an answer can quote
+    /// the one the developer is asking about.
+    #[test]
+    fn every_operation_kind_is_named() {
+        let cs = AgentChangeSet {
+            operations: vec![
+                AgentOp::DeployControl {
+                    control_type: "Button".to_owned(),
+                    id: Some("BTN-OK".to_owned()),
+                    parent_id: None,
+                    parent: None,
+                    properties: serde_json::Map::new(),
+                },
+                AgentOp::SetProperty {
+                    control_id: "Lbl-Sub".to_owned(),
+                    key: "Caption".to_owned(),
+                    value: serde_json::Value::String("x".to_owned()),
+                },
+                AgentOp::CreateProcedure { name: "RECALC".to_owned(), code: String::new() },
+                AgentOp::SetFormStructure { block: "SPECIAL-NAMES".to_owned(), code: String::new() },
+            ],
+            note: None,
+        };
+        let ledger = outcome_ledger(&cs, &[None, None, None, None]);
+        for expected in [
+            "deploy_control Button BTN-OK",
+            "set_property Lbl-Sub::Caption",
+            "create_procedure RECALC",
+            "set_form_structure SPECIAL-NAMES",
+        ] {
+            assert!(ledger.contains(expected), "{expected:?} missing from {ledger}");
+        }
+        assert!(
+            !ledger.contains("\"x\""),
+            "a property VALUE is payload, not an identifier: {ledger}"
+        );
     }
 }

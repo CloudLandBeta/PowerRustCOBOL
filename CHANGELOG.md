@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.54] — 2026-09-07
+
+### Grace can now say what she changed, and what she did not, and why
+
+Asked afterwards why one of six handlers was missing, Grace had nothing to
+answer from. The reason existed — `validate` decides every operation
+individually and returns the refusal text for each one it turns away — but only
+the COUNT survived. The chat recorded *"Applied 1 changes."* and every reason was
+discarded on the spot, so the account she needed was gone before the question
+could be asked.
+
+**The reasons now reach the conversation.** An applied change-set writes a
+`CHANGE-SET OUTCOME` block into the chat history, one line per operation:
+
+```
+CHANGE-SET OUTCOME (what was applied, and what was not and why — answer from this when asked):
+- applied: generate_event_handler Btn-Lang-EN::onClick
+- NOT applied: generate_event_handler Btn-Lang-PT::onClick — control 'Btn-Lang-PT' does not exist
+```
+
+The chat history is the RECENT CONVERSATION of the next request, so the account
+is in Grace's context the next time she is asked — as evidence, not
+recollection.
+
+**Identifiers only, never payloads.** The ledger names the operation and its
+control, event, property or block, and stops there. It is carried into every
+later turn, so a handler body quoted in it would be paid for again on each one.
+A test asserts no `ENVIRONMENT DIVISION` reaches it and that a property's VALUE
+does not either.
+
+**The contract points her at it.** `RESPONSE_ROUTING_CONTRACT` gains a rule for
+"what did you do?", "why did you change X?", "why is Y still missing?": answer
+from the record, quote the IDE's own refusal reason, and never present a refused
+operation as though it had gone through. And when there is no record — the change
+predates the conversation, or was made outside this chat — **say so** rather than
+reconstructing a plausible account. An invented reason and a real one look
+identical to the developer, which is what makes the invented one worse than
+silence.
+
+Seven tests, including one that pins the contract and the ledger to the SAME
+header — an instruction pointing at a block that is not written is worse than no
+instruction, because it reads as satisfied. IDE suite 1099 passed / 0 failed.
+
+**Classified as a fix.** Grace's own prompt already promises this under
+*Auditability and Observability* — "decisions, actions, inputs, outputs, and
+validation results must remain traceable". The machinery computed the verdicts
+and threw them away, so the promise was not kept. This keeps it; it adds no
+widget, panel, language extension or platform.
+
 ## [PowerRustCOBOL 1.65.53] — 2026-09-07
 
 ### The agents write the fences correctly now — and the change-set parser choked on them
