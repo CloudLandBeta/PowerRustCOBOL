@@ -2314,7 +2314,7 @@ pub fn run_grace_workflow_with_control(
     let plan_user = format!(
         "{plan_user}\n\n{RESPONSE_ROUTING_CONTRACT}"
     );
-    on_progress("Grace is reading the request…".into());
+    on_progress("Grace is processing the request…".into());
     emit_action(AgentAction::now(GRACE, ActionKind::Planning, ""));
     let plan_reply = invoker.invoke(GRACE, "", &plan_user)?;
     // Typed plan (Rig migration phase 3): deterministic parse first, then

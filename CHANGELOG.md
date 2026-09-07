@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.48] — 2026-09-07
+
+### Grace says she is processing the request, not reading it
+
+The progress line at the start of a Grace run read "Grace is reading the
+request…". It covers the whole planning invocation — she weighs the request
+against the contracts and decides between a direct answer, questions back to the
+developer, or a workflow plan — so "processing" describes it and "reading"
+undersells it (operator, 2026-09-07).
+
+One literal in `grace_host.rs`. The progress lines around it are hardcoded
+English, not `Tr` fields, so there is nothing to translate.
+
+`specs/036-agent-progress-transparency/plan.md` quotes the old wording as the
+landmark for the `Planning` emission point. Left as written: it is the record of
+what was planned at the time, and rewriting a finished spec to track a later
+reword would falsify it rather than improve it.
+
 ## [PowerRustCOBOL 1.65.47] — 2026-09-07
 
 ### F12 recordings now run to ten minutes
