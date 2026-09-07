@@ -190,6 +190,12 @@ pub fn body_for(req: &AskRequest, protocol: Protocol) -> String {
 /// should not turn a good reply into an error. A provider's own `error` field
 /// is reported as the error even on a 200, which some of them do.
 pub fn parse_reply(status: u16, body: &str) -> Result<String, String> {
+    // Nothing came back at all. Saying "not JSON" about an empty string is
+    // technically true and sends the reader to their provider's response
+    // format, which is the one place the fault is not (operator, 2026-09-07).
+    if body.trim().is_empty() {
+        return Err(format!("HTTP {status}: the reply was empty"));
+    }
     let json: serde_json::Value = match serde_json::from_str(body) {
         Ok(v) => v,
         Err(_) => {

@@ -144,6 +144,30 @@ fn permissive_tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
 /// `COBOL-HTTP-*` CALLs, the Maps and search bridges), so their behaviour is
 /// untouched.
 #[cfg(feature = "http")]
+/// The response body — or a description of why it could not be read.
+///
+/// `into_string()` fails when the transfer is cut short, and the commonest way
+/// to cut one short is the request's own overall timeout firing WHILE the
+/// server is still writing. Every call site used to discard that error
+/// (`unwrap_or_default()`), which handed the caller an EMPTY body under the
+/// real status code — a perfectly successful-looking HTTP 200 with nothing in
+/// it. Downstream that reads as a protocol fault: the AgentObject reported
+/// "the reply was not JSON" for what was actually a model still talking when
+/// the clock ran out, and the developer who had just raised `MaximumTokens`
+/// went looking at their provider instead of at `TimeoutSeconds`
+/// (operator, 2026-09-07).
+///
+/// The read error now travels as the body. It is not JSON either, but it says
+/// what happened, and the status is unchanged so a caller that only branches on
+/// the code behaves exactly as before.
+fn body_of(resp: ureq::Response) -> String {
+    let status = resp.status();
+    match resp.into_string() {
+        Ok(body) => body,
+        Err(e) => format!("HTTP {status}: the response body could not be read — {e}"),
+    }
+}
+
 fn agent_configured(timeout_ms: u64, follow_redirects: bool, verify_tls: bool) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
     if timeout_ms > 0 {
@@ -310,11 +334,11 @@ impl HttpClient {
         match req.call() {
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, code)
             }
             Err(e) => (format!("HTTP GET error: {e}"), 0),
@@ -344,11 +368,11 @@ impl HttpClient {
         match req.call() {
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, code)
             }
             Err(e) => (format!("HTTP DELETE error: {e}"), 0),
@@ -422,11 +446,11 @@ impl HttpClient {
         match req.set("Content-Type", content_type).send_string(body) {
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, code)
             }
             Err(e) => (format!("HTTP {method} error: {e}"), 0),
@@ -438,11 +462,11 @@ impl HttpClient {
         match req.call() {
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, code)
             }
             Err(e) => (format!("HTTP {label} error: {e}"), 0),
@@ -493,11 +517,11 @@ impl HttpClient {
         match result {
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, code)
             }
             Err(e) => (format!("HTTP {method} error: {e}"), 0),
@@ -559,11 +583,11 @@ impl HttpClient {
         match req.set("Content-Type", content_type).send_string(body) {
             Ok(resp) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, status)
             }
             Err(ureq::Error::Status(code, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+                let body = body_of(resp);
                 (body, code)
             }
             Err(e) => (format!("HTTP {method} error: {e}"), 0),

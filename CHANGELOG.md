@@ -1,5 +1,50 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.62] — 2026-09-07
+
+### The form filled its own event queue with mouse noise
+
+Raising an AgentObject's `MaximumTokens` from 400 to 8192 made the demo answer
+the first few questions and then stop. The token count was not the fault — it
+was the stopwatch.
+
+`onMouseMove` and `onPointerMove` are not discrete acts. They fire on every
+frame the pointer moves, two per frame, ~120 a second, and the host queued all
+of them **whether or not the form had ever bound one**. The interpreter retires
+exactly ONE event per `COBOL-WAIT-EVENT`, so the queue stays short only while
+the interpreter is free to drain it — and a synchronous `Ask` is precisely when
+it is not: that thread sits inside the HTTP call for the whole answer,
+consuming nothing, while the pointer keeps writing.
+
+At 400 tokens a call took a couple of seconds and left a few hundred stale
+events, drained in a blink. At 8192 it runs ten to thirty times longer and
+leaves thousands, every question, compounding. `onResponse` itself jumps the
+queue (the async dispatch is popped ahead of any UI event), which is exactly
+why the first few answers landed and the later ones did not. Timers stopped
+too: a tick is coalesced away whenever the backlog is 8 or more.
+
+The host now drops a motion event nothing is bound to, before it is queued and
+before it is counted against the backlog. **Only motion, and only when
+unbound** — every other event is a discrete act and reaches the interpreter
+exactly as it did. A form that binds `onMouseMove` still gets every one of
+them; asking for the firehose is a decision the developer is allowed to make.
+The filter lives in `cobolt-form-host`, so `rcrun run-form` and the compiled
+binary both get it (the interpreter-binary-parity rule).
+
+### A timeout mid-answer was reported as a broken provider
+
+`Response::into_string()` fails when a transfer is cut short, and the commonest
+way to cut one short is the request's own timeout firing while the server is
+still writing. Every HTTP call site discarded that error with
+`unwrap_or_default()`, handing the caller an EMPTY body under the real status
+code — a perfectly successful-looking HTTP 200 with nothing in it, which the
+AgentObject then reported as "the reply was not JSON". A developer who had just
+raised `MaximumTokens` past what `TimeoutSeconds` allows was told their
+provider speaks a format we cannot read.
+
+The read failure now travels as the body and says what happened. An empty reply
+is reported as empty rather than as bad JSON, for the same reason.
+
 ## [PowerRustCOBOL 1.65.61] — 2026-09-07
 
 ### The property pane's border was never the border you could drag

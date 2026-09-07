@@ -197,3 +197,27 @@ fn an_error_body_is_clipped_to_one_bounded_line() {
     assert!(e.chars().count() < 320, "{} chars", e.chars().count());
     assert!(!e.contains('\n'));
 }
+
+/// An empty reply says so. It used to be reported as "the reply was not JSON",
+/// which is true of the empty string and useless as a diagnosis — the body is
+/// empty because the transfer produced nothing, not because the provider
+/// speaks a format we cannot read.
+#[test]
+fn an_empty_reply_is_reported_as_empty_not_as_bad_json() {
+    for body in ["", "   ", "\n\n"] {
+        let err = cobolt_runtime::agent_runtime::parse_reply(200, body)
+            .expect_err("an empty body is not a reply");
+        assert!(
+            err.contains("the reply was empty"),
+            "empty body reported as {err:?}"
+        );
+        assert!(
+            !err.contains("not JSON"),
+            "empty body still blamed on JSON: {err:?}"
+        );
+    }
+    // A body that IS present but malformed still points at the format.
+    let err = cobolt_runtime::agent_runtime::parse_reply(200, "{not json")
+        .expect_err("malformed JSON is not a reply");
+    assert!(err.contains("not JSON"), "malformed body reported as {err:?}");
+}

@@ -467,6 +467,7 @@ impl FormHost {
                 theme_pack,
                 surface_theme,
                 glass_style,
+                motion_bound: motion_bindings(&form_object, &form.form_events, &flat),
                 controls: flat,
                 special_names: form.cobol_structure.special_names.clone(),
                 state,
@@ -580,6 +581,45 @@ impl FormHost {
 /// channels, animation clocks and per-form lifecycle one-shots. The root
 /// window holds one; each child window and each pane occupant holds its own,
 /// all rendered through the same frame path — one renderer, N forms.
+/// The lookup key one control-and-event pair gets in [`FormBody::motion_bound`].
+///
+/// A COBOL word reaches the runtime upper-cased and an event name is written
+/// however the designer typed it, so both halves are folded before comparing.
+pub(crate) fn motion_key(ctrl: &str, event: &str) -> String {
+    format!(
+        "{}\u{1}{}",
+        ctrl.trim().to_ascii_uppercase(),
+        event.trim().to_ascii_lowercase()
+    )
+}
+
+/// Every pointer-motion event this form has a handler for — the form's own
+/// bindings and each control's.
+///
+/// A binding with an EMPTY body still counts: the developer wrote the handler,
+/// and an empty one is a handler they have not filled in yet, not permission to
+/// throw their events away.
+pub(crate) fn motion_bindings(
+    form_object: &str,
+    form_events: &[cobolt_forms::model::EventBinding],
+    controls: &[cobolt_forms::Control],
+) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for b in form_events {
+        if cobolt_forms::diagnostics::is_motion_event(&b.event) {
+            out.insert(motion_key(form_object, &b.event));
+        }
+    }
+    for c in controls {
+        for b in &c.events {
+            if cobolt_forms::diagnostics::is_motion_event(&b.event) {
+                out.insert(motion_key(&c.id, &b.event));
+            }
+        }
+    }
+    out
+}
+
 pub(crate) struct FormBody {
     pub(crate) form_name: String,
     /// `drawn_rects` has already been reported for this body — it is printed
@@ -596,6 +636,25 @@ pub(crate) struct FormBody {
     pub(crate) surface_theme: std::sync::Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>,
     pub(crate) glass_style: cobolt_forms::model::GlassStyle,
     pub(crate) controls: Vec<cobolt_forms::Control>,
+    /// Which per-frame POINTER-MOTION events actually have a handler behind
+    /// them, keyed `"CTRL-ID-UPPERCASED\u{1}eventlowercased"`.
+    ///
+    /// Every other event is a discrete act — a click, a key, a close — and one
+    /// per act is one event. `onMouseMove`/`onPointerMove` are not: they fire
+    /// on every frame the pointer moves, two per frame, ~120 a second, and
+    /// [`Self::send_event`] used to queue all of them whether or not the form
+    /// had ever bound one. The interpreter retires exactly ONE event per
+    /// `COBOL-WAIT-EVENT`, so the queue only stays short while the interpreter
+    /// is free to drain it. A synchronous `AgentObject::Ask` is precisely when
+    /// it is not: the thread sits inside the HTTP call for the whole answer,
+    /// consuming nothing, while the pointer keeps writing. Raising
+    /// `MaximumTokens` from 400 to 8192 turned a two-second call into a
+    /// half-minute one and the backlog with it — the form answered the first
+    /// few questions and then never caught up, and Timer ticks stopped too
+    /// (they are coalesced away whenever `pending` is this far behind)
+    /// (operator, 2026-09-07: "it works for the first very few questions, then
+    /// it stops").
+    pub(crate) motion_bound: std::collections::HashSet<String>,
     /// The form's `SPECIAL-NAMES` paragraph, verbatim. A control's `Picture`
     /// takes its decimal separator and currency character from here, so the
     /// running form reads `DECIMAL-POINT IS COMMA` exactly as the generated
@@ -1054,6 +1113,14 @@ impl FormBody {
     }
 
     pub(crate) fn send_event(&mut self, ev: FormEvent) {
+        // An unbound motion event is pure backlog: nothing runs when it is
+        // dispatched, and the interpreter pays a full `COBOL-WAIT-EVENT` round
+        // trip to find that out. See `motion_bound`.
+        if cobolt_forms::diagnostics::is_motion_event(&ev.event_id)
+            && !self.motion_bound.contains(&motion_key(&ev.ctrl_id, &ev.event_id))
+        {
+            return;
+        }
         crate::diagnostics::trace_event("send", &ev.ctrl_id, &ev.event_id, ev.instance_index);
         if self.ev_tx.send(ev).is_ok() {
             self.pending.fetch_add(1, Ordering::Relaxed);
@@ -2830,6 +2897,7 @@ impl FormHost {
             theme_pack,
             surface_theme,
             glass_style: form.glass_style,
+            motion_bound: motion_bindings(&form_object, &form.form_events, &flat),
             controls: flat,
             special_names: form.cobol_structure.special_names.clone(),
             state,
@@ -5378,6 +5446,95 @@ mod parity {
         );
     }
 
+    /// **A motion event nobody handles is never queued.**
+    ///
+    /// `onMouseMove`/`onPointerMove` fire twice a frame for as long as the
+    /// pointer moves. The interpreter retires ONE event per
+    /// `COBOL-WAIT-EVENT`, so while it is busy — a synchronous
+    /// `AgentObject::Ask` is the case that found this — the queue grows by
+    /// ~120 a second and never comes back. The form answered the first few
+    /// questions and then stopped (operator, 2026-09-07).
+    ///
+    /// Only motion is filtered, and only when unbound: every other event is a
+    /// discrete act and stays exactly as it was.
+    #[test]
+    fn an_unbound_motion_event_is_not_queued_but_everything_else_still_is() {
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let mut body = timer_body(ev_tx, input_tx, Arc::clone(&pending));
+        body.motion_bound = std::collections::HashSet::new(); // binds nothing
+
+        for ev in ["onMouseMove", "onPointerMove"] {
+            body.send_event(FormEvent::new("TIMER-FORM".to_owned(), ev));
+        }
+        assert!(
+            ev_rx.try_iter().next().is_none(),
+            "an unbound motion event reached the interpreter"
+        );
+        assert_eq!(
+            pending.load(Ordering::Relaxed),
+            0,
+            "a dropped event must not be counted against the backlog"
+        );
+
+        // The filter is motion-only: a click with no handler still goes, exactly
+        // as before. Narrowing THIS would change dispatch for every control.
+        for ev in ["onClick", "onKeyDown", "onTick", "onChange"] {
+            body.send_event(FormEvent::new("TIMER-FORM".to_owned(), ev));
+        }
+        let got: Vec<String> = ev_rx.try_iter().map(|e| e.event_id).collect();
+        assert_eq!(got, vec!["onClick", "onKeyDown", "onTick", "onChange"]);
+        assert_eq!(pending.load(Ordering::Relaxed), 4);
+    }
+
+    /// A form that DOES bind motion still gets every one of them: the developer
+    /// asked for the firehose.
+    #[test]
+    fn a_bound_motion_event_is_delivered_whatever_the_spelling() {
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let mut body = timer_body(ev_tx, input_tx, Arc::clone(&pending));
+        body.motion_bound = motion_bindings(
+            "TIMER-FORM",
+            &[cobolt_forms::model::EventBinding::new("onMouseMove", "")],
+            &[],
+        );
+
+        // A COBOL word arrives upper-cased and the designer's spelling is what
+        // the .cfrm holds — the key folds both, so either reaches the handler.
+        for ctrl in ["TIMER-FORM", "Timer-Form"] {
+            body.send_event(FormEvent::new(ctrl.to_owned(), "onMouseMove"));
+        }
+        // …and the sibling motion event, unbound, is still dropped.
+        body.send_event(FormEvent::new("TIMER-FORM".to_owned(), "onPointerMove"));
+
+        let got: Vec<String> = ev_rx.try_iter().map(|e| e.event_id).collect();
+        assert_eq!(got, vec!["onMouseMove", "onMouseMove"]);
+        assert_eq!(pending.load(Ordering::Relaxed), 2);
+    }
+
+    /// The set is built from the form's own bindings AND every control's.
+    #[test]
+    fn motion_bindings_reads_the_form_and_its_controls() {
+        let mut btn = cobolt_forms::Control::new("Btn-Go", cobolt_forms::ControlType::Button, 0, 0);
+        btn.events = vec![
+            cobolt_forms::model::EventBinding::new("onPointerMove", ""),
+            // Not motion — must not enter the set.
+            cobolt_forms::model::EventBinding::new("onClick", ""),
+        ];
+        let set = motion_bindings(
+            "MY-FORM",
+            &[cobolt_forms::model::EventBinding::new("onMouseMove", "")],
+            &[btn],
+        );
+        assert!(set.contains(&motion_key("my-form", "ONMOUSEMOVE")));
+        assert!(set.contains(&motion_key("BTN-GO", "onpointermove")));
+        assert!(!set.contains(&motion_key("Btn-Go", "onClick")));
+        assert_eq!(set.len(), 2);
+    }
+
     /// A body with one Timer, wired to test channels.
     fn timer_body(
         ev_tx: mpsc::Sender<FormEvent>,
@@ -5394,6 +5551,7 @@ mod parity {
             theme_pack: None,
             surface_theme: cobolt_forms::surface_theme::liquid_glass(),
             glass_style: cobolt_forms::model::GlassStyle::default(),
+            motion_bound: std::collections::HashSet::new(),
             controls: vec![timer],
             special_names: String::new(),
             state: HashMap::new(),
