@@ -1,5 +1,63 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.58] — 2026-09-07
+
+### Verbose means verbatim, and the form's mouse stops drowning it
+
+Two corrections to 1.65.56/57, both from watching the operator try to use them.
+
+**1. Verbose was summarising.** It clipped the prompt and the reply to 160
+characters, flattened their newlines, and never showed the URL's payload, the
+headers or the raw response at all. That is a summary, and a summary cannot be
+compared against what a provider's documentation says should be there. It now
+prints, unclipped and unflattened:
+
+```
+[agent AGENT-HELPER] ── request ──────────────────────
+[agent AGENT-HELPER] POST https://ollama.com/api/chat
+[agent AGENT-HELPER] protocol: OllamaChat
+[agent AGENT-HELPER] timeout: 60000 ms
+[agent AGENT-HELPER] header: Content-Type: application/json
+[agent AGENT-HELPER] header: Authorization: Bearer …
+[agent AGENT-HELPER] (this log contains the API key — do not paste it into a bug report)
+[agent AGENT-HELPER] payload:
+[agent AGENT-HELPER]   {"messages":[…],"model":"gemma4:31b","options":{…},"stream":false}
+[agent AGENT-HELPER] ── response ─────────────────────
+[agent AGENT-HELPER] status: 200
+[agent AGENT-HELPER] body:
+[agent AGENT-HELPER]   {"model":"gemma4:31b","message":{"role":"assistant","content":"…"},…}
+[agent AGENT-HELPER] reply:
+[agent AGENT-HELPER]   …the whole reply, every line of it…
+[agent AGENT-HELPER] LastReply set — onResponse will fire
+```
+
+The **raw response body is printed before anything is read out of it**. When the
+parse disagrees with what the provider sent, that is the only place the
+disagreement is visible.
+
+The Authorization header is printed **with the key**. A key that is wrong by one
+character is invisible once masked, and finding that is most of what this switch
+is for; the switch is opt-in and off by default, and the line after the headers
+says what the log now contains.
+
+**2. The form's pointer motion drowned it.** `onMouseMove` and `onPointerMove`
+fire on every frame the pointer is over the surface, and the event trace recorded
+every one — thousands of identical lines burying the agent output the operator
+was reading. `COBOLT_EVENT_TRACE=1|true|on` now excludes them; `all` or `full`
+brings them back for anyone actually debugging pointer delivery. Nothing else
+changes: a click, an enter, a wheel tick is one event per action and is still
+traced.
+
+The `clip` helper added in 1.65.56 is deleted with its last caller — it was added
+this session and never shipped in a release.
+
+Four tests: the level vocabulary, and that exactly the per-frame pair counts as
+motion while `onClick`, `onMouseEnter`, `onMouseLeave`, `onMouseDown` and
+`onMouseWheel` do not. cobolt-runtime 847 passed / 0 failed, IDE 1102 passed / 0
+failed, cobolt-forms 860 passed / 0 failed — one run of the forms suite hit the
+same pre-existing `assets::tests` flake recorded at 1.65.57 and was clean on
+rerun.
+
 ## [PowerRustCOBOL 1.65.57] — 2026-09-07
 
 ### AgentObject now makes the call

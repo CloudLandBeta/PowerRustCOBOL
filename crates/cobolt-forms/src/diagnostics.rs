@@ -36,11 +36,58 @@ use crate::{Control, Form};
 /// disagree with the first about when it is on.
 pub fn event_trace_enabled() -> bool {
     std::env::var("COBOLT_EVENT_TRACE")
-        .map(|v| {
-            let v = v.trim();
-            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
-        })
+        .map(|v| trace_level(&v).is_some())
         .unwrap_or(false)
+}
+
+/// How much the event trace records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraceLevel {
+    /// Everything except the per-frame pointer motion — the default, and what
+    /// `1` / `true` / `on` select.
+    Events,
+    /// Every event, motion included. `all` / `full`.
+    All,
+}
+
+/// The level named by `value`, or `None` when it does not enable the trace.
+pub fn trace_level(value: &str) -> Option<TraceLevel> {
+    let v = value.trim();
+    if v.eq_ignore_ascii_case("all") || v.eq_ignore_ascii_case("full") {
+        return Some(TraceLevel::All);
+    }
+    if v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on") {
+        return Some(TraceLevel::Events);
+    }
+    None
+}
+
+/// Events that fire on EVERY frame the pointer is over the surface.
+///
+/// They are excluded from the trace unless it is set to `all`. A trace exists to
+/// show the order of `send` against `dispatch` for the event being debugged, and
+/// motion drowns that: a few seconds of an idle mouse buries the line that
+/// matters under thousands of identical ones, and the operator's agent output
+/// with it (operator, 2026-09-07). Nobody debugs delivery ordering by reading
+/// pointer motion; anyone who needs it asks for `all`.
+const MOTION_EVENTS: &[&str] = &["onmousemove", "onpointermove"];
+
+/// Whether this event is recorded at the current level.
+pub fn event_is_traced(event_id: &str) -> bool {
+    match std::env::var("COBOLT_EVENT_TRACE")
+        .ok()
+        .and_then(|v| trace_level(&v))
+    {
+        None => false,
+        Some(TraceLevel::All) => true,
+        Some(TraceLevel::Events) => !is_motion_event(event_id),
+    }
+}
+
+/// Whether `event_id` names a per-frame pointer-motion event.
+pub fn is_motion_event(event_id: &str) -> bool {
+    let id = event_id.trim().to_ascii_lowercase();
+    MOTION_EVENTS.contains(&id.as_str())
 }
 
 /// Where the event trace is also written, so it survives the terminal.
@@ -62,7 +109,7 @@ pub fn event_trace_path() -> std::path::PathBuf {
 /// opened in append mode per line: ordering between the two stages is the whole
 /// point of the trace, and a buffered writer per thread would reorder it.
 pub fn trace_event(stage: &str, ctrl_id: &str, event_id: &str, instance: usize) {
-    if !event_trace_enabled() {
+    if !event_is_traced(event_id) {
         return;
     }
     let line =
@@ -381,5 +428,47 @@ mod event_trace_tests {
             !event_trace_enabled(),
             "COBOLT_EVENT_TRACE must be opt-in; it writes to stderr and a file"
         );
+    }
+}
+
+#[cfg(test)]
+mod trace_level_tests {
+    use super::*;
+
+    /// Per-frame pointer motion is excluded unless the trace is set to `all`.
+    ///
+    /// An idle mouse over a form emits `onMouseMove` and `onPointerMove` every
+    /// frame, and a few seconds of that buries whatever is being debugged —
+    /// including an AgentObject's verbose output, which is what the operator
+    /// was actually reading when the flood arrived (2026-09-07).
+    #[test]
+    fn motion_is_excluded_until_the_trace_is_set_to_all() {
+        assert_eq!(trace_level("1"), Some(TraceLevel::Events));
+        assert_eq!(trace_level("true"), Some(TraceLevel::Events));
+        assert_eq!(trace_level("on"), Some(TraceLevel::Events));
+        assert_eq!(trace_level("all"), Some(TraceLevel::All));
+        assert_eq!(trace_level("FULL"), Some(TraceLevel::All));
+        assert_eq!(trace_level("0"), None);
+        assert_eq!(trace_level(""), None);
+    }
+
+    /// Exactly the per-frame pair, and nothing that fires on a real gesture:
+    /// a click, an enter or a wheel tick is one event per action and belongs in
+    /// the trace.
+    #[test]
+    fn only_the_per_frame_pair_counts_as_motion() {
+        for id in ["onMouseMove", "onmousemove", "onPointerMove", " onPointerMove "] {
+            assert!(is_motion_event(id), "{id} is per-frame motion");
+        }
+        for id in [
+            "onClick",
+            "onMouseEnter",
+            "onMouseLeave",
+            "onMouseDown",
+            "onMouseWheel",
+            "onResponse",
+        ] {
+            assert!(!is_motion_event(id), "{id} fires once per action, not per frame");
+        }
     }
 }

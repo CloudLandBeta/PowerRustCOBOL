@@ -10513,17 +10513,55 @@ impl Interpreter {
             verify_tls: true,
             headers: ag::headers_for(&req, protocol),
         };
-        if self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true") {
-            self.agent_log(format!("[agent {obj}] POST {url} ({protocol:?})"));
+        let verbose = self.agent_is_verbose(obj);
+        if verbose {
+            // Everything that goes on the wire, exactly as it goes. The header
+            // list includes the Authorization line WITH the key: a key that is
+            // wrong by a character is invisible once masked, and finding that
+            // is most of what this switch is for. It is opt-in and off by
+            // default; the warning says what the output now contains.
+            self.agent_log(format!("[agent {obj}] ── request ──────────────────────"));
+            self.agent_log(format!("[agent {obj}] POST {url}"));
+            self.agent_log(format!("[agent {obj}] protocol: {protocol:?}"));
+            self.agent_log(format!(
+                "[agent {obj}] timeout: {} ms",
+                cfg.timeout_ms
+            ));
+            for (name, value) in &cfg.headers {
+                self.agent_log(format!("[agent {obj}] header: {name}: {value}"));
+            }
+            if cfg.headers.iter().any(|(n, _)| {
+                n.eq_ignore_ascii_case("authorization") || n.eq_ignore_ascii_case("x-api-key")
+            }) {
+                self.agent_log(format!(
+                    "[agent {obj}] (this log contains the API key — do not paste it into a bug report)"
+                ));
+            }
+            let body_text = body.clone();
+            self.agent_log_block(obj, "payload", &body_text);
         }
         // `Busy` is honest for the length of the call: another thread reading
         // `IsBusy()` while this one waits gets the truth.
         self.obj_set(obj, "Busy", "1".to_owned());
         let (reply_body, status) = self.http.send_configured("POST", &url, Some(&body), &cfg);
         self.obj_set(obj, "Busy", "0".to_owned());
+        if verbose {
+            self.agent_log(format!("[agent {obj}] ── response ─────────────────────"));
+            self.agent_log(format!("[agent {obj}] status: {status}"));
+            // The raw body, before anything is read out of it. When the parse
+            // disagrees with what the provider sent, this is the only place the
+            // disagreement is visible.
+            self.agent_log_block(obj, "body", &reply_body);
+        }
 
         match ag::parse_reply(status, &reply_body) {
             Ok(text) => {
+                if verbose {
+                    self.agent_log_block(obj, "reply", &text);
+                    self.agent_log(format!(
+                        "[agent {obj}] LastReply set — onResponse will fire"
+                    ));
+                }
                 self.obj_set(obj, "LastReply", text.clone());
                 self.obj_set(obj, "Result", text);
                 self.obj_set(obj, "LastError", String::new());
@@ -10540,52 +10578,40 @@ impl Interpreter {
     fn agent_failed(&mut self, obj: &str, message: &str) {
         self.obj_set(obj, "LastReply", String::new());
         self.obj_set(obj, "LastError", message.to_owned());
-        if self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true") {
-            self.agent_log(format!("[agent {obj}] FAILED: {message}"));
+        if self.agent_is_verbose(obj) {
+            self.agent_log_block(obj, "error", message);
+            self.agent_log(format!(
+                "[agent {obj}] LastError set, LastReply cleared — onError will fire"
+            ));
         }
         self.queue_control_event(obj, "onError");
     }
 
-    /// Narrate one `AgentObject::Ask` into the program's output.
+    /// Is this control's verbose switch on?
+    fn agent_is_verbose(&mut self, obj: &str) -> bool {
+        self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true")
+    }
+
+    /// Print a block of text under one label, one line per line of the text.
     ///
-    /// It reports what the control used and what came back. The second half is
-    /// the point: an `Ask` that returns nothing and an `Ask` that failed look
-    /// identical from a handler — both leave `LastReply` empty and neither
-    /// fires `onResponse`, which is guarded on a non-empty reply. This names
-    /// the reason, from `LastError` when there is one.
-    fn agent_verbose(&mut self, obj: &str, prompt: &str, reply: &str) {
-        let shown = |v: String| {
-            if v.trim().is_empty() {
-                "(unset)".to_owned()
-            } else {
-                v
-            }
-        };
-        let model = shown(self.obj_get(obj, "AgentModel"));
-        let url = shown(self.obj_get(obj, "AgentURL"));
-        let keyed = if self.obj_get(obj, "AgentAPIKey").trim().is_empty() {
-            "(unset)"
-        } else {
-            "(set)"
-        };
-        // The key itself is never printed — a log is copied into bug reports.
-        self.agent_log(format!("[agent {obj}] Ask model={model} url={url} key={keyed}"));
-        self.agent_log(format!("[agent {obj}] prompt: {}", clip(prompt)));
-        if reply.trim().is_empty() {
-            let why = self.obj_get(obj, "LastError");
-            let why = if why.trim().is_empty() {
-                "the provider returned an empty message".to_owned()
-            } else {
-                why
-            };
-            self.agent_log(format!(
-                "[agent {obj}] no reply, so onResponse did NOT fire — {why}"
-            ));
-        } else {
-            self.agent_log(format!(
-                "[agent {obj}] reply: {} — onResponse will fire",
-                clip(reply)
-            ));
+    /// Verbatim: no clipping, no flattening, no summary. A payload or a reply
+    /// is evidence, and evidence that has been shortened cannot be compared
+    /// against what the provider's own documentation says should be there
+    /// (operator, 2026-09-07: "the url, the payload, the headers, all of it,
+    /// and then response or the error, verbatim not summarized").
+    fn agent_log_block(&mut self, obj: &str, label: &str, text: &str) {
+        if text.is_empty() {
+            self.agent_log(format!("[agent {obj}] {label}: (empty)"));
+            return;
+        }
+        let lines: Vec<String> = text.lines().map(|l| l.to_owned()).collect();
+        if lines.len() == 1 {
+            self.agent_log(format!("[agent {obj}] {label}: {}", lines[0]));
+            return;
+        }
+        self.agent_log(format!("[agent {obj}] {label}:"));
+        for line in lines {
+            self.agent_log(format!("[agent {obj}]   {line}"));
         }
     }
 
@@ -12705,9 +12731,6 @@ impl Interpreter {
                 // debugging (operator, 2026-09-07: "I can't debug without
                 // this"). Off by default: this is a running program's output,
                 // not a trace nobody asked for.
-                if self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true") {
-                    self.agent_verbose(obj, &prompt, &reply);
-                }
                 // spec 021: a non-empty reply is a delivered response.
                 if !reply.trim().is_empty() {
                     self.queue_control_event(obj, "onResponse");
@@ -15379,23 +15402,6 @@ fn parse_chart_table(raw: &str, count: usize) -> Vec<(String, f64)> {
 }
 
 /// ANSI SGR prefix for a screen phrase's display attributes (`""` if none).
-/// A log-safe rendering of a prompt or reply: one line, bounded.
-///
-/// A prompt can be a whole block literal, and a reply a paragraph; either would
-/// bury the line that matters under text the developer already has.
-fn clip(text: &str) -> String {
-    let flat: String = text
-        .chars()
-        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
-        .collect();
-    let flat = flat.split_whitespace().collect::<Vec<_>>().join(" ");
-    if flat.chars().count() <= 160 {
-        return flat;
-    }
-    let head: String = flat.chars().take(159).collect();
-    format!("{head}…")
-}
-
 fn screen_attrs(sc: &cobolt_ast::stmt::ScreenPhrase) -> String {
     let mut s = String::new();
     if sc.highlight {
