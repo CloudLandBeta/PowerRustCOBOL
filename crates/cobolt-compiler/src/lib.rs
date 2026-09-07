@@ -3146,6 +3146,21 @@ reflowing them, translating them or collapsing their blank lines changes what
 the program says. When a developer hands you a block literal, reproduce it byte
 for byte, fences included.
 
+**Returning one inside a change-set.** A handler travels to the IDE as the
+`code` string of a JSON operation, and a block literal is multi-line by nature.
+Inside a JSON string the newlines must be `\n` ESCAPES — a raw line break is
+invalid JSON — and the ``` fences are three ordinary characters that need no
+escaping and do not end anything. Write the fences exactly where they belong in
+the COBOL and escape the newlines around them. A handler pasted into the string
+with real line breaks arrives truncated at the literal's own closing fence, and
+comes back described as "malformed JSON, cut off mid-code".
+
+**Translating one.** When a task asks for the same block in several languages,
+each handler carries its own complete block literal — fences, blank lines and
+paragraph breaks in the same places. Translate the prose between the fences and
+nothing else: URLs, control names, property names and COBOL keywords stay as
+they are.
+
 ## `EXEC RUST` — real Rust, compiled into the program
 
 > **A block is the developer's decision, never an assistant's.** This platform's

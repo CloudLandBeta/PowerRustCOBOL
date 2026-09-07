@@ -380,12 +380,32 @@ fn no_progress(_: GraceEvent) {}
 /// reply is taken as the block body (observed live: a plan ending in
 /// `…}]}` with no closing ```).
 pub fn last_json_block(reply: &str) -> Option<serde_json::Value> {
-    // Fences are recognised only where Markdown puts them: at the start of a
-    // line, after optional indentation. Scanning for a bare "```" anywhere in
-    // the text used to close the block on the first triple-backtick INSIDE a
-    // JSON string — Grace writing an objective like `…num bloco ```cobol```.`
-    // truncated her own plan mid-string, and the whole reply then read as
-    // "contained no JSON block".
+    // The fenced scan first — it is what every well-formed reply takes, and its
+    // semantics (last block wins, `cobol` fences are source and never a plan)
+    // are unchanged.
+    if let Some(value) = fenced_json_block(reply) {
+        return Some(value);
+    }
+    // Then the salvage path, for the reply shape a RustCOBOL block literal
+    // provokes. Asked to put multi-line COBOL inside a JSON string, a model
+    // routinely writes the newlines RAW instead of as `\n` escapes. Two things
+    // then go wrong at once: the JSON is invalid, and — because a block
+    // literal's closing fence is by definition a line whose first non-blank
+    // text is ``` — the scan above closes the block on the literal's own fence
+    // and hands back a fragment. That is the "partially malformed JSON snippet
+    // … cut off mid-code" six specialists reported at once, each having
+    // translated the caption into a different language (operator, 2026-09-07).
+    scavenge_json_object(reply)
+}
+
+/// The last `json`-or-unlabelled fenced block that parses.
+///
+/// Fences are recognised only where Markdown puts them: at the start of a line,
+/// after optional indentation. Scanning for a bare "```" anywhere in the text
+/// used to close the block on the first triple-backtick INSIDE a JSON string —
+/// Grace writing an objective like `…num bloco ```cobol```.` truncated her own
+/// plan mid-string, and the whole reply then read as "contained no JSON block".
+fn fenced_json_block(reply: &str) -> Option<serde_json::Value> {
     let mut last = None;
     let mut lines = reply.lines();
     while let Some(open) = lines.next() {
@@ -410,6 +430,154 @@ pub fn last_json_block(reply: &str) -> Option<serde_json::Value> {
         }
     }
     last
+}
+
+/// The last balanced `{…}` in the reply that can be made to parse, ignoring
+/// fences entirely.
+///
+/// Braces are counted only outside JSON strings, so a ``` inside a string — the
+/// whole point of a block literal — cannot end the object early. Each candidate
+/// is tried as written and then with [`escape_raw_controls`] applied.
+fn scavenge_json_object(reply: &str) -> Option<serde_json::Value> {
+    let bytes = reply.as_bytes();
+    let source = cobol_fence_spans(reply);
+    let mut found: Option<serde_json::Value> = None;
+    let mut at = 0usize;
+    while at < bytes.len() {
+        let Some(rel) = reply[at..].find('{') else {
+            break;
+        };
+        let start = at + rel;
+        // A ```cobol fence is source, never a plan — even in the unlikely case
+        // its body happens to be valid JSON.
+        if let Some(span) = source.iter().find(|s| s.contains(&start)) {
+            at = span.end;
+            continue;
+        }
+        match balanced_end(reply, start) {
+            Some(end) => {
+                let candidate = &reply[start..=end];
+                if let Some(v) = serde_json::from_str::<serde_json::Value>(candidate)
+                    .ok()
+                    .or_else(|| serde_json::from_str(&escape_raw_controls(candidate)).ok())
+                {
+                    found = Some(v);
+                }
+                // Past this object either way: a nested `{` cannot be a better
+                // candidate than the object containing it.
+                at = end + 1;
+            }
+            // Unbalanced from here — nothing later can close it either.
+            None => break,
+        }
+    }
+    found
+}
+
+/// Byte spans covered by ```cobol fenced blocks.
+///
+/// Deliberately narrow: ONLY the `cobol` label. A block literal's closing fence
+/// carries whatever COBOL follows it on the line (```` ``` TO Lbl-Sub::Caption.
+/// ````), so excluding every labelled fence would exclude the very payload this
+/// salvage exists to recover.
+fn cobol_fence_spans(reply: &str) -> Vec<std::ops::Range<usize>> {
+    let mut spans = Vec::new();
+    let mut open: Option<usize> = None;
+    let mut at = 0usize;
+    for line in reply.split_inclusive('\n') {
+        let end = at + line.len();
+        match (open, fence_info(line)) {
+            (None, Some(info)) if info.eq_ignore_ascii_case("cobol") => open = Some(at),
+            (Some(from), Some(_)) => {
+                spans.push(from..end);
+                open = None;
+            }
+            _ => {}
+        }
+        at = end;
+    }
+    // An unterminated ```cobol block runs to the end of the reply.
+    if let Some(from) = open {
+        spans.push(from..reply.len());
+    }
+    spans
+}
+
+/// The index of the `}` closing the object that opens at `start`, counting only
+/// braces outside JSON strings. Every byte examined is ASCII, and a UTF-8
+/// continuation byte can never equal one, so scanning bytes cannot land inside
+/// a character.
+fn balanced_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for i in start..bytes.len() {
+        let byte = bytes[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Escape the raw control characters a model leaves inside JSON strings when it
+/// pastes multi-line code into one. JSON forbids a literal newline, carriage
+/// return or tab inside a string; this puts back the escapes the model omitted
+/// and touches nothing outside a string, so a reply that was already valid is
+/// returned unchanged.
+fn escape_raw_controls(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut in_string = false;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                out.push(ch);
+                continue;
+            }
+            match ch {
+                '\\' => {
+                    escaped = true;
+                    out.push(ch);
+                }
+                '"' => {
+                    in_string = false;
+                    out.push(ch);
+                }
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+            continue;
+        }
+        if ch == '"' {
+            in_string = true;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// The info string of a Markdown fence line (`"json"`, `"cobol"`, `""`), or
@@ -1590,5 +1758,100 @@ mod tests {
             tasks[0].reviewer.as_deref(),
             Some("Form Designer Agent Pedantic Reviewer")
         );
+    }
+}
+
+#[cfg(test)]
+mod block_literal_transport_tests {
+    use super::*;
+
+    /// A handler that moves a RustCOBOL block literal into a caption — the
+    /// shape six specialists choked on at once, each having translated the
+    /// caption into a different language.
+    const COBOL: &str = "       MOVE\n```\nUn AgentObject es un punto final.\n\nCree una clave en www.ollama.com\n``` TO Lbl-Sub::Caption.";
+
+    fn change_set(code: &str) -> serde_json::Value {
+        serde_json::json!({
+            "operations": [{ "op": "generate_event_handler", "code": code }]
+        })
+    }
+
+    fn code_of(v: &serde_json::Value) -> String {
+        v["operations"][0]["code"].as_str().unwrap().to_owned()
+    }
+
+    /// The reply shape that already worked must keep working, byte for byte.
+    #[test]
+    fn a_well_formed_change_set_still_round_trips() {
+        for reply in [
+            format!("```json\n{}\n```", change_set(COBOL)),
+            format!(
+                "```json\n{}\n```",
+                serde_json::to_string_pretty(&change_set(COBOL)).unwrap()
+            ),
+            format!("```json\n{}\n```\n\nVoici la traduction.", change_set(COBOL)),
+        ] {
+            let got = last_json_block(&reply).expect("a valid change-set must parse");
+            assert_eq!(code_of(&got), COBOL, "the block literal must survive intact");
+        }
+    }
+
+    /// The failure the operator hit. Asked to put multi-line COBOL inside a
+    /// JSON string, the model wrote the newlines RAW. The JSON is then invalid,
+    /// AND the literal's own closing fence — a line whose first non-blank text
+    /// is ``` — ends the fenced block early, so the reply came back as a
+    /// fragment described as "cut off mid-code".
+    #[test]
+    fn raw_newlines_inside_the_string_are_recovered() {
+        let reply = format!(
+            "```json\n{{\"operations\":[{{\"op\":\"generate_event_handler\",\"code\":\"{}\"}}]}}\n```",
+            COBOL
+        );
+        let got = last_json_block(&reply).expect("the salvage path must recover this");
+        assert_eq!(
+            code_of(&got),
+            COBOL,
+            "the recovered handler must be the one the agent wrote, fences and \
+             blank line included"
+        );
+    }
+
+    /// The same, with prose after it — "descriptive text in French", as the
+    /// agents put it.
+    #[test]
+    fn raw_newlines_followed_by_prose_are_still_recovered() {
+        let reply = format!(
+            "{{\"operations\":[{{\"op\":\"generate_event_handler\",\"code\":\"{}\"}}]}}\n\nVoici la traduction demandee.",
+            COBOL
+        );
+        let got = last_json_block(&reply).expect("recovered");
+        assert_eq!(code_of(&got), COBOL);
+    }
+
+    /// The salvage must not invent a plan out of prose, and must not promote a
+    /// `cobol` fence into one.
+    #[test]
+    fn prose_and_source_are_not_mistaken_for_a_change_set() {
+        assert!(
+            last_json_block("No JSON here, just a sentence with a { brace.").is_none(),
+            "an unbalanced brace in prose is not an object"
+        );
+        assert!(
+            last_json_block("```cobol\n       MOVE 1 TO WS-X.\n```").is_none(),
+            "COBOL source is never a plan"
+        );
+    }
+
+    /// A reply that was already valid comes back untouched by the repair.
+    #[test]
+    fn the_repair_leaves_a_valid_reply_alone() {
+        let valid = format!("{}", change_set(COBOL));
+        assert_eq!(
+            escape_raw_controls(&valid),
+            valid,
+            "nothing to repair means nothing changed"
+        );
+        // And a tab outside a string is layout, not content.
+        assert_eq!(escape_raw_controls("{\n  \"a\": 1\n}"), "{\n  \"a\": 1\n}");
     }
 }

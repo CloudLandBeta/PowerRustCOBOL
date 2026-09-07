@@ -1,5 +1,58 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.50] — 2026-09-07
+
+### Six translated handlers arrived as "malformed JSON, cut off mid-code"
+
+1.65.49 fixed the fence round-trip in the prompt review. The same collision was
+waiting one step downstream, in the change-set the specialists return. Asked to
+replace six `Btn-Lang-*` handlers, each moving a translated block literal into a
+caption, the run applied **one** and reported the rest as fragments — "a
+partially malformed JSON snippet followed by a descriptive text in French", "a
+JSON fragment that was cut off mid-code".
+
+Reproduced before anything was touched. `last_json_block` handles a well-formed
+reply correctly; what it could not survive is the shape a multi-line literal
+provokes:
+
+| Reply shape | Before | Now |
+|---|---|---|
+| Valid JSON, `\n` escapes, fenced | parses | parses |
+| Pretty-printed valid JSON | parses | parses |
+| Valid JSON + prose after it | parses | parses |
+| **Raw newlines inside the JSON string** | **fails** | parses |
+
+Two faults compound in that last row. A model asked to put multi-line COBOL
+inside a JSON string routinely writes the newlines raw rather than as `\n`
+escapes — which is invalid JSON — and a block literal's closing fence is, by
+definition, a line whose first non-blank text is ```. So the line-based fence
+scan ended the block on the literal's own fence and handed back a fragment, and
+the fragment would not have parsed anyway. The trailing "descriptive text in
+French" was the rest of the handler, spilled outside the truncated block.
+
+**The fenced scan is unchanged and still runs first**, so every reply that
+already worked takes exactly the path it took before. Only when it yields
+nothing does a salvage pass run: balanced `{…}` matched with braces counted
+outside JSON strings, tried as written and then with raw control characters
+escaped back into `\n` / `\r` / `\t`.
+
+**A ```cobol fence is still never read as a plan.** The first cut of the salvage
+broke that guarantee and its test caught it. The exclusion is deliberately
+narrow — the `cobol` label only — because a block literal's closing fence
+carries whatever COBOL follows it on the line (``` TO Lbl-Sub::Caption.), and
+excluding every labelled fence would have excluded the payload being recovered.
+
+The System KB section added in 1.65.49 now also says how to *return* one: fences
+are ordinary characters of the `code` string, the newlines around them must be
+`\n` escapes, and a translated set carries one complete block per handler with
+URLs, control names and COBOL keywords left alone. `chunked.data` regenerated —
+1491 records.
+
+Five transport tests. Two fail without the salvage path; the other three pin the
+shapes that already worked, which is how the backward compatibility above is
+known rather than assumed. cobolt-agents 58 passed / 0 failed, IDE 1083 passed /
+0 failed.
+
 ## [PowerRustCOBOL 1.65.49] — 2026-09-07
 
 ### Grace could not have preserved a block literal even if she had understood it
