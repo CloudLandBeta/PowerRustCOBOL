@@ -7901,6 +7901,12 @@ PowerCOBOL pretty-printer, these will feel familiar:
   align with the verb that opened their scope.
 - **`EXEC … END-EXEC` interiors are never touched** — embedded code keeps
   its own formatting, byte for byte.
+- **Block literals are never touched either** — the `` ``` `` fences and
+  everything between them. That text is the literal's *value*, so
+  re-indenting a line, collapsing a run of spaces or changing a word's case
+  would change what your program moves. The 256-character cap is not applied
+  inside one either: a long line of JSON stays one long line. An **unclosed
+  fence is an error**, and stops the beautify like any other.
 - Every **`SECTION` header gets one blank line above it** (never two), so
   the divisions of a long program stay easy to scan.
 - A **missing sentence period** is added only where COBOL requires one
@@ -7921,6 +7927,12 @@ programs through the real compiler front end); if it has errors, a dialog
 lists them and the text is left byte-for-byte untouched — reformatting broken
 code buries the very line you need to fix. And if a result ever surprises
 you, **undo (⌘Z / Ctrl+Z) restores the exact previous text** in one step.
+
+> **Note.** **✨ Beautify leaves a block literal completely alone** — both
+> fences and every line between them. Since the text is the literal's value,
+> there is nothing in there the formatter could tidy without changing what your
+> program does. Format the surrounding code as freely as you like; what is
+> inside the fences is yours.
 
 ### GLOBAL, EXTERNAL, and GLOBAL EXTERNAL
 

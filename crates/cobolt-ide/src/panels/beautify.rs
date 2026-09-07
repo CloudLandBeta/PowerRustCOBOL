@@ -10,7 +10,8 @@
 //! editor, the COBOL Structure block editors). The rules, dictated by the
 //! operator on 2026-08-07, live in `specs/043-beautify-rules/spec.md`:
 //!
-//! 1.  `EXEC … END-EXEC` interiors pass through verbatim.
+//! 1.  `EXEC … END-EXEC` interiors pass through verbatim, and so does a
+//!     ``` ``` ``` block literal — fences included (operator, 2026-09-07).
 //! 2.  Paragraphs at column 8.
 //! 3.  `01`/`77`/`78` at column 8; nested levels +3 per depth step
 //!     (`66`/`88` indent one step under their item).
@@ -81,8 +82,61 @@ enum Unit {
     Comment(String),
     /// An `EXEC … END-EXEC` block: every raw line verbatim (rule 1).
     Exec(Vec<String>),
+    /// A ``` ``` ``` block literal: every raw line verbatim, byte for byte,
+    /// the two fence lines included (rule 1).
+    ///
+    /// This is a real language construct, not markdown in a comment — the
+    /// lexer turns the lines between a pair of fences into a single
+    /// `StringLiteral` (see `Lexer::capture_block_literal`). Its text is taken
+    /// with no escaping, which is what makes it useful for JSON, SQL and HTML,
+    /// and which is exactly why the beautifier must not go near it: re-indent
+    /// a line and the literal's value changes.
+    Fence(Vec<String>),
     /// One logical code line (column-7 continuations already joined).
     Code(String),
+}
+
+/// Whether this line opens a ``` ``` ``` block literal — that is, whether it
+/// carries a fence OUTSIDE any string literal.
+///
+/// The quote walk is the point. `MOVE "```" TO WS-X` mentions a fence inside an
+/// ordinary literal and opens nothing; treating it as an opener would swallow
+/// the rest of the program as literal text.
+fn opens_fence(s: &str) -> bool {
+    let b = s.as_bytes();
+    let mut i = 0usize;
+    let mut quote: Option<u8> = None;
+    while i < b.len() {
+        let c = b[i];
+        match quote {
+            Some(q) => {
+                // A doubled quote inside a literal is the escaped form.
+                if c == q {
+                    if i + 1 < b.len() && b[i + 1] == q {
+                        i += 2;
+                        continue;
+                    }
+                    quote = None;
+                }
+                i += 1;
+            }
+            None => {
+                if c == b'"' || c == b'\'' {
+                    quote = Some(c);
+                } else if b[i..].starts_with(b"```") {
+                    return true;
+                }
+                i += 1;
+            }
+        }
+    }
+    false
+}
+
+/// Whether this line CLOSES a block literal. Matches the lexer exactly: a line
+/// whose first non-blank text is a fence.
+fn closes_fence(s: &str) -> bool {
+    s.trim_start().starts_with("```")
 }
 
 /// True for a classic fixed-form continuation line: `-` in column 7 with a
@@ -103,10 +157,22 @@ fn segment(text: &str) -> (Vec<Unit>, Vec<String>) {
     let mut units: Vec<Unit> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
     let mut exec: Option<Vec<String>> = None;
+    let mut fence: Option<Vec<String>> = None;
 
     for (idx, raw) in text.lines().enumerate() {
         let line_no = idx + 1;
         let t = raw.trim();
+
+        // An open block literal swallows every line until its closing fence —
+        // blanks, comments and EXEC included. Checked before anything else so
+        // that nothing inside the literal is read as code.
+        if let Some(block) = fence.as_mut() {
+            block.push(raw.to_owned());
+            if closes_fence(raw) {
+                units.push(Unit::Fence(fence.take().unwrap()));
+            }
+            continue;
+        }
 
         if let Some(block) = exec.as_mut() {
             block.push(raw.to_owned());
@@ -156,10 +222,22 @@ fn segment(text: &str) -> (Vec<Unit>, Vec<String>) {
             }
             continue;
         }
+        // A fence opens the literal. EXEC is settled first, above: an EXEC
+        // line is a standard construct and keeps precedence.
+        if opens_fence(t) {
+            fence = Some(vec![raw.to_owned()]);
+            continue;
+        }
         units.push(Unit::Code(t.to_owned()));
     }
     if exec.is_some() {
         errors.push("EXEC block is never closed by END-EXEC".to_owned());
+    }
+    if fence.is_some() {
+        // Rule 8: reject rather than format. An unclosed fence means the rest
+        // of the file is literal text, and guessing where it ends would
+        // rewrite code the developer never meant to be code.
+        errors.push("``` block literal is never closed by a matching ```".to_owned());
     }
 
     // Every logical code line must close its string literals (a legitimately
@@ -610,9 +688,16 @@ fn put(out: &mut Vec<String>, col: usize, content: &str) {
 /// Wrap every emitted line to `MAX_LINE` chars (rule 6): outside literals at
 /// a word boundary (continuation indented 4 deeper); inside a literal via a
 /// column-7 `-` continuation with the remainder re-quoted.
-fn wrap_lines(lines: Vec<String>) -> Vec<String> {
+fn wrap_lines(lines: Vec<String>, verbatim: &std::collections::HashSet<usize>) -> Vec<String> {
     let mut out = Vec::with_capacity(lines.len());
-    for line in lines {
+    for (i, line) in lines.into_iter().enumerate() {
+        // A block literal's line is never wrapped: splitting it with a
+        // column-7 continuation would insert characters into the literal's
+        // own text. A long line of JSON is long on purpose.
+        if verbatim.contains(&i) {
+            out.push(line);
+            continue;
+        }
         wrap_one(line, &mut out);
     }
     out
@@ -676,6 +761,10 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
 
     let reserved = reserved_set();
     let mut out: Vec<String> = Vec::new();
+    // Output lines that must reach the file exactly as they are — the interior
+    // of a block literal. `out` is only ever appended to, so an index recorded
+    // here stays valid.
+    let mut verbatim: std::collections::HashSet<usize> = std::collections::HashSet::new();
     let mut div = infer_initial_div(&units, &reserved);
     let mut scopes: Vec<Scope> = Vec::new();
     let mut data_levels: Vec<u32> = Vec::new();
@@ -743,6 +832,21 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
                         out.push(raw.trim_end().to_owned());
                     }
                 }
+                continue;
+            }
+            Unit::Fence(lines) => {
+                flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
+                flush_data_run(&mut data_run, &mut out);
+                prev_blank = false;
+                // Byte for byte, fences included. Not even `trim_end`: trailing
+                // spaces on a line inside a block literal are part of its
+                // value, and re-indenting the opening line would move the fence
+                // itself — which is what the operator asked be left alone.
+                let start = out.len();
+                for raw in lines {
+                    out.push(raw.clone());
+                }
+                verbatim.extend(start..out.len());
                 continue;
             }
             Unit::Code(code) => {
@@ -945,7 +1049,7 @@ pub(crate) fn beautify_with_rules(text: &str, opts: &BeautifyOptions) -> Beautif
     flush_pending_entry(&mut data_pending, &mut data_levels, &mut data_run);
     flush_data_run(&mut data_run, &mut out);
 
-    let mut lines = wrap_lines(out);
+    let mut lines = wrap_lines(out, &verbatim);
     while lines.last().is_some_and(|l| l.trim().is_empty()) {
         lines.pop();
     }
@@ -1074,6 +1178,108 @@ mod tests {
         assert!(
             out.contains("   let x=  1;   // weird   spacing"),
             "interior line must be byte-identical:\n{out}"
+        );
+    }
+
+    // Rule 1 — a ``` block literal is untouchable, fences included.
+    //
+    // The lexer takes the text between the fences verbatim, with no escaping,
+    // so every character between them is part of the literal's VALUE. Anything
+    // the beautifier does in there — re-indent, collapse runs of spaces,
+    // uppercase a word, wrap a long line — silently changes what the program
+    // moves into a data item.
+    #[test]
+    fn a_block_literal_survives_byte_for_byte() {
+        let src = concat!(
+            "MAIN-P.\n",
+            "    MOVE\n",
+            "    ```\n",
+            "  {  \"name\" :  \"ACME\",   \n",
+            "       \"rows\": [1,2,3]   }\n",
+            "\n",
+            "        trailing indent kept\n",
+            "    ```\n",
+            "    TO WS-JSON.\n",
+        );
+        let out = fmt(src);
+        for line in [
+            "  {  \"name\" :  \"ACME\",   ",
+            "       \"rows\": [1,2,3]   }",
+            "        trailing indent kept",
+        ] {
+            assert!(
+                out.lines().any(|l| l == line),
+                "literal line was altered: {line:?}\n--- got ---\n{out}"
+            );
+        }
+        // The blank line inside the literal is content too.
+        let body: Vec<&str> = out.lines().collect();
+        let open = body.iter().position(|l| l.trim() == "```").expect("open fence");
+        let close = body[open + 1..]
+            .iter()
+            .position(|l| l.trim() == "```")
+            .expect("close fence")
+            + open
+            + 1;
+        assert!(
+            body[open + 1..close].iter().any(|l| l.is_empty()),
+            "the blank line inside the literal was dropped:\n{out}"
+        );
+    }
+
+    #[test]
+    fn the_fences_themselves_are_left_where_they_were() {
+        let src = "MAIN-P.\n    MOVE\n      ```\nhello\n      ```\n    TO WS-X.\n";
+        let out = fmt(src);
+        assert_eq!(
+            out.lines().filter(|l| *l == "      ```").count(),
+            2,
+            "both fences must keep their own column:\n{out}"
+        );
+    }
+
+    // Rule 6 caps emitted lines at 256 characters by splitting them with a
+    // column-7 continuation. Doing that to a block literal would insert the
+    // continuation characters into the literal's own text.
+    #[test]
+    fn a_long_literal_line_is_never_wrapped() {
+        let long = "x".repeat(400);
+        let src = format!("MAIN-P.\n    MOVE\n    ```\n{long}\n    ```\n    TO WS-X.\n");
+        let out = fmt(&src);
+        assert!(
+            out.lines().any(|l| l == long),
+            "a {}-char literal line was wrapped:\n{out}",
+            long.len()
+        );
+    }
+
+    // A fence mentioned INSIDE an ordinary quoted literal is not a fence. If it
+    // were treated as one, the rest of the program would be swallowed as
+    // literal text and come back unformatted — or be rejected as unclosed.
+    #[test]
+    fn a_fence_inside_a_quoted_literal_opens_nothing() {
+        let src = "MAIN-P.\n        MOVE   \"```\"   TO WS-X.\n        DISPLAY    \"AFTER\".\n";
+        let out = fmt(src);
+        assert!(
+            out.contains("\"```\""),
+            "the quoted fence must survive as a literal:\n{out}"
+        );
+        // The line after it was still formatted — proof nothing was swallowed.
+        let after = out
+            .lines()
+            .find(|l| l.contains("AFTER"))
+            .expect("the DISPLAY must still be there");
+        assert_eq!(col_of(after), 12, "code after it is still formatted:\n{out}");
+    }
+
+    // Rule 8 — reject rather than guess. An unclosed fence means everything
+    // below it is literal text, and picking an end would rewrite real code.
+    #[test]
+    fn an_unclosed_block_literal_is_rejected() {
+        let errs = rejected("MAIN-P.\n    MOVE\n    ```\nstill open\n");
+        assert!(
+            errs.iter().any(|e| e.contains("never closed")),
+            "expected an unclosed-fence error, got {errs:?}"
         );
     }
 

@@ -1,5 +1,56 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.45] — 2026-09-07
+
+### Beautify reformatted the inside of block literals
+
+A ``` fence is not markdown in a comment — it is a language construct. The
+lexer turns the lines between a pair of fences into a single `StringLiteral`,
+taken verbatim with no escaping, which is what makes it usable for JSON, SQL and
+HTML. The beautifier did not know that. It read those lines as ordinary code and
+did to them what it does to code: re-indented them, collapsed runs of spaces,
+cased words it recognised as verbs, and — worst of the four — split any line
+past 256 characters onto a column-7 continuation. Every one of those edits
+changes the literal's **value**, silently. A long line of JSON came back as two
+lines with continuation characters spliced into it.
+
+Beautify now leaves the whole construct alone, fences included, on the operator's
+instruction (2026-09-07). Rule 1 of spec 043 already reserved this treatment for
+`EXEC … END-EXEC`; block literals now sit beside it:
+
+| | Before | Now |
+|---|---|---|
+| Content lines | indented, cased, respaced | byte for byte, trailing spaces kept |
+| The two fence lines | moved to a code column | left in their own column |
+| 256-char cap (rule 6) | applied | not applied inside a literal |
+| Unclosed fence | rest of file silently reformatted | rejected (rule 8) |
+
+Not even `trim_end` is applied: a trailing space on a line inside a block
+literal is part of what the program moves.
+
+**A fence inside an ordinary quoted literal opens nothing.** `MOVE "```" TO
+WS-X` mentions a fence in a normal literal; a naive `contains("```")` would
+treat it as an opener and swallow the rest of the program as literal text, so
+the detector walks the line tracking quote state (doubled quotes included) and
+only accepts a fence found outside one.
+
+An unclosed fence is now rejected rather than formatted, which follows rule 8:
+everything below it is literal text, and guessing where it ended would rewrite
+code the developer never meant to be code.
+
+One engine serves every ✨ Beautify surface — the editor tabs, the event editor
+and the COBOL Structure block popups — so all of them are covered by the one
+change.
+
+Five tests, and they were checked against the unfixed code rather than assumed:
+four fail without it (content preserved, fences unmoved, a 400-character literal
+line unwrapped, unclosed fence rejected), and the fifth — the quoted-fence case
+— fails against a naive `contains` detector, which is the mistake it exists to
+catch. IDE suite green at 1072 passed / 0 failed.
+
+Guide and spec 043 updated in the same change (GOLDEN RULE #3). The guide has no
+translations to retire.
+
 ## [PowerRustCOBOL 1.65.44] — 2026-09-07
 
 ### FileDropZone's Destination folder had to be typed from memory

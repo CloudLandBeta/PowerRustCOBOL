@@ -14,6 +14,12 @@ error-gated; its emitted columns must agree with rules 3 and 5).
 
 ## The rules (operator's words, normalized)
 
+1. Do not beautify code within a ``` ``` ``` **block literal** — the fences
+   and every line between them pass through verbatim, byte for byte, and the
+   rule-6 line cap is not applied to them. The text between the fences is the
+   literal's value (`Lexer::capture_block_literal` takes it with no escaping),
+   so any reformatting inside changes what the program moves. An unclosed
+   fence is an error under rule 8. *(Operator, 2026-09-07.)*
 1. Do not beautify code within `EXEC … END-EXEC` (interior lines pass
    through verbatim; the `EXEC` / `END-EXEC` lines themselves are placed by
    the normal rules).
