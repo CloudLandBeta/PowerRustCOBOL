@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.46] — 2026-09-07
+
+### The ComboBox's border could be painted but not set
+
+`BorderStyle` was never missing from the ComboBox. `Control::new` seeds it
+`"Single"`, the load-time backfill seeds it too, and `draw_control_body` paints
+that rim on the designer canvas and at run time alike. What was missing was the
+way in: the inspector's ComboBox arm never called `border_rows`, so the one
+control that always carries a rim was the one control whose rim could not be
+turned off or restyled. The design said one thing and the combo drew another.
+
+One line, in the arm, next to the ListBox's — the two sit side by side in the
+same match and now behave the same way.
+
+**The guide needed no change.** It already says `BorderStyle` "takes five values
+in the properties pane" and that every border style applies "on every control
+that has one". The code now matches what was already documented.
+
+**21 other control types have the same gap**, found by measuring rather than
+assuming: TabControl, DataGrid, MenuBar, SideMenu, StatusBar, DateTimePicker,
+NumericUpDown, TreeView, Splitter, Shape, Slider, the six charts (Bar, Line,
+Pie, Area, Scatter, Donut), Knob, Gauge, FileDropZone and Maps. Each seeds
+`BorderStyle` and each paints it, and none of them offers the row. They are left
+alone here: whether a MenuBar or a chart *should* expose a border row is a design
+call per control, not a mechanical edit across 21 arms, and this change was about
+the ComboBox. Worth a decision.
+
+**The measurement lied first, and was fixed before it was believed.** The initial
+census reported 36 controls with no row — including the ListBox, which visibly
+has one. The probe rendered a single frame, and egui settles an Area's layout
+over several passes, so it saw no shapes at all and read "no shapes" as "no row".
+Four frames, and the same probe reports the true 21. The permanent test carries
+that loop and a comment saying why.
+
+Two tests: the ComboBox row (fails without the fix) and a ListBox reference guard
+that pins the comparison the fix rested on. IDE suite 1074 passed / 0 failed;
+cobolt-forms 858 passed / 0 failed.
+
 ## [PowerRustCOBOL 1.65.45] — 2026-09-07
 
 ### Beautify reformatted the inside of block literals

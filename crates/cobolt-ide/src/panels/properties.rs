@@ -6112,6 +6112,14 @@ impl PropertiesPanel {
                     action,
                     eff_hover,
                 );
+                // The frame, same as the ListBox above and every other bordered
+                // control. A ComboBox has carried `BorderStyle` all along —
+                // `Control::new` seeds it `"Single"` and `draw_control_body`
+                // paints it — but this arm never drew the rows, so the one
+                // control that always has a rim was the one control whose rim
+                // could not be turned off or recoloured. The design said one
+                // thing and the combo drew another.
+                border_rows(ui, id, ctrl, action, &mut self.text_bufs);
                 ui.add_space(4.0);
             }
 
@@ -12710,5 +12718,95 @@ mod folder_row_tests {
             1,
             "a blank destination still reports an outcome per file"
         );
+    }
+}
+
+#[cfg(test)]
+mod border_row_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType};
+
+    /// Which of the border rows the inspector actually PAINTS for a freshly
+    /// dropped control of this type.
+    ///
+    /// Several frames on purpose: egui settles an Area's layout over a few
+    /// passes, and a one-frame probe reports no shapes at all — which reads
+    /// exactly like "the row is missing" and is how this check first lied.
+    fn painted_rows(ct: ControlType) -> (bool, bool) {
+        let ctrl = Control::new("C-1", ct, 0, 0);
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        let tr = crate::i18n::Language::English.tr();
+        let (mut style, mut color) = (false, false);
+        for _ in 0..4 {
+            style = false;
+            color = false;
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 4000.0),
+            ));
+            let mut out = ctx.run_ui(input, |root| {
+                egui::Area::new(egui::Id::new("border_row_probe"))
+                    .fixed_pos(egui::Pos2::ZERO)
+                    .show(root.ctx(), |ui| {
+                        ui.set_max_width(360.0);
+                        let mut action = InspectorAction::default();
+                        for phase in [TypeSection::Basic, TypeSection::Rest] {
+                            panel.show_type_specific(
+                                ui,
+                                &ctrl,
+                                "C-1",
+                                &[],
+                                &mut action,
+                                &tr,
+                                phase,
+                            );
+                        }
+                    });
+            });
+            for cs in &out.shapes {
+                if let egui::epaint::Shape::Text(t) = &cs.shape {
+                    match t.galley.text() {
+                        "BorderStyle" => style = true,
+                        "BorderColor" => color = true,
+                        _ => {}
+                    }
+                }
+            }
+            out.textures_delta.clear();
+        }
+        (style, color)
+    }
+
+    /// A ComboBox seeds `BorderStyle` "Single" and `draw_control_body` paints
+    /// that rim — but the inspector arm never drew the row, so the rim could
+    /// not be turned off or changed. The property was there the whole time;
+    /// only the way in was missing (operator, 2026-09-07: "where is the border
+    /// style property of combobox control? The lack of this property is
+    /// breaking the style").
+    #[test]
+    fn a_combobox_offers_the_border_style_row() {
+        let seeded = Control::new("C-1", ControlType::ComboBox, 0, 0);
+        assert!(
+            seeded.get_prop("BorderStyle").is_some(),
+            "the property must be seeded for a row to be possible at all"
+        );
+        let (style, _color) = painted_rows(ControlType::ComboBox);
+        assert!(
+            style,
+            "the ComboBox inspector must paint a BorderStyle row — without it \
+             the seeded \"Single\" rim is unreachable"
+        );
+    }
+
+    /// The ListBox is the control the ComboBox arm was measured against: the
+    /// two sit side by side in the same match and behave the same way, so if
+    /// this ever stops holding the comparison the fix rested on is gone.
+    #[test]
+    fn the_listbox_reference_still_offers_both_rows() {
+        let (style, color) = painted_rows(ControlType::ListBox);
+        assert!(style, "ListBox must paint a BorderStyle row");
+        assert!(color, "ListBox must paint a BorderColor row");
     }
 }
