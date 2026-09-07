@@ -58,6 +58,10 @@ Rewrite the developer's request below into the request the specialists will be \
 held to. Do NOT plan, do NOT delegate, do NOT answer it, and do NOT start any \
 work — this step produces text and nothing else.
 
+LITERAL TEXT IS NOT PROSE — read this before anything else.
+
+A ``` fence in the request opens a RustCOBOL BLOCK LITERAL: the lines between the fences are the exact characters the program will display, not sentences addressed to you. Reproduce every such block byte for byte, FENCES INCLUDED — do not correct its grammar, spelling or punctuation, do not reflow or reorder it, do not translate it, do not summarise it, and never flag a passage inside one. The same holds for text inside quotation marks that the developer is moving into a caption, a message or any other value. The steps below apply to the developer's INSTRUCTIONS; they never apply to the literal text those instructions carry. Stripping a comma from a caption changes what the running program says.
+
 Do all of this, in this order:
 1. Read the original request.
 2. Fix grammar, spelling and punctuation.
@@ -77,7 +81,7 @@ verbatim from the revised text and give one short reason.
 
 Write the revised text in the SAME LANGUAGE as the original request.
 
-Reply with ONLY one fenced JSON block of this exact shape and nothing else:
+Reply with ONLY one fenced JSON block of this exact shape and nothing else. A ``` inside \"revised\" is just three ordinary characters of the string — JSON does not escape backticks, and the block literal is not finished with them; keep them exactly where the developer put them:
 {\"revised\": \"<the rewritten request>\", \"notes\": [{\"quote\": \"<passage, verbatim from the revised text>\", \"why\": \"<one short sentence>\"}]}
 When nothing needs flagging, \"notes\" is an empty array.";
 
@@ -107,22 +111,59 @@ pub fn parse_review(reply: &str) -> Option<Review> {
     Some(Review { revised, notes })
 }
 
-/// The fenced JSON block, or the outermost braces when the model skipped the
-/// fence.
+/// The JSON object in Grace's reply, fenced or bare.
+///
+/// Found by matching braces from the first `{`, counting only the ones OUTSIDE
+/// a JSON string. It used to look for the opening ``` and then the next one —
+/// which cannot work here, because the revised text may itself contain a
+/// ``` block literal. The first fence inside the JSON string closed the block
+/// early, the JSON came back truncated, and the whole review was dropped. So a
+/// review that faithfully preserved a block literal was the one review that
+/// could never be delivered: only replies with the fences stripped out survived
+/// the parse (operator, 2026-09-07 — Grace "messing completely" with a fenced
+/// caption she had been shown twice).
+///
+/// The brace scan also fixes the bare-JSON path, which took the LAST `}` in the
+/// reply and so swallowed any prose the model added after the object.
 fn extract_json(reply: &str) -> Option<String> {
-    if let Some(start) = reply.find("```") {
-        let rest = &reply[start + 3..];
-        let rest = rest.strip_prefix("json").unwrap_or(rest);
-        if let Some(end) = rest.find("```") {
-            let body = rest[..end].trim();
-            if !body.is_empty() {
-                return Some(body.to_string());
+    // Prefer the region after a ```json marker when there is one, so prose
+    // before it cannot donate a stray brace.
+    let from = match reply.find("```json") {
+        Some(at) => at + "```json".len(),
+        None => 0,
+    };
+    let start = from + reply[from..].find('{')?;
+    let bytes = reply.as_bytes();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    // Every byte examined here is ASCII, and a UTF-8 continuation byte can
+    // never equal one, so scanning bytes cannot land inside a character.
+    for i in start..bytes.len() {
+        let byte = bytes[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
             }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(reply[start..=i].to_string());
+                }
+            }
+            _ => {}
         }
     }
-    let start = reply.find('{')?;
-    let end = reply.rfind('}')?;
-    (end > start).then(|| reply[start..=end].to_string())
+    None
 }
 
 /// Locate each note inside `text`, which is the revised text AS IT STANDS —
@@ -170,6 +211,77 @@ mod tests {
         assert_eq!(got.revised, "Adicione 15 TextBoxes em 3 colunas.");
         assert_eq!(got.notes.len(), 1);
         assert_eq!(got.notes[0].quote, "3 colunas");
+    }
+
+    /// The review has to be able to carry a RustCOBOL block literal back.
+    ///
+    /// It could not. `extract_json` looked for the opening ``` and then the
+    /// NEXT one, so the first fence inside the JSON string ended the block
+    /// early, the JSON arrived truncated and the whole review was dropped —
+    /// meaning the one review that faithfully preserved the developer's literal
+    /// was the one review that could never be delivered.
+    #[test]
+    fn a_revision_that_preserves_a_block_literal_survives_the_parse() {
+        let revised = "MOVE\n\
+                       ```\n\
+                       Un AgentObject es un punto final de modelo configurado.\n\
+                       \n\
+                       Cree una clave en www.ollama.com\n\
+                       ``` TO Lbl-Sub::Caption.";
+        let json = serde_json::json!({ "revised": revised, "notes": [] });
+        let reply = format!("```json\n{json}\n```");
+        let got = parse_review(&reply).expect("a fenced literal must survive");
+        assert_eq!(
+            got.revised, revised,
+            "the block literal must come back byte for byte, fences included"
+        );
+        assert!(
+            got.revised.matches("```").count() == 2,
+            "both fences must still be there: {}",
+            got.revised
+        );
+    }
+
+    /// A note quoting a passage that itself contains a fence must round-trip
+    /// too — the notes array follows the revised text through the same parse.
+    #[test]
+    fn a_note_may_quote_a_passage_containing_a_fence() {
+        let json = serde_json::json!({
+            "revised": "MOVE\n```\nHola\n``` TO L::Caption.",
+            "notes": [{"quote": "```\nHola\n```", "why": "El idioma del literal no fue dicho."}],
+        });
+        let got = parse_review(&format!("```json\n{json}\n```")).expect("parses");
+        assert_eq!(got.notes.len(), 1);
+        assert!(got.notes[0].quote.contains("Hola"));
+    }
+
+    /// Prose after the object no longer swallows it. The old bare-JSON path
+    /// took the LAST `}` in the reply, so a closing remark containing one
+    /// dragged the extraction past the end of the object.
+    #[test]
+    fn prose_after_the_object_does_not_extend_it() {
+        let reply = "{\"revised\": \"Do the thing.\", \"notes\": []}\n\
+                     Espero que ayude. (Un `}` suelto aqui.)";
+        let got = parse_review(reply).expect("parses");
+        assert_eq!(got.revised, "Do the thing.");
+    }
+
+    /// The instruction has to actually say it, or the model has nothing to go
+    /// on — the review kept "correcting" the punctuation of a caption because
+    /// step 2 told it to fix punctuation and nothing told it what was literal.
+    #[test]
+    fn the_instruction_exempts_literal_text_from_the_rewriting() {
+        for expected in [
+            "LITERAL TEXT IS NOT PROSE",
+            "BLOCK LITERAL",
+            "FENCES INCLUDED",
+            "never flag a passage inside",
+        ] {
+            assert!(
+                REVIEW_INSTRUCTION.contains(expected),
+                "the review instruction must say {expected:?}"
+            );
+        }
     }
 
     #[test]

@@ -3105,6 +3105,47 @@ Never assume a containing program's declarations are visible to a nested one. On
 
 Checklist before emitting a change-set: no nested program declares a `CONFIGURATION SECTION` or `SPECIAL-NAMES`; every nested program has its own `DATA DIVISION`; `GLOBAL` items are referenced, never duplicated; `EXTERNAL` items are treated as run-unit-wide; cross-program invocation is `CALL`, never `PERFORM`.
 
+## The ``` block literal — long or multi-line text
+
+COBOL-85 has **no multi-line literal**. Continuation is a fixed-format column
+mechanism, so free-format source cannot write one at all, and any literal full
+of quotation marks needs every one of them doubled. PowerRustCOBOL adds a
+**block literal**: a literal fenced the way a Markdown code block is.
+
+```cobol
+       MOVE
+```
+Un AgentObject es un punto final de modelo configurado.
+
+Cree una clave en www.ollama.com
+``` TO Lbl-Sub::Caption.
+```
+
+The rules, and they are exact:
+
+- The value is the lines **between** the fences. The opening fence's own line
+  is not content (anything after ``` on it is a language tag, as in Markdown),
+  and neither is the closing fence's line nor the newline before it.
+- **Interior newlines are kept.** That is the entire point.
+- **No escaping.** The text is taken verbatim, so quotation marks and
+  apostrophes need no doubling — which is what makes it usable for JSON, SQL,
+  HTML and paragraphs of prose.
+- The closing fence is a line whose first non-blank text is ```.
+- It is a **free-format** construct. Fixed-format source has an indicator column
+  and a sequence area, so a line of backticks there is not this, and the
+  compiler says so rather than inventing a literal.
+
+**Use it whenever a caption, message or prompt is long, contains quotes, or
+needs more than one line.** A wall of text crammed into one quoted literal is
+the thing this exists to replace — writing that instead is a worse answer, not a
+safer one.
+
+**Never rewrite what is inside the fences.** The characters between them are the
+value the running program displays. Correcting their grammar or punctuation,
+reflowing them, translating them or collapsing their blank lines changes what
+the program says. When a developer hands you a block literal, reproduce it byte
+for byte, fences included.
+
 ## `EXEC RUST` — real Rust, compiled into the program
 
 > **A block is the developer's decision, never an assistant's.** This platform's

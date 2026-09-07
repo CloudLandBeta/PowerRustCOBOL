@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.49] — 2026-09-07
+
+### Grace could not have preserved a block literal even if she had understood it
+
+The operator tried twice — plainly, then with a worked ES example — to show
+Grace how to move a long multi-line caption with a ``` block literal. The clarity
+review came back with the fences gone and the punctuation stripped out of the
+caption itself: *"SetPrompt and SetModel change it from COBOL Ask sends the
+question and the reply arrives as onResponse"*. Three separate causes, none of
+them the model.
+
+**1. The review could not carry a fence back, at all.** `extract_json` found the
+opening ``` of Grace's JSON block and then the *next* ``` — which, in a reply
+that preserved the developer's literal, is the fence *inside* the JSON string.
+The JSON arrived truncated, `parse_review` returned `None`, and the review was
+dropped. So the one revision that faithfully kept the block literal was the one
+revision that could never be delivered: only replies with the fences stripped
+survived the parse. Proven with a probe before it was touched.
+
+It now matches braces from the first `{`, counting only the ones outside a JSON
+string. That also fixes the bare-JSON path, which took the *last* `}` in the
+reply and so swallowed any prose the model added after the object.
+
+**2. Nothing ever told her literal text was different.** `REVIEW_INSTRUCTION`
+says "Fix grammar, spelling and punctuation" and "Reorder and structure the
+content", with no exemption — so a caption the developer wants displayed
+verbatim was, correctly by those instructions, tidied up. The instruction now
+opens with **LITERAL TEXT IS NOT PROSE**: a ``` block is reproduced byte for
+byte, fences included, never corrected, reflowed, translated or flagged, and the
+rewriting steps apply to the developer's instructions and never to the literal
+text they carry.
+
+**3. The construct was absent from the System KB.** The block literal is
+documented in the Developer's Guide and implemented in the lexer, but appeared
+nowhere in the compiler's doc constants and nowhere in the agent contracts —
+so no agent had a reference for it, and the few-shot example was arguing against
+a knowledge base that did not contain the feature. `rustcobol_extensions.md`
+gains a section covering the exact rules (value is the lines between the fences,
+interior newlines kept, no escaping, closing fence is a line whose first
+non-blank text is ```, free-format only), when to reach for it, and that what is
+inside is never rewritten. `chunked.data` regenerated — 1489 records from 8
+documents — and the freshness test is green again.
+
+Five tests: a revision preserving a block literal round-trips byte for byte, a
+note may quote a passage containing a fence, prose after the object no longer
+extends it, and the instruction actually carries the rule. The two pre-existing
+parse tests still pass, so the new extractor is backward compatible. IDE suite
+1083 passed / 0 failed.
+
 ## [PowerRustCOBOL 1.65.48] — 2026-09-07
 
 ### Grace says she is processing the request, not reading it
