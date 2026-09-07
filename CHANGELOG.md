@@ -1,5 +1,59 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.42] — 2026-09-07
+
+### `finished` meant two different things in the NIST ledger
+
+DB (Debug) carried `state: "finished"` — the same word as NC, SQ, IX, IF, IC,
+ST, SM and RL, which are finished on **both** axes with their assertions
+counted. DB is finished on its **only in-scope axis**. Its execution axis is
+`null` and always will be. The distinction lived in a free-text `note`, which is
+precisely what GOLDEN RULE #9 forbids: compile conformance is the strictly
+weaker claim and must never be quoted as if it meant the programs work.
+
+| Field | Was | Now |
+|---|---|---|
+| `modules.DB.state` | `finished` | `finished_compile_only` |
+| `modules.DB.why` | — | why the execution axis is excluded |
+| `modules.DB.execution_scope` | — | `out_of_scope` |
+| `current_module` | `"DB"` | `null` |
+| `_current_module_note` | "11/15 on the census" | nothing in flight |
+
+`_state_vocabulary` now defines all three states at the top of the ledger, so a
+label no longer needs a note to be read correctly. The pattern already existed —
+SG uses a distinct `out_of_scope` — DB just never got its own word.
+
+**The two stale companions.** `_current_module_note` still read *"11/15 on the
+census … DB's 4 members are the only in-scope failures left"* and
+`current_module` still pointed at DB, both written the moment before DB closed
+at 1.62.129 and never advanced. They contradicted `compile: [14, 14]`,
+`whole_suite_compile` 420/420 and `grind_state`'s "THE GRIND IS CLOSED".
+
+**Re-measured rather than trusted.** `nist_conformance strict DB` at this
+version: **PASS 14 / 14 (100.0%), FAIL 0**, with DB205A the 1 of 15 scored N-A
+(`scoring_module_of` remaps it to CM by the 2026-08-31 ruling). The stale 11/15
+was stale, not a regression.
+
+**Two claims checked before they were written down**, both of which changed the
+wording:
+
+- DB's 14 *are* inside the protected 420 census — `is_out_of_scope` lists
+  CM/RW/SG/OB\*/EXEC and not DB. But out-of-scope programs are **not** counted
+  in the census, as the first draft said: they go to the N-A bucket outside the
+  in-scope denominator, so SG's 13 are absent from the 420 entirely.
+- The debug module is half implemented, not unimplemented. `flatten_fixed_strict`
+  in `cobolt-lexer` already honours the D-line rule (a debugging line is a
+  comment unless `SOURCE-COMPUTER. … WITH DEBUGGING MODE.` asks for it), which is
+  part of why the 14 compile. What is absent is the runtime half — no
+  `USE FOR DEBUGGING` declarative and no `DEBUG-ITEM` register anywhere in the
+  workspace — so there is nothing for these programs to exercise on execution.
+
+The `nist-grind` skill said only *"Set its `state` to `finished`"*, which is
+where the mislabel came from; it now spells out the compile-only and whole-module
+cases, and says to null `current_module` when `module_order` is exhausted.
+
+No behaviour change — ledger and protocol only. No module's figures moved.
+
 ## [PowerRustCOBOL 1.65.41] — 2026-09-06
 
 ### NIST is the source of truth — recorded as a rule, and verified in full

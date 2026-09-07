@@ -3,6 +3,12 @@
   "measured_at_version": "1.62.132",
   "measured_at": "2026-08-31",
   "goal": "Every in-scope module at 100% on BOTH axes: every program compiles under `nist_conformance strict`, and every program runs to completion reporting 0 failures in its own CCVS report.",
+  "_state_vocabulary": {
+    "finished": "Both axes measured at 100% — every program compiles under `nist_conformance strict` AND runs to completion with 0 failures. This is the goal state; it is the only state that claims the programs WORK.",
+    "finished_compile_only": "Compile axis at 100%; the execution axis is out of scope by operator ruling, so there is no second number and never will be. Complete for everything in scope, but it does NOT claim the programs run — GOLDEN RULE #9: compile conformance is the strictly weaker claim and must never be quoted as if it meant execution. The module's `why` records the exclusion.",
+    "out_of_scope": "The whole module is excluded by operator ruling. Its programs may still compile — SG's 13 do — but `is_out_of_scope` in the harness sends them to the N-A bucket, OUTSIDE the in-scope denominator, so they are absent from the 420 census on both axes. A `compile` figure on such an entry is a measurement taken beside the census, not a contribution to it.",
+    "_why_this_exists": "DB carried the bare `finished` label until 1.65.42 while its execution axis was null, which read as the both-axes claim the eight real `finished` modules make. Labels that need a free-text note to be read correctly are how that drift happened."
+  },
   "rules": {
     "never_ask_take_the_recommended_action": "OPERATOR RULING 2026-08-29, given twice — do NOT stop to ask. When a choice arises, take the recommended course of action and proceed. Record the decision and the reasoning in this ledger so it can be reviewed after the fact, but never block the loop on a question.",
     "ix301m_out_of_scope": "OPERATOR RULING 2026-08-29 — IX301M is OUT OF SCOPE. It tests INTERMEDIATE-subset flagging, and every construct it expects flagged (ORGANIZATION IS INDEXED, ACCESS MODE IS RANDOM, RECORD KEY IS, the NOT INVALID KEY phrases) is one PowerRustCOBOL implements. A high-subset implementation must not flag features it supports, so its 7 expectations are unreachable by design rather than by defect. IX is scored out of 41.",
@@ -30,8 +36,8 @@
     "DB",
     "RL"
   ],
-  "current_module": "DB",
-  "_current_module_note": "DB (Debug) — compile axis only (execution out of scope: the debug module’s runtime semantics are not implemented and the operator has not ruled them in). 11/15 on the census. This is the WHOLE remaining compile gap: DB’s 4 members are the only in-scope failures left; 15/15 would put the suite at 421/421 (100%). After DB, module_order is exhausted — every module finished or ruled.",
+  "current_module": null,
+  "_current_module_note": "Nothing in flight. module_order is exhausted: every module is finished, finished_compile_only, or ruled out_of_scope — see grind_state, which is the summary of record. (This field previously read \"11/15 on the census\" and called DB the whole remaining compile gap; it was written the moment before DB closed at 1.62.129 and was never advanced. Corrected at 1.65.42 after re-measuring DB at 14/14.)",
   "out_of_scope": {
     "modules": [
       "CM",
@@ -218,14 +224,16 @@
     },
     "DB": {
       "name": "Debug",
-      "state": "finished",
+      "state": "finished_compile_only",
       "compile": [
         14,
         14
       ],
       "execution": null,
       "assertions": null,
-      "note": "Compile axis complete 14/14 at 1.62.129 (DB205A scored under CM by ruling). Execution axis remains out of scope for DB."
+      "note": "Compile axis complete 14/14 — re-verified at 1.65.42 by `nist_conformance strict DB`: PASS 14/14 (100.0%), FAIL 0, and DB205A the 1 of 15 scored N-A. First closed at 1.62.129. DB's 14 are inside the protected `whole_suite_compile_pass` 420, so the census gate already guards them.",
+      "why": "Execution axis out of scope: only half the debug module exists. The COMPILE half does — cobolt-lexer's `flatten_fixed_strict` implements the standard's D-line rule (a debugging line is a comment unless `SOURCE-COMPUTER. … WITH DEBUGGING MODE.` asks for it), which is part of why the 14 compile clean. The RUNTIME half does not: there is no `USE FOR DEBUGGING` declarative and no `DEBUG-ITEM` special register anywhere in the workspace, so there is no debugging behaviour for these programs to exercise and nothing to score. The operator has not ruled that half in. DB205A is separately scored under CM by the 2026-08-31 ruling — it drives `DISABLE`/`ENABLE` on communication queues under USE FOR DEBUGGING, making it a Communication test by content; `scoring_module_of` remaps it, which sends it to N-A on every axis at once.",
+      "execution_scope": "out_of_scope"
     },
     "RL": {
       "name": "Relative I/O",

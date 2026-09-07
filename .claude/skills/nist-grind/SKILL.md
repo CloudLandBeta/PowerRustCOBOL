@@ -240,8 +240,19 @@ Both axes at 100%. Then, in one change:
 1. Set its `state` to `finished` and `protected` to `true` in the ledger.
 2. Add its figures to `protected_baselines` — from now on every future change
    must preserve them.
-3. Advance `current_module` to the next entry in `module_order`.
+3. Advance `current_module` to the next entry in `module_order`. When
+   `module_order` is exhausted, set it to `null` rather than leaving the last
+   module standing there — a finished module left in `current_module` reads as
+   work in flight.
 4. Baseline the new module (`run <MOD>`) and seed its `work_queue`.
+
+**`finished` means BOTH axes — never write it for one.** A module whose
+execution axis is out of scope by ruling gets `finished_compile_only`, plus a
+`why` recording the exclusion; a module excluded whole gets `out_of_scope`. The
+ledger's `_state_vocabulary` is the definition of record. This matters because
+of GOLDEN RULE #9: compile conformance is the strictly weaker claim, and the
+same word on both cases quotes it as if the programs ran. DB wore a bare
+`finished` for exactly that reason until 1.65.42.
 
 ---
 
