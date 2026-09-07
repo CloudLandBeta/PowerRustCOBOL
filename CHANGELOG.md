@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.60] — 2026-09-07
+
+### A skill for the rule 1.65.59 was learned the hard way
+
+Two of the three hosts that construct a form interpreter were wired; the
+**compiled binary** was not, and only the operator asking "make sure a standalone
+binary would work as well" caught it. A built application would have shipped with
+the bug after both live surfaces were verified.
+
+`.claude/skills/interpreter-binary-parity` records the rule and the three sites:
+
+| Host | Where |
+|---|---|
+| `rcrun run-form` | `cobolt-cli/src/form_gui.rs` |
+| Embedded child forms | `cobolt-form-host/src/host.rs` |
+| **The compiled binary** | `run_form_app` in `cobolt-compiler/src/lib.rs` |
+
+It carries the 1.65.59 case as the worked example, the grep that finds every
+site, and one rule that is not obvious: **prefer the host over codegen.** A
+codegen fix needs every `.cbl` regenerated before it takes effect, so existing
+forms stay broken until someone rebuilds them; a host fix repairs already-
+generated forms on the next run. That is why 1.65.59 did not make the generated
+`EVALUATE` case-insensitive.
+
+**No skill was duplicated.** The neighbouring parities are named and pointed at
+rather than restated: designer-vs-runtime RENDERING parity belongs to spec 017
+and the `rounded-corners` / `egui-paint-regressions` skills, and the
+property-reader guard already lives in `test_nonvisual_property_readers`. The new
+skill closes with what it is *not*.
+
+CLAUDE.md's "one form host" section now warns that the host is shared but the
+interpreter is constructed three times, and points at the skill. (That file is a
+symlink to the operator's local settings, so the edit lands there, not in the
+repository — as its own closing section explains.)
+
 ## [PowerRustCOBOL 1.65.59] — 2026-09-07
 
 ### "onResponse will fire" — it never did
