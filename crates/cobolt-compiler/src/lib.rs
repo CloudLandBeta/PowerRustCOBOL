@@ -3112,14 +3112,40 @@ mechanism, so free-format source cannot write one at all, and any literal full
 of quotation marks needs every one of them doubled. PowerRustCOBOL adds a
 **block literal**: a literal fenced the way a Markdown code block is.
 
-```cobol
+````cobol
        MOVE
 ```
 Un AgentObject es un punto final de modelo configurado.
 
 Cree una clave en www.ollama.com
 ``` TO Lbl-Sub::Caption.
+````
+
+**A block literal has NO quotation marks.** The fences take their place — that
+is the whole point of it. Writing both is the mistake to avoid, and it is the
+one that actually happens:
+
+````cobol
+      *> WRONG — quotes AND fences, all on one line. The fences are then
+      *> ordinary characters inside an ordinary quoted literal, the newlines
+      *> have nowhere to go, and the caption comes out with ``` in it.
+       MOVE "```An AgentObject is a configured model endpoint.
+
+       In order to run this example you need a valid API Key."``` TO Lbl-Sub::Caption.
+
+      *> WRONG — fences on the same line as the text. The opening fence ends
+      *> its own line; anything after it is a language tag, not content.
+       MOVE ```An AgentObject is a configured model endpoint.``` TO Lbl-Sub::Caption.
+
+      *> RIGHT — no quotes; each fence owns its line; the text is the lines
+      *> between them; the statement continues after the closing fence.
+       MOVE
 ```
+An AgentObject is a configured model endpoint.
+
+In order to run this example you need a valid API Key.
+``` TO Lbl-Sub::Caption.
+````
 
 The rules, and they are exact:
 
@@ -8480,5 +8506,101 @@ mod runtime_only_property_tests {
              Add each to runtime_property_names_for, or the KB will not print it \
              and the handler lint will reject a correct reference to it."
         );
+    }
+}
+
+#[cfg(test)]
+mod published_documentation_tests {
+    /// A fenced example that CONTAINS ``` must survive being read.
+    ///
+    /// Balance is NOT the invariant — that was the first version of this test
+    /// and it had no teeth. With a three-backtick wrapper every fence still
+    /// pairs up; they just pair up WRONG: the ```cobol block is closed by the
+    /// block literal's own opening fence three lines in, the rest of the
+    /// example becomes loose prose, and a later fence opens a block that closes
+    /// at the end. Every fence matched, and the example was destroyed.
+    ///
+    /// So this asserts what a reader must actually be able to see: the `cobol`
+    /// block carrying the block-literal example still holds the WHOLE statement
+    /// — the inner opening fence, the text, and the closing fence with the rest
+    /// of the MOVE on it. Written the wrong way at 1.65.49, which is why six
+    /// generated handlers came back with quotes AND fences, a form that is
+    /// neither (operator, 2026-09-07).
+    #[test]
+    fn the_block_literal_example_survives_being_read() {
+        let dir = std::env::temp_dir().join("prc_kb_block_example");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        super::publish_system_documentation(&dir).expect("publish");
+        let text =
+            std::fs::read_to_string(dir.join("Knowledge Base/rustcobol_extensions.md"))
+                .expect("extensions doc");
+
+        // Split into fenced blocks the way CommonMark does: a block opened with
+        // a run of N backticks is closed only by a run of >= N with no info.
+        let mut blocks: Vec<(String, String)> = Vec::new();
+        let mut open: Option<(usize, String, Vec<&str>)> = None;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            let run = trimmed.chars().take_while(|c| *c == '`').count();
+            let info = if run >= 3 { trimmed[run..].trim() } else { "" };
+            match open.as_mut() {
+                Some((opened, _, body)) => {
+                    if run >= *opened && info.is_empty() {
+                        let (_, tag, body) = open.take().unwrap();
+                        blocks.push((tag, body.join("\n")));
+                    } else {
+                        body.push(line);
+                    }
+                }
+                None if run >= 3 => open = Some((run, info.to_owned(), Vec::new())),
+                None => {}
+            }
+        }
+        assert!(open.is_none(), "a fenced block in the KB is never closed");
+
+        let carrying: Vec<&(String, String)> = blocks
+            .iter()
+            .filter(|(tag, body)| {
+                tag.eq_ignore_ascii_case("cobol") && body.contains("Lbl-Sub::Caption")
+            })
+            .collect();
+        assert!(
+            !carrying.is_empty(),
+            "no cobol example carries the block-literal MOVE any more"
+        );
+        assert!(
+            carrying.iter().any(|(_, body)| {
+                body.lines().any(|l| l.trim() == "```")
+                    && body.lines().any(|l| l.trim_start().starts_with("``` TO "))
+            }),
+            "the cobol example is cut off at the block literal's own fence — an \
+             example containing ``` must be wrapped in ```` so it survives:\n{:#?}",
+            carrying.iter().map(|(_, b)| b).collect::<Vec<_>>()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_block_literal_section_shows_the_unquoted_form() {
+        let dir = std::env::temp_dir().join("prc_kb_block_literal");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        super::publish_system_documentation(&dir).expect("publish");
+        let text =
+            std::fs::read_to_string(dir.join("Knowledge Base/rustcobol_extensions.md"))
+                .expect("extensions doc");
+
+        assert!(
+            text.contains("**A block literal has NO quotation marks.**"),
+            "the doc must say the fences replace the quotes"
+        );
+        for marker in ["*> WRONG", "*> RIGHT"] {
+            assert!(
+                text.contains(marker),
+                "the doc must contrast the wrong form with the right one: {marker}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

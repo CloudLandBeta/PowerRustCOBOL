@@ -4772,6 +4772,18 @@ Your implementation is not complete until your Pedantic Agent companion has revi
 /// to tell an upgraded prompt from a pre-contract one.
 pub const EVENT_HANDLER_LANGUAGE_CONTRACT_MARKER: &str = "RUSTCOBOL LANGUAGE CONTRACT";
 
+/// Marker for the revision that taught the language contract the ``` block
+/// literal (operator, 2026-09-07).
+///
+/// It lives in the ALWAYS-PRESENT prompt rather than the Knowledge Base on
+/// purpose: a verbose run showed the KB section was never retrieved for a task
+/// that was entirely about block literals — `SKILLS / KNOWLEDGE (0 chars)`, and
+/// the injected excerpts were about AgentObject methods and a ToolBar. A rule
+/// the agent needs in order to write correct source cannot depend on RAG
+/// surfacing it.
+pub const EVENT_HANDLER_BLOCK_LITERAL_MARKER: &str =
+    "A block literal has NO quotation marks";
+
 /// Marker sentence unique to the revision that folded the developer's COBOL
 /// code-generation standard into the Event Handler prompt as a MANDATORY,
 /// OVERRIDING section (operator directive, 2026-08-03). The stamp in
@@ -5048,6 +5060,44 @@ Format is auto-detected per file, and only falls back to punched-card fixed form
 - NEVER write a fixed-format `*` comment line (`      * text`) — it is exactly that pattern, and it is rejected by the handler contract as well.
 
 Indentation is style, not grammar, and the house style is punched-card-shaped: column 8 for division and section headers, `01`/`77` levels and paragraph names; column 12 for statements and subordinate levels. Comments use `*>` — write `*>`, one space, then the text, aligned with the statement it describes. Long comments may be wrapped, each continued line restarting with `*>` at the same indentation. Inline comments after code also use `*>`.
+
+Free format is also what makes the **block literal** available — the only way to write a literal that spans lines. COBOL-85 has none, so a caption or prompt of more than one paragraph has nowhere else to go. It is fenced like a Markdown code block, and the value is the lines BETWEEN the fences, taken verbatim with no escaping, so quotation marks and apostrophes are never doubled.
+
+**A block literal has NO quotation marks — the fences replace them, and each fence owns its line.** Writing both, or putting the text on a fence's line, is the mistake that actually happens:
+
+````cobol
+      *> WRONG - quotes AND fences. The fences become ordinary characters
+      *> inside an ordinary quoted literal, and the caption comes out with
+      *> backticks in it.
+       MOVE "```An AgentObject is a configured model endpoint.
+
+       In order to run this example you need a valid API Key."``` TO Lbl-Sub::Caption.
+
+      *> WRONG - the text on the opening fence's own line. Anything after the
+      *> opening fence is a language tag, not content.
+       MOVE ```An AgentObject is a configured model endpoint.``` TO Lbl-Sub::Caption.
+
+      *> RIGHT - no quotes; the opening fence ends its line; the text is the
+      *> lines between; the statement continues after the closing fence.
+       MOVE
+```
+An AgentObject is a configured model endpoint.
+
+In order to run this example you need a valid API Key.
+``` TO Lbl-Sub::Caption.
+````
+
+It works anywhere a literal does, including as a method argument:
+
+````cobol
+           Agent-Helper::SetPrompt(
+```
+You are a terse reviewer. Answer with a single sentence.
+```
+           ).
+````
+
+When a caption you are handed already contains `\n` escapes, each one is a LINE BREAK in the block literal, and the character right after it is CONTENT. `...press Ask.\n\nIn order to run...` becomes a blank line and then a line beginning `In order` — never `n order`.
 
 3. DATA DIVISION — declare before you use
 
@@ -9029,5 +9079,71 @@ mod reviewer_credential_tests {
         cfg.endpoint = "https://ollama.com/api/chat".into();
         cfg.api_key = "sk-live".into();
         assert!(request_credential_gap(&mesh_request_base(&cfg)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod block_literal_contract_tests {
+    use super::*;
+
+    /// The handler agent must be told the fence syntax in the prompt it always
+    /// receives.
+    ///
+    /// A verbose run of a six-handler translation task showed the Knowledge
+    /// Base section on block literals was never retrieved — the injected
+    /// excerpts covered AgentObject methods and a ToolBar, and the skills block
+    /// was empty. The agent had a CORRECT example sitting in its own context
+    /// (Btn-Persona::onClick uses the fenced form) and still wrote
+    /// `MOVE "```…"``` TO …`, which is quotes and fences at once. So the rule
+    /// goes where it cannot be missed.
+    #[test]
+    fn the_language_contract_carries_the_block_literal_rule() {
+        let prompt = DEFAULT_EVENT_HANDLER_PROMPT;
+        assert!(
+            prompt.contains(EVENT_HANDLER_BLOCK_LITERAL_MARKER),
+            "the shipped handler prompt must state that the fences replace the quotes"
+        );
+        for expected in [
+            "each fence owns its line",
+            "*> WRONG - quotes AND fences",
+            "*> RIGHT - no quotes",
+            "is a language tag, not content",
+        ] {
+            assert!(
+                prompt.contains(expected),
+                "the block-literal rule must show the contrast: {expected:?}"
+            );
+        }
+    }
+
+    /// The wrong-form example must not be mistaken for the right one: the
+    /// RIGHT example carries no quotation mark on its MOVE line.
+    #[test]
+    fn the_right_example_moves_without_a_quote() {
+        let prompt = DEFAULT_EVENT_HANDLER_PROMPT;
+        let at = prompt
+            .find("*> RIGHT - no quotes")
+            .expect("the right example must be there");
+        let tail = &prompt[at..];
+        let move_line = tail
+            .lines()
+            .find(|l| l.trim() == "MOVE")
+            .or_else(|| tail.lines().find(|l| l.trim_start().starts_with("MOVE")));
+        assert_eq!(
+            move_line.map(str::trim),
+            Some("MOVE"),
+            "the RIGHT example's MOVE must stand alone on its line, with no \
+             literal and no quote after it"
+        );
+    }
+
+    /// An escape in a caption handed to the agent is a line break, and what
+    /// follows it is content — the run that lost the "I" from "In order".
+    #[test]
+    fn the_contract_explains_what_follows_an_escape() {
+        assert!(
+            DEFAULT_EVENT_HANDLER_PROMPT.contains("never `n order`"),
+            "the contract must say the character after a \\n escape is content"
+        );
     }
 }

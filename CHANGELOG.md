@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.52] — 2026-09-07
+
+### The agents were never told the fence syntax — and my own example destroyed itself
+
+The six handlers now arrive, but every one of them wrote
+`MOVE "```…"``` TO Lbl-Sub::Caption.` — quotes AND fences, which is neither
+form. Two causes, one of them mine.
+
+**The Knowledge Base example was broken markdown.** The section added at
+1.65.49 wrapped its example in ```` ```cobol ````, and the block literal's own
+opening fence three lines in CLOSED that block. What reached a reader was
+`MOVE` alone, then loose prose, then a fence that reopened a block. The example
+could not be learned from, so the model guessed. It is now wrapped in ````, the
+way the Developer's Guide has always done it, with an explicit WRONG/RIGHT
+contrast covering both mistakes seen in the wild — quotes plus fences, and text
+on the fence's own line.
+
+**But the section was never retrieved anyway.** The operator's verbose log
+settles it: for a task entirely about block literals, `SKILLS / KNOWLEDGE
+(0 chars)` and the injected excerpts were about AgentObject methods, a ToolBar
+and a textbox report. A rule an agent needs in order to write correct source
+cannot depend on RAG surfacing it. The rule now lives in the
+`RUSTCOBOL LANGUAGE CONTRACT` section of `DEFAULT_EVENT_HANDLER_PROMPT` — the
+prompt the handler agent always receives — under free format, which is what
+makes the construct available in the first place.
+
+That the agent had a **correct example in its own context** and still got it
+wrong is why an example alone was never going to be enough: `Btn-Persona::onClick`
+on that very form uses the fenced form, verbatim, in the EVENT HANDLERS block.
+
+**The lost "I".** Every handler read `n order to run this example`. The stored
+caption is intact — the `.cfrm` holds `\n\nIn order to run` — and nothing between
+it and the agent unescapes anything, so the character was dropped by the model
+while turning `\n` escapes into real line breaks. The contract now says
+explicitly that the character after an escape is content: `...press Ask.\n\nIn
+order...` becomes a blank line and then a line beginning `In order`, never
+`n order`.
+
+**A test that had no teeth, replaced.** The first guard checked that every
+fenced block in the KB was BALANCED. It passed against the broken version —
+with a three-backtick wrapper every fence still pairs up, it just pairs up
+wrong. Balance was the wrong invariant. The guard now asserts what a reader must
+actually be able to see: the `cobol` block carrying the example still holds the
+whole statement, inner fences and all. It fails against the three-backtick form,
+which is how it is known to work.
+
+Five tests in all — one KB readability guard, one that the doc says the fences
+replace the quotes, and three on the shipped contract (the rule is present, the
+RIGHT example's `MOVE` stands alone with no quote after it, and the escape rule
+is stated). `chunked.data` regenerated, 1494 records. cobolt-compiler 112 passed
+/ 0 failed; IDE 1089 passed / 0 failed.
+
 ## [PowerRustCOBOL 1.65.51] — 2026-09-07
 
 ### The review writes a prompt, so it now writes it the way the task is best asked
