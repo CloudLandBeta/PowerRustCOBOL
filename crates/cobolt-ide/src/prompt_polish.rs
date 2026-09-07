@@ -17,6 +17,13 @@
 //! developer reads both versions, edits the revised one, and only then does the
 //! workflow start (operator, 2026-07-31).
 //!
+//! The revised text is a PROMPT, so it is written the way the task is best
+//! asked rather than in one house style: Grace sizes the request first, then
+//! shapes it — a worked example for a small or repeated edit, an ordered
+//! sequence with its dependencies for a large or multi-step one (operator,
+//! 2026-09-07). And where a gap can be closed by a question, the note asks it
+//! rather than merely reporting that something is unclear.
+//!
 //! This module is the pure half: the instruction Grace is given, the parse of
 //! what she returns, and the mapping of each flagged quote onto a range of the
 //! revised text. The modal that shows it lives in the designer panel.
@@ -51,39 +58,35 @@ pub struct Highlight {
 /// requirement the developer did not ask for — the failure it exists to
 /// prevent is a specification the agents can read two ways, not a
 /// specification that is too small.
-pub const REVIEW_INSTRUCTION: &str = "\
-PROMPT REVIEW (Grace-internal, shown to the developer before anything runs).
+pub const REVIEW_INSTRUCTION: &str = r#"PROMPT REVIEW (Grace-internal, shown to the developer before anything runs).
 
-Rewrite the developer's request below into the request the specialists will be \
-held to. Do NOT plan, do NOT delegate, do NOT answer it, and do NOT start any \
-work — this step produces text and nothing else.
+Rewrite the developer's request below into the request the specialists will be held to. Do NOT plan, do NOT delegate, do NOT answer it, and do NOT start any work — this step produces text and nothing else.
 
 LITERAL TEXT IS NOT PROSE — read this before anything else.
 
 A ``` fence in the request opens a RustCOBOL BLOCK LITERAL: the lines between the fences are the exact characters the program will display, not sentences addressed to you. Reproduce every such block byte for byte, FENCES INCLUDED — do not correct its grammar, spelling or punctuation, do not reflow or reorder it, do not translate it, do not summarise it, and never flag a passage inside one. The same holds for text inside quotation marks that the developer is moving into a caption, a message or any other value. The steps below apply to the developer's INSTRUCTIONS; they never apply to the literal text those instructions carry. Stripping a comma from a caption changes what the running program says.
 
 Do all of this, in this order:
-1. Read the original request.
+1. Read the original request and SIZE IT before rewriting a word. Decide what kind of task it is — one property, one handler, a whole form, the same edit repeated across a set of controls, a flow whose steps depend on one another — and where it is under-specified. Everything below follows from that judgement.
 2. Fix grammar, spelling and punctuation.
-3. Remove ambiguity about what PowerRustCOBOL can actually do, wherever the \
-original allows more than one reading. Use the real names of controls, \
-properties and events from the context when the developer clearly meant them.
-4. Reorder and structure the content for clarity, objectivity and \
-completeness, so no specialist has to guess and none can invent an invalid \
-solution.
-5. Preserve the developer's intent EXACTLY. Never add a requirement that was \
-not asked for, never remove one that was, and never decide something the \
-developer left open — flag it instead.
+3. Remove ambiguity about what PowerRustCOBOL can actually do, wherever the original allows more than one reading. Use the real names of controls, properties and events from the context when the developer clearly meant them.
+4. Reorder and structure the content for clarity, objectivity and completeness, so no specialist has to guess and none can invent an invalid solution.
+5. SHAPE THE REVISED REQUEST FOR THE TASK — one form does not fit every request. The revised text is the prompt the specialists work from, so write it the way this particular task is best asked:
+   - A SMALL, MECHANICAL or REPEATED task — one property, one handler, the same edit across a set of controls — is best asked with a WORKED EXAMPLE. Write the first case out in full, exactly as it should come out, then state the rule that carries it to the rest ("...and the same for Btn-Lang-FR, -PT, -CN and -JP, each in its own language"). One concrete example settles a dozen questions that prose leaves open.
+   - A LARGE or MULTI-STEP task — a whole form, an ordering constraint, anything where a later step depends on an earlier one — is best asked as an ORDERED SEQUENCE with the reasoning made explicit. Number the steps in the order they must happen, say what each one depends on, and state what must be true when each is done. Lay out the path; do NOT walk it — this step still designs nothing.
+   - When the SHAPE of the result matters — a list, a table, a particular set of controls — say so explicitly rather than leaving it to be inferred.
+   Match the effort to the task: a one-line request does not become a numbered plan, and a six-part request does not stay one sentence. Never name the technique in the text — the shape IS the instruction, and a label for it is noise the specialists would have to read past.
+6. Preserve the developer's intent EXACTLY. Never add a requirement that was not asked for, never remove one that was, and never decide something the developer left open — ask about it instead.
 
-Then mark the passages of YOUR REVISED TEXT that remain ambiguous, incomplete, \
-contradictory, or that two agents could read differently. Quote each passage \
-verbatim from the revised text and give one short reason.
+Then mark the passages of YOUR REVISED TEXT that remain ambiguous, incomplete, contradictory, or that two agents could read differently. Quote each passage verbatim from the revised text.
+
+ASK, do not merely flag. Whenever a gap can be settled by a question, write the reason AS THAT QUESTION, short enough to answer in a few words — "Which of the six buttons keeps the English text?" — and name the sensible default in it when there is one: "...Btn-Lang-EN, unless you meant otherwise?". A note that only reports a passage as ambiguous costs the developer a round trip that a question would have saved. Reserve a plain statement for the cases where no question would help.
 
 Write the revised text in the SAME LANGUAGE as the original request.
 
-Reply with ONLY one fenced JSON block of this exact shape and nothing else. A ``` inside \"revised\" is just three ordinary characters of the string — JSON does not escape backticks, and the block literal is not finished with them; keep them exactly where the developer put them:
-{\"revised\": \"<the rewritten request>\", \"notes\": [{\"quote\": \"<passage, verbatim from the revised text>\", \"why\": \"<one short sentence>\"}]}
-When nothing needs flagging, \"notes\" is an empty array.";
+Reply with ONLY one fenced JSON block of this exact shape and nothing else. A ``` inside "revised" is just three ordinary characters of the string — JSON does not escape backticks, and the block literal is not finished with them; keep them exactly where the developer put them. Every newline inside a JSON string must be a \n escape:
+{"revised": "<the rewritten request>", "notes": [{"quote": "<passage, verbatim from the revised text>", "why": "<the question to answer, or one short sentence>"}]}
+When nothing needs flagging, "notes" is an empty array."#;
 
 /// Parse Grace's reply. Tolerant about the wrapping (fenced block or bare
 /// JSON) and about a missing `notes`; strict about the one thing that matters
@@ -264,6 +267,56 @@ mod tests {
                      Espero que ayude. (Un `}` suelto aqui.)";
         let got = parse_review(reply).expect("parses");
         assert_eq!(got.revised, "Do the thing.");
+    }
+
+    /// The review writes a PROMPT, not a tidied paragraph, so it has to carry
+    /// the choice of shape — a worked example for a small or repeated edit, an
+    /// ordered sequence for a large or dependent one (operator, 2026-09-07).
+    /// Nothing here can check that Grace chooses WELL; what it can check is
+    /// that the instruction still tells her to choose at all.
+    #[test]
+    fn the_instruction_tells_her_to_shape_the_request_for_the_task() {
+        for expected in [
+            "SIZE IT before rewriting a word",
+            "SHAPE THE REVISED REQUEST FOR THE TASK",
+            "WORKED EXAMPLE",
+            "ORDERED SEQUENCE",
+            "Match the effort to the task",
+            "Never name the technique in the text",
+        ] {
+            assert!(
+                REVIEW_INSTRUCTION.contains(expected),
+                "the review instruction must say {expected:?}"
+            );
+        }
+    }
+
+    /// A note that only reports "this is ambiguous" costs a round trip a
+    /// question would have saved.
+    #[test]
+    fn the_instruction_asks_rather_than_only_flagging() {
+        assert!(REVIEW_INSTRUCTION.contains("ASK, do not merely flag"));
+        assert!(
+            REVIEW_INSTRUCTION.contains("name the sensible default"),
+            "a question with a default in it can be answered in one word"
+        );
+    }
+
+    /// Shaping the request must not turn the review into the work. The three
+    /// prohibitions that keep this step to text are load-bearing.
+    #[test]
+    fn shaping_the_request_never_becomes_doing_it() {
+        for expected in [
+            "Do NOT plan, do NOT delegate, do NOT answer it",
+            "Lay out the path; do NOT walk it",
+            "this step still designs nothing",
+            "Preserve the developer's intent EXACTLY",
+        ] {
+            assert!(
+                REVIEW_INSTRUCTION.contains(expected),
+                "the review must stay a rewriting step: {expected:?}"
+            );
+        }
     }
 
     /// The instruction has to actually say it, or the model has nothing to go

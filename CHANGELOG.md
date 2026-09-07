@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.51] — 2026-09-07
+
+### The review writes a prompt, so it now writes it the way the task is best asked
+
+Grace's review had one house style: fix the grammar, remove the ambiguity,
+reorder, flag what is still open. That is a tidied paragraph, and a tidied
+paragraph is not always the best way to ask for something. The revised text is
+the prompt four specialists work from, so its SHAPE should follow the task
+(operator, 2026-09-07).
+
+She now sizes the request before rewriting a word — one property, one handler, a
+whole form, the same edit across a set of controls, a flow whose steps depend on
+one another — and shapes the rewrite from that judgement:
+
+| The task | How it is now asked |
+|---|---|
+| Small, mechanical, or the same edit repeated | A **worked example**: the first case written out in full exactly as it should come out, then the rule that carries it to the rest |
+| Large, or steps that depend on each other | An **ordered sequence** with the reasoning explicit — what happens in what order, what each step depends on, what must be true when it is done |
+| The shape of the result matters | That shape stated outright rather than left to be inferred |
+
+Two rules keep it honest. **Match the effort to the task** — a one-line request
+does not become a numbered plan, and a six-part request does not stay one
+sentence. And **never name the technique in the text**: the shape is the
+instruction, and a label for it is noise the specialists would read past.
+
+**Notes ask instead of only flagging.** A note that reports "this passage is
+ambiguous" costs the developer a round trip that a question would have saved.
+Where a gap can be settled by asking, the reason is now written as the question
+— short enough to answer in a few words, with the sensible default named inside
+it ("…Btn-Lang-EN, unless you meant otherwise?"). A plain statement is reserved
+for the cases where no question would help.
+
+**Laying out a path is not walking it.** Shaping a request for a multi-step task
+is the failure mode where a review starts designing, so the prohibitions that
+keep this step to text are pinned by their own test: do not plan, do not
+delegate, do not answer, lay out the path but do NOT walk it, preserve the
+developer's intent exactly.
+
+`REVIEW_INSTRUCTION` became a raw string in the same change. It had grown a
+paragraph of escaped quotes and continuations around JSON examples that are
+themselves full of quotes; the first attempt at this edit broke the build on
+exactly that. The text is now what it looks like.
+
+Three tests pin the new rules, and the 1.65.49 literal-text guard still passes
+against the rewritten constant — which is how the block-literal rules are known
+to have survived the rewrite rather than assumed. IDE suite 1086 passed / 0
+failed.
+
+**Classified as a fix**, not a feature: the review already exists and its stated
+job is to produce the request the specialists are held to. This changes how well
+it does that job, and adds no widget, panel, language extension or platform.
+
 ## [PowerRustCOBOL 1.65.50] — 2026-09-07
 
 ### Six translated handlers arrived as "malformed JSON, cut off mid-code"
