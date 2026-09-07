@@ -14677,6 +14677,48 @@ mod shell_prop_tests {
     /// repeatedly with content far taller than either box is what catches that:
     /// a ratchet shows up as a window that is bigger on frame 100 than on
     /// frame 5.
+    /// The COBOL **event-handler editor is the same editor**, so it must be fed
+    /// the same catalogue — otherwise completion is code-identical and useless
+    /// there, which looks exactly like a second, broken implementation.
+    ///
+    /// The operator asked for the completion fixes on "IDE editor AND cobol
+    /// event handler editor" (2026-09-07); there is one implementation, and
+    /// this is what keeps it one.
+    #[test]
+    fn the_event_handler_editor_gets_the_forms_completion_catalogue() {
+        let mut form = Form::new("F1", "F1", 640, 480);
+        form.controls
+            .push(Control::new("Btn-Go", ControlType::Button, 10, 10));
+        form.controls
+            .push(Control::new("Slider-1", ControlType::Slider, 10, 60));
+        form.user_ws_source = "       01 WS-TOTAL PIC 9(5).\n".to_owned();
+
+        let mut dp = DesignerPanel::new(form);
+        dp.open_event_modal("Btn-Go", "onClick");
+
+        let ids: Vec<&str> = dp
+            .event_editor
+            .known_controls
+            .iter()
+            .map(|k| k.id.as_str())
+            .collect();
+        assert!(ids.contains(&"Btn-Go"), "controls missing: {ids:?}");
+        assert!(ids.contains(&"Slider-1"), "controls missing: {ids:?}");
+        assert!(
+            dp.event_editor
+                .known_data_items
+                .iter()
+                .any(|d| d.eq_ignore_ascii_case("WS-TOTAL")),
+            "form-level data items missing: {:?}",
+            dp.event_editor.known_data_items
+        );
+        // Full COBOL completion, not the prose-only mode the AI prompt boxes use.
+        assert!(
+            !dp.event_editor.is_context_only(),
+            "the handler editor must offer keywords and paragraphs too"
+        );
+    }
+
     /// **A double-click opens the handler that has code in it.**
     ///
     /// Not merely a binding: a binding can exist with an empty body, and

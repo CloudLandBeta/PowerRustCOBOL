@@ -1905,6 +1905,14 @@ impl EditorPanel {
     /// Restrict IntelliSense to contextual symbols (no COBOL reserved words or
     /// paragraph labels). Intended for natural-language AI prompt boxes that need
     /// accurate project/form names, not source templates.
+    /// Whether this editor is in prose/prompt mode (names only, no COBOL
+    /// keywords or paragraphs). Read by tests that assert a surface is in the
+    /// mode it ought to be.
+    #[cfg(test)]
+    pub fn is_context_only(&self) -> bool {
+        self.context_only_completions
+    }
+
     pub fn set_context_only_completions(&mut self, enabled: bool) {
         self.context_only_completions = enabled;
     }
@@ -4462,10 +4470,7 @@ fn detect_invoke_context(
         // `Grid::Rows(0)`. Its **root** is the identifier before the first `::`
         // (a leading subscript stripped), so chain-tail completion offers the
         // root control's members (deep element-type inference is out of scope).
-        let chain_expr = before
-            .rsplit(|c: char| c.is_whitespace())
-            .next()
-            .unwrap_or("");
+        let chain_expr = &before[chain_expr_start(before)..];
         let root = chain_expr
             .split("::")
             .next()
@@ -4501,6 +4506,75 @@ fn detect_invoke_context(
     }
 
     None
+}
+
+/// Byte offset where the chain expression ending at `before` begins.
+///
+/// The receiver of a `::` is the expression immediately to its left, and that
+/// expression ends wherever the surrounding COBOL statement resumes. Scanning
+/// BACKWARDS is the only way to say so precisely: identifier characters and
+/// `::` belong to it, a closing `)` is a subscript or an argument list and is
+/// skipped back to its own `(`, and **anything else ends it** — whitespace, an
+/// operator, a comma, or an opening parenthesis that belongs to the statement
+/// rather than to the receiver.
+///
+/// It used to take the last WHITESPACE-delimited token and then everything
+/// before its first `(`, which got all three of these wrong:
+///
+/// ```text
+///   COMPUTE X = (Form-1::Width / 2) * 4
+///   Grid-1::Fill(Slider-1::Value)
+///   Grid-1::Fill(A,Slider-1::Value)
+/// ```
+///
+/// The first produced an EMPTY receiver — `(Form-1` split at its leading `(`
+/// leaves nothing — so the popup had no control to list and simply never
+/// appeared. The other two produced `Grid-1`, the OUTER receiver, so the list
+/// offered the wrong control's members while the inner one was being typed
+/// (operator, 2026-09-07). A chain tail like `Grid-1::Rows(0)::` still resolves
+/// to `Grid-1`, which is what the `)`-skipping is for.
+fn chain_expr_start(before: &str) -> usize {
+    let chars: Vec<(usize, char)> = before.char_indices().collect();
+    let mut i = chars.len();
+    let mut start = before.len();
+    while i > 0 {
+        let (bpos, c) = chars[i - 1];
+        if c.is_alphanumeric() || c == '-' || c == '_' || c == ':' {
+            start = bpos;
+            i -= 1;
+        } else if c == ')' {
+            // A balanced group — `Rows(0)`, `Fill(a, b)` — is part of the
+            // expression. Walk back to ITS `(` and carry on left of it.
+            let mut depth = 0usize;
+            let mut j = i;
+            let mut open: Option<(usize, usize)> = None;
+            while j > 0 {
+                let (bp, cc) = chars[j - 1];
+                if cc == ')' {
+                    depth += 1;
+                } else if cc == '(' {
+                    depth -= 1;
+                    if depth == 0 {
+                        open = Some((j - 1, bp));
+                        break;
+                    }
+                }
+                j -= 1;
+            }
+            match open {
+                Some((idx, bp)) => {
+                    start = bp;
+                    i = idx;
+                }
+                // Unbalanced: this `)` closes a group opened further left than
+                // the expression, so the expression starts after it.
+                None => break,
+            }
+        } else {
+            break;
+        }
+    }
+    start
 }
 
 /// Whether the text after a `::` (or after an `INVOKE`'s opening quote) has run
@@ -4579,7 +4653,6 @@ fn property_name_items(controls: &[KnownControl], prefix: &str) -> Vec<AcItem> {
         .into_iter()
         .filter(|n| n.to_ascii_uppercase().starts_with(&up))
         .map(AcItem::property)
-        .take(60)
         .collect()
 }
 
@@ -4677,7 +4750,13 @@ fn build_completions(
         }
     }
 
-    items.truncate(25);
+    // EVERY match, not the first 25. The popup is a scrolling list, so a long
+    // one costs nothing — while a truncated one silently hides the entry the
+    // developer is reaching for, and hides it *by category*: keywords are added
+    // first, so a common initial letter filled the whole list with them and no
+    // control or data item ever appeared (operator, 2026-09-07: "intellisense
+    // is limiting the number of methods/properties — it should fill the pop up
+    // with all of them").
     items
 }
 
@@ -5750,6 +5829,123 @@ END-EVALUATE
         assert_eq!(of_qualifier_items("").len(), 1);
         assert_eq!(of_qualifier_items("O").len(), 1);
         assert_eq!(of_qualifier_items("X").len(), 0);
+    }
+
+    /// **The receiver of a `::` is the expression on its left — nothing more.**
+    ///
+    /// Reported (operator, 2026-09-07): a name preceded by `(` produced no
+    /// popup at all, and a name preceded by `(` or `,` inside another control's
+    /// argument list produced the OUTER control's members.
+    ///
+    /// The old rule took the last whitespace-delimited token and then
+    /// everything before its first `(`, so `(Form-1` reduced to the EMPTY
+    /// string and `Grid-1::Fill(Slider-1` reduced to `Grid-1`.
+    #[test]
+    fn a_receiver_is_found_past_a_parenthesis_or_a_comma() {
+        let controls = vec![
+            KnownControl {
+                id: "Form-1".into(),
+                ctrl_type: "Form".into(),
+                properties: vec!["Width".into()],
+                extra_methods: vec![],
+            },
+            KnownControl {
+                id: "Slider-1".into(),
+                ctrl_type: "Slider".into(),
+                properties: vec!["Value".into()],
+                extra_methods: vec![],
+            },
+            KnownControl {
+                id: "Grid-1".into(),
+                ctrl_type: "DataGrid".into(),
+                properties: vec!["Rows".into()],
+                extra_methods: vec![],
+            },
+        ];
+        let recv = |line: &str| {
+            let n = line.chars().count();
+            detect_invoke_context(line, n, &controls).map(|(id, _, _)| id)
+        };
+
+        for (line, want) in [
+            // A parenthesised expression: `(` ends the statement's operand and
+            // begins the receiver, exactly as a space would.
+            ("           COMPUTE X = (Form-1::", "FORM-1"),
+            ("           COMPUTE X = ((Form-1::", "FORM-1"),
+            // A property passed as an argument to another control's method:
+            // the INNER control owns the member being typed.
+            ("           Grid-1::Fill(Slider-1::", "SLIDER-1"),
+            // …and after a comma, with or without the space.
+            ("           Grid-1::Fill(A,Slider-1::", "SLIDER-1"),
+            ("           Grid-1::Fill(A, Slider-1::", "SLIDER-1"),
+            // An operator ends it too — the old whitespace-only rule needed
+            // spaces around it to work.
+            ("           COMPUTE X = 2*Form-1::", "FORM-1"),
+            // Plain, unchanged.
+            ("           DISPLAY Slider-1::", "SLIDER-1"),
+        ] {
+            assert_eq!(recv(line).as_deref(), Some(want), "receiver for {line:?}");
+        }
+
+        // A CHAIN TAIL still resolves to the chain's ROOT: `(0)` is a subscript
+        // belonging to the expression, not a statement parenthesis, so it is
+        // stepped over rather than treated as a boundary.
+        assert_eq!(recv("           MOVE Grid-1::Rows(0)::").as_deref(), Some("GRID-1"));
+        assert_eq!(
+            recv("           MOVE Grid-1::Rows(WS-I)::Cells(2)::").as_deref(),
+            Some("GRID-1")
+        );
+    }
+
+    /// `(` and `,` are word boundaries for the plain identifier popup too, so a
+    /// control or data item typed straight after one still completes.
+    #[test]
+    fn a_parenthesis_or_comma_starts_a_new_word() {
+        let line = "           COMPUTE X = (Form-1";
+        assert_eq!(
+            word_before_cursor(line, line.chars().count()),
+            (24, "Form-1".to_owned())
+        );
+        let line = "           CALL \"P\" USING A,Form-1";
+        assert_eq!(
+            word_before_cursor(line, line.chars().count()),
+            (28, "Form-1".to_owned())
+        );
+    }
+
+    /// **Every match is offered, not the first 25.**
+    ///
+    /// Keywords are added first, so a truncated list hid whole CATEGORIES: with
+    /// a common initial letter the 25 slots filled with COBOL verbs and not one
+    /// control or data item ever appeared. The popup scrolls, so length costs
+    /// nothing (operator, 2026-09-07).
+    #[test]
+    fn every_match_is_offered_not_the_first_twenty_five() {
+        let mut source = String::from(
+            "       IDENTIFICATION DIVISION.\n       DATA DIVISION.\n       WORKING-STORAGE SECTION.\n",
+        );
+        for i in 0..40 {
+            source.push_str(&format!("       01 S-ITEM-{i:03} PIC X(10).\n"));
+        }
+        let controls: Vec<KnownControl> = (0..40)
+            .map(|i| KnownControl {
+                id: format!("S-Ctrl-{i:03}"),
+                ctrl_type: "Button".into(),
+                properties: vec!["Caption".into()],
+                extra_methods: vec![],
+            })
+            .collect();
+
+        let items = build_completions("S-", &source, &controls, &[], false);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            items.len() >= 80,
+            "only {} of 80 `S-` matches offered — the list is still capped",
+            items.len()
+        );
+        // Both categories survive; the cap used to let one starve the other.
+        assert!(labels.contains(&"S-ITEM-039"), "last data item missing");
+        assert!(labels.contains(&"S-Ctrl-039"), "last control missing");
     }
 
     #[test]

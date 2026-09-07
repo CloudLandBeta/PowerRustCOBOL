@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.64] — 2026-09-07
+
+### IntelliSense offered a sample, and lost the receiver behind a parenthesis
+
+Two faults in the COBOL editor's completion, both reported 2026-09-07. One
+editor implements it, so both surfaces — the IDE code editor and the Form
+Designer's **event-handler editor** — get both fixes; a new test asserts the
+handler editor is fed the same catalogue, which is what keeps that true.
+
+**The list was capped at 25.** Worse than short: keywords are added first, so a
+common initial letter filled every slot with COBOL verbs and not one control or
+data item ever appeared — the popup looked like it simply did not know the
+form's names. The property list had a second cap at 60. Both are gone; the popup
+is a scrolling list, so length costs nothing.
+
+**A receiver behind `(` or `,` was lost or misread.** The receiver of a `::` was
+taken as the last whitespace-delimited token, minus everything before its first
+`(`. So:
+
+| typed | receiver found | should be |
+|---|---|---|
+| `COMPUTE X = (Form-1::` | *(empty)* — no popup at all | `Form-1` |
+| `Grid-1::Fill(Slider-1::` | `Grid-1` | `Slider-1` |
+| `Grid-1::Fill(A,Slider-1::` | `Grid-1` | `Slider-1` |
+
+The receiver is now found by scanning BACKWARDS from the `::`: identifier
+characters and `::` belong to the expression, a closing `)` is a subscript or an
+argument list and is stepped back to its own `(`, and anything else ends it —
+whitespace, an operator, a comma, or a parenthesis that belongs to the statement
+rather than to the receiver. `(` and `,` therefore act as word boundaries, which
+is what the operator asked for, and an operator with no spaces around it
+(`2*Form-1::`) now works too — it never did.
+
+A chain tail still resolves to the chain's root: `Grid-1::Rows(0)::` lists
+`Grid-1`, and `Grid-1::Rows(WS-I)::Cells(2)::` still does.
+
 ## [PowerRustCOBOL 1.65.63] — 2026-09-07
 
 ### Ask is asynchronous

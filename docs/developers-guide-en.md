@@ -4125,7 +4125,23 @@ move or compute between a data item and a property — e.g. `MOVE WS-N TO Spinne
 > **IntelliSense.** Type `::` (or `::"`) after a control id and the editor lists
 > that control's **properties (green)** and **methods (light blue)**; keep typing
 > to filter (`Button-1::Cap…` → `Caption`). A plain `"` is just a string literal —
-> it opens no popup.
+> it opens no popup. The list is complete — every match, scrolled, never a
+> capped sample — and the same editor is used for the **Form Designer's event
+> handlers**, so it behaves identically there.
+>
+> The receiver is simply the expression to the left of `::`, wherever it sits.
+> An opening parenthesis or a comma ends the statement's operand and begins a
+> new name, exactly as a space would, so all of these complete:
+>
+> ```cobol
+>            COMPUTE WS-HALF = (Form-1::Width / 2) * 4
+>            Grid-1::Fill(Slider-1::Value)
+>            Grid-1::Fill(WS-ROW, Slider-1::Value)
+> ```
+>
+> In the second and third the **inner** control owns the member being typed —
+> `Slider-1`, not `Grid-1`. A subscript stays part of its own expression, so a
+> chain tail such as `Grid-1::Rows(0)::` still lists `Grid-1`'s members.
 
 ### Calling control methods
 
