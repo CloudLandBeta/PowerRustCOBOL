@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.59] — 2026-09-07
+
+### "onResponse will fire" — it never did
+
+The verbose log said the reply was in and the event was coming; the form stayed
+on *asking…* for ever. The reply WAS in. The event was queued. It was dispatched
+under a name no arm of the event loop could match.
+
+A COBOL word reaches the interpreter upper-cased, so a member call on
+`Agent-Helper` arrives as `AGENT-HELPER` — which is why the verbose lines read
+`[agent AGENT-HELPER]`. The generated event loop compares against the literal
+the designer wrote:
+
+```cobol
+           EVALUATE COBOL-CONTROL-ID
+               WHEN "Agent-Helper"
+                   EVALUATE COBOL-EVENT-ID
+                       WHEN "onResponse"
+                           CALL "AGENT-HELPER--ONRESPONSE"
+```
+
+`"AGENT-HELPER"` ≠ `"Agent-Helper"`, so `EVALUATE` fell through and the handler
+never ran. A UI event never showed this: those carry the HOST's spelling and
+match. Only an event the interpreter queued for itself was affected — which is
+every one of them: `onResponse`, `onError`, `onComplete`, `onCancelled`,
+`onTimeout`, on every async control.
+
+The interpreter now knows how the form spells its ids and dispatches in that
+spelling. The object store upper-cases every key, so the interpreter could not
+recover it alone; the host supplies it, which also means **already-generated
+forms are fixed without regeneration** — a codegen change would have needed
+every `.cbl` rebuilt.
+
+**Three hosts construct a form interpreter, and all three now tell it.** The
+third was found because the operator asked for it: `rcrun run-form`
+(`form_gui.rs`) and child forms (`host.rs`) were wired, and the COMPILED BINARY
+(`run_form_app` in `cobolt-compiler`) was not — a built application would have
+kept the bug after both live surfaces were fixed. Every queue site routes through
+one resolver rather than each formatting its own name.
+
+An unknown control passes through unchanged rather than being dropped: losing an
+event is worse than dispatching one the loop happens not to match, and that is
+exactly the old behaviour.
+
+Four tests: the form's spelling wins, any caller casing resolves to it, an
+unknown control is passed through, and a console program with no form is
+untouched. cobolt-runtime 851 passed / 0 failed, cobolt-form-host 92 / 0,
+cobolt-compiler 114 / 0, cobolt-cli 8 / 0, IDE 1102 / 0, cobolt-forms 860 / 0.
+
 ## [PowerRustCOBOL 1.65.58] — 2026-09-07
 
 ### Verbose means verbatim, and the form's mouse stops drowning it

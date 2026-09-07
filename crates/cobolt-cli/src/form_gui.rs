@@ -368,9 +368,15 @@ pub fn cmd_run_form(args: &[String]) {
         let error_slot = Arc::clone(&error_slot);
         let pending = Arc::clone(&pending);
         let form_req_tx = form_req_tx.clone();
+        let control_ids: Vec<String> = form.controls.iter().map(|c| c.id.clone()).collect();
         let form_object = form_object.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            // How the FORM spells its control ids. A COBOL word reaches the
+            // interpreter upper-cased, so an event it queues itself would be
+            // dispatched as `AGENT-HELPER` while the generated loop compares
+            // against `"Agent-Helper"` and matches nothing.
+            interp.set_control_ids(control_ids);
             let _ = bridge_tx.send(interp.shared_rust_bridge());
             interp.set_input_channel(input_rx);
             interp.set_event_counter(pending);

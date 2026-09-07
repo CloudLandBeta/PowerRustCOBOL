@@ -2769,6 +2769,10 @@ impl FormHost {
         let finished = Arc::new(AtomicBool::new(false));
 
         let form_object = form.name.trim().to_ascii_uppercase();
+        // How this form spells its control ids: an event the interpreter queues
+        // itself must be dispatched under the same literal the generated
+        // EVALUATE compares against.
+        let control_ids: Vec<String> = form.controls.iter().map(|c| c.id.clone()).collect();
         {
             let finished = Arc::clone(&finished);
             let pending = Arc::clone(&pending);
@@ -2788,6 +2792,7 @@ impl FormHost {
                     cobolt_runtime::interpreter::Interpreter::new_with_channels_and_bridge(
                         program, ev_rx, state_tx, display_tx, bridge,
                     );
+                interp.set_control_ids(control_ids);
                 interp.set_input_channel(input_rx);
                 interp.set_event_counter(pending);
                 interp.set_form_host(req_tx, &handle, &form_object, closed_rx);

@@ -2660,6 +2660,13 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // application must leave stdin to `ACCEPT`.
     let debug_wiring = cobolt_form_host::debug_link::debug_session_requested()
         .then(cobolt_form_host::debug_link::stdio_debug_wiring);
+    // How the FORM spells its control ids. A COBOL word reaches the interpreter
+    // upper-cased, so an event the interpreter queues itself — `onResponse`
+    // after an `AgentObject::Ask`, an async `onComplete` — would be dispatched
+    // as `AGENT-HELPER` while the generated event loop compares against
+    // `WHEN "Agent-Helper"` and matches nothing. A built binary runs the same
+    // generated loop as `rcrun run-form`, so it needs the same answer.
+    let control_ids: Vec<String> = first_form.controls.iter().map(|c| c.id.clone()).collect();
     {
         let finished = Arc::clone(&finished);
         let pending = Arc::clone(&pending);
@@ -2667,6 +2674,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
         let form_req_tx = form_req_tx.clone();
         std::thread::spawn(move || {
             let mut interp = Interpreter::new_with_channels(program, ev_rx, state_tx, display_tx);
+            interp.set_control_ids(control_ids);
             let _ = bridge_tx.send(interp.shared_rust_bridge());
             // Compiled EXEC RUST blocks, before the run (spec 041 R2/R9): one
             // process-wide object bridge, so every block — in the main form or

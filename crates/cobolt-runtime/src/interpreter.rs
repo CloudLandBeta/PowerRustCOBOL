@@ -1431,6 +1431,18 @@ pub struct Interpreter {
     async_generations: HashMap<String, Arc<AtomicU64>>,
     /// Completed async operations awaiting dispatch to COBOL as
     /// `(control-id, event-id)`, one presented per `COBOL-WAIT-EVENT` return.
+    /// The form's control ids as the FORM spells them, keyed by their
+    /// upper-case COBOL spelling.
+    ///
+    /// A COBOL word is upper-cased by the time the interpreter sees it, so a
+    /// member call on `Agent-Helper` arrives as `AGENT-HELPER`. The generated
+    /// event loop, meanwhile, compares against the form's own spelling
+    /// (`WHEN "Agent-Helper"`). A UI event carries the host's spelling and
+    /// matches; an event the INTERPRETER queued carried the upper-case one and
+    /// matched nothing — `onResponse` was queued after every successful `Ask`
+    /// and silently never dispatched (operator, 2026-09-07: "The console text
+    /// say 'onResponse will fire'. It never did").
+    control_ids: std::collections::HashMap<String, String>,
     async_dispatch_queue: std::collections::VecDeque<(String, String)>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
@@ -1801,6 +1813,7 @@ impl Interpreter {
             async_result_rx,
             async_pending: HashMap::new(),
             async_generations: HashMap::new(),
+            control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
             debug_cmd_rx: None,
             debug_event_tx: None,
@@ -2718,8 +2731,7 @@ impl Interpreter {
             // R33: "not configured" — fail synchronously with no worker
             // thread at all, rather than a network call that would 400.
             self.obj_set(obj, "LastError", "Maps API key not configured".into());
-            self.async_dispatch_queue
-                .push_back((obj.to_string(), "onError".to_string()));
+            self.queue_control_event(obj, "onError");
             return CobolValue::from_str("", 0);
         }
         let timeout_ms = self.rest_timeout_ms(obj);
@@ -2778,8 +2790,7 @@ impl Interpreter {
                 "LastError",
                 "TraceRoad: no OpenRouteService key was supplied".into(),
             );
-            self.async_dispatch_queue
-                .push_back((obj.to_string(), "onError".to_string()));
+            self.queue_control_event(obj, "onError");
             return CobolValue::from_str("", 0);
         }
         let timeout_ms = self.rest_timeout_ms(obj);
@@ -2851,9 +2862,37 @@ impl Interpreter {
     /// `COBOL-WAIT-EVENT` return (spec 021; rides the spec-032 dispatch
     /// queue). Events without a bound handler are dropped by the generated
     /// dispatch code, so queuing is always safe.
+    /// Tell the interpreter how the form spells its control ids.
+    ///
+    /// Called by whichever host owns the form. Without it a queued event is
+    /// dispatched under the upper-case COBOL spelling and the generated
+    /// `EVALUATE` never matches it.
+    pub fn set_control_ids<I, S>(&mut self, ids: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for id in ids {
+            let id = id.as_ref();
+            self.control_ids
+                .insert(id.to_ascii_uppercase(), id.to_owned());
+        }
+    }
+
+    /// `obj` as the form spells it, or unchanged when the form never said.
+    fn form_spelling(&self, obj: &str) -> String {
+        self.control_ids
+            .get(&obj.to_ascii_uppercase())
+            .cloned()
+            .unwrap_or_else(|| obj.to_owned())
+    }
+
     fn queue_control_event(&mut self, obj: &str, event: &str) {
+        // The form's spelling, not the caller's: the generated event loop
+        // compares against the literal the designer wrote.
+        let ctrl = self.form_spelling(obj);
         self.async_dispatch_queue
-            .push_back((obj.to_string(), event.to_string()));
+            .push_back((ctrl, event.to_string()));
     }
 
     /// Cancel any in-flight operation on `obj` (spec 032 R10/R11). Runs entirely
@@ -2866,8 +2905,7 @@ impl Interpreter {
                 g.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             self.obj_set(obj, "Busy", "0".into());
-            self.async_dispatch_queue
-                .push_back((obj.to_string(), "onCancelled".to_string()));
+            self.queue_control_event(obj, "onCancelled");
         }
     }
 
@@ -2894,14 +2932,14 @@ impl Interpreter {
                     self.obj_set(&r.ctrl_id, "StatusCode", status.to_string());
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
                     self.async_dispatch_queue
-                        .push_back((r.ctrl_id, "onComplete".to_string()));
+                        .push_back((self.control_ids.get(&r.ctrl_id.to_ascii_uppercase()).cloned().unwrap_or(r.ctrl_id), "onComplete".to_string()));
                 }
                 crate::async_op::AsyncOutcome::HttpError { message } => {
                     self.obj_set(&r.ctrl_id, "LastError", message);
                     self.obj_set(&r.ctrl_id, "StatusCode", "0".into());
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
                     self.async_dispatch_queue
-                        .push_back((r.ctrl_id, "onError".to_string()));
+                        .push_back((self.control_ids.get(&r.ctrl_id.to_ascii_uppercase()).cloned().unwrap_or(r.ctrl_id), "onError".to_string()));
                 }
             }
         }
@@ -2924,7 +2962,7 @@ impl Interpreter {
             }
             self.obj_set(&id, "Busy", "0".into());
             self.async_dispatch_queue
-                .push_back((id, "onTimeout".to_string()));
+                .push_back((self.control_ids.get(&id.to_ascii_uppercase()).cloned().unwrap_or(id), "onTimeout".to_string()));
         }
     }
 
@@ -12795,8 +12833,7 @@ impl Interpreter {
                 if api_key.trim().is_empty() {
                     // R33: "not configured" — fail synchronously, no request.
                     self.obj_set(obj, "LastError", "Web Search API key not configured".into());
-                    self.async_dispatch_queue
-                        .push_back((obj.to_string(), "onError".to_string()));
+                    self.queue_control_event(obj, "onError");
                     return CobolValue::from_str("", 0);
                 }
                 let cx = self.obj_get(obj, "SearchEngineId");
@@ -17156,5 +17193,81 @@ mod boolean_comparison_tests {
         // characters — it is not an invented ordering over booleans.
         assert!(compare_values(&text("true"), &num(0), CmpOp::Gt));
         assert!(!compare_values(&text("true"), &num(0), CmpOp::Lt));
+    }
+}
+
+#[cfg(test)]
+mod queued_event_spelling_tests {
+    use super::*;
+    use cobolt_lexer::{tokenize, SourceFormat};
+    use cobolt_parser::parse;
+
+    /// The smallest program the parser accepts — the queue is what is under
+    /// test, not the program.
+    fn interp() -> Interpreter {
+        let source = "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+        let program = parse(tokenize(source, SourceFormat::Free))
+            .program
+            .expect("program should parse");
+        Interpreter::new(program)
+    }
+
+    /// The generated event loop compares `COBOL-CONTROL-ID` against the literal
+    /// the DESIGNER wrote — `WHEN "Agent-Helper"`. A COBOL word reaches the
+    /// interpreter upper-cased, so an event queued from a member call carried
+    /// `AGENT-HELPER` and matched no arm at all: after a successful `Ask` the
+    /// verbose log said "onResponse will fire" and nothing ran, leaving the
+    /// form on "asking…" for ever (operator, 2026-09-07).
+    #[test]
+    fn a_queued_event_carries_the_forms_own_spelling() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper", "Txt-Log", "Btn-Ask"]);
+        i.queue_control_event("AGENT-HELPER", "onResponse");
+        assert_eq!(
+            i.async_dispatch_queue.back(),
+            Some(&("Agent-Helper".to_string(), "onResponse".to_string())),
+            "the queued id must be the literal the generated EVALUATE compares"
+        );
+    }
+
+    /// Whatever case the caller uses, the form's spelling comes out.
+    #[test]
+    fn any_caller_spelling_resolves_to_the_forms() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        for spelling in ["AGENT-HELPER", "agent-helper", "Agent-Helper", "AgEnT-hELPer"] {
+            i.async_dispatch_queue.clear();
+            i.queue_control_event(spelling, "onError");
+            assert_eq!(
+                i.async_dispatch_queue.back().map(|(c, _)| c.as_str()),
+                Some("Agent-Helper"),
+                "{spelling} must resolve to the form's spelling"
+            );
+        }
+    }
+
+    /// A control the form never declared is passed through untouched rather
+    /// than dropped: losing an event is worse than dispatching one the loop
+    /// happens not to match, and that is exactly the old behaviour.
+    #[test]
+    fn an_unknown_control_is_passed_through_unchanged() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.queue_control_event("SOME-OTHER", "onError");
+        assert_eq!(
+            i.async_dispatch_queue.back().map(|(c, _)| c.as_str()),
+            Some("SOME-OTHER")
+        );
+    }
+
+    /// With no form to ask — a console program — nothing changes.
+    #[test]
+    fn without_a_form_the_caller_spelling_stands() {
+        let mut i = interp();
+        i.queue_control_event("AGENT-HELPER", "onResponse");
+        assert_eq!(
+            i.async_dispatch_queue.back().map(|(c, _)| c.as_str()),
+            Some("AGENT-HELPER")
+        );
     }
 }
