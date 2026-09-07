@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.40] — 2026-09-06
+
+### An unguarded size error is now an exception
+
+`COMPUTE`, `ADD`, `SUBTRACT`, `MULTIPLY` and `DIVIDE` raise the SIZE ERROR
+condition when a result will not fit — division by zero included. Declare
+`ON SIZE ERROR` and it is yours to handle, and nothing else happens: the two
+error models stay apart, which is the whole point of the phrase.
+
+Declare **nothing** and nobody is handling it. Until now the receiver was left
+quietly untouched — which is exactly how a wrong total reaches a report with no
+sign anything went wrong. It now raises a `UserException`, so both ways a
+developer can take charge work: a `TRY … CATCH` around the statement catches it
+like any other, and with no `CATCH` it reaches the form's
+`onUnhandledException` (operator ruling, 2026-09-06).
+
+⚠️ **Forms only — and that limit was measured, not chosen for comfort.**
+
+Raising it in a console program too costs **twelve CCVS85 Nucleus programs and
+1,153 assertions**: NC drops from **95/95 to 83/95** and 4,614 assertions to
+3,461. I implemented the unrestricted rule first, ran the suite, and read the
+damage before deciding.
+
+COBOL-85 leaves the result **undefined** when the phrase is absent, so the
+suite is entitled to carry on, and NC is a finished, protected module (GOLDEN
+RULE #9). The ruling is about forms — which is also where `onUnhandledException`
+and the notification live — so that is where it applies. A console program keeps
+the standard's silence.
+
+**NIST re-verified after the change: NC 95/95, 4,614 assertions, 0 failures** —
+the baseline exactly.
+
+Runtime: 837 tests, 0 failures. Host + forms engine: 950.
+
 ## [PowerRustCOBOL 1.65.39] — 2026-09-06
 
 ### `onUnhandledException` — and a form that survives its own handlers

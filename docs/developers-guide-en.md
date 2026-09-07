@@ -1072,11 +1072,30 @@ Bind nothing and the operator sees a **critical notification** instead:
 It never expires and carries the ✕ that dismisses it, and it needs no Snackbar
 control on the form.
 
+**An unguarded size error is an exception.** `COMPUTE`, `ADD`, `SUBTRACT`,
+`MULTIPLY` and `DIVIDE` raise the SIZE ERROR condition when a result will not
+fit — division by zero included. Declare `ON SIZE ERROR` and it is yours:
+
+```cobol
+           DIVIDE WS-A BY WS-Z GIVING WS-A
+               ON SIZE ERROR DISPLAY "cannot divide by zero"
+           END-DIVIDE
+```
+
+Declare nothing and nobody is handling it, so the statement raises an exception
+instead of leaving the receiver quietly untouched — which is how a wrong total
+reaches a report with no sign anything went wrong. A `TRY … CATCH` around the
+statement catches it like any other; with no `CATCH`, it reaches
+`onUnhandledException`.
+
 > ⚠️ An exception raised **inside** `onUnhandledException` is not handed back to
 > it — that would loop. It is reported like any other failure.
 >
-> This is forms only. A console program that fails still fails: it has no window
-> to report into, and swallowing the error would hide it completely.
+> This is forms only, and so is the size-error rule above. A console program
+> that fails still fails to its caller — it has no window to report into — and
+> an unguarded size error there keeps the standard's silence, because COBOL-85
+> leaves the result undefined when the phrase is absent and the CCVS85 suite
+> relies on being allowed to carry on.
 
 ### The example project (Help → Examples)
 

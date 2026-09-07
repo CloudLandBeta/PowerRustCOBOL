@@ -5996,7 +5996,33 @@ impl Interpreter {
         if size_err {
             if !on_size_error.is_empty() {
                 self.exec_stmts(on_size_error)?;
+            } else if self.self_form_object.is_some() {
+                // NOBODY DECLARED `ON SIZE ERROR`, so nobody is handling this
+                // (operator ruling, 2026-09-06). Silently leaving the receiver
+                // untouched is what the standard permits, and it is also how a
+                // wrong total reaches a report with no sign anything went
+                // wrong. It is raised as a `UserException` so the two ways a
+                // developer can take charge both work: a `TRY … CATCH`
+                // enclosing the statement catches it like any other, and if
+                // nothing does, it reaches the form's `onUnhandledException`.
+                //
+                // A statement that DOES declare the phrase never gets here —
+                // the developer handled it, and the two error models stay
+                // apart exactly as they should.
+                return Err(RuntimeError::UserException {
+                    message: "arithmetic size error with no ON SIZE ERROR phrase \
+                              (the result would be undefined)"
+                        .to_owned(),
+                });
             }
+            // A CONSOLE program keeps the standard's silence, and it is not a
+            // free choice: raising here costs twelve CCVS85 Nucleus programs
+            // and 1,153 assertions (NC 95/95 -> 83/95, measured 2026-09-06).
+            // COBOL-85 leaves the result UNDEFINED when the phrase is absent,
+            // so the suite is entitled to carry on, and NC is a finished,
+            // protected module (GOLDEN RULE #9). The ruling that an unguarded
+            // size error must become an exception is about FORMS, which is
+            // also where `onUnhandledException` and the notification live.
         } else if !not_on_size_error.is_empty() {
             self.exec_stmts(not_on_size_error)?;
         }

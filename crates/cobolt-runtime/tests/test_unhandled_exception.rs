@@ -194,3 +194,89 @@ to get better control over the exception.";
     assert!(!detail.trim().is_empty(), "the details must not be empty");
     println!("critical notification: {text}");
 }
+
+/// **An unguarded size error becomes an exception — under a form.**
+///
+/// COBOL-85 leaves the result undefined when `ON SIZE ERROR` is absent, and
+/// leaving the receiver untouched is also how a wrong total reaches a report
+/// with no sign anything went wrong. Under a form, nobody handling it means
+/// `onUnhandledException` should hear about it (operator ruling, 2026-09-06).
+#[test]
+fn an_unguarded_size_error_is_an_exception_under_a_form() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-A PIC 9(4) VALUE 1.
+       01 WS-Z PIC 9(4) VALUE 0.
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           DISPLAY "BEFORE"
+           CALL "MAIN-FORM--BOOM"
+           DISPLAY "AFTER"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM--BOOM IS COMMON PROGRAM.
+       PROCEDURE DIVISION.
+           DIVIDE WS-A BY WS-Z GIVING WS-A
+           DISPLAY "NOT REACHED".
+       END PROGRAM MAIN-FORM--BOOM.
+       END PROGRAM MAIN-FORM.
+"#;
+    let (out, updates) = run_as_form(src);
+    assert!(
+        !out.iter().any(|l| l.contains("NOT REACHED")),
+        "the unguarded DIVIDE must abandon its handler: {out:?}"
+    );
+    assert!(
+        out.iter().any(|l| l.contains("AFTER")),
+        "…and the form still continues: {out:?}"
+    );
+    let text = updates
+        .iter()
+        .find(|u| u.prop == "_CriticalException")
+        .map(|u| u.value.clone())
+        .expect("the operator is told");
+    assert!(text.contains("size error"), "{text:?}");
+}
+
+/// **A declared `ON SIZE ERROR` is still the developer's to handle** — the two
+/// error models stay apart, which is the whole point of the phrase.
+#[test]
+fn a_declared_on_size_error_is_not_an_exception() {
+    let src = r#"
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       01 WS-A PIC 9(4) VALUE 1.
+       01 WS-Z PIC 9(4) VALUE 0.
+       PROCEDURE DIVISION.
+       COBOL-MAIN.
+           CALL "MAIN-FORM--GUARDED"
+           DISPLAY "AFTER"
+           STOP RUN.
+
+       IDENTIFICATION DIVISION.
+       PROGRAM-ID. MAIN-FORM--GUARDED IS COMMON PROGRAM.
+       PROCEDURE DIVISION.
+           DIVIDE WS-A BY WS-Z GIVING WS-A
+               ON SIZE ERROR DISPLAY "HANDLED"
+           END-DIVIDE
+           DISPLAY "CARRIED ON".
+       END PROGRAM MAIN-FORM--GUARDED.
+       END PROGRAM MAIN-FORM.
+"#;
+    let (out, updates) = run_as_form(src);
+    assert!(out.iter().any(|l| l.contains("HANDLED")), "{out:?}");
+    assert!(
+        out.iter().any(|l| l.contains("CARRIED ON")),
+        "the handler runs on past its own ON SIZE ERROR: {out:?}"
+    );
+    assert!(
+        !updates.iter().any(|u| u.prop == "_CriticalException"),
+        "a declared phrase must NOT also raise an exception"
+    );
+}

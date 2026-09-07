@@ -3566,6 +3566,13 @@ handler is abandoned, and the event loop carries on with the next event.
   expires and carries the built-in ✕, and it needs no Snackbar on the form —
   a form that has not thought about errors is exactly the one without one.
 
+**An unguarded size error is an exception.** `COMPUTE` / `ADD` / `SUBTRACT` /
+`MULTIPLY` / `DIVIDE` raise the SIZE ERROR condition when the result will not
+fit, division by zero included. With `ON SIZE ERROR` declared it is the
+developer's to handle and nothing else happens. With no phrase, nobody is
+handling it, so the statement raises an exception — catchable by an enclosing
+`TRY … CATCH`, and otherwise delivered to `onUnhandledException`.
+
 An exception raised **inside** `onUnhandledException` is not handed back to it;
 it is reported like any other failure.
 
