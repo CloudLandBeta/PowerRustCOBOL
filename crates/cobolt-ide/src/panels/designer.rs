@@ -2030,6 +2030,15 @@ pub struct DesignerPanel {
     /// between them mean the answer grows a little every frame. The stored
     /// width breaks the cycle — 0 = never dragged, and the only writer is the
     /// grip.
+    /// The account of the last change-set applied through this designer —
+    /// every operation that went in, and every one that did not with the
+    /// reason the validator gave.
+    ///
+    /// Written by `apply_agent_change_set` itself, not by its callers, so no
+    /// surface can apply a change-set and forget to record what it did. Each
+    /// surface then puts it wherever its own conversation lives (operator,
+    /// 2026-09-07: "make it ubiquitous").
+    pub last_change_outcome: String,
     pub event_editor_width: f32,
     /// Where the event editor's code box landed last frame — the same role
     /// [`Self::cs_box_rect`] plays for the COBOL Structure window. It is what
@@ -2160,6 +2169,7 @@ impl DesignerPanel {
             ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             event_ai_prompt_height: 0.0, // idem, for the event editor's prompt
             event_editor_height: 0.0,    // idem, for its code box
+            last_change_outcome: String::new(),
             event_editor_width: 0.0,     // idem, for its width
             event_box_rect: None,
             global_ai_streaming: String::new(),
@@ -2616,6 +2626,9 @@ impl DesignerPanel {
     pub fn apply_agent_change_set(&mut self, cs: &crate::agent::AgentChangeSet) -> usize {
         use crate::agent::AgentOp;
         let status = crate::agent::validate(cs, &self.form);
+        // The account is taken HERE, from the verdicts this function already
+        // has, so every caller gets it without asking and none can skip it.
+        self.last_change_outcome = crate::agent::outcome_ledger(cs, &status);
         // Agent-placed geometry goes on the grid the same way a dragged control
         // does, and a coordinate the change-set repeats stays one coordinate —
         // so a column the agent aligned is still aligned once snapped. Geometry
@@ -6648,18 +6661,9 @@ impl DesignerPanel {
 
                                 // Try to parse it as operations
                                 if let Ok(cs) = crate::agent::parse_change_set(&text) {
-                                    // Judged against the form as it stands NOW,
-                                    // before anything is applied — the same
-                                    // verdict `apply_agent_change_set` reaches
-                                    // internally, taken here while it is still
-                                    // reachable. `validate` is pure, so asking
-                                    // twice costs nothing and keeps the apply
-                                    // path's signature alone.
-                                    let ledger = crate::agent::outcome_ledger(
-                                        &cs,
-                                        &crate::agent::validate(&cs, &self.form),
-                                    );
                                     let applied = self.apply_agent_change_set(&cs);
+                                    // Recorded by the apply itself.
+                                    let ledger = self.last_change_outcome.clone();
                                     // Snapshot the post-change UI so the next
                                     // agent turn can verify its own edits
                                     // rendered as intended (spec 027).
@@ -19853,4 +19857,105 @@ mod event_modal_resize_tests {
         );
     }
 
+}
+
+#[cfg(test)]
+mod change_outcome_ubiquity_tests {
+    use super::*;
+    use crate::agent::{AgentChangeSet, AgentOp};
+
+    fn panel() -> DesignerPanel {
+        DesignerPanel::new(Form::new("F1", "F1", 640, 480))
+    }
+
+    /// The account is taken by the APPLY, not by whichever surface called it.
+    ///
+    /// That is what makes it ubiquitous: the designer chat, the approved
+    /// preview and the Grace workflow all get the same record without asking,
+    /// and a new call site cannot forget to produce one (operator, 2026-09-07:
+    /// "make it ubiquitous").
+    #[test]
+    fn applying_records_the_outcome_without_the_caller_asking() {
+        let mut dp = panel();
+        assert!(dp.last_change_outcome.is_empty(), "nothing applied yet");
+
+        let cs = AgentChangeSet {
+            operations: vec![AgentOp::DeployControl {
+                control_type: "Button".to_owned(),
+                id: Some("BTN-OK".to_owned()),
+                parent_id: None,
+                parent: None,
+                properties: serde_json::Map::new(),
+            }],
+            note: None,
+        };
+        dp.apply_agent_change_set(&cs);
+        assert!(
+            dp.last_change_outcome.contains("- applied: deploy_control Button BTN-OK"),
+            "the apply must record what it did: {}",
+            dp.last_change_outcome
+        );
+    }
+
+    /// A refusal is recorded with the validator's own reason — the half that
+    /// used to be computed and discarded everywhere except one path.
+    #[test]
+    fn a_refused_operation_is_recorded_with_its_reason() {
+        let mut dp = panel();
+        let cs = AgentChangeSet {
+            operations: vec![AgentOp::SetProperty {
+                control_id: "NO-SUCH-CONTROL".to_owned(),
+                key: "Caption".to_owned(),
+                value: serde_json::Value::String("x".to_owned()),
+            }],
+            note: None,
+        };
+        dp.apply_agent_change_set(&cs);
+        let out = &dp.last_change_outcome;
+        assert!(
+            out.contains("- NOT applied: set_property NO-SUCH-CONTROL::Caption"),
+            "the refusal must be named: {out}"
+        );
+        assert!(
+            out.len() > "- NOT applied: set_property NO-SUCH-CONTROL::Caption".len() + 4,
+            "and must carry a reason after the dash: {out}"
+        );
+    }
+
+    /// The record describes the LAST change-set, not every change-set ever —
+    /// a growing log would be re-sent on every later turn.
+    #[test]
+    fn each_apply_replaces_the_previous_account() {
+        let mut dp = panel();
+        let first = AgentChangeSet {
+            operations: vec![AgentOp::DeployControl {
+                control_type: "Button".to_owned(),
+                id: Some("BTN-ONE".to_owned()),
+                parent_id: None,
+                parent: None,
+                properties: serde_json::Map::new(),
+            }],
+            note: None,
+        };
+        dp.apply_agent_change_set(&first);
+        assert!(dp.last_change_outcome.contains("BTN-ONE"));
+
+        let second = AgentChangeSet {
+            operations: vec![AgentOp::DeployControl {
+                control_type: "Button".to_owned(),
+                id: Some("BTN-TWO".to_owned()),
+                parent_id: None,
+                parent: None,
+                properties: serde_json::Map::new(),
+            }],
+            note: None,
+        };
+        dp.apply_agent_change_set(&second);
+        assert!(dp.last_change_outcome.contains("BTN-TWO"));
+        assert!(
+            !dp.last_change_outcome.contains("BTN-ONE"),
+            "the account is of the last change-set only: {}",
+            dp.last_change_outcome
+        );
+    }
 }

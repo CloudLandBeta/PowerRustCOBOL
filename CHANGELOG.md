@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.55] — 2026-09-07
+
+### The change-set account is taken by the apply, so every surface has it
+
+1.65.54 gave the designer chat a `CHANGE-SET OUTCOME` record. It reached one
+surface, because the caller built it — which meant the other three did not have
+it, and a new call site would not either.
+
+The account is now taken inside `apply_agent_change_set`, from the verdicts that
+function already computes, and left on `DesignerPanel::last_change_outcome`. No
+caller asks for it; none can skip it.
+
+| Path | Before | Now |
+|---|---|---|
+| Designer chat | full account | reads the recorded one |
+| Grace workflow apply | refusals only, via `discarded_ops` | the full account, applied and refused |
+| Approved agent preview | nothing at all | the account, into the same conversation Grace reads |
+| Any future call site | would have had nothing | gets it by construction |
+
+**One mechanism where there were two.** The Grace workflow path had its own
+`discarded_ops` helper naming only the refused half. It now uses the same record
+as everywhere else, so the two accounts cannot drift into disagreeing about the
+same change-set.
+
+`discarded_ops` is consequently unused outside its own test. It is left in place
+rather than deleted — it is not mine to remove on my own initiative — and
+flagged here as debt to settle deliberately.
+
+**The account describes the LAST change-set, not a growing log.** It rides in
+the chat history and the chat history is re-sent on every later turn, so an
+accumulating record would be paid for again and again. A test pins the
+replacement.
+
+Three tests on the structural guarantee: applying records the outcome without
+the caller asking, a refusal carries the validator's own reason, and each apply
+replaces the previous account. IDE suite 1102 passed / 0 failed.
+
 ## [PowerRustCOBOL 1.65.54] — 2026-09-07
 
 ### Grace can now say what she changed, and what she did not, and why

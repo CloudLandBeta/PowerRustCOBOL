@@ -4216,6 +4216,15 @@ impl CoboltApp {
             if let Some(cs) = self.agent_preview.take().map(|p| p.change_set) {
                 let saved = if let Some(st) = &mut self.inspect {
                     let n = st.designer.apply_agent_change_set(&cs);
+                    // An approved preview is still a change the developer may
+                    // ask about later, so its account joins the same
+                    // conversation Grace reads — not only the form it edited.
+                    let ledger = st.designer.last_change_outcome.clone();
+                    if !ledger.is_empty() {
+                        st.designer
+                            .ai_history
+                            .push(crate::llm::ChatTurn::assistant(ledger));
+                    }
                     if n > 0 {
                         let _ = save_form(&st.designer.form, &st.path);
                         st.designer.dirty = false;
@@ -4335,17 +4344,16 @@ impl CoboltApp {
             for set in sets {
                 match set {
                     Ok(cs) => {
-                        // Name what will be skipped BEFORE applying — a silently
-                        // discarded handler is exactly how a workflow reports
-                        // success while the form gains no events.
-                        let discarded = crate::agent::discarded_ops(&cs, &st.designer.form);
+                        // A silently discarded handler is exactly how a
+                        // workflow reports success while the form gains no
+                        // events, so the full account goes into the session log
+                        // — what was applied AND what was not, with the
+                        // validator's reason for each refusal. The apply itself
+                        // records it; this only reads it back.
                         let n = st.designer.apply_agent_change_set(&cs);
-                        if !discarded.is_empty() {
-                            notes.push(format!(
-                                "⚠ {} operation(s) from Grace could not be applied and were discarded:\n  • {}",
-                                discarded.len(),
-                                discarded.join("\n  • ")
-                            ));
+                        let ledger = st.designer.last_change_outcome.clone();
+                        if !ledger.is_empty() {
+                            notes.push(ledger);
                         }
                         if n > 0 {
                             let _ = save_form(&st.designer.form, &st.path);
