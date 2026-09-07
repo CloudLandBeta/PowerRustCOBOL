@@ -7252,7 +7252,12 @@ at its first space) and never carries the key — **prefer `Search()`**,
 which percent-encodes the query and resolves the credential automatically.
 
 **Combining with an AI Agent.** A common pattern: run a search, then ask an
-`AgentObject` to summarise the results into a multiline TextBox:
+`AgentObject` to summarise the results into a multiline TextBox.
+
+`Ask` is **asynchronous**. It hands the call to a background worker and
+returns immediately, so the form keeps painting and keeps answering clicks
+while the model thinks. The answer therefore arrives in a *second* handler —
+`onResponse` — and is read from `LastReply`:
 
 ```cobol
        SEARCH-1--ONCOMPLETE.
@@ -7260,8 +7265,26 @@ which percent-encodes the query and resolves the credential automatically.
            STRING "Summarise these search results in three bullet points: "
                   SEARCH-1::TopTitle " — " SEARCH-1::TopSnippet
              INTO WS-SUMMARY-PROMPT
-           MOVE Agent1::Ask(WS-SUMMARY-PROMPT) TO Summary-Box::Text.
+           Agent1::Ask(WS-SUMMARY-PROMPT).
+
+       AGENT1--ONRESPONSE.
+           MOVE Agent1::LastReply TO Summary-Box::Text.
+
+       AGENT1--ONERROR.
+           MOVE Agent1::LastError TO Summary-Box::Text.
 ```
+
+> ⚠️ **Do not write `MOVE Agent1::Ask(...) TO X`.** `Ask` returns the empty
+> string — the reply does not exist yet when the statement finishes — so that
+> `MOVE` silently clears the receiving field. This is the same convention every
+> other non-visual control follows (`RestClient::Get`, `Maps::Geocode`,
+> `WebSearch::Search`): the verb starts the work, the event delivers it.
+>
+> **Notes.** `Busy` is true from the `Ask` until `onResponse`, `onError` or
+> `onTimeout` fires, and a second `Ask` while it is true is ignored rather than
+> raced — test `Busy` (or disable the button) if the user can press twice.
+> `TimeoutSeconds` bounds the wait; raising `MaximumTokens` lengthens the
+> answer, so raise the timeout with it.
 
 `WebSearch` is classified as a `RestApi`-kind binding **source** (the same
 kind `RestClient` uses — there is no separate `WebSearch` source kind), so

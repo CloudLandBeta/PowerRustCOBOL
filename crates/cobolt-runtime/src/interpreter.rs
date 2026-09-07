@@ -2927,6 +2927,9 @@ impl Interpreter {
             }
             self.async_pending.remove(&r.ctrl_id);
             match r.outcome {
+                crate::async_op::AsyncOutcome::AgentReply { status, body } => {
+                    self.agent_delivered(&r.ctrl_id, status, &body);
+                }
                 crate::async_op::AsyncOutcome::HttpSuccess { body, status } => {
                     self.obj_set(&r.ctrl_id, "ResponseBody", body);
                     self.obj_set(&r.ctrl_id, "StatusCode", status.to_string());
@@ -10578,31 +10581,93 @@ impl Interpreter {
             let body_text = body.clone();
             self.agent_log_block(obj, "payload", &body_text);
         }
-        // `Busy` is honest for the length of the call: another thread reading
-        // `IsBusy()` while this one waits gets the truth.
+        // One question at a time per control (the spec-032 rule every async
+        // control follows): a second Ask while one is in flight is ignored
+        // rather than racing the first one's answer onto the same properties.
+        if self.async_pending.contains_key(obj) {
+            if verbose {
+                self.agent_log(format!(
+                    "[agent {obj}] an Ask is already in flight — this one is ignored"
+                ));
+            }
+            return;
+        }
+        let generation = {
+            let gen = self
+                .async_generations
+                .entry(obj.to_string())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        let timeout_ms = cfg.timeout_ms;
         self.obj_set(obj, "Busy", "1".to_owned());
-        let (reply_body, status) = self.http.send_configured("POST", &url, Some(&body), &cfg);
+        self.async_pending.insert(
+            obj.to_string(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms,
+            },
+        );
+
+        // The transport timeout is a thread-lifetime backstop, deliberately
+        // longer than the one the interpreter sweeps on, so a stalled worker
+        // cannot leak without racing the sweep that owns `onTimeout`.
+        let mut cfg = cfg;
+        cfg.timeout_ms = if timeout_ms > 0 {
+            timeout_ms.saturating_add(5_000)
+        } else {
+            0
+        };
+        let tx = self.async_result_tx.clone();
+        let http = self.http.clone();
+        let ctrl_id = obj.to_string();
+        std::thread::spawn(move || {
+            let (body, status) = http.send_configured("POST", &url, Some(&body), &cfg);
+            let _ = tx.send(crate::async_op::AsyncOpResult {
+                ctrl_id,
+                generation,
+                outcome: crate::async_op::AsyncOutcome::AgentReply { status, body },
+            });
+        });
+    }
+
+    /// Read one delivered `Ask` onto its control and raise the event it earned.
+    ///
+    /// Runs on the interpreter thread, from `drain_async_ops`, with the raw
+    /// status and body — so the narration and the parse are the same ones the
+    /// call has always used.
+    fn agent_delivered(&mut self, obj: &str, status: u16, body: &str) {
+        use crate::agent_runtime as ag;
+
         self.obj_set(obj, "Busy", "0".to_owned());
-        if verbose {
+        if self.agent_is_verbose(obj) {
             self.agent_log(format!("[agent {obj}] ── response ─────────────────────"));
             self.agent_log(format!("[agent {obj}] status: {status}"));
             // The raw body, before anything is read out of it. When the parse
             // disagrees with what the provider sent, this is the only place the
             // disagreement is visible.
-            self.agent_log_block(obj, "body", &reply_body);
+            self.agent_log_block(obj, "body", body);
         }
-
-        match ag::parse_reply(status, &reply_body) {
+        // Status 0 is the transport convention: no HTTP response happened at
+        // all and the body IS the failure. Handing that to `parse_reply` would
+        // dress a dead socket up as a malformed document.
+        if status == 0 {
+            self.agent_failed(obj, body.trim());
+            return;
+        }
+        match ag::parse_reply(status, body) {
             Ok(text) => {
-                if verbose {
+                if self.agent_is_verbose(obj) {
                     self.agent_log_block(obj, "reply", &text);
-                    self.agent_log(format!(
-                        "[agent {obj}] LastReply set — onResponse will fire"
-                    ));
                 }
                 self.obj_set(obj, "LastReply", text.clone());
                 self.obj_set(obj, "Result", text);
                 self.obj_set(obj, "LastError", String::new());
+                if self.agent_is_verbose(obj) {
+                    self.agent_log(format!("[agent {obj}] LastReply set — onResponse fires next"));
+                }
+                self.queue_control_event(obj, "onResponse");
             }
             Err(message) => self.agent_failed(obj, &message),
         }
@@ -12761,19 +12826,28 @@ impl Interpreter {
                 // string, so no request was ever sent and `onResponse` — guarded
                 // on a non-empty reply — never fired (operator, 2026-09-07:
                 // "The AgentObject makes no network call at run time. Fix it").
+                // ASYNC since 1.65.63 (operator: "ask must be async"). The
+                // worker carries the call; `onResponse` / `onError` deliver the
+                // outcome, and `Busy` is 1 until then.
+                //
+                // So the answer cannot be this statement's value — it does not
+                // exist yet — and `Ask` returns the EMPTY string immediately,
+                // exactly as every other non-visual control returns an answer
+                // it has not received (`RestClient::Get`, `Maps::Geocode`,
+                // `WebSearch::Search`). A handler reads `LastReply`.
+                //
+                // Blocking here is what let one long call fill the event queue
+                // with pointer motion and stall the form for good (1.65.62):
+                // the interpreter retires one event per `COBOL-WAIT-EVENT`, and
+                // for the length of the answer it retired none.
+                //
+                // `Verbose` still narrates the whole call — request here,
+                // response on delivery — because an Ask that yields nothing
+                // looks exactly like an Ask that never happened, and telling
+                // those apart is the whole of the debugging (operator,
+                // 2026-09-07: "I can't debug without this").
                 self.agent_ask(obj, &prompt);
-                let reply = self.obj_get(obj, "LastReply");
-                // `Verbose` narrates the call. An Ask that yields nothing looks
-                // exactly like an Ask that never happened — same empty log, same
-                // still window — and the difference is the whole of the
-                // debugging (operator, 2026-09-07: "I can't debug without
-                // this"). Off by default: this is a running program's output,
-                // not a trace nobody asked for.
-                // spec 021: a non-empty reply is a delivered response.
-                if !reply.trim().is_empty() {
-                    self.queue_control_event(obj, "onResponse");
-                }
-                val(reply)
+                val(String::new())
             }
             // ── REST / HTTP client ──
             // Async by default (spec 032): unless `Mode = Sync`, the verb spawns
@@ -17210,6 +17284,98 @@ mod queued_event_spelling_tests {
             .program
             .expect("program should parse");
         Interpreter::new(program)
+    }
+
+    /// **`Ask` returns immediately and delivers later.**
+    ///
+    /// It used to block the interpreter thread for the whole answer. The
+    /// interpreter retires ONE event per `COBOL-WAIT-EVENT`, so for the length
+    /// of the call it retired none while the pointer kept queueing motion —
+    /// the form answered the first few questions and then never caught up
+    /// (operator, 2026-09-07: "ask must be async").
+    #[test]
+    fn ask_returns_at_once_and_leaves_the_call_in_flight() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        // A port nothing listens on: the worker fails immediately, so the test
+        // never waits on a network and never reaches one.
+        i.obj_set("Agent-Helper", "AgentURL", "http://127.0.0.1:1/api/chat".into());
+        i.obj_set("Agent-Helper", "AgentAPI", "Ollama".into());
+        i.obj_set("Agent-Helper", "TimeoutSeconds", "5".into());
+
+        i.agent_ask("Agent-Helper", "hello");
+
+        // `Busy` is a boolean property, so the registry stores it canonically.
+        assert_eq!(
+            i.obj_get("Agent-Helper", "Busy"),
+            "true",
+            "an Ask in flight must report Busy"
+        );
+        assert!(
+            i.async_pending.contains_key("Agent-Helper"),
+            "the call must be registered as pending so the timeout sweep owns it"
+        );
+        assert!(
+            i.async_dispatch_queue.is_empty(),
+            "no event may be queued before an answer exists"
+        );
+        assert_eq!(
+            i.obj_get("Agent-Helper", "LastReply"),
+            "",
+            "there is no reply yet"
+        );
+
+        // One question at a time: the second Ask is ignored, not raced.
+        i.agent_ask("Agent-Helper", "again");
+        assert_eq!(i.async_pending.len(), 1);
+    }
+
+    /// A delivered reply lands on the control and raises `onResponse` — with
+    /// the form's own spelling, so the generated EVALUATE matches it.
+    #[test]
+    fn a_delivered_reply_sets_lastreply_and_raises_onresponse() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "Busy", "1".into());
+        i.agent_delivered(
+            "AGENT-HELPER",
+            200,
+            r#"{"message":{"role":"assistant","content":"COBOL is fine."}}"#,
+        );
+
+        assert_eq!(i.obj_get("AGENT-HELPER", "LastReply"), "COBOL is fine.");
+        assert_eq!(i.obj_get("AGENT-HELPER", "Result"), "COBOL is fine.");
+        assert_eq!(i.obj_get("AGENT-HELPER", "LastError"), "");
+        assert_eq!(i.obj_get("AGENT-HELPER", "Busy"), "false");
+        assert_eq!(
+            i.async_dispatch_queue.back(),
+            Some(&("Agent-Helper".to_string(), "onResponse".to_string()))
+        );
+    }
+
+    /// A dead socket is a dead socket. Status 0 is the transport convention —
+    /// no HTTP response happened and the body IS the failure — so it must not
+    /// be handed to the JSON reader, which would report a malformed document
+    /// and send the developer to their provider's response format.
+    #[test]
+    fn a_transport_failure_is_reported_as_itself_not_as_bad_json() {
+        let mut i = interp();
+        i.set_control_ids(["Agent-Helper"]);
+        i.obj_set("Agent-Helper", "LastReply", "an older answer".into());
+        i.agent_delivered("Agent-Helper", 0, "HTTP POST error: connection refused");
+
+        let err = i.obj_get("Agent-Helper", "LastError");
+        assert_eq!(err, "HTTP POST error: connection refused");
+        assert!(!err.contains("not JSON"), "transport failure blamed on JSON");
+        assert_eq!(
+            i.obj_get("Agent-Helper", "LastReply"),
+            "",
+            "a stale reply after a failure is how a handler reports success it did not have"
+        );
+        assert_eq!(
+            i.async_dispatch_queue.back(),
+            Some(&("Agent-Helper".to_string(), "onError".to_string()))
+        );
     }
 
     /// The generated event loop compares `COBOL-CONTROL-ID` against the literal

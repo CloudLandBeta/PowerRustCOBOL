@@ -138,12 +138,6 @@ fn permissive_tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
         .clone()
 }
 
-/// The agent for a request that carries its own redirect / TLS policy.
-///
-/// [`agent`] stays the entry point for everything that does not (the
-/// `COBOL-HTTP-*` CALLs, the Maps and search bridges), so their behaviour is
-/// untouched.
-#[cfg(feature = "http")]
 /// The response body — or a description of why it could not be read.
 ///
 /// `into_string()` fails when the transfer is cut short, and the commonest way
@@ -160,6 +154,7 @@ fn permissive_tls_connector() -> Option<Arc<native_tls::TlsConnector>> {
 /// The read error now travels as the body. It is not JSON either, but it says
 /// what happened, and the status is unchanged so a caller that only branches on
 /// the code behaves exactly as before.
+#[cfg(feature = "http")]
 fn body_of(resp: ureq::Response) -> String {
     let status = resp.status();
     match resp.into_string() {
@@ -168,6 +163,12 @@ fn body_of(resp: ureq::Response) -> String {
     }
 }
 
+/// The agent for a request that carries its own redirect / TLS policy.
+///
+/// [`agent`] stays the entry point for everything that does not (the
+/// `COBOL-HTTP-*` CALLs, the Maps and search bridges), so their behaviour is
+/// untouched.
+#[cfg(feature = "http")]
 fn agent_configured(timeout_ms: u64, follow_redirects: bool, verify_tls: bool) -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new();
     if timeout_ms > 0 {

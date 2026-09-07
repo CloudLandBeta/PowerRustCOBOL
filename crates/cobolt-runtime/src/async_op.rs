@@ -31,6 +31,13 @@ pub enum AsyncOutcome {
     /// Transport/network failure (no HTTP status; mirrors the sync convention
     /// where a network error yields status 0 and the error text as the body).
     HttpError { message: String },
+    /// An `AgentObject::Ask` came back. Carried RAW — status and body exactly
+    /// as they arrived — rather than already parsed, so the reply is read and
+    /// narrated on the interpreter thread by the same code the blocking call
+    /// used. `Verbose` prints the status and the untouched body, and a
+    /// provider that answers in an unexpected shape produces one diagnosis,
+    /// not two that can drift apart.
+    AgentReply { status: u16, body: String },
 }
 
 /// A completed background operation, matched to a control by id + generation.

@@ -1,5 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.63] — 2026-09-07
+
+### Ask is asynchronous
+
+`AgentObject::Ask` blocked the interpreter thread for the whole answer. That is
+the wrong shape for a form: the interpreter retires one event per
+`COBOL-WAIT-EVENT`, so for the length of the call it retired none — which is
+what let the event queue fill and stall the form (1.65.62 fixed the mouse noise
+that filled it; this fixes the stall that let anything fill it).
+
+`Ask` now hands the call to a background worker and returns immediately,
+through the same spec-032 machinery every other non-visual control already uses
+— `async_pending`, generations, the result channel, the timeout sweep. The form
+keeps painting and keeps answering clicks while the model thinks.
+
+What changes for a developer:
+
+- **`Ask` returns the empty string.** The answer does not exist when the
+  statement finishes. `MOVE Agent1::Ask(q) TO X` now moves nothing and must
+  become a bare `Agent1::Ask(q).` plus an `onResponse` handler that reads
+  `LastReply`. This is exactly the convention `RestClient::Get`,
+  `Maps::Geocode` and `WebSearch::Search` have always followed.
+- **`Busy` is true** from the `Ask` until `onResponse`, `onError` or
+  `onTimeout`, and a second `Ask` while it is true is ignored rather than raced
+  onto the same properties.
+- **`onTimeout`** now applies to an agent call: the interpreter's own sweep owns
+  it, with the transport timeout kept 5s longer as a thread-lifetime backstop so
+  a stalled worker cannot leak.
+- A **transport failure is reported as itself.** Status 0 means no HTTP response
+  happened and the body IS the failure; handing that to the JSON reader dressed
+  a refused connection up as a malformed document.
+
+`Verbose` still narrates the whole call — the request where it is made, the
+status and raw body where it is delivered.
+
+Also repaired here: 1.65.62's `body_of` helper was inserted between
+`#[cfg(feature = "http")]` and the function it guarded, which left
+`agent_configured` ungated and broke every build without the `http` feature —
+ten `cobolt-compiler` tests, since those compile generated projects with the
+runtime's optional bridges trimmed. Both are gated now, and the runtime builds
+`--no-default-features` again.
+
+The Developer's Guide's one `Ask` example was the broken pattern
+(`MOVE Agent1::Ask(...) TO Summary-Box::Text`); it is now the two-handler form,
+with the caveat spelled out. The System KB's `Ask` entry says asynchronous and
+`chunked.data` is rebuilt.
+
 ## [PowerRustCOBOL 1.65.62] — 2026-09-07
 
 ### The form filled its own event queue with mouse noise
