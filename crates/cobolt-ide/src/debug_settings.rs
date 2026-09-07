@@ -238,7 +238,7 @@ static SECTIONS: &[Section] = &[
                        under docs/ — saving the PNG under assets/images/screenshots/ and \
                        writing the markdown. A recording is saved as an animated PNG, so it \
                        fills an ordinary screenshot slot; it runs at about 8 frames a second \
-                       with a smoothed pointer, and stops itself after 90 seconds. Capture \
+                       with a smoothed pointer, and stops itself after 10 minutes. Capture \
                        runs on its own thread, so a busy IDE does not delay it. English \
                        documents only; the translated guides reference the same images.",
                 env: "PRC_DOC_SCREENSHOTS",

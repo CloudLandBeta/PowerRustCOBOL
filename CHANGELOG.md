@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.47] — 2026-09-07
+
+### F12 recordings now run to ten minutes
+
+The limit was never one number. Three ceilings ended a recording — duration,
+frame count and retained memory — and the binding one was memory, not the 90
+seconds the code advertised. Every capture was stored at its full ~1.5 MB
+whether or not anything on screen had changed, so a 384 MB budget ran out after
+roughly 250 frames: about **31 seconds** on a normal window. The documented 90 s
+was unreachable, which is presumably why ten minutes was asked for.
+
+Raising the number alone would have changed nothing — the recording would still
+have stopped at the memory ceiling. What makes ten minutes reachable is that an
+unchanged capture is no longer stored:
+
+| | Was | Now |
+|---|---|---|
+| `MAX_DURATION` | 90 s (unreachable) | **600 s** |
+| `MAX_FRAMES` | 900 | 6000 (retained, not captures taken) |
+| `MAX_BYTES` | 384 MB | 1 GiB |
+| An unchanged capture | stored in full | not stored at all |
+
+**The output is byte-identical.** `plan()` already refused to *write* a frame
+matching its predecessor — it extends that frame's delay instead. The new check
+takes the same decision ~120 ms earlier, where it saves the RAM rather than
+merely the bytes on disk. A test pins it: the emitted rectangles and delays are
+the same whether the duplicates were retained or dropped at capture time.
+
+**The pointer is why it is not just a pixel comparison.** The cursor is stamped
+into each frame *after* capture, from the sampled track, so two identical
+captures are only interchangeable if the arrow would land in the same place on
+both. A frame is dropped only when the pixels match **and** the pointer has
+moved no more than a quarter of a point — below what the rasterizer can express,
+so no glide becomes a jump. Where there is no pointer to read, no cursor is
+drawn either, and pixel equality alone settles it.
+
+**What ten minutes costs, honestly.** An IDE being read rather than driven now
+costs almost nothing; a ten-minute walkthrough with intermittent interaction
+sits far below the ceiling. Ten minutes of *continuously* changing pixels still
+does not fit and stops at `MAX_BYTES` with `Stop::Memory`, which is reported to
+the operator rather than silently truncated. Bounded-memory streaming encoding
+would remove even that, but it means restructuring capture, cursor-stamping and
+encoding into one pass — not a limit change.
+
+`captured` in the summary line now counts captures *taken* rather than frames
+retained, so the reported frame rate still describes the cadence the recorder
+actually ran at. The stop note and the Debug Settings description both say ten
+minutes.
+
+Six tests: the drop decision across parked / moving / absent pointers, changed
+pixels and size changes, the written-output parity above, and a ceiling check
+that the frame limit can hold the full duration at the target cadence — the
+class of disagreement that made the old 90 s a fiction. IDE suite 1079 passed /
+0 failed.
+
 ## [PowerRustCOBOL 1.65.46] — 2026-09-07
 
 ### The ComboBox's border could be painted but not set

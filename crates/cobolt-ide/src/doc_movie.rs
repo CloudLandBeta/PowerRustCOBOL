@@ -79,14 +79,60 @@ pub const WIDTH: u32 = 900;
 /// this from a frame's timestamp do not contribute to it.
 const SMOOTH_WINDOW: f64 = 0.09;
 
-/// Ceilings. A recording holds every frame in memory until it is encoded, so
-/// each of these is a real limit rather than a guard against the absurd.
-pub const MAX_DURATION: Duration = Duration::from_secs(90);
-/// Frame ceiling — 90 s at the target cadence, with room for a fast machine.
-pub const MAX_FRAMES: usize = 900;
+/// Ceilings. A recording holds every RETAINED frame in memory until it is
+/// encoded, so each of these is a real limit rather than a guard against the
+/// absurd.
+///
+/// Ten minutes, on the operator's instruction (2026-09-07). The number that
+/// makes it reachable is not this one — it is [`is_redundant`]: a capture
+/// identical to the last retained frame, taken while the pointer was parked, is
+/// no longer stored. Before that, every capture cost its full ~1.5 MB whether
+/// or not anything had happened, so `MAX_BYTES` ended a recording after roughly
+/// 250 frames — about **31 s**, and the 90 s written here was never actually
+/// reachable on a normal window.
+pub const MAX_DURATION: Duration = Duration::from_secs(600);
+/// Frame ceiling — the retained frames, not the captures taken. Ten minutes at
+/// the target cadence is 4800 captures; this leaves room for a machine that
+/// captures faster than the target while still bounding the vector.
+pub const MAX_FRAMES: usize = 6000;
 /// Memory ceiling for the retained frames. At [`WIDTH`] on a 16:10 window a
-/// frame is ~1.6 MB, so this is roughly 240 frames — half a minute.
-pub const MAX_BYTES: usize = 384 * 1024 * 1024;
+/// frame is ~1.5 MB, so this is roughly 680 frames of CHANGING content.
+///
+/// Idle time is free now, so a ten-minute recording of a mostly-still IDE sits
+/// far below this. Ten minutes of continuously changing pixels does not, and
+/// stops here with [`Stop::Memory`] — an honest ceiling reported to the
+/// operator rather than a silent truncation. Raising it further trades the
+/// machine's RAM for footage nobody is likely to commit.
+pub const MAX_BYTES: usize = 1024 * 1024 * 1024;
+
+/// How far the pointer may drift, in screen points, and still count as parked.
+///
+/// The cursor is stamped in per frame from the sampled track, so two identical
+/// captures are only truly interchangeable if the arrow would land in the same
+/// place on both. A quarter of a point is below what [`draw_cursor`] can
+/// express, so collapsing under it cannot change a single pixel of the output.
+const POINTER_STILL: f64 = 0.25;
+
+/// Whether this capture can be dropped instead of retained.
+///
+/// True only when the pixels are identical to the last retained frame AND the
+/// pointer has not moved since it was taken. [`plan`] already refuses to write
+/// a frame identical to its predecessor; this is the same decision taken
+/// earlier, where it saves the memory rather than merely the bytes on disk — so
+/// the encoded APNG is unchanged, and only the peak RAM differs.
+///
+/// `moved` is `None` when there is no pointer to read. That is also the case in
+/// which [`draw_pointer_track`] draws no cursor at all, so pixel equality alone
+/// settles it.
+fn is_redundant(previous: &RgbImage, candidate: &RgbImage, moved: Option<f64>) -> bool {
+    if previous.dimensions() != candidate.dimensions() {
+        return false;
+    }
+    if previous.as_raw() != candidate.as_raw() {
+        return false;
+    }
+    moved.is_none_or(|d| d <= POINTER_STILL)
+}
 
 /// Why the recorder stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +155,7 @@ impl Stop {
     pub fn note(self) -> Option<&'static str> {
         match self {
             Self::Operator => None,
-            Self::Duration => Some("stopped at the 90-second limit"),
+            Self::Duration => Some("stopped at the 10-minute limit"),
             Self::Frames => Some("stopped at the frame limit"),
             Self::Memory => Some("stopped at the memory limit"),
             Self::Capture => Some("a capture failed — the frames up to it were kept"),
@@ -195,6 +241,13 @@ pub fn record(
 
     let mut frames: Vec<Frame> = Vec::new();
     let mut held = 0usize;
+    // Captures TAKEN, which is no longer the same as frames retained. The
+    // summary's frame rate is measured against this, so it still reports the
+    // cadence the recorder actually ran at rather than how much of it was worth
+    // keeping.
+    let mut captured = 0usize;
+    // Where the pointer was when the last retained frame was taken.
+    let mut anchor_pointer: Option<(f64, f64)> = None;
     let mut why = Stop::Operator;
     let mut first_error: Option<String> = None;
     let mut next = Instant::now();
@@ -217,8 +270,12 @@ pub fn record(
         }
 
         let at = started.elapsed().as_secs_f64();
+        // Read before the capture, so it describes the moment the frame is of
+        // rather than the moment the ~120 ms capture finished.
+        let pointer = pointer_now();
         match crate::doc_shots::capture_rgba(&target) {
             Ok(shot) => {
+                captured += 1;
                 let rgb = flatten_and_scale(&shot, backdrop, WIDTH);
                 // Every frame of an APNG shares one canvas. A capture that
                 // came back a different size cannot go on it, so it is dropped
@@ -229,9 +286,23 @@ pub fn record(
                 let fits = frames
                     .first()
                     .is_none_or(|f| f.rgb.dimensions() == rgb.dimensions());
-                if fits {
+                // Nothing moved and nothing changed: the frame is a copy of one
+                // already held, and `plan` would have thrown it away at encode
+                // time anyway. Dropping it here is what makes ten minutes fit —
+                // an IDE being read rather than driven costs nothing at all.
+                let moved = match (anchor_pointer, pointer) {
+                    (Some((ax, ay)), Some((px, py))) => Some(((px - ax).powi(2)
+                        + (py - ay).powi(2))
+                    .sqrt()),
+                    _ => None,
+                };
+                let redundant = frames
+                    .last()
+                    .is_some_and(|last| is_redundant(&last.rgb, &rgb, moved));
+                if fits && !redundant {
                     held += rgb.as_raw().len();
                     frames.push(Frame { at, rgb });
+                    anchor_pointer = pointer;
                 }
             }
             Err(message) => {
@@ -277,7 +348,7 @@ pub fn record(
     let plan = plan(&frames, seconds);
     let apng = encode(&frames, &plan, width, height)?;
     Ok(Movie {
-        captured: frames.len(),
+        captured,
         written: plan.len(),
         seconds: seconds as f32,
         width,
@@ -1018,9 +1089,114 @@ mod tests {
             assert!(report.contains(expected), "the report must say {expected:?}: {report}");
         }
         assert!(
-            report.contains("90-second limit"),
+            report.contains("10-minute limit"),
             "a recording the operator did not stop must say why it ended: {report}"
         );
         assert!(Stop::Operator.note().is_none(), "an ordinary stop needs no excuse");
+    }
+
+    fn solid(w: u32, h: u32, shade: u8) -> RgbImage {
+        RgbImage::from_pixel(w, h, image::Rgb([shade, shade, shade]))
+    }
+
+    /// Ten minutes is only reachable because an unchanged frame taken while the
+    /// pointer was parked is never stored. This is that decision.
+    #[test]
+    fn a_still_window_under_a_parked_pointer_costs_nothing() {
+        let a = solid(40, 30, 8);
+        let b = solid(40, 30, 8);
+        assert!(
+            is_redundant(&a, &b, Some(0.0)),
+            "identical pixels and a parked pointer: nothing to keep"
+        );
+        assert!(
+            is_redundant(&a, &b, Some(POINTER_STILL)),
+            "drift at the threshold is still parked"
+        );
+        assert!(
+            is_redundant(&a, &b, None),
+            "no pointer to read means no cursor is drawn, so pixels alone decide"
+        );
+    }
+
+    /// The cursor is stamped in per frame AFTER capture, so two identical
+    /// captures are not interchangeable if the arrow moved between them. Losing
+    /// that would turn a glide into a jump — the smoothing this module exists
+    /// for.
+    #[test]
+    fn a_moving_pointer_keeps_the_frame_even_when_nothing_else_changed() {
+        let a = solid(40, 30, 8);
+        let b = solid(40, 30, 8);
+        assert!(
+            !is_redundant(&a, &b, Some(POINTER_STILL + 0.01)),
+            "past the threshold the arrow would land somewhere else"
+        );
+        assert!(!is_redundant(&a, &b, Some(9.0)), "a real move is never dropped");
+    }
+
+    /// Changed pixels are always kept, however still the pointer — and a frame
+    /// that came back a different size is never mistaken for a duplicate.
+    #[test]
+    fn changed_pixels_and_odd_sizes_are_always_kept() {
+        let a = solid(40, 30, 8);
+        assert!(
+            !is_redundant(&a, &solid(40, 30, 9), Some(0.0)),
+            "one shade of difference is still a difference"
+        );
+        assert!(
+            !is_redundant(&a, &solid(41, 30, 8), Some(0.0)),
+            "a size change is a new canvas, not a duplicate"
+        );
+    }
+
+    /// The whole justification for dropping frames during capture: `plan`
+    /// already refused to WRITE them, so removing them earlier must produce the
+    /// same animation. Same rectangles, same delays — only the peak memory
+    /// differs. If this ever stops holding, the saving is being paid for in
+    /// output and the trade is off.
+    #[test]
+    fn dropping_a_redundant_frame_early_changes_nothing_that_gets_written() {
+        let still = solid(8, 6, 40);
+        let moved = solid(8, 6, 90);
+        // What the recorder used to retain: three copies of the same picture,
+        // then a different one.
+        let all = vec![
+            Frame { at: 0.0, rgb: still.clone() },
+            Frame { at: 0.125, rgb: still.clone() },
+            Frame { at: 0.25, rgb: still.clone() },
+            Frame { at: 0.375, rgb: moved.clone() },
+        ];
+        // What it retains now.
+        let deduped = vec![
+            Frame { at: 0.0, rgb: still },
+            Frame { at: 0.375, rgb: moved },
+        ];
+        let a = plan(&all, 0.5);
+        let b = plan(&deduped, 0.5);
+        let shape = |p: &[Emit]| -> Vec<(u32, u32, u32, u32, u16)> {
+            p.iter().map(|e| (e.x, e.y, e.w, e.h, e.delay_ms)).collect()
+        };
+        assert_eq!(
+            shape(&a),
+            shape(&b),
+            "the written frames must be identical whether the duplicates were \
+             retained or dropped at capture time"
+        );
+    }
+
+    /// The three ceilings have to agree with each other: the frame ceiling must
+    /// be able to hold the duration at the target cadence, or the recording
+    /// would stop early for a reason the operator was not told about — which is
+    /// exactly how the old 90 s limit was unreachable behind a 384 MB one.
+    #[test]
+    fn the_frame_ceiling_can_hold_the_full_duration() {
+        let captures = MAX_DURATION.as_secs_f64() / TARGET_INTERVAL.as_secs_f64();
+        assert!(
+            MAX_FRAMES as f64 >= captures,
+            "MAX_FRAMES {MAX_FRAMES} cannot hold {captures:.0} captures of a \
+             {} s recording",
+            MAX_DURATION.as_secs()
+        );
+        assert_eq!(MAX_DURATION.as_secs(), 600, "ten minutes, as asked");
     }
 }
