@@ -1665,6 +1665,21 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             );
         }
 
+        // The Snackbar had no arm at all, so it fell through to the generic
+        // rectangle below and read as "no icon" in the toolbox — while the
+        // control itself has had a proper glyph all along, the one it draws in
+        // the non-visual tray. That glyph is CALLED here rather than copied, so
+        // the toolbox and the placed control cannot drift apart the way two
+        // hand-drawn copies do (operator, 2026-09-07: "the control has one that
+        // can be used there too — use that icon in both places").
+        //
+        // `nv_icon_snackbar` measures from a scale `s` whose pill spans
+        // `s * 3.2`; `r * 0.9` puts that at ~`r * 2.9`, the width the toolbox's
+        // other icons occupy.
+        ControlType::Snackbar => {
+            cobolt_forms::paint::nv_icon_snackbar(painter, c, r * 0.9, s);
+        }
+
         _ => {
             painter.rect_stroke(
                 egui::Rect::from_center_size(c, Vec2::new(r * 2.0, r * 1.6)),
@@ -1673,5 +1688,69 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
                 egui::StrokeKind::Middle,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod snackbar_icon_tests {
+    use super::*;
+
+    /// Paint one icon into a throwaway frame and collect the shapes it made.
+    fn shapes(paint: impl Fn(&egui::Painter, egui::Rect)) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(200.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            let rect = egui::Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::splat(40.0));
+            paint(ui.painter(), rect);
+        });
+        out.textures_delta.clear();
+        out.shapes
+            .into_iter()
+            .map(|c| format!("{:?}", c.shape))
+            .collect()
+    }
+
+    /// **One glyph, both places.**
+    ///
+    /// The toolbox draws what the placed control draws — the same function, not
+    /// a second drawing of the same idea. `nv_icon_indexed_file`'s own doc
+    /// records what happens otherwise: two copies kept in step by hand.
+    #[test]
+    fn the_toolbox_snackbar_is_the_controls_own_glyph() {
+        let color = Color32::from_rgb(200, 205, 215);
+        let toolbox = shapes(|p, rect| {
+            paint_control_icon(p, rect, ControlType::Snackbar, color)
+        });
+        let control = shapes(|p, rect| {
+            let c = rect.center();
+            let r = rect.size().min_elem() * 0.25;
+            cobolt_forms::paint::nv_icon_snackbar(p, c, r * 0.9, Stroke::new(1.2, color));
+        });
+
+        assert_eq!(
+            toolbox, control,
+            "the toolbox must paint the control's own snackbar glyph"
+        );
+
+        // …and it is a real icon, not the fallback box, which is a single
+        // stroked rectangle. Without the arm this is what the Snackbar got.
+        let fallback = shapes(|p, rect| {
+            paint_control_icon(p, rect, ControlType::Custom {
+                plugin_id: "p".into(),
+                control_id: "c".into(),
+            }, color)
+        });
+        assert_eq!(fallback.len(), 1, "test premise: the fallback is one shape");
+        assert!(
+            toolbox.len() > 1,
+            "the snackbar icon is still the {}-shape fallback box",
+            toolbox.len()
+        );
     }
 }

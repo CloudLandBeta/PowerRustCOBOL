@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.65] — 2026-09-07
+
+### The Snackbar had no toolbox icon, and had had one all along
+
+`paint_control_icon` carried no `Snackbar` arm, so the toolbox fell through to
+its generic stroked rectangle — which reads as "this control has no icon". The
+control itself has had a proper glyph since spec 055: the toast pill with its
+category dot, its line of text and the action at the end, drawn by
+`nv_icon_snackbar` whenever the Snackbar sits in the non-visual tray.
+
+The toolbox now **calls that function** rather than drawing a second copy of the
+same idea. `nv_icon_indexed_file`'s own doc comment records what the alternative
+costs — two hand-drawn icons kept in step by hand — and a test asserts the two
+surfaces emit identical shapes, so they cannot drift.
+
 ## [PowerRustCOBOL 1.65.64] — 2026-09-07
 
 ### IntelliSense offered a sample, and lost the receiver behind a parenthesis
