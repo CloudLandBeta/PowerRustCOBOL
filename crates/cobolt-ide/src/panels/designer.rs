@@ -2023,6 +2023,18 @@ pub struct DesignerPanel {
     pub event_ai_prompt_height: f32,
     /// The event editor's code-box height — same contract, same reason.
     pub event_editor_height: f32,
+    /// The event editor's code-box WIDTH — same contract again. The box used
+    /// to take `ui.available_width()`, which inside a `resizable(true)` window
+    /// is the self-inflation loop itself: the box asks the window how wide it
+    /// may be, the window asks its content how wide it must be, and the margins
+    /// between them mean the answer grows a little every frame. The stored
+    /// width breaks the cycle — 0 = never dragged, and the only writer is the
+    /// grip.
+    pub event_editor_width: f32,
+    /// Where the event editor's code box landed last frame — the same role
+    /// [`Self::cs_box_rect`] plays for the COBOL Structure window. It is what
+    /// locates the corner grip, so a test can drag it.
+    pub event_box_rect: Option<egui::Rect>,
     pub global_ai_streaming: String,
     /// What the AI pane's transcript looked like last frame — turn count,
     /// streamed-buffer length, and whether the agents were working. Any change
@@ -2148,6 +2160,8 @@ impl DesignerPanel {
             ai_prompt_height: 0.0, // 0 = never dragged → 3-row default
             event_ai_prompt_height: 0.0, // idem, for the event editor's prompt
             event_editor_height: 0.0,    // idem, for its code box
+            event_editor_width: 0.0,     // idem, for its width
+            event_box_rect: None,
             global_ai_streaming: String::new(),
             ai_transcript_mark: (0, 0, false),
             ai_transcript_at_bottom: true,
@@ -9534,23 +9548,32 @@ impl DesignerPanel {
         egui::Window::new(&title)
             .id(egui::Id::new("event_editor_modal"))
             .collapsible(false)
-            .resizable(true)
+            // NOT resizable, and `auto_sized` rather than `resizable(false)` —
+            // the same cure the COBOL Structure window carries, for the same
+            // two symptoms.
+            //
+            // A ceiling could not hold this. A `Window` sizes itself from its
+            // CONTENT, the content here sized itself from the window's
+            // available width, and a ceiling only decides where that loop stops
+            // — not that it stops running. Dragging the width fed one more
+            // pixel of margin in on every frame and the modal walked out to the
+            // edges of the screen.
+            //
+            // `auto_sized` rather than a plain `resizable(false)`: a
+            // non-auto-sized window's TITLE BAR takes `available_width()` as
+            // its min width, and that available comes from the internal
+            // resize's `desired_size`, which egui only ever ratchets UP. The
+            // title would echo the widest the window has ever been while the
+            // body followed the box — which is exactly the gap that appeared
+            // between the header's right border and the window frame, with the
+            // left border still meeting it. An auto-sized window's title
+            // follows last frame's window rect instead, so the two converge.
+            //
+            // The code box's grip below is now the single size authority, on
+            // both axes.
+            .auto_sized()
             .movable(true)
             .default_width(default_w)
-            .default_height(default_h)
-            .min_width(360.0)
-            .min_height(420.0)
-            // A ceiling, because a Window sizes itself from its CONTENT. That
-            // is the difference between this modal and Grace's prompt, which
-            // never misbehaves: hers lives in a panel whose width is its own,
-            // so nothing she puts inside can push it. This one had no ceiling,
-            // so any content taller or wider than the default simply took the
-            // room — and with a code editor inside, "content" is whatever has
-            // been typed. The ceiling is the same 70% of the screen the window
-            // opens at, so the developer's own drag still governs everything
-            // below it.
-            .max_width(default_w)
-            .max_height(default_h)
             .default_pos(default_pos)
             .constrain_to(roam)
             .frame(
@@ -9559,6 +9582,26 @@ impl DesignerPanel {
             .show(ui.ctx(), |ui| {
                 let scaffold_color = Color32::from_rgb(140, 200, 140); // muted green
                 let readonly_color = Color32::from_rgb(160, 170, 190); // subdued blue-gray
+
+                // ── Width authority: the stored box width, seeded once ───────
+                //    Everything in this modal is pinned to `editor_w`, so every
+                //    width-filling row — the status row's right-aligner, the
+                //    separators, the AI prompt row, the transcript — measures
+                //    against the box instead of against the window. That is
+                //    what makes the window's content width constant from frame
+                //    to frame, which is what stops it inflating.
+                //
+                //    The ceiling reads the screen every frame on purpose: a
+                //    clamp can only ever make the box SMALLER, so it cannot
+                //    ratchet. (The seed is the thing that must never re-read
+                //    the screen — see the code box below.)
+                let editor_min_w = 420.0_f32;
+                let editor_max_w = (screen.width() - 64.0).max(editor_min_w);
+                if self.event_editor_width <= 0.0 {
+                    self.event_editor_width = default_w.clamp(editor_min_w, editor_max_w);
+                }
+                let editor_w = self.event_editor_width.clamp(editor_min_w, editor_max_w);
+                ui.set_max_width(editor_w);
 
                 // ── Status row at the TOP (line/col · INS/OVR · trim · beautify)
                 self.event_editor.status_row(ui);
@@ -9597,7 +9640,6 @@ impl DesignerPanel {
                 // about twenty lines and leaves the modal inside its own
                 // default size; the grip goes anywhere from here.
                 let editor_default_h = 360.0_f32;
-                let editor_w = ui.available_width();
                 let ectx = ui.ctx().clone();
                 let theme = crate::theme::active();
                 // A snug container (no outer gap) that fills the allocated box;
@@ -9615,7 +9657,15 @@ impl DesignerPanel {
                 // keeps the promise: content scrolls inside, the grip is the
                 // only thing that changes the height.
                 let editor_min_h = 160.0_f32;
-                let editor_max_h = 4000.0_f32;
+                // The window is `auto_sized` now, so nothing above caps its
+                // height any more — the box's own ceiling has to, or a grip
+                // drag could push the modal off the bottom of the screen. Same
+                // rule as the width ceiling: a clamp only ever shrinks, so it
+                // cannot ratchet. 260 px is the nominal furniture above and
+                // below the box (title, status row, scaffold lines, AI bar,
+                // buttons) — the same allowance the COBOL Structure window
+                // uses for its own centring seed.
+                let editor_max_h = (screen.height() - 260.0).max(editor_min_h);
                 // SEED ONCE, then never look at the screen again. `Resize` used
                 // its `default_size` only to seed its stored state; reading the
                 // default every frame instead — and the default is 70% of the
@@ -9638,6 +9688,7 @@ impl DesignerPanel {
                 });
                 {
                     let box_rect = editor_inner.response.rect;
+                    self.event_box_rect = Some(box_rect);
                     let grip_size = 14.0;
                     let grip_rect = egui::Rect::from_min_size(
                         box_rect.max - egui::vec2(grip_size, grip_size),
@@ -9649,11 +9700,17 @@ impl DesignerPanel {
                         egui::Sense::drag(),
                     );
                     if grip.dragged() {
+                        // Both axes now: the window frame no longer resizes, so
+                        // this grip is where the developer changes the width as
+                        // well as the height.
+                        let delta = grip.drag_delta();
+                        self.event_editor_width =
+                            (editor_w + delta.x).clamp(editor_min_w, editor_max_w);
                         self.event_editor_height =
-                            (editor_h + grip.drag_delta().y).clamp(editor_min_h, editor_max_h);
+                            (editor_h + delta.y).clamp(editor_min_h, editor_max_h);
                     }
                     if grip.hovered() || grip.dragged() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
                     }
                     let stroke = if grip.hovered() || grip.dragged() {
                         ui.visuals().widgets.hovered.fg_stroke
@@ -19589,4 +19646,190 @@ mod format_painter_exclusion_tests {
         }
         let _ = ControlType::RadioButton;
     }
+}
+
+#[cfg(test)]
+mod event_modal_resize_tests {
+    use super::*;
+    use crate::i18n::Language;
+    use crate::llm::LlmConfig;
+
+    /// A handler long enough that the code editor measures far more than the
+    /// box — the content that used to drive the ratchet.
+    fn long_handler() -> String {
+        (1..=200)
+            .map(|i| format!("           DISPLAY \"line {i:03} of a very long event handler body\"."))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn panel_with_handler(src: &str) -> DesignerPanel {
+        let form = Form::new("F1", "F1", 640, 480);
+        let mut dp = DesignerPanel::new(form);
+        dp.event_modal = Some(EventEditorModal::new(
+            "BTN-COMMIT",
+            "Btn-Commit \u{b7} onClick",
+            "onClick",
+            "F1-BTN-COMMIT-CLICK",
+            src,
+        ));
+        dp.event_editor.open_buffer(
+            std::path::PathBuf::from("F1-BTN-COMMIT-CLICK.cbl"),
+            src.to_owned(),
+        );
+        dp
+    }
+
+    /// One frame of the production modal. Returns the window's area rect and
+    /// the code box rect.
+    fn frame(
+        ctx: &egui::Context,
+        dp: &mut DesignerPanel,
+        llm: &LlmConfig,
+        events: Vec<egui::Event>,
+    ) -> (Option<egui::Rect>, Option<egui::Rect>) {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1600.0, 1000.0),
+        ));
+        input.events = events;
+        ctx.run_ui(input, |root| {
+            dp.show_event_modal(root, llm, None);
+        })
+        .textures_delta
+        .clear();
+        (
+            ctx.memory(|m| m.area_rect(egui::Id::new("event_editor_modal"))),
+            dp.event_box_rect,
+        )
+    }
+
+    fn settle(
+        ctx: &egui::Context,
+        dp: &mut DesignerPanel,
+        llm: &LlmConfig,
+        n: usize,
+    ) -> (egui::Rect, egui::Rect) {
+        let mut last = (None, None);
+        for _ in 0..n {
+            last = frame(ctx, dp, llm, vec![]);
+        }
+        (last.0.expect("window rect"), last.1.expect("box rect"))
+    }
+
+    fn press(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    /// The reported defect: the modal grew on its own, without anyone touching
+    /// it. 120 frames with a long handler must produce one unchanging rect —
+    /// in every IDE language, since a longer label is exactly the kind of
+    /// content that used to push the width out.
+    #[test]
+    fn the_modal_holds_its_size_across_120_frames() {
+        for &lang in Language::ALL {
+            let ctx = egui::Context::default();
+            crate::i18n::set_language(&ctx, lang);
+            let llm = LlmConfig::load_defaults_for_test();
+            let mut dp = panel_with_handler(&long_handler());
+
+            let mut sizes: Vec<egui::Vec2> = Vec::new();
+            for _ in 0..120 {
+                if let (Some(win), _) = frame(&ctx, &mut dp, &llm, vec![]) {
+                    sizes.push(win.size());
+                }
+            }
+            assert!(
+                sizes.len() >= 100,
+                "{lang:?}: the modal did not render on most frames"
+            );
+            let settled = sizes[6];
+            for (i, sz) in sizes.iter().enumerate().skip(6) {
+                assert!(
+                    (sz.x - settled.x).abs() < 0.5 && (sz.y - settled.y).abs() < 0.5,
+                    "{lang:?}: the modal drifted at frame {i}: {settled:?} -> {sz:?} \
+                     (self-inflation regression)"
+                );
+            }
+            assert!(
+                settled.x < 1500.0,
+                "{lang:?}: the modal settled at {}px on a 1600px screen — it has \
+                 walked out to the edges again",
+                settled.x
+            );
+        }
+    }
+
+    /// Dragging the grip sideways is what the developer does to widen the box.
+    /// It must move the width ONCE, by roughly what was dragged, and then stop:
+    /// the defect was that a width drag kept going by itself.
+    #[test]
+    fn a_width_drag_moves_the_box_once_and_then_stops() {
+        let ctx = egui::Context::default();
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut dp = panel_with_handler(&long_handler());
+        let (win_before, box_before) = settle(&ctx, &mut dp, &llm, 8);
+
+        // The grip is the 14px square at the box's bottom-right corner.
+        let grip = box_before.max - egui::vec2(7.0, 7.0);
+        let target = grip + egui::vec2(120.0, 0.0);
+        frame(&ctx, &mut dp, &llm, vec![egui::Event::PointerMoved(grip)]);
+        frame(&ctx, &mut dp, &llm, vec![press(grip, true)]);
+        frame(&ctx, &mut dp, &llm, vec![egui::Event::PointerMoved(target)]);
+        frame(&ctx, &mut dp, &llm, vec![press(target, false)]);
+        let (win_after, box_after) = settle(&ctx, &mut dp, &llm, 8);
+
+        assert!(
+            (box_after.width() - (box_before.width() + 120.0)).abs() < 4.0,
+            "the grip drag moved the box from {} to {}, not the ~120px dragged",
+            box_before.width(),
+            box_after.width()
+        );
+        assert!(
+            win_after.width() > win_before.width(),
+            "the window did not follow the box it is pinned to"
+        );
+
+        // …and now it must sit still.
+        let held = win_after;
+        for i in 0..60 {
+            let (w, _) = frame(&ctx, &mut dp, &llm, vec![]);
+            let w = w.expect("window rect");
+            assert!(
+                (w.width() - held.width()).abs() < 0.5,
+                "the modal kept widening on its own {i} frames after the drag: \
+                 {} -> {}",
+                held.width(),
+                w.width()
+            );
+        }
+    }
+
+    /// The header gap: the title bar and the body must be the same width, or
+    /// the header's right border stops short of the window frame while its
+    /// left border still meets it.
+    #[test]
+    fn the_title_bar_spans_the_same_width_as_the_body() {
+        let ctx = egui::Context::default();
+        let llm = LlmConfig::load_defaults_for_test();
+        let mut dp = panel_with_handler(&long_handler());
+        let (win, bx) = settle(&ctx, &mut dp, &llm, 10);
+        // The window hugs the body, which is pinned to the box: the only slack
+        // is the window frame's own margin, the same on both sides.
+        let slack = win.width() - bx.width();
+        assert!(
+            (0.0..=80.0).contains(&slack),
+            "window {}px vs box {}px — {slack}px of slack means the title bar \
+             and the body no longer agree",
+            win.width(),
+            bx.width()
+        );
+    }
+
 }

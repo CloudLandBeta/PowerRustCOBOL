@@ -1,5 +1,65 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.43] — 2026-09-07
+
+### The COBOL Event Editor modal sized itself from the window it was sizing
+
+The modal stretched on its own when its width was dragged, and its title bar's
+right border stopped short of the window frame while the left one still met it.
+One cause: the code box took `ui.available_width()` inside a `resizable(true)`
+window. The box asked the window how wide it could be, the window asked its
+content how wide it had to be, and the margins between the two answers meant the
+number could only go up. The function's own comments warn against exactly this
+three times over — for the box's *height*, which was cured long ago. The width
+was never given the same treatment.
+
+**The cure is the one the sibling window already carries.** COBOL Structure was
+fixed this way and has not relapsed:
+
+| | Was | Now |
+|---|---|---|
+| Window | `.resizable(true)` + `max_width`/`max_height` ceiling | `.auto_sized()`, not resizable |
+| Body width | `ui.available_width()` | `event_editor_width`, stored, seeded once |
+| Code-box grip | vertical only | both axes — the single size authority |
+| Box height ceiling | 4000 px | `screen.height() - 260` |
+
+A ceiling could never have held this. It decides where the loop stops, not that
+it stops running.
+
+`auto_sized` rather than a plain `resizable(false)` is what addresses the header
+gap: a non-auto-sized window's title bar takes `available_width()` as its min
+width, and that comes from the internal resize's `desired_size`, which egui only
+ratchets UP — so the title echoed the widest the window had ever been while the
+body followed the box. An auto-sized window's title follows last frame's window
+rect, and the two converge.
+
+Because the window frame no longer resizes, the box's corner grip now moves both
+axes (cursor `ResizeNwSe`). `auto_sized` also removed the old `max_height`, so
+the box got a screen-derived height ceiling of its own — otherwise a grip drag
+could push the modal off the bottom of the screen.
+
+**What is verified, and what is not.** Three tests were added
+(`event_modal_resize_tests`), and the whole IDE suite is green at 1064 passed /
+0 failed. Of the three, only `a_width_drag_moves_the_box_once_and_then_stops`
+fails against the old code — it is the one with teeth. The other two are
+standing guards in the shape of the error modal's existing 120-frame test, and
+they pass with the fix and without it.
+
+**Neither visual symptom reproduced in a headless harness at 1600x1000.** An
+outward window-edge drag was stable there (the old `max_width` ceiling already
+pinned it), an inward drag shrank correctly 1120 to 820, and a shape dump showed
+the title bar exactly matching the window frame at 1120 px with no gap. So the
+trigger is environmental — a much wider screen, 2x DPI, the real designer
+viewport — and this change is not proof-by-reproduction. What it does is remove
+the documented mechanism for both symptoms and put the modal on the pattern that
+already holds for its sibling window. The operator's own screen is the check
+that matters.
+
+Also measured while looking: the auto-completion popup was **not** at fault. Its
+`set_min_width(320)` / `set_max_width(480)` clamp holds — measured at 494 px
+under stock egui and 498 px under the IDE's own glass style, on a 2000 px screen
+either way. The full-width box in the report was the inflated modal behind it.
+
 ## [PowerRustCOBOL 1.65.42] — 2026-09-07
 
 ### `finished` meant two different things in the NIST ledger
