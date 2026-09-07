@@ -32,6 +32,7 @@
 //! }
 //! ```
 
+pub mod agent_runtime;
 pub mod async_op;
 pub mod channels;
 pub mod collation;

@@ -1,5 +1,70 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.57] — 2026-09-07
+
+### AgentObject now makes the call
+
+`Ask` stored the prompt, read a `LastReply` nothing ever wrote, and returned the
+empty string. No request was sent, `onResponse` never fired — it is guarded on a
+non-empty reply — and nothing was logged. The control was a designed shell.
+
+`Ask` now performs the request, synchronously, and returns the reply. It is
+synchronous because the documented method is `Ask(prompt) → String`, which has
+to have the answer to return; the interpreter runs on its own thread, so the
+form keeps painting while it waits rather than freezing for `TimeoutSeconds`.
+
+| Outcome | What the control gets |
+|---|---|
+| Reply | `LastReply` and `Result` set, `LastError` cleared, `onResponse` fires |
+| Failure | `LastError` set, `LastReply` **cleared**, `onError` fires |
+
+`LastReply` is cleared on failure deliberately: a stale answer left behind after
+a failed call is how a handler reports success it did not have.
+
+**Five properties that reached nothing now reach the request.** `AgentAPIKey`,
+`AgentAPI`, `AgentEndpoint`, `Temperature` and `MaximumTokens` were each recorded
+as *Unread* in `test_nonvisual_property_readers`; they are `Runtime` now, and the
+guard that a property declared runtime-read really is read covers them.
+
+**Three protocols**, in `agent_runtime.rs` as pure functions:
+
+- **OpenAI-compatible** `/v1/chat/completions` — OpenAI, LM Studio, and Ollama's
+  compatible endpoint. Reply at `choices[0].message.content`.
+- **Ollama native** `/api/chat`. Reply at `message.content`.
+- **Anthropic** `/v1/messages`, with `x-api-key` and `anthropic-version`. Reply
+  at `content[0].text`.
+
+`AgentAPI` picks the protocol; the URL breaks the tie for `Custom` and for an
+unset one, because the path is the only honest clue. Ollama serves BOTH shapes,
+so its path decides — the operator's own control points at `/api/chat`. A URL
+that already names a path is never rewritten; only a bare origin gets the
+protocol's default. `AgentEndpoint` overrides both. The key is sent only when
+there is one, in the provider's own header: an empty bearer is worse than none,
+and a local Ollama wants no Authorization at all.
+
+Replies are read from **every** known shape whatever protocol was chosen — a
+`Custom` endpoint may answer in any of them — and a provider's own `error` field
+is reported as an error even on a 200, which some of them return.
+
+**`Stream` stays deliberately unread**, and the test now says why: the request
+always asks for a whole reply, because parsing the first chunk as though it were
+the answer would truncate every response. Streaming is real work, not a flag.
+
+The 1.65.56 verbose line claimed *"nothing in this runtime writes LastReply"* —
+true when written, false now. It reports the actual reason from `LastError`
+instead.
+
+Twelve tests, none of which opens a socket: protocol selection, endpoint
+resolution, header shaping, body shaping per protocol, the omitted empty system
+prompt, all four reply shapes, four failure shapes, and the bounded error line.
+cobolt-runtime 847 passed / 0 failed, IDE 1102 passed / 0 failed, cobolt-compiler
+114 passed / 0 failed, cobolt-forms 858 passed / 0 failed.
+
+One `cobolt-forms` run showed `assets::tests::a_relative_path_that_is_not_under_
+the_anchor_keeps_the_old_behaviour` failing; it passes alone and passed on two
+further full runs. It is a pre-existing flake over the process-global asset
+anchor, in a file this change does not touch — recorded rather than glossed over.
+
 ## [PowerRustCOBOL 1.65.56] — 2026-09-07
 
 ### AgentObject gets a Verbose switch — and it reports the thing that was wrong

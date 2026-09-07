@@ -4877,7 +4877,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("Pause()", "Pause playback."),
         ],
         "AgentObject" => vec![
-            ("Ask(prompt: String) → String", "Send a prompt; returns the last delivered reply (fires `onResponse` when one arrives)."),
+            ("Ask(prompt: String) → String", "Send the prompt to the configured provider and return the reply. Blocking: it waits up to `TimeoutSeconds` for the answer, so the handler pauses while the form keeps painting. A reply is written to `LastReply` and fires `onResponse`; a failure is written to `LastError`, clears `LastReply`, and fires `onError`. The request is shaped from `AgentAPI`, `AgentURL`/`AgentEndpoint`, `AgentModel`, `AgentAPIKey`, `SystemPrompt`, `Temperature` and `MaximumTokens`. Turn `Verbose` on to see the endpoint, the prompt and the outcome in the program output."),
             ("SetPrompt(text: String)", "Replace the SystemPrompt."),
             ("SetModel(model: String)", "Switch the model id."),
             ("GetResult() → String", "Read the `Result` property."),

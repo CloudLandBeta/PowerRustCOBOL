@@ -120,13 +120,16 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
             vec![
                 ("AgentURL", Generated),
                 ("AgentModel", Generated),
-                ("AgentAPI", Unread("the provider protocol is never selected from it")),
-                ("AgentAPIKey", Unread("no request reads the key off the control")),
-                ("AgentEndpoint", Unread("the endpoint override is never applied")),
+                ("AgentAPI", Runtime),
+                ("AgentAPIKey", Runtime),
+                ("AgentEndpoint", Runtime),
                 ("SystemPrompt", Runtime),
-                ("Temperature", Unread("never reaches a request")),
-                ("MaximumTokens", Unread("never reaches a request")),
-                ("Stream", Unread("responses are not streamed")),
+                ("Temperature", Runtime),
+                ("MaximumTokens", Runtime),
+                ("Stream", Unread(
+                    "responses are not streamed: the request always asks for a whole \
+                     reply, because parsing the first chunk as the answer would truncate it",
+                )),
                 ("TimeoutSeconds", Runtime),
                 ("TargetControls", Unread(
                     "the write allow-list is not enforced against this property",

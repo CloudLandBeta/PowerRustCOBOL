@@ -10470,15 +10470,89 @@ impl Interpreter {
         true
     }
 
+    /// Perform one `AgentObject` request and record its outcome on the control.
+    ///
+    /// Synchronous on purpose: the documented method is `Ask(prompt) → String`,
+    /// which has to have the reply to return. The interpreter runs on its own
+    /// thread, so a form keeps painting while this waits — the window does not
+    /// freeze for `TimeoutSeconds`.
+    ///
+    /// Success writes `LastReply` and clears `LastError`; failure writes
+    /// `LastError` and clears `LastReply`, then queues `onError`. `onResponse`
+    /// is left to the caller, which fires it on a non-empty reply exactly as it
+    /// did before.
+    fn agent_ask(&mut self, obj: &str, prompt: &str) {
+        use crate::agent_runtime as ag;
+
+        let req = ag::AskRequest {
+            api: self.obj_get(obj, "AgentAPI"),
+            url: self.obj_get(obj, "AgentURL"),
+            endpoint: self.obj_get(obj, "AgentEndpoint"),
+            model: self.obj_get(obj, "AgentModel"),
+            api_key: self.obj_get(obj, "AgentAPIKey"),
+            system_prompt: self.obj_get(obj, "SystemPrompt"),
+            prompt: prompt.to_owned(),
+            temperature: self.obj_get(obj, "Temperature").trim().parse().unwrap_or(70),
+            max_tokens: self.obj_get(obj, "MaximumTokens").trim().parse().unwrap_or(1024),
+        };
+        let protocol = ag::protocol_for(&req.api, &req.url);
+        let url = ag::endpoint_for(&req, protocol);
+        if url.trim().is_empty() {
+            self.agent_failed(obj, "AgentURL is not set — there is nowhere to send the prompt");
+            return;
+        }
+        let body = ag::body_for(&req, protocol);
+        let cfg = crate::http_runtime::RequestConfig {
+            timeout_ms: self
+                .obj_get(obj, "TimeoutSeconds")
+                .trim()
+                .parse::<u64>()
+                .unwrap_or(30)
+                .saturating_mul(1000),
+            follow_redirects: true,
+            verify_tls: true,
+            headers: ag::headers_for(&req, protocol),
+        };
+        if self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true") {
+            self.agent_log(format!("[agent {obj}] POST {url} ({protocol:?})"));
+        }
+        // `Busy` is honest for the length of the call: another thread reading
+        // `IsBusy()` while this one waits gets the truth.
+        self.obj_set(obj, "Busy", "1".to_owned());
+        let (reply_body, status) = self.http.send_configured("POST", &url, Some(&body), &cfg);
+        self.obj_set(obj, "Busy", "0".to_owned());
+
+        match ag::parse_reply(status, &reply_body) {
+            Ok(text) => {
+                self.obj_set(obj, "LastReply", text.clone());
+                self.obj_set(obj, "Result", text);
+                self.obj_set(obj, "LastError", String::new());
+            }
+            Err(message) => self.agent_failed(obj, &message),
+        }
+    }
+
+    /// Record a failed `Ask` and raise `onError`.
+    ///
+    /// `LastReply` is cleared rather than left holding the previous answer: a
+    /// stale reply after a failed call is how a handler reports success it did
+    /// not have.
+    fn agent_failed(&mut self, obj: &str, message: &str) {
+        self.obj_set(obj, "LastReply", String::new());
+        self.obj_set(obj, "LastError", message.to_owned());
+        if self.obj_get(obj, "Verbose").eq_ignore_ascii_case("true") {
+            self.agent_log(format!("[agent {obj}] FAILED: {message}"));
+        }
+        self.queue_control_event(obj, "onError");
+    }
+
     /// Narrate one `AgentObject::Ask` into the program's output.
     ///
-    /// It reports what the control WOULD use and what actually came back. That
-    /// second half is the point: nothing in this runtime writes `LastReply` —
-    /// the only other reference to it is the read in `ASK` — so a form running
-    /// under `rcrun run-form` has no LLM attached, `Ask` returns the empty
-    /// string it found, and `onResponse` never fires because it is guarded on a
-    /// non-empty reply. Silently. This says so out loud instead, so a developer
-    /// stops looking for the fault in their own handler.
+    /// It reports what the control used and what came back. The second half is
+    /// the point: an `Ask` that returns nothing and an `Ask` that failed look
+    /// identical from a handler — both leave `LastReply` empty and neither
+    /// fires `onResponse`, which is guarded on a non-empty reply. This names
+    /// the reason, from `LastError` when there is one.
     fn agent_verbose(&mut self, obj: &str, prompt: &str, reply: &str) {
         let shown = |v: String| {
             if v.trim().is_empty() {
@@ -10498,10 +10572,14 @@ impl Interpreter {
         self.agent_log(format!("[agent {obj}] Ask model={model} url={url} key={keyed}"));
         self.agent_log(format!("[agent {obj}] prompt: {}", clip(prompt)));
         if reply.trim().is_empty() {
+            let why = self.obj_get(obj, "LastError");
+            let why = if why.trim().is_empty() {
+                "the provider returned an empty message".to_owned()
+            } else {
+                why
+            };
             self.agent_log(format!(
-                "[agent {obj}] LastReply is EMPTY, so onResponse did NOT fire. \
-                 Nothing in this runtime writes LastReply: a form running outside \
-                 the IDE has no model attached and Ask returns the empty string."
+                "[agent {obj}] no reply, so onResponse did NOT fire — {why}"
             ));
         } else {
             self.agent_log(format!(
@@ -12614,6 +12692,12 @@ impl Interpreter {
             "ASK" => {
                 let prompt = arg(0);
                 self.obj_set(obj, "Prompt", prompt.clone());
+                // Make the call. Until 1.65.57 this line did not exist: `Ask`
+                // read a `LastReply` nothing ever wrote and returned the empty
+                // string, so no request was ever sent and `onResponse` — guarded
+                // on a non-empty reply — never fired (operator, 2026-09-07:
+                // "The AgentObject makes no network call at run time. Fix it").
+                self.agent_ask(obj, &prompt);
                 let reply = self.obj_get(obj, "LastReply");
                 // `Verbose` narrates the call. An Ask that yields nothing looks
                 // exactly like an Ask that never happened — same empty log, same
