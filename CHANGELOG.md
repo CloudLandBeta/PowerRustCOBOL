@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.44] — 2026-09-07
+
+### FileDropZone's Destination folder had to be typed from memory
+
+Every other path-valued property in the inspector has a browse button —
+`IconPath`, `ImagePath` and `Source` all go through `image_browse_row`.
+FileDropZone's `DestinationFolder` never got one, so the folder accepted files
+are copied into was a bare text field: the developer had to know the path and
+type it correctly, with a typo showing up only when a drop went somewhere
+unexpected.
+
+The row now has a **📂** that opens the system folder chooser and an **✕** that
+clears the choice. The ✕ is disabled when there is nothing to clear, so it never
+pretends to act.
+
+**The chooser stores an absolute path, deliberately.** `dropzone::commit_files`
+does `PathBuf::from(destination)` with no project anchor, so a relative path
+resolves against whatever directory the built program is started from — not
+something a developer picking a folder in the designer can predict. The field
+stays editable, so a relative path can still be typed when that is the
+intention.
+
+**Clearing writes an empty string, not a removed property.** The runtime reads a
+blank `DestinationFolder` as "leave the files where they are", so the key has to
+survive being cleared.
+
+The picker reopens where the developer last pointed. If that folder has since
+been moved or deleted it falls back to the parent, so they land next door rather
+than at the OS default; with nothing to anchor to it lets the OS choose.
+
+Three tests cover the parts worth covering: the reopen decision across all five
+shapes of input (blank, whitespace, an existing folder, a deleted one, a path
+with no surviving parent), that clearing leaves the property present and empty,
+and that the row draws and seeds its field without writing the property back.
+IDE suite green at 1067 passed / 0 failed.
+
+Guide updated in the same change (GOLDEN RULE #3) — the FileDropZone section now
+says what the two buttons do and why the stored path is absolute.
+
 ## [PowerRustCOBOL 1.65.43] — 2026-09-07
 
 ### The COBOL Event Editor modal sized itself from the window it was sizing

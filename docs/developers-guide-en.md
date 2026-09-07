@@ -2871,6 +2871,15 @@ them, so a file is judged the same way however it arrived:
 | `StageOnly`         | Off (default): a drop copies immediately. On: a drop only*holds* the files for the operator to review, and your COBOL calls `CommitFiles()` to copy them. |
 | `FileListControl`   | The id of the ListBox that reviews a staged intake. Seeded with the companion the designer creates next to a new zone; blank means no list.               |
 
+The **Destination** row in the designer carries a **📂** button that opens your
+system's folder chooser, and an **✕** that clears the choice again. The chooser
+writes the folder back as an **absolute** path on purpose: a running form copies
+into `DestinationFolder` exactly as written, with no project folder implied, so
+a relative path would land wherever the program happened to be started from. You
+can still type a relative path by hand when that is what you want. Clearing the
+row leaves the property **blank** rather than removing it — and blank is what
+"leave the files where they are" means.
+
 With a destination set, the folder is created if it does not exist, and an
 existing file is **never** overwritten: a second `report.csv` lands as
 `report (2).csv`, a third as `report (3).csv`. `DroppedFiles` then reports

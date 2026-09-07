@@ -6538,7 +6538,7 @@ impl PropertiesPanel {
                         .get_prop("DestinationFolder")
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
-                    text_row_hint(
+                    folder_row_hint(
                         ui,
                         &mut self.hints,
                         id,
@@ -10549,6 +10549,140 @@ fn text_row_hint(
     });
 }
 
+/// Which directory the folder picker should open in, given whatever is
+/// currently typed in the field.
+///
+/// Reopen where the developer already pointed when that folder still exists; if
+/// the path names something that has since been moved or deleted, fall back to
+/// its parent so they land nearby rather than at the OS default. Anything else
+/// — blank, or a path whose parent is gone too — returns `None` and lets the OS
+/// decide, which is better than starting somewhere arbitrary.
+fn folder_dialog_start_dir(typed: &str) -> Option<std::path::PathBuf> {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return None;
+    }
+    let start = std::path::Path::new(typed);
+    if start.is_dir() {
+        return Some(start.to_path_buf());
+    }
+    start
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty() && p.is_dir())
+        .map(|p| p.to_path_buf())
+}
+
+/// A folder-valued property: the text field of [`text_row_hint`], plus a browse
+/// button that opens the OS folder picker and an `✕` that clears the choice.
+///
+/// The chosen path is stored ABSOLUTE, deliberately. `dropzone::commit_files`
+/// does `PathBuf::from(destination)` with no project anchor, so a relative path
+/// would resolve against whatever directory the built program happens to be run
+/// from — which is not something a developer picking a folder in the designer
+/// can predict. The field stays editable, so a relative path can still be typed
+/// on purpose.
+fn folder_row_hint(
+    ui: &mut Ui,
+    hints: &mut HintState,
+    ctrl_id: &str,
+    prop_key: &str,
+    cur: &str,
+    label: &str,
+    hint: &str,
+    action: &mut InspectorAction,
+) {
+    let buf_key = format!("{ctrl_id}-{prop_key}");
+    let widget_id = egui::Id::new(&buf_key);
+    // Drawn this build — so `flush_orphaned_text_edits` leaves it alone.
+    hints.seen.insert(buf_key.clone());
+    let buf = hints.bufs.entry(buf_key).or_insert_with(|| HintBuf {
+        ctrl_id: ctrl_id.to_owned(),
+        prop_key: prop_key.to_owned(),
+        text: cur.to_owned(),
+        base: cur.to_owned(),
+    });
+    // Take a value that changed elsewhere (undo, another editor) — but never
+    // over the top of an edit in progress.
+    if !buf.dirty() && buf.base != cur && !ui.memory(|m| m.has_focus(widget_id)) {
+        buf.text = cur.to_owned();
+        buf.base = cur.to_owned();
+    }
+    // Namespace the dialog by viewport, so the in-window inspector and a
+    // detached Designer window never collect each other's result — the same
+    // reason `image_browse_row` does it.
+    let vp = ui.ctx().viewport_id();
+    let pick_key = format!("dirpick:{ctrl_id}:{prop_key}:{vp:?}");
+    let mut commit: Option<String> = None;
+    property_row(ui, label, |ui| {
+        // Buttons first, then the field takes what is left. That is the order
+        // `image_browse_row` already uses in this panel, and it needs no width
+        // arithmetic — nothing here can be squeezed out of the cell.
+        if ui
+            .button("📂")
+            .on_hover_text("Choose the destination folder…")
+            .clicked()
+        {
+            // Asynchronous, like every other picker here: a synchronous dialog
+            // nests the OS event loop and aborts winit 0.30.
+            let mut spec = crate::file_dialog::DialogSpec::folder();
+            if let Some(dir) = folder_dialog_start_dir(&buf.text) {
+                spec = spec.directory(dir);
+            }
+            crate::file_dialog::begin(ui.ctx(), &pick_key, spec);
+        }
+        // Keep repainting while the dialog is open so the result is collected.
+        if crate::file_dialog::is_open(&pick_key) {
+            ui.ctx().request_repaint();
+        }
+        if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
+            commit = Some(p.display().to_string());
+        }
+        // Clear. Disabled when there is nothing to clear, so the button never
+        // pretends to do something.
+        let has_value = !buf.text.trim().is_empty();
+        if ui
+            .add_enabled(has_value, egui::Button::new("✕"))
+            .on_hover_text("Clear the destination folder")
+            .clicked()
+        {
+            commit = Some(String::new());
+        }
+        let resp = ui.add(
+            egui::TextEdit::singleline(&mut buf.text)
+                .id(widget_id)
+                .hint_text(hint)
+                .desired_width(f32::INFINITY),
+        );
+        if resp.lost_focus() {
+            buf.base = buf.text.clone();
+            action.set_props.push((
+                ctrl_id.to_owned(),
+                prop_key.to_owned(),
+                PropValue::String(buf.text.clone()),
+            ));
+        }
+    });
+    // A button wrote the value: mirror it into the buffer so the field shows it
+    // at once, and record it as the new baseline so the sync above does not
+    // read it back as someone else's change.
+    if let Some(value) = commit {
+        buf_set(hints, ctrl_id, prop_key, &value);
+        action.set_props.push((
+            ctrl_id.to_owned(),
+            prop_key.to_owned(),
+            PropValue::String(value),
+        ));
+    }
+}
+
+/// Force a hint buffer to `value`, baseline included.
+fn buf_set(hints: &mut HintState, ctrl_id: &str, prop_key: &str, value: &str) {
+    if let Some(b) = hints.bufs.get_mut(&format!("{ctrl_id}-{prop_key}")) {
+        b.text = value.to_owned();
+        b.base = value.to_owned();
+    }
+}
+
 fn datagrid_color_modal_row(
     ui: &mut Ui,
     id: &str,
@@ -12454,5 +12588,127 @@ mod caption_editor_tests {
     #[test]
     fn the_wrapped_caption_box_is_three_rows() {
         assert_eq!(CAPTION_WRAP_ROWS, 3);
+    }
+}
+
+#[cfg(test)]
+mod folder_row_tests {
+    use super::*;
+
+    /// Where the folder picker opens, for each shape of what is already typed.
+    /// The interesting case is the middle one: a destination that has since
+    /// been moved or deleted should still land the developer next door, not at
+    /// whatever the OS considers home.
+    #[test]
+    fn the_picker_reopens_where_the_developer_last_pointed() {
+        let tmp = std::env::temp_dir().join("prc_folder_row_tests");
+        let child = tmp.join("dest");
+        std::fs::create_dir_all(&child).expect("temp dirs");
+
+        assert_eq!(folder_dialog_start_dir(""), None, "blank: let the OS choose");
+        assert_eq!(
+            folder_dialog_start_dir("   "),
+            None,
+            "whitespace is blank too"
+        );
+        assert_eq!(
+            folder_dialog_start_dir(&child.display().to_string()),
+            Some(child.clone()),
+            "an existing folder reopens itself"
+        );
+        assert_eq!(
+            folder_dialog_start_dir(&child.join("gone").display().to_string()),
+            Some(child.clone()),
+            "a missing folder falls back to its parent"
+        );
+        assert_eq!(
+            folder_dialog_start_dir("/no/such/place/at/all"),
+            None,
+            "nothing to anchor to: let the OS choose"
+        );
+        // Leading and trailing space is the developer's typo, not a path.
+        assert_eq!(
+            folder_dialog_start_dir(&format!("  {}  ", child.display())),
+            Some(child),
+            "the path is trimmed before it is tested"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The row draws, and seeds its edit buffer from the property. A row that
+    /// panics or shows an empty field would be obvious in the IDE and invisible
+    /// to the two tests above, which only exercise the decisions behind it.
+    #[test]
+    fn the_row_draws_and_shows_the_current_folder() {
+        let ctx = egui::Context::default();
+        let mut hints = HintState::default();
+        let mut action = InspectorAction::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(420.0, 300.0),
+        ));
+        let mut out = ctx.run_ui(input, |root| {
+            egui::Area::new(egui::Id::new("folder_row_probe"))
+                .fixed_pos(egui::Pos2::new(4.0, 4.0))
+                .show(root.ctx(), |ui| {
+                    ui.set_max_width(360.0);
+                    folder_row_hint(
+                        ui,
+                        &mut hints,
+                        "Drop-1",
+                        "DestinationFolder",
+                        "/tmp/inbox",
+                        "Destination:",
+                        "folder to copy accepted files into",
+                        &mut action,
+                    );
+                });
+        });
+        out.textures_delta.clear();
+
+        let buf = hints
+            .bufs
+            .get("Drop-1-DestinationFolder")
+            .expect("the row must register its edit buffer");
+        assert_eq!(buf.text, "/tmp/inbox", "the field shows the stored folder");
+        assert!(
+            action.set_props.is_empty(),
+            "merely drawing the row must not write the property back"
+        );
+    }
+
+    /// The destination is stored absolute, and clearing it stores the empty
+    /// string rather than removing the property — the runtime reads
+    /// `DestinationFolder` as "blank leaves files where they are", so the key
+    /// must survive being cleared.
+    #[test]
+    fn clearing_the_destination_leaves_an_empty_string() {
+        use cobolt_forms::model::{Control, ControlType};
+        let mut zone = Control::new("Drop-1", ControlType::FileDropZone, 0, 0);
+        zone.set_prop(
+            "DestinationFolder",
+            PropValue::String("/tmp/inbox".to_owned()),
+        );
+        assert_eq!(
+            zone.get_prop("DestinationFolder").map(|v| v.as_str().to_owned()),
+            Some("/tmp/inbox".to_owned())
+        );
+
+        // What the ✕ pushes.
+        zone.set_prop("DestinationFolder", PropValue::String(String::new()));
+        let after = zone.get_prop("DestinationFolder");
+        assert!(
+            after.is_some(),
+            "the property must still exist after clearing"
+        );
+        assert_eq!(after.map(|v| v.as_str().to_owned()), Some(String::new()));
+        // And that is exactly what the dropzone treats as "leave them alone".
+        assert_eq!(
+            cobolt_forms::dropzone::commit_files(&["/a/b.csv".to_owned()], "").len(),
+            1,
+            "a blank destination still reports an outcome per file"
+        );
     }
 }
