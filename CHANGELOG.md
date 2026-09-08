@@ -1,5 +1,72 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.70] — 2026-09-08
+
+### Named REST connections: the data model (step 1 of 3)
+
+A `RestClient` carries its whole connection on the control — base URL, auth
+scheme, token, headers, timeouts. Two consequences. A project talking to one
+API from six forms configures it six times and they drift. And **the
+credential has nowhere to live but the `.cfrm`**, which is a file people
+commit: that is how a live key reached this repository's own `main`.
+
+A project can now define a connection **once** and have its forms point at it.
+This release is the first of three passes (REST, then WebSearch, then
+AgentObject — REST first because the other two ride the same transport), and
+it lands the part everything else stands on: the record, where it is stored,
+and how it resolves onto a control.
+
+`[[integrations.rest_connections]]` in `cobolt.toml` holds the **non-secret
+half** — name, base URL, default method, auth *scheme*, default headers,
+timeout, redirect and TLS policy. The catalogue is meant to be committed, so a
+colleague who checks the project out gets the connections. **The credential is
+not in it**: it lives in the machine-local store under `connection::<id>` and
+reaches a running form through the environment, the discipline the Maps and
+Web Search keys have always used (R31). Keyed by id, not name, so renaming a
+connection cannot orphan its key.
+
+The control gains one property. `Configuration` empty — the default, and what
+every form in existence has — means the control's own settings, untouched.
+Otherwise it names a project connection whose fields replace them before the
+form runs, so the interpreter reads `BaseURL` and the rest exactly as it always
+has and needs to know nothing about connections.
+
+A `Configuration` naming a connection the project no longer has is **reported,
+not silently ignored**. Falling back to the control's own settings would send
+the request to an address the developer had already overridden — quietly, and
+only on the machine where the connection was missing.
+
+The type lives in the compiler, not the IDE, for the reason `ExternalCrate`
+does: `rcrun build` reads the same records from the same file with no IDE
+involved.
+
+The seeded-property guard needed a fourth reader kind. `Configuration` is read
+by neither the runtime nor codegen — it is consumed *before* the form runs —
+and calling it `Unread` would have been a lie, since `Unread` means "setting it
+changes nothing" and this changes where every request goes. `Resolved` is
+checked the same way a `Runtime` claim is: the resolver's source must actually
+mention the property, so the new kind cannot become a parking spot for a
+property nothing reads.
+
+**Not yet usable end to end.** Still to come in this pass: the Settings UI to
+create and edit connections, the properties-pane selector, the key-to-host
+environment plumbing, and the two resolution call sites (IDE run-form and the
+compiled binary). Nothing in this release changes any existing behaviour —
+`Configuration` defaults to empty and a project with no connections behaves
+exactly as before.
+
+- `crates/cobolt-compiler/src/connections.rs` — new: `RestConnection`, the
+  `connection::<id>` key slot, resolution and dangling detection. 6 tests.
+- `crates/cobolt-ide/src/project_model.rs` — the catalogue in `cobolt.toml`.
+- `crates/cobolt-forms/src/model.rs` — `Configuration` on `RestClient`.
+- `crates/cobolt-compiler/src/lib.rs` + `assets/knowledge/chunked.data` — the
+  KB property table, regenerated. `every_control_property_is_documented`
+  caught the property undocumented, which is exactly its job.
+- `crates/cobolt-runtime/tests/test_nonvisual_property_readers.rs` — the
+  `Resolved` reader kind and the test that keeps it honest.
+
+Full workspace sweep after the change: 3680 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.69] — 2026-09-08
 
 ### WebSearch is no longer one company's control

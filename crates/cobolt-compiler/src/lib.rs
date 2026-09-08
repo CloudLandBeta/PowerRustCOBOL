@@ -56,6 +56,7 @@ use thiserror::Error;
 pub mod exec_rust;
 pub mod runtime_features;
 pub mod external_crates;
+pub mod connections;
 pub mod main_form_guard;
 
 pub use external_crates::ExternalCrate;
@@ -4300,6 +4301,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "Verbose" => ("true | false", "Narrate every Ask into the program's output: the model, endpoint and whether an API key is set (never the key itself), the prompt, and what came back. Off by default. Turn it on when an Ask appears to do nothing — an Ask that returns no reply and an Ask that never ran produce the same empty log, and this is what separates them. Note that a form run outside the IDE has no model attached: LastReply stays empty, so onResponse does not fire, and the verbose line says so."),
 
         // ── RestClient ──
+        "Configuration" => (
+            "empty (this control's own settings), or the name of a project connection",
+            "Where this control gets its connection. **Empty — the default — means the control's own properties below**, exactly as it has always worked. Otherwise it names one of the project's connections (Settings → Integrations → Connections), and that connection's address, method, authentication scheme, headers and timeouts replace the control's own before the form runs; the local rows are shown but inert. Define an API once and every form that talks to it stays in step, instead of six forms drifting apart. The **credential is never part of the connection record** — that record round-trips in `cobolt.toml` and is meant to be committed, while the key lives in the machine-local store and reaches a running form through the environment, so a checked-out project carries the connections and each developer supplies their own key. A Configuration naming a connection the project no longer has is an error, not a silent fall back to the local settings: the control was told to ignore those.",
+        ),
         "BaseURL" => ("HTTP(S) URL", "The address the control's verbs request. A verb called with no URL argument uses it as it stands; a relative argument is joined onto it; an argument carrying its own scheme (`https://...`) is used unchanged."),
         "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "The verb `Call()` uses when given no method argument. The named verbs (`get`, `post`, `put`, `delete`) always use their own."),
         "AuthType" => ("one of: `None` | `Bearer` | `Basic` | `APIKey`", "Authentication scheme, applied to every request the control sends. `Bearer` sends `Authorization: Bearer <AuthToken>`; `Basic` sends `Authorization: Basic <AuthToken>`, base64-encoding the token when it is written `user:password`; `APIKey` sends `X-API-Key: <AuthToken>`. An API wanting a different header name uses `DefaultHeaders` instead."),

@@ -40,6 +40,11 @@ const RUNTIME_SOURCES: &[&str] = &[
     include_str!("../src/http_runtime.rs"),
 ];
 
+/// The sources a [`Reader::Resolved`] claim is checked against — where a
+/// project connection is turned into the control's effective properties.
+const RESOLUTION_SOURCES: &[&str] =
+    &[include_str!("../../cobolt-compiler/src/connections.rs")];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reader {
     /// `cobolt-runtime` reads it while the form runs.
@@ -47,13 +52,19 @@ enum Reader {
     /// `cobolt-codegen` consumes it when generating COBOL; the runtime never
     /// sees the property itself, only the generated source.
     Generated,
+    /// Consumed **before** the form runs, resolving a project-level
+    /// configuration into the control's effective properties. The interpreter
+    /// never sees the property itself, only the values it selected — so it is
+    /// neither `Runtime` nor `Generated`, and calling it `Unread` would be a
+    /// lie, since setting it changes where every request goes.
+    Resolved,
     /// Nothing functional reads it. The note says what would have to exist.
     /// A property here is **debt, not design** — it is offered in the property
     /// pane and setting it changes nothing.
     Unread(&'static str),
 }
 
-use Reader::{Generated, Runtime, Unread};
+use Reader::{Generated, Resolved, Runtime, Unread};
 
 /// Every type-specific property of the five types, and what reads it.
 fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
@@ -61,6 +72,10 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
         (
             ControlType::RestClient,
             vec![
+                // Selects between this control's own settings and one of the
+                // project's named REST connections; resolved into the control
+                // before the form runs.
+                ("Configuration", Resolved),
                 ("BaseURL", Runtime),
                 ("DefaultMethod", Runtime),
                 ("AuthType", Runtime),
@@ -244,6 +259,30 @@ fn every_property_declared_runtime_read_is_actually_read_by_the_runtime() {
         }
     }
 
+    assert!(orphans.is_empty(), "\n{}\n", orphans.join("\n\n"));
+}
+
+/// A `Resolved` claim is checked the same way a `Runtime` one is: the
+/// resolution source must actually mention the property. Without this the new
+/// kind would be a place to park a property nothing reads — exactly the
+/// loophole `Unread`'s note exists to close.
+#[test]
+fn every_property_declared_resolved_is_actually_read_by_the_resolver() {
+    let mut orphans = Vec::new();
+    for (ct, declared) in declared_readers() {
+        for (name, reader) in declared {
+            if reader != Resolved {
+                continue;
+            }
+            let quoted = format!("\"{name}\"");
+            if !RESOLUTION_SOURCES.iter().any(|s| s.contains(&quoted)) {
+                orphans.push(format!(
+                    "{ct:?}::{name} is declared Resolved, but no resolution source \
+                     mentions {quoted} — so nothing turns it into anything."
+                ));
+            }
+        }
+    }
     assert!(orphans.is_empty(), "\n{}\n", orphans.join("\n\n"));
 }
 

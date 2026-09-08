@@ -77,6 +77,19 @@ pub struct CoboltProject {
 pub struct ProjectIntegrationSettings {
     #[serde(default)]
     pub google_search_engine_id: String,
+    /// Named REST connections this project defines once and its forms point
+    /// at by id (`[[integrations.rest_connections]]`).
+    ///
+    /// The **non-secret half only**, like everything else here: each
+    /// connection's credential lives in the machine-local store under
+    /// `connection::<id>` and is never written to `cobolt.toml`, so the
+    /// catalogue can be committed and shared while every developer supplies
+    /// their own key (R31).
+    ///
+    /// The type is the **compiler's**, for the reason `crates` is: `rcrun
+    /// build` reads the same records from the same file with no IDE involved.
+    #[serde(default)]
+    pub rest_connections: Vec<cobolt_compiler::connections::RestConnection>,
 }
 
 /// AI configuration that belongs to one project and is persisted in

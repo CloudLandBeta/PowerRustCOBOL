@@ -5365,6 +5365,11 @@ impl Control {
                 props.insert("ApiKeySource".into(), PropValue::String("".into()));
             }
             ControlType::RestClient => {
+                // Empty = this control's own settings below (what every form
+                // built so far uses). Otherwise the id of one of the project's
+                // named REST connections, whose fields replace them before the
+                // form runs.
+                props.insert("Configuration".into(), PropValue::String("".into()));
                 props.insert(
                     "BaseURL".into(),
                     PropValue::String("https://api.example.com".into()),
