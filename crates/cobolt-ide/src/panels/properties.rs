@@ -8492,6 +8492,165 @@ impl PropertiesPanel {
                 ui.add_space(4.0);
             }
 
+            // ── WebSearch ────────────────────────────────────────────────────
+            //
+            // This control had NO arm at all until the provider work: it fell
+            // through to `_ => {}`, so `SearchEngineId` — the one setting
+            // without which it cannot search — could not be set from the pane
+            // at all. A `Provider` you cannot choose would have been the same
+            // defect again, so the pane comes with it.
+            //
+            // The rows shown follow the chosen provider, because the settings
+            // are not interchangeable: only Google reads SearchEngineId, only
+            // SearXNG reads Endpoint, and SearXNG is the one that takes no key.
+            ControlType::WebSearch if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_basic);
+                combo_row_labeled(
+                    ui,
+                    id,
+                    "Provider",
+                    "Provider:",
+                    ctrl,
+                    action,
+                    &cobolt_runtime::search_runtime::PROVIDER_NAMES,
+                );
+                let provider = cobolt_runtime::search_runtime::Provider::parse(
+                    &ctrl
+                        .get_prop("Provider")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default(),
+                );
+
+                if matches!(provider, cobolt_runtime::search_runtime::Provider::Google) {
+                    let cur = ctrl
+                        .get_prop("SearchEngineId")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "SearchEngineId",
+                        &cur,
+                        "Engine id (cx):",
+                        "a1b2c3d4e5f6g7h8i",
+                        action,
+                    );
+                }
+                if provider.needs_endpoint() {
+                    let cur = ctrl
+                        .get_prop("Endpoint")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "Endpoint",
+                        &cur,
+                        "Instance URL:",
+                        "https://search.example.com",
+                        action,
+                    );
+                }
+                if provider.needs_api_key() {
+                    // Masked like the RestClient's auth token: a key typed
+                    // here is a secret, and the .cfrm it lands in is a file
+                    // people commit.
+                    let cur = ctrl
+                        .get_prop("ApiKey")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    let bk = format!("{id}-ApiKey");
+                    let wid = egui::Id::new(&bk);
+                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
+                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                        *buf = cur;
+                    }
+                    property_row(ui, "API key:", |ui| {
+                        if ui
+                            .add(
+                                egui::TextEdit::singleline(buf)
+                                    .id(wid)
+                                    .password(true)
+                                    .hint_text("project key")
+                                    .desired_width(ui.available_width()),
+                            )
+                            .lost_focus()
+                        {
+                            action.set_props.push((
+                                id.to_owned(),
+                                "ApiKey".into(),
+                                PropValue::String(buf.clone()),
+                            ));
+                        }
+                    });
+                }
+                {
+                    let cur = ctrl
+                        .get_prop("Query")
+                        .map(|v| v.as_str().to_owned())
+                        .unwrap_or_default();
+                    text_row_hint(
+                        ui,
+                        &mut self.hints,
+                        id,
+                        "Query",
+                        &cur,
+                        "Query:",
+                        "set from COBOL before Search()",
+                        action,
+                    );
+                }
+                int_row_inline(
+                    ui,
+                    id,
+                    "NumResults",
+                    "Results:",
+                    ctrl,
+                    action,
+                    1..=provider.max_results() as i64,
+                );
+                if provider.honours_safe_search() {
+                    combo_row_labeled(
+                        ui,
+                        id,
+                        "SafeSearch",
+                        "Safe search:",
+                        ctrl,
+                        action,
+                        &["Off", "Medium", "High"],
+                    );
+                } else {
+                    // Said plainly rather than shown as a control that does
+                    // nothing: this provider has no filter to set.
+                    ui.label(
+                        RichText::new(format!(
+                            "{} has no SafeSearch setting.",
+                            provider.as_str()
+                        ))
+                        .small()
+                        .color(Color32::GRAY)
+                        .italics(),
+                    );
+                }
+
+                // ── Async I/O (spec 032) ──
+                section_header(ui, tr.sec_async);
+                combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Async", "Sync"]);
+                int_row_inline(
+                    ui,
+                    id,
+                    "TimeoutMs",
+                    "Timeout (ms):",
+                    ctrl,
+                    action,
+                    0..=600_000,
+                );
+                busy_row_readonly(ui, ctrl);
+                ui.add_space(4.0);
+            }
+
             // ── Charts ───────────────────────────────────────────────────────
             ControlType::BarChart
             | ControlType::LineChart

@@ -4604,12 +4604,24 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "SelectedMarkerId" => ("marker id string or empty (runtime-only)", "Id of the marker the user last clicked, delivered with onMarkerClick."),
 
         // ── WebSearch (spec 039) ──
-        "SearchEngineId" => ("Google Programmable Search Engine `cx` value", "Which Custom Search engine to query — a plain, non-secret id, not the API key."),
+        "Provider" => (
+            "one of: `Google` | `Brave` | `Serper` | `Tavily` | `SearXNG`",
+            "Which search back end answers. `Google` is the default and what an unset or unrecognised value falls back to, so an older form keeps working. Every provider returns results through the same accessors (ResultCount/TopTitle/TopSnippet/TopLink/GetResult), so changing this does not change your COBOL. Google additionally needs SearchEngineId; SearXNG needs Endpoint and no key at all.",
+        ),
+        "Endpoint" => (
+            "base URL of your SearXNG instance, e.g. `https://search.example.com`",
+            "Only SearXNG reads this — the hosted providers each have one address of their own. Required when Provider is SearXNG; the instance must have `format=json` enabled in its own settings, which is off by default.",
+        ),
+        "ApiKey" => (
+            "secret string, or empty",
+            "Per-control override of the project's search credential (Settings → Integrations). Empty — the normal case — means \"use the project's key\". Set it only when one form must search under a different account than the project default. SearXNG needs no key.",
+        ),
+        "SearchEngineId" => ("Google Programmable Search Engine `cx` value", "Which Custom Search engine to query — a plain, non-secret id, not the API key. Read only when Provider is Google; the other providers search the whole web without being told where."),
         "Query" => ("free text", "Search query text. Set this before INVOKE 'Search'."),
-        "NumResults" => ("integer 1-10", "Results requested per search — the Custom Search API's own per-request cap; values outside 1-10 are clamped."),
+        "NumResults" => ("integer, clamped to the provider's own cap", "Results requested per search. Clamped to what the chosen provider accepts — Google 10, Brave 20, Tavily 20, SearXNG 50, Serper 100 — because asking for more is an HTTP error, not more results."),
         "SafeSearch" => (
             "one of: `Off` | `Medium` | `High`",
-            "SafeSearch filtering level. The Custom Search API itself only has two levels (`off`/`active`); `Medium` and `High` both map to `active`.",
+            "SafeSearch filtering level, mapped to each provider's own vocabulary: Google has two levels (`off`/`active`) so Medium and High both filter; Brave takes `off`/`moderate`/`strict`; SearXNG takes 0/1/2. **Serper and Tavily expose no SafeSearch setting, so the property is not sent to them** — do not assume filtering is running there.",
         ),
 
         _ => return None,
@@ -4949,7 +4961,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ("ClearRegions()", "Remove every region."),
         ],
         "WebSearch" => vec![
-            ("Search()", "Run a Custom Search using the current SearchEngineId/Query/NumResults/SafeSearch. Async mode: returns immediately, raw JSON lands in ResponseBody + onComplete. Sync mode: returns the raw JSON body. Fails \"not configured\" with no Custom Search key set (R33)."),
+            ("Search()", "Run a search on the control's Provider using the current Query/NumResults/SafeSearch (plus SearchEngineId for Google, Endpoint for SearXNG). Async mode: returns immediately, raw JSON lands in ResponseBody + onComplete. Sync mode: returns the raw JSON body. Fails \"not configured\" before sending anything when the chosen provider's key — or SearXNG's Endpoint — is missing (R33)."),
             ("ResultCount() → Integer", "Number of result items in the last response (parses ResponseBody fresh each call)."),
             ("TopTitle() → String", "First result's title, or empty before any search."),
             ("TopSnippet() → String", "First result's snippet, or empty before any search."),
@@ -5903,9 +5915,9 @@ fn methods_reference_doc() -> String {
         ),
         (
             "WebSearch",
-            "Async by default, same `Mode`/`Busy`/`onComplete`/`onError` contract as RestClient above. Needs a `google-custom-search` project credential (Settings → Integrations) — with none configured `Search()` fails immediately with `onError` (R33). Prefer `Search()` over the generated `<id>-SEARCH` paragraph, which has no URL-encoding and no key.",
+            "Searches the web through one of five back ends, chosen with `Provider`: Google Custom Search, Brave, Serper, Tavily, or a SearXNG instance you host. All five answer through the same accessors, so switching provider needs no COBOL change. Async by default, same `Mode`/`Busy`/`onComplete`/`onError` contract as RestClient above. Needs the chosen provider's key — the project credential (Settings → Integrations) or the control's own `ApiKey` — except SearXNG, which needs `Endpoint` instead; with neither configured `Search()` fails immediately with `onError` (R33). Prefer `Search()` over the generated `<id>-SEARCH` paragraph, which has no URL-encoding and no key.",
             &[
-                ("Search()", "Run a search using SearchEngineId/Query/NumResults/SafeSearch. Async: returns immediately, raw JSON in `ResponseBody`. Sync: returns the raw JSON."),
+                ("Search()", "Run a search on the current Provider using Query/NumResults/SafeSearch. Async: returns immediately, raw JSON in `ResponseBody`. Sync: returns the raw JSON."),
                 ("ResultCount() → Integer", "Result items in the last response."),
                 ("TopTitle() / TopSnippet() / TopLink() → String", "First result's fields, empty before any search."),
                 ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; out-of-range → empty."),

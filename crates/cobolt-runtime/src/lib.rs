@@ -65,6 +65,7 @@ pub use cobolt_forms::numedit;
 pub mod objects;
 pub mod relative;
 pub mod rust_bridge;
+pub mod search_runtime;
 pub mod value;
 
 pub use channels::{FormEvent, FormIpcMessage, StateUpdate};

@@ -106,6 +106,15 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
         (
             ControlType::WebSearch,
             vec![
+                // Chooses the back end; read by `exec_method`'s SEARCH arm and
+                // by `web_search_items`, which needs it to know how to read the
+                // answer back.
+                ("Provider", Runtime),
+                // Read by SEARCH when Provider is SearXNG — the address of the
+                // instance the developer runs.
+                ("Endpoint", Runtime),
+                // Read by SEARCH, overriding the project credential when set.
+                ("ApiKey", Runtime),
                 ("SearchEngineId", Runtime),
                 ("Query", Runtime),
                 ("NumResults", Runtime),

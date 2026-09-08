@@ -121,7 +121,7 @@ fn databind_trace_write(args: std::fmt::Arguments<'_>) {
 /// build a URL from parts, so a multi-word query would otherwise truncate at
 /// its first unescaped space (the same limitation the generated `<id>-
 /// SEARCH` COBOL paragraph's own comment documents, T14).
-fn percent_encode_query(s: &str) -> String {
+pub(crate) fn percent_encode_query(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         match b {
@@ -2830,32 +2830,22 @@ impl Interpreter {
         CobolValue::from_str("", 0)
     }
 
-    /// Parse a WebSearch control's `ResponseBody` (the raw Google Custom
-    /// Search JSON API response) into `(title, snippet, link)` tuples, one
-    /// per result item (spec 039 T15/R29). An empty or malformed body (not
-    /// yet searched, or an error body) yields an empty Vec rather than an
-    /// error — the same "absent data reads as nothing, not a crash"
+    /// Parse a WebSearch control's `ResponseBody` into `(title, snippet, link)`
+    /// tuples, one per result (spec 039 T15/R29).
+    ///
+    /// Five providers answer in five shapes — Google's `items[]`, Brave's
+    /// `web.results[]`, Serper's `organic[]`, Tavily's and SearXNG's
+    /// `results[]`, each naming the snippet and the link differently.
+    /// `search_runtime` owns that table, so the accessors above it read the
+    /// same triples whichever back end answered. An empty or malformed body
+    /// (not yet searched, or an error payload) yields an empty Vec rather than
+    /// an error — the same "absent data reads as nothing, not a crash"
     /// tolerance `refresh_marker_binding` already applies to a bad row.
     fn web_search_items(&self, obj: &str) -> Vec<(String, String, String)> {
-        let body = self.obj_get(obj, "ResponseBody");
-        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body) else {
-            return Vec::new();
-        };
-        let Some(items) = parsed.get("items").and_then(|v| v.as_array()) else {
-            return Vec::new();
-        };
-        items
-            .iter()
-            .map(|item| {
-                let field = |k: &str| {
-                    item.get(k)
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_owned()
-                };
-                (field("title"), field("snippet"), field("link"))
-            })
-            .collect()
+        crate::search_runtime::parse_results(
+            crate::search_runtime::Provider::parse(&self.obj_get(obj, "Provider")),
+            &self.obj_get(obj, "ResponseBody"),
+        )
     }
 
     /// Queue a control lifecycle event for dispatch on the next
@@ -12898,53 +12888,65 @@ impl Interpreter {
                     val(b)
                 }
             }
-            // ── WebSearch (spec 039 T15): Google Custom Search JSON API ──
-            // Reuses `spawn_rest_op`/the plain `ureq` transport (unlike Maps,
-            // which needed the async `google_maps` crate + its own worker) —
-            // a Custom Search call is a plain signed GET.
+            // ── WebSearch (spec 039 T15, broadened 2026-09-08) ───────────
+            // Five back ends behind one control: Google Custom Search, Brave,
+            // Serper, Tavily and a SearXNG instance you host. `search_runtime`
+            // turns the control's properties into the request each API
+            // documents; the transport is the one RestClient already uses, so
+            // a search is still a plain HTTP call with no bridge of its own.
             "SEARCH" => {
-                let api_key = self.obj_get(obj, "_ResolvedSearchApiKey");
-                if api_key.trim().is_empty() {
+                let provider =
+                    crate::search_runtime::Provider::parse(&self.obj_get(obj, "Provider"));
+                // The control's own ApiKey wins; otherwise the project's key.
+                // A form that needs a different account than the project
+                // default says so on the control instead of forcing a second
+                // project.
+                let own_key = self.obj_get(obj, "ApiKey");
+                let api_key = if own_key.trim().is_empty() {
+                    self.obj_get(obj, "_ResolvedSearchApiKey")
+                } else {
+                    own_key
+                };
+                let endpoint = self.obj_get(obj, "Endpoint");
+                if let Some(err) =
+                    crate::search_runtime::configuration_error(provider, &api_key, &endpoint)
+                {
                     // R33: "not configured" — fail synchronously, no request.
-                    self.obj_set(obj, "LastError", "Web Search API key not configured".into());
+                    self.obj_set(obj, "LastError", err);
                     self.queue_control_event(obj, "onError");
                     return CobolValue::from_str("", 0);
                 }
-                let cx = self.obj_get(obj, "SearchEngineId");
-                let q = self.obj_get(obj, "Query");
-                let num = self
-                    .obj_get(obj, "NumResults")
-                    .trim()
-                    .parse::<u32>()
-                    .unwrap_or(10)
-                    .clamp(1, 10); // the Custom Search API's own per-request cap
-                // The API's `safe` param is two-valued ("off"/"active"); our
-                // friendlier Off/Medium/High property (T14) collapses Medium
-                // and High to the API's single "active" level.
-                let safe = if self.obj_get(obj, "SafeSearch").eq_ignore_ascii_case("off") {
-                    "off"
-                } else {
-                    "active"
-                };
-                let url = format!(
-                    "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}&num={num}&safe={safe}",
-                    percent_encode_query(&api_key),
-                    percent_encode_query(&cx),
-                    percent_encode_query(&q),
+                let (engine_id, query, safe) = (
+                    self.obj_get(obj, "SearchEngineId"),
+                    self.obj_get(obj, "Query"),
+                    self.obj_get(obj, "SafeSearch"),
                 );
+                let req = crate::search_runtime::build_request(
+                    provider,
+                    &crate::search_runtime::SearchParams {
+                        api_key: &api_key,
+                        engine_id: &engine_id,
+                        endpoint: &endpoint,
+                        query: &query,
+                        num_results: self
+                            .obj_get(obj, "NumResults")
+                            .trim()
+                            .parse::<u32>()
+                            .unwrap_or(10),
+                        safe_search: &safe,
+                    },
+                );
+                // Brave, Serper and Tavily authenticate in a header, so the
+                // request carries a config now instead of the stock one.
+                let cfg = crate::http_runtime::RequestConfig {
+                    headers: req.headers,
+                    ..Default::default()
+                };
                 if self.rest_is_async(obj) {
-                    // A signed Custom Search GET: the URL is already complete
-                    // and a WebSearch carries none of the RestClient's address
-                    // or credential properties, so it keeps the stock policy.
-                    self.spawn_rest_op(
-                        obj,
-                        "GET",
-                        url,
-                        String::new(),
-                        crate::http_runtime::RequestConfig::default(),
-                    )
+                    self.spawn_rest_op(obj, req.method, req.url, req.body, cfg)
                 } else {
-                    let (b, st) = self.http.get(&url);
+                    let body = (!req.body.is_empty()).then_some(req.body.as_str());
+                    let (b, st) = self.http.send_configured(req.method, &req.url, body, &cfg);
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -16738,6 +16740,114 @@ MAIN.
             "SEARCH under Async mode should record a pending op"
         );
         assert_eq!(interp.obj_get("Search1", "Busy"), "true");
+    }
+
+    /// **A provider that authenticates with no key is not "not configured".**
+    ///
+    /// The configuration gate used to ask one question — is there a Google key?
+    /// SearXNG is an instance the developer runs, so it has no account and no
+    /// key; asking it for one would make the provider unusable. What it needs
+    /// instead is the address, and the error has to say which of the two is
+    /// missing or the developer is hunting a key that does not exist.
+    #[test]
+    fn a_searxng_search_needs_an_endpoint_and_no_key_at_all() {
+        let make = |props: Vec<(String, String)>| {
+            let parsed = parse(tokenize(
+                "IDENTIFICATION DIVISION.\nPROGRAM-ID. S.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n",
+                SourceFormat::Free,
+            ));
+            let mut interp = Interpreter::new(parsed.program.expect("program should parse"));
+            interp.seed_objects([("Search1".to_owned(), "WebSearch".to_owned(), props)]);
+            interp
+        };
+
+        // No key AND no endpoint: it is the ENDPOINT it complains about.
+        let mut bare = make(vec![("Provider".to_owned(), "SearXNG".to_owned())]);
+        let _ = bare.exec_method("Search1", "SEARCH", &[]);
+        let err = bare.obj_get("Search1", "LastError");
+        assert!(err.contains("Endpoint"), "should ask for the address, got {err:?}");
+        assert!(
+            !err.to_lowercase().contains("api key"),
+            "must not demand a key SearXNG does not have: {err:?}"
+        );
+        assert!(!bare.async_pending.contains_key("Search1"));
+
+        // Endpoint alone is enough — no key is seeded anywhere.
+        let mut ok = make(vec![
+            ("Provider".to_owned(), "SearXNG".to_owned()),
+            ("Endpoint".to_owned(), "https://search.example.com".to_owned()),
+            ("Mode".to_owned(), "Async".to_owned()),
+            ("Query".to_owned(), "cobol".to_owned()),
+        ]);
+        let _ = ok.exec_method("Search1", "SEARCH", &[]);
+        assert!(
+            ok.async_pending.contains_key("Search1"),
+            "an unauthenticated provider with its endpoint set must search, got {:?}",
+            ok.obj_get("Search1", "LastError")
+        );
+    }
+
+    /// **The keyed providers take a key from either place, and name themselves
+    /// when they have neither.**
+    ///
+    /// The project credential is the normal source; a control's own `ApiKey`
+    /// overrides it so one form can search under a different account without a
+    /// second project. And "not configured" now has five possible subjects, so
+    /// it says which.
+    #[test]
+    fn a_keyed_provider_accepts_a_control_key_or_the_projects_and_names_itself() {
+        let make = |props: Vec<(String, String)>| {
+            let parsed = parse(tokenize(
+                "IDENTIFICATION DIVISION.\nPROGRAM-ID. S.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n",
+                SourceFormat::Free,
+            ));
+            let mut interp = Interpreter::new(parsed.program.expect("program should parse"));
+            interp.seed_objects([("Search1".to_owned(), "WebSearch".to_owned(), props)]);
+            interp
+        };
+        let async_brave = |extra: Vec<(String, String)>| {
+            let mut v = vec![
+                ("Provider".to_owned(), "Brave".to_owned()),
+                ("Mode".to_owned(), "Async".to_owned()),
+                ("Query".to_owned(), "cobol".to_owned()),
+            ];
+            v.extend(extra);
+            v
+        };
+
+        // The project's key.
+        let mut proj = make(async_brave(vec![(
+            "_ResolvedSearchApiKey".to_owned(),
+            "project-key".to_owned(),
+        )]));
+        let _ = proj.exec_method("Search1", "SEARCH", &[]);
+        assert!(proj.async_pending.contains_key("Search1"), "project key");
+
+        // The control's own, with NO project key seeded at all.
+        let mut own = make(async_brave(vec![(
+            "ApiKey".to_owned(),
+            "control-key".to_owned(),
+        )]));
+        let _ = own.exec_method("Search1", "SEARCH", &[]);
+        assert!(own.async_pending.contains_key("Search1"), "control key");
+
+        // Neither: the old message said "Web Search API key"; it now says which
+        // provider is unconfigured, because there are five of them.
+        for (provider, expect) in [
+            ("Brave", "Brave"),
+            ("Serper", "Serper"),
+            ("Tavily", "Tavily"),
+            ("Google", "Google"),
+        ] {
+            let mut none = make(vec![("Provider".to_owned(), provider.to_owned())]);
+            let _ = none.exec_method("Search1", "SEARCH", &[]);
+            let err = none.obj_get("Search1", "LastError");
+            assert!(
+                err.contains(expect) && err.to_lowercase().contains("not configured"),
+                "{provider}: {err:?}"
+            );
+            assert!(!none.async_pending.contains_key("Search1"), "{provider}");
+        }
     }
 
     #[test]

@@ -5394,6 +5394,17 @@ impl Control {
             // "google-custom-search" key (T7) is a runtime-only seed
             // property, never a design-time literal (R30).
             ControlType::WebSearch => {
+                // Which back end answers. Google is the historical one and the
+                // default, so a form saved before the control had a choice
+                // keeps the behaviour it had.
+                props.insert("Provider".into(), PropValue::String("Google".into())); // Google | Brave | Serper | Tavily | SearXNG
+                // The SearXNG instance you host. Ignored by the hosted
+                // providers, which have one address of their own.
+                props.insert("Endpoint".into(), PropValue::String("".into()));
+                // Per-control override of the project's search API key, for a
+                // form that needs a different account than the project default.
+                // Empty means "use the project's".
+                props.insert("ApiKey".into(), PropValue::String("".into()));
                 props.insert("SearchEngineId".into(), PropValue::String("".into()));
                 props.insert("Query".into(), PropValue::String("".into()));
                 props.insert("NumResults".into(), PropValue::Int(10));

@@ -1,5 +1,94 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.69] — 2026-09-08
+
+### WebSearch is no longer one company's control
+
+The control shipped against a single back end — Google's Custom Search JSON
+API — with the endpoint, the query string and the response shape written into
+the interpreter by hand. Nothing about it was pluggable, so when that API
+stopped being an option the control had nowhere to go.
+
+`Provider` now chooses between **Google**, **Brave**, **Serper**, **Tavily**
+and a **SearXNG** instance the developer hosts. All five answer through the
+same accessors — `ResultCount`, `TopTitle`, `TopSnippet`, `TopLink`,
+`GetResult(n)` — which were already provider-neutral, so **switching provider
+needs no COBOL change**. Google remains the default and is what an unset or
+unrecognised value falls back to, so a form built before the control had a
+choice behaves exactly as it did.
+
+The differences between the five are real and are not papered over. Each has
+its own credential (Brave a subscription-token header, Serper an API-key
+header, Tavily a bearer token, SearXNG none at all), its own result ceiling
+(10 to 100, and `NumResults` is clamped to it rather than passed through,
+because asking for more is an HTTP error and not more results), and its own
+SafeSearch vocabulary — where it has one. **Serper and Tavily expose no
+filtering level, so the property is not sent to them**, the properties pane
+says so where the control would otherwise be, and the guide says so too.
+Silently pretending a filter was running would be worse than not offering one.
+
+SearXNG needed the configuration gate rethought rather than extended. That
+gate asked one question — is there a key? — and SearXNG is an instance you
+run: there is no account and no key, and demanding one would have made the
+provider unusable. It needs the address instead, and `LastError` now names
+both the provider and which of the two settings is missing.
+
+The properties pane had **no WebSearch arm at all**: the control fell through
+to the catch-all, so `SearchEngineId` — the one setting without which it could
+not search — was not settable from the pane. A `Provider` nobody could choose
+would have been that same defect again, so the pane comes with this. Its rows
+follow the chosen provider, because the settings are not interchangeable, and
+the key field is masked like the RestClient's auth token: a key typed there
+lands in a `.cfrm`, and `.cfrm` files get committed.
+
+A control may now also carry its own `ApiKey`, overriding the project
+credential for a form that must search under a different account. Empty — the
+normal case — still means "use the project's key".
+
+Two provider shapes were **verified against the vendors' own documentation**
+while implementing them, and one correction came out of it: Tavily takes its
+key as an `Authorization: Bearer` header, not the `api_key` body field this
+would otherwise have shipped with. Brave was confirmed exactly as written.
+Serper's documentation host did not resolve, so that one provider is written
+from knowledge of the service and is the least corroborated of the five — it
+wants a smoke test against a live key. SearXNG's endpoint and parameters are
+from its own docs; its result field names are not documented there and follow
+what instances return.
+
+- `crates/cobolt-runtime/src/search_runtime.rs` — new: the provider seam.
+  Dependency-free by design, so the whole matrix is unit-testable with no
+  network, no keys and no `http` feature.
+- `crates/cobolt-runtime/src/interpreter.rs` — `SEARCH` dispatches by provider
+  and resolves the key from control-then-project; `web_search_items` asks the
+  provider how to read the answer.
+- `crates/cobolt-forms/src/model.rs` — `Provider`, `Endpoint`, `ApiKey`.
+- `crates/cobolt-ide/src/panels/properties.rs` — the WebSearch arm that never
+  existed.
+- `crates/cobolt-ide/src/i18n.rs` — Settings → Integrations called the field
+  "Custom Search API key" in all six languages. It is the key for whichever
+  provider the control uses, so it now reads **Web Search API key** — matching
+  the hint beside it, which already said "used by the Web Search control". The
+  Google-only **Search Engine id (cx)** field keeps its name, because it really
+  is Google-only: it identifies a Programmable Search Engine configuration, and
+  the other four providers have no equivalent.
+- `crates/cobolt-runtime/tests/test_nonvisual_property_readers.rs` — the three
+  new properties declare what reads them. The guard caught them unregistered,
+  which is what it is for: a seeded property nothing reads is a promise the
+  property pane makes and the product does not keep.
+- `crates/cobolt-compiler/src/lib.rs` + `assets/knowledge/chunked.data` — the
+  System KB property, method and control tables, regenerated.
+- `crates/cobolt-codegen/src/lib.rs` — the generated `<id>-SEARCH` fallback is
+  Google-only and cannot follow `Provider` (two providers need a POST with an
+  auth header, which `COBOL-HTTP-GET` cannot send). Behaviour unchanged; its
+  comment now says so instead of implying otherwise.
+- `docs/developers-guide-en.md` — the provider table, what each one needs, and
+  the SafeSearch caveat.
+- Tests: `search_runtime::tests` (5) assert each provider's request whole —
+  method, URL, headers, body — and that all five response shapes normalise to
+  the same triples; `interpreter::tests` add the SearXNG no-key path and
+  control-key-over-project-key. Verified by reverting: making every provider
+  demand a key, and moving Tavily's key into the body, fails three tests.
+
 ## [PowerRustCOBOL 1.65.68] — 2026-09-07
 
 ### A shadow with nothing casting it

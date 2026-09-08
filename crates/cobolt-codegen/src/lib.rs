@@ -1476,8 +1476,20 @@ fn write_web_search_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(
             "      *>    concatenation (no key, no percent-encoding — a multi-word query\n",
         );
+        out.push_str(
+            "      *>    truncates at its first space), and it is GOOGLE ONLY: it does\n",
+        );
+        out.push_str(
+            "      *>    NOT follow the control's Provider property, because two of the\n",
+        );
+        out.push_str(
+            "      *>    providers need a POST with an authentication header, which a\n",
+        );
+        out.push_str(
+            "      *>    COBOL-HTTP-GET cannot send. For a correct, credential-aware\n",
+        );
         out.push_str(&format!(
-            "      *>    truncates at its first space). For a correct, credential-aware\n      *>    search use INVOKE {} 'SEARCH' instead.\n",
+            "      *>    search on ANY provider use INVOKE {} 'SEARCH' instead.\n",
             ctrl.id
         ));
         out.push_str("           MOVE SPACES TO WS-REQUEST-URL\n");

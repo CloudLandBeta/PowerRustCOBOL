@@ -1681,7 +1681,7 @@ again.
 
 **Non-visual services**
 : Timer, AgentObject (AI agent), RestClient, SqlDatabase, **IndexedFile**,
-**WebSearch** (Google Custom Search).
+**WebSearch** (Google, Brave, Serper, Tavily or a SearXNG instance you host).
 An **IndexedFile** control is the designer-side face of an indexed file. The
 record and its keys are described once in the project's indexed-file
 definition (a `.cidx`), which is what the `SELECT` and `FD` are generated
@@ -7247,16 +7247,42 @@ its `Markers` collection to a source with `Lat`/`Lng`/`Label` fields mapped
 bound row becomes one marker, refreshed the same way a bound DataGrid
 refreshes its `Rows`.
 
-### Web Search (Google Custom Search)
+### Web Search (five providers)
 
-The **WebSearch** control is a non-visual client for the **Google Custom
-Search JSON API** — the same async lifecycle as `RestClient` (`Mode`,
-`Busy`, `onComplete`/`onError`/`onCancelled`/`onTimeout`, plus its own
-`onResultsReceived` as primary event). Set `SearchEngineId` (the Custom
-Search "cx" value — a plain id, not a secret), `Query`, `NumResults`
-(1-10), and `SafeSearch` (`Off` / `Medium` / `High` — the real API only has
-two levels, so `Medium` and `High` both request the stricter one), then
-call `Search()`:
+The **WebSearch** control is a non-visual search client with the same async
+lifecycle as `RestClient` (`Mode`, `Busy`,
+`onComplete`/`onError`/`onCancelled`/`onTimeout`, plus its own
+`onResultsReceived` as primary event).
+
+It is **not tied to one search engine**. The `Provider` property chooses the
+back end, and every back end answers through the same accessors, so switching
+provider needs **no change to your COBOL** — the handler below is the same
+whichever row of this table you are on:
+
+| `Provider` | Credential | Also needs | `NumResults` cap | `SafeSearch` |
+|---|---|---|---|---|
+| `Google` (default) | Custom Search API key | `SearchEngineId` (the "cx" value — a plain id, not a secret) | 10 | `Off` → off, `Medium`/`High` → on |
+| `Brave` | Brave Search API key | — | 20 | `Off` / `Medium` / `High` |
+| `Serper` | Serper API key | — | 100 | **ignored** |
+| `Tavily` | Tavily API key | — | 20 | **ignored** |
+| `SearXNG` | **none** | `Endpoint` — the address of the instance you run | 50 | `Off` / `Medium` / `High` |
+
+`Provider` defaults to `Google`, and an unrecognised value falls back to it, so
+a form built before the control had a choice behaves exactly as it did.
+
+> ⚠️ **`SafeSearch` is not universal.** Serper and Tavily expose no filtering
+> level, so the property is simply not sent to them. Do not assume a filter is
+> running on those two.
+
+> **Notes.** `NumResults` is clamped to the chosen provider's own cap rather
+> than passed through, because asking a provider for more than it allows is an
+> HTTP error, not more results. `SearchEngineId` is read only by Google — the
+> others search the whole web without being told where. A **SearXNG** instance
+> must have `format=json` enabled in its own settings; that is off by default,
+> and a JSON-disabled instance returns a page the control cannot read (you will
+> get zero results rather than an error).
+
+Set `Query`, `NumResults` and `SafeSearch`, then call `Search()`:
 
 ```cobol
        SEARCH-1--ONCOMPLETE.
@@ -7271,13 +7297,22 @@ call `Search()`:
            END-PERFORM.
 ```
 
-Like Maps, `Search()` needs a project-level **Custom Search API key** (see
-below) — with none configured it fails immediately with `onError`, no
-request sent. A `WebSearch` control also gets a generated `<id>-SEARCH`
-paragraph (`PERFORM SEARCH-1-SEARCH`) as a low-level fallback, but it does
-plain, **unencoded** string concatenation (a multi-word `Query` truncates
-at its first space) and never carries the key — **prefer `Search()`**,
-which percent-encodes the query and resolves the credential automatically.
+**Where the key comes from.** Normally the project-level search credential
+(Settings → Integrations), the same way Maps resolves its key. A control may
+override it with its own `ApiKey` property when one form has to search under a
+different account than the project default — leave `ApiKey` empty and the
+project's key is used. `SearXNG` needs no key at all; it needs `Endpoint`.
+Either way the check happens **before anything is sent**: a control missing its
+key (or, for SearXNG, its `Endpoint`) fails immediately with `onError` and
+`LastError` naming the provider and the missing setting, with no request made.
+
+A `WebSearch` control also gets a generated `<id>-SEARCH` paragraph
+(`PERFORM SEARCH-1-SEARCH`) as a low-level fallback, but it does plain,
+**unencoded** string concatenation (a multi-word `Query` truncates at its first
+space), never carries the key, and is **Google-only** — it does not follow
+`Provider`, because two of the providers need a POST with an authentication
+header and `COBOL-HTTP-GET` cannot send one. **Prefer `Search()`**, which
+percent-encodes the query, resolves the credential, and honours `Provider`.
 
 **Combining with an AI Agent.** A common pattern: run a search, then ask an
 `AgentObject` to summarise the results into a multiline TextBox.
@@ -7322,7 +7357,7 @@ a RestClient response can.
 ### Data & credentials
 
 The **google_maps** key (Maps' Directions/Geocoding/Places/Distance-Matrix
-methods) and the **Custom Search** key + **Search Engine id** (WebSearch)
+methods) and the **search API key** + **Search Engine id** (WebSearch)
 are configured once per project, in the **Integrations** section of
 project Settings (click the project tree's top node → *Integrations*) —
 the same machine-local pattern already used for AI provider keys (see *The
@@ -7332,8 +7367,8 @@ AI assistant* above):
 | Field                     | Meaning                                                                                         |
 | ------------------------- | ----------------------------------------------------------------------------------------------- |
 | **Google Maps API key**   | Used by Maps' five data methods. The OSM basemap itself needs no key at all.                    |
-| **Custom Search API key** | Used by`WebSearch`'s `Search()`.                                                                |
-| **Search Engine id (cx)** | Which Custom Search engine to query — a plain, non-secret id, entered separately from the key. |
+| **Search API key**        | Used by `WebSearch`'s `Search()` — the key for whichever `Provider` the control is set to (Google, Brave, Serper or Tavily). `SearXNG` needs none. A control may override this with its own `ApiKey` property. |
+| **Search Engine id (cx)** | Which Google Custom Search engine to query — a plain, non-secret id, entered separately from the key. Read only when `Provider` is `Google`. |
 
 Both keys are **machine-local, never written to `cobolt.toml`, the `.cfrm`
 form file, or any generated `.cbl`** — the same discipline the AI
