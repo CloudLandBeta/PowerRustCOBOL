@@ -3360,13 +3360,17 @@ afterwards never rewrites a message already showing.
 and the timeout follow:
 
 
-| `Category` | Timeout               | Use it for                                   |
-| ---------- | --------------------- | -------------------------------------------- |
-| `Info`     | 4000 ms               | Confirmation, progress, anything neutral     |
-| `Question` | 6000 ms               | Inviting a decision                          |
-| `Warning`  | 6000 ms               | Something looks wrong but the work continued |
-| `Error`    | 8000 ms               | An operation failed                          |
-| `Critical` | stays until dismissed | Severe; must be acknowledged                 |
+| `Category` | Background | Ink | Icon | Timeout | Use it for |
+| ---------- | ---------- | --- | ---- | ------- | ---------- |
+| `Info` | `#1E4E8C` deep blue | `#F2F7FF` | `info-circle` | 4000 ms | Confirmation, progress, anything neutral |
+| `Question` | `#4B3A8C` indigo | `#F5F2FF` | `help-circle` | 6000 ms | Inviting a decision |
+| `Warning` | `#8A5A0B` dark amber | `#FFF7E8` | `warning-triangle` | 6000 ms | Something looks wrong but the work continued |
+| `Error` | `#8C2323` red | `#FFF0F0` | `error-circle` | 8000 ms | An operation failed |
+| `Critical` | `#5A0F0F` deep red | `#FFEAEA` | `critical-octagon` | stays until dismissed | Severe; must be acknowledged |
+
+Every ink is a pale tint of its own background, so a category always reads.
+`Critical` is deliberately darker than `Error`, and carries the octagon rather
+than a circle.
 
 These are defaults, not a fixed look. Set any property yourself and yours wins —
 and it wins *alone*, so choosing a `BackgroundColor` leaves the category's icon
@@ -3378,6 +3382,14 @@ is what lets one `MOVE` to `Category` restyle the whole message:
        MOVE "Error" TO SNACK-1::Category
        INVOKE SNACK-1::Show()
 ```
+
+> ⚠️ **An override hides the category, and it is easy to set one by accident.**
+> A Snackbar's `BackgroundColor`, `ForegroundColor` and `CategoryIconColor`
+> start empty on purpose. In the inspector each row shows the colour the
+> notification will actually paint and reads **"default"** while it is unset;
+> once you pick one, the row shows your hex and offers a **↺** that puts it back
+> to "the category decides". If a `Critical` message is not red, look there
+> first — an explicit `BackgroundColor` is the usual reason.
 
 **Timeout** is in milliseconds. `-1` — the default — means "use the category's".
 `0` means it stays until something dismisses it. Anything above 0 is that many

@@ -7566,9 +7566,36 @@ impl PropertiesPanel {
                 ui.add_space(6.0);
 
                 section_header(ui, tr.sec_appearance);
-                color_row_labeled(ui, id, "BackgroundColor", "BackgroundColor", ctrl, action);
-                color_row_labeled(ui, id, "ForegroundColor", "ForegroundColor", ctrl, action);
-                color_row_labeled(ui, id, "CategoryIconColor", "CategoryIconColor", ctrl, action);
+                // These three are seeded EMPTY, and empty is not "no colour" —
+                // it means "the Category decides" (055 R23). `color_row_labeled`
+                // cannot express that: for an unset value it shows its own
+                // fallback, the literal #F0F0F0, so a Critical template's
+                // Background row read #F0F0F0 while the notification painted
+                // Critical's #5A0F0F. Worse, the row writes on any change, so
+                // opening the picker to see the colour STAMPED the invented one
+                // — permanently overriding the category with a value the pane
+                // had made up, and leaving no way to take it off again.
+                // Reported as a Critical snackbar that was not red, its
+                // Background sitting at exactly #F0F0F0 (operator, 2026-09-07).
+                //
+                // `color_row_effective` shows what the notification will
+                // actually paint, labels an unset colour "default", and carries
+                // the ↺ that puts an override back.
+                let eff_bg = hex_to_color32(&cobolt_forms::snackbar::effective_background(ctrl));
+                let eff_fg = hex_to_color32(&cobolt_forms::snackbar::effective_foreground(ctrl));
+                color_row_effective(ui, id, "BackgroundColor", "BackgroundColor", ctrl, action, eff_bg);
+                color_row_effective(ui, id, "ForegroundColor", "ForegroundColor", ctrl, action, eff_fg);
+                // The icon falls back to the INK, not the background: `paint.rs`
+                // uses the effective foreground when this is empty.
+                color_row_effective(
+                    ui,
+                    id,
+                    "CategoryIconColor",
+                    "CategoryIconColor",
+                    ctrl,
+                    action,
+                    eff_fg,
+                );
                 int_prop_row(
                     ui, id, "CategoryIconSize", "CategoryIconSize (0 = auto)", ctrl, action,
                     0..=128, None, 0,
@@ -12720,6 +12747,95 @@ mod folder_row_tests {
             cobolt_forms::dropzone::commit_files(&["/a/b.csv".to_owned()], "").len(),
             1,
             "a blank destination still reports an outcome per file"
+        );
+    }
+}
+
+#[cfg(test)]
+mod snackbar_colour_row_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, PropValue};
+
+    /// Every text the Snackbar's type-specific rows actually PAINT.
+    ///
+    /// Four frames, for the reason `border_row_tests` records: egui settles an
+    /// Area over several passes and a one-frame probe reports nothing, which
+    /// reads exactly like a missing row.
+    fn painted(ctrl: &Control) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        let tr = crate::i18n::Language::English.tr();
+        let mut texts: Vec<String> = Vec::new();
+        for _ in 0..4 {
+            texts.clear();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 4000.0),
+            ));
+            let mut out = ctx.run_ui(input, |root| {
+                egui::Area::new(egui::Id::new("snackbar_colour_probe"))
+                    .fixed_pos(egui::Pos2::ZERO)
+                    .show(root.ctx(), |ui| {
+                        ui.set_max_width(360.0);
+                        let mut action = InspectorAction::default();
+                        for phase in [TypeSection::Basic, TypeSection::Rest] {
+                            panel.show_type_specific(ui, ctrl, "SNK-1", &[], &mut action, &tr, phase);
+                        }
+                    });
+            });
+            for cs in &out.shapes {
+                if let egui::epaint::Shape::Text(t) = &cs.shape {
+                    texts.push(t.galley.text().to_owned());
+                }
+            }
+            out.textures_delta.clear();
+        }
+        texts
+    }
+
+    /// **A Snackbar's colours can be seen, and can be put back.**
+    ///
+    /// The section deliberately had NO colour rows, on the reasoning that they
+    /// start empty and the Category supplies them. That holds only while
+    /// nothing else writes them — and once something did, the developer could
+    /// see the wrong colour on the running notification and had no way in the
+    /// inspector to clear it: the Category's own palette had become
+    /// unreachable. Reported as a Critical snackbar that was not red, its
+    /// background sitting at #F0F0F0 (operator, 2026-09-07).
+    #[test]
+    fn a_snackbars_colours_can_be_seen_and_cleared() {
+        // A fresh template: all three colours empty, so each row reads
+        // "default" and there is nothing to put back.
+        let fresh = Control::new("SNK-1", ControlType::Snackbar, 0, 0);
+        let t = painted(&fresh);
+        for label in ["BackgroundColor", "ForegroundColor", "CategoryIconColor"] {
+            assert!(
+                t.iter().any(|s| s == label),
+                "the {label:?} row is not painted: {t:?}"
+            );
+        }
+        assert!(
+            t.iter().any(|s| s == "default"),
+            "an unset colour must read as the category's default: {t:?}"
+        );
+        assert!(
+            !t.iter().any(|s| s == "↺"),
+            "a fresh template has nothing to clear: {t:?}"
+        );
+
+        // The reported case: an override is SHOWN as its own hex, and the ↺
+        // that restores "the Category decides" is offered beside it.
+        let mut overridden = fresh.clone();
+        overridden.set_prop("BackgroundColor", PropValue::String("#F0F0F0".into()));
+        let t = painted(&overridden);
+        assert!(
+            t.iter().any(|s| s.starts_with("#F0F0F0")),
+            "the override is not shown: {t:?}"
+        );
+        assert!(
+            t.iter().any(|s| s == "↺"),
+            "an overridden colour cannot be cleared back to the category: {t:?}"
         );
     }
 }

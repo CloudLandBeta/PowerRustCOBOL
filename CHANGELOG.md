@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.67] — 2026-09-07
+
+### The Snackbar inspector invented a colour, then made you keep it
+
+A `Critical` snackbar showed a near-white background instead of its `#5A0F0F`.
+The control carried `BackgroundColor="#F0F0F0"` — and that value came from the
+inspector itself.
+
+A Snackbar's `BackgroundColor`, `ForegroundColor` and `CategoryIconColor` are
+seeded EMPTY, and empty is not "no colour": it means "the Category decides"
+(055 R23). The three rows used `color_row_labeled`, which cannot express that —
+for an unset value it falls back to its own literal `#F0F0F0`. So the row showed
+`#F0F0F0` while the notification painted the category's colour, and the row
+writes on any change, so opening the picker to *see* the colour stamped the
+invented one. The category was then overridden permanently, with no way in the
+inspector to take it off: `color_row_labeled` has no clear affordance.
+
+Only the background was overridden, which is why the reported notification still
+carried Critical's octagon — an explicit colour wins alone.
+
+The three rows now use `color_row_effective`: the swatch shows what the
+notification will actually paint (a Critical template opens on `#5A0F0F`, an
+Info one on `#1E4E8C`), an unset colour reads "default", and an override carries
+the ↺ that restores "the category decides". The icon row resolves against the
+INK, not the background — `paint.rs` falls back to the effective foreground.
+
+Reverted, the new test fails and prints the fault: a fresh **Info** template
+reporting `#F0F0F0FF` for all three colours, when Info's background is
+`#1E4E8C`.
+
+The Developer's Guide's category table listed only the timeouts; it now carries
+each category's background, ink and icon, and a caveat pointing at an accidental
+override as the first thing to check when a Critical message is not red.
+
 ## [PowerRustCOBOL 1.65.66] — 2026-09-07
 
 ### An agent could not write a form's own event handler, and was told so wrongly
