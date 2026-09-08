@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.83] — 2026-09-08
+
+### A connection was overwriting settings the form owns
+
+A search connection carried `num_results` and `safe_search`. It should not
+have: a connection is *where and how to reach a service* — provider, address,
+engine id, credential. How many results this call wants and how strictly to
+filter them are **per-call** settings the form changes at run time.
+
+The cost was immediate and invisible. PowerDemo3's two buttons do exactly one
+thing each — `MOVE 10 TO Web-Find::NumResults` and `MOVE "High" TO
+Web-Find::SafeSearch` — and a bound control had both values overwritten at seed
+time by the connection's. So the control's designed `NumResults = 5` became 10
+before the program ran, the button that sets 10 could not change anything, and
+the safe-search toggle fought the connection (operator, 2026-09-08: "Ask for
+ten does not work / Safe search on/off does not work"). A default that
+overwrites what the developer set is not a default.
+
+Both fields are gone from the record, from `apply_search`, from the Settings
+editor and from the properties-pane summary. The two now-orphaned UI strings
+are removed in all six languages.
+
+The runtime was never at fault, and that was worth establishing rather than
+assuming: a test drives a write through `obj_set` and asserts the value reaches
+the request — `NumResults = 3` becomes `count=3`, `SafeSearch = "High"` becomes
+`safesearch=strict`.
+
+An existing project keeps loading: serde ignores the now-unknown fields, and
+they disappear the next time Settings saves.
+
+- `crates/cobolt-forms/src/connections.rs` — the fields, with a note saying why
+  they must not come back.
+- `crates/cobolt-ide/src/panels/{settings_form,properties}.rs`,
+  `crates/cobolt-ide/src/i18n.rs`.
+- `crates/cobolt-form-host/src/seeding.rs` — the seeding test now asserts the
+  designed values **survive** binding, which is the opposite of what it
+  asserted before.
+- `crates/cobolt-compiler/src/lib.rs`, `docs/developers-guide-en.md`.
+
 ## [PowerRustCOBOL 1.65.82] — 2026-09-08
 
 ### A built application was launched with no credentials at all

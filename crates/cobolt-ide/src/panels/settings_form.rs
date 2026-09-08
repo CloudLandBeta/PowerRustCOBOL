@@ -2389,30 +2389,12 @@ impl SettingsForm {
                                                     );
                                                 });
                                             }
-                                            ui.horizontal(|ui| {
-                                                ui.label(tr.settings_conn_results);
-                                                ui.add(
-                                                    egui::DragValue::new(&mut c.num_results)
-                                                        .range(1..=100),
-                                                );
-                                                ui.label(tr.settings_conn_safe);
-                                                egui::ComboBox::from_id_salt("search_conn_safe")
-                                                    .selected_text(&c.safe_search)
-                                                    .width(90.0)
-                                                    .show_ui(ui, |ui| {
-                                                        for lvl in ["Off", "Medium", "High"] {
-                                                            if ui
-                                                                .selectable_label(
-                                                                    c.safe_search == lvl,
-                                                                    lvl,
-                                                                )
-                                                                .clicked()
-                                                            {
-                                                                c.safe_search = lvl.to_owned();
-                                                            }
-                                                        }
-                                                    });
-                                            });
+                                            // No result-count or safe-search row
+                                            // here: those are the CONTROL's, set
+                                            // on the form and changed at run time.
+                                            // A connection that carried them
+                                            // overwrote what the developer had
+                                            // designed.
                                         });
                                     });
                                 }

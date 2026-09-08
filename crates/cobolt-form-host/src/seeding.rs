@@ -569,11 +569,14 @@ mod tests {
             "Brave prod",
         );
         conn.provider = "Brave".into();
-        conn.num_results = 15;
-        conn.safe_search = "High".into();
 
         let mut ws = Control::new("WS-1", ControlType::WebSearch, 0, 0);
         ws.set_prop("Provider", PropValue::String("Google".into()));
+        // Per-call settings the developer designed. A connection must NOT
+        // touch these — they are the control's, and the form changes them at
+        // run time.
+        ws.set_prop("NumResults", PropValue::Int(5));
+        ws.set_prop("SafeSearch", PropValue::String("High".into()));
         ws.set_prop("Configuration", PropValue::String(conn.id.clone()));
 
         std::env::set_var(
@@ -598,8 +601,18 @@ mod tests {
         };
 
         assert_eq!(get("Provider"), "Brave", "the connection picks the back end");
-        assert_eq!(get("NumResults"), "15");
-        assert_eq!(get("SafeSearch"), "High");
+        assert_eq!(
+            get("NumResults"),
+            "5",
+            "the DESIGNED result count survives binding — a connection that \
+             overwrote it made the demo's \"ask for ten\" button unable to \
+             change anything (operator, 2026-09-08)"
+        );
+        assert_eq!(
+            get("SafeSearch"),
+            "High",
+            "and so does the designed safe-search level"
+        );
         assert_eq!(
             get("ApiKey"),
             "brave-secret",

@@ -7387,9 +7387,14 @@ another — defines **named search connections** instead, exactly as it does for
   pane, because every one of them is dictated by the connection.
 
 Define them in **Settings → Integrations → Web search connections**: a name, a
-provider, its engine id (Google) or instance URL (SearXNG), a result count, a
-safe-search level, and its API key. SearXNG is not asked for a key, because it
-has no account.
+provider, its engine id (Google) or instance URL (SearXNG), and its API key.
+SearXNG is not asked for a key, because it has no account.
+
+> **A connection does not carry `NumResults` or `SafeSearch`.** Those stay on
+> the control, because they are per-call settings your COBOL changes at run
+> time — `MOVE 10 TO Search-1::NumResults` before a `Search()` is an ordinary
+> thing to write. A connection that carried them would overwrite what you
+> designed, and silently beat any value your program set at start-up.
 
 > The same storage split as the REST connections: the connection is saved in
 > `cobolt.toml` and is meant to be committed, the key never is. A built

@@ -140,23 +140,24 @@ pub struct SearchConnection {
     /// why it lives in the project file with the rest of the record.
     #[serde(default)]
     pub search_engine_id: String,
-    #[serde(default = "default_num_results")]
-    pub num_results: u32,
-    /// `Off` | `Medium` | `High`.
-    #[serde(default = "default_safe_search")]
-    pub safe_search: String,
 }
+
+// NOTE: a connection deliberately carries **no `num_results` and no
+// `safe_search`**. It is *where and how to reach a service* — the provider, its
+// address, its engine id, and (machine-locally) its credential. How many
+// results this call wants, and how strictly to filter them, are **per-call**
+// settings that belong to the control: a form changes them at run time, and the
+// PowerDemo3 buttons do exactly that.
+//
+// They were fields here at first, and the cost was immediate: a bound control's
+// designed `NumResults` was silently overwritten at seed time, so a button
+// whose whole job was `MOVE 10 TO Web-Find::NumResults` could not change
+// anything, and the safe-search toggle fought the connection (operator,
+// 2026-09-08: "Ask for ten does not work / Safe search on/off does not work").
+// A default that overwrites what the developer set is not a default.
 
 fn default_provider() -> String {
     "Google".to_string()
-}
-
-fn default_num_results() -> u32 {
-    10
-}
-
-fn default_safe_search() -> String {
-    "Off".to_string()
 }
 
 impl SearchConnection {
@@ -168,8 +169,6 @@ impl SearchConnection {
             provider: default_provider(),
             endpoint: String::new(),
             search_engine_id: String::new(),
-            num_results: default_num_results(),
-            safe_search: default_safe_search(),
         }
     }
 }
@@ -183,8 +182,8 @@ pub fn apply_search(ctrl: &mut crate::Control, conn: &SearchConnection) {
     ctrl.set_prop("Provider", P::String(conn.provider.clone()));
     ctrl.set_prop("Endpoint", P::String(conn.endpoint.clone()));
     ctrl.set_prop("SearchEngineId", P::String(conn.search_engine_id.clone()));
-    ctrl.set_prop("NumResults", P::Int(conn.num_results as i64));
-    ctrl.set_prop("SafeSearch", P::String(conn.safe_search.clone()));
+    // NumResults and SafeSearch are deliberately NOT touched — see the note on
+    // `SearchConnection`. They are the control's, and the form changes them.
 }
 
 /// Resolve every `WebSearch` bound to a project connection, returning the

@@ -8781,9 +8781,10 @@ impl PropertiesPanel {
                     // that do nothing.
                     ui.label(
                         RichText::new(format!(
-                            "Using the project search connection “{}”: {}{}, \
-                             {} results, safe search {}.\nIts API key is stored \
-                             with the connection, not on this form.",
+                            "Using the project search connection “{}”: {}{}.\n\
+                             Its API key is stored with the connection, not on \
+                             this form. Results and safe search stay this \
+                             control's own.",
                             c.name,
                             c.provider,
                             if c.provider.eq_ignore_ascii_case("searxng") && !c.endpoint.is_empty()
@@ -8796,8 +8797,6 @@ impl PropertiesPanel {
                             } else {
                                 String::new()
                             },
-                            c.num_results,
-                            c.safe_search,
                         ))
                         .small()
                         .color(Color32::GRAY)
