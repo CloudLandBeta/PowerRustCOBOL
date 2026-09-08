@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.79] — 2026-09-08
+
+### "Copy Style" carried an API key to another control
+
+The Format Painter copied **every** captured property between two controls of
+the same type. On a visual control that is what "a deep copy of the look"
+means. On a non-visual one it meant carrying a `Provider`, a `Configuration`
+binding, a `Query` — and an **`ApiKey`** — onto another control, under a button
+labelled *Copy Style*.
+
+Two rules now govern a non-visual target (operator, 2026-09-08):
+
+- **From a visual control: nothing at all**, not even the size. A visual
+  control's style says nothing about a badge — it has no caption of its own, no
+  border worth speaking of, and a size the designer picked for it — so a
+  partial copy would be worse than none.
+- **From another non-visual control: the ink and the size, and nothing else.**
+  Everything else a badge owns is configuration, not style.
+
+The permitted set is written as **what may travel** rather than what may not, so
+a property added to a non-visual control tomorrow is excluded by default rather
+than included by accident. On controls that hold credentials that distinction is
+the whole point, and the test names `ApiKey`, `AgentAPIKey`, `AuthToken`,
+`Configuration` and `ConnectionString` explicitly as things that must never
+travel.
+
+Visual targets keep exactly the behaviour they had.
+
+The decision is lifted out of the click handler into `style_paint`, so the rule
+can be asserted for every source→target combination instead of being inferred
+from a mouse event.
+
+- `crates/cobolt-ide/src/panels/designer.rs` — `style_paint`, `StylePaint`,
+  `NON_VISUAL_STYLE_KEYS`, `format_painter_rule_tests`.
+
+Full workspace sweep: 3692 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.78] — 2026-09-08
 
 ### Two corrections to the connection work, before it ships

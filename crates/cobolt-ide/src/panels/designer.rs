@@ -234,6 +234,67 @@ pub fn show_props_drawer<R>(
 }
 
 #[cfg(test)]
+mod format_painter_rule_tests {
+    use super::*;
+    use cobolt_forms::ControlType as CT;
+
+    /// **A visual control's style never touches a non-visual one.**
+    #[test]
+    fn painting_a_visual_style_onto_a_badge_does_nothing() {
+        for src in [CT::Button, CT::TextBox, CT::DataGrid, CT::Label] {
+            for tgt in [CT::WebSearch, CT::AgentObject, CT::Timer, CT::SqlDatabase] {
+                assert_eq!(
+                    style_paint(&src, &tgt),
+                    StylePaint::Nothing,
+                    "{src:?} → {tgt:?} must be a no-op, not a partial copy"
+                );
+            }
+        }
+    }
+
+    /// **Badge to badge carries the ink and the size — and nothing else.**
+    ///
+    /// The list is what MAY travel, so a property added to a non-visual control
+    /// tomorrow is excluded by default rather than included by accident. That
+    /// matters more here than anywhere: these controls hold API keys.
+    #[test]
+    fn painting_between_badges_carries_ink_and_size_only() {
+        for src in [CT::WebSearch, CT::AgentObject, CT::Timer] {
+            for tgt in [CT::WebSearch, CT::AgentObject, CT::RestClient] {
+                assert_eq!(style_paint(&src, &tgt), StylePaint::BadgeInk, "{src:?} → {tgt:?}");
+            }
+        }
+        assert_eq!(NON_VISUAL_STYLE_KEYS, &["ForegroundColor", "BackgroundColor"]);
+
+        // The things that must never travel, named so the intent is explicit.
+        for forbidden in [
+            "ApiKey",
+            "AgentAPIKey",
+            "AuthToken",
+            "Configuration",
+            "Provider",
+            "Query",
+            "SearchEngineId",
+            "ConnectionString",
+        ] {
+            assert!(
+                !NON_VISUAL_STYLE_KEYS.contains(&forbidden),
+                "'Copy Style' must never carry {forbidden} to another control"
+            );
+        }
+    }
+
+    /// Visual targets keep exactly the behaviour they had.
+    #[test]
+    fn visual_targets_are_unchanged_by_this_rule() {
+        assert_eq!(style_paint(&CT::Button, &CT::Button), StylePaint::Everything);
+        assert_eq!(style_paint(&CT::Button, &CT::TextBox), StylePaint::Shared);
+        // Including from a badge — that direction was never in question.
+        assert_eq!(style_paint(&CT::Timer, &CT::Button), StylePaint::Shared);
+    }
+}
+
+#[cfg(test)]
 mod props_drawer_tests {
     use super::*;
     use crate::i18n::Language;
@@ -1314,6 +1375,57 @@ fn form_edge_cursor(e: FormEdge) -> CursorIcon {
 // ── Format Painter ────────────────────────────────────────────────────────────
 
 /// Visual style properties that can be copied between controls.
+/// The only properties the format painter may carry onto a **non-visual**
+/// control, and only from another non-visual one.
+///
+/// A non-visual control is a badge: a card, a glyph and a caption. Its ink and
+/// its size are the whole of its "style" — everything else it owns is
+/// configuration. Same-type painting used to copy *every* captured property,
+/// which on these controls meant carrying a `Provider`, a `Configuration`
+/// binding, a `Query` and an **`ApiKey`** onto another control, under a button
+/// labelled "Copy Style" (operator, 2026-09-08). Nothing on this list can do
+/// that, because the list is what may travel rather than what may not.
+const NON_VISUAL_STYLE_KEYS: &[&str] = &["ForegroundColor", "BackgroundColor"];
+
+/// What the format painter is allowed to carry, for one source→target pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StylePaint {
+    /// Nothing at all — not even the size.
+    Nothing,
+    /// Only [`NON_VISUAL_STYLE_KEYS`], plus the size.
+    BadgeInk,
+    /// Only [`STYLE_PROP_KEYS`], plus size and animations.
+    Shared,
+    /// Every captured property, plus size and animations.
+    Everything,
+}
+
+/// The rule, in one place so it can be asserted (operator, 2026-09-08).
+///
+/// * **onto a non-visual control, from a visual one — nothing.** A visual
+///   control's style says nothing about a badge: it has no caption of its own,
+///   no border worth speaking of, and a size the designer picked for it.
+///   Copying "some of it" would be a silent partial paste.
+/// * **non-visual → non-visual — the ink and the size, and nothing else.**
+///   Everything else a badge owns is *configuration*, and same-type painting
+///   used to copy all of it: a `Provider`, a `Configuration` binding, a
+///   `Query`, an **`ApiKey`** — carried onto another control by a button
+///   labelled "Copy Style".
+/// * visual targets keep the behaviour they had.
+pub(crate) fn style_paint(src: &ControlType, tgt: &ControlType) -> StylePaint {
+    if tgt.is_non_visual() {
+        if src.is_non_visual() {
+            StylePaint::BadgeInk
+        } else {
+            StylePaint::Nothing
+        }
+    } else if src == tgt {
+        StylePaint::Everything
+    } else {
+        StylePaint::Shared
+    }
+}
+
 const STYLE_PROP_KEYS: &[&str] = &[
     "BackgroundColor",
     "ForegroundColor",
@@ -11541,20 +11653,30 @@ impl DesignerPanel {
                         };
                     // Paste style + geometry onto the target control
                     if let Some(tgt) = self.form.find_control_mut(&target_id) {
-                        // Same type ⇒ a deep copy of the look: everything the
-                        // capture kept. Different types ⇒ only the properties
-                        // that mean the same thing on both, because a
-                        // Button has no use for a DataGrid's header colours.
-                        let same_type = tgt.control_type == src_type;
-                        for (k, v) in &props {
-                            if same_type || STYLE_PROP_KEYS.contains(&k.as_str()) {
-                                tgt.properties.insert(k.clone(), v.clone());
+                        match style_paint(&src_type, &tgt.control_type) {
+                            StylePaint::Nothing => {}
+                            StylePaint::BadgeInk => {
+                                for k in NON_VISUAL_STYLE_KEYS {
+                                    if let Some(v) = props.get(*k) {
+                                        tgt.properties.insert((*k).to_owned(), v.clone());
+                                    }
+                                }
+                                tgt.rect.w = src_rect.w;
+                                tgt.rect.h = src_rect.h;
+                            }
+                            plan => {
+                                let all = plan == StylePaint::Everything;
+                                for (k, v) in &props {
+                                    if all || STYLE_PROP_KEYS.contains(&k.as_str()) {
+                                        tgt.properties.insert(k.clone(), v.clone());
+                                    }
+                                }
+                                tgt.animations = animations.clone();
+                                // Only size (w, h) — the target keeps its x, y.
+                                tgt.rect.w = src_rect.w;
+                                tgt.rect.h = src_rect.h;
                             }
                         }
-                        tgt.animations = animations.clone();
-                        // Copy only size (w, h) from source — preserve target's x, y position
-                        tgt.rect.w = src_rect.w;
-                        tgt.rect.h = src_rect.h;
                     }
                     self.format_painter = FormatPainter::WaitingForTarget {
                         props,
