@@ -3515,6 +3515,8 @@ pub struct PropertiesPanel {
     /// would touch four signatures to deliver a list that only one control's
     /// arm reads.
     rest_connections: Vec<cobolt_forms::connections::RestConnection>,
+    /// The project's named web-search connections, likewise.
+    search_connections: Vec<cobolt_forms::connections::SearchConnection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3548,6 +3550,7 @@ impl PropertiesPanel {
             property_split: 0.0,
             icon_picker: Default::default(),
             rest_connections: Vec::new(),
+            search_connections: Vec::new(),
         }
     }
 
@@ -3561,6 +3564,16 @@ impl PropertiesPanel {
     ) {
         if self.rest_connections != connections {
             self.rest_connections = connections.to_vec();
+        }
+    }
+
+    /// Tell the pane which named web-search connections the project defines.
+    pub fn set_search_connections(
+        &mut self,
+        connections: &[cobolt_forms::connections::SearchConnection],
+    ) {
+        if self.search_connections != connections {
+            self.search_connections = connections.to_vec();
         }
     }
 
@@ -8610,137 +8623,227 @@ impl PropertiesPanel {
             // SearXNG reads Endpoint, and SearXNG is the one that takes no key.
             ControlType::WebSearch if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
-                combo_row_labeled(
-                    ui,
-                    id,
-                    "Provider",
-                    "Provider:",
-                    ctrl,
-                    action,
-                    &cobolt_runtime::search_runtime::PROVIDER_NAMES,
-                );
-                let provider = cobolt_runtime::search_runtime::Provider::parse(
-                    &ctrl
-                        .get_prop("Provider")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default(),
-                );
-
-                if matches!(provider, cobolt_runtime::search_runtime::Provider::Google) {
-                    let cur = ctrl
-                        .get_prop("SearchEngineId")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        "SearchEngineId",
-                        &cur,
-                        "Engine id (cx):",
-                        "a1b2c3d4e5f6g7h8i",
-                        action,
-                    );
-                }
-                if provider.needs_endpoint() {
-                    let cur = ctrl
-                        .get_prop("Endpoint")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        "Endpoint",
-                        &cur,
-                        "Instance URL:",
-                        "https://search.example.com",
-                        action,
-                    );
-                }
-                if provider.needs_api_key() {
-                    // Masked like the RestClient's auth token: a key typed
-                    // here is a secret, and the .cfrm it lands in is a file
-                    // people commit.
-                    let cur = ctrl
-                        .get_prop("ApiKey")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let bk = format!("{id}-ApiKey");
-                    let wid = egui::Id::new(&bk);
-                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
-                    }
-                    property_row(ui, "API key:", |ui| {
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .password(true)
-                                    .hint_text("project key")
-                                    .desired_width(ui.available_width()),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "ApiKey".into(),
-                                PropValue::String(buf.clone()),
-                            ));
-                        }
-                    });
-                }
-                {
-                    let cur = ctrl
-                        .get_prop("Query")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    text_row_hint(
-                        ui,
-                        &mut self.hints,
-                        id,
-                        "Query",
-                        &cur,
-                        "Query:",
-                        "set from COBOL before Search()",
-                        action,
-                    );
-                }
-                int_row_inline(
-                    ui,
-                    id,
-                    "NumResults",
-                    "Results:",
-                    ctrl,
-                    action,
-                    1..=provider.max_results() as i64,
-                );
-                if provider.honours_safe_search() {
-                    combo_row_labeled(
-                        ui,
-                        id,
-                        "SafeSearch",
-                        "Safe search:",
-                        ctrl,
-                        action,
-                        &["Off", "Medium", "High"],
-                    );
+                // ── Where this control's search settings come from ──────────
+                //
+                // Same contract as the RestClient's: names shown, id stored,
+                // and a connection that no longer exists is called out rather
+                // than read as (Local).
+                let conns = self.search_connections.clone();
+                let cur_id = ctrl
+                    .get_prop(cobolt_forms::connections::CONFIGURATION_PROP)
+                    .map(|v| v.as_str().trim().to_owned())
+                    .unwrap_or_default();
+                let bound = conns.iter().find(|c| c.id == cur_id);
+                let missing = !cur_id.is_empty() && bound.is_none();
+                let show_local = bound.is_none();
+                let selected_text = if cur_id.is_empty() {
+                    LOCAL_CONFIG_LABEL.to_owned()
                 } else {
-                    // Said plainly rather than shown as a control that does
-                    // nothing: this provider has no filter to set.
+                    match bound {
+                        Some(c) => c.name.clone(),
+                        None => format!("⚠ missing ({cur_id})"),
+                    }
+                };
+                property_row(ui, "Configuration:", |ui| {
+                    egui::ComboBox::from_id_salt(format!("cb_{id}_SearchConfiguration"))
+                        .selected_text(selected_text)
+                        .width(ui.available_width().min(200.0))
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(cur_id.is_empty(), LOCAL_CONFIG_LABEL)
+                                .clicked()
+                            {
+                                action.set_props.push((
+                                    id.to_owned(),
+                                    cobolt_forms::connections::CONFIGURATION_PROP.into(),
+                                    PropValue::String(String::new()),
+                                ));
+                            }
+                            for c in &conns {
+                                if ui.selectable_label(c.id == cur_id, &c.name).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        cobolt_forms::connections::CONFIGURATION_PROP.into(),
+                                        PropValue::String(c.id.clone()),
+                                    ));
+                                }
+                            }
+                        });
+                });
+                if missing {
+                    ui.label(
+                        RichText::new(
+                            "This control names a search connection that no longer \
+                             exists. Pick another, or (Local) to use the settings below.",
+                        )
+                        .small()
+                        .color(Color32::from_rgb(220, 120, 90)),
+                    );
+                } else if let Some(c) = bound {
+                    // The rows are hidden rather than shown inert: unlike the
+                    // RestClient's, every one of these is dictated by the
+                    // connection, so leaving them visible would be six boxes
+                    // that do nothing.
                     ui.label(
                         RichText::new(format!(
-                            "{} has no SafeSearch setting.",
-                            provider.as_str()
+                            "Using the project search connection “{}”: {}{}, \
+                             {} results, safe search {}.\nIts API key is stored \
+                             with the connection, not on this form.",
+                            c.name,
+                            c.provider,
+                            if c.provider.eq_ignore_ascii_case("searxng") && !c.endpoint.is_empty()
+                            {
+                                format!(" at {}", c.endpoint)
+                            } else if c.provider.eq_ignore_ascii_case("google")
+                                && !c.search_engine_id.is_empty()
+                            {
+                                format!(" (engine {})", c.search_engine_id)
+                            } else {
+                                String::new()
+                            },
+                            c.num_results,
+                            c.safe_search,
                         ))
                         .small()
                         .color(Color32::GRAY)
                         .italics(),
                     );
                 }
+                ui.add_space(2.0);
 
-                // ── Async I/O (spec 032) ──
+                if show_local {
+                    combo_row_labeled(
+                        ui,
+                        id,
+                        "Provider",
+                        "Provider:",
+                        ctrl,
+                        action,
+                        &cobolt_runtime::search_runtime::PROVIDER_NAMES,
+                    );
+                    let provider = cobolt_runtime::search_runtime::Provider::parse(
+                        &ctrl
+                            .get_prop("Provider")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default(),
+                    );
+
+                    if matches!(provider, cobolt_runtime::search_runtime::Provider::Google) {
+                        let cur = ctrl
+                            .get_prop("SearchEngineId")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        text_row_hint(
+                            ui,
+                            &mut self.hints,
+                            id,
+                            "SearchEngineId",
+                            &cur,
+                            "Engine id (cx):",
+                            "a1b2c3d4e5f6g7h8i",
+                            action,
+                        );
+                    }
+                    if provider.needs_endpoint() {
+                        let cur = ctrl
+                            .get_prop("Endpoint")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        text_row_hint(
+                            ui,
+                            &mut self.hints,
+                            id,
+                            "Endpoint",
+                            &cur,
+                            "Instance URL:",
+                            "https://search.example.com",
+                            action,
+                        );
+                    }
+                    if provider.needs_api_key() {
+                        // Masked like the RestClient's auth token: a key typed
+                        // here is a secret, and the .cfrm it lands in is a file
+                        // people commit.
+                        let cur = ctrl
+                            .get_prop("ApiKey")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        let bk = format!("{id}-ApiKey");
+                        let wid = egui::Id::new(&bk);
+                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
+                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                            *buf = cur;
+                        }
+                        property_row(ui, "API key:", |ui| {
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(buf)
+                                        .id(wid)
+                                        .password(true)
+                                        .hint_text("project key")
+                                        .desired_width(ui.available_width()),
+                                )
+                                .lost_focus()
+                            {
+                                action.set_props.push((
+                                    id.to_owned(),
+                                    "ApiKey".into(),
+                                    PropValue::String(buf.clone()),
+                                ));
+                            }
+                        });
+                    }
+                    {
+                        let cur = ctrl
+                            .get_prop("Query")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        text_row_hint(
+                            ui,
+                            &mut self.hints,
+                            id,
+                            "Query",
+                            &cur,
+                            "Query:",
+                            "set from COBOL before Search()",
+                            action,
+                        );
+                    }
+                    int_row_inline(
+                        ui,
+                        id,
+                        "NumResults",
+                        "Results:",
+                        ctrl,
+                        action,
+                        1..=provider.max_results() as i64,
+                    );
+                    if provider.honours_safe_search() {
+                        combo_row_labeled(
+                            ui,
+                            id,
+                            "SafeSearch",
+                            "Safe search:",
+                            ctrl,
+                            action,
+                            &["Off", "Medium", "High"],
+                        );
+                    } else {
+                        // Said plainly rather than shown as a control that does
+                        // nothing: this provider has no filter to set.
+                        ui.label(
+                            RichText::new(format!(
+                                "{} has no SafeSearch setting.",
+                                provider.as_str()
+                            ))
+                            .small()
+                            .color(Color32::GRAY)
+                            .italics(),
+                        );
+                    }
+
+                    // ── Async I/O (spec 032) ──
+                }
                 section_header(ui, tr.sec_async);
                 combo_row_labeled(ui, id, "Mode", "Mode:", ctrl, action, &["Async", "Sync"]);
                 int_row_inline(

@@ -1,5 +1,59 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.73] — 2026-09-08
+
+### Web search gets named connections too
+
+The project could hold exactly **one** web-search configuration: a single API
+key and a single Google engine id, in two flat rows of Settings. So a project
+could not search Brave from one form and a private SearXNG from another — that
+was not a limitation anyone chose, it was simply the shape of two text boxes.
+
+`WebSearch` now has the same `Configuration` property `RestClient` got, and the
+project the same catalogue: **Settings → Integrations → Web search
+connections**. A connection names a provider, its engine id (Google) or
+instance URL (SearXNG), a result count, a safe-search level, and its own key.
+`(Local)` stays the default, so every existing form behaves exactly as it did.
+
+The two rows that were there keep a clear job rather than being removed: they
+are the project's **single default**, used by any `WebSearch` left on
+`(Local)`. The named connections sit beneath them as the alternatives.
+
+Two places where the two control kinds genuinely differ, and both are pinned by
+tests rather than assumed:
+
+- **They authenticate through different property names** — `AuthToken` on a
+  RestClient, `ApiKey` on a WebSearch. The shared credential journey has to end
+  in the right box; ending in the wrong one looks exactly like a missing key,
+  which is a 401 and nothing to see.
+- **The bound WebSearch hides its local rows rather than showing them inert.**
+  On a RestClient a couple of settings survive a connection; here the
+  connection dictates every one of them, so leaving six boxes visible that do
+  nothing would be worse than leaving none.
+
+The editor also asks only for what the chosen provider reads: an engine id for
+Google, an instance URL for SearXNG, **and no key at all for SearXNG**, which
+has no account to have one.
+
+One structural change: both catalogues now travel as a single `Catalogue`
+record. A built application carries the whole thing as one baked constant, so
+adding the third kind (AgentObject) costs a field there and nothing at the
+fifteen call sites that construct the generated main.
+
+- `crates/cobolt-forms/src/connections.rs` — `SearchConnection`,
+  `resolve_search_all`, `Catalogue`.
+- `crates/cobolt-form-host/src/seeding.rs` — resolves both kinds and routes the
+  credential to the property each control actually reads.
+- `crates/cobolt-compiler/src/lib.rs` + `crates/cobolt-cli/src/form_gui.rs` —
+  read, bake and publish the whole catalogue.
+- `crates/cobolt-ide/src/panels/{settings_form,properties}.rs`,
+  `{app,form_runtime}.rs` — the editor, the dropdown, the keys to the child.
+- `crates/cobolt-ide/src/i18n.rs` — 7 more strings in all six languages.
+- `assets/knowledge/chunked.data`, `docs/developers-guide-en.md` — the
+  `Configuration` reference now covers both controls.
+
+Full workspace sweep: 3685 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.72] — 2026-09-08
 
 ### Named REST connections now work at run time (step 3 of 3)

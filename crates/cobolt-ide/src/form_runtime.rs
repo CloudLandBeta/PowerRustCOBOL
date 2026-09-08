@@ -195,7 +195,7 @@ pub fn resolve_search_api_key_secret(
 pub fn resolve_connection_key_secrets(
     form: &Form,
     llm: &crate::llm::LlmConfig,
-    connections: &[cobolt_forms::connections::RestConnection],
+    catalogue: &cobolt_forms::connections::Catalogue,
 ) -> Vec<(String, String)> {
     let used: std::collections::BTreeSet<String> = collect_controls(&form.controls)
         .iter()
@@ -203,8 +203,12 @@ pub fn resolve_connection_key_secrets(
         .collect();
     used.into_iter()
         // A dangling reference names no connection, so there is no key to send;
-        // the host reports it when the form starts.
-        .filter(|id| connections.iter().any(|c| &c.id == id))
+        // the host reports it when the form starts. Either kind counts — a
+        // `Configuration` id is unique across the catalogue.
+        .filter(|id| {
+            catalogue.rest.iter().any(|c| &c.id == id)
+                || catalogue.search.iter().any(|c| &c.id == id)
+        })
         .filter_map(|id| {
             let slot = cobolt_forms::connections::connection_key_slot(&id);
             let key = llm.api_keys.get(&slot)?;

@@ -198,9 +198,9 @@ pub fn cmd_run_form(args: &[String]) {
         // `host.rs` opens later, which cannot read `cobolt.toml` themselves.
         // A loose `.cfrm` outside any project simply has none.
         if let Some(m) = manifest.as_deref() {
-            cobolt_form_host::seeding::publish_connections(
-                cobolt_compiler::project_rest_connections(m),
-            );
+            let catalogue = cobolt_compiler::project_connections(m);
+            cobolt_form_host::seeding::publish_connections(catalogue.rest);
+            cobolt_form_host::seeding::publish_search_connections(catalogue.search);
         }
         let anchor = manifest
             .and_then(|m| m.parent().map(|p| p.to_path_buf()))

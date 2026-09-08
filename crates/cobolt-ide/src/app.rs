@@ -2560,11 +2560,18 @@ impl CoboltApp {
         // Credentials resolved IDE-side (spec 039 T12/T15) — the Maps and
         // Custom Search API keys reach the child only via its environment,
         // never the .cfrm/.cbl.
-        let project_connections: Vec<cobolt_forms::connections::RestConnection> = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.integrations.rest_connections.clone())
-            .unwrap_or_default();
+        let project_connections = cobolt_forms::connections::Catalogue {
+            rest: self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.integrations.rest_connections.clone())
+                .unwrap_or_default(),
+            search: self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.integrations.search_connections.clone())
+                .unwrap_or_default(),
+        };
         let secrets: Vec<(String, String)> =
             crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
                 .into_iter()
@@ -5593,6 +5600,11 @@ impl CoboltApp {
                     .as_ref()
                     .map(|project| project.integrations.rest_connections.clone())
                     .unwrap_or_default();
+                let search_connections: Vec<cobolt_forms::connections::SearchConnection> = self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|project| project.integrations.search_connections.clone())
+                    .unwrap_or_default();
                 let action = {
                     let d = &mut st.designer;
                     // Publish the form's surface theme before the inspector
@@ -5610,6 +5622,8 @@ impl CoboltApp {
                     let form = &d.form as *const cobolt_forms::Form;
                     let props = &mut d.properties;
                     props.set_rest_connections(&rest_connections);
+                props.set_search_connections(&search_connections);
+                    props.set_search_connections(&search_connections);
                     props.show(ui, unsafe { &*form }, sel, &indexed_files, tr)
                 };
                 for (cid, key, value) in action.set_props {
@@ -16217,6 +16231,11 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.integrations.rest_connections.clone())
             .unwrap_or_default();
+        let search_connections: Vec<cobolt_forms::connections::SearchConnection> = self
+            .cobolt_project
+            .as_ref()
+            .map(|project| project.integrations.search_connections.clone())
+            .unwrap_or_default();
 
         // Allow the properties drawer to be resized up to half the window width
         // so long values (paths, titles) aren't clipped by the window border.
@@ -16265,6 +16284,7 @@ impl CoboltApp {
                 let form = &d.form as *const cobolt_forms::Form;
                 let props = &mut d.properties;
                 props.set_rest_connections(&rest_connections);
+                props.set_search_connections(&search_connections);
                 // SAFETY: we only read *form; no aliased write exists.
                 props.show_multi(
                     ui,

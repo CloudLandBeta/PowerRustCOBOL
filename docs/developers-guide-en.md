@@ -7358,8 +7358,33 @@ Set `Query`, `NumResults` and `SafeSearch`, then call `Search()`:
            END-PERFORM.
 ```
 
-**Where the key comes from.** Normally the project-level search credential
-(Settings → Integrations), the same way Maps resolves its key. A control may
+#### One search engine, or several
+
+Everything above configures **one** WebSearch control. A project that searches
+from several forms — or that needs Brave in one place and a private SearXNG in
+another — defines **named search connections** instead, exactly as it does for
+`RestClient`:
+
+- **`Configuration` = `(Local)`** — the default: this control's own `Provider`,
+  `Endpoint`/`SearchEngineId`, `NumResults` and `SafeSearch`, with the key from
+  the project's single **Web Search API key**.
+- **`Configuration` = a named connection** — all of those come from the
+  connection instead, including its own key. The local rows disappear from the
+  pane, because every one of them is dictated by the connection.
+
+Define them in **Settings → Integrations → Web search connections**: a name, a
+provider, its engine id (Google) or instance URL (SearXNG), a result count, a
+safe-search level, and its API key. SearXNG is not asked for a key, because it
+has no account.
+
+> The same storage split as the REST connections: the connection is saved in
+> `cobolt.toml` and is meant to be committed, the key never is. A built
+> application carries the connections baked in and reads each key from
+> `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it.
+
+**Where the key comes from.** For a control on `(Local)`: the project-level
+search credential (Settings → Integrations), the same way Maps resolves its
+key. A control may
 override it with its own `ApiKey` property when one form has to search under a
 different account than the project default — leave `ApiKey` empty and the
 project's key is used. `SearXNG` needs no key at all; it needs `Endpoint`.

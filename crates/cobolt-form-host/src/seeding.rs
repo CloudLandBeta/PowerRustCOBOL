@@ -41,6 +41,11 @@ pub use cobolt_forms::connections::connection_key_env;
 static CONNECTIONS: std::sync::OnceLock<Vec<cobolt_forms::connections::RestConnection>> =
     std::sync::OnceLock::new();
 
+/// The project's named **web search** connections, published the same way.
+static SEARCH_CONNECTIONS: std::sync::OnceLock<
+    Vec<cobolt_forms::connections::SearchConnection>,
+> = std::sync::OnceLock::new();
+
 /// Publish the project's connections. The first call wins; later ones are
 /// ignored, so a child form cannot replace its parent's catalogue.
 pub fn publish_connections(connections: Vec<cobolt_forms::connections::RestConnection>) {
@@ -51,6 +56,18 @@ pub fn publish_connections(connections: Vec<cobolt_forms::connections::RestConne
 /// `rcrun run-form` on a loose `.cfrm`, and every test.
 pub fn connections() -> &'static [cobolt_forms::connections::RestConnection] {
     CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}
+
+/// Publish the project's web-search connections. First call wins.
+pub fn publish_search_connections(
+    connections: Vec<cobolt_forms::connections::SearchConnection>,
+) {
+    let _ = SEARCH_CONNECTIONS.set(connections);
+}
+
+/// The published web-search connections.
+pub fn search_connections() -> &'static [cobolt_forms::connections::SearchConnection] {
+    SEARCH_CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
 /// Replace each bound control's local connection with the project's, and give
@@ -71,15 +88,33 @@ fn resolve_connections(controls: &mut [cobolt_forms::Control]) {
              fallback, because it was configured to ignore them."
         );
     }
+    for (ctrl_id, missing) in
+        cobolt_forms::connections::resolve_search_all(controls, search_connections())
+    {
+        eprintln!(
+            "form-host: control {ctrl_id} names search connection {missing}, which \
+             this project does not define — its own settings are NOT used as a \
+             fallback, because it was configured to ignore them."
+        );
+    }
+    // The credential, for either kind. The property it lands in differs
+    // because the two controls name their own — a RestClient authenticates with
+    // `AuthToken`, a WebSearch with `ApiKey` — but the journey is identical.
     for c in controls.iter_mut() {
         let Some(id) = cobolt_forms::connections::configuration_id(c) else {
             continue;
         };
-        if let Ok(key) = std::env::var(cobolt_forms::connections::connection_key_env(&id)) {
-            if !key.trim().is_empty() {
-                c.set_prop("AuthToken", cobolt_forms::PropValue::String(key));
-            }
+        let Ok(key) = std::env::var(cobolt_forms::connections::connection_key_env(&id)) else {
+            continue;
+        };
+        if key.trim().is_empty() {
+            continue;
         }
+        let prop = match c.control_type {
+            cobolt_forms::ControlType::WebSearch => "ApiKey",
+            _ => "AuthToken",
+        };
+        c.set_prop(prop, cobolt_forms::PropValue::String(key));
     }
 }
 
@@ -468,6 +503,59 @@ mod tests {
             "the credential comes from the environment — it is not in the form \
              and not in the connection record"
         );
+    }
+
+    /// **A WebSearch bound to a project search connection resolves the same
+    /// way, and its key lands in its own property.**
+    ///
+    /// The two controls authenticate through different property names — a
+    /// RestClient with `AuthToken`, a WebSearch with `ApiKey` — so the shared
+    /// journey has to end in the right box. Getting that wrong would look
+    /// exactly like a missing key: a 401 with nothing to see.
+    #[test]
+    fn a_bound_web_search_takes_its_connection_and_key_into_its_own_property() {
+        let mut conn = cobolt_forms::connections::SearchConnection::new(
+            "33333333-dddd-eeee-ffff-444444444444",
+            "Brave prod",
+        );
+        conn.provider = "Brave".into();
+        conn.num_results = 15;
+        conn.safe_search = "High".into();
+
+        let mut ws = Control::new("WS-1", ControlType::WebSearch, 0, 0);
+        ws.set_prop("Provider", PropValue::String("Google".into()));
+        ws.set_prop("Configuration", PropValue::String(conn.id.clone()));
+
+        std::env::set_var(
+            cobolt_forms::connections::connection_key_env(&conn.id),
+            "brave-secret",
+        );
+        publish_search_connections(vec![conn.clone()]);
+
+        let (form, flat) = form_with(ws);
+        let seed = build_object_seed(&form, &flat, None, None);
+        let props = &seed
+            .iter()
+            .find(|(id, _, _)| id == "WS-1")
+            .expect("the control is seeded")
+            .2;
+        let get = |k: &str| {
+            props
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+        };
+
+        assert_eq!(get("Provider"), "Brave", "the connection picks the back end");
+        assert_eq!(get("NumResults"), "15");
+        assert_eq!(get("SafeSearch"), "High");
+        assert_eq!(
+            get("ApiKey"),
+            "brave-secret",
+            "a WebSearch authenticates with ApiKey, not AuthToken"
+        );
+        assert_eq!(get("AuthToken"), "", "and must not be given the other one");
     }
 
     /// A read-before-write returns the DESIGNED value: caption and geometry

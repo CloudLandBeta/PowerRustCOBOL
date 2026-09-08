@@ -5399,6 +5399,10 @@ impl Control {
             // "google-custom-search" key (T7) is a runtime-only seed
             // property, never a design-time literal (R30).
             ControlType::WebSearch => {
+                // Empty = this control's own settings below. Otherwise the id
+                // of one of the project's named search connections, whose
+                // fields replace them before the form runs.
+                props.insert("Configuration".into(), PropValue::String("".into()));
                 // Which back end answers. Google is the historical one and the
                 // default, so a form saved before the control had a choice
                 // keeps the behaviour it had.

@@ -115,6 +115,134 @@ pub fn connection_key_slot(id: &str) -> String {
     format!("connection::{}", id.trim())
 }
 
+/// One named **web search** connection: which provider answers, and how it is
+/// configured — minus the credential.
+///
+/// The same shape and the same discipline as [`RestConnection`], for the same
+/// reason. A project searching from several forms configured the provider,
+/// engine id and result count on each of them, and the key had one
+/// project-wide slot that could hold exactly one provider's credential — so
+/// "search Brave here and a private SearXNG there" was not expressible at all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchConnection {
+    /// UUID v4. What a form stores, so a rename does not break it.
+    pub id: String,
+    pub name: String,
+    /// One of `Google`, `Brave`, `Serper`, `Tavily`, `SearXNG` — the same
+    /// vocabulary the control's own `Provider` property uses.
+    #[serde(default = "default_provider")]
+    pub provider: String,
+    /// The SearXNG instance's base URL. Ignored by the hosted providers.
+    #[serde(default)]
+    pub endpoint: String,
+    /// Google's Programmable Search Engine `cx`. Read only when `provider` is
+    /// Google, and **not a secret** — it travels in the request URL, which is
+    /// why it lives in the project file with the rest of the record.
+    #[serde(default)]
+    pub search_engine_id: String,
+    #[serde(default = "default_num_results")]
+    pub num_results: u32,
+    /// `Off` | `Medium` | `High`.
+    #[serde(default = "default_safe_search")]
+    pub safe_search: String,
+}
+
+fn default_provider() -> String {
+    "Google".to_string()
+}
+
+fn default_num_results() -> u32 {
+    10
+}
+
+fn default_safe_search() -> String {
+    "Off".to_string()
+}
+
+impl SearchConnection {
+    /// A new connection with the control's own defaults.
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            provider: default_provider(),
+            endpoint: String::new(),
+            search_engine_id: String::new(),
+            num_results: default_num_results(),
+            safe_search: default_safe_search(),
+        }
+    }
+}
+
+/// Copy a search connection's fields onto a control, replacing its local ones.
+///
+/// `ApiKey` is **not** set here — it is not in this record, and arrives from
+/// the environment like every other credential.
+pub fn apply_search(ctrl: &mut crate::Control, conn: &SearchConnection) {
+    use crate::PropValue as P;
+    ctrl.set_prop("Provider", P::String(conn.provider.clone()));
+    ctrl.set_prop("Endpoint", P::String(conn.endpoint.clone()));
+    ctrl.set_prop("SearchEngineId", P::String(conn.search_engine_id.clone()));
+    ctrl.set_prop("NumResults", P::Int(conn.num_results as i64));
+    ctrl.set_prop("SafeSearch", P::String(conn.safe_search.clone()));
+}
+
+/// Resolve every `WebSearch` bound to a project connection, returning the
+/// `(control id, missing connection id)` pairs that named nothing.
+///
+/// The mirror of [`resolve_all`], and it refuses the same silent fallback: a
+/// control told to ignore its own settings must not quietly use them.
+pub fn resolve_search_all(
+    controls: &mut [crate::Control],
+    connections: &[SearchConnection],
+) -> Vec<(String, String)> {
+    let mut dangling = Vec::new();
+    for ctrl in controls.iter_mut() {
+        if ctrl.control_type != crate::ControlType::WebSearch {
+            continue;
+        }
+        let Some(id) = configuration_id(ctrl) else {
+            continue;
+        };
+        match connections.iter().find(|c| c.id == id).cloned() {
+            Some(conn) => apply_search(ctrl, &conn),
+            None => dangling.push((ctrl.id.clone(), id)),
+        }
+    }
+    dangling
+}
+
+/// Every named connection a project defines, in one record.
+///
+/// One record rather than one per kind because a built application carries the
+/// whole thing as a single baked constant: adding a kind then costs a field
+/// here and nothing at the fifteen places that construct the generated main.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Catalogue {
+    #[serde(default)]
+    pub rest: Vec<RestConnection>,
+    #[serde(default)]
+    pub search: Vec<SearchConnection>,
+}
+
+impl Catalogue {
+    /// For baking into a built application.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_owned())
+    }
+
+    /// Read one back. Unparseable text yields an empty catalogue rather than
+    /// failing the launch: a broken record must not stop an application whose
+    /// forms may not use a connection at all.
+    pub fn from_json(raw: &str) -> Self {
+        serde_json::from_str(raw.trim()).unwrap_or_default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.rest.is_empty() && self.search.is_empty()
+    }
+}
+
 /// Read a catalogue back from the JSON a built application carries.
 ///
 /// A shipped binary has no `cobolt.toml` to read, so the compiler bakes the

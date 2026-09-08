@@ -90,6 +90,11 @@ pub struct ProjectIntegrationSettings {
     /// build` reads the same records from the same file with no IDE involved.
     #[serde(default)]
     pub rest_connections: Vec<cobolt_forms::connections::RestConnection>,
+    /// Named web-search connections (`[[integrations.search_connections]]`) —
+    /// a provider, its endpoint or engine id, and its result settings. Same
+    /// discipline as the REST list: the key is never here.
+    #[serde(default)]
+    pub search_connections: Vec<cobolt_forms::connections::SearchConnection>,
 }
 
 /// AI configuration that belongs to one project and is persisted in

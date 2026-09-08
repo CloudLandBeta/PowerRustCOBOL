@@ -298,6 +298,9 @@ struct ProjectIntegrations {
     /// `RestClient` may point at. Never carries a credential.
     #[serde(default)]
     rest_connections: Vec<cobolt_forms::connections::RestConnection>,
+    /// `[[integrations.search_connections]]` — the same, for `WebSearch`.
+    #[serde(default)]
+    search_connections: Vec<cobolt_forms::connections::SearchConnection>,
 }
 
 #[derive(Deserialize)]
@@ -321,13 +324,14 @@ struct CoboltProject {
 /// CLI publishes them before `rcrun run-form` seeds a form, and a built
 /// application carries them baked in. A missing or unreadable manifest yields
 /// none, which is a project that simply defines no connections.
-pub fn project_rest_connections(
-    manifest_path: &Path,
-) -> Vec<cobolt_forms::connections::RestConnection> {
+pub fn project_connections(manifest_path: &Path) -> cobolt_forms::connections::Catalogue {
     std::fs::read_to_string(manifest_path)
         .ok()
         .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
-        .map(|p| p.integrations.rest_connections)
+        .map(|p| cobolt_forms::connections::Catalogue {
+            rest: p.integrations.rest_connections,
+            search: p.integrations.search_connections,
+        })
         .unwrap_or_default()
 }
 
@@ -1395,7 +1399,11 @@ fn build_core(
         &entrance_fx,
         &exit_fx,
         proj.forms.entrance_on_restore,
-        &cobolt_forms::connections::to_json(&proj.integrations.rest_connections),
+        &cobolt_forms::connections::Catalogue {
+            rest: proj.integrations.rest_connections.clone(),
+            search: proj.integrations.search_connections.clone(),
+        }
+        .to_json(),
     );
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
@@ -2323,10 +2331,10 @@ fn generate_main_rs(
     entrance_fx: &str,
     exit_fx: &str,
     entrance_on_restore: bool,
-    // The project's named REST connections as JSON (see
-    // `cobolt_forms::connections::to_json`). `[]` for a project that defines
-    // none, which is every project until one is added.
-    rest_connections_json: &str,
+    // The project's whole connection catalogue as JSON (see
+    // `cobolt_forms::connections::Catalogue::to_json`). `{}` for a project that
+    // defines none, which is every project until one is added.
+    connections_json: &str,
 ) -> String {
     // Build the FORMS constant entries
     let forms_entries: String = form_ids
@@ -2440,11 +2448,11 @@ fn generate_main_rs(
     // environment at run time, which is what lets one build serve every
     // deployment.
     let connections_const = format!(
-        "/// The project's named REST connections (`[[integrations.rest_connections]]`),\n\
+        "/// The project's named connections (`[integrations]` in cobolt.toml),\n\
          /// baked in because a shipped binary has no manifest to read them from.\n\
          /// Carries NO credential: keys arrive through the environment.\n\
-         #[allow(dead_code)]\nconst PROJECT_REST_CONNECTIONS: &str = \"{}\";\n",
-        rest_connections_json.escape_default()
+         #[allow(dead_code)]\nconst PROJECT_CONNECTIONS: &str = \"{}\";\n",
+        connections_json.escape_default()
     );
 
     let form_runtime_code = if has_forms {
@@ -2619,9 +2627,10 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // Publish the baked catalogue before anything is seeded, so every form
     // this process hosts — this one and the child forms it opens later —
     // resolves a bound RestClient the same way `rcrun run-form` does.
-    cobolt_form_host::seeding::publish_connections(
-        cobolt_forms::connections::from_json(PROJECT_REST_CONNECTIONS),
-    );
+    let project_connections =
+        cobolt_forms::connections::Catalogue::from_json(PROJECT_CONNECTIONS);
+    cobolt_form_host::seeding::publish_connections(project_connections.rest.clone());
+    cobolt_form_host::seeding::publish_search_connections(project_connections.search.clone());
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
         &first_form,
@@ -4357,7 +4366,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── RestClient ──
         "Configuration" => (
             "empty (this control's own settings), or the name of a project connection",
-            "Where this control gets its connection. **Empty — the default — means the control's own properties below**, exactly as it has always worked. Otherwise it names one of the project's connections (Settings → Integrations → Connections), and that connection's address, method, authentication scheme, headers and timeouts replace the control's own before the form runs; the local rows are shown but inert. Define an API once and every form that talks to it stays in step, instead of six forms drifting apart. The **credential is never part of the connection record** — that record round-trips in `cobolt.toml` and is meant to be committed, while the key lives in the machine-local store and reaches a running form through the environment, so a checked-out project carries the connections and each developer supplies their own key. A Configuration naming a connection the project no longer has is an error, not a silent fall back to the local settings: the control was told to ignore those.",
+            "Where this control gets its connection. **Empty — the default — means the control's own properties below**, exactly as it has always worked. Otherwise it names one of the project's connections (Settings → Integrations), and that connection's settings replace the control's own before the form runs. On a **RestClient** that is the address, method, authentication scheme, headers and timeouts; on a **WebSearch** it is the provider, its engine id or instance URL, the result count and the safe-search level. Define a service once and every form that uses it stays in step, instead of six forms drifting apart. The **credential is never part of the connection record** — that record round-trips in `cobolt.toml` and is meant to be committed, while the key lives in the machine-local store and reaches a running form through the environment, so a checked-out project carries the connections and each developer supplies their own key. A built application carries the connections baked in and takes each key from `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it. A Configuration naming a connection the project no longer has is an error, not a silent fall back to the local settings: the control was told to ignore those.",
         ),
         "BaseURL" => ("HTTP(S) URL", "The address the control's verbs request. A verb called with no URL argument uses it as it stands; a relative argument is joined onto it; an argument carrying its own scheme (`https://...`) is used unchanged."),
         "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "The verb `Call()` uses when given no method argument. The named verbs (`get`, `post`, `put`, `delete`) always use their own."),
@@ -6075,30 +6084,46 @@ mod resolve_main_tests {
         let mut c =
             cobolt_forms::connections::RestConnection::new("abc-123", "Billing");
         c.base_url = "https://billing.example.com".into();
-        let json = cobolt_forms::connections::to_json(std::slice::from_ref(&c));
+        let mut sc =
+            cobolt_forms::connections::SearchConnection::new("def-456", "Brave prod");
+        sc.provider = "Brave".into();
+        let json = cobolt_forms::connections::Catalogue {
+            rest: vec![c],
+            search: vec![sc],
+        }
+        .to_json();
 
         let src = generate_main_rs(
             "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
             "neumorphic", "none:600:ease-out", "none:600:ease-out", false, &json,
         );
         assert!(
-            src.contains("const PROJECT_REST_CONNECTIONS"),
+            src.contains("const PROJECT_CONNECTIONS"),
             "the catalogue must be baked into the binary"
         );
         assert!(
             src.contains("billing.example.com"),
-            "and carry the actual connection"
+            "and carry the actual REST connection"
+        );
+        assert!(
+            src.contains("Brave"),
+            "and the search connections too — a WebSearch bound to one must \
+             resolve in a built application exactly as it does in the IDE"
         );
         assert!(
             src.contains("cobolt_form_host::seeding::publish_connections"),
             "and be published before the first form is seeded"
         );
+        assert!(
+            src.contains("cobolt_form_host::seeding::publish_search_connections"),
+            "both kinds, or WebSearch silently keeps its local settings"
+        );
         // A project with none still compiles to a valid, empty catalogue.
         let empty = generate_main_rs(
             "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
-            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "[]",
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "{}",
         );
-        assert!(empty.contains(r#"const PROJECT_REST_CONNECTIONS: &str = "[]";"#));
+        assert!(empty.contains(r#"const PROJECT_CONNECTIONS: &str = "{}";"#));
     }
 
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
@@ -6460,7 +6485,7 @@ mod resolve_main_tests {
     /// for free by going through the same `FormHost` as Run Form.
     #[test]
     fn elegance_generated_binary_publishes_its_surface_theme() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false, "[]");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false, "{}");
         assert!(src.contains("fn resolve_surface_theme("));
         assert!(src.contains("None => resolve_surface_theme(&first_form),"));
         assert!(src.contains("surface_theme,"));
@@ -6531,7 +6556,7 @@ mod resolve_main_tests {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false, "[]");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false, "{}");
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
@@ -6623,7 +6648,7 @@ mod resolve_main_tests {
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "[]");
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}");
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -6784,7 +6809,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "[]"),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}"),
         )
         .unwrap();
         fs::write(
@@ -6964,7 +6989,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "[]"),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "{}"),
         )
         .unwrap();
         fs::write(

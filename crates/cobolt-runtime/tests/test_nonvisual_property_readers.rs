@@ -121,6 +121,10 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
         (
             ControlType::WebSearch,
             vec![
+                // Selects between this control's own settings and one of the
+                // project's named search connections; resolved before the form
+                // runs, exactly as RestClient's is.
+                ("Configuration", Resolved),
                 // Chooses the back end; read by `exec_method`'s SEARCH arm and
                 // by `web_search_items`, which needs it to know how to read the
                 // answer back.
