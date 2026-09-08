@@ -6097,6 +6097,28 @@ impl PropertiesPanel {
                     action,
                     eff_selected,
                 );
+                // The ink on the active row. Its effective value is what the
+                // painter would derive when nothing is chosen, so the swatch
+                // shows the floor rather than an empty box the developer has to
+                // guess at.
+                color_row_effective(
+                    ui,
+                    id,
+                    "ActiveItemTextColor",
+                    "Active row text",
+                    ctrl,
+                    action,
+                    cobolt_forms::paint::caret_color(
+                        eff_active,
+                        cobolt_forms::paint::parse_hex(
+                            &ctrl
+                                .get_prop("ForegroundColor")
+                                .map(|v| v.as_str().to_owned())
+                                .unwrap_or_default(),
+                        )
+                        .unwrap_or(egui::Color32::WHITE),
+                    ),
+                );
                 // The three things a list reports, and which is which. Runtime
                 // values, like DroppedFiles — shown so the developer knows what
                 // to read, not to be typed in.

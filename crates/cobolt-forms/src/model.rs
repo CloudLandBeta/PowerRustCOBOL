@@ -4647,6 +4647,13 @@ impl Control {
                 // would silently mean "unset".
                 props.insert("ActiveItemColor".into(), PropValue::String("".into()));
                 props.insert("SelectedItemsColor".into(), PropValue::String("".into()));
+                // The highlighted item's TEXT. Empty keeps what the control has
+                // always done — `caret_color` holds ForegroundColor to 4.5:1 on
+                // the band and falls to black or white when it cannot — so an
+                // existing form is unchanged. It exists because that floor was
+                // the developer's ONLY option: the band was theirs to choose and
+                // the ink on it was not (operator, 2026-09-08).
+                props.insert("ActiveItemTextColor".into(), PropValue::String("".into()));
                 props.insert("BorderStyle".into(), PropValue::String("Single".into()));
                 props.insert("BorderColor".into(), PropValue::String("#888888".into()));
             }

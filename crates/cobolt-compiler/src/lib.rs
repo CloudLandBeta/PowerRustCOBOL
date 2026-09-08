@@ -4214,6 +4214,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
              or the selected item in an open ComboBox dropdown. Left empty a ListBox takes the \
              theme's own selection color and a ComboBox its popup's built-in one.",
         ),
+        "ActiveItemTextColor" => (
+            "`#RRGGBB`/`#RRGGBBAA`, or empty",
+            "The TEXT colour of the highlighted row — the item `SelectedIndex`/`Value` reports. Empty, the default, keeps what a ListBox has always done: the row's ink is `ForegroundColor` while that clears WCAG AA on the highlight band, and pure black or white when it does not. That floor keeps a list readable no matter what `ActiveItemColor` is set to, but it left the developer no say — the band was theirs to choose and the ink on it was not. Set this and it wins outright, floor included, on the same rule every other colour on the control follows: empty means \"not chosen\". It applies to the ACTIVE row only; rows highlighted by `SelectedItemsColor` under `MultiSelect` keep `ForegroundColor`.",
+        ),
         "SelectedItemsColor" => (
             "color, or empty for ActiveItemColor dimmed to 45%",
             "ListBox only. Highlight behind the other rows of a MultiSelect selection, the ones \

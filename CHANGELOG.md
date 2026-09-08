@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.85] — 2026-09-08
+
+### The highlighted ListBox row's text colour is now the developer's
+
+A ListBox let you choose the highlight **band** — `ActiveItemColor` for the
+active row, `SelectedItemsColor` for the others under `MultiSelect` — and gave
+you no say at all over the **ink on it**. The row's text was
+`caret_color(band, ForegroundColor)`: your colour while it cleared WCAG AA on
+the band, otherwise pure black or white. A sound floor, and the developer's
+only option (operator, 2026-09-08: "what is the property that control the
+highlighted listbox item font color? It is missing").
+
+`ActiveItemTextColor` fills the gap. Empty — the default — keeps that floor
+exactly, so every existing form is unchanged; set, it wins outright, on the
+same rule every other colour on the control follows: empty means "not chosen".
+It applies to the ACTIVE row; rows highlighted by `SelectedItemsColor` keep
+`ForegroundColor`.
+
+The inspector shows it as an **effective** swatch, so an unset box displays the
+colour the painter would derive rather than an empty well the developer has to
+guess at.
+
+Two things the test found rather than assumed. The row's ink is not
+`ForegroundColor` — `item_color` is itself `caret_color(surface, Foreground)`,
+so a dark colour on a dark list is already replaced before the highlight is
+considered. And the highlighted row is matched **by text** against the
+committed `Value`, not by `SelectedIndex`, so a fixture that sets only the index
+highlights nothing. Both cost a red test each, which is what the red was for.
+
+- `crates/cobolt-forms/src/model.rs` — the property.
+- `crates/cobolt-forms/src/render.rs` — honoured on the live surface (the
+  designer canvas paints no ListBox selection at all), plus
+  `the_highlighted_items_text_colour_can_be_chosen` and a `live_text_colours`
+  harness. Verified by reverting: without it the row paints the derived floor.
+- `crates/cobolt-ide/src/panels/properties.rs` — "Active row text".
+- `crates/cobolt-compiler/src/lib.rs` + `assets/knowledge/chunked.data`.
+
 ## [PowerRustCOBOL 1.65.84] — 2026-09-08
 
 ### Embedded forms were never given their credentials

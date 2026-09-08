@@ -5849,7 +5849,14 @@ fn render_interactive(
                             }
 
                             let text_colour = if is_active {
-                                paint::caret_color(active_fill, item_color)
+                                // The developer's choice wins outright; empty
+                                // keeps the derived floor this row has always
+                                // used. Same rule every colour on this control
+                                // follows: empty means "not chosen".
+                                paint::parse_hex(&sv(ctrl, "ActiveItemTextColor"))
+                                    .unwrap_or_else(|| {
+                                        paint::caret_color(active_fill, item_color)
+                                    })
                             } else {
                                 item_color
                             };
@@ -18018,6 +18025,108 @@ mod elegance_live_tests {
             collect(&cs.shape, &mut out);
         }
         out
+    }
+
+    /// Every TEXT colour painted by rendering `ctrl` interactively.
+    fn live_text_colours(ctrl: Control) -> Vec<Color32> {
+        let controls = vec![ctrl];
+        let ctx = egui::Context::default();
+        crate::paint::set_surface_theme(&ctx, glass());
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+        });
+        full.textures_delta.clear();
+        fn collect(s: &egui::Shape, out: &mut Vec<Color32>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                egui::Shape::Text(t) => {
+                    if let Some(c) = t
+                        .override_text_color
+                        .or_else(|| t.galley.job.sections.first().map(|s| s.format.color))
+                    {
+                        out.push(c);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    fn listbox_with(active_text: &str) -> Control {
+        let mut c = Control::new("LB", CT::ListBox, 0, 0);
+        c.rect = crate::model::Rect::new(10, 10, 240, 120);
+        c.set_prop("Items", crate::PropValue::String("alpha\nbeta\ngamma".into()));
+        // The highlighted row is matched by TEXT against the committed
+        // `Value`, not by index — `is_active` is `&active_item == item`.
+        c.set_prop("SelectedIndex", crate::PropValue::Int(1));
+        c.set_prop("Value", crate::PropValue::String("beta".into()));
+        c.set_prop("ForegroundColor", crate::PropValue::String("#202020".into()));
+        // A band the default ink reads on, so the DERIVED colour is
+        // ForegroundColor itself and an override shows up as a change.
+        c.set_prop("ActiveItemColor", crate::PropValue::String("#F0F0F0".into()));
+        if !active_text.is_empty() {
+            c.set_prop(
+                "ActiveItemTextColor",
+                crate::PropValue::String(active_text.into()),
+            );
+        }
+        c
+    }
+
+    /// **The highlighted item's text colour is the developer's to set.**
+    ///
+    /// It never was: the row's ink was `caret_color(band, ForegroundColor)` --
+    /// a floor that keeps it readable and gives the developer no say. The band
+    /// was theirs and the ink on it was not (operator, 2026-09-08: "what is the
+    /// property that control the highlighted listbox item font color? It is
+    /// missing").
+    ///
+    /// Empty still means the floor, so every existing form is unchanged.
+    #[test]
+    fn the_highlighted_items_text_colour_can_be_chosen() {
+        const CHOSEN: Color32 = Color32::from_rgb(0xC8, 0x1E, 0x1E);
+
+        // Unset: whatever the floor derives, but never the chosen colour.
+        // Asserting the derived VALUE would be asserting `caret_color`'s
+        // arithmetic, which is its own business and already tested; what
+        // matters here is that nothing paints a colour nobody chose.
+        let derived = live_text_colours(listbox_with(""));
+        assert!(
+            !derived.is_empty(),
+            "the rows must actually paint their text"
+        );
+        assert!(
+            !derived.iter().any(|c| *c == CHOSEN),
+            "nothing paints the override colour while it is unset: {derived:?}"
+        );
+
+        // Set: the developer's colour reaches the highlighted row verbatim.
+        let chosen = live_text_colours(listbox_with("#C81E1E"));
+        assert!(
+            chosen.iter().any(|c| *c == CHOSEN),
+            "the highlighted row must paint the chosen colour: {chosen:?}"
+        );
     }
 
     /// T10âT12 â the live-only painters actually take the theme.
