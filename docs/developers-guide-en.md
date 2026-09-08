@@ -7268,8 +7268,12 @@ Search "cx" value — a plain id, not a secret), `Query`, `NumResults`
 two levels, so `Medium` and `High` both request the stricter one), then
 call `Search()`:
 
+Results arrive on **`onResultsReceived`**, the control's primary event and the
+one a double-click binds. The uniform `onComplete` is raised straight after it,
+so a handler on either works — bind whichever reads better, not both:
+
 ```cobol
-       SEARCH-1--ONCOMPLETE.
+       SEARCH-1--ONRESULTSRECEIVED.
            MOVE SEARCH-1::TopTitle   TO WS-TITLE
            MOVE SEARCH-1::TopSnippet TO WS-SNIPPET
            MOVE SEARCH-1::TopLink    TO WS-LINK

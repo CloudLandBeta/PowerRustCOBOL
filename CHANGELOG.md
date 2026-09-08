@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.76] — 2026-09-08
+
+### WebSearch never fired the event the designer told you to bind
+
+A WebSearch searched successfully, filled `ResponseBody`, and ran no COBOL at
+all. The operator's report was exactly "nothing happens", with a valid Brave
+key and a working connection — and it would have happened on any provider,
+since spec 039 shipped.
+
+`onResultsReceived` is the control's **primary** event: it heads its designer
+list and it is what a double-click binds. Nothing raised it. Async completion
+queued the uniform `onComplete` for every control alike, so a handler bound to
+`onResultsReceived` — the natural choice, and the one the demo form uses —
+simply never ran. There was no error to see, because nothing failed.
+
+The KB had documented the defect as intent: *"classification label for
+WebSearch's completion (the runtime actually fires the uniform
+onComplete/onError)"*. That is why it survived so long, and it is corrected
+here rather than left to mislead the next reader.
+
+A control whose own completion event the designer offers now has it raised,
+before `onComplete`. **Both** are raised, so a form bound to `onComplete`
+instead is untouched.
+
+Deliberately a short explicit list rather than `ControlType::primary_event()`:
+most primaries are nothing of the kind. A Maps control's is `onMapClick`, and
+raising that when a route came back would be a fabricated click. `RestClient`'s
+primary is `onResponseReceived`, but that event is not in its designer list and
+so cannot be bound — it is left out rather than raised into the void. A test
+pins the mapping against the catalogue, so renaming the primary breaks the test
+rather than the behaviour.
+
+- `crates/cobolt-runtime/src/interpreter.rs` — `completion_event_for`,
+  `object_class`, and the completion arm.
+- `crates/cobolt-compiler/src/lib.rs` + `assets/knowledge/chunked.data` — the
+  event reference no longer describes the defect as design.
+- `docs/developers-guide-en.md` — the example binds `onResultsReceived`.
+
+Full workspace sweep: 3671 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.75] — 2026-09-08
 
 ### The badge ink was chosen for a card that does not exist
