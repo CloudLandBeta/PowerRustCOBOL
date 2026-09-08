@@ -2128,11 +2128,58 @@ impl CoboltApp {
     ///
     /// One helper, both launchers — Run gained the switch first and Debug
     /// arrived separately, which is exactly how the two would have drifted.
-    fn built_app_env(&self, form_path: &Path) -> Vec<(&'static str, String)> {
-        let mut envs = self.debug.child_env();
+    fn built_app_env(&self, form_path: &Path) -> Vec<(String, String)> {
+        let mut envs: Vec<(String, String)> = self
+            .debug
+            .child_env()
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v))
+            .collect();
         let form_id = cobolt_compiler::main_form_guard::form_id(form_path);
         if !form_id.is_empty() {
-            envs.push((cobolt_runtime::form_host::DESIGNER_FORM_ENV, form_id));
+            envs.push((
+                cobolt_runtime::form_host::DESIGNER_FORM_ENV.to_owned(),
+                form_id,
+            ));
+        }
+
+        // The credentials, exactly as Run Form resolves them. Without this a
+        // BUILT application launched from the IDE ran with no keys at all: the
+        // Maps and Search keys, the project connections' keys and the model
+        // providers were set on the `rcrun run-form` child and nowhere else. A
+        // developer sees both as "run my app", so an AgentObject bound to a
+        // provider worked under Run Form and did nothing once built (operator,
+        // 2026-09-08: "agent does not work").
+        //
+        // Loaded from the path rather than taken as an argument because the two
+        // launchers differ in what they have to hand, and drifting apart is
+        // exactly how this gap opened in the first place.
+        if let Ok(form) = cobolt_forms::load_form(form_path) {
+            let catalogue = cobolt_forms::connections::Catalogue {
+                rest: self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|p| p.integrations.rest_connections.clone())
+                    .unwrap_or_default(),
+                search: self
+                    .cobolt_project
+                    .as_ref()
+                    .map(|p| p.integrations.search_connections.clone())
+                    .unwrap_or_default(),
+                agent: Vec::new(),
+            };
+            envs.extend(
+                crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
+                    .into_iter()
+                    .chain(crate::form_runtime::resolve_search_api_key_secret(
+                        &form, &self.llm,
+                    ))
+                    .map(|(name, value)| (name.to_owned(), value)),
+            );
+            envs.extend(crate::form_runtime::resolve_connection_key_secrets(
+                &form, &self.llm, &catalogue,
+            ));
+            envs.extend(crate::form_runtime::resolve_agent_secrets(&form, &self.llm));
         }
         envs
     }

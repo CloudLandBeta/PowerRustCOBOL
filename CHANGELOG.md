@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.82] — 2026-09-08
+
+### A built application was launched with no credentials at all
+
+Every credential reached a running form through exactly one door: the
+environment of the `rcrun run-form` child. `built_app_env` — the environment a
+**compiled** application gets when the IDE launches it — passed the debug
+switches and the form id, and nothing else.
+
+So Run Form worked and Build+Run did not. A Maps control had no key, a
+WebSearch had no key, a control bound to a project connection had no key, and
+an AgentObject bound to a model provider received no providers at all and so
+resolved to nothing (operator, 2026-09-08: "agent does not work"). A developer
+sees both as "run my app", which is exactly why the asymmetry went unnoticed:
+each path was correct on its own terms.
+
+A built binary now receives the same four things Run Form resolves — the Maps
+key, the search key, the keys of the connections that form uses, and the model
+providers with their keys — and on the same terms: **only what that form
+actually needs**, so a running application never carries credentials it has no
+use for.
+
+The form is loaded from its path inside the helper rather than passed in,
+because the two launchers differ in what they have to hand. Taking it as an
+argument is how the two would drift apart again, and drifting apart is the
+entire defect.
+
+- `crates/cobolt-ide/src/app.rs` — `built_app_env` resolves the credentials.
+- `crates/cobolt-ide/src/form_runtime.rs` — both built-binary launchers take
+  owned env names, since a connection's variable is named after its id.
+
 ## [PowerRustCOBOL 1.65.81] — 2026-09-08
 
 ### `Search()` could not be written, so no search ever ran

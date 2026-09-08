@@ -387,7 +387,7 @@ impl ExternalFormRun {
         form_path: PathBuf,
         form_name: String,
         debug: bool,
-        envs: Vec<(&'static str, String)>,
+        envs: Vec<(String, String)>,
     ) -> std::io::Result<Self> {
         let mut cmd = Command::new(binary);
         cmd.current_dir(binary.parent().unwrap_or(Path::new(".")))
@@ -566,7 +566,7 @@ impl BuiltAppRun {
     pub fn spawn(
         binary: &Path,
         form_path: PathBuf,
-        envs: Vec<(&'static str, String)>,
+        envs: Vec<(String, String)>,
     ) -> std::io::Result<Self> {
         let mut child = Command::new(binary)
             .current_dir(binary.parent().unwrap_or(Path::new(".")))
