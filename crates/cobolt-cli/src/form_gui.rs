@@ -192,7 +192,17 @@ pub fn cmd_run_form(args: &[String]) {
     // form's own location; a form outside any project anchors on its own
     // folder, which is where its images sit in that case.
     {
-        let anchor = cobolt_compiler::find_project_manifest(&cfrm_path)
+        let manifest = cobolt_compiler::find_project_manifest(&cfrm_path);
+        // The project's named connections, published for this whole process
+        // before any form is seeded — including the embedded child forms
+        // `host.rs` opens later, which cannot read `cobolt.toml` themselves.
+        // A loose `.cfrm` outside any project simply has none.
+        if let Some(m) = manifest.as_deref() {
+            cobolt_form_host::seeding::publish_connections(
+                cobolt_compiler::project_rest_connections(m),
+            );
+        }
+        let anchor = manifest
             .and_then(|m| m.parent().map(|p| p.to_path_buf()))
             .or_else(|| cfrm_path.parent().map(|p| p.to_path_buf()));
         if let Some(dir) = anchor {

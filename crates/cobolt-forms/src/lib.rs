@@ -30,6 +30,7 @@ pub mod dropzone;
 pub mod diagnostics;
 pub mod icons;
 pub mod menu;
+pub mod connections;
 pub mod model;
 // The numeric-edited PICTURE engine. It lives here, not in `cobolt-runtime`,
 // because a TextBox carrying a `Picture` has to show the *same* edited text the

@@ -3514,7 +3514,7 @@ pub struct PropertiesPanel {
     /// `show_control` like `indexed_files` is: a second threaded parameter
     /// would touch four signatures to deliver a list that only one control's
     /// arm reads.
-    rest_connections: Vec<cobolt_compiler::connections::RestConnection>,
+    rest_connections: Vec<cobolt_forms::connections::RestConnection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3557,7 +3557,7 @@ impl PropertiesPanel {
     /// shows up in an already-open inspector without a reselect.
     pub fn set_rest_connections(
         &mut self,
-        connections: &[cobolt_compiler::connections::RestConnection],
+        connections: &[cobolt_forms::connections::RestConnection],
     ) {
         if self.rest_connections != connections {
             self.rest_connections = connections.to_vec();
@@ -8176,7 +8176,7 @@ impl PropertiesPanel {
                 // developer had already overridden.
                 let conns = self.rest_connections.clone();
                 let cur_id = ctrl
-                    .get_prop(cobolt_compiler::connections::CONFIGURATION_PROP)
+                    .get_prop(cobolt_forms::connections::CONFIGURATION_PROP)
                     .map(|v| v.as_str().trim().to_owned())
                     .unwrap_or_default();
                 let bound = conns.iter().find(|c| c.id == cur_id);
@@ -8200,7 +8200,7 @@ impl PropertiesPanel {
                             {
                                 action.set_props.push((
                                     id.to_owned(),
-                                    cobolt_compiler::connections::CONFIGURATION_PROP.into(),
+                                    cobolt_forms::connections::CONFIGURATION_PROP.into(),
                                     PropValue::String(String::new()),
                                 ));
                             }
@@ -8208,7 +8208,7 @@ impl PropertiesPanel {
                                 if ui.selectable_label(c.id == cur_id, &c.name).clicked() {
                                     action.set_props.push((
                                         id.to_owned(),
-                                        cobolt_compiler::connections::CONFIGURATION_PROP.into(),
+                                        cobolt_forms::connections::CONFIGURATION_PROP.into(),
                                         PropValue::String(c.id.clone()),
                                     ));
                                 }

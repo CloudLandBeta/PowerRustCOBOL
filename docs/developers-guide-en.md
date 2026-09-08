@@ -6944,6 +6944,32 @@ it follows, instead of six forms drifting apart.
 > to the local settings — the control was told to ignore those, and silently
 > using them would send requests to an address you had already overridden.
 
+##### Shipping an application that uses a connection
+
+The connection travels with the build: `rcrun build` bakes the project's
+connections into the binary, so a built application resolves them with no
+`cobolt.toml` beside it. **The key does not travel with the build** — that is
+the point of keeping it out of the project — so the machine running the
+application supplies it through an environment variable, one per connection:
+
+```bash
+COBOLT_CONNECTION_KEY_<CONNECTION-ID> = <the key>
+```
+
+The connection id is the one shown in the properties pane when a connection is
+missing, with dashes written as underscores and the whole thing upper-cased —
+so a connection whose id is `3f2a-91bc` is read from
+`COBOLT_CONNECTION_KEY_3F2A_91BC`. One variable per connection rather than one
+encoded blob, so a deployment script can set exactly the keys that machine
+should hold, and an operations team can see which value goes where.
+
+> **Notes.** While you are working in the IDE you never set these: **Run Form**
+> resolves each key from your machine-local store and hands it to the running
+> form itself, and only for the connections that form actually uses. The same
+> is true of `rcrun run-form` inside a project. A control whose key is missing
+> behaves like any unauthenticated request — the service answers with a 401,
+> which arrives in `onError` like any other failure.
+
 - **`BaseURL`** — the address the control requests. A verb called with **no
   argument** uses it as it stands, which is the ordinary case:
 

@@ -89,7 +89,7 @@ pub struct ProjectIntegrationSettings {
     /// The type is the **compiler's**, for the reason `crates` is: `rcrun
     /// build` reads the same records from the same file with no IDE involved.
     #[serde(default)]
-    pub rest_connections: Vec<cobolt_compiler::connections::RestConnection>,
+    pub rest_connections: Vec<cobolt_forms::connections::RestConnection>,
 }
 
 /// AI configuration that belongs to one project and is persisted in

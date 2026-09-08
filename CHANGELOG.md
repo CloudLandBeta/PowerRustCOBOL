@@ -1,5 +1,75 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.72] — 2026-09-08
+
+### Named REST connections now work at run time (step 3 of 3)
+
+The record existed (1.65.70) and could be edited (1.65.71); a bound control
+still ignored its connection once the form actually ran. It no longer does.
+
+**One resolution, in the one place all three form hosts share.** A control
+bound to a project connection takes that connection's address, method, auth
+scheme, headers and timeouts inside `build_object_seed` — the function
+`rcrun run-form`, an embedded child form and a compiled binary all seed
+through. Putting it anywhere else would have meant writing it three times and
+forgetting the third, which is the standing warning about the compiled binary:
+it is the one that gets forgotten and the one the developer ships. The
+interpreter is untouched and still knows nothing about connections; it reads an
+ordinary `BaseURL`.
+
+The catalogue reaches each host differently, because they learn about the
+project differently. `rcrun run-form` reads the manifest it already locates. A
+**built application carries the connections baked in**, since it has no
+`cobolt.toml` beside it. Embedded child forms — opened from disk long after
+startup, by code that cannot read a manifest — take them from a process-global
+published once at launch; that global is what lets one rule serve all three.
+
+**The credential travels separately, which is the whole point.** One
+environment variable per connection, `COBOLT_CONNECTION_KEY_<ID>`: no parsing,
+no separator a key could contain, and a deployment script can set exactly the
+keys that machine should hold. Working in the IDE you never see it — Run Form
+resolves each key from the machine-local store and hands it to the child
+itself, and **only for the connections that form actually uses**, so a running
+form's environment never carries credentials it has no use for.
+
+A dangling `Configuration` is reported on stderr, named, and is not fatal: the
+form still runs and every other control on it still works — but the bound
+control does **not** fall back to its own settings, because it was configured
+to ignore them.
+
+`RestConnection` moved from `cobolt-compiler` to `cobolt-forms`. The compiler
+was the right home while only the compiler read it; the moment three form hosts
+had to resolve a connection it was the wrong one, because `cobolt-form-host`
+does not depend on the compiler and should not. `cobolt-forms` is the crate
+they all already share, and it owns the `Control` the resolution operates on.
+The compiler still reads the same records from the same `cobolt.toml`.
+
+The env-var **name** lives there too, beside the credential slot it pairs with:
+the IDE reads a key from the local store under the slot and sets the variable
+on the child, the host reads the variable back, and the two ends sit in
+different crates. The IDE takes `cobolt-form-host` as a **dev-dependency
+only** — it is not a form host and takes no runtime dependency on one — so
+sharing through `cobolt-forms` is what keeps that boundary intact.
+
+- `crates/cobolt-forms/src/connections.rs` — moved here; adds
+  `connection_key_env`, `from_json`, `to_json`.
+- `crates/cobolt-form-host/src/seeding.rs` — the process-global catalogue and
+  the resolution every host gets.
+- `crates/cobolt-cli/src/form_gui.rs` — `run-form` publishes from the manifest.
+- `crates/cobolt-compiler/src/lib.rs` — reads
+  `[[integrations.rest_connections]]`, bakes them into the generated main, and
+  publishes them before the first seed.
+- `crates/cobolt-ide/src/{app,form_runtime}.rs` — each key handed to the child,
+  for the connections that form uses and no others.
+- `docs/developers-guide-en.md` — shipping an application that uses a
+  connection, and where the key comes from on the machine that runs it.
+- Tests: the shared seeding path resolves a bound control and takes its key
+  from the environment; the generated main bakes and publishes the catalogue.
+  Both verified by reverting — removing the resolution leaves the control on
+  `https://local.invalid`, removing the publish fails the baking test.
+
+Full workspace sweep: 3684 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.71] — 2026-09-08
 
 ### Named REST connections: Settings and the properties pane (step 2 of 3)

@@ -43,7 +43,7 @@ const RUNTIME_SOURCES: &[&str] = &[
 /// The sources a [`Reader::Resolved`] claim is checked against — where a
 /// project connection is turned into the control's effective properties.
 const RESOLUTION_SOURCES: &[&str] =
-    &[include_str!("../../cobolt-compiler/src/connections.rs")];
+    &[include_str!("../../cobolt-forms/src/connections.rs")];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reader {

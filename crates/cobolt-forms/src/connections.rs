@@ -21,16 +21,20 @@
 //! * a connection id — **project**: that connection's fields are resolved into
 //!   the control before the form runs, and the control's own are ignored.
 //!
-//! **The secret is never part of this.** Like [`ExternalCrate`](crate::external_crates::ExternalCrate),
+//! **The secret is never part of this.** Like the compiler's `ExternalCrate`,
 //! the record here is the non-secret half and round-trips in `cobolt.toml`; the
 //! key lives in the machine-local store under `connection::<id>` and reaches a
 //! running form through the environment, the same discipline the Maps and Web
 //! Search keys have always used (R31). A colleague who checks the project out
 //! gets the connections and supplies their own key.
 //!
-//! The type lives in the **compiler**, not the IDE, for the reason
-//! `ExternalCrate` does: `rcrun build` reads the same records from the same
-//! `cobolt.toml` with no IDE involved.
+//! The type lives in **`cobolt-forms`** — the crate every form host, the
+//! compiler, the CLI and the IDE already share. It began in `cobolt-compiler`
+//! (following `ExternalCrate`, so `rcrun build` could read the records with no
+//! IDE involved), and moved here the moment the three form hosts had to resolve
+//! a connection themselves: `cobolt-form-host` does not depend on the compiler
+//! and should not, and a runtime host is exactly who needs this. The compiler
+//! still reads the same records from the same `cobolt.toml`.
 
 use serde::{Deserialize, Serialize};
 
@@ -111,6 +115,40 @@ pub fn connection_key_slot(id: &str) -> String {
     format!("connection::{}", id.trim())
 }
 
+/// Read a catalogue back from the JSON a built application carries.
+///
+/// A shipped binary has no `cobolt.toml` to read, so the compiler bakes the
+/// connections in as JSON and the generated main hands them straight to the
+/// form host. Unparseable text yields none rather than failing the launch: a
+/// broken catalogue must not stop an application whose forms may not use one.
+pub fn from_json(raw: &str) -> Vec<RestConnection> {
+    serde_json::from_str(raw.trim()).unwrap_or_default()
+}
+
+/// The catalogue as the JSON [`from_json`] reads.
+pub fn to_json(connections: &[RestConnection]) -> String {
+    serde_json::to_string(connections).unwrap_or_else(|_| "[]".to_owned())
+}
+
+/// The environment variable carrying ONE named connection's credential to a
+/// running form.
+///
+/// One variable per connection rather than a single encoded map: no parsing,
+/// no separator a key could contain, and a deployer setting up a built
+/// application can see exactly which value goes where. Dashes become
+/// underscores because a UUID carries them and environment names may not.
+///
+/// Lives here, beside [`connection_key_slot`], because the two ends of the
+/// same journey must agree and they sit in different crates: the IDE reads the
+/// key from the local store under the slot and sets this variable on the
+/// child, and the form host reads the variable back.
+pub fn connection_key_env(id: &str) -> String {
+    format!(
+        "COBOLT_CONNECTION_KEY_{}",
+        id.trim().replace('-', "_").to_ascii_uppercase()
+    )
+}
+
 /// The connection a control is bound to, or `None` when it is on its own
 /// local settings.
 ///
@@ -119,7 +157,7 @@ pub fn connection_key_slot(id: &str) -> String {
 /// settings of a control that was configured to ignore them would send a
 /// request somewhere the developer did not choose.
 pub fn bound_connection<'a>(
-    ctrl: &cobolt_forms::Control,
+    ctrl: &crate::Control,
     connections: &'a [RestConnection],
 ) -> Option<&'a RestConnection> {
     let id = configuration_id(ctrl)?;
@@ -127,7 +165,7 @@ pub fn bound_connection<'a>(
 }
 
 /// The `Configuration` id set on a control, if any. Empty means local.
-pub fn configuration_id(ctrl: &cobolt_forms::Control) -> Option<String> {
+pub fn configuration_id(ctrl: &crate::Control) -> Option<String> {
     ctrl.get_prop(CONFIGURATION_PROP)
         .map(|v| v.as_str().trim().to_owned())
         .filter(|s| !s.is_empty())
@@ -139,7 +177,7 @@ pub fn configuration_id(ctrl: &cobolt_forms::Control) -> Option<String> {
 /// project once had that connection and no longer does, so the honest outcome
 /// is to say so rather than quietly use settings the developer overrode.
 pub fn unresolved_configuration(
-    ctrl: &cobolt_forms::Control,
+    ctrl: &crate::Control,
     connections: &[RestConnection],
 ) -> Option<String> {
     let id = configuration_id(ctrl)?;
@@ -152,8 +190,8 @@ pub fn unresolved_configuration(
 /// `AuthType` and the rest exactly as it always has and needs to know nothing
 /// about connections. `AuthToken` is **not** set here — it is not in this
 /// record; it arrives separately from the machine-local store.
-pub fn apply(ctrl: &mut cobolt_forms::Control, conn: &RestConnection) {
-    use cobolt_forms::PropValue as P;
+pub fn apply(ctrl: &mut crate::Control, conn: &RestConnection) {
+    use crate::PropValue as P;
     ctrl.set_prop("BaseURL", P::String(conn.base_url.clone()));
     ctrl.set_prop("DefaultMethod", P::String(conn.default_method.clone()));
     ctrl.set_prop("AuthType", P::String(conn.auth_type.clone()));
@@ -170,12 +208,12 @@ pub fn apply(ctrl: &mut cobolt_forms::Control, conn: &RestConnection) {
 /// build, and the IDE reports it rather than running a form at an address
 /// nobody chose.
 pub fn resolve_all(
-    controls: &mut [cobolt_forms::Control],
+    controls: &mut [crate::Control],
     connections: &[RestConnection],
 ) -> Vec<(String, String)> {
     let mut dangling = Vec::new();
     for ctrl in controls.iter_mut() {
-        if ctrl.control_type != cobolt_forms::ControlType::RestClient {
+        if ctrl.control_type != crate::ControlType::RestClient {
             continue;
         }
         if let Some(id) = unresolved_configuration(ctrl, connections) {
@@ -192,7 +230,7 @@ pub fn resolve_all(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cobolt_forms::{Control, ControlType, PropValue};
+    use crate::{Control, ControlType, PropValue};
 
     fn conn() -> RestConnection {
         RestConnection {

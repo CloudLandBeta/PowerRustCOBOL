@@ -92,7 +92,7 @@ pub struct SettingsDraft {
     pub custom_search_engine_id: String,
     /// The project's named REST connections — the **non-secret** half, which
     /// round-trips in `cobolt.toml` and is meant to be committed.
-    pub rest_connections: Vec<cobolt_compiler::connections::RestConnection>,
+    pub rest_connections: Vec<cobolt_forms::connections::RestConnection>,
     /// Each connection's credential, keyed by connection id. Never written to
     /// the project: saved into the machine-local store under
     /// `connection::<id>`, like every other key here.
@@ -187,7 +187,7 @@ impl SettingsDraft {
                 .map(|c| {
                     let key = llm
                         .api_keys
-                        .get(&cobolt_compiler::connections::connection_key_slot(&c.id))
+                        .get(&cobolt_forms::connections::connection_key_slot(&c.id))
                         .cloned()
                         .unwrap_or_default();
                     (c.id.clone(), key)
@@ -310,7 +310,7 @@ impl SettingsDraft {
                 // above: a blank box never clears a stored key by accident.
                 if !key.trim().is_empty() {
                     llm.store_api_key(
-                        cobolt_compiler::connections::connection_key_slot(&c.id),
+                        cobolt_forms::connections::connection_key_slot(&c.id),
                         key,
                     );
                 }
@@ -2264,7 +2264,7 @@ impl SettingsForm {
                             let id = crate::agents_db::new_uuid();
                             let n = rest_connections.len() + 1;
                             rest_connections.push(
-                                cobolt_compiler::connections::RestConnection::new(
+                                cobolt_forms::connections::RestConnection::new(
                                     id,
                                     format!("Connection {n}"),
                                 ),
@@ -2480,7 +2480,7 @@ fn section(ui: &mut Ui, title: &str, theme: &crate::theme::Theme) {
 #[cfg(test)]
 mod connection_tests {
     use super::*;
-    use cobolt_compiler::connections::{connection_key_slot, RestConnection};
+    use cobolt_forms::connections::{connection_key_slot, RestConnection};
 
     /// **A connection's credential reaches the machine-local store and never
     /// the project file.**

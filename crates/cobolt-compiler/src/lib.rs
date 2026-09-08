@@ -56,7 +56,6 @@ use thiserror::Error;
 pub mod exec_rust;
 pub mod runtime_features;
 pub mod external_crates;
-pub mod connections;
 pub mod main_form_guard;
 
 pub use external_crates::ExternalCrate;
@@ -290,6 +289,17 @@ struct FormsConfig {
     entrance_on_restore: bool,
 }
 
+/// The `[integrations]` table — the non-secret half of the project's external
+/// service settings. Only the part the compiler needs; the IDE's own
+/// `ProjectIntegrationSettings` is the full picture.
+#[derive(Deserialize, Default)]
+struct ProjectIntegrations {
+    /// `[[integrations.rest_connections]]` — named connections a form's
+    /// `RestClient` may point at. Never carries a credential.
+    #[serde(default)]
+    rest_connections: Vec<cobolt_forms::connections::RestConnection>,
+}
+
 #[derive(Deserialize)]
 struct CoboltProject {
     project: ProjectMeta,
@@ -301,6 +311,24 @@ struct CoboltProject {
     /// under the project's `crates/`. Absent in old projects ⇒ empty.
     #[serde(default)]
     crates: Vec<ExternalCrate>,
+    #[serde(default)]
+    integrations: ProjectIntegrations,
+}
+
+/// The project's named REST connections, read straight from `cobolt.toml`.
+///
+/// Public because two callers outside this crate need it and must agree: the
+/// CLI publishes them before `rcrun run-form` seeds a form, and a built
+/// application carries them baked in. A missing or unreadable manifest yields
+/// none, which is a project that simply defines no connections.
+pub fn project_rest_connections(
+    manifest_path: &Path,
+) -> Vec<cobolt_forms::connections::RestConnection> {
+    std::fs::read_to_string(manifest_path)
+        .ok()
+        .and_then(|text| toml::from_str::<CoboltProject>(&text).ok())
+        .map(|p| p.integrations.rest_connections)
+        .unwrap_or_default()
 }
 
 /// Resolve the project's entry program as a path relative to the project root.
@@ -631,8 +659,9 @@ pub fn build_single_file(
         files: ProjectFiles::default(),
         forms: FormsConfig::default(),
         // Single-file builds have no project, hence no External Crates
-        // (spec 044 R22).
+        // (spec 044 R22) and no named connections either.
         crates: Vec::new(),
+        integrations: ProjectIntegrations::default(),
     };
     build_core(proj, project_dir, opts, false)
 }
@@ -1366,6 +1395,7 @@ fn build_core(
         &entrance_fx,
         &exit_fx,
         proj.forms.entrance_on_restore,
+        &cobolt_forms::connections::to_json(&proj.integrations.rest_connections),
     );
     write_if_changed(&src_dir.join("main.rs"), main_rs.as_bytes())?;
 
@@ -2293,6 +2323,10 @@ fn generate_main_rs(
     entrance_fx: &str,
     exit_fx: &str,
     entrance_on_restore: bool,
+    // The project's named REST connections as JSON (see
+    // `cobolt_forms::connections::to_json`). `[]` for a project that defines
+    // none, which is every project until one is added.
+    rest_connections_json: &str,
 ) -> String {
     // Build the FORMS constant entries
     let forms_entries: String = form_ids
@@ -2398,6 +2432,19 @@ fn generate_main_rs(
         entrance_fx.escape_default(),
         exit_fx.escape_default(),
         entrance_on_restore
+    );
+
+    // The project's named REST connections, baked in for the same reason the
+    // window effects are: a shipped binary has no manifest to read. The
+    // records carry no credential — each connection's key comes from the
+    // environment at run time, which is what lets one build serve every
+    // deployment.
+    let connections_const = format!(
+        "/// The project's named REST connections (`[[integrations.rest_connections]]`),\n\
+         /// baked in because a shipped binary has no manifest to read them from.\n\
+         /// Carries NO credential: keys arrive through the environment.\n\
+         #[allow(dead_code)]\nconst PROJECT_REST_CONNECTIONS: &str = \"{}\";\n",
+        rest_connections_json.escape_default()
     );
 
     let form_runtime_code = if has_forms {
@@ -2569,6 +2616,12 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // Seed the interpreter's visual-object registry with every control's
     // designed properties (042 R20) — the same shared builder Run Form uses,
     // so a property read before the first write returns the designed value.
+    // Publish the baked catalogue before anything is seeded, so every form
+    // this process hosts — this one and the child forms it opens later —
+    // resolves a bound RestClient the same way `rcrun run-form` does.
+    cobolt_form_host::seeding::publish_connections(
+        cobolt_forms::connections::from_json(PROJECT_REST_CONNECTIONS),
+    );
     let (maps_api_key, search_api_key) = cobolt_form_host::seeding::resolve_api_keys();
     let seed = cobolt_form_host::seeding::build_object_seed(
         &first_form,
@@ -2837,7 +2890,7 @@ static PROGRAM_AST: &[u8] = include_bytes!("../assets/program.bin");
 /// Only the packs the forms actually resolve to are baked in, and only the art
 /// their manifests reference, so a themed app is self-contained without
 /// carrying the packs' authoring imagery.
-{themes_const}{theme_default_const}{window_fx_const}
+{themes_const}{theme_default_const}{window_fx_const}{connections_const}
 // ── Entry point ───────────────────────────────────────────────────────────────
 fn main() {{
     tracing_subscriber::fmt()
@@ -2901,6 +2954,7 @@ fn run_headless(program: cobolt_ast::program::Program) {{
         themes_const = themes_const,
         theme_default_const = theme_default_const,
         window_fx_const = window_fx_const,
+        connections_const = connections_const,
         run_call = run_call,
         form_runtime_code = form_runtime_code,
         ast_mismatch_help = AST_MISMATCH_HELP,
@@ -6010,6 +6064,43 @@ mod resolve_main_tests {
         HEAVY_BUILD.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// **A built application carries the project's connections with it.**
+    ///
+    /// A shipped binary has no `cobolt.toml` to read, so a `RestClient` bound
+    /// to a project connection would resolve to nothing once built — working
+    /// in the IDE and failing in the field, which is the exact class of defect
+    /// the three-host parity rule exists to prevent.
+    #[test]
+    fn the_generated_main_bakes_the_connections_and_publishes_them() {
+        let mut c =
+            cobolt_forms::connections::RestConnection::new("abc-123", "Billing");
+        c.base_url = "https://billing.example.com".into();
+        let json = cobolt_forms::connections::to_json(std::slice::from_ref(&c));
+
+        let src = generate_main_rs(
+            "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, &json,
+        );
+        assert!(
+            src.contains("const PROJECT_REST_CONNECTIONS"),
+            "the catalogue must be baked into the binary"
+        );
+        assert!(
+            src.contains("billing.example.com"),
+            "and carry the actual connection"
+        );
+        assert!(
+            src.contains("cobolt_form_host::seeding::publish_connections"),
+            "and be published before the first form is seeded"
+        );
+        // A project with none still compiles to a valid, empty catalogue.
+        let empty = generate_main_rs(
+            "Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[],
+            "neumorphic", "none:600:ease-out", "none:600:ease-out", false, "[]",
+        );
+        assert!(empty.contains(r#"const PROJECT_REST_CONNECTIONS: &str = "[]";"#));
+    }
+
     fn proj(main: &str, sources: Vec<&str>, generated: Vec<&str>) -> CoboltProject {
         CoboltProject {
             project: ProjectMeta {
@@ -6026,6 +6117,7 @@ mod resolve_main_tests {
             },
             forms: FormsConfig::default(),
             crates: Vec::new(),
+            integrations: ProjectIntegrations::default(),
         }
     }
 
@@ -6065,6 +6157,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
+        "[]",
         );
         assert!(
             src.contains("form_host::designer_form()"),
@@ -6105,6 +6198,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
+        "[]",
         );
         for id in ["CRM", "REPORT"] {
             assert!(
@@ -6139,6 +6233,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
+        "[]",
         );
         assert!(
             single.contains("static PROGRAMS: &[(&str, &[u8])] = &[];"),
@@ -6365,7 +6460,7 @@ mod resolve_main_tests {
     /// for free by going through the same `FormHost` as Run Form.
     #[test]
     fn elegance_generated_binary_publishes_its_surface_theme() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], cobolt_forms::theme::ELEGANCE, "none:600:ease-out", "none:600:ease-out", false, "[]");
         assert!(src.contains("fn resolve_surface_theme("));
         assert!(src.contains("None => resolve_surface_theme(&first_form),"));
         assert!(src.contains("surface_theme,"));
@@ -6404,6 +6499,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
+        "[]",
         );
 
         // The decision itself, taken before the form moves into the config.
@@ -6435,7 +6531,7 @@ mod resolve_main_tests {
             id: "cobalt-steel".into(),
             assets: vec!["background.png".into(), "button/b.png".into()],
         }];
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &themes, "neumorphic", "zoom:600:ease-out", "none:600:ease-out", false, "[]");
 
         // The regression this guards: the template used to set only the glass
         // style, so an asset-pack form shipped as procedural Liquid Glass.
@@ -6479,6 +6575,7 @@ mod resolve_main_tests {
             "matrix-rain:1500:ease-in-out",
             "fade:400:ease-in",
             true,
+        "[]",
         );
         // The baked triples parse through the ONE shared parser at run time.
         assert!(src.contains(r#"const PROJECT_FX_ENTRANCE: &str = "matrix-rain:1500:ease-in-out";"#));
@@ -6508,6 +6605,7 @@ mod resolve_main_tests {
         let quiet = generate_main_rs(
             "Demo", "1.2.3", true, &["MAIN"], "MAIN", &[], &[], &[], "",
             "none:600:ease-out", "none:600:ease-out", false,
+        "[]",
         );
         assert!(quiet.contains(r#"const PROJECT_FX_ENTRANCE: &str = "none:600:ease-out";"#));
         assert!(quiet.contains("const PROJECT_FX_ON_RESTORE: bool = false;"));
@@ -6525,7 +6623,7 @@ mod resolve_main_tests {
 
     #[test]
     fn generated_binary_without_themes_still_compiles_to_liquid_glass() {
-        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false);
+        let src = generate_main_rs("Demo", "1.0.0", true, &["MAIN"], "MAIN", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "[]");
         assert!(src.contains("static THEMES: &[(&str, &str, &[(&str, &[u8])])] = &[];"));
         assert!(src.contains(r#"const PROJECT_THEME_DEFAULT: &str = "";"#));
         // Resolution still runs — it just finds no pack and yields Liquid Glass.
@@ -6579,6 +6677,7 @@ mod resolve_main_tests {
             "matrix-rain:1500:ease-in-out",
             "fade:400:ease-in",
             true,
+        "[]",
         );
         let cargo_toml =
         generate_cargo_toml(
@@ -6685,7 +6784,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "[]"),
         )
         .unwrap();
         fs::write(
@@ -6865,7 +6964,7 @@ mod resolve_main_tests {
         fs::write(dir.join("src/exec_rust_blocks.rs"), &blocks.source).unwrap();
         fs::write(
             dir.join("src/main.rs"),
-            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false),
+            generate_main_rs(bin, "0.1.0", false, &[], "", &[], &[], &[], "", "none:600:ease-out", "none:600:ease-out", false, "[]"),
         )
         .unwrap();
         fs::write(
@@ -6999,6 +7098,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
+        "[]",
         );
         assert!(
             src.contains(r#"const MAIN_FORM: &str = "SIGNON";"#),
@@ -7026,6 +7126,7 @@ mod resolve_main_tests {
             "none:600:ease-out",
             "none:600:ease-out",
             false,
+        "[]",
         );
         assert!(empty.contains("const MAIN_FORM"));
     }

@@ -2560,11 +2560,22 @@ impl CoboltApp {
         // Credentials resolved IDE-side (spec 039 T12/T15) — the Maps and
         // Custom Search API keys reach the child only via its environment,
         // never the .cfrm/.cbl.
-        let secrets: Vec<(&'static str, String)> =
+        let project_connections: Vec<cobolt_forms::connections::RestConnection> = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.integrations.rest_connections.clone())
+            .unwrap_or_default();
+        let secrets: Vec<(String, String)> =
             crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
                 .into_iter()
                 .chain(crate::form_runtime::resolve_search_api_key_secret(
                     &form, &self.llm,
+                ))
+                .map(|(name, value)| (name.to_owned(), value))
+                .chain(crate::form_runtime::resolve_connection_key_secrets(
+                    &form,
+                    &self.llm,
+                    &project_connections,
                 ))
                 .collect();
         match crate::form_runtime::ExternalFormRun::spawn(
@@ -5577,7 +5588,7 @@ impl CoboltApp {
                     .unwrap_or_default();
                 // Hoisted off `self` beside `indexed_files`, for the same reason:
                 // the inspector borrows the designer mutably just below.
-                let rest_connections: Vec<cobolt_compiler::connections::RestConnection> = self
+                let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
                     .cobolt_project
                     .as_ref()
                     .map(|project| project.integrations.rest_connections.clone())
@@ -16201,7 +16212,7 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.files.indexed.clone())
             .unwrap_or_default();
-        let rest_connections: Vec<cobolt_compiler::connections::RestConnection> = self
+        let rest_connections: Vec<cobolt_forms::connections::RestConnection> = self
             .cobolt_project
             .as_ref()
             .map(|project| project.integrations.rest_connections.clone())

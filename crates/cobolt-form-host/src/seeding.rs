@@ -24,6 +24,65 @@ pub const GOOGLE_MAPS_API_KEY_ENV: &str = "COBOLT_GOOGLE_MAPS_API_KEY";
 /// `cobolt-ide/src/form_runtime.rs`'s constant of the same name.
 pub const GOOGLE_SEARCH_API_KEY_ENV: &str = "COBOLT_GOOGLE_SEARCH_API_KEY";
 
+/// Re-exported so a host reads it from the module it already uses. The
+/// function itself lives in `cobolt-forms` because the **IDE** needs the same
+/// name when it hands a key to the `rcrun run-form` child, and the IDE takes
+/// no runtime dependency on this crate by design.
+pub use cobolt_forms::connections::connection_key_env;
+
+/// The project's named connections, for this whole process.
+///
+/// Published once by whoever knows the project — the CLI for `run-form`, the
+/// generated main for a built application — and read by every form the process
+/// hosts. **The embedded child forms `host.rs` loads later have no other way to
+/// learn them**: they are opened from disk long after startup, by code that
+/// cannot read `cobolt.toml`. A process-global is what lets one resolution rule
+/// serve all three hosts, which is the whole point (spec 042 R20).
+static CONNECTIONS: std::sync::OnceLock<Vec<cobolt_forms::connections::RestConnection>> =
+    std::sync::OnceLock::new();
+
+/// Publish the project's connections. The first call wins; later ones are
+/// ignored, so a child form cannot replace its parent's catalogue.
+pub fn publish_connections(connections: Vec<cobolt_forms::connections::RestConnection>) {
+    let _ = CONNECTIONS.set(connections);
+}
+
+/// The published connections, or nothing when the host never had a project —
+/// `rcrun run-form` on a loose `.cfrm`, and every test.
+pub fn connections() -> &'static [cobolt_forms::connections::RestConnection] {
+    CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}
+
+/// Replace each bound control's local connection with the project's, and give
+/// it the credential from the environment.
+///
+/// Runs inside [`build_object_seed`] so all three form hosts get it from one
+/// place — the parity rule this module exists for. The non-secret half comes
+/// from the published catalogue; the key never travels with it.
+fn resolve_connections(controls: &mut [cobolt_forms::Control]) {
+    let conns = connections();
+    for (ctrl_id, missing) in cobolt_forms::connections::resolve_all(controls, conns) {
+        // Nothing else can report this: the form is already running and COBOL
+        // has not been reached. Loud, named, and not fatal — every other
+        // control on the form still works.
+        eprintln!(
+            "form-host: control {ctrl_id} names connection {missing}, which this \
+             project does not define — its own settings are NOT used as a \
+             fallback, because it was configured to ignore them."
+        );
+    }
+    for c in controls.iter_mut() {
+        let Some(id) = cobolt_forms::connections::configuration_id(c) else {
+            continue;
+        };
+        if let Ok(key) = std::env::var(cobolt_forms::connections::connection_key_env(&id)) {
+            if !key.trim().is_empty() {
+                c.set_prop("AuthToken", cobolt_forms::PropValue::String(key));
+            }
+        }
+    }
+}
+
 /// The (maps, search) API keys from this process's environment — `None` when
 /// unset or blank.
 pub fn resolve_api_keys() -> (Option<String>, Option<String>) {
@@ -50,6 +109,13 @@ pub fn build_object_seed(
     maps_api_key: Option<&str>,
     search_api_key: Option<&str>,
 ) -> Vec<(String, String, Vec<(String, String)>)> {
+    // A control bound to a project connection takes that connection's address,
+    // auth and timeouts here, before any property is read — so the interpreter
+    // sees an ordinary control and knows nothing about connections.
+    let mut resolved = flat.to_vec();
+    resolve_connections(&mut resolved);
+    let flat = &resolved[..];
+
     // 049 R30/R33 — the FORM ITSELF is seeded as an object, carrying the
     // universal form surface, so `me::Width` (and `<FORM-NAME>::Width`)
     // read the designed values from the first frame. Before this the form
@@ -340,6 +406,68 @@ mod tests {
         form.controls.push(label);
         let flat = form.controls.clone();
         (form, flat)
+    }
+
+    /// **A control bound to a project connection is resolved before the
+    /// interpreter ever sees it — in the ONE place all three hosts share.**
+    ///
+    /// `rcrun run-form`, an embedded child form and a compiled binary each
+    /// build their seed through this function. That is why the resolution
+    /// lives here and not in any one of them: a runtime behaviour has to reach
+    /// all three, and the compiled binary is the one that gets forgotten and
+    /// the one the developer ships.
+    ///
+    /// The two halves arrive by different routes on purpose — the connection
+    /// from the published catalogue, the credential from the environment —
+    /// which is what lets the catalogue be committed.
+    #[test]
+    fn a_bound_rest_client_takes_its_connection_and_its_key_from_the_environment() {
+        let mut conn = cobolt_forms::connections::RestConnection::new(
+            "11111111-aaaa-bbbb-cccc-222222222222",
+            "Billing",
+        );
+        conn.base_url = "https://billing.example.com".into();
+        conn.auth_type = "Bearer".into();
+        conn.timeout_seconds = 45;
+
+        let mut rest = Control::new("REST-1", ControlType::RestClient, 0, 0);
+        rest.set_prop("BaseURL", PropValue::String("https://local.invalid".into()));
+        rest.set_prop("Configuration", PropValue::String(conn.id.clone()));
+
+        std::env::set_var(
+            cobolt_forms::connections::connection_key_env(&conn.id),
+            "secret-token",
+        );
+        publish_connections(vec![conn.clone()]);
+
+        let (form, flat) = form_with(rest);
+        let seed = build_object_seed(&form, &flat, None, None);
+        let props = &seed
+            .iter()
+            .find(|(id, _, _)| id == "REST-1")
+            .expect("the control is seeded")
+            .2;
+        let get = |k: &str| {
+            props
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+        };
+
+        assert_eq!(
+            get("BaseURL"),
+            "https://billing.example.com",
+            "the control's own URL must be replaced by its connection's"
+        );
+        assert_eq!(get("AuthType"), "Bearer");
+        assert_eq!(get("TimeoutSeconds"), "45");
+        assert_eq!(
+            get("AuthToken"),
+            "secret-token",
+            "the credential comes from the environment — it is not in the form \
+             and not in the connection record"
+        );
     }
 
     /// A read-before-write returns the DESIGNED value: caption and geometry

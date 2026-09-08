@@ -185,6 +185,39 @@ pub fn resolve_search_api_key_secret(
     has_web_search.then(|| (GOOGLE_SEARCH_API_KEY_ENV, key.clone()))
 }
 
+/// One `(env var, key)` per named REST connection this form actually uses and
+/// for which a key is stored.
+///
+/// Same discipline as the two resolvers above: a key is only handed to the
+/// child when a control on this form needs it. A form that uses no connection
+/// receives none, so a running form's environment never carries credentials it
+/// has no use for.
+pub fn resolve_connection_key_secrets(
+    form: &Form,
+    llm: &crate::llm::LlmConfig,
+    connections: &[cobolt_forms::connections::RestConnection],
+) -> Vec<(String, String)> {
+    let used: std::collections::BTreeSet<String> = collect_controls(&form.controls)
+        .iter()
+        .filter_map(|c| cobolt_forms::connections::configuration_id(c))
+        .collect();
+    used.into_iter()
+        // A dangling reference names no connection, so there is no key to send;
+        // the host reports it when the form starts.
+        .filter(|id| connections.iter().any(|c| &c.id == id))
+        .filter_map(|id| {
+            let slot = cobolt_forms::connections::connection_key_slot(&id);
+            let key = llm.api_keys.get(&slot)?;
+            (!key.trim().is_empty()).then(|| {
+                (
+                    cobolt_forms::connections::connection_key_env(&id),
+                    key.clone(),
+                )
+            })
+        })
+        .collect()
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -197,7 +230,7 @@ impl ExternalFormRun {
         debug: bool,
         diagnostics: &RunDiagnostics,
         fx: Option<&FormFxArgs>,
-        secrets: &[(&'static str, String)],
+        secrets: &[(String, String)],
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = sibling_rcrun(&exe);
