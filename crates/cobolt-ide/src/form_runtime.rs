@@ -290,6 +290,36 @@ pub fn resolve_agent_secrets(
     out
 }
 
+/// Every credential a set of forms needs, de-duplicated by variable name.
+///
+/// Takes **forms**, plural, deliberately. A process does not run one form: a
+/// shell loads others into its ContentPane and a form can open another in its
+/// own window, and those are read from disk long after launch by code that
+/// cannot go back and ask for a key. Resolving from the launched form alone
+/// left an embedded AgentObject or WebSearch with nothing (operator,
+/// 2026-09-08: "works when standalone, but fails when embedded in a form").
+pub fn credential_env_for(
+    forms: &[Form],
+    llm: &crate::llm::LlmConfig,
+    catalogue: &cobolt_forms::connections::Catalogue,
+) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for form in forms {
+        let from_form = resolve_maps_api_key_secret(form, llm)
+            .into_iter()
+            .chain(resolve_search_api_key_secret(form, llm))
+            .map(|(name, value)| (name.to_owned(), value))
+            .chain(resolve_connection_key_secrets(form, llm, catalogue))
+            .chain(resolve_agent_secrets(form, llm));
+        for (name, value) in from_form {
+            if !out.iter().any(|(n, _)| n == &name) {
+                out.push((name, value));
+            }
+        }
+    }
+    out
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.
@@ -707,6 +737,56 @@ impl Drop for BuiltAppRun {
 mod agent_provider_tests {
     use super::*;
     use crate::llm::{provider_key_slot, LlmConfig};
+
+    /// **A form that is not the launched one still gets its credentials.**
+    ///
+    /// This is the embedded-form defect, pinned. The process opens the shell,
+    /// then loads a child form into its ContentPane — and that child's
+    /// WebSearch is bound to a connection the shell never mentions. Resolving
+    /// from the launched form alone put nothing in the environment for it, so
+    /// the control worked standalone and did nothing embedded.
+    #[test]
+    fn a_child_forms_connection_key_is_provisioned_too() {
+        use cobolt_forms::{connections::SearchConnection, Control, ControlType, Form, PropValue};
+
+        let conn = SearchConnection::new("aaaa-bbbb", "Brave");
+        let mut llm = LlmConfig::defaults();
+        llm.store_api_key(
+            cobolt_forms::connections::connection_key_slot(&conn.id),
+            "brave-secret",
+        );
+        let catalogue = cobolt_forms::connections::Catalogue {
+            rest: Vec::new(),
+            search: vec![conn.clone()],
+            agent: Vec::new(),
+        };
+
+        // The shell: no service controls at all.
+        let shell = Form::new("SHELL", "Shell", 800, 600);
+
+        // The child, loaded later, carrying the bound control.
+        let mut child = Form::new("CHILD", "Child", 400, 300);
+        let mut ws = Control::new("Web-Find", ControlType::WebSearch, 0, 0);
+        ws.set_prop("Configuration", PropValue::String(conn.id.clone()));
+        child.controls.push(ws);
+
+        let want = cobolt_forms::connections::connection_key_env(&conn.id);
+
+        // The launched form alone — what the code used to do.
+        let launched_only = credential_env_for(std::slice::from_ref(&shell), &llm, &catalogue);
+        assert!(
+            !launched_only.iter().any(|(n, _)| n == &want),
+            "the shell needs no key of its own — this is why the bug was invisible"
+        );
+
+        // Every form the project contains — what it does now.
+        let all = credential_env_for(&[shell, child], &llm, &catalogue);
+        assert_eq!(
+            all.iter().find(|(n, _)| n == &want).map(|(_, v)| v.as_str()),
+            Some("brave-secret"),
+            "a child form's connection key must reach the process that will open it"
+        );
+    }
 
     /// **A provider configured the way the Model Providers Manager configures
     /// one shows up for an AgentObject to bind to.**

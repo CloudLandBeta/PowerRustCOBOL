@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.84] — 2026-09-08
+
+### Embedded forms were never given their credentials
+
+An AgentObject or a WebSearch worked when its form ran standalone and did
+nothing once that form was embedded (operator, 2026-09-08).
+
+The three form hosts all resolve a binding identically — that was checked and
+was never the problem. What differed is who **provisions** them. The IDE
+resolved credentials from **the launched form alone**, so a shell that owns no
+service control of its own put nothing in the environment for the child forms
+it would load into its ContentPane. Those children are read from disk long
+after launch, by code that cannot go back and ask for a key.
+
+Both launch paths — Run Form and the built binary — now take the union over
+**every form the project lists**. Still not "every key on the machine": a
+credential no listed form references is never handed to the process, so the
+discipline that a running application carries only what it needs survives.
+
+The union is a free function taking forms, *plural*, so it can be tested. The
+test builds a shell with no service controls and a child with a bound
+WebSearch, and asserts the child's key is provisioned — its first assertion
+records that the shell alone needs nothing, which is exactly why the defect was
+invisible.
+
+This is the same shape as the built-binary gap earlier today, one layer down:
+each path correct on its own terms, the seam between them wrong.
+
+- `crates/cobolt-ide/src/form_runtime.rs` — `credential_env_for`, and the test.
+- `crates/cobolt-ide/src/app.rs` — `credential_env`, used by both launchers.
+
+⚠️ **Unverified by a full sweep.** The machine ran out of disk during the run
+(`ld: write() failed, errno=28`, 246 MiB free of 460 GiB, `target/` at 67 GB and
+`$TMPDIR/cobolt-build-*` at 23 GB). Every crate builds; the workspace test
+sweep could not link. It must be re-run once space is reclaimed.
+
 ## [PowerRustCOBOL 1.65.83] — 2026-09-08
 
 ### A connection was overwriting settings the form owns

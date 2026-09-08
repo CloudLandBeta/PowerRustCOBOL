@@ -2128,6 +2128,54 @@ impl CoboltApp {
     ///
     /// One helper, both launchers — Run gained the switch first and Debug
     /// arrived separately, which is exactly how the two would have drifted.
+    /// Every credential this PROCESS may need, not just the launched form's.
+    ///
+    /// A process does not run one form. A shell loads others into its
+    /// ContentPane, and a form can open another in its own window — and those
+    /// child forms are read from disk long after launch, by code that cannot
+    /// go back and ask for a key. Resolving from the launched form alone
+    /// provisioned nothing for them, so an AgentObject or a WebSearch worked
+    /// standalone and did nothing once embedded (operator, 2026-09-08).
+    ///
+    /// Still not "every key on the machine": the union is taken over the
+    /// forms this project actually contains, so a credential no form
+    /// references is never handed to the process.
+    fn credential_env(&self, launched: &cobolt_forms::Form) -> Vec<(String, String)> {
+        let catalogue = cobolt_forms::connections::Catalogue {
+            rest: self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.integrations.rest_connections.clone())
+                .unwrap_or_default(),
+            search: self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.integrations.search_connections.clone())
+                .unwrap_or_default(),
+            agent: Vec::new(),
+        };
+
+        // The launched form first, then every other form the project lists.
+        let mut forms: Vec<cobolt_forms::Form> = vec![launched.clone()];
+        if let Some(project) = self.cobolt_project.as_ref() {
+            let root = self
+                .project_path
+                .as_ref()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+            if let Some(root) = root {
+                for rel in &project.files.forms {
+                    if let Ok(f) = cobolt_forms::load_form(&root.join(rel)) {
+                        if f.name != launched.name {
+                            forms.push(f);
+                        }
+                    }
+                }
+            }
+        }
+
+        crate::form_runtime::credential_env_for(&forms, &self.llm, &catalogue)
+    }
+
     fn built_app_env(&self, form_path: &Path) -> Vec<(String, String)> {
         let mut envs: Vec<(String, String)> = self
             .debug
@@ -2143,43 +2191,12 @@ impl CoboltApp {
             ));
         }
 
-        // The credentials, exactly as Run Form resolves them. Without this a
-        // BUILT application launched from the IDE ran with no keys at all: the
-        // Maps and Search keys, the project connections' keys and the model
-        // providers were set on the `rcrun run-form` child and nowhere else. A
-        // developer sees both as "run my app", so an AgentObject bound to a
-        // provider worked under Run Form and did nothing once built (operator,
-        // 2026-09-08: "agent does not work").
-        //
-        // Loaded from the path rather than taken as an argument because the two
-        // launchers differ in what they have to hand, and drifting apart is
-        // exactly how this gap opened in the first place.
+        // The credentials — every form's, not just this one's. Loaded from the
+        // path rather than taken as an argument because the two launchers
+        // differ in what they have to hand, and drifting apart is exactly how
+        // this gap opened in the first place.
         if let Ok(form) = cobolt_forms::load_form(form_path) {
-            let catalogue = cobolt_forms::connections::Catalogue {
-                rest: self
-                    .cobolt_project
-                    .as_ref()
-                    .map(|p| p.integrations.rest_connections.clone())
-                    .unwrap_or_default(),
-                search: self
-                    .cobolt_project
-                    .as_ref()
-                    .map(|p| p.integrations.search_connections.clone())
-                    .unwrap_or_default(),
-                agent: Vec::new(),
-            };
-            envs.extend(
-                crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
-                    .into_iter()
-                    .chain(crate::form_runtime::resolve_search_api_key_secret(
-                        &form, &self.llm,
-                    ))
-                    .map(|(name, value)| (name.to_owned(), value)),
-            );
-            envs.extend(crate::form_runtime::resolve_connection_key_secrets(
-                &form, &self.llm, &catalogue,
-            ));
-            envs.extend(crate::form_runtime::resolve_agent_secrets(&form, &self.llm));
+            envs.extend(self.credential_env(&form));
         }
         envs
     }
@@ -2607,35 +2624,10 @@ impl CoboltApp {
         // Credentials resolved IDE-side (spec 039 T12/T15) — the Maps and
         // Custom Search API keys reach the child only via its environment,
         // never the .cfrm/.cbl.
-        let project_connections = cobolt_forms::connections::Catalogue {
-            rest: self
-                .cobolt_project
-                .as_ref()
-                .map(|p| p.integrations.rest_connections.clone())
-                .unwrap_or_default(),
-            search: self
-                .cobolt_project
-                .as_ref()
-                .map(|p| p.integrations.search_connections.clone())
-                .unwrap_or_default(),
-            // Agent bindings are keyed to this machine's providers and travel
-            // by their own environment variable, not with the project.
-            agent: Vec::new(),
-        };
-        let secrets: Vec<(String, String)> =
-            crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
-                .into_iter()
-                .chain(crate::form_runtime::resolve_search_api_key_secret(
-                    &form, &self.llm,
-                ))
-                .map(|(name, value)| (name.to_owned(), value))
-                .chain(crate::form_runtime::resolve_connection_key_secrets(
-                    &form,
-                    &self.llm,
-                    &project_connections,
-                ))
-                .chain(crate::form_runtime::resolve_agent_secrets(&form, &self.llm))
-                .collect();
+        // Every credential this process may need — including the forms it will
+        // load into a ContentPane or open in their own windows, which are read
+        // from disk long after this launch.
+        let secrets: Vec<(String, String)> = self.credential_env(&form);
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
             form.name.clone(),
