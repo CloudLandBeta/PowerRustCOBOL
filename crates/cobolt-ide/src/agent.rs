@@ -436,7 +436,7 @@ pub fn discarded_ops(cs: &AgentChangeSet, form: &Form) -> Vec<String> {
         .collect()
 }
 
-fn is_form_id(form_name: &str, id: &str) -> bool {
+pub(crate) fn is_form_id(form_name: &str, id: &str) -> bool {
     id.is_empty() || id.eq_ignore_ascii_case("Form") || id.eq_ignore_ascii_case(form_name)
 }
 
@@ -809,17 +809,36 @@ fn validate_op(op: &AgentOp, known: &mut HashMap<String, ControlType>, form_name
             event,
             code,
         } => {
-            let base = match known.get(&control_id.to_ascii_uppercase()) {
-                None => Some(format!("No control named '{control_id}'.")),
-                Some(ct)
-                    if !ct
-                        .supported_events()
-                        .iter()
-                        .any(|e| e.eq_ignore_ascii_case(event)) =>
-                {
-                    Some(format!("Control '{control_id}' has no event '{event}'."))
+            // The FORM is a valid target, addressed the same way `SetProperty`
+            // addresses it: "" | "Form" | the form's own name. It has its own
+            // event catalogue (`form_supported_events`), not a control type's.
+            //
+            // Only `SetProperty` used to know that, so a handler for `onLoad`
+            // — the one form event the platform pre-stubs, and the one the
+            // change-set contract tells every agent to reach with
+            // `"control_id": "Form"` — was refused as "No control named
+            // 'Form'". The agent had followed the contract; the operation was
+            // discarded and the developer was told 0 changes were applied
+            // (operator, 2026-09-07: "why is grace not doing what she said she
+            // did?").
+            let base = if is_form_id(form_name, control_id) {
+                cobolt_forms::model::form_supported_events()
+                    .any(|e| e.eq_ignore_ascii_case(event))
+                    .then_some(None)
+                    .unwrap_or_else(|| Some(format!("The form has no event '{event}'.")))
+            } else {
+                match known.get(&control_id.to_ascii_uppercase()) {
+                    None => Some(format!("No control named '{control_id}'.")),
+                    Some(ct)
+                        if !ct
+                            .supported_events()
+                            .iter()
+                            .any(|e| e.eq_ignore_ascii_case(event)) =>
+                    {
+                        Some(format!("Control '{control_id}' has no event '{event}'."))
+                    }
+                    _ => None,
                 }
-                _ => None,
             };
             base.or_else(|| op_form_free_error(op))
                 .or_else(|| unknown_property_ref(code, known).map(bad_prop_msg))
@@ -3119,6 +3138,66 @@ mod tests {
                 .any(|p| p.starts_with("ShadowDirection=")),
             "no shadow ⇒ default shadow members stay hidden"
         );
+    }
+
+    /// **A form-level event handler is a valid operation.**
+    ///
+    /// The change-set contract tells every agent to address the form as
+    /// `"control_id": "Form"`, and `SetProperty` honoured that — but
+    /// `GenerateEventHandler` did not, so an `onLoad` handler was refused as
+    /// "No control named 'Form'". Both specialists had followed the contract;
+    /// the operation was discarded and the developer was told nothing was
+    /// applied (operator, 2026-09-07: "why is grace not doing what she said she
+    /// did?").
+    #[test]
+    fn a_form_level_event_handler_validates_by_any_of_its_names() {
+        let form = form_with_label();
+        let body = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+                    PROCEDURE DIVISION.\n           CONTINUE.";
+
+        // Every spelling `is_form_id` accepts reaches the form.
+        for id in ["Form", "form", "F", ""] {
+            let cs = AgentChangeSet {
+                note: None,
+            operations: vec![AgentOp::GenerateEventHandler {
+                    control_id: id.into(),
+                    event: "onLoad".into(),
+                    code: body.into(),
+                }],
+            };
+            assert_eq!(
+                validate(&cs, &form)[0],
+                None,
+                "form event handler refused for control_id {id:?}"
+            );
+        }
+
+        // An event the FORM does not have is still refused — and named as the
+        // form's, not as some control's.
+        let cs = AgentChangeSet {
+            note: None,
+            operations: vec![AgentOp::GenerateEventHandler {
+                control_id: "Form".into(),
+                event: "onSelectedIndexChanged".into(),
+                code: body.into(),
+            }],
+        };
+        let err = validate(&cs, &form)[0].clone().expect("must be refused");
+        assert!(
+            err.contains("The form has no event"),
+            "unexpected message: {err}"
+        );
+
+        // A control still validates against ITS OWN catalogue, unchanged.
+        let cs = AgentChangeSet {
+            note: None,
+            operations: vec![AgentOp::GenerateEventHandler {
+                control_id: "L1".into(),
+                event: "onClick".into(),
+                code: body.into(),
+            }],
+        };
+        assert_eq!(validate(&cs, &form)[0], None);
     }
 
     #[test]

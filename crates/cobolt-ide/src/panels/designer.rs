@@ -3048,12 +3048,22 @@ impl DesignerPanel {
                     event,
                     code,
                 } => {
-                    let old = self.form.find_control(control_id).and_then(|c| {
-                        c.events
+                    // Snapshot from wherever the binding actually lives, or
+                    // undo restores nothing for a form-level handler.
+                    let old = if crate::agent::is_form_id(&self.form.name, control_id) {
+                        self.form
+                            .form_events
                             .iter()
                             .find(|b| b.event.eq_ignore_ascii_case(event))
                             .map(|b| b.code.clone())
-                    });
+                    } else {
+                        self.form.find_control(control_id).and_then(|c| {
+                            c.events
+                                .iter()
+                                .find(|b| b.event.eq_ignore_ascii_case(event))
+                                .map(|b| b.code.clone())
+                        })
+                    };
                     cmds.push(Cmd::SetEventCode {
                         control_id: control_id.clone(),
                         event: event.clone(),
@@ -12615,6 +12625,16 @@ fn draw_form_resize_grips(
 /// (spec 025). Creates the binding on first write; `None` restores the "no binding"
 /// state (used to undo a create).
 fn set_control_event_code(form: &mut Form, control_id: &str, event: &str, code: Option<String>) {
+    // The FORM's own handlers do not live on a control — they are
+    // `form.form_events` — and `find_control_mut` can never reach them. Before
+    // this branch existed a change-set targeting the form found nothing and
+    // returned silently: the operation was reported applied and wrote nothing.
+    // The designer's own editor has always taken this path (`save_event_handler`
+    // keys it off an empty id); the agent path did not.
+    if crate::agent::is_form_id(&form.name, control_id) {
+        set_form_event_code(form, event, code);
+        return;
+    }
     let Some(c) = form.find_control_mut(control_id) else {
         return;
     };
@@ -12633,6 +12653,36 @@ fn set_control_event_code(form: &mut Form, control_id: &str, event: &str, code: 
             }
         }
         None => c.events.retain(|b| !b.event.eq_ignore_ascii_case(event)),
+    }
+}
+
+/// Set (`Some`) or remove (`None`) one of the FORM's own event handlers.
+///
+/// Mirrors [`set_control_event_code`] for `form.form_events`. A binding that
+/// does not exist yet is created — only `onLoad` and `onClose` are pre-stubbed,
+/// and the other 55 form events are bound lazily, exactly as the designer's
+/// editor creates them.
+fn set_form_event_code(form: &mut Form, event: &str, code: Option<String>) {
+    match code {
+        Some(text) => {
+            if let Some(b) = form
+                .form_events
+                .iter_mut()
+                .find(|b| b.event.eq_ignore_ascii_case(event))
+            {
+                b.code = text;
+            } else {
+                let paragraph = cobolt_forms::model::derive_paragraph_name(&form.name, event);
+                form.form_events.push(cobolt_forms::EventBinding {
+                    event: event.to_string(),
+                    paragraph,
+                    code: text,
+                });
+            }
+        }
+        None => form
+            .form_events
+            .retain(|b| !b.event.eq_ignore_ascii_case(event)),
     }
 }
 
@@ -14717,6 +14767,60 @@ mod shell_prop_tests {
             !dp.event_editor.is_context_only(),
             "the handler editor must offer keywords and paragraphs too"
         );
+    }
+
+    /// **A change-set can write the FORM's own event handler.**
+    ///
+    /// `set_control_event_code` could only ever reach `find_control_mut`, so an
+    /// operation naming the form found nothing and returned silently — the
+    /// operation counted as applied and wrote nothing. The form's handlers live
+    /// in `form.form_events`, which only the designer's own editor could reach
+    /// (operator, 2026-09-07: "nenhum código foi adicionado ao onLoad do form").
+    #[test]
+    fn a_change_set_writes_the_forms_own_event_handler() {
+        use crate::agent::{AgentChangeSet, AgentOp};
+        let body = "       ENVIRONMENT DIVISION.\n       DATA DIVISION.\n       \
+                    PROCEDURE DIVISION.\n           CONTINUE.";
+
+        let mut d = DesignerPanel::new(Form::new("AGENT-FORM", "T", 640, 480));
+        let before = d.form.form_events.len();
+
+        let applied = d.apply_agent_change_set(&AgentChangeSet {
+            operations: vec![AgentOp::GenerateEventHandler {
+                control_id: "Form".into(),
+                event: "onLoad".into(),
+                code: body.into(),
+            }],
+            note: None,
+        });
+        assert_eq!(applied, 1, "the operation was refused, not applied");
+
+        let bound = d
+            .form
+            .form_events
+            .iter()
+            .find(|e| e.event.eq_ignore_ascii_case("onLoad"))
+            .expect("onLoad must be bound on the FORM");
+        assert!(
+            bound.code.contains("PROCEDURE DIVISION"),
+            "the body was not written: {:?}",
+            bound.code
+        );
+        assert!(
+            d.form.controls.is_empty() && d.form.form_events.len() >= before,
+            "nothing else was disturbed"
+        );
+
+        // A form event the form does not have is still refused.
+        let refused = d.apply_agent_change_set(&AgentChangeSet {
+            operations: vec![AgentOp::GenerateEventHandler {
+                control_id: "Form".into(),
+                event: "onSelectedIndexChanged".into(),
+                code: body.into(),
+            }],
+            note: None,
+        });
+        assert_eq!(refused, 0, "an event the form has not must not be applied");
     }
 
     /// **A double-click opens the handler that has code in it.**

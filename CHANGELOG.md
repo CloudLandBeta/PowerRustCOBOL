@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.66] — 2026-09-07
+
+### An agent could not write a form's own event handler, and was told so wrongly
+
+Reported as "why is Grace not doing what she said she did?" — she was not the
+one at fault. Both specialists emitted exactly what the change-set contract
+tells them to emit, and the IDE threw it away:
+
+```
+Applied 0 changes.
+- NOT applied: generate_event_handler Form::onLoad — No control named 'Form'.
+```
+
+Two independent holes, either of which alone loses the work:
+
+**The validator did not know the form is a target.** `SetProperty` has always
+accepted `""` / `"Form"` / the form's own name — that is the very escape hatch
+the contract documents to every agent ("Use `"control_id":"Form"` to set a
+form-level property"). `GenerateEventHandler` went straight to the control
+table, so the form came back as "No control named 'Form'". It now takes the same
+branch and validates the event against the FORM's own catalogue
+(`form_supported_events`), not a control type's — an event the form does not
+have is still refused, and named as the form's.
+
+**The applier could not have written it either.** `set_control_event_code` only
+ever called `find_control_mut`, and returned silently when that missed. A form's
+handlers live in `form.form_events`, which until now only the designer's own
+editor could reach. Had the validator passed the operation, it would have been
+counted as applied and written nothing — the worse of the two failures, because
+the developer is told it worked. There is now a `set_form_event_code` beside its
+control twin, and the undo snapshot reads from whichever list the binding
+actually lives in.
+
+Reverted, both new tests fail — the first with the operator's exact message,
+`No control named 'Form'`, the second with `0` operations applied where 1 was
+expected.
+
 ## [PowerRustCOBOL 1.65.65] — 2026-09-07
 
 ### The Snackbar had no toolbox icon, and had had one all along
