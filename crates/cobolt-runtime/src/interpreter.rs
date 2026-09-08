@@ -121,6 +121,47 @@ fn databind_trace_write(args: std::fmt::Arguments<'_>) {
 /// build a URL from parts, so a multi-word query would otherwise truncate at
 /// its first unescaped space (the same limitation the generated `<id>-
 /// SEARCH` COBOL paragraph's own comment documents, T14).
+/// A URL with any credential in its query string masked.
+///
+/// Google Custom Search signs in the query (`?key=…`), so a verbose line that
+/// printed the URL verbatim would put the developer's key in the program's
+/// output — and that output gets pasted into bug reports and forum posts. The
+/// convention is already set by the AgentObject's verbose switch, which logs
+/// "whether an API key is set (never the key itself)".
+///
+/// Enough of the value survives to tell two keys apart and to see that one is
+/// present at all, which is what the switch is for.
+pub(crate) fn redact_query_secrets(url: &str) -> String {
+    const SECRET_PARAMS: [&str; 3] = ["key", "api_key", "apikey"];
+    let Some((base, query)) = url.split_once('?') else {
+        return url.to_owned();
+    };
+    let masked: Vec<String> = query
+        .split('&')
+        .map(|pair| match pair.split_once('=') {
+            Some((name, value))
+                if SECRET_PARAMS
+                    .iter()
+                    .any(|p| p.eq_ignore_ascii_case(name)) =>
+            {
+                format!("{name}={}", mask_secret(value))
+            }
+            _ => pair.to_owned(),
+        })
+        .collect();
+    format!("{base}?{}", masked.join("&"))
+}
+
+/// `abcd…(24 chars)`, or `(empty)` — never the whole thing.
+pub(crate) fn mask_secret(value: &str) -> String {
+    let v = value.trim();
+    if v.is_empty() {
+        return "(empty)".to_owned();
+    }
+    let head: String = v.chars().take(4).collect();
+    format!("{head}…({} chars)", v.chars().count())
+}
+
 pub(crate) fn percent_encode_query(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -2921,6 +2962,14 @@ impl Interpreter {
                     self.agent_delivered(&r.ctrl_id, status, &body);
                 }
                 crate::async_op::AsyncOutcome::HttpSuccess { body, status } => {
+                    if self.agent_is_verbose(&r.ctrl_id) {
+                        // Only a WebSearch carries `Verbose` among the controls
+                        // that land here, so this narrates a search and nothing
+                        // else. Raw and uncut: a body that has been summarised
+                        // cannot be compared against the provider's docs.
+                        self.log_block("search", &r.ctrl_id, "status", &status.to_string());
+                        self.log_block("search", &r.ctrl_id, "response", &body);
+                    }
                     self.obj_set(&r.ctrl_id, "ResponseBody", body);
                     self.obj_set(&r.ctrl_id, "StatusCode", status.to_string());
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
@@ -2928,6 +2977,9 @@ impl Interpreter {
                         .push_back((self.control_ids.get(&r.ctrl_id.to_ascii_uppercase()).cloned().unwrap_or(r.ctrl_id), "onComplete".to_string()));
                 }
                 crate::async_op::AsyncOutcome::HttpError { message } => {
+                    if self.agent_is_verbose(&r.ctrl_id) {
+                        self.log_block("search", &r.ctrl_id, "transport error", &message);
+                    }
                     self.obj_set(&r.ctrl_id, "LastError", message);
                     self.obj_set(&r.ctrl_id, "StatusCode", "0".into());
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
@@ -10693,18 +10745,23 @@ impl Interpreter {
     /// (operator, 2026-09-07: "the url, the payload, the headers, all of it,
     /// and then response or the error, verbatim not summarized").
     fn agent_log_block(&mut self, obj: &str, label: &str, text: &str) {
+        self.log_block("agent", obj, label, text);
+    }
+
+    /// The same, under any control kind's tag — `[agent X]`, `[search X]`.
+    fn log_block(&mut self, kind: &str, obj: &str, label: &str, text: &str) {
         if text.is_empty() {
-            self.agent_log(format!("[agent {obj}] {label}: (empty)"));
+            self.agent_log(format!("[{kind} {obj}] {label}: (empty)"));
             return;
         }
         let lines: Vec<String> = text.lines().map(|l| l.to_owned()).collect();
         if lines.len() == 1 {
-            self.agent_log(format!("[agent {obj}] {label}: {}", lines[0]));
+            self.agent_log(format!("[{kind} {obj}] {label}: {}", lines[0]));
             return;
         }
-        self.agent_log(format!("[agent {obj}] {label}:"));
+        self.agent_log(format!("[{kind} {obj}] {label}:"));
         for line in lines {
-            self.agent_log(format!("[agent {obj}]   {line}"));
+            self.agent_log(format!("[{kind} {obj}]   {line}"));
         }
     }
 
@@ -12912,6 +12969,9 @@ impl Interpreter {
                     crate::search_runtime::configuration_error(provider, &api_key, &endpoint)
                 {
                     // R33: "not configured" — fail synchronously, no request.
+                    if self.agent_is_verbose(obj) {
+                        self.log_block("search", obj, "not configured", &err);
+                    }
                     self.obj_set(obj, "LastError", err);
                     self.queue_control_event(obj, "onError");
                     return CobolValue::from_str("", 0);
@@ -12939,14 +12999,46 @@ impl Interpreter {
                 // Brave, Serper and Tavily authenticate in a header, so the
                 // request carries a config now instead of the stock one.
                 let cfg = crate::http_runtime::RequestConfig {
-                    headers: req.headers,
+                    headers: req.headers.clone(),
                     ..Default::default()
                 };
+                if self.agent_is_verbose(obj) {
+                    // Everything needed to compare this against the provider's
+                    // own documentation — except the credential, which is
+                    // masked. Program output gets pasted into bug reports.
+                    self.log_block("search", obj, "provider", provider.as_str());
+                    self.log_block("search", obj, "method", req.method);
+                    let shown_url = redact_query_secrets(&req.url);
+                    self.log_block("search", obj, "url", &shown_url);
+                    let headers: String = req
+                        .headers
+                        .iter()
+                        .map(|(n, v)| {
+                            let secret = n.eq_ignore_ascii_case("authorization")
+                                || n.eq_ignore_ascii_case("x-api-key")
+                                || n.eq_ignore_ascii_case("x-subscription-token");
+                            if secret {
+                                format!("{n}: {}", mask_secret(v))
+                            } else {
+                                format!("{n}: {v}")
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    self.log_block("search", obj, "headers", &headers);
+                    self.log_block("search", obj, "body", &req.body);
+                    let mode = if self.rest_is_async(obj) { "async" } else { "sync" };
+                    self.log_block("search", obj, "mode", mode);
+                }
                 if self.rest_is_async(obj) {
                     self.spawn_rest_op(obj, req.method, req.url, req.body, cfg)
                 } else {
                     let body = (!req.body.is_empty()).then_some(req.body.as_str());
                     let (b, st) = self.http.send_configured(req.method, &req.url, body, &cfg);
+                    if self.agent_is_verbose(obj) {
+                        self.log_block("search", obj, "status", &st.to_string());
+                        self.log_block("search", obj, "response", &b);
+                    }
                     self.obj_set(obj, "ResponseBody", b.clone());
                     self.obj_set(obj, "StatusCode", st.to_string());
                     val(b)
@@ -16851,6 +16943,44 @@ MAIN.
     }
 
     #[test]
+    /// **A verbose search never prints the key.**
+    ///
+    /// Verbose output is written to be pasted — into a bug report, a forum
+    /// post, a message to whoever maintains the form. Google signs Custom
+    /// Search in the **query string**, so a URL printed verbatim carries the
+    /// developer's key in it, and the other providers carry theirs in a
+    /// header. Both are masked, to the same convention the AgentObject's
+    /// verbose switch already states: enough to see a key is present and to
+    /// tell two apart, never the key.
+    #[test]
+    fn a_verbose_search_masks_the_credential_wherever_it_travels() {
+        const KEY: &str = "AIzaSyD-super-secret-value-9f2";
+
+        // In the query string, where Google puts it.
+        let url = format!(
+            "https://www.googleapis.com/customsearch/v1?key={KEY}&cx=abc123&q=cobol&num=10"
+        );
+        let shown = redact_query_secrets(&url);
+        assert!(!shown.contains(KEY), "the key survived into the log: {shown}");
+        assert!(shown.contains("cx=abc123"), "non-secrets stay readable: {shown}");
+        assert!(shown.contains("q=cobol"), "the query itself is the point: {shown}");
+        assert!(shown.contains("key=AIza"), "enough to tell two keys apart: {shown}");
+        assert!(shown.contains("chars)"), "and to see one is present: {shown}");
+
+        // Other spellings, and a URL with no query at all.
+        assert!(!redact_query_secrets(&format!("https://x/y?api_key={KEY}")).contains(KEY));
+        assert!(!redact_query_secrets(&format!("https://x/y?APIKEY={KEY}")).contains(KEY));
+        assert_eq!(
+            redact_query_secrets("https://api.tavily.com/search"),
+            "https://api.tavily.com/search"
+        );
+
+        // The masker itself: never the whole value, and honest about absence.
+        assert!(!mask_secret(KEY).contains("secret-value"));
+        assert_eq!(mask_secret("   "), "(empty)");
+        assert!(mask_secret("abcdefgh").starts_with("abcd"));
+    }
+
     fn web_search_delivered_result_updates_response_body_and_fires_on_complete() {
         // Same delivery-half boundary as `maps_op_delivered_result_updates_
         // response_body_and_fires_on_complete` above — SEARCH reuses the

@@ -141,6 +141,7 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
                 ("Mode", Runtime),
                 ("Busy", Runtime),
                 ("TimeoutMs", Runtime),
+                ("Verbose", Runtime),
             ],
         ),
         (

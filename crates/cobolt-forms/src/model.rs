@@ -5428,6 +5428,12 @@ impl Control {
                 props.insert("Mode".into(), PropValue::String("Async".into())); // Async | Sync
                 props.insert("Busy".into(), PropValue::Bool(false));
                 props.insert("TimeoutMs".into(), PropValue::Int(30000));
+                // Debugging switch, off by default: with it on the runtime
+                // narrates the whole search into the program's output — the
+                // provider, the request it built, the status and the raw
+                // answer. Without it a search that yields nothing looks the
+                // same as a search that never ran.
+                props.insert("Verbose".into(), PropValue::Bool(false));
             }
             ControlType::SqlDatabase => {
                 // Connection

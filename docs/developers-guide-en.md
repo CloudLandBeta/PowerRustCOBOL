@@ -7382,6 +7382,23 @@ has no account.
 > application carries the connections baked in and reads each key from
 > `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it.
 
+#### When a search seems to do nothing
+
+Set **`Verbose`** on the control. The runtime then narrates the whole call into
+the program's output — the provider, the method and URL, the request headers,
+the body sent, whether it went async or sync, and then the HTTP status and the
+**raw response, uncut**, so you can compare it against the provider's own
+documentation. A misconfiguration is reported there too, before anything is
+sent.
+
+It exists because a search that returned nothing and a search that never ran
+produce the same silence. `Verbose` is what separates them.
+
+> **Credentials are masked.** A key in a request header, or in the URL query
+> where Google signs it, prints as its first few characters and a length —
+> enough to see that a key is present and to tell two apart, without putting it
+> in output that ends up pasted into a bug report.
+
 **Where the key comes from.** For a control on `(Local)`: the project-level
 search credential (Settings → Integrations), the same way Maps resolves its
 key. A control may

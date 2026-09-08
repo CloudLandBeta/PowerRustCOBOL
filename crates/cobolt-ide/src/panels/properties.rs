@@ -8951,6 +8951,10 @@ impl PropertiesPanel {
                     0..=600_000,
                 );
                 busy_row_readonly(ui, ctrl);
+                // Outside the (Local)/connection gate: a debugging switch is
+                // about this control's behaviour, not its connection, and it is
+                // most needed exactly when a bound search appears to do nothing.
+                bool_row_inline(ui, id, "Verbose", "Verbose log", ctrl, action);
                 ui.add_space(4.0);
             }
 

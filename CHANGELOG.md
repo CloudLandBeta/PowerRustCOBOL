@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.77] — 2026-09-08
+
+### WebSearch gets a Verbose switch
+
+A search that returned nothing and a search that never ran produce the same
+silence. `Verbose` is what separates them — the same switch the `AgentObject`
+got, for the same reason, on the control that most needs it now that five
+providers can answer.
+
+With it on, the runtime narrates the whole call into the program's output: the
+**provider**, the **method** and **URL**, the **request headers**, the **body
+sent**, whether the call went **async or sync**, and then the **HTTP status**
+and the **raw response, uncut**. A payload that has been summarised cannot be
+compared against the provider's own documentation, which is the entire point of
+looking. A misconfiguration is reported there too, *before* anything is sent —
+the case most likely to look like nothing happening at all.
+
+**Credentials are masked wherever they travel.** Google signs Custom Search in
+the **query string**, so a URL printed verbatim would carry the developer's key;
+Brave, Serper and Tavily carry theirs in a header. Both print as the first few
+characters and a length — enough to see a key is present and to tell two apart,
+never the key itself. Verbose output is written to be pasted into bug reports,
+and this is the convention the AgentObject's switch already states.
+
+`agent_log_block` is generalised to `log_block(kind, …)` rather than copied, so
+the two controls narrate in one format under their own tag.
+
+- `crates/cobolt-forms/src/model.rs` — `Verbose`, off by default.
+- `crates/cobolt-runtime/src/interpreter.rs` — the narration, plus
+  `redact_query_secrets` and `mask_secret`.
+- `crates/cobolt-ide/src/panels/properties.rs` — the switch, deliberately
+  outside the `(Local)`/connection gate: it is about the control's behaviour,
+  not its connection, and is most needed when a *bound* search does nothing.
+- `crates/cobolt-compiler/src/lib.rs`, `assets/knowledge/chunked.data`,
+  `docs/developers-guide-en.md`.
+- Tests: `a_verbose_search_masks_the_credential_wherever_it_travels`, verified
+  by reverting — without the redactor the key appears in the log in full.
+
+Sweep: the only failures were the seven live crates.io tests, which pass on
+re-run; everything else green.
+
 ## [PowerRustCOBOL 1.65.74] — 2026-09-08
 
 ### AgentObject binds to a configured model provider (step 3 of 3)
