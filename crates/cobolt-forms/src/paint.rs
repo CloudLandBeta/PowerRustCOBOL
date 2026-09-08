@@ -1924,6 +1924,45 @@ pub fn nv_icon_color(a: u8) -> Color32 {
     Color32::from_rgba_premultiplied(212, 226, 255, a)
 }
 
+/// The tone a non-visual badge card actually paints, as an opaque colour.
+///
+/// `nv_card` hands [`NV_CARD`] — the historical navy — to `draw_surface_auto`,
+/// which keeps it only when the active form theme publishes no Card surface of
+/// its own. A theme that publishes one paints *that* colour instead, and a
+/// Neumorphic form paints its own light surface. The icon and the label on top
+/// were a fixed light blue either way, so on every light register both faded
+/// into the card they sat on — a WebSearch badge read as an empty rounded
+/// rectangle (operator screenshot, 2026-09-08).
+///
+/// Same order as [`popup_surface`], minus the control's own `BackgroundColor`:
+/// the badge card does not paint one.
+pub fn nv_card_tone(ctx: &egui::Context) -> Color32 {
+    if let Some(c) = theme_token(ctx, crate::surface_theme::ColorToken::Card)
+        .or_else(|| theme_token(ctx, crate::surface_theme::ColorToken::InputBg))
+    {
+        return c;
+    }
+    // NO glass-style branch here, deliberately. `popup_surface` has one
+    // because a popup really is repainted in the neumorphic surface colour;
+    // this card is not. `nv_card` hands NV_CARD to `draw_surface_auto`, and
+    // when the theme publishes no Card surface that goes to `draw_glass_auto`,
+    // which paints NV_CARD — navy — under every glass style, neumorphic
+    // included. Copying the popup's order without checking what this card
+    // actually paints put BLACK ink on a navy card at about 1.7:1 (operator
+    // screenshot, 2026-09-08).
+    NV_CARD
+}
+
+/// A non-visual badge's ink, held to WCAG AA on the card it actually lands on.
+///
+/// `derived` is the historical colour and is kept wherever it still reads, so a
+/// dark Liquid Glass card looks exactly as it always has; where it does not, it
+/// gives way to whichever of black or white carries on that card.
+pub fn nv_ink_on(derived: Color32, tone: Color32, a: u8) -> Color32 {
+    let ink = readable_ink_on(None, derived, tone);
+    Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), a)
+}
+
 /// Draw the shared non-visual card background.
 /// The card's own radius, before any container lift.
 pub const NV_CARD_RADIUS: f32 = 12.0;
@@ -1966,16 +2005,22 @@ pub fn nv_card(
     }
 }
 
-/// Centre / size / stroke for a non-visual icon within `rect`.
-pub fn nv_icon_geom(rect: egui::Rect, a: u8) -> (Pos2, f32, Stroke) {
+/// Centre / size / stroke for a non-visual icon within `rect`, inked to stay
+/// legible on `tone` — the colour the card beneath it actually paints.
+pub fn nv_icon_geom(rect: egui::Rect, a: u8, tone: Color32) -> (Pos2, f32, Stroke) {
     let cen = Pos2::new(rect.center().x, rect.min.y + rect.height() * 0.40);
     let s = rect.height().min(rect.width()) * 0.22;
     let sw = (s * 0.18).clamp(1.6, 3.0);
-    (cen, s, Stroke::new(sw, nv_icon_color(a)))
+    (cen, s, Stroke::new(sw, nv_ink_on(nv_icon_color(255), tone, a)))
 }
 
-/// A larger label centred at the bottom of the card (≈2× the previous size).
-pub fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8) {
+/// The label's historical colour, quieter than the icon's so the caption reads
+/// as secondary to the glyph on the cards where both already worked.
+const NV_LABEL_INK: Color32 = Color32::from_rgb(154, 165, 186);
+
+/// A larger label centred at the bottom of the card (≈2× the previous size),
+/// inked to stay legible on `tone`.
+pub fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8, tone: Color32) {
     let t: String = text.chars().take(14).collect();
     painter.text(
         rect.center_bottom() - Vec2::new(0.0, 7.0),
@@ -1983,7 +2028,7 @@ pub fn nv_label(painter: &egui::Painter, rect: egui::Rect, text: &str, a: u8) {
         t,
         // 20% smaller than 16px, and 25% darker label colour.
         egui::FontId::proportional(12.8),
-        Color32::from_rgba_premultiplied(154, 165, 186, a),
+        nv_ink_on(NV_LABEL_INK, tone, a),
     );
 }
 
@@ -2060,6 +2105,25 @@ pub fn nv_icon_globe(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
     );
     // central meridian
     nv_ellipse(painter, c.x, c.y, s * 0.45, s, st);
+}
+
+/// The universal magnifying-glass search glyph — deliberately distinct from
+/// `nv_icon_globe`'s globe-and-connectors motif, which is RestClient's.
+///
+/// The same drawing as the toolbox's WebSearch icon, and now literally the same
+/// code, so the two cannot drift apart the way two hand-drawn copies do
+/// (operator, 2026-09-07: "the control has one that can be used there too —
+/// use that icon in both places").
+pub fn nv_icon_search(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
+    let lens_r = s * 0.72;
+    let lens_c = Pos2::new(c.x - s * 0.18, c.y - s * 0.18);
+    painter.circle_stroke(lens_c, lens_r, st);
+    // The handle, running out of the lens along its lower-right diagonal.
+    let dir = Vec2::new(1.0, 1.0).normalized();
+    painter.line_segment(
+        [lens_c + dir * lens_r * 0.95, lens_c + dir * lens_r * 1.9],
+        st,
+    );
 }
 
 pub fn nv_icon_database(painter: &egui::Painter, c: Pos2, s: f32, st: Stroke) {
@@ -2803,15 +2867,14 @@ fn draw_control_body(
     }
 
     // ── Non-visual controls — standardised glass card + stroke icon + label ─────
-    if matches!(
-        ctrl.control_type,
-        CT::Timer
-            | CT::AgentObject
-            | CT::RestClient
-            | CT::SqlDatabase
-            | CT::IndexedFile
-            | CT::Snackbar
-    ) {
+    //
+    // Driven by `is_non_visual()` — the catalogue's own answer — rather than by
+    // a hand-written list, which had already drifted: `WebSearch` was
+    // non-visual in the catalogue and missing from the list here, so it painted
+    // a bare card with no glyph and no caption at all (operator screenshot,
+    // 2026-09-08). `render.rs` learned the same lesson on 2026-09-01 and
+    // switched to the same predicate; this is the other half of it.
+    if ctrl.control_type.is_non_visual() {
         nv_card(
             painter,
             rect,
@@ -2821,8 +2884,11 @@ fn draw_control_body(
             a,
             control_border_rounding(ctrl, rect, NV_CARD_RADIUS),
         );
-        let (cen, s, st) = nv_icon_geom(rect, a);
-        let label: String = match ctrl.control_type {
+        // Both the glyph and the caption are inked against the tone the card
+        // beneath them actually paints, not against the navy it used to be.
+        let tone = nv_card_tone(painter.ctx());
+        let (cen, s, st) = nv_icon_geom(rect, a, tone);
+        let label: String = match &ctrl.control_type {
             CT::Timer => {
                 nv_icon_clock(painter, cen, s, st);
                 let iv = ctrl.get_prop("Interval").map(|v| v.as_i64()).unwrap_or(1000);
@@ -2844,15 +2910,31 @@ fn draw_control_body(
                 nv_icon_indexed_file(painter, cen, s, st);
                 ctrl.get_prop("OpenMode").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "INPUT".into())
             }
+            CT::WebSearch => {
+                nv_icon_search(painter, cen, s, st);
+                // The engine id, because a WebSearch without one cannot search
+                // at all — it answers through `onError` — so the badge reports
+                // the setting the developer has to make, the way the Timer's
+                // reports its interval.
+                ctrl.get_prop("SearchEngineId")
+                    .map(|v| v.as_str().trim().to_owned())
+                    .filter(|id| !id.is_empty())
+                    .unwrap_or_else(|| "no engine".into())
+            }
             // 055 R3 — the tray badge, NOT the notification. The card reports
             // the category the next `Show()` will mint from, the way the Timer's
             // reports its interval; the message itself only exists at run time.
-            _ /* Snackbar */ => {
+            CT::Snackbar => {
                 nv_icon_snackbar(painter, cen, s, st);
                 crate::snackbar::category_of(ctrl).as_str().to_owned()
             }
+            // A non-visual type added to the catalogue but not yet given a
+            // glyph here. It still gets the card and a caption naming it, so it
+            // is identifiable on the canvas rather than blank — the failure
+            // this branch was just fixed for.
+            other => other.as_str().to_owned(),
         };
-        nv_label(painter, rect, &label, a);
+        nv_label(painter, rect, &label, a, tone);
         return;
     }
 
@@ -12797,6 +12879,288 @@ fn control_kind_key(ct: &ControlType) -> &'static str {
         CT::StatusBar => "statusbar",
         CT::PictureBox => "picturebox",
         _ => "",
+    }
+}
+
+#[cfg(test)]
+mod non_visual_badge_tests {
+    use super::*;
+    use crate::model::{Control, ControlType as CT, GlassStyle};
+
+    /// What `draw_control` actually put on the canvas for one non-visual badge:
+    /// the tone its card resolved to, the stroke colours of its glyph, and the
+    /// captions it wrote with their colours.
+    ///
+    /// Circle and line strokes only — a rect stroke is the CARD's border, not
+    /// ink, and must not be held to a text contrast ratio.
+    fn painted_badge(
+        ctrl: &Control,
+        style: GlassStyle,
+    ) -> (Color32, Vec<Color32>, Vec<(String, Color32)>) {
+        let ctx = egui::Context::default();
+        set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+        set_glass_style(&ctx, style);
+
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    draw_control(ui.painter(), Pos2::ZERO, ctrl, false, true, 1.0, 1.0, None);
+                });
+        });
+        full.textures_delta.clear();
+
+        fn walk(
+            sh: &egui::Shape,
+            strokes: &mut Vec<Color32>,
+            texts: &mut Vec<(String, Color32)>,
+        ) {
+            match sh {
+                egui::Shape::Vec(v) => v.iter().for_each(|x| walk(x, strokes, texts)),
+                egui::Shape::Circle(c) if c.stroke.width > 0.0 => strokes.push(c.stroke.color),
+                egui::Shape::LineSegment { stroke, .. } if stroke.width > 0.0 => {
+                    strokes.push(stroke.color)
+                }
+                egui::Shape::Text(t) => {
+                    let colour = t
+                        .override_text_color
+                        .or_else(|| t.galley.job.sections.first().map(|s| s.format.color))
+                        .unwrap_or(Color32::TRANSPARENT);
+                    texts.push((t.galley.text().to_owned(), colour));
+                }
+                _ => {}
+            }
+        }
+        let (mut strokes, mut texts) = (Vec::new(), Vec::new());
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut strokes, &mut texts);
+        }
+        (nv_card_tone(&ctx), strokes, texts)
+    }
+
+    /// **The tone the ink is chosen against is the colour the card actually
+    /// paints.**
+    ///
+    /// This is the assertion the first version of this fix lacked, and the
+    /// reason it shipped a defect. `nv_card_tone` was written by copying
+    /// `popup_surface`'s resolution order, which has a neumorphic branch
+    /// because a popup really is repainted in the neumorphic surface colour.
+    /// This card is not: `nv_card` hands `NV_CARD` to `draw_surface_auto`, and
+    /// with no themed Card surface that paints navy under every glass style.
+    /// So the resolver predicted a LIGHT card, picked black, and painted it on
+    /// navy at about 1.7:1 — while the contrast test below passed, because it
+    /// compared the ink against the prediction rather than against the paint
+    /// (operator screenshot, 2026-09-08).
+    ///
+    /// Comparing a prediction with itself proves nothing. This compares the
+    /// prediction with what the painter actually put on the canvas.
+    #[test]
+    fn the_tone_the_ink_is_chosen_against_is_what_the_card_paints() {
+        for style in [GlassStyle::Neumorphic, GlassStyle::Classic] {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+            set_glass_style(&ctx, style);
+
+            let mut c = Control::new("NV-1", CT::WebSearch, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 120, 80);
+
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+
+            fn rects(sh: &egui::Shape, out: &mut Vec<(f32, Color32)>) {
+                match sh {
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| rects(x, out)),
+                    egui::Shape::Rect(r) => out.push((r.rect.width() * r.rect.height(), r.fill)),
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for cs in &full.shapes {
+                rects(&cs.shape, &mut found);
+            }
+            found.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+            // A frosted card paints no opaque fill of its own — the frost sits
+            // over the backdrop, and NV_CARD is the base it was handed. There
+            // is nothing to compare in that case, and nothing wrong either.
+            let Some((_, painted)) = found.into_iter().find(|(_, c)| c.a() > 200) else {
+                continue;
+            };
+            let predicted = nv_card_tone(&ctx);
+            assert_eq!(
+                (predicted.r(), predicted.g(), predicted.b()),
+                (painted.r(), painted.g(), painted.b()),
+                "{style:?}: the ink is chosen against {predicted:?} but the card \
+                 paints {painted:?} — every badge on this style is inked for a \
+                 card that does not exist"
+            );
+        }
+    }
+
+    /// **Every non-visual control shows a glyph and a caption, in ink that
+    /// reads on the card it lands on.**
+    ///
+    /// Two defects, one screenshot (operator, 2026-09-08). `WebSearch` was
+    /// non-visual in the catalogue but missing from this file's hand-written
+    /// list, so it painted a bare rounded rectangle — no glyph, no caption, no
+    /// way to tell it from the two controls beside it. And the ink for the six
+    /// types that DID get a badge was a fixed light blue, chosen for the
+    /// historical navy card; on a Neumorphic form the card is near-white, so
+    /// glyph and caption alike faded into it.
+    #[test]
+    fn every_non_visual_control_shows_a_readable_glyph_and_caption() {
+        let non_visual: Vec<CT> = CT::ALL
+            .iter()
+            .filter(|ct| ct.is_non_visual())
+            .cloned()
+            .collect();
+        assert!(
+            non_visual.len() >= 7,
+            "the catalogue lists {} non-visual controls",
+            non_visual.len()
+        );
+
+        let mut rows: Vec<(String, String, f32, f32)> = Vec::new();
+        for style in [GlassStyle::Neumorphic, GlassStyle::Classic] {
+            for ct in &non_visual {
+                let mut c = Control::new("NV-1", ct.clone(), 0, 0);
+                c.rect = crate::model::Rect::new(0, 0, 120, 80);
+                let (tone, strokes, texts) = painted_badge(&c, style);
+
+                let caption = texts
+                    .iter()
+                    .find(|(t, _)| !t.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "{:?} on {:?} painted NO caption — a blank card the \
+                             developer cannot identify",
+                            ct, style
+                        )
+                    });
+
+                let worst_text = texts
+                    .iter()
+                    .filter(|(t, _)| !t.trim().is_empty())
+                    .map(|(_, c)| contrast_ratio(*c, tone))
+                    .fold(f32::INFINITY, f32::min);
+                assert!(
+                    worst_text >= 4.5,
+                    "{:?} on {:?}: caption {:?} at {:.2}:1 on its own card \
+                     {:?} — below WCAG AA 4.5:1",
+                    ct,
+                    style,
+                    caption.0,
+                    worst_text,
+                    tone
+                );
+
+                let worst_glyph = strokes
+                    .iter()
+                    .map(|c| contrast_ratio(*c, tone))
+                    .fold(f32::INFINITY, f32::min);
+                if worst_glyph.is_finite() {
+                    assert!(
+                        worst_glyph >= 4.5,
+                        "{:?} on {:?}: glyph stroke at {:.2}:1 on its own card {:?}",
+                        ct,
+                        style,
+                        worst_glyph,
+                        tone
+                    );
+                }
+
+                if matches!(style, GlassStyle::Neumorphic) {
+                    rows.push((
+                        ct.as_str().to_owned(),
+                        caption.0.clone(),
+                        worst_glyph,
+                        worst_text,
+                    ));
+                }
+            }
+        }
+
+        // The one that was blank draws its lens, so the caption is not the only
+        // thing standing in for a glyph.
+        let mut ws = Control::new("WS-1", CT::WebSearch, 0, 0);
+        ws.rect = crate::model::Rect::new(0, 0, 120, 80);
+        let (_, ws_strokes, ws_texts) = painted_badge(&ws, GlassStyle::Neumorphic);
+        assert!(
+            !ws_strokes.is_empty(),
+            "WebSearch painted no glyph strokes — the magnifier is missing"
+        );
+        assert!(
+            ws_texts.iter().any(|(t, _)| t == "no engine"),
+            "an unset SearchEngineId must say so on the badge, got {:?}",
+            ws_texts.iter().map(|(t, _)| t).collect::<Vec<_>>()
+        );
+        ws.set_prop(
+            "SearchEngineId",
+            crate::PropValue::String("a1b2c3d4".into()),
+        );
+        let (_, _, set_texts) = painted_badge(&ws, GlassStyle::Neumorphic);
+        assert!(
+            set_texts.iter().any(|(t, _)| t == "a1b2c3d4"),
+            "a set SearchEngineId must be the caption, got {:?}",
+            set_texts.iter().map(|(t, _)| t).collect::<Vec<_>>()
+        );
+
+        println!("\n  Non-visual badges on a Neumorphic card (contrast vs the card):");
+        println!("  {:<14} {:<14} {:>8} {:>8}", "control", "caption", "glyph", "caption");
+        for (ct, cap, g, t) in &rows {
+            let g = if g.is_finite() {
+                format!("{g:.1}:1")
+            } else {
+                "n/a".into()
+            };
+            println!("  {ct:<14} {cap:<14} {g:>8} {:>8}", format!("{t:.1}:1"));
+        }
+        println!("  WCAG AA asks 4.5:1\n");
+    }
+
+    /// **The card that already worked is untouched.**
+    ///
+    /// The fix must not restyle the surface it was right on. On the historical
+    /// navy the light blue glyph is 9.2:1 and the quieter caption 4.9:1, so
+    /// both clear AA and `readable_ink_on` returns them unchanged — a Liquid
+    /// Glass form looks exactly as it did.
+    #[test]
+    fn the_historical_navy_card_keeps_its_historical_ink() {
+        for (what, derived) in [
+            ("glyph", nv_icon_color(255)),
+            ("caption", NV_LABEL_INK),
+        ] {
+            assert!(
+                contrast_ratio(derived, NV_CARD) >= 4.5,
+                "{what} was already readable on the navy card"
+            );
+            assert_eq!(
+                nv_ink_on(derived, NV_CARD, 255),
+                derived,
+                "{what} must be returned unchanged on the card it was chosen for"
+            );
+        }
+
+        // ...and gives way on a card it cannot read on.
+        let pale = Color32::from_rgb(232, 237, 254);
+        let ink = nv_ink_on(nv_icon_color(255), pale, 255);
+        assert_ne!(ink, nv_icon_color(255), "light ink cannot stay on a pale card");
+        assert!(
+            contrast_ratio(ink, pale) >= 4.5,
+            "the replacement reads: {:.2}:1",
+            contrast_ratio(ink, pale)
+        );
     }
 }
 

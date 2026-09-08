@@ -114,6 +114,76 @@ the two controls narrate in one format under their own tag.
 Sweep: the only failures were the seven live crates.io tests, which pass on
 re-run; everything else green.
 
+## [PowerRustCOBOL 1.65.76] — 2026-09-08
+
+### WebSearch never fired the event the designer told you to bind
+
+A WebSearch searched successfully, filled `ResponseBody`, and ran no COBOL at
+all. The operator's report was exactly "nothing happens", with a valid Brave
+key and a working connection — and it would have happened on any provider,
+since spec 039 shipped.
+
+`onResultsReceived` is the control's **primary** event: it heads its designer
+list and it is what a double-click binds. Nothing raised it. Async completion
+queued the uniform `onComplete` for every control alike, so a handler bound to
+`onResultsReceived` — the natural choice, and the one the demo form uses —
+simply never ran. There was no error to see, because nothing failed.
+
+The KB had documented the defect as intent: *"classification label for
+WebSearch's completion (the runtime actually fires the uniform
+onComplete/onError)"*. That is why it survived so long, and it is corrected
+here rather than left to mislead the next reader.
+
+A control whose own completion event the designer offers now has it raised,
+before `onComplete`. **Both** are raised, so a form bound to `onComplete`
+instead is untouched.
+
+Deliberately a short explicit list rather than `ControlType::primary_event()`:
+most primaries are nothing of the kind. A Maps control's is `onMapClick`, and
+raising that when a route came back would be a fabricated click. `RestClient`'s
+primary is `onResponseReceived`, but that event is not in its designer list and
+so cannot be bound — it is left out rather than raised into the void. A test
+pins the mapping against the catalogue, so renaming the primary breaks the test
+rather than the behaviour.
+
+- `crates/cobolt-runtime/src/interpreter.rs` — `completion_event_for`,
+  `object_class`, and the completion arm.
+- `crates/cobolt-compiler/src/lib.rs` + `assets/knowledge/chunked.data` — the
+  event reference no longer describes the defect as design.
+- `docs/developers-guide-en.md` — the example binds `onResultsReceived`.
+
+Full workspace sweep: 3671 passed, 0 failed, 12 ignored.
+
+## [PowerRustCOBOL 1.65.75] — 2026-09-08
+
+### The badge ink was chosen for a card that does not exist
+
+1.65.69 fixed non-visual badges painted in unreadable ink. On a Neumorphic
+form it made them unreadable a different way: **black glyph and caption on the
+navy card**, about 1.7:1 — worse, if anything, than the pale ink it replaced.
+
+`nv_card_tone` was written by copying `popup_surface`'s resolution order. That
+order has a Neumorphic branch because a popup really is repainted in the
+neumorphic surface colour. **This card is not.** `nv_card` hands `NV_CARD` to
+`draw_surface_auto`, and with no themed Card surface that goes to
+`draw_glass_auto`, which paints navy under *every* glass style. So the resolver
+predicted a light card and `readable_ink_on` dutifully picked black for it.
+
+The branch is gone. Measured on the card the painter actually produces: glyph
+**9.2:1**, caption **4.8:1**, and the designed light-on-navy look is back.
+
+**The test was the real defect.** It reported 16.9:1 and passed, because it
+compared the ink against the same resolver production code had used to choose
+it — a prediction measured against itself always agrees. It now paints the
+control, walks the shapes for the largest opaque rect, and asserts the
+resolver's tone **equals the fill actually painted**. A frosted surface paints
+no opaque fill of its own and is skipped rather than given an invented one.
+
+- `crates/cobolt-forms/src/paint.rs` — the wrong branch removed;
+  `the_tone_the_ink_is_chosen_against_is_what_the_card_paints`.
+
+Full workspace sweep: 3671 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.74] — 2026-09-08
 
 ### AgentObject binds to a configured model provider (step 3 of 3)
@@ -512,6 +582,58 @@ what instances return.
   the same triples; `interpreter::tests` add the SearXNG no-key path and
   control-key-over-project-key. Verified by reverting: making every provider
   demand a key, and moving Tavily's key into the body, fails three tests.
+
+## [PowerRustCOBOL 1.65.69] — 2026-09-08
+
+> **Note.** `fixes` and `features` each reached this number independently while they were apart; both shipped, and both are recorded. The entry above is the other one.
+
+### A WebSearch chip was a blank rectangle, and the rest were invisible ink
+
+Two defects behind one screenshot: three non-visual controls sitting on a form,
+none of them showing what it was.
+
+`WebSearch` had no badge at all. The catalogue calls seven control types
+non-visual, but the designer's badge branch tested a **hand-written list of
+six** — `WebSearch` was not on it, so it fell through to the generic path and
+painted a bare rounded card: no glyph, no caption, nothing to tell it from the
+control beside it. This is the same drift `render.rs` was fixed for on
+2026-09-01, when its own hand-written list of three had fallen behind a
+catalogue of seven; that arm now asks `is_non_visual()`, and so does this one.
+A future non-visual control is covered the day it is added, and one added
+without a glyph still gets a card captioned with its type name rather than a
+blank.
+
+The other six had a badge nobody could read. The glyph and the caption were
+painted in a fixed light blue chosen for `NV_CARD`, the historical dark navy.
+But the card under them is whatever the form theme paints — and a Neumorphic
+form paints it near-white, which put pale ink on a pale card at **1.99:1**,
+about a fifth of what WCAG AA asks of text. `nv_card_tone` now resolves the
+colour the card actually paints, in the same order `popup_surface` established
+for exactly this class of bug, and `nv_ink_on` holds the ink to 4.5:1 against
+it. Where the historical ink already reads it is returned untouched, so a
+Liquid Glass form is unchanged, byte for byte; on the Neumorphic card the seven
+badges now measure 16.9:1.
+
+`WebSearch`'s glyph is the toolbox's own magnifier, moved into `nv_icon_search`
+and called from both places rather than drawn twice — the arrangement the
+Snackbar icon got a day earlier, for the same reason.
+
+The caption reports the setting that matters, as its siblings' do: the search
+engine id, or `no engine` while `SearchEngineId` is unset — the state in which
+that control answers through `onError` instead of searching.
+
+- `crates/cobolt-forms/src/paint.rs` — badge branch driven by `is_non_visual()`;
+  `nv_card_tone`, `nv_ink_on`, `nv_icon_search`, `NV_LABEL_INK`; `nv_icon_geom`
+  and `nv_label` take the resolved tone.
+- `crates/cobolt-ide/src/panels/toolbox.rs` — WebSearch draws the shared glyph.
+- `docs/developers-guide-en.md` — the non-visual note named four of the seven
+  and never said what a chip shows.
+- Tests: `paint::non_visual_badge_tests` — every non-visual type paints a glyph
+  and a caption at ≥ 4.5:1 on its own card, across Neumorphic and Classic; the
+  navy card keeps its historical ink unchanged. Both halves verified by
+  reverting them: the predicate reverted fails with "WebSearch painted NO
+  caption", the ink reverted fails at 1.99:1.
+
 
 ## [PowerRustCOBOL 1.65.68] — 2026-09-07
 

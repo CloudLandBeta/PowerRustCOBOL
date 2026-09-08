@@ -162,6 +162,24 @@ pub(crate) fn mask_secret(value: &str) -> String {
     format!("{head}…({} chars)", v.chars().count())
 }
 
+/// The control's OWN completion event, when it has one the designer offers.
+///
+/// Deliberately a short explicit list rather than
+/// `ControlType::primary_event()`: most primaries are nothing of the kind — a
+/// Maps control's is `onMapClick`, and raising that when a route came back
+/// would be a fabricated click. Only a control whose primary genuinely IS its
+/// completion belongs here.
+///
+/// `RestClient`'s primary is `onResponseReceived`, but that event is not in its
+/// designer list and so cannot be bound; it is left out rather than raised into
+/// the void.
+fn completion_event_for(class: Option<&str>) -> Option<&'static str> {
+    match class?.to_ascii_lowercase().as_str() {
+        "websearch" => Some("onResultsReceived"),
+        _ => None,
+    }
+}
+
 pub(crate) fn percent_encode_query(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -2943,6 +2961,11 @@ impl Interpreter {
     /// Drain completed async results and sweep for timeouts. Applies each
     /// current-generation result to its control (writes outputs, clears `Busy`)
     /// and enqueues the corresponding lifecycle event; discards stale results.
+    /// The object's registered class name, as seeded (`"WebSearch"`, …).
+    fn object_class(&self, id: &str) -> Option<String> {
+        self.objects.get(id).map(|o| o.class.clone())
+    }
+
     fn drain_async_ops(&mut self) {
         // 1. Apply delivered results.
         let results: Vec<crate::async_op::AsyncOpResult> =
@@ -2973,8 +2996,27 @@ impl Interpreter {
                     self.obj_set(&r.ctrl_id, "ResponseBody", body);
                     self.obj_set(&r.ctrl_id, "StatusCode", status.to_string());
                     self.obj_set(&r.ctrl_id, "Busy", "0".into());
+                    let spelled = self
+                        .control_ids
+                        .get(&r.ctrl_id.to_ascii_uppercase())
+                        .cloned()
+                        .unwrap_or_else(|| r.ctrl_id.clone());
+                    // A control whose OWN completion event the designer offers
+                    // gets it raised, before the uniform one. Without this a
+                    // WebSearch handler bound to `onResultsReceived` — the
+                    // event a double-click binds, because it is the control's
+                    // primary — never ran: the search succeeded, the JSON
+                    // landed in ResponseBody, and no COBOL executed. Both are
+                    // raised, so a form already bound to `onComplete` is
+                    // unaffected.
+                    if let Some(own) =
+                        completion_event_for(self.object_class(&r.ctrl_id).as_deref())
+                    {
+                        self.async_dispatch_queue
+                            .push_back((spelled.clone(), own.to_string()));
+                    }
                     self.async_dispatch_queue
-                        .push_back((self.control_ids.get(&r.ctrl_id.to_ascii_uppercase()).cloned().unwrap_or(r.ctrl_id), "onComplete".to_string()));
+                        .push_back((spelled, "onComplete".to_string()));
                 }
                 crate::async_op::AsyncOutcome::HttpError { message } => {
                     if self.agent_is_verbose(&r.ctrl_id) {
@@ -16981,6 +17023,94 @@ MAIN.
         assert!(mask_secret("abcdefgh").starts_with("abcd"));
     }
 
+    /// **A WebSearch raises `onResultsReceived`, the event the designer told
+    /// the developer to bind.**
+    ///
+    /// `onResultsReceived` is the control's PRIMARY event — what a double-click
+    /// binds — and it is in its designer list, so a developer binds it and
+    /// expects it. Nothing raised it: async completion queued the uniform
+    /// `onComplete` for every control alike. A demo form bound to
+    /// `onResultsReceived` therefore searched successfully, filled
+    /// `ResponseBody`, and ran no COBOL at all (operator, 2026-09-08:
+    /// "nothing happens").
+    ///
+    /// Both events are raised, own first, so a form already bound to
+    /// `onComplete` keeps working exactly as before.
+    #[test]
+    fn a_web_search_raises_its_own_completion_event_before_the_uniform_one() {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. SEARCH-EVT.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([("Search1".to_owned(), "WebSearch".to_owned(), vec![])]);
+
+        let generation = {
+            let gen = interp
+                .async_generations
+                .entry("Search1".to_owned())
+                .or_insert_with(|| Arc::new(AtomicU64::new(0)));
+            gen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+        };
+        interp.async_pending.insert(
+            "Search1".to_owned(),
+            crate::async_op::PendingOp {
+                generation,
+                started_at: std::time::Instant::now(),
+                timeout_ms: 0,
+            },
+        );
+        interp
+            .async_result_tx
+            .send(crate::async_op::AsyncOpResult {
+                ctrl_id: "Search1".to_owned(),
+                generation,
+                outcome: crate::async_op::AsyncOutcome::HttpSuccess {
+                    body: r#"{"web":{"results":[]}}"#.to_owned(),
+                    status: 200,
+                },
+            })
+            .unwrap();
+        interp.drain_async_ops();
+
+        let queued: Vec<(String, String)> = interp.async_dispatch_queue.iter().cloned().collect();
+        assert_eq!(
+            queued,
+            vec![
+                ("Search1".to_owned(), "onResultsReceived".to_owned()),
+                ("Search1".to_owned(), "onComplete".to_owned()),
+            ],
+            "the control's own event must be raised, and the uniform one kept"
+        );
+    }
+
+    /// A control with no completion event of its own is untouched: only the
+    /// uniform `onComplete`. A Maps control's primary is `onMapClick`, and
+    /// raising that when a route came back would be a fabricated click.
+    #[test]
+    fn a_control_without_its_own_completion_event_still_gets_only_on_complete() {
+        assert_eq!(completion_event_for(Some("WebSearch")), Some("onResultsReceived"));
+        assert_eq!(completion_event_for(Some("websearch")), Some("onResultsReceived"));
+        assert_eq!(completion_event_for(Some("Maps")), None);
+        assert_eq!(completion_event_for(Some("RestClient")), None);
+        assert_eq!(completion_event_for(None), None);
+        // And the name matches what the designer actually offers.
+        assert!(cobolt_forms::ControlType::WebSearch
+            .supported_events()
+            .contains(&"onResultsReceived"));
+        assert_eq!(
+            cobolt_forms::ControlType::WebSearch.primary_event(),
+            "onResultsReceived",
+            "if the primary is ever renamed, this mapping must follow it"
+        );
+    }
+
+    #[test]
     fn web_search_delivered_result_updates_response_body_and_fires_on_complete() {
         // Same delivery-half boundary as `maps_op_delivered_result_updates_
         // response_body_and_fires_on_complete` above — SEARCH reuses the

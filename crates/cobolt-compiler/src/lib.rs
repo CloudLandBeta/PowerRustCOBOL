@@ -4764,7 +4764,7 @@ fn event_reference(name: &str) -> &'static str {
         "onMapClick" => "the map background was clicked (not a marker) — the primary event",
         "onMarkerClick" => "a marker was clicked (`SelectedMarkerId` holds its id)",
         "onBoundsChanged" => "the map was panned or zoomed (`CenterLat`/`CenterLng`/`Zoom` updated)",
-        "onResultsReceived" => "classification label for WebSearch's completion (the runtime actually fires the uniform onComplete/onError below — see the WebSearch section)",
+        "onResultsReceived" => "Fired when a search comes back with results, before the uniform `onComplete`. This is WebSearch's PRIMARY event — the one a double-click on the control binds — and it is the natural place to read `ResultCount`/`TopTitle`/`GetResult(n)`. Until 1.65.75 it was documented as a mere label and nothing raised it, so a handler bound here never ran: the search succeeded, `ResponseBody` filled, and no COBOL executed. Both events are raised now, so a form bound to `onComplete` instead is unaffected. Errors and timeouts still arrive on `onError`/`onTimeout`.",
         _ => "",
     }
 }

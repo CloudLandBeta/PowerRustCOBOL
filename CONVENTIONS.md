@@ -136,8 +136,27 @@ still is not — that is using a tool, not authoring code.
   already sanctioned) and publish afterwards. A post describing work that is not
   on `main` is wrong even when every word of it is accurate.
 
-- The board is **windows-1252**. Post via the **native browser submit**, not a UTF-8 `fetch`,
-  and keep the body **plain ASCII**, or accented characters mojibake.
+- The board is **windows-1252**. Post via the **native browser submit** — put the
+  text in the field, then click the real submit button — and **never** a UTF-8
+  `fetch`: the server decodes a UTF-8 body as 1252 and every accent mojibakes
+  (`añade` → `aÃ±ade`). Native submit writes accents as 1252 bytes and falls back
+  to numeric character references (`&#NNNN;`) for anything 1252 cannot hold
+  (emoji, arrows).
+  - **Accented prose is fine — the body does NOT have to be plain ASCII**
+    (settled 2026-09-07, replacing the former plain-ASCII instruction). The
+    RC4 v4 announcement (post 10715, thread t=2086, f=96) carried
+    á é í ñ ó ú throughout and read back from the *rendered* post DOM with
+    `characterSet: windows-1252` and zero mojibake. The hazard was always the
+    UTF-8 `fetch`, never the accents.
+  - **Check the editor mode before filling it.** The reply box is sometimes a
+    WYSIWYG iframe — where `form_input` on the hidden textarea submits *empty*,
+    so you must click into the iframe body and type — and sometimes a plain
+    `textarea#vB_Editor_001_textarea`. Query for the iframe, the textarea and
+    `[contenteditable]`, fill it, read the value back, and only then submit.
+  - **Verify the published post, not the submission.** Read the rendered DOM for
+    accents and BBCode. Posts stay editable for only ~5 minutes, and Cloudflare
+    can swallow the first POST — check the thread listing before any retry, or
+    the retry double-posts.
 - Subforums / prefixes:
   - `f=96` features — needs prefix `[Noticia]` (= *Información*)
   - `f=97` fixes — no prefix

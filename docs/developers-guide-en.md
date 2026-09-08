@@ -1462,10 +1462,20 @@ form's width/height to the chosen profile.
 > and a chart), and the properties pane showing the section cards. Ideally use
 > a project with a background image so the Neumorphic or glass styling is visible.
 
-> **Note (non-visual controls).** Timer, AI Agent, REST Client, and SQL Database
-> are **non-visual**: they appear on the canvas as labelled glass "chips" at
-> design time but render nothing at run time. They exist to be configured and to
-> raise events / be `CALL`ed from your COBOL.
+> **Note (non-visual controls).** Timer, AI Agent, REST Client, SQL Database,
+> Indexed File, WebSearch and Snackbar are **non-visual**: they appear on the
+> canvas as labelled glass "chips" at design time but render nothing at run
+> time. They exist to be configured and to raise events / be `CALL`ed from your
+> COBOL.
+>
+> Every chip carries its own glyph and a caption reporting the one setting you
+> most need to see at a glance: the Timer's interval, the AI Agent's model, the
+> REST Client's default method, the SQL Database's driver, the Indexed File's
+> open mode, the Snackbar's category, and the WebSearch control's search engine
+> id — which reads `no engine` until you set `SearchEngineId`, since without one
+> that control answers through `onError` instead of searching. The glyph and the
+> caption are inked against the card they sit on, so they stay legible on a
+> light form theme as readily as on a dark one.
 
 ---
 
@@ -7345,8 +7355,12 @@ a form built before the control had a choice behaves exactly as it did.
 
 Set `Query`, `NumResults` and `SafeSearch`, then call `Search()`:
 
+Results arrive on **`onResultsReceived`**, the control's primary event and the
+one a double-click binds. The uniform `onComplete` is raised straight after it,
+so a handler on either works — bind whichever reads better, not both:
+
 ```cobol
-       SEARCH-1--ONCOMPLETE.
+       SEARCH-1--ONRESULTSRECEIVED.
            MOVE SEARCH-1::TopTitle   TO WS-TITLE
            MOVE SEARCH-1::TopSnippet TO WS-SNIPPET
            MOVE SEARCH-1::TopLink    TO WS-LINK
