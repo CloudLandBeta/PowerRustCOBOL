@@ -1476,16 +1476,13 @@ fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType
             );
         }
         ControlType::WebSearch => {
-            // The universal magnifying-glass search glyph — distinct from
-            // RestClient's globe-and-connectors motif.
-            let lens_r = r * 0.72;
-            let lens_c = Pos2::new(c.x - r * 0.18, c.y - r * 0.18);
-            painter.circle_stroke(lens_c, lens_r, s);
-            let dir = Vec2::new(1.0, 1.0).normalized();
-            painter.line_segment(
-                [lens_c + dir * lens_r * 0.95, lens_c + dir * lens_r * 1.9],
-                Stroke::new(1.6, color),
-            );
+            // The catalogue's own magnifying-glass glyph — distinct from
+            // RestClient's globe-and-connectors motif — drawn from the same
+            // code as the badge the control paints once it is on the form, so
+            // the two cannot drift apart. Passing `r` reproduces the geometry
+            // this arm drew by hand; the handle now takes the lens's own 1.2
+            // stroke instead of a separate 1.6.
+            cobolt_forms::paint::nv_icon_search(painter, c, r, s);
         }
         ControlType::SqlDatabase => {
             // Classic "3 stacked disks" database cylinder, curved rim/seams.

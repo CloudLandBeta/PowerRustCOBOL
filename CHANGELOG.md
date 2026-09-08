@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.69] — 2026-09-08
+
+### A WebSearch chip was a blank rectangle, and the rest were invisible ink
+
+Two defects behind one screenshot: three non-visual controls sitting on a form,
+none of them showing what it was.
+
+`WebSearch` had no badge at all. The catalogue calls seven control types
+non-visual, but the designer's badge branch tested a **hand-written list of
+six** — `WebSearch` was not on it, so it fell through to the generic path and
+painted a bare rounded card: no glyph, no caption, nothing to tell it from the
+control beside it. This is the same drift `render.rs` was fixed for on
+2026-09-01, when its own hand-written list of three had fallen behind a
+catalogue of seven; that arm now asks `is_non_visual()`, and so does this one.
+A future non-visual control is covered the day it is added, and one added
+without a glyph still gets a card captioned with its type name rather than a
+blank.
+
+The other six had a badge nobody could read. The glyph and the caption were
+painted in a fixed light blue chosen for `NV_CARD`, the historical dark navy.
+But the card under them is whatever the form theme paints — and a Neumorphic
+form paints it near-white, which put pale ink on a pale card at **1.99:1**,
+about a fifth of what WCAG AA asks of text. `nv_card_tone` now resolves the
+colour the card actually paints, in the same order `popup_surface` established
+for exactly this class of bug, and `nv_ink_on` holds the ink to 4.5:1 against
+it. Where the historical ink already reads it is returned untouched, so a
+Liquid Glass form is unchanged, byte for byte; on the Neumorphic card the seven
+badges now measure 16.9:1.
+
+`WebSearch`'s glyph is the toolbox's own magnifier, moved into `nv_icon_search`
+and called from both places rather than drawn twice — the arrangement the
+Snackbar icon got a day earlier, for the same reason.
+
+The caption reports the setting that matters, as its siblings' do: the search
+engine id, or `no engine` while `SearchEngineId` is unset — the state in which
+that control answers through `onError` instead of searching.
+
+- `crates/cobolt-forms/src/paint.rs` — badge branch driven by `is_non_visual()`;
+  `nv_card_tone`, `nv_ink_on`, `nv_icon_search`, `NV_LABEL_INK`; `nv_icon_geom`
+  and `nv_label` take the resolved tone.
+- `crates/cobolt-ide/src/panels/toolbox.rs` — WebSearch draws the shared glyph.
+- `docs/developers-guide-en.md` — the non-visual note named four of the seven
+  and never said what a chip shows.
+- Tests: `paint::non_visual_badge_tests` — every non-visual type paints a glyph
+  and a caption at ≥ 4.5:1 on its own card, across Neumorphic and Classic; the
+  navy card keeps its historical ink unchanged. Both halves verified by
+  reverting them: the predicate reverted fails with "WebSearch painted NO
+  caption", the ink reverted fails at 1.99:1.
+
 ## [PowerRustCOBOL 1.65.68] — 2026-09-07
 
 ### A shadow with nothing casting it
