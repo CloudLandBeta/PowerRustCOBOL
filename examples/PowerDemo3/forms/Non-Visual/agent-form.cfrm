@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="AGENT-FORM" title="AgentObject - asking a model a question" width="1240" height="776" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+<Form name="AGENT-FORM" title="AgentObject - asking a model a question" width="1296" height="776" background="18202EFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -58,13 +58,26 @@
 
        PROCEDURE DIVISION.
 
+           SET TextBox-1::text TO Agent-Helper::SystemPrompt
+
+           IF Agent-Helper::AgentAPIKey = ""
+               SET Btn-Ask::Enabled TO false
+               SET Snackbar-1::Text TO "Get a valid API Key at ollama.com"
+               SET Snackbar-1::Category TO "critical"
+               SET Snackbar-1::Visible TO true
+
+               INVOKE SNACKBAR-1::Show()
+           ELSE
+               SET Btn-Ask::Enabled TO true
+           END-IF
+
            MOVE FUNCTION CHAR(11) TO WS-NL.
       *> EN: EXTENSION - STRING with no DELIMITED BY: literals take SIZE, PIC X items take SPACES.
       *> PT: EXTENSAO - STRING sem DELIMITED BY: literais usam SIZE, itens PIC X usam SPACES.
-      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los PIC X usan SPACES.
+      *> ES: EXTENSION - STRING sin DELIMITED BY: los literales usan SIZE, los items PIC X SPACES.
       *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
       *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
-      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+      *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE, PIC X 数据项按 SPACES。
            STRING "ready - " Agent-Helper::AgentAPI " / " Agent-Helper::AgentModel INTO WS-LINE.
       *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
       *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
@@ -73,9 +86,7 @@
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
            Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).
-           Txt-Log::AppendText(WS-NL).
-
-]]></Event>
+           Txt-Log::AppendText(WS-NL).]]></Event>
     <Event name="onClose" paragraph="AGENT-FORM--ONCLOSE">
     </Event>
   </form-events>
@@ -227,7 +238,7 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Agent-Helper" type="AgentObject" x="8" y="658" w="99" h="66" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Agent-Helper" type="AgentObject" x="1128" y="656" w="88" h="72" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -257,14 +268,17 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="AgentURL">https://ollama.com/api/chat</Property>
     <Property name="AgentModel">gemma4:31b</Property>
     <Property name="AgentAPI">Ollama</Property>
-    <Property name="SystemPrompt">You are a COBOL assistant. Answer in one short paragraph.</Property>
+    <Property name="SystemPrompt">Your are an Insurance Agent, selling plans for companies interested in secure their facilities</Property>
     <Property name="Temperature">30</Property>
-    <Property name="MaximumTokens">400</Property>
+    <Property name="MaximumTokens">8192</Property>
     <Property name="Stream">true</Property>
     <Property name="TimeoutSeconds">60</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="AgentAPIKey">61602bacc0cb424aa2d7d32f6e17a7c6.SWgPJKCdcwvF-vM_biOJohtg</Property>
     <Property name="Verbose">true</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#00000000</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="Configuration">ollama_cloud</Property>
     <Event name="onResponse" paragraph="AGENT-HELPER--ONRESPONSE"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -388,7 +402,7 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">What does STORAGE MODE IS DISK change about an INDEXED file, as opposed to MEMORY mode?</Property>
+    <Property name="Text">Tell me about your plans coverage</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -542,40 +556,6 @@ After create your own API Key use it to set the AgentControl API KEY property.</
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="CornerRadius">10</Property>
-  </Control>
-  <Control id="Lbl-Cfg" type="Label" x="960" y="336" w="259" h="144" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#9AA6BF</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">12</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Left</Property>
-    <Property name="VerticalAlignment">Top</Property>
-    <Property name="WordWrap">true</Property>
     <Property name="AutoSize">false</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
@@ -837,7 +817,7 @@ After create your own API Key use it to set the AgentControl API KEY property.</
            Txt-Log::Clear().
 ]]></Event>
   </Control>
-  <Control id="ComboBox-1" type="ComboBox" x="128" y="260" w="156" h="32" tab-order="0" z-order="1" visible="true" enabled="true">
+  <Control id="ComboBox-1" type="ComboBox" x="128" y="260" w="156" h="40" tab-order="0" z-order="1" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -951,7 +931,7 @@ nemotron-3-ultra</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
   <Control id="Label-3" type="Label" x="40" y="218" w="80" h="20" tab-order="0" z-order="4" visible="true" enabled="true">
-    <Property name="Caption">Persona</Property>
+    <Property name="Caption">System prompt</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -985,7 +965,7 @@ nemotron-3-ultra</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="TextBox-1" type="TextBox" x="128" y="210" w="624" h="32" tab-order="0" z-order="5" visible="true" enabled="true">
+  <Control id="TextBox-1" type="TextBox" x="128" y="210" w="624" h="40" tab-order="0" z-order="5" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -1012,7 +992,7 @@ nemotron-3-ultra</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Text">You are an intrepid COBOL developer. You have no time for caution</Property>
+    <Property name="Text">Your are an Insurance Agent, selling plans for companies interested in secure their facilities</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="InnerPadding">3</Property>
@@ -1348,6 +1328,58 @@ AgentObjectは、設定済みのモデルエンドポイントです。SetPrompt
 APIキーを作成後、AgentControlのAPI KEYプロパティに設定して使用してください。
 ```
            TO Lbl-Sub::Caption.]]></Event>
+  </Control>
+  <Control id="Snackbar-1" type="Snackbar" x="1008" y="656" w="88" h="72" tab-order="0" z-order="6" visible="true" enabled="true">
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">25</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">270</Property>
+    <Property name="ShadowDistance">4</Property>
+    <Property name="ShadowBlur">12</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="Category">critical</Property>
+    <Property name="Size">Medium</Property>
+    <Property name="ShowCategoryIcon">true</Property>
+    <Property name="CategoryIconSize">0</Property>
+    <Property name="BackgroundImageMode">Fill</Property>
+    <Property name="BackgroundImageOpacity">15</Property>
+    <Property name="TextWrap">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="CornerRadiusTopLeft">-1</Property>
+    <Property name="CornerRadiusTopRight">-1</Property>
+    <Property name="CornerRadiusBottomLeft">-1</Property>
+    <Property name="CornerRadiusBottomRight">-1</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#00000000</Property>
+    <Property name="Timeout">-1</Property>
+    <Property name="PauseTimeoutOnHover">true</Property>
+    <Property name="StackAnchor">BottomRight</Property>
+    <Property name="Margin">16</Property>
+    <Property name="StackSpacing">8</Property>
+    <Property name="StackOrder">Auto</Property>
+    <Property name="MaximumVisible">5</Property>
+    <Property name="OverflowBehavior">Queue</Property>
+    <Property name="Text">An API Key is required to make this demo work. Get one for free at ollama.com</Property>
+    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
   </Control>
   <deleted-controls>
     <DeletedControl id="Btn-Model" deleted-at="designer-delete-1788778367-15">

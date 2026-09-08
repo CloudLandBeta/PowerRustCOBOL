@@ -250,7 +250,7 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="Source">assets/images/original-c0a1df52ccc41eead16747c887398c0d.webp</Property>
+    <Property name="Source">/Users/emersonlopes/Documents/PowerRustCOBOL/assets/animations/everopen.png</Property>
     <Property name="AutoPlay">true</Property>
     <Property name="Loop">true</Property>
     <Property name="SizeMode">Fit</Property>
@@ -417,6 +417,7 @@
     <Property name="ReadOnly">true</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Lbl-Src" type="Label" x="500" y="200" w="460" h="150" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Source is any animated GIF / WebP / APNG. A still image loads as a one-frame animation, which is why this box may not appear to move.</Property>

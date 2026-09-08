@@ -231,7 +231,7 @@
     <Property name="BorderColor">#AAAAAA</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Tmr-Fast" type="Timer" x="48" y="240" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Tmr-Fast" type="Timer" x="96" y="240" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -336,7 +336,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Tmr-Slow" type="Timer" x="220" y="240" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Tmr-Slow" type="Timer" x="264" y="240" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>

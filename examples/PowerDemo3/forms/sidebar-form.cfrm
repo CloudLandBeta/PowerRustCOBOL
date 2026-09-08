@@ -2401,7 +2401,6 @@ Fortran
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="Selected">false</Property>
-    <Property name="GroupName"></Property>
   </Control>
   <Control id="Gauge-3" type="Gauge" x="1324" y="756" w="116" h="68" tab-order="0" z-order="388" visible="true" enabled="true" parent="Splitter-2-Pane1">
     <Property name="BackgroundColor">#E1E6F8FF</Property>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="WEBSEARCH-FORM" title="WebSearch - a query against Google Custom Search" width="1000" height="660" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+<Form name="WEBSEARCH-FORM" title="WebSearch - a query against Google Custom Search" width="1008" height="660" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -89,7 +89,7 @@
     <Event name="onClose" paragraph="WEBSEARCH-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <Control id="Lbl-Title" type="Label" x="32" y="20" w="936" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Title" type="Label" x="32" y="20" w="208" h="30" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">WebSearch</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -124,14 +124,14 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Sub" type="Label" x="32" y="54" w="936" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Sub" type="Label" x="32" y="54" w="880" h="38" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">WebSearch runs a Google Custom Search query. It is Async by default: the call returns at once and the answers arrive as onResultsReceived, where GetResult(n) reads the n-th hit as title, snippet and link separated by tabs. It needs a SearchEngineId to work.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="ForegroundColor">#323232FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">13</Property>
     <Property name="Bold">false</Property>
@@ -159,14 +159,14 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Log-Cap" type="Label" x="32" y="424" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Log-Cap" type="Label" x="32" y="432" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Event log</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="ForegroundColor">#323232FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">12</Property>
     <Property name="Bold">true</Property>
@@ -194,15 +194,15 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Log" type="TextBox" x="32" y="448" w="936" h="184" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
+  <Control id="Txt-Log" type="TextBox" x="32" y="464" w="952" h="168" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#000000</Property>
-    <Property name="FontName">Menlo</Property>
-    <Property name="FontSize">12</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
@@ -230,11 +230,12 @@
     <Property name="ScrollBars">Vertical</Property>
     <Property name="WordWrap">true</Property>
     <Property name="BorderStyle">None</Property>
-    <Property name="BorderColor">#AAAAAA</Property>
+    <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderWidth">1</Property>
   </Control>
-  <Control id="Web-Find" type="WebSearch" x="48" y="250" w="56" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
+  <Control id="Web-Find" type="WebSearch" x="920" y="8" w="67" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -268,6 +269,8 @@
     <Property name="TimeoutMs">15000</Property>
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
+    <Property name="BorderColor">#888888</Property>
+    <Property name="BorderWidth">1</Property>
     <Event name="onResultsReceived" paragraph="WEB-FIND--ONRESULTSRECEIVED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -379,49 +382,14 @@
 
 ]]></Event>
   </Control>
-  <Control id="Lbl-Tray" type="Label" x="48" y="300" w="150" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Web-Find</Property>
-    <Property name="BackgroundColor">#00000000</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#5A6070</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">11</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="TextAlignment">Center</Property>
-    <Property name="VerticalAlignment">Middle</Property>
-    <Property name="WordWrap">false</Property>
-    <Property name="AutoSize">false</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="CornerRadius">10</Property>
-  </Control>
-  <Control id="Lbl-Q-Cap" type="Label" x="140" y="130" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Q-Cap" type="Label" x="136" y="112" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Query</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="ForegroundColor">#323232FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">12</Property>
     <Property name="Bold">false</Property>
@@ -449,8 +417,8 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Query" type="TextBox" x="140" y="154" w="560" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
+  <Control id="Txt-Query" type="TextBox" x="136" y="144" w="568" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -468,13 +436,13 @@
     <Property name="Padding">0</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowOpacity">19</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">-4</Property>
     <Property name="ZOrder">0</Property>
     <Property name="Text">PowerRustCOBOL indexed files</Property>
     <Property name="TextAlignment">Left</Property>
@@ -496,7 +464,7 @@
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#5A6070</Property>
+    <Property name="ForegroundColor">#323232FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">12</Property>
     <Property name="Bold">false</Property>
@@ -524,8 +492,8 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lst-Hits" type="ListBox" x="140" y="220" w="560" h="124" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
+  <Control id="Lst-Hits" type="ListBox" x="144" y="224" w="560" h="124" tab-order="0" z-order="0" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -559,7 +527,7 @@
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Note" type="Label" x="728" y="154" w="232" h="190" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Note" type="Label" x="728" y="154" w="232" h="96" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Set SearchEngineId in the properties pane before running this. Without one the control answers through onError rather than pretending to have searched.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -594,9 +562,9 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Btn-Search" type="Button" x="32" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Search" type="Button" x="32" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Search</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -674,9 +642,9 @@
 
 ]]></Event>
   </Control>
-  <Control id="Btn-More" type="Button" x="204" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-More" type="Button" x="230" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Ask for ten</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -727,9 +695,9 @@
            MOVE 10 TO Web-Find::NumResults.
 ]]></Event>
   </Control>
-  <Control id="Btn-Safe" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Safe" type="Button" x="428" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Safe search on</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -780,9 +748,9 @@
            MOVE "High" TO Web-Find::SafeSearch.
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="548" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Cancel" type="Button" x="626" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Cancel</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
@@ -834,9 +802,9 @@
            INVOKE Web-Find "Cancel".
 ]]></Event>
   </Control>
-  <Control id="Btn-Clear" type="Button" x="720" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Clear" type="Button" x="824" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Clear log</Property>
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
