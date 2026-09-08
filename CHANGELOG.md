@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.87] — 2026-09-08
+
+### The IntelliSense popup was as wide as its longest sentence, and its rows overlapped
+
+Two symptoms, one cause. A completion row's `detail` is a word for a property
+("property") but the **entire KB sentence** for a method — "Number of result
+items in the last response (parses ResponseBody fresh each call)." Right-aligned
+in a `horizontal` row, those wrap; the row's frame still measures **one** line,
+so the extra lines spilled over the rows beneath and descriptions appeared
+stranded past the last member name. The same sentences decided the popup's
+width, which is why it ran to the edge of the window (operator screenshots,
+2026-09-08: "the popup window should be tight, not expanded till the end of the
+world").
+
+- The detail is **elided to one line** (`Label::truncate()`), so a row is always
+  exactly one row tall.
+- The full sentence moves to a **hover tooltip** on the rows that were
+  truncated. Cutting the row must not lose the documentation.
+- The width is **owned and content-derived**, replacing
+  `set_min_width(320)`/`set_max_width(480)`: it follows the widest member NAME,
+  counts only the detail's elided budget, and clamps to 200–460. A list of short
+  property names is now as narrow as it deserves rather than sitting on a 320px
+  floor — and, being a single `set_width`, it cannot be stretched by whichever
+  child asks for the most.
+
+The width rule is a named function, `ac_popup_width`, so it can be asserted:
+four tests cover a short list being narrow, a long signature being clamped, an
+empty list staying finite, and — the defect itself — two sentences of very
+different lengths producing an **identical** popup.
+
+Method: the first attempt was aimed at the wrong thing. A probe reproduced the
+popup in isolation and measured a correct 480px bound, which pointed away from
+the popup entirely. The probe was faithful but its fixture was not — every
+`detail` was the word "property", which is exactly the case that does not
+reproduce. The second screenshot supplied what the fixture had guessed wrong.
+
+- `crates/cobolt-ide/src/panels/editor.rs` — `ac_popup_width`, the elided detail,
+  the hover tooltip, and `ac_popup_width_tests`.
+
+IDE suite: 1124 passed, 0 failed, 4 ignored.
+
 ## [PowerRustCOBOL 1.65.86] — 2026-09-08
 
 ### PowerDemo3: a search that finds nothing says so

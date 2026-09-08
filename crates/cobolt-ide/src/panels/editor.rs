@@ -716,6 +716,42 @@ enum AcKind {
     Control,
 }
 
+/// How wide the completion popup should be: as wide as its widest row, and no
+/// wider (operator, 2026-09-08: "the popup window should be tight, not expanded
+/// till the end of the world").
+///
+/// Deliberately NOT `available_width()`. The popup lives in an `egui::Area`,
+/// where available width is effectively unbounded, and this project's standing
+/// egui rule is that a thing owns its size rather than taking what is offered.
+/// The previous `set_min_width(320)` / `set_max_width(480)` pair also left the
+/// frame free to sit anywhere in between — and made a list of short property
+/// names 320px wide whether it needed it or not.
+///
+/// The name column is MONOSPACE, so a character count is a faithful proxy for
+/// its width and needs no font handle; the detail column is short and
+/// proportional ("property", "method"), where a per-character estimate is close
+/// enough for a popup edge.
+fn ac_popup_width(items: &[AcItem]) -> f32 {
+    let name_chars = items.iter().map(|it| it.label.chars().count()).max().unwrap_or(0);
+    // `detail` is NOT always a word. For a method it carries the whole KB
+    // description — "Number of result items in the last response (parses
+    // ResponseBody fresh each call)." — so letting it drive the width made every
+    // member list as wide as its longest sentence. It is elided in the row, so
+    // only the space it is actually allowed is counted here.
+    const DETAIL_BUDGET: usize = 26;
+    let detail_chars = items
+        .iter()
+        .map(|it| it.detail.chars().count())
+        .max()
+        .unwrap_or(0)
+        .min(DETAIL_BUDGET);
+    let text_w = name_chars as f32 * 7.3 + detail_chars as f32 * 5.6;
+    // Badge, the gap between the two columns, frame padding and a scrollbar.
+    // Clamped so one long signature cannot stretch the popup across the window,
+    // and a one-word list still reads as a list.
+    (text_w + 78.0).clamp(200.0, 460.0)
+}
+
 #[derive(Clone)]
 struct AcItem {
     label: String,
@@ -3834,6 +3870,17 @@ impl EditorPanel {
             let scroll_sel = self.ac.scroll_to_sel;
             let mut clicked: Option<usize> = None;
 
+            // ONE owned width, measured from the content: the popup is as wide
+            // as its widest row and no wider (operator, 2026-09-08: "the popup
+            // window should be tight, not expanded till the end of the world").
+            //
+            // Deliberately not `available_width()` — inside an `Area` that is
+            // effectively unbounded, and this project's standing egui rule is
+            // that a thing owns its size rather than taking what is offered.
+            // `set_min_width(320)` also made a list of short property names
+            // 320px wide whether it needed it or not.
+            let popup_w = ac_popup_width(&items);
+
             let area = egui::Area::new(self.ui_id("ac_popup"))
                 .fixed_pos(popup_pos)
                 .order(egui::Order::Tooltip)
@@ -3842,8 +3889,10 @@ impl EditorPanel {
                     egui::Frame::popup(ui.style())
                         .corner_radius(egui::CornerRadius::same(7))
                         .show(ui, |ui| {
-                            ui.set_min_width(320.0);
-                            ui.set_max_width(480.0);
+                            // Exact, not a range: min/max left the frame free
+                            // to sit anywhere between, and free to be stretched
+                            // by whatever asked for the most.
+                            ui.set_width(popup_w);
 
                             if member_mode {
                                 ui.label(
@@ -3890,10 +3939,30 @@ impl EditorPanel {
                                                         egui::Align::Center,
                                                     ),
                                                     |ui| {
-                                                        ui.label(
-                                                            egui::RichText::new(&item.detail)
+                                                        // TRUNCATED, always.
+                                                        // A method's detail is
+                                                        // its whole KB sentence;
+                                                        // left to wrap it made
+                                                        // one row several lines
+                                                        // tall while the frame
+                                                        // still measured one, so
+                                                        // rows overlapped and
+                                                        // descriptions appeared
+                                                        // orphaned past the last
+                                                        // name (operator
+                                                        // screenshot,
+                                                        // 2026-09-08).
+                                                        ui.add(
+                                                            egui::Label::new(
+                                                                egui::RichText::new(
+                                                                    &item.detail,
+                                                                )
                                                                 .small()
-                                                                .color(Color32::from_gray(145)),
+                                                                .color(Color32::from_gray(
+                                                                    145,
+                                                                )),
+                                                            )
+                                                            .truncate(),
                                                         );
                                                     },
                                                 );
@@ -3910,6 +3979,14 @@ impl EditorPanel {
                                                 egui::Sense::click(),
                                             )
                                             .on_hover_cursor(egui::CursorIcon::PointingHand);
+                                        // The elided detail in full. Truncating
+                                        // the row must not lose the sentence —
+                                        // for a method it is the documentation.
+                                        let click_resp = if item.detail.chars().count() > 26 {
+                                            click_resp.on_hover_text(&item.detail)
+                                        } else {
+                                            click_resp
+                                        };
                                         if click_resp.clicked() {
                                             clicked = Some(i);
                                         }
@@ -5290,6 +5367,95 @@ mod block_indent_tests {
         assert_eq!(out, "AAA\nBBB\n");
         assert_eq!(min, 0);
         assert_eq!(max, 5);
+    }
+}
+
+#[cfg(test)]
+mod ac_popup_width_tests {
+    use super::*;
+
+    fn item(label: &str, detail: &str) -> AcItem {
+        AcItem {
+            label: label.to_owned(),
+            insert: label.to_owned(),
+            detail: detail.to_owned(),
+            kind: AcKind::Keyword,
+        }
+    }
+
+    /// **A short list is a narrow popup.**
+    ///
+    /// The old rule was `set_min_width(320)` / `set_max_width(480)`: a list of
+    /// short property names was 320px wide whether it needed it or not, and the
+    /// frame was free to be stretched anywhere up to 480 by whichever child
+    /// asked for the most (operator screenshot, 2026-09-08).
+    #[test]
+    fn a_short_list_gets_a_narrow_popup() {
+        let narrow = ac_popup_width(&[item("Anchor", "property"), item("ApiKey", "property")]);
+        let wide = ac_popup_width(&[
+            item("BackgroundGradientDirection", "property"),
+            item("Anchor", "property"),
+        ]);
+        assert!(
+            narrow < wide,
+            "the popup follows its content: {narrow} should be under {wide}"
+        );
+        assert!(
+            narrow < 320.0,
+            "a two-word list must be narrower than the old 320px floor, got {narrow}"
+        );
+    }
+
+    /// **One long signature cannot stretch it across the window.**
+    #[test]
+    fn a_long_signature_is_clamped() {
+        let w = ac_popup_width(&[item(
+            "GetResult(index: Integer) -> String, and then some more text",
+            "method",
+        )]);
+        assert!(w <= 460.0, "clamped, got {w}");
+    }
+
+    /// **A method's description does not decide the popup's width.**
+    ///
+    /// `detail` is a word for a property ("property") and the whole KB sentence
+    /// for a method — "Number of result items in the last response (parses
+    /// ResponseBody fresh each call)." Letting it drive the width made every
+    /// member list as wide as its longest sentence, and letting it WRAP made one
+    /// row several lines tall while the frame still measured one, so rows
+    /// overlapped and descriptions appeared orphaned past the last name
+    /// (operator screenshot, 2026-09-08). The row elides it; this pins that the
+    /// width calculation agrees.
+    #[test]
+    fn a_long_description_does_not_widen_the_popup() {
+        // Past the elided budget, LENGTH STOPS MATTERING — that is the whole
+        // contract. Two sentences of very different lengths, both over the
+        // budget, must produce exactly the same popup.
+        let long = ac_popup_width(&[item(
+            "ResultCount",
+            "Number of result items in the last response (parses ResponseBody fresh each call).",
+        )]);
+        let much_longer = ac_popup_width(&[item(
+            "ResultCount",
+            "Number of result items in the last response (parses ResponseBody fresh each call). \
+             And a second sentence, considerably longer than the first, to be sure.",
+        )]);
+        assert_eq!(
+            long, much_longer,
+            "a longer sentence must not make a wider popup"
+        );
+        assert!(
+            long < 460.0,
+            "and neither reaches the clamp on a short member name: {long}"
+        );
+    }
+
+    /// **An empty list still has a sane width** — the popup is not shown empty,
+    /// but the width must not be 0 or NaN if it ever is.
+    #[test]
+    fn an_empty_list_still_has_a_width() {
+        let w = ac_popup_width(&[]);
+        assert!(w >= 200.0 && w.is_finite(), "got {w}");
     }
 }
 
