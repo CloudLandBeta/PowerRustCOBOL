@@ -2152,277 +2152,287 @@ impl SettingsForm {
                             });
                         });
 
-                        // ── Named REST connections ───────────────────────────
-                        //
-                        // Full width rather than the label/field splitter above:
-                        // this is a list of records, not a row of settings.
-                        ui.add_space(10.0);
-                        ui.label(RichText::new(tr.settings_connections).strong());
-                        ui.label(
-                            RichText::new(tr.settings_connections_hint)
-                                .small()
-                                .color(Color32::GRAY),
-                        );
-                        ui.add_space(4.0);
+                        ui.horizontal_top(|ui| {
+                            ui.add_space(splitter + resizer_width + gap_after_resizer);
+                            ui.vertical(|ui| {
+                                // ── Named REST connections ───────────────────────────
+                                //
+                                // These sit in the RIGHT column, past the resizer, like
+                                // every other control. They were full width at first, and
+                                // the pane's single continuous resizer line — which spans
+                                // the whole content height by design — ran straight through
+                                // the cards and their text (operator screenshot, 2026-09-08).
+                                // Content conforms to the line: the line is what keeps
+                                // every value control on one x.
+                                ui.add_space(10.0);
+                                ui.label(RichText::new(tr.settings_connections).strong());
+                                ui.label(
+                                    RichText::new(tr.settings_connections_hint)
+                                        .small()
+                                        .color(Color32::GRAY),
+                                );
+                                ui.add_space(4.0);
 
-                        // Disjoint borrows: the records and their keys are two
-                        // fields of the draft and are edited in the same loop.
-                        let SettingsDraft {
-                            rest_connections,
-                            search_connections,
-                            connection_keys,
-                            ..
-                        } = &mut self.draft;
+                                // Disjoint borrows: the records and their keys are two
+                                // fields of the draft and are edited in the same loop.
+                                let SettingsDraft {
+                                    rest_connections,
+                                    search_connections,
+                                    connection_keys,
+                                    ..
+                                } = &mut self.draft;
 
-                        let mut remove: Option<usize> = None;
-                        for (i, c) in rest_connections.iter_mut().enumerate() {
-                            ui.push_id(i, |ui| {
-                                egui::Frame::group(ui.style()).show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_name);
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut c.name)
-                                                .desired_width(200.0),
-                                        );
-                                        if ui.button(tr.settings_conn_remove).clicked() {
-                                            remove = Some(i);
-                                        }
+                                let mut remove: Option<usize> = None;
+                                for (i, c) in rest_connections.iter_mut().enumerate() {
+                                    ui.push_id(i, |ui| {
+                                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_name);
+                                                ui.add(
+                                                    egui::TextEdit::singleline(&mut c.name)
+                                                        .desired_width(200.0),
+                                                );
+                                                if ui.button(tr.settings_conn_remove).clicked() {
+                                                    remove = Some(i);
+                                                }
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_base_url);
+                                                ui.add(
+                                                    egui::TextEdit::singleline(&mut c.base_url)
+                                                        .hint_text("https://api.example.com")
+                                                        .desired_width(300.0),
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_method);
+                                                egui::ComboBox::from_id_salt("conn_method")
+                                                    .selected_text(&c.default_method)
+                                                    .width(110.0)
+                                                    .show_ui(ui, |ui| {
+                                                        for m in [
+                                                            "GET", "POST", "PUT", "PATCH", "DELETE",
+                                                            "HEAD", "OPTIONS",
+                                                        ] {
+                                                            if ui
+                                                                .selectable_label(
+                                                                    c.default_method == m,
+                                                                    m,
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                c.default_method = m.to_owned();
+                                                            }
+                                                        }
+                                                    });
+                                                ui.label(tr.settings_conn_auth);
+                                                egui::ComboBox::from_id_salt("conn_auth")
+                                                    .selected_text(&c.auth_type)
+                                                    .width(110.0)
+                                                    .show_ui(ui, |ui| {
+                                                        for a in
+                                                            ["None", "Bearer", "Basic", "APIKey"]
+                                                        {
+                                                            if ui
+                                                                .selectable_label(c.auth_type == a, a)
+                                                                .clicked()
+                                                            {
+                                                                c.auth_type = a.to_owned();
+                                                            }
+                                                        }
+                                                    });
+                                            });
+                                            // The credential. Masked, and it does NOT go
+                                            // into the project with the rest of the
+                                            // record — the caption says so, because a
+                                            // developer about to commit `cobolt.toml`
+                                            // needs to know which half travels.
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_api_key);
+                                                let key = connection_keys
+                                                    .entry(c.id.clone())
+                                                    .or_default();
+                                                ui.add(
+                                                    egui::TextEdit::singleline(key)
+                                                        .password(true)
+                                                        .hint_text(tr.settings_conn_api_key_hint)
+                                                        .desired_width(240.0),
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_timeout);
+                                                ui.add(
+                                                    egui::DragValue::new(&mut c.timeout_seconds)
+                                                        .range(1..=300),
+                                                );
+                                                ui.checkbox(
+                                                    &mut c.follow_redirects,
+                                                    tr.settings_conn_follow_redirects,
+                                                );
+                                                ui.checkbox(
+                                                    &mut c.verify_tls,
+                                                    tr.settings_conn_verify_tls,
+                                                );
+                                            });
+                                        });
                                     });
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_base_url);
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut c.base_url)
-                                                .hint_text("https://api.example.com")
-                                                .desired_width(300.0),
-                                        );
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_method);
-                                        egui::ComboBox::from_id_salt("conn_method")
-                                            .selected_text(&c.default_method)
-                                            .width(110.0)
-                                            .show_ui(ui, |ui| {
-                                                for m in [
-                                                    "GET", "POST", "PUT", "PATCH", "DELETE",
-                                                    "HEAD", "OPTIONS",
-                                                ] {
-                                                    if ui
-                                                        .selectable_label(
-                                                            c.default_method == m,
-                                                            m,
+                                }
+                                if let Some(i) = remove {
+                                    let gone = rest_connections.remove(i);
+                                    // The key outlives the record deliberately: removing
+                                    // a connection by accident must not also destroy a
+                                    // credential the developer would have to go and find
+                                    // again. It is orphaned in the machine-local store,
+                                    // not the project.
+                                    let _ = gone;
+                                }
+                                if ui.button(tr.settings_conn_add).clicked() {
+                                    let id = crate::agents_db::new_uuid();
+                                    let n = rest_connections.len() + 1;
+                                    rest_connections.push(
+                                        cobolt_forms::connections::RestConnection::new(
+                                            id,
+                                            format!("Connection {n}"),
+                                        ),
+                                    );
+                                }
+
+                                // ── Named web-search connections ─────────────────────
+                                //
+                                // The two rows above are the project's SINGLE default,
+                                // used by a WebSearch left on (Local). These are the
+                                // named alternatives — several providers, several
+                                // engines, each with its own key.
+                                ui.add_space(10.0);
+                                ui.label(RichText::new(tr.settings_search_connections).strong());
+                                ui.label(
+                                    RichText::new(tr.settings_search_connections_hint)
+                                        .small()
+                                        .color(Color32::GRAY),
+                                );
+                                ui.add_space(4.0);
+
+                                let mut remove_search: Option<usize> = None;
+                                for (i, c) in search_connections.iter_mut().enumerate() {
+                                    ui.push_id(("search-conn", i), |ui| {
+                                        egui::Frame::group(ui.style()).show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_name);
+                                                ui.add(
+                                                    egui::TextEdit::singleline(&mut c.name)
+                                                        .desired_width(200.0),
+                                                );
+                                                if ui.button(tr.settings_conn_remove).clicked() {
+                                                    remove_search = Some(i);
+                                                }
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_provider);
+                                                egui::ComboBox::from_id_salt("search_conn_provider")
+                                                    .selected_text(&c.provider)
+                                                    .width(120.0)
+                                                    .show_ui(ui, |ui| {
+                                                        for pnames in
+                                                            cobolt_runtime::search_runtime::PROVIDER_NAMES
+                                                        {
+                                                            if ui
+                                                                .selectable_label(
+                                                                    c.provider == pnames,
+                                                                    pnames,
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                c.provider = pnames.to_owned();
+                                                            }
+                                                        }
+                                                    });
+                                            });
+                                            // Only the field the chosen provider reads:
+                                            // Google needs an engine id, SearXNG an
+                                            // address, and the rest neither.
+                                            if c.provider.eq_ignore_ascii_case("google") {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(tr.settings_conn_engine_id);
+                                                    ui.add(
+                                                        egui::TextEdit::singleline(
+                                                            &mut c.search_engine_id,
                                                         )
-                                                        .clicked()
-                                                    {
-                                                        c.default_method = m.to_owned();
-                                                    }
-                                                }
+                                                        .hint_text("a1b2c3d4e5f6g7h8i")
+                                                        .desired_width(240.0),
+                                                    );
+                                                });
+                                            }
+                                            if c.provider.eq_ignore_ascii_case("searxng") {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(tr.settings_conn_endpoint);
+                                                    ui.add(
+                                                        egui::TextEdit::singleline(&mut c.endpoint)
+                                                            .hint_text("https://search.example.com")
+                                                            .desired_width(280.0),
+                                                    );
+                                                });
+                                            }
+                                            // SearXNG is the one provider with no
+                                            // account and no key, so it is not asked
+                                            // for one.
+                                            if !c.provider.eq_ignore_ascii_case("searxng") {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(tr.settings_conn_api_key);
+                                                    let key = connection_keys
+                                                        .entry(c.id.clone())
+                                                        .or_default();
+                                                    ui.add(
+                                                        egui::TextEdit::singleline(key)
+                                                            .password(true)
+                                                            .hint_text(tr.settings_conn_api_key_hint)
+                                                            .desired_width(240.0),
+                                                    );
+                                                });
+                                            }
+                                            ui.horizontal(|ui| {
+                                                ui.label(tr.settings_conn_results);
+                                                ui.add(
+                                                    egui::DragValue::new(&mut c.num_results)
+                                                        .range(1..=100),
+                                                );
+                                                ui.label(tr.settings_conn_safe);
+                                                egui::ComboBox::from_id_salt("search_conn_safe")
+                                                    .selected_text(&c.safe_search)
+                                                    .width(90.0)
+                                                    .show_ui(ui, |ui| {
+                                                        for lvl in ["Off", "Medium", "High"] {
+                                                            if ui
+                                                                .selectable_label(
+                                                                    c.safe_search == lvl,
+                                                                    lvl,
+                                                                )
+                                                                .clicked()
+                                                            {
+                                                                c.safe_search = lvl.to_owned();
+                                                            }
+                                                        }
+                                                    });
                                             });
-                                        ui.label(tr.settings_conn_auth);
-                                        egui::ComboBox::from_id_salt("conn_auth")
-                                            .selected_text(&c.auth_type)
-                                            .width(110.0)
-                                            .show_ui(ui, |ui| {
-                                                for a in
-                                                    ["None", "Bearer", "Basic", "APIKey"]
-                                                {
-                                                    if ui
-                                                        .selectable_label(c.auth_type == a, a)
-                                                        .clicked()
-                                                    {
-                                                        c.auth_type = a.to_owned();
-                                                    }
-                                                }
-                                            });
+                                        });
                                     });
-                                    // The credential. Masked, and it does NOT go
-                                    // into the project with the rest of the
-                                    // record — the caption says so, because a
-                                    // developer about to commit `cobolt.toml`
-                                    // needs to know which half travels.
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_api_key);
-                                        let key = connection_keys
-                                            .entry(c.id.clone())
-                                            .or_default();
-                                        ui.add(
-                                            egui::TextEdit::singleline(key)
-                                                .password(true)
-                                                .hint_text(tr.settings_conn_api_key_hint)
-                                                .desired_width(240.0),
-                                        );
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_timeout);
-                                        ui.add(
-                                            egui::DragValue::new(&mut c.timeout_seconds)
-                                                .range(1..=300),
-                                        );
-                                        ui.checkbox(
-                                            &mut c.follow_redirects,
-                                            tr.settings_conn_follow_redirects,
-                                        );
-                                        ui.checkbox(
-                                            &mut c.verify_tls,
-                                            tr.settings_conn_verify_tls,
-                                        );
-                                    });
-                                });
+                                }
+                                if let Some(i) = remove_search {
+                                    // Its key is deliberately left in the local store,
+                                    // for the same reason a REST connection's is.
+                                    search_connections.remove(i);
+                                }
+                                if ui.button(tr.settings_conn_add).clicked() {
+                                    let id = crate::agents_db::new_uuid();
+                                    let n = search_connections.len() + 1;
+                                    search_connections.push(
+                                        cobolt_forms::connections::SearchConnection::new(
+                                            id,
+                                            format!("Search {n}"),
+                                        ),
+                                    );
+                                }
                             });
-                        }
-                        if let Some(i) = remove {
-                            let gone = rest_connections.remove(i);
-                            // The key outlives the record deliberately: removing
-                            // a connection by accident must not also destroy a
-                            // credential the developer would have to go and find
-                            // again. It is orphaned in the machine-local store,
-                            // not the project.
-                            let _ = gone;
-                        }
-                        if ui.button(tr.settings_conn_add).clicked() {
-                            let id = crate::agents_db::new_uuid();
-                            let n = rest_connections.len() + 1;
-                            rest_connections.push(
-                                cobolt_forms::connections::RestConnection::new(
-                                    id,
-                                    format!("Connection {n}"),
-                                ),
-                            );
-                        }
-
-                        // ── Named web-search connections ─────────────────────
-                        //
-                        // The two rows above are the project's SINGLE default,
-                        // used by a WebSearch left on (Local). These are the
-                        // named alternatives — several providers, several
-                        // engines, each with its own key.
-                        ui.add_space(10.0);
-                        ui.label(RichText::new(tr.settings_search_connections).strong());
-                        ui.label(
-                            RichText::new(tr.settings_search_connections_hint)
-                                .small()
-                                .color(Color32::GRAY),
-                        );
-                        ui.add_space(4.0);
-
-                        let mut remove_search: Option<usize> = None;
-                        for (i, c) in search_connections.iter_mut().enumerate() {
-                            ui.push_id(("search-conn", i), |ui| {
-                                egui::Frame::group(ui.style()).show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_name);
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut c.name)
-                                                .desired_width(200.0),
-                                        );
-                                        if ui.button(tr.settings_conn_remove).clicked() {
-                                            remove_search = Some(i);
-                                        }
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_provider);
-                                        egui::ComboBox::from_id_salt("search_conn_provider")
-                                            .selected_text(&c.provider)
-                                            .width(120.0)
-                                            .show_ui(ui, |ui| {
-                                                for pnames in
-                                                    cobolt_runtime::search_runtime::PROVIDER_NAMES
-                                                {
-                                                    if ui
-                                                        .selectable_label(
-                                                            c.provider == pnames,
-                                                            pnames,
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        c.provider = pnames.to_owned();
-                                                    }
-                                                }
-                                            });
-                                    });
-                                    // Only the field the chosen provider reads:
-                                    // Google needs an engine id, SearXNG an
-                                    // address, and the rest neither.
-                                    if c.provider.eq_ignore_ascii_case("google") {
-                                        ui.horizontal(|ui| {
-                                            ui.label(tr.settings_conn_engine_id);
-                                            ui.add(
-                                                egui::TextEdit::singleline(
-                                                    &mut c.search_engine_id,
-                                                )
-                                                .hint_text("a1b2c3d4e5f6g7h8i")
-                                                .desired_width(240.0),
-                                            );
-                                        });
-                                    }
-                                    if c.provider.eq_ignore_ascii_case("searxng") {
-                                        ui.horizontal(|ui| {
-                                            ui.label(tr.settings_conn_endpoint);
-                                            ui.add(
-                                                egui::TextEdit::singleline(&mut c.endpoint)
-                                                    .hint_text("https://search.example.com")
-                                                    .desired_width(280.0),
-                                            );
-                                        });
-                                    }
-                                    // SearXNG is the one provider with no
-                                    // account and no key, so it is not asked
-                                    // for one.
-                                    if !c.provider.eq_ignore_ascii_case("searxng") {
-                                        ui.horizontal(|ui| {
-                                            ui.label(tr.settings_conn_api_key);
-                                            let key = connection_keys
-                                                .entry(c.id.clone())
-                                                .or_default();
-                                            ui.add(
-                                                egui::TextEdit::singleline(key)
-                                                    .password(true)
-                                                    .hint_text(tr.settings_conn_api_key_hint)
-                                                    .desired_width(240.0),
-                                            );
-                                        });
-                                    }
-                                    ui.horizontal(|ui| {
-                                        ui.label(tr.settings_conn_results);
-                                        ui.add(
-                                            egui::DragValue::new(&mut c.num_results)
-                                                .range(1..=100),
-                                        );
-                                        ui.label(tr.settings_conn_safe);
-                                        egui::ComboBox::from_id_salt("search_conn_safe")
-                                            .selected_text(&c.safe_search)
-                                            .width(90.0)
-                                            .show_ui(ui, |ui| {
-                                                for lvl in ["Off", "Medium", "High"] {
-                                                    if ui
-                                                        .selectable_label(
-                                                            c.safe_search == lvl,
-                                                            lvl,
-                                                        )
-                                                        .clicked()
-                                                    {
-                                                        c.safe_search = lvl.to_owned();
-                                                    }
-                                                }
-                                            });
-                                    });
-                                });
-                            });
-                        }
-                        if let Some(i) = remove_search {
-                            // Its key is deliberately left in the local store,
-                            // for the same reason a REST connection's is.
-                            search_connections.remove(i);
-                        }
-                        if ui.button(tr.settings_conn_add).clicked() {
-                            let id = crate::agents_db::new_uuid();
-                            let n = search_connections.len() + 1;
-                            search_connections.push(
-                                cobolt_forms::connections::SearchConnection::new(
-                                    id,
-                                    format!("Search {n}"),
-                                ),
-                            );
-                        }
+                        });
 
                         ui.add_space(8.0);
 

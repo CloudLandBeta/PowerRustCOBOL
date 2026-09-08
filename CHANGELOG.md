@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.78] — 2026-09-08
+
+### Two corrections to the connection work, before it ships
+
+**An AgentObject bound to a model provider used none of it.** The provider list
+was read from `LlmConfig::provider_configs` — the raw field, which only
+`ensure_provider_config` ever writes, and **the Model Providers Manager never
+calls it**. Configuring a provider there stores the key at `providerkey::<id>`
+and nothing else. So the field stayed empty: the dropdown listed nothing, the
+published catalogue was empty, and a bound control resolved to nothing however
+valid the key was.
+
+The question to ask is `provider_is_configured` — "is a key on file, or, for
+local Ollama, an endpoint" — which is what `configured_providers()` asks, and
+what the Manager actually produces. The key comes through `provider_api_key`
+for the same reason: an accessor cannot drift from where the Manager writes.
+
+A test now configures a provider exactly as the Manager does — a key, no
+`ProviderConfig` record — and fails against the old code. A second pins local
+Ollama, which needs no key and must still be offered.
+
+**The Settings resizer line ran through the connection editors.** The pane
+draws "a single continuous draggable resizer line (top to bottom of content)",
+which works because every row is `label | line | control`. The two connection
+sections were written full width — "a list of records, not a row of settings" —
+so the line crossed the cards and their text. They now sit in the right-hand
+column with every other control. Content conforms to the line: the line is what
+keeps every value control on one x.
+
+- `crates/cobolt-ide/src/form_runtime.rs` — `agent_connections` asks what is
+  configured; `agent_provider_tests`.
+- `crates/cobolt-ide/src/panels/settings_form.rs` — the connections band moved
+  past the resizer.
+
+Full workspace sweep: 3692 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.77] — 2026-09-08
 
 ### WebSearch gets a Verbose switch

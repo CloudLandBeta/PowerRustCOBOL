@@ -229,19 +229,25 @@ pub fn resolve_connection_key_secrets(
 pub fn agent_connections(
     llm: &crate::llm::LlmConfig,
 ) -> Vec<cobolt_forms::connections::AgentConnection> {
-    llm.provider_configs
-        .iter()
-        .map(|pc| {
+    // `configured_providers()`, NOT the `provider_configs` field. A provider
+    // becomes usable by having a key on file (or, for local Ollama, an
+    // endpoint) — `provider_is_configured`'s own definition, and exactly what
+    // the Model Providers Manager produces: it writes the key to
+    // `providerkey::<id>` and never calls `ensure_provider_config`. Reading the
+    // raw field listed nothing, so the AgentObject dropdown was empty and a
+    // bound control resolved to nothing even with a valid key (operator,
+    // 2026-09-08: "agentobject is not using the defined model provider even
+    // with a valid api key").
+    llm.configured_providers()
+        .into_iter()
+        .map(|id| {
             let label = crate::llm::PROVIDERS
                 .iter()
-                .find(|p| p.id == pc.provider)
-                .map(|p| p.label)
-                .unwrap_or(pc.provider.as_str());
-            cobolt_forms::connections::AgentConnection::new(
-                pc.provider.clone(),
-                label.to_owned(),
-                pc.endpoint.clone(),
-            )
+                .find(|p| p.id == id)
+                .map(|p| p.label.to_owned())
+                .unwrap_or_else(|| id.clone());
+            let endpoint = llm.provider_endpoint(&id);
+            cobolt_forms::connections::AgentConnection::new(id, label, endpoint)
         })
         .collect()
 }
@@ -273,16 +279,13 @@ pub fn resolve_agent_secrets(
     for id in bound {
         // The key lives where the Model Providers Manager put it — this is the
         // reuse the whole change is for: no second copy, no key on the form.
-        let Some(key) = llm.api_keys.get(&crate::llm::provider_key_slot(&id)) else {
-            continue;
-        };
+        // Through the accessor, so this cannot drift from where the Manager
+        // writes it. Local Ollama legitimately has none.
+        let key = llm.provider_api_key(&id);
         if key.trim().is_empty() {
             continue;
         }
-        out.push((
-            cobolt_forms::connections::connection_key_env(&id),
-            key.clone(),
-        ));
+        out.push((cobolt_forms::connections::connection_key_env(&id), key));
     }
     out
 }
@@ -699,6 +702,68 @@ impl Drop for BuiltAppRun {
         }
     }
 }
+
+#[cfg(test)]
+mod agent_provider_tests {
+    use super::*;
+    use crate::llm::{provider_key_slot, LlmConfig};
+
+    /// **A provider configured the way the Model Providers Manager configures
+    /// one shows up for an AgentObject to bind to.**
+    ///
+    /// This is the contract that was got wrong. `agent_connections` iterated
+    /// the raw `provider_configs` field, which is only ever populated by
+    /// `ensure_provider_config` — and the Manager never calls it. It stores the
+    /// key at `providerkey::<id>` and nothing else. So a developer who added
+    /// Anthropic and pasted a valid key saw an EMPTY dropdown, and a control
+    /// already bound resolved to nothing (operator, 2026-09-08).
+    ///
+    /// The question to ask is `provider_is_configured`, which is what
+    /// `configured_providers()` asks. This test configures a provider exactly
+    /// as the Manager does — a key, no `ProviderConfig` record — and would
+    /// have failed before the fix.
+    #[test]
+    fn a_provider_with_only_a_key_is_offered_to_an_agent() {
+        let mut llm = LlmConfig::defaults();
+        // Not "empty": local Ollama needs no key and is always usable, which
+        // is the next test. Anthropic specifically is not yet configured.
+        assert!(
+            !agent_connections(&llm).iter().any(|c| c.id == "anthropic"),
+            "a provider with no key on file is not offered"
+        );
+
+        // Exactly what the Manager writes: the key, and nothing else.
+        llm.store_api_key(provider_key_slot("anthropic"), "sk-ant-valid");
+        assert!(
+            llm.provider_configs.is_empty(),
+            "the Manager does not create a ProviderConfig — that is the trap"
+        );
+
+        let offered = agent_connections(&llm);
+        let anthropic = offered
+            .iter()
+            .find(|c| c.id == "anthropic")
+            .expect("a provider with a key on file must be offered");
+        assert_eq!(anthropic.name, "Anthropic", "shown by its label");
+        assert!(
+            !anthropic.endpoint.is_empty(),
+            "and carries an endpoint — the shipped default when none was typed"
+        );
+    }
+
+    /// **Local Ollama needs no key**, and must still be offered: it is the one
+    /// provider `provider_requires_key` exempts, and the one a developer is
+    /// most likely to try first.
+    #[test]
+    fn local_ollama_is_offered_without_a_key() {
+        let llm = LlmConfig::defaults();
+        assert!(
+            agent_connections(&llm).iter().any(|c| c.id == "ollama"),
+            "ollama is usable on its endpoint alone"
+        );
+    }
+}
+
 
 #[cfg(test)]
 mod built_app_run_tests {
