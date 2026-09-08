@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.86] — 2026-09-08
+
+### PowerDemo3: a search that finds nothing says so
+
+`WEB-FIND--ONRESULTSRECEIVED` already emptied `Lst-Hits` before filling it, so
+a search returning nothing left a correctly-empty list and no explanation. It
+now raises `Snackbar-1` with **`No results for <query>`** at category `Info` —
+an empty result set is a normal answer, not a failure, and `Error` would have
+said otherwise.
+
+The branch is `IF Web-Find::ResultCount() = 0`, which only became spellable in
+1.65.81: `ResultCount` was one of the twenty-three dispatched methods missing
+from the parser's inline vocabulary, and before that fix the call would have
+parsed as a subscript and quietly done nothing.
+
+Applied to the `.cfrm` (the source) **and** the generated `.cbl`, so the demo
+works without a regenerate step; the next regeneration reproduces it from the
+form. `rcrun check` passes — its six warnings are pre-existing, all inside the
+Google-only `<id>-SEARCH` fallback paragraph.
+
+Also lands two tests written while diagnosing the demo, both of which pin
+behaviour that had only been reasoned about:
+
+- a COBOL `MOVE` into a control property really reaches it — `before=5`,
+  `after=10`, `safe=High`. This is what the demo's "Ask for ten" and
+  "Safe search" buttons do, and proving `obj_set` worked said nothing about
+  the MOVE path through the parser.
+- a runtime write to `NumResults`/`SafeSearch` is what the next `Search()`
+  sends — `count=3`, `safesearch=strict`.
+
+Together they establish that those two buttons **do** work; they simply change
+a setting silently, with no log line and no re-search, so the effect is only
+visible on the next search.
+
 ## [PowerRustCOBOL 1.65.85] — 2026-09-08
 
 ### The highlighted ListBox row's text colour is now the developer's

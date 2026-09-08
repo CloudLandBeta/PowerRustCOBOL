@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="WEBSEARCH-FORM" title="WebSearch - a query against Google Custom Search" width="1008" height="660" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+<Form name="WEBSEARCH-FORM" title="WebSearch - a query against Google Custom Search" width="1008" height="720" background="#EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -234,7 +234,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderWidth">1</Property>
   </Control>
-  <Control id="Web-Find" type="WebSearch" x="920" y="8" w="67" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Web-Find" type="WebSearch" x="848" y="648" w="67" h="64" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -271,6 +271,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
+    <Property name="Configuration">5fe1cd6d-1551-49d0-ba18-38dfb9804eb2</Property>
     <Event name="onResultsReceived" paragraph="WEB-FIND--ONRESULTSRECEIVED"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
@@ -316,6 +317,20 @@
       *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
       *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
       *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
+      *> No hits: the list was already emptied by Clear() above, so the only
+      *> thing left to do is say so. Info, not Error - an empty result set is a
+      *> normal answer, not a failure.
+           IF Web-Find::ResultCount() = 0
+               MOVE Web-Find::Query TO WS-HIT
+               MOVE SPACES TO WS-LINE
+               STRING "No results for " DELIMITED BY SIZE
+                      FUNCTION TRIM(WS-HIT) DELIMITED BY SIZE
+                   INTO WS-LINE
+               END-STRING
+               SET Snackbar-1::Text TO FUNCTION TRIM(WS-LINE)
+               SET Snackbar-1::Category TO "Info"
+               INVOKE SNACKBAR-1::Show()
+           END-IF.
            STRING "results in" INTO WS-LINE.
       *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
       *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
@@ -492,7 +507,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lst-Hits" type="ListBox" x="144" y="224" w="560" h="124" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lst-Hits" type="ListBox" x="32" y="280" w="940" h="124" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -526,8 +541,9 @@
     <Property name="BorderStyle">None</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="ActiveItemColor">#0079CCFF</Property>
   </Control>
-  <Control id="Lbl-Note" type="Label" x="728" y="154" w="232" h="96" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Note" type="Label" x="720" y="120" w="264" h="80" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Set SearchEngineId in the properties pane before running this. Without one the control answers through onError rather than pretending to have searched.</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -562,17 +578,17 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Btn-Search" type="Button" x="32" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Search" type="Button" x="32" y="208" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Search</Property>
-    <Property name="BackgroundColor">#F7F7F7FF</Property>
+    <Property name="BackgroundColor">#8CFF00FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ForegroundColor">#000000FF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
+    <Property name="Bold">true</Property>
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
@@ -642,7 +658,7 @@
 
 ]]></Event>
   </Control>
-  <Control id="Btn-More" type="Button" x="230" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-More" type="Button" x="230" y="208" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Ask for ten</Property>
     <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -695,7 +711,7 @@
            MOVE 10 TO Web-Find::NumResults.
 ]]></Event>
   </Control>
-  <Control id="Btn-Safe" type="Button" x="428" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Safe" type="Button" x="428" y="208" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Safe search on</Property>
     <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -748,7 +764,7 @@
            MOVE "High" TO Web-Find::SafeSearch.
 ]]></Event>
   </Control>
-  <Control id="Btn-Cancel" type="Button" x="626" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Cancel" type="Button" x="626" y="208" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Cancel</Property>
     <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -802,7 +818,7 @@
            INVOKE Web-Find "Cancel".
 ]]></Event>
   </Control>
-  <Control id="Btn-Clear" type="Button" x="824" y="384" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Clear" type="Button" x="824" y="208" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Clear log</Property>
     <Property name="BackgroundColor">#F7F7F7FF</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -854,5 +870,63 @@
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
            Txt-Log::Clear().
 ]]></Event>
+  </Control>
+  <Control id="Snackbar-1" type="Snackbar" x="928" y="648" w="67" h="64" tab-order="0" z-order="1" visible="true" enabled="true">
+    <Property name="BackgroundColor">#F7F7F7FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="FontName">Arial</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Text"></Property>
+    <Property name="Category">Info</Property>
+    <Property name="Size">Medium</Property>
+    <Property name="ShowCategoryIcon">true</Property>
+    <Property name="CategoryIconSize">0</Property>
+    <Property name="CategoryIconColor"></Property>
+    <Property name="BackgroundImage"></Property>
+    <Property name="BackgroundImageMode">Fill</Property>
+    <Property name="BackgroundImageOpacity">15</Property>
+    <Property name="TextWrap">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="CornerRadiusTopLeft">-1</Property>
+    <Property name="CornerRadiusTopRight">-1</Property>
+    <Property name="CornerRadiusBottomLeft">-1</Property>
+    <Property name="CornerRadiusBottomRight">-1</Property>
+    <Property name="BorderStyle">None</Property>
+    <Property name="BorderWidth">1</Property>
+    <Property name="BorderColor">#00000000</Property>
+    <Property name="Timeout">-1</Property>
+    <Property name="PauseTimeoutOnHover">true</Property>
+    <Property name="StackAnchor">BottomRight</Property>
+    <Property name="Margin">16</Property>
+    <Property name="StackSpacing">8</Property>
+    <Property name="StackOrder">Auto</Property>
+    <Property name="MaximumVisible">5</Property>
+    <Property name="OverflowBehavior">Queue</Property>
+    <Property name="Buttons"></Property>
   </Control>
 </Form>

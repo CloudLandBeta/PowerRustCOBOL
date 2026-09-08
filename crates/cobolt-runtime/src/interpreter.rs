@@ -17137,6 +17137,113 @@ MAIN.
         );
     }
 
+    /// **The COBOL a demo button actually contains reaches the property.**
+    ///
+    /// PowerDemo3's "Ask for ten" is one statement — `MOVE 10 TO
+    /// Web-Find::NumResults` — inside its own COMMON PROGRAM, with no log line
+    /// and no re-search. The operator reported it "does not work" three times.
+    /// The test below proved `obj_set` works, but `obj_set` is not what the
+    /// button runs: a MOVE with a property as its receiving field is a
+    /// different path through the parser and the interpreter, and proving the
+    /// second says nothing about the first.
+    #[test]
+    fn a_move_into_a_control_property_is_what_the_button_actually_does() {
+        let src = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. BTN.
+PROCEDURE DIVISION.
+MAIN.
+    DISPLAY \"before=\" Web-Find::NumResults
+    MOVE 10 TO Web-Find::NumResults
+    DISPLAY \"after=\" Web-Find::NumResults
+    MOVE \"High\" TO Web-Find::SafeSearch
+    DISPLAY \"safe=\" Web-Find::SafeSearch
+    STOP RUN.
+";
+        let parsed = parse(tokenize(src, SourceFormat::Free));
+        let (_event_tx, event_rx) = std::sync::mpsc::channel();
+        let (state_tx, _state_rx) = std::sync::mpsc::channel();
+        let (display_tx, display_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new_with_channels(
+            parsed.program.expect("program"),
+            event_rx,
+            state_tx,
+            display_tx,
+        );
+        interp.seed_objects([(
+            "Web-Find".to_owned(),
+            "WebSearch".to_owned(),
+            vec![
+                ("NumResults".to_owned(), "5".to_owned()),
+                ("SafeSearch".to_owned(), "Off".to_owned()),
+            ],
+        )]);
+        let _ = interp.run();
+        let out: Vec<String> = display_rx.try_iter().map(|s| s.trim().to_owned()).collect();
+        let joined = out.join(" | ");
+
+        assert!(joined.contains("before=5"), "designed value seeded: {joined}");
+        assert!(
+            joined.contains("after=10"),
+            "the MOVE the button performs must reach the property: {joined}"
+        );
+        assert!(
+            joined.contains("safe=High"),
+            "and so must the safe-search MOVE: {joined}"
+        );
+    }
+
+    /// **A runtime write to a search setting survives, and the next Search
+    /// uses it.**
+    ///
+    /// The demo's "ask for ten" and "safe search" buttons do nothing but
+    /// `MOVE 10 TO Web-Find::NumResults` / `MOVE "High" TO
+    /// Web-Find::SafeSearch`. If a bound connection locked those values, the
+    /// buttons would be dead — and since neither button searches or logs, dead
+    /// would look exactly like working (operator, 2026-09-08).
+    #[test]
+    fn a_runtime_write_to_a_search_setting_is_what_the_next_search_uses() {
+        let parsed = parse(tokenize(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. S.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n",
+            SourceFormat::Free,
+        ));
+        let mut interp = Interpreter::new(parsed.program.expect("program"));
+        interp.seed_objects([(
+            "Web-Find".to_owned(),
+            "WebSearch".to_owned(),
+            vec![
+                ("Provider".to_owned(), "Brave".to_owned()),
+                ("NumResults".to_owned(), "10".to_owned()),
+                ("SafeSearch".to_owned(), "Off".to_owned()),
+            ],
+        )]);
+
+        interp.obj_set("Web-Find", "NumResults", "3".into());
+        interp.obj_set("Web-Find", "SafeSearch", "High".into());
+
+        assert_eq!(interp.obj_get("Web-Find", "NumResults"), "3");
+        assert_eq!(interp.obj_get("Web-Find", "SafeSearch"), "High");
+
+        // And those are the values a request would be built from.
+        let req = crate::search_runtime::build_request(
+            crate::search_runtime::Provider::parse(&interp.obj_get("Web-Find", "Provider")),
+            &crate::search_runtime::SearchParams {
+                api_key: "K",
+                engine_id: "",
+                endpoint: "",
+                query: &interp.obj_get("Web-Find", "Query"),
+                num_results: interp
+                    .obj_get("Web-Find", "NumResults")
+                    .trim()
+                    .parse()
+                    .unwrap_or(10),
+                safe_search: &interp.obj_get("Web-Find", "SafeSearch"),
+            },
+        );
+        assert!(req.url.contains("count=3"), "{}", req.url);
+        assert!(req.url.contains("safesearch=strict"), "{}", req.url);
+    }
+
     #[test]
     fn a_web_search_raises_its_own_completion_event_before_the_uniform_one() {
         let source = "\

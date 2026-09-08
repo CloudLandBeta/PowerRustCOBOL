@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.65.80"
+built_with_version = "1.65.84"
 
 [files]
 sources = ["src/main.cbl"]
@@ -671,5 +671,3 @@ name = "Brave"
 provider = "Brave"
 endpoint = ""
 search_engine_id = ""
-num_results = 10
-safe_search = "Off"
