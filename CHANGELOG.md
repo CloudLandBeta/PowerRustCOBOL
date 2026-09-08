@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.68] — 2026-09-07
+
+### A shadow with nothing casting it
+
+A PictureBox in a SideMenu footer showed a soft halo around a rectangle nobody
+had painted, with the image floating inside it. The control has
+`ShowFrame = false`.
+
+`draw_control`'s frameless arm paints no card — no background, no border — and
+never calls `draw_neumorphic_shadow_only`. So on the surface that control drew
+only its image. But `control_shadow_stack`, whose entire contract is to *mirror
+what `draw_control` draws*, did not know about framelessness and reported the
+full Neumorphic halo: 56 layers, 203px wide around a 168px control. The
+corner-notch mask then dutifully re-composited that halo — the mask exists to
+restore a shadow the backdrop repaint would erase, and here it restored one that
+had never been there.
+
+The code already names this failure, in the CheckBox note a few lines above the
+frameless branch: a face that is gone with a shadow that stayed "hangs in
+mid-air around nothing". That was fixed for `Transparency`, which FADES a face
+and fades its shadow with it. `ShowFrame` and `HideBackground` REMOVE the face,
+and nothing removed the shadow.
+
+The seven frameless conditions now live in one `paints_no_card`, called by both
+`draw_control` and `control_shadow_stack`, so the two cannot answer differently
+again — which is the whole of how this happened.
+
+Reverted, the new test fails with the measurement itself: "a frameless
+PictureBox reported 56 halo layers, the widest 203px around a 168px control — a
+shadow with nothing casting it".
+
+Forms engine: 861 tests, 0 failures. IDE: 1112, 0.
+
 ## [PowerRustCOBOL 1.65.67] — 2026-09-07
 
 ### The Snackbar inspector invented a colour, then made you keep it

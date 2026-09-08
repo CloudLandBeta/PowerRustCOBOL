@@ -1376,6 +1376,80 @@ pub(crate) fn neumorphic_shadow_params(ctrl: &Control) -> NeumorphicShadowParams
     }
 }
 
+/// Whether `ctrl` paints NO card — no background, no frame — so there is
+/// nothing for a shadow to be cast BY.
+///
+/// This is `draw_control`'s own frameless test, lifted out of it so the shadow
+/// helpers cannot disagree with what the frame path actually draws. They did:
+/// `draw_control`'s frameless arm never calls `draw_neumorphic_shadow_only`, so
+/// a `ShowFrame = false` PictureBox paints only its image — while
+/// `control_shadow_stack` reported the full Neumorphic halo for it, and the
+/// corner-notch mask duly re-composited a halo that had never been drawn. On a
+/// Neumorphic form that put a soft glow around a rectangle nobody painted, with
+/// the image floating inside it (operator screenshot, 2026-09-07: a footer
+/// image whose shadow was "completely messed up").
+///
+/// The code already names the failure in the CheckBox note above: a face that
+/// is gone with a shadow that stayed "hangs in mid-air around nothing". That
+/// was fixed for `Transparency`, which FADES the face and fades its shadow with
+/// it. `ShowFrame`/`HideBackground` REMOVE the face, and nothing removed the
+/// shadow.
+pub(crate) fn paints_no_card(ctrl: &Control) -> bool {
+    use crate::model::ControlType as CT;
+    let is_container = matches!(
+        ctrl.control_type,
+        CT::GroupBox | CT::Panel | CT::Splitter
+    );
+    let border_style = ctrl
+        .get_prop("BorderStyle")
+        .map(|v| v.as_str().to_owned())
+        .unwrap_or_else(|| "Single".into());
+    let container_frameless = is_container
+        && ctrl
+            .get_prop("HideBackground")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
+    let background_gradient = !container_frameless
+        && ctrl
+            .get_prop("BackgroundGradientEnabled")
+            .map(|v| v.as_bool())
+            .unwrap_or(false);
+
+    // A PictureBox with ShowFrame = false draws no card/background/border.
+    let pic_frameless = matches!(ctrl.control_type, CT::PictureBox)
+        && !ctrl
+            .get_prop("ShowFrame")
+            .map(|v| v.as_bool())
+            .unwrap_or(true);
+    // Charts and a SideMenu paint their own WHOLE face; a RadioButton and a
+    // Switch paint their own indicator. They take the same branch, so the
+    // generic card — and its shadow — is not theirs either.
+    let chart_frameless = matches!(
+        ctrl.control_type,
+        CT::BarChart
+            | CT::LineChart
+            | CT::PieChart
+            | CT::AreaChart
+            | CT::ScatterChart
+            | CT::DonutChart
+    );
+    let radio_frameless =
+        matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
+    let switch_frameless = matches!(ctrl.control_type, CT::Switch);
+    let sidemenu_frameless = matches!(ctrl.control_type, CT::SideMenu);
+    let label_frameless = matches!(ctrl.control_type, CT::Label)
+        && !background_gradient
+        && user_background_color(ctrl).is_none();
+
+    label_frameless
+        || pic_frameless
+        || chart_frameless
+        || container_frameless
+        || radio_frameless
+        || switch_frameless
+        || sidemenu_frameless
+}
+
 /// The soft-shadow stack `ctrl` paints behind its face at `rect`, for the
 /// corner-notch mask to re-composite after it repaints the backdrop.
 ///
@@ -1390,6 +1464,11 @@ pub fn control_shadow_stack(
     rect: egui::Rect,
     alpha_mul: f32,
 ) -> ShadowStack {
+    // Nothing painted the card, so nothing cast a shadow: report none, or the
+    // notch mask re-composites a halo that was never on the surface.
+    if paints_no_card(ctrl) {
+        return ShadowStack::default();
+    }
     let is_neumorphic = glass_config_applies(ctx) && active_glass_style(ctx).is_neumorphic();
     if is_neumorphic {
         return neumorphic_shadow_stack(
@@ -4245,26 +4324,9 @@ fn draw_control_body(
     // face at all instead of staying frameless.
     let user_bg: Option<Color32> = user_background_color(ctrl);
 
-    // A PictureBox with ShowFrame = false draws no card/background/border —
-    // only the image (so transparent PNG areas reveal what's behind).
-    let pic_frameless = matches!(ctrl.control_type, CT::PictureBox)
-        && !ctrl
-            .get_prop("ShowFrame")
-            .map(|v| v.as_bool())
-            .unwrap_or(true);
-
     // Charts own their full card/background in `draw_chart_preview`. Drawing the
     // generic glass frame first leaves an extra dark under-frame that can show
     // through rounded corner notches in preview/run surfaces.
-    let chart_frameless = matches!(
-        ctrl.control_type,
-        CT::BarChart
-            | CT::LineChart
-            | CT::PieChart
-            | CT::AreaChart
-            | CT::ScatterChart
-            | CT::DonutChart
-    );
 
     // A container (GroupBox/Panel) with HideBackground draws no fill/border
     // (children stay visible); with a background gradient enabled it fills with
@@ -4309,7 +4371,6 @@ fn draw_control_body(
     // glass frame drew a second, differently-composited fill AND a border, so
     // the canvas showed a bordered grey rail where the preview and the shell
     // showed the designed colour.
-    let sidemenu_frameless = matches!(ctrl.control_type, CT::SideMenu);
 
     // A RadioButton's frame follows its own `BorderStyle`, which is seeded
     // `None` — it is a selection circle and a caption, not a card. `BorderStyle`
@@ -4323,7 +4384,6 @@ fn draw_control_body(
     // in every theme; set a BorderStyle and the frame comes back. (Its sibling
     // the CheckBox reaches the same place through its 100 % default
     // transparency.)
-    let radio_frameless = matches!(ctrl.control_type, CT::RadioButton) && border_style == "None";
 
     // A Switch paints a COMPLETE control: a pill track and its knob. The
     // generic card behind it added a rectangular rim around that pill, and
@@ -4336,18 +4396,13 @@ fn draw_control_body(
     // black foreground on a dark form. Restoring the `#FFFFFF` "not chosen"
     // sentinel turned the same wrong rim white and made it obvious (operator
     // screenshot, 2026-09-02). The rim is the defect, not its colour.
-    let switch_frameless = matches!(ctrl.control_type, CT::Switch);
 
     let label_frameless = is_label && !background_gradient && user_bg.is_none();
 
-    if label_frameless
-        || pic_frameless
-        || chart_frameless
-        || container_frameless
-        || radio_frameless
-        || switch_frameless
-        || sidemenu_frameless
-    {
+    // The same seven conditions, now named once in `paints_no_card` so the
+    // shadow helpers cannot answer differently from the frame path — which is
+    // exactly how a frameless PictureBox came to be given a halo it never drew.
+    if paints_no_card(ctrl) {
 
         // No visible frame. When selected, show a lightweight selection outline.
         if is_container {
@@ -12761,6 +12816,77 @@ mod checkbox_face_tests {
     /// The two states must be told apart by the FILL, since that is the whole
     /// of what "empty or filled" means: a rim on both, a face on the chosen one
     /// only.
+    /// **A control that paints no card casts no shadow.**
+    ///
+    /// `draw_control`'s frameless arm never calls `draw_neumorphic_shadow_only`,
+    /// so a `ShowFrame = false` PictureBox paints only its image. But
+    /// `control_shadow_stack` — whose whole contract is to mirror what
+    /// `draw_control` draws — reported the full halo anyway, and the
+    /// corner-notch mask re-composited it. On a Neumorphic form that put a soft
+    /// glow around a rectangle nobody had painted, with the image floating
+    /// inside it (operator screenshot, 2026-09-07: a sidebar-footer image whose
+    /// shadow was "completely messed up").
+    #[test]
+    fn a_control_that_paints_no_card_casts_no_shadow() {
+        let ctx = egui::Context::default();
+        set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+        set_glass_style(&ctx, crate::model::GlassStyle::Neumorphic);
+
+        // The reported control, to its properties.
+        let mut pic = Control::new("PIC-1", ControlType::PictureBox, 64, 840);
+        pic.rect.w = 168;
+        pic.rect.h = 106;
+        pic.set_prop("ShadowEnabled", crate::PropValue::Bool(true));
+        pic.set_prop("ShadowOpacity", crate::PropValue::Int(6));
+        pic.set_prop("ShadowBlurStrength", crate::PropValue::Int(8));
+        pic.set_prop("ShadowDistance", crate::PropValue::Int(7));
+        pic.set_prop(
+            "BackgroundColor",
+            crate::PropValue::String("#E1E6F8FF".into()),
+        );
+        let rect = egui::Rect::from_min_size(egui::pos2(64.0, 0.0), egui::vec2(168.0, 106.0));
+
+        // Framed: it paints a card, so the halo is real and must be restored
+        // behind the notch.
+        let mut framed = pic.clone();
+        framed.set_prop("ShowFrame", crate::PropValue::Bool(true));
+        let framed_stack = control_shadow_stack(&ctx, &framed, rect, 1.0);
+        assert!(
+            !framed_stack.is_empty(),
+            "a framed control still casts its halo"
+        );
+
+        // Frameless: no card, so nothing to cast one. Before the fix this
+        // reported the SAME stack as the framed one.
+        let mut bare = pic.clone();
+        bare.set_prop("ShowFrame", crate::PropValue::Bool(false));
+        let bare_stack = control_shadow_stack(&ctx, &bare, rect, 1.0);
+        assert!(
+            bare_stack.is_empty(),
+            "a frameless PictureBox reported {} halo layers, the widest {:.0}px \
+             around a {:.0}px control — a shadow with nothing casting it",
+            bare_stack.layers.len(),
+            bare_stack
+                .layers
+                .iter()
+                .map(|l| l.rect.width())
+                .fold(0.0_f32, f32::max),
+            rect.width()
+        );
+
+        // The predicate answers for the other faceless controls too.
+        for ct in [ControlType::Label, ControlType::Switch, ControlType::SideMenu] {
+            assert!(
+                paints_no_card(&Control::new("X", ct.clone(), 0, 0)),
+                "{ct:?} paints no card of its own"
+            );
+        }
+        assert!(
+            !paints_no_card(&Control::new("B", ControlType::Button, 0, 0)),
+            "a Button is a card and keeps its shadow"
+        );
+    }
+
     #[test]
     fn a_radio_is_an_empty_or_filled_circle_on_every_theme() {
         let ctx = egui::Context::default();
