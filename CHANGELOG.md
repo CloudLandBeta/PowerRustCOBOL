@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.75] — 2026-09-08
+
+### The badge ink was chosen for a card that does not exist
+
+1.65.69 fixed non-visual badges painted in unreadable ink. On a Neumorphic
+form it made them unreadable a different way: **black glyph and caption on the
+navy card**, about 1.7:1 — worse, if anything, than the pale ink it replaced.
+
+`nv_card_tone` was written by copying `popup_surface`'s resolution order. That
+order has a Neumorphic branch because a popup really is repainted in the
+neumorphic surface colour. **This card is not.** `nv_card` hands `NV_CARD` to
+`draw_surface_auto`, and with no themed Card surface that goes to
+`draw_glass_auto`, which paints navy under *every* glass style. So the resolver
+predicted a light card and `readable_ink_on` dutifully picked black for it.
+
+The branch is gone. Measured on the card the painter actually produces: glyph
+**9.2:1**, caption **4.8:1**, and the designed light-on-navy look is back.
+
+**The test was the real defect.** It reported 16.9:1 and passed, because it
+compared the ink against the same resolver production code had used to choose
+it — a prediction measured against itself always agrees. It now paints the
+control, walks the shapes for the largest opaque rect, and asserts the
+resolver's tone **equals the fill actually painted**. A frosted surface paints
+no opaque fill of its own and is skipped rather than given an invented one.
+
+- `crates/cobolt-forms/src/paint.rs` — the wrong branch removed;
+  `the_tone_the_ink_is_chosen_against_is_what_the_card_paints`.
+
+Full workspace sweep: 3671 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.69] — 2026-09-08
 
 ### A WebSearch chip was a blank rectangle, and the rest were invisible ink

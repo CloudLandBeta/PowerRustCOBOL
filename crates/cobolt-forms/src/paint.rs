@@ -1942,17 +1942,14 @@ pub fn nv_card_tone(ctx: &egui::Context) -> Color32 {
     {
         return c;
     }
-    if glass_config_applies(ctx) {
-        match active_glass_style(ctx) {
-            crate::model::GlassStyle::Neumorphic => {
-                return parse_color(crate::model::NEUMORPHIC_SURFACE_COLOR)
-            }
-            crate::model::GlassStyle::NeumorphicDark => {
-                return parse_color(crate::model::NEUMORPHIC_DARK_SURFACE_COLOR)
-            }
-            _ => {}
-        }
-    }
+    // NO glass-style branch here, deliberately. `popup_surface` has one
+    // because a popup really is repainted in the neumorphic surface colour;
+    // this card is not. `nv_card` hands NV_CARD to `draw_surface_auto`, and
+    // when the theme publishes no Card surface that goes to `draw_glass_auto`,
+    // which paints NV_CARD — navy — under every glass style, neumorphic
+    // included. Copying the popup's order without checking what this card
+    // actually paints put BLACK ink on a navy card at about 1.7:1 (operator
+    // screenshot, 2026-09-08).
     NV_CARD
 }
 
@@ -12941,6 +12938,74 @@ mod non_visual_badge_tests {
             walk(&cs.shape, &mut strokes, &mut texts);
         }
         (nv_card_tone(&ctx), strokes, texts)
+    }
+
+    /// **The tone the ink is chosen against is the colour the card actually
+    /// paints.**
+    ///
+    /// This is the assertion the first version of this fix lacked, and the
+    /// reason it shipped a defect. `nv_card_tone` was written by copying
+    /// `popup_surface`'s resolution order, which has a neumorphic branch
+    /// because a popup really is repainted in the neumorphic surface colour.
+    /// This card is not: `nv_card` hands `NV_CARD` to `draw_surface_auto`, and
+    /// with no themed Card surface that paints navy under every glass style.
+    /// So the resolver predicted a LIGHT card, picked black, and painted it on
+    /// navy at about 1.7:1 — while the contrast test below passed, because it
+    /// compared the ink against the prediction rather than against the paint
+    /// (operator screenshot, 2026-09-08).
+    ///
+    /// Comparing a prediction with itself proves nothing. This compares the
+    /// prediction with what the painter actually put on the canvas.
+    #[test]
+    fn the_tone_the_ink_is_chosen_against_is_what_the_card_paints() {
+        for style in [GlassStyle::Neumorphic, GlassStyle::Classic] {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+            set_glass_style(&ctx, style);
+
+            let mut c = Control::new("NV-1", CT::WebSearch, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 120, 80);
+
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+
+            fn rects(sh: &egui::Shape, out: &mut Vec<(f32, Color32)>) {
+                match sh {
+                    egui::Shape::Vec(v) => v.iter().for_each(|x| rects(x, out)),
+                    egui::Shape::Rect(r) => out.push((r.rect.width() * r.rect.height(), r.fill)),
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for cs in &full.shapes {
+                rects(&cs.shape, &mut found);
+            }
+            found.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
+
+            // A frosted card paints no opaque fill of its own — the frost sits
+            // over the backdrop, and NV_CARD is the base it was handed. There
+            // is nothing to compare in that case, and nothing wrong either.
+            let Some((_, painted)) = found.into_iter().find(|(_, c)| c.a() > 200) else {
+                continue;
+            };
+            let predicted = nv_card_tone(&ctx);
+            assert_eq!(
+                (predicted.r(), predicted.g(), predicted.b()),
+                (painted.r(), painted.g(), painted.b()),
+                "{style:?}: the ink is chosen against {predicted:?} but the card \
+                 paints {painted:?} — every badge on this style is inked for a \
+                 card that does not exist"
+            );
+        }
     }
 
     /// **Every non-visual control shows a glyph and a caption, in ink that
