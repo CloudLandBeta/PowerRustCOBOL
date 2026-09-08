@@ -5796,6 +5796,18 @@ fn render_interactive(
                             // rim away at the first and last row.
                             let band =
                                 Rect::from_x_y_ranges(highlight_x, row.y_range()).intersect(inner);
+                            // Everything ON the row hangs off the ROW, never
+                            // off the band. The band is the row cut back to the
+                            // frame's inner edge, so a row hanging over either
+                            // end comes back truncated and its centre walks
+                            // inwards at HALF the rate the row moves -- the
+                            // rows around each border bunch up into one another
+                            // instead of scrolling out of sight. The ComboBox's
+                            // dropdown has centred on the row for exactly this
+                            // reason all along; the list never did (operator,
+                            // 2026-09-08: "scrolling a listbox has this weird
+                            // distortion of fonts next to top/bottom borders").
+                            let row_mid = row.center().y;
                             let is_active = &active_item == item;
                             let is_selected = selected.iter().any(|s| s == item);
                             if is_active || is_selected && band.is_positive() {
@@ -5821,7 +5833,7 @@ fn render_interactive(
                             if show_checks {
                                 let d = (row_h - 4.0).clamp(9.0, 18.0);
                                 let box_rect = Rect::from_min_size(
-                                    pos2(text_x, band.center().y - d * 0.5),
+                                    pos2(text_x, row_mid - d * 0.5),
                                     vec2(d, d),
                                 );
                                 check_hit = box_rect.expand(3.0);
@@ -5861,7 +5873,7 @@ fn render_interactive(
                                 item_color
                             };
                             row_painter.text(
-                                pos2(text_x, band.center().y),
+                                pos2(text_x, row_mid),
                                 Align2::LEFT_CENTER,
                                 item,
                                 crate::fonts::font_id(
@@ -18189,6 +18201,133 @@ mod elegance_live_tests {
             );
         }
     }
+}
+
+// -- ListBox scroll geometry -------------------------------------------------
+//
+// The operator's report (2026-09-08): "scrolling a listbox has this weird
+// distortion of fonts next to top/bottom borders". Rows are hand-painted, so
+// nothing in egui guarantees they land on a grid -- this measures that they do.
+#[cfg(test)]
+mod listbox_scroll_tests {
+    use super::*;
+    use crate::model::{Control, ControlType as CT};
+
+    fn list_of(n: usize) -> Control {
+        let mut c = Control::new("LB", CT::ListBox, 0, 0);
+        // Tall enough for a handful of rows, short enough that 40 overflow it.
+        c.rect = crate::model::Rect::new(10, 10, 240, 120);
+        let items: Vec<String> = (0..n).map(|i| format!("item {i:02}")).collect();
+        c.set_prop("Items", crate::PropValue::String(items.join("\n")));
+        c
+    }
+
+    /// The y each row's text was anchored at, after `wheel` notches of
+    /// scrolling with the pointer over the list.
+    ///
+    /// `painter.text(.., Align2::LEFT_CENTER, ..)` places the galley's top-left
+    /// half a galley above the anchor, so the anchor comes back exactly.
+    fn row_anchors(ctrl: Control, wheel: f32) -> Vec<f32> {
+        let controls = vec![ctrl];
+        let ctx = egui::Context::default();
+        crate::paint::set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+        let active = ActiveTabs::new();
+        // Over the middle of the list, so the scroll area is the hovered one.
+        let over = pos2(120.0, 70.0);
+
+        let mut last = None;
+        // Frame 1 registers the area, frame 2 delivers the wheel, frame 3 paints
+        // with the new offset.
+        for frame in 0..3 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            input.events.push(egui::Event::PointerMoved(over));
+            if frame == 1 && wheel != 0.0 {
+                input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    phase: egui::TouchPhase::Move,
+                    delta: Vec2::new(0.0, -wheel),
+                    modifiers: Default::default(),
+                });
+            }
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        let inp = RenderInput {
+                            controls: &controls,
+                            state: &DesignedState,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let _ = render_form(ui, &inp);
+                    });
+            });
+            full.textures_delta.clear();
+            fn collect(s: &egui::Shape, out: &mut Vec<f32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                    egui::Shape::Text(t) => out.push(t.pos.y + t.galley.size().y * 0.5),
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                collect(&cs.shape, &mut out);
+            }
+            last = Some(out);
+        }
+        last.expect("three frames ran")
+    }
+
+    /// **Every row's text sits on the row grid, however far the list is
+    /// scrolled.**
+    ///
+    /// The text was anchored at `band.center().y`, and the band is the row
+    /// rect INTERSECTED with the frame's inner edge -- so a row hanging over
+    /// either end came back truncated and its centre moved inwards, at half
+    /// the rate the row itself moves. The text of the rows around each border
+    /// bunched up into each other instead of scrolling out: the operator's
+    /// "weird distortion of fonts next to top/bottom borders"
+    /// (2026-09-08).
+    ///
+    /// A row's text belongs to the ROW. Measured as the spacing between
+    /// consecutive anchors, which must be the row height for every pair --
+    /// including the pairs that straddle the frame.
+    #[test]
+    fn every_row_of_a_scrolled_list_is_drawn_on_the_row_grid() {
+        let ctrl = list_of(40);
+        let row_h = crate::model::text_line_height(&ctrl) + crate::model::LIST_ROW_PAD * 2.0;
+
+        let resting = row_anchors(ctrl.clone(), 0.0);
+        let scrolled = row_anchors(ctrl.clone(), 3.5 * row_h);
+
+        assert_eq!(resting.len(), 40, "every row paints its text");
+        // The offset has to be a PART of a row: whole rows leave nothing
+        // straddling either border, which is the only place this can go wrong.
+        let offset = resting[0] - scrolled[0];
+        assert!(
+            offset > 1.0 && (offset % row_h) > 1.0,
+            "the wheel has to leave a row straddling the frame, or this measures \
+             nothing (moved {offset}, row is {row_h})"
+        );
+
+        for (what, anchors) in [("at rest", &resting), ("scrolled", &scrolled)] {
+            for (i, pair) in anchors.windows(2).enumerate() {
+                let gap = pair[1] - pair[0];
+                assert!(
+                    (gap - row_h).abs() < 0.01,
+                    "{what}: rows {i} and {} are {gap} apart, not one row ({row_h})",
+                    i + 1
+                );
+            }
+        }
+    }
+
 }
 
 // ── Maps corner-notch measurement (CORNER-BLEED-PLAYBOOK §4) ─────────────────

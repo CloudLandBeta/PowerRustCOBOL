@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.88] — 2026-09-08
+
+### A scrolling list bunched its rows up against the top and bottom borders
+
+Each row's text was hung off the highlight **band**, and the band is the row cut
+back to the frame's inner edge. So a row hanging over either end came back
+truncated, and its centre — the point the text is anchored at — walked inwards
+at **half** the rate the row itself moves. Rows near a border therefore stopped
+keeping step with the rest: they closed on one another until their glyphs
+overlapped, right where a row should simply have been scrolling out of sight.
+The operator saw it as "weird distortion of fonts next to top/bottom borders"
+(2026-09-08).
+
+It showed with the list at rest too, not only while scrolling: any list whose
+last row overhangs the frame drew that row and every row after it at half
+spacing.
+
+- The row text and the per-row tick box now hang off the **row**, never off the
+  clipped band. The band keeps its inset — that is what leaves the border a
+  visible, unbroken line — but nothing is positioned from it any more.
+- The ComboBox's dropdown has centred on the row for exactly this reason all
+  along, and says so in a comment. The list simply never got the same
+  treatment; the two now agree.
+
+Measured, not inspected: a new test renders a 40-item list, scrolls it with the
+wheel until a row straddles each border, and asserts that **every** consecutive
+pair of row anchors is exactly one row apart. Against the old code it reports
+`rows 3 and 4 are 22.640625 apart, not one row (22.9)` and, further down,
+gaps of `11.45` — half a row, the signature of the truncated band.
+
+
 ## [PowerRustCOBOL 1.65.87] — 2026-09-08
 
 ### The IntelliSense popup was as wide as its longest sentence, and its rows overlapped
