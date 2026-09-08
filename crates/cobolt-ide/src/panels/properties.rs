@@ -3488,6 +3488,10 @@ struct HintState {
     seen: std::collections::HashSet<String>,
 }
 
+/// What the Configuration combo calls "use this control's own settings".
+/// One constant so the pane, its tests and the documentation agree.
+pub const LOCAL_CONFIG_LABEL: &str = "(Local)";
+
 pub struct PropertiesPanel {
     hints: HintState,
     text_bufs: std::collections::HashMap<String, String>,
@@ -3504,6 +3508,13 @@ pub struct PropertiesPanel {
     /// whole pane: it carries WHICH row is being picked for, so three icon rows
     /// do not need three of these.
     icon_picker: super::icon_picker::IconPickerState,
+    /// The project's named REST connections, refreshed each frame by the app.
+    ///
+    /// Held here rather than threaded through `show`/`show_selection`/
+    /// `show_control` like `indexed_files` is: a second threaded parameter
+    /// would touch four signatures to deliver a list that only one control's
+    /// arm reads.
+    rest_connections: Vec<cobolt_compiler::connections::RestConnection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3536,6 +3547,20 @@ impl PropertiesPanel {
             active_tab: InspectorTab::Visuals,
             property_split: 0.0,
             icon_picker: Default::default(),
+            rest_connections: Vec::new(),
+        }
+    }
+
+    /// Tell the pane which named REST connections the project defines.
+    ///
+    /// Called every frame from the app, so adding a connection in Settings
+    /// shows up in an already-open inspector without a reselect.
+    pub fn set_rest_connections(
+        &mut self,
+        connections: &[cobolt_compiler::connections::RestConnection],
+    ) {
+        if self.rest_connections != connections {
+            self.rest_connections = connections.to_vec();
         }
     }
 
@@ -8139,6 +8164,86 @@ impl PropertiesPanel {
             // ── REST Client ───────────────────────────────────────────────────
             ControlType::RestClient if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
+
+                // ── Where this control's connection comes from ───────────────
+                //
+                // The combo shows connection NAMES but stores the connection
+                // ID, so renaming one in Settings does not orphan the forms
+                // using it. A stored id the project no longer has is shown as
+                // missing rather than silently reading as "(Local)" — the
+                // control was told to ignore its own settings, and quietly
+                // going back to them would send requests to an address the
+                // developer had already overridden.
+                let conns = self.rest_connections.clone();
+                let cur_id = ctrl
+                    .get_prop(cobolt_compiler::connections::CONFIGURATION_PROP)
+                    .map(|v| v.as_str().trim().to_owned())
+                    .unwrap_or_default();
+                let bound = conns.iter().find(|c| c.id == cur_id);
+                let missing = !cur_id.is_empty() && bound.is_none();
+                let selected_text = if cur_id.is_empty() {
+                    LOCAL_CONFIG_LABEL.to_owned()
+                } else {
+                    match bound {
+                        Some(c) => c.name.clone(),
+                        None => format!("⚠ missing ({cur_id})"),
+                    }
+                };
+                property_row(ui, "Configuration:", |ui| {
+                    egui::ComboBox::from_id_salt(format!("cb_{id}_Configuration"))
+                        .selected_text(selected_text)
+                        .width(ui.available_width().min(200.0))
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(cur_id.is_empty(), LOCAL_CONFIG_LABEL)
+                                .clicked()
+                            {
+                                action.set_props.push((
+                                    id.to_owned(),
+                                    cobolt_compiler::connections::CONFIGURATION_PROP.into(),
+                                    PropValue::String(String::new()),
+                                ));
+                            }
+                            for c in &conns {
+                                if ui.selectable_label(c.id == cur_id, &c.name).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        cobolt_compiler::connections::CONFIGURATION_PROP.into(),
+                                        PropValue::String(c.id.clone()),
+                                    ));
+                                }
+                            }
+                        });
+                });
+                if missing {
+                    ui.label(
+                        RichText::new(
+                            "This control names a project connection that no longer exists. \
+                             Pick another, or (Local) to use the settings below.",
+                        )
+                        .small()
+                        .color(Color32::from_rgb(220, 120, 90)),
+                    );
+                } else if let Some(c) = bound {
+                    ui.label(
+                        RichText::new(format!(
+                            "Using the project connection “{}”: {} {}, auth {}, {} s timeout.\n\
+                             The settings below are this control's own and are not in use \
+                             while a connection is selected — they are kept, and apply again \
+                             if you switch back to {LOCAL_CONFIG_LABEL}.",
+                            c.name,
+                            c.default_method,
+                            if c.base_url.is_empty() { "(no base URL)" } else { &c.base_url },
+                            c.auth_type,
+                            c.timeout_seconds,
+                        ))
+                        .small()
+                        .color(Color32::GRAY)
+                        .italics(),
+                    );
+                }
+                ui.add_space(2.0);
+
                 {
                     let cur = ctrl
                         .get_prop("BaseURL")

@@ -90,6 +90,13 @@ pub struct SettingsDraft {
     pub custom_search_api_key: String,
     /// Google Custom Search Engine id ("cx") — not a secret (R31/R32).
     pub custom_search_engine_id: String,
+    /// The project's named REST connections — the **non-secret** half, which
+    /// round-trips in `cobolt.toml` and is meant to be committed.
+    pub rest_connections: Vec<cobolt_compiler::connections::RestConnection>,
+    /// Each connection's credential, keyed by connection id. Never written to
+    /// the project: saved into the machine-local store under
+    /// `connection::<id>`, like every other key here.
+    pub connection_keys: std::collections::HashMap<String, String>,
 }
 
 impl SettingsDraft {
@@ -172,6 +179,20 @@ impl SettingsDraft {
                 .cloned()
                 .unwrap_or_default(),
             custom_search_engine_id: p.integrations.google_search_engine_id.clone(),
+            rest_connections: p.integrations.rest_connections.clone(),
+            connection_keys: p
+                .integrations
+                .rest_connections
+                .iter()
+                .map(|c| {
+                    let key = llm
+                        .api_keys
+                        .get(&cobolt_compiler::connections::connection_key_slot(&c.id))
+                        .cloned()
+                        .unwrap_or_default();
+                    (c.id.clone(), key)
+                })
+                .collect(),
         }
     }
 
@@ -281,6 +302,20 @@ impl SettingsDraft {
             );
         }
         p.integrations.google_search_engine_id = self.custom_search_engine_id.clone();
+        // The connections themselves go to the project; their keys do not.
+        p.integrations.rest_connections = self.rest_connections.clone();
+        for c in &self.rest_connections {
+            if let Some(key) = self.connection_keys.get(&c.id) {
+                // Same "only overwrite a non-empty edit" rule as the keys
+                // above: a blank box never clears a stored key by accident.
+                if !key.trim().is_empty() {
+                    llm.store_api_key(
+                        cobolt_compiler::connections::connection_key_slot(&c.id),
+                        key,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -2100,6 +2135,142 @@ impl SettingsForm {
                             });
                         });
 
+                        // ── Named REST connections ───────────────────────────
+                        //
+                        // Full width rather than the label/field splitter above:
+                        // this is a list of records, not a row of settings.
+                        ui.add_space(10.0);
+                        ui.label(RichText::new(tr.settings_connections).strong());
+                        ui.label(
+                            RichText::new(tr.settings_connections_hint)
+                                .small()
+                                .color(Color32::GRAY),
+                        );
+                        ui.add_space(4.0);
+
+                        // Disjoint borrows: the records and their keys are two
+                        // fields of the draft and are edited in the same loop.
+                        let SettingsDraft {
+                            rest_connections,
+                            connection_keys,
+                            ..
+                        } = &mut self.draft;
+
+                        let mut remove: Option<usize> = None;
+                        for (i, c) in rest_connections.iter_mut().enumerate() {
+                            ui.push_id(i, |ui| {
+                                egui::Frame::group(ui.style()).show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.settings_conn_name);
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut c.name)
+                                                .desired_width(200.0),
+                                        );
+                                        if ui.button(tr.settings_conn_remove).clicked() {
+                                            remove = Some(i);
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.settings_conn_base_url);
+                                        ui.add(
+                                            egui::TextEdit::singleline(&mut c.base_url)
+                                                .hint_text("https://api.example.com")
+                                                .desired_width(300.0),
+                                        );
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.settings_conn_method);
+                                        egui::ComboBox::from_id_salt("conn_method")
+                                            .selected_text(&c.default_method)
+                                            .width(110.0)
+                                            .show_ui(ui, |ui| {
+                                                for m in [
+                                                    "GET", "POST", "PUT", "PATCH", "DELETE",
+                                                    "HEAD", "OPTIONS",
+                                                ] {
+                                                    if ui
+                                                        .selectable_label(
+                                                            c.default_method == m,
+                                                            m,
+                                                        )
+                                                        .clicked()
+                                                    {
+                                                        c.default_method = m.to_owned();
+                                                    }
+                                                }
+                                            });
+                                        ui.label(tr.settings_conn_auth);
+                                        egui::ComboBox::from_id_salt("conn_auth")
+                                            .selected_text(&c.auth_type)
+                                            .width(110.0)
+                                            .show_ui(ui, |ui| {
+                                                for a in
+                                                    ["None", "Bearer", "Basic", "APIKey"]
+                                                {
+                                                    if ui
+                                                        .selectable_label(c.auth_type == a, a)
+                                                        .clicked()
+                                                    {
+                                                        c.auth_type = a.to_owned();
+                                                    }
+                                                }
+                                            });
+                                    });
+                                    // The credential. Masked, and it does NOT go
+                                    // into the project with the rest of the
+                                    // record — the caption says so, because a
+                                    // developer about to commit `cobolt.toml`
+                                    // needs to know which half travels.
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.settings_conn_api_key);
+                                        let key = connection_keys
+                                            .entry(c.id.clone())
+                                            .or_default();
+                                        ui.add(
+                                            egui::TextEdit::singleline(key)
+                                                .password(true)
+                                                .hint_text(tr.settings_conn_api_key_hint)
+                                                .desired_width(240.0),
+                                        );
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label(tr.settings_conn_timeout);
+                                        ui.add(
+                                            egui::DragValue::new(&mut c.timeout_seconds)
+                                                .range(1..=300),
+                                        );
+                                        ui.checkbox(
+                                            &mut c.follow_redirects,
+                                            tr.settings_conn_follow_redirects,
+                                        );
+                                        ui.checkbox(
+                                            &mut c.verify_tls,
+                                            tr.settings_conn_verify_tls,
+                                        );
+                                    });
+                                });
+                            });
+                        }
+                        if let Some(i) = remove {
+                            let gone = rest_connections.remove(i);
+                            // The key outlives the record deliberately: removing
+                            // a connection by accident must not also destroy a
+                            // credential the developer would have to go and find
+                            // again. It is orphaned in the machine-local store,
+                            // not the project.
+                            let _ = gone;
+                        }
+                        if ui.button(tr.settings_conn_add).clicked() {
+                            let id = crate::agents_db::new_uuid();
+                            let n = rest_connections.len() + 1;
+                            rest_connections.push(
+                                cobolt_compiler::connections::RestConnection::new(
+                                    id,
+                                    format!("Connection {n}"),
+                                ),
+                            );
+                        }
+
                         ui.add_space(8.0);
 
                         // --- Runtime section header (left only)
@@ -2304,6 +2475,81 @@ fn section(ui: &mut Ui, title: &str, theme: &crate::theme::Theme) {
     ui.add_space(10.0);
     ui.label(RichText::new(title).size(15.0).strong().color(theme.accent));
     ui.add_space(2.0);
+}
+
+#[cfg(test)]
+mod connection_tests {
+    use super::*;
+    use cobolt_compiler::connections::{connection_key_slot, RestConnection};
+
+    /// **A connection's credential reaches the machine-local store and never
+    /// the project file.**
+    ///
+    /// This is the whole reason the feature is split the way it is. The
+    /// catalogue is meant to be committed, so if the key travelled with it,
+    /// defining a connection would put a secret in `cobolt.toml` for every
+    /// developer who has ever run `git add .` — which is exactly how a live
+    /// key reached this repository's own `main` through a `.cfrm`.
+    ///
+    /// The decisive assertion is the last one: the project is serialised and
+    /// searched for the secret. A field-by-field check would pass even if the
+    /// key were smuggled somewhere nobody thought to look.
+    #[test]
+    fn a_connections_key_reaches_the_local_store_and_never_the_project() {
+        const SECRET: &str = "sk-do-not-commit-me-4f19a7";
+
+        let mut project = CoboltProject::new("Demo", "src/main.cbl");
+        let mut llm = LlmConfig::defaults();
+        let conn = RestConnection::new("abc-123", "Billing API");
+
+        let mut draft = SettingsDraft::from_project(&project, &llm);
+        draft.rest_connections = vec![conn.clone()];
+        draft
+            .connection_keys
+            .insert(conn.id.clone(), SECRET.to_owned());
+        draft.apply(&mut project, &mut llm);
+
+        // The record is in the project…
+        assert_eq!(project.integrations.rest_connections.len(), 1);
+        assert_eq!(project.integrations.rest_connections[0].name, "Billing API");
+
+        // …the key is in the machine-local store, under the id-keyed slot…
+        assert_eq!(
+            llm.api_keys.get(&connection_key_slot(&conn.id)).map(String::as_str),
+            Some(SECRET),
+        );
+
+        // …and nowhere in the project, however it is serialised.
+        let serialised = toml::to_string(&project).expect("serialize project");
+        assert!(
+            !serialised.contains(SECRET),
+            "the credential reached cobolt.toml:\n{serialised}"
+        );
+    }
+
+    /// **A blank key box never clears a stored key.**
+    ///
+    /// The same rule the Maps and Search key fields follow: the box shows
+    /// nothing meaningful for a stored secret, so treating "empty" as "delete"
+    /// would destroy a credential every time the form was saved after being
+    /// opened.
+    #[test]
+    fn an_empty_key_box_does_not_erase_the_stored_key() {
+        let mut project = CoboltProject::new("Demo", "src/main.cbl");
+        let mut llm = LlmConfig::defaults();
+        let conn = RestConnection::new("abc-123", "Billing API");
+        llm.store_api_key(connection_key_slot(&conn.id), "kept-secret");
+
+        let mut draft = SettingsDraft::from_project(&project, &llm);
+        draft.rest_connections = vec![conn.clone()];
+        draft.connection_keys.insert(conn.id.clone(), "   ".to_owned());
+        draft.apply(&mut project, &mut llm);
+
+        assert_eq!(
+            llm.api_keys.get(&connection_key_slot(&conn.id)).map(String::as_str),
+            Some("kept-secret"),
+        );
+    }
 }
 
 #[cfg(test)]

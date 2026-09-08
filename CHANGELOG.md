@@ -1,5 +1,64 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.71] — 2026-09-08
+
+### Named REST connections: Settings and the properties pane (step 2 of 3)
+
+1.65.70 landed the record and the resolution; this makes them reachable. A
+connection can now be created, and a control pointed at it, without editing a
+file by hand.
+
+**Settings → Integrations → REST connections** is a list editor: name, base
+URL, default method, authentication scheme, timeout, redirect and TLS policy,
+and the API key. Add and remove connections there; a project with none behaves
+exactly as before.
+
+**The two halves are stored in different places, and the UI says so.** The
+connection goes to `cobolt.toml` and is meant to be committed. The key does
+not: it is written to the machine-local store under `connection::<id>`, keyed
+by id so renaming a connection cannot orphan it. The key box is masked and
+captioned "stored on this machine only", because a developer about to run
+`git add .` needs to know which half travels. A blank key box never clears a
+stored key — the same rule the Maps and Search fields follow, since the box
+cannot meaningfully display a stored secret.
+
+Removing a connection deliberately leaves its key in the local store. A
+mis-click must not also destroy a credential the developer would have to go
+and find again; an orphaned key costs nothing, and it is not in the project.
+
+On the control, **`Configuration`** is a dropdown: `(Local)` — the default and
+what every existing form has — or one of the project's connections by name. It
+stores the connection's **id**, so a rename in Settings does not break the
+forms using it. Selecting a connection shows what will actually be used
+(method, address, auth scheme, timeout) and says plainly that the local rows
+below are kept but not in use, and apply again on switching back. A control
+naming a connection the project no longer has says so in orange rather than
+reading as `(Local)` — silently falling back would send requests to an address
+the developer had already overridden.
+
+⚠️ Machine-local means a local file, not the OS keychain: `NATIVE_STORE_DISABLED`
+is still in force until a secrets-management UI ships, so connection keys sit
+exactly where every other key already does. The guide says this rather than
+implying keychain-grade protection.
+
+- `crates/cobolt-ide/src/panels/settings_form.rs` — the connections editor, and
+  the draft's load/apply split that keeps the key out of the project.
+- `crates/cobolt-ide/src/panels/properties.rs` — the `Configuration` dropdown,
+  showing names and storing ids.
+- `crates/cobolt-ide/src/app.rs` — the connection list reaches the inspector,
+  hoisted off `self` beside `indexed_files` for the same borrow reason.
+- `crates/cobolt-ide/src/i18n.rs` — 13 new strings in all six languages.
+- `docs/developers-guide-en.md` — `Configuration`, where each half is stored,
+  and the keychain caveat.
+- Tests: `connection_tests` — the credential reaches the local store and, with
+  the project serialised and searched, is **nowhere in it**; and a blank box
+  does not erase a stored key. Verified by reverting: letting the secret leak
+  into any project field fails the first.
+
+Still to come in this pass: the key-to-host environment plumbing and the two
+resolution call sites, after which a bound control actually uses its connection
+at run time. IDE suite: 1114 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.65.70] — 2026-09-08
 
 ### Named REST connections: the data model (step 1 of 3)

@@ -6909,6 +6909,41 @@ The control's properties configure **every request it sends**, so a handler is
 usually a single line — the address and the credentials live in the properties
 pane, not repeated through your COBOL.
 
+#### Local settings, or a project connection
+
+Every `RestClient` has a **`Configuration`** property that decides where its
+connection comes from:
+
+- **`(Local)`** — the default, and what every form built so far uses: the
+  control's own properties below.
+- **a named project connection** — its address, method, authentication scheme,
+  headers and timeouts replace the control's own before the form runs.
+
+Define connections in **Settings → Integrations → REST connections** (click the
+project tree's top node → *Settings*). Give one a name, a base URL, a default
+method, an authentication scheme, a timeout, and its API key. Then point as
+many forms at it as you like: change the address once and every form that uses
+it follows, instead of six forms drifting apart.
+
+> **Where each half is stored — this matters before you commit.** The
+> connection itself (name, URL, method, auth *scheme*, headers, timeouts) is
+> saved in `cobolt.toml` and is **meant to be committed**: a colleague who
+> checks the project out gets your connections. **The API key is not part of
+> it.** Keys are held in a machine-local store outside the project and are
+> never written to `cobolt.toml`, to a `.cfrm`, or to generated COBOL — so each
+> developer supplies their own, and a shared repository never carries one.
+>
+> ⚠️ Machine-local means *on this machine, in a file* — it is not the operating
+> system's keychain yet. Treat it as you would any local credential file.
+
+> **Notes.** The control stores the connection's **id**, not its name, so
+> renaming a connection in Settings does not break the forms using it. The
+> control's own settings are kept while a connection is selected and apply
+> again the moment you switch back to `(Local)`. If a form names a connection
+> the project no longer has, that is reported rather than quietly falling back
+> to the local settings — the control was told to ignore those, and silently
+> using them would send requests to an address you had already overridden.
+
 - **`BaseURL`** — the address the control requests. A verb called with **no
   argument** uses it as it stands, which is the ordinary case:
 
