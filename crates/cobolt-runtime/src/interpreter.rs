@@ -15787,6 +15787,21 @@ fn is_known_method(name: &str) -> bool {
             | "NODEHASCHILDREN" | "NODEPARENT" | "NODEFIRSTCHILD"
             | "NODELASTCHILD" | "NODENEXTSIBLING" | "NODEPREVSIBLING"
             | "NODEPREVIOUSSIBLING" | "NODECHECKED" | "NODECOLLAPSED"
+        // WebSearch. `Search()` was UNSPELLABLE: an unlisted name parses its
+        // parens as a collection subscript, so `WEB-FIND::Search()` meant
+        // "element Search of nothing" and did nothing at all — no request, no
+        // event, not even an error (operator, 2026-09-08: "search does not
+        // work"). Its four accessors sat in the same position.
+            | "SEARCH" | "RESULTCOUNT" | "TOPTITLE" | "TOPSNIPPET" | "TOPLINK"
+        // Maps — every one of its data methods, for the same reason.
+            | "ADDMARKER" | "REMOVEMARKER" | "ADDROUTE" | "REMOVEROUTE"
+            | "CLEARROUTES" | "ADDREGION" | "REMOVEREGION" | "CLEARREGIONS"
+            | "GEOCODE" | "REVERSEGEOCODE" | "DIRECTIONS" | "DISTANCEMATRIX"
+            | "PLACESSEARCH" | "TRACEROAD"
+        // The async lifecycle every non-visual service control shares.
+            | "CANCEL" | "ISBUSY"
+        // Selection, on the controls that have one.
+            | "ISSELECTED" | "SETSELECTED"
         // FileDropZone
             | "COMMITFILES"
         // Databound controls (DataGrid + repeating GroupBox/ControlArray)
@@ -17036,6 +17051,92 @@ MAIN.
     ///
     /// Both events are raised, own first, so a form already bound to
     /// `onComplete` keeps working exactly as before.
+    /// **Every control method the runtime dispatches can actually be written.**
+    ///
+    /// `is_known_method` is the parser's closed vocabulary for `Ctrl::Name(…)`.
+    /// A name missing from it does not fail — it parses the parentheses as a
+    /// **collection subscript**, so the call silently does nothing. No request,
+    /// no event, not even an error. `WebSearch::Search()` was in exactly that
+    /// state: dispatched by `exec_method`, unspellable by the parser, and dead
+    /// on every form that used it (operator, 2026-09-08: "search does not
+    /// work"). Twenty-three control methods were.
+    ///
+    /// Crude on purpose — it scans this file's own source — but it is the only
+    /// thing that stops the next dispatched method being added on one side and
+    /// not the other, which a behavioural test cannot do because the defect is
+    /// silence.
+    #[test]
+    fn every_dispatched_control_method_is_spellable_inline() {
+        const SRC: &str = include_str!("interpreter.rs");
+
+        // COBOL intrinsic functions. They are dispatched in the FUNCTION
+        // context, never as `Ctrl::Name(…)`, so they do not belong in the
+        // control vocabulary — listed rather than pattern-matched so a new
+        // CONTROL method can never hide behind a loose rule.
+        const INTRINSICS: &[&str] = &[
+            "ABS", "ACOS", "ANNUITY", "ASIN", "ATAN", "BYTE-LENGTH", "CHAR",
+            "CONCATENATE", "COS", "CURRENT-DATE", "DATE-OF-INTEGER",
+            "DAY-OF-INTEGER", "EXP", "EXP10", "FACTORIAL", "FRACTION-PART",
+            "INTEGER", "INTEGER-OF-DATE", "INTEGER-OF-DAY", "INTEGER-PART",
+            "LENGTH-AN", "LOG", "LOG10", "LOWER-CASE", "MAX", "MEAN", "MEDIAN",
+            "MIDRANGE", "MIN", "MOD", "NUMVAL", "NUMVAL-C", "NUMVAL-F", "ORD",
+            "ORD-MAX", "ORD-MIN", "PI", "PRESENT-VALUE", "RANDOM", "RANGE",
+            "REM", "REVERSE", "SIN", "SQRT", "STANDARD-DEVIATION",
+            "STORED-CHAR-LENGTH", "SUM", "TAN", "TEST-NUMVAL", "UPPER-CASE",
+            "VARIANCE", "WHEN-COMPILED", "YEAR-TO-YYYY",
+        ];
+
+        let body = |from: &str, to: &str| {
+            let i = SRC.find(from).unwrap_or_else(|| panic!("{from} not found"));
+            let j = SRC[i..].find(to).map(|k| i + k).unwrap_or(SRC.len());
+            SRC[i..j].to_owned()
+        };
+        // Quoted UPPERCASE names on a `=>` arm are what exec_method dispatches.
+        let dispatch = body("fn exec_method", "fn is_known_method");
+        let mut dispatched: Vec<String> = Vec::new();
+        for line in dispatch.lines() {
+            let t = line.trim();
+            if !t.contains("=>") || !t.starts_with('"') {
+                continue;
+            }
+            let head = &t[..t.find("=>").unwrap()];
+            for name in head.split('|') {
+                let n = name.trim().trim_matches(|c| c == '"' || c == ' ');
+                if !n.is_empty()
+                    && n.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')
+                {
+                    dispatched.push(n.to_owned());
+                }
+            }
+        }
+        assert!(
+            dispatched.len() > 100,
+            "the scanner found only {} arms — it has stopped matching the code \
+             it is meant to police",
+            dispatched.len()
+        );
+
+        let vocabulary = body("fn is_known_method", "\n}\n");
+        let mut unspellable: Vec<String> = dispatched
+            .into_iter()
+            .filter(|n| !INTRINSICS.contains(&n.as_str()))
+            .filter(|n| !n.starts_with("GET-") && !n.starts_with("SET-"))
+            .filter(|n| !vocabulary.contains(&format!("\"{n}\"")))
+            .collect();
+        unspellable.sort();
+        unspellable.dedup();
+
+        assert!(
+            unspellable.is_empty(),
+            "these methods are dispatched by the runtime but cannot be written \
+             as `Ctrl::Name(…)` — each one parses as a subscript and silently \
+             does nothing:\n  {}\n\nAdd them to `is_known_method`, or to \
+             INTRINSICS above if they are FUNCTION names rather than control \
+             methods.",
+            unspellable.join("\n  ")
+        );
+    }
+
     #[test]
     fn a_web_search_raises_its_own_completion_event_before_the_uniform_one() {
         let source = "\

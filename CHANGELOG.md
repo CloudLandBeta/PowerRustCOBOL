@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.81] — 2026-09-08
+
+### `Search()` could not be written, so no search ever ran
+
+A WebSearch demo with a valid Brave key did nothing at all: the button fired,
+the log updated, and the control was never touched — no request, no event, not
+even an error.
+
+`is_known_method` is the parser's **closed vocabulary** for `Ctrl::Name(…)`. A
+name missing from it does not fail: the parentheses parse as a **collection
+subscript**, so `WEB-FIND::Search()` meant "element Search of nothing" and
+evaporated. Silence is the whole failure mode — there is nothing to see.
+
+Twenty-three dispatched methods were in that state: WebSearch's `Search` and
+its four accessors, all fourteen Maps data methods, `Cancel`/`IsBusy`, and
+`IsSelected`/`SetSelected`. Every one is implemented by the runtime and was
+unreachable from COBOL.
+
+**The list is now kept honest by a test**, not by vigilance. It scans this
+file, collects what `exec_method` dispatches, subtracts the COBOL intrinsics
+(named explicitly, so a control method cannot hide behind a loose rule), and
+fails with the offending names printed. Removing `SEARCH` again fails it,
+naming `SEARCH`.
+
+- `crates/cobolt-runtime/src/interpreter.rs` — the 23 names, and
+  `every_dispatched_control_method_is_spellable_inline`.
+
 ## [PowerRustCOBOL 1.65.79] — 2026-09-08
 
 ### "Copy Style" carried an API key to another control
