@@ -2571,6 +2571,9 @@ impl CoboltApp {
                 .as_ref()
                 .map(|p| p.integrations.search_connections.clone())
                 .unwrap_or_default(),
+            // Agent bindings are keyed to this machine's providers and travel
+            // by their own environment variable, not with the project.
+            agent: Vec::new(),
         };
         let secrets: Vec<(String, String)> =
             crate::form_runtime::resolve_maps_api_key_secret(&form, &self.llm)
@@ -2584,6 +2587,7 @@ impl CoboltApp {
                     &self.llm,
                     &project_connections,
                 ))
+                .chain(crate::form_runtime::resolve_agent_secrets(&form, &self.llm))
                 .collect();
         match crate::form_runtime::ExternalFormRun::spawn(
             form_path.clone(),
@@ -5605,6 +5609,9 @@ impl CoboltApp {
                     .as_ref()
                     .map(|project| project.integrations.search_connections.clone())
                     .unwrap_or_default();
+                // The machine's model providers, not the project's — hoisted off
+                // `self` for the same borrow reason as the two above.
+                let agent_connections = crate::form_runtime::agent_connections(&self.llm);
                 let action = {
                     let d = &mut st.designer;
                     // Publish the form's surface theme before the inspector
@@ -5623,7 +5630,10 @@ impl CoboltApp {
                     let props = &mut d.properties;
                     props.set_rest_connections(&rest_connections);
                 props.set_search_connections(&search_connections);
+                props.set_agent_connections(&agent_connections);
                     props.set_search_connections(&search_connections);
+                props.set_agent_connections(&agent_connections);
+                    props.set_agent_connections(&agent_connections);
                     props.show(ui, unsafe { &*form }, sel, &indexed_files, tr)
                 };
                 for (cid, key, value) in action.set_props {
@@ -16236,6 +16246,9 @@ impl CoboltApp {
             .as_ref()
             .map(|project| project.integrations.search_connections.clone())
             .unwrap_or_default();
+        // The machine's model providers, not the project's — hoisted off
+        // `self` for the same borrow reason as the two above.
+        let agent_connections = crate::form_runtime::agent_connections(&self.llm);
 
         // Allow the properties drawer to be resized up to half the window width
         // so long values (paths, titles) aren't clipped by the window border.
@@ -16285,6 +16298,7 @@ impl CoboltApp {
                 let props = &mut d.properties;
                 props.set_rest_connections(&rest_connections);
                 props.set_search_connections(&search_connections);
+                props.set_agent_connections(&agent_connections);
                 // SAFETY: we only read *form; no aliased write exists.
                 props.show_multi(
                     ui,

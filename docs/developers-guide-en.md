@@ -7400,6 +7400,34 @@ space), never carries the key, and is **Google-only** — it does not follow
 header and `COBOL-HTTP-GET` cannot send one. **Prefer `Search()`**, which
 percent-encodes the query, resolves the credential, and honours `Provider`.
 
+#### Where an agent's credentials live
+
+An `AgentObject` also has a **`Configuration`** property, but it does not point
+at a project connection. It points at one of the **Model Providers** you have
+configured in the IDE (Settings → Models) — the same list Grace and the
+specialists use.
+
+- **`(Local)`** — the default: this control's own `AgentAPI`, `URL` and
+  `API Key`.
+- **a configured provider** — its protocol, endpoint and API key are used
+  instead, and **the `API Key` row disappears from the properties pane**. That
+  is the whole point: a provider's key is entered once, in one place, and never
+  copied onto a form. A `.cfrm` is a file people commit.
+
+The **model and the tuning stay yours**: `Model`, `Temperature`,
+`Maximum tokens` and `Timeout` remain on the control even while it is bound,
+because one provider offers many models and which one this agent uses is a
+property of this agent.
+
+> ⚠️ **This binding is machine-scoped.** Model Providers are configured per
+> machine, not per project — configuring Anthropic once serves every project —
+> so a colleague who opens your project, or a machine running your built
+> application, needs that provider configured too. The control says so plainly
+> ("this machine has no such model provider configured") rather than pretending
+> the project is broken. A deployed application receives them through the
+> `COBOLT_AGENT_PROVIDERS` environment variable, and each key through
+> `COBOLT_CONNECTION_KEY_<PROVIDER>`.
+
 **Combining with an AI Agent.** A common pattern: run a search, then ask an
 `AgentObject` to summarise the results into a multiline TextBox.
 

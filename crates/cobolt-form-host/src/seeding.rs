@@ -70,6 +70,42 @@ pub fn search_connections() -> &'static [cobolt_forms::connections::SearchConnec
     SEARCH_CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
 }
 
+/// The model providers an `AgentObject` may be bound to. Assembled from the
+/// machine's own configuration rather than the project — see
+/// `cobolt_forms::connections::AgentConnection`.
+static AGENT_CONNECTIONS: std::sync::OnceLock<
+    Vec<cobolt_forms::connections::AgentConnection>,
+> = std::sync::OnceLock::new();
+
+/// Publish the model providers. First call wins.
+pub fn publish_agent_connections(
+    connections: Vec<cobolt_forms::connections::AgentConnection>,
+) {
+    let _ = AGENT_CONNECTIONS.set(connections);
+}
+
+/// The published model providers.
+pub fn agent_connections() -> &'static [cobolt_forms::connections::AgentConnection] {
+    AGENT_CONNECTIONS.get().map(|v| v.as_slice()).unwrap_or(&[])
+}
+
+/// Publish the model providers named by `COBOLT_AGENT_PROVIDERS`.
+///
+/// One mechanism serving every host: the IDE sets that variable on its Run
+/// Form child, and the operator of a deployed application sets the same one.
+/// Nothing is baked into the binary, which is right — these are the machine's
+/// providers, not the project's, and baking the build machine's would ship one
+/// developer's configuration to every user.
+///
+/// Called explicitly by each host rather than read lazily on first use: a
+/// lazy read would be resolved by whichever form seeded first and frozen
+/// there, which is invisible in production and order-dependent in tests.
+pub fn publish_agent_connections_from_env() {
+    if let Ok(json) = std::env::var(cobolt_forms::connections::AGENT_PROVIDERS_ENV) {
+        publish_agent_connections(cobolt_forms::connections::agent_from_json(&json));
+    }
+}
+
 /// Replace each bound control's local connection with the project's, and give
 /// it the credential from the environment.
 ///
@@ -97,7 +133,20 @@ fn resolve_connections(controls: &mut [cobolt_forms::Control]) {
              fallback, because it was configured to ignore them."
         );
     }
-    // The credential, for either kind. The property it lands in differs
+    for (ctrl_id, missing) in
+        cobolt_forms::connections::resolve_agent_all(controls, agent_connections())
+    {
+        // Worded for what actually happened: the project is fine, THIS machine
+        // has no such provider configured. A binding to a model provider is
+        // machine-scoped by design (the operator's choice), so this is the
+        // expected message on a colleague's machine, not a broken project.
+        eprintln!(
+            "form-host: control {ctrl_id} is bound to model provider {missing}, which \
+             is not configured on this machine — add it in the IDE's Model Providers \
+             Manager. Its own settings are NOT used as a fallback."
+        );
+    }
+    // The credential, for any kind. The property it lands in differs
     // because the two controls name their own — a RestClient authenticates with
     // `AuthToken`, a WebSearch with `ApiKey` — but the journey is identical.
     for c in controls.iter_mut() {
@@ -112,6 +161,7 @@ fn resolve_connections(controls: &mut [cobolt_forms::Control]) {
         }
         let prop = match c.control_type {
             cobolt_forms::ControlType::WebSearch => "ApiKey",
+            cobolt_forms::ControlType::AgentObject => "AgentAPIKey",
             _ => "AuthToken",
         };
         c.set_prop(prop, cobolt_forms::PropValue::String(key));
@@ -556,6 +606,67 @@ mod tests {
             "a WebSearch authenticates with ApiKey, not AuthToken"
         );
         assert_eq!(get("AuthToken"), "", "and must not be given the other one");
+    }
+
+    /// **A bound AgentObject takes the provider's connection and key, and
+    /// keeps its own model.**
+    ///
+    /// The point of binding to a Model Provider rather than a catalogue of its
+    /// own (operator, 2026-09-08) is that a provider is configured once and its
+    /// key entered once — so an agent's key stops being copied onto forms,
+    /// which is how a live one reached this repository's `main`.
+    ///
+    /// Spec 048 put the model and the tuning on the agent, not the provider:
+    /// one provider offers many models. So `AgentModel` must survive binding,
+    /// and this asserts it does.
+    #[test]
+    fn a_bound_agent_takes_the_provider_but_keeps_its_own_model() {
+        let conn = cobolt_forms::connections::AgentConnection::new(
+            "anthropic",
+            "Anthropic",
+            "https://api.anthropic.com/v1",
+        );
+
+        let mut agent = Control::new("AGENT-1", ControlType::AgentObject, 0, 0);
+        agent.set_prop("AgentAPI", PropValue::String("Ollama".into()));
+        agent.set_prop("AgentURL", PropValue::String("http://localhost:11434".into()));
+        agent.set_prop("AgentModel", PropValue::String("claude-sonnet-5".into()));
+        agent.set_prop("Configuration", PropValue::String(conn.id.clone()));
+
+        std::env::set_var(
+            cobolt_forms::connections::connection_key_env(&conn.id),
+            "anthropic-secret",
+        );
+        publish_agent_connections(vec![conn.clone()]);
+
+        let (form, flat) = form_with(agent);
+        let seed = build_object_seed(&form, &flat, None, None);
+        let props = &seed
+            .iter()
+            .find(|(id, _, _)| id == "AGENT-1")
+            .expect("the control is seeded")
+            .2;
+        let get = |k: &str| {
+            props
+                .iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("")
+        };
+
+        assert_eq!(get("AgentAPI"), "anthropic", "the provider decides the protocol");
+        assert_eq!(get("AgentURL"), "https://api.anthropic.com/v1");
+        assert_eq!(
+            get("AgentModel"),
+            "claude-sonnet-5",
+            "the MODEL is the control's own — a provider offers many, and which \
+             one this agent uses is not the provider's business"
+        );
+        assert_eq!(
+            get("AgentAPIKey"),
+            "anthropic-secret",
+            "the key comes from the provider's own store, never from the form"
+        );
     }
 
     /// A read-before-write returns the DESIGNED value: caption and geometry

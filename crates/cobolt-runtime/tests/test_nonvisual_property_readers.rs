@@ -146,6 +146,9 @@ fn declared_readers() -> Vec<(ControlType, Vec<(&'static str, Reader)>)> {
         (
             ControlType::AgentObject,
             vec![
+                // Selects one of the machine's configured Model Providers;
+                // resolved into AgentAPI/AgentURL before the form runs.
+                ("Configuration", Resolved),
                 ("AgentURL", Generated),
                 ("AgentModel", Generated),
                 ("AgentAPI", Runtime),

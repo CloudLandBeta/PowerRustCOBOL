@@ -3517,6 +3517,8 @@ pub struct PropertiesPanel {
     rest_connections: Vec<cobolt_forms::connections::RestConnection>,
     /// The project's named web-search connections, likewise.
     search_connections: Vec<cobolt_forms::connections::SearchConnection>,
+    /// The machine's configured model providers, for AgentObject bindings.
+    agent_connections: Vec<cobolt_forms::connections::AgentConnection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3551,6 +3553,7 @@ impl PropertiesPanel {
             icon_picker: Default::default(),
             rest_connections: Vec::new(),
             search_connections: Vec::new(),
+            agent_connections: Vec::new(),
         }
     }
 
@@ -3574,6 +3577,16 @@ impl PropertiesPanel {
     ) {
         if self.search_connections != connections {
             self.search_connections = connections.to_vec();
+        }
+    }
+
+    /// Tell the pane which model providers this machine has configured.
+    pub fn set_agent_connections(
+        &mut self,
+        connections: &[cobolt_forms::connections::AgentConnection],
+    ) {
+        if self.agent_connections != connections {
+            self.agent_connections = connections.to_vec();
         }
     }
 
@@ -7986,6 +7999,82 @@ impl PropertiesPanel {
             // ── Agent Object ──────────────────────────────────────────────────
             ControlType::AgentObject if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_basic);
+                // ── Which model provider this agent talks to ────────────────
+                //
+                // Reuses the Model Providers Manager's own records (spec 048)
+                // rather than a catalogue of its own: a provider is configured
+                // once, its key entered once, and a form never holds either.
+                // The binding is machine-scoped as a result — a provider not
+                // configured here is reported as exactly that, not as a broken
+                // project (operator's choice, 2026-09-08).
+                let agent_conns = self.agent_connections.clone();
+                let cur_id = ctrl
+                    .get_prop(cobolt_forms::connections::CONFIGURATION_PROP)
+                    .map(|v| v.as_str().trim().to_owned())
+                    .unwrap_or_default();
+                let bound = agent_conns.iter().find(|c| c.id == cur_id);
+                let missing = !cur_id.is_empty() && bound.is_none();
+                let show_local = bound.is_none();
+                let selected_text = if cur_id.is_empty() {
+                    LOCAL_CONFIG_LABEL.to_owned()
+                } else {
+                    match bound {
+                        Some(c) => c.name.clone(),
+                        None => format!("⚠ not configured ({cur_id})"),
+                    }
+                };
+                property_row(ui, "Configuration:", |ui| {
+                    egui::ComboBox::from_id_salt(format!("cb_{id}_AgentConfiguration"))
+                        .selected_text(selected_text)
+                        .width(ui.available_width().min(200.0))
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(cur_id.is_empty(), LOCAL_CONFIG_LABEL)
+                                .clicked()
+                            {
+                                action.set_props.push((
+                                    id.to_owned(),
+                                    cobolt_forms::connections::CONFIGURATION_PROP.into(),
+                                    PropValue::String(String::new()),
+                                ));
+                            }
+                            for c in &agent_conns {
+                                if ui.selectable_label(c.id == cur_id, &c.name).clicked() {
+                                    action.set_props.push((
+                                        id.to_owned(),
+                                        cobolt_forms::connections::CONFIGURATION_PROP.into(),
+                                        PropValue::String(c.id.clone()),
+                                    ));
+                                }
+                            }
+                        });
+                });
+                if missing {
+                    ui.label(
+                        RichText::new(
+                            "This machine has no such model provider configured. Add it \
+                             in the Model Providers Manager, or choose (Local) to use \
+                             the settings below.",
+                        )
+                        .small()
+                        .color(Color32::from_rgb(220, 120, 90)),
+                    );
+                } else if let Some(c) = bound {
+                    ui.label(
+                        RichText::new(format!(
+                            "Using the model provider “{}” ({}). Its API key stays in \
+                             the Model Providers Manager and never reaches this form. \
+                             The model and the tuning below are still this control's own.",
+                            c.name,
+                            if c.endpoint.is_empty() { "default endpoint" } else { &c.endpoint },
+                        ))
+                        .small()
+                        .color(Color32::GRAY)
+                        .italics(),
+                    );
+                }
+                ui.add_space(2.0);
+
                 combo_row_inline(
                     ui,
                     id,
@@ -8042,34 +8131,40 @@ impl PropertiesPanel {
                         action,
                     );
                 }
-                {
-                    let cur = ctrl
-                        .get_prop("AgentAPIKey")
-                        .map(|v| v.as_str().to_owned())
-                        .unwrap_or_default();
-                    let bk = format!("{id}-AgentAPIKey");
-                    let wid = egui::Id::new(&bk);
-                    let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
-                    if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
-                        *buf = cur;
-                    }
-                    property_row(ui, "API Key:", |ui| {
-                        if ui
-                            .add(
-                                egui::TextEdit::singleline(buf)
-                                    .id(wid)
-                                    .password(true)
-                                    .desired_width(ui.available_width()),
-                            )
-                            .lost_focus()
-                        {
-                            action.set_props.push((
-                                id.to_owned(),
-                                "AgentAPIKey".into(),
-                                PropValue::String(buf.clone()),
-                            ));
+                // Hidden entirely for a bound control: its key is the
+                // provider's, held by the Model Providers Manager, and a box
+                // here would invite a second copy on the form — which is the
+                // proliferation this whole change exists to stop.
+                if show_local {
+                    {
+                        let cur = ctrl
+                            .get_prop("AgentAPIKey")
+                            .map(|v| v.as_str().to_owned())
+                            .unwrap_or_default();
+                        let bk = format!("{id}-AgentAPIKey");
+                        let wid = egui::Id::new(&bk);
+                        let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
+                        if *buf != cur && !ui.memory(|m| m.has_focus(wid)) {
+                            *buf = cur;
                         }
-                    });
+                        property_row(ui, "API Key:", |ui| {
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(buf)
+                                        .id(wid)
+                                        .password(true)
+                                        .desired_width(ui.available_width()),
+                                )
+                                .lost_focus()
+                            {
+                                action.set_props.push((
+                                    id.to_owned(),
+                                    "AgentAPIKey".into(),
+                                    PropValue::String(buf.clone()),
+                                ));
+                            }
+                        });
+                    }
                 }
 
                 section_header(ui, tr.sec_behaviour);

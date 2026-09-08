@@ -331,6 +331,10 @@ pub fn project_connections(manifest_path: &Path) -> cobolt_forms::connections::C
         .map(|p| cobolt_forms::connections::Catalogue {
             rest: p.integrations.rest_connections,
             search: p.integrations.search_connections,
+            // Model providers are the machine's, not the project's, and reach
+            // a form through the environment instead — see
+            // `cobolt_forms::connections::AGENT_PROVIDERS_ENV`.
+            agent: Vec::new(),
         })
         .unwrap_or_default()
 }
@@ -1402,6 +1406,11 @@ fn build_core(
         &cobolt_forms::connections::Catalogue {
             rest: proj.integrations.rest_connections.clone(),
             search: proj.integrations.search_connections.clone(),
+            // Deliberately not baked: these are the BUILD machine's providers,
+            // and shipping one developer's configuration to every user of the
+            // application would be wrong. The operator sets
+            // COBOLT_AGENT_PROVIDERS on the machine that runs it.
+            agent: Vec::new(),
         }
         .to_json(),
     );
@@ -2627,6 +2636,7 @@ fn run_form_app(program: cobolt_ast::program::Program) {
     // Publish the baked catalogue before anything is seeded, so every form
     // this process hosts — this one and the child forms it opens later —
     // resolves a bound RestClient the same way `rcrun run-form` does.
+    cobolt_form_host::seeding::publish_agent_connections_from_env();
     let project_connections =
         cobolt_forms::connections::Catalogue::from_json(PROJECT_CONNECTIONS);
     cobolt_form_host::seeding::publish_connections(project_connections.rest.clone());
@@ -4366,7 +4376,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── RestClient ──
         "Configuration" => (
             "empty (this control's own settings), or the name of a project connection",
-            "Where this control gets its connection. **Empty — the default — means the control's own properties below**, exactly as it has always worked. Otherwise it names one of the project's connections (Settings → Integrations), and that connection's settings replace the control's own before the form runs. On a **RestClient** that is the address, method, authentication scheme, headers and timeouts; on a **WebSearch** it is the provider, its engine id or instance URL, the result count and the safe-search level. Define a service once and every form that uses it stays in step, instead of six forms drifting apart. The **credential is never part of the connection record** — that record round-trips in `cobolt.toml` and is meant to be committed, while the key lives in the machine-local store and reaches a running form through the environment, so a checked-out project carries the connections and each developer supplies their own key. A built application carries the connections baked in and takes each key from `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it. A Configuration naming a connection the project no longer has is an error, not a silent fall back to the local settings: the control was told to ignore those.",
+            "Where this control gets its connection. **Empty — the default — means the control's own properties below**, exactly as it has always worked. Otherwise it names one of the project's connections (Settings → Integrations), and that connection's settings replace the control's own before the form runs. On a **RestClient** that is the address, method, authentication scheme, headers and timeouts; on a **WebSearch** it is the provider, its engine id or instance URL, the result count and the safe-search level. An **AgentObject** is different in kind: it selects one of the machine's configured **Model Providers** (Settings → Models) rather than a project connection, taking that provider's protocol, endpoint and key — while `AgentModel`, `Temperature`, `MaximumTokens` and `TimeoutSeconds` stay the control's own, because one provider offers many models. Its `API Key` row disappears while bound, which is the point: an agent's key is entered once, in the Model Providers Manager, and never copied onto a form. That binding is **machine-scoped** — a provider not configured on a given machine is reported as exactly that, not as a broken project — and reaches a running application through `COBOLT_AGENT_PROVIDERS`. Define a service once and every form that uses it stays in step, instead of six forms drifting apart. The **credential is never part of the connection record** — that record round-trips in `cobolt.toml` and is meant to be committed, while the key lives in the machine-local store and reaches a running form through the environment, so a checked-out project carries the connections and each developer supplies their own key. A built application carries the connections baked in and takes each key from `COBOLT_CONNECTION_KEY_<ID>` on the machine that runs it. A Configuration naming a connection the project no longer has is an error, not a silent fall back to the local settings: the control was told to ignore those.",
         ),
         "BaseURL" => ("HTTP(S) URL", "The address the control's verbs request. A verb called with no URL argument uses it as it stands; a relative argument is joined onto it; an argument carrying its own scheme (`https://...`) is used unchanged."),
         "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "The verb `Call()` uses when given no method argument. The named verbs (`get`, `post`, `put`, `delete`) always use their own."),
@@ -6090,6 +6100,9 @@ mod resolve_main_tests {
         let json = cobolt_forms::connections::Catalogue {
             rest: vec![c],
             search: vec![sc],
+            // Model providers are never baked — they are the machine's, and
+            // reach a running application through the environment instead.
+            agent: Vec::new(),
         }
         .to_json();
 

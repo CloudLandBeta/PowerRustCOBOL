@@ -212,6 +212,100 @@ pub fn resolve_search_all(
     dangling
 }
 
+/// One configured **model provider**, as an `AgentObject` sees it.
+///
+/// Unlike the other two this is **not stored in the project**. It is assembled
+/// from the machine's own Model Providers (spec 048), which are deliberately
+/// machine-wide — "configuring Anthropic once should serve every project" —
+/// and it exists here only to carry the resolved provider and endpoint to a
+/// running form by the same route the other kinds take.
+///
+/// The consequence is deliberate and was chosen with open eyes: an
+/// `AgentObject` bound to a provider resolves on a machine that has that
+/// provider configured, and reports a clear "no such provider configured" on
+/// one that does not. What it buys is that **an agent's API key stops living
+/// in the `.cfrm`**, which is how a live key reached this repository's `main`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentConnection {
+    /// The provider id — `anthropic`, `openai`, `ollama` … — which is also
+    /// what the control stores, so a `.cfrm` reads legibly.
+    pub id: String,
+    /// Display label for the properties pane.
+    pub name: String,
+    /// The provider id again, in the vocabulary `AgentAPI` speaks. Kept
+    /// separate from `id` so the two can diverge without breaking forms.
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub endpoint: String,
+}
+
+impl AgentConnection {
+    pub fn new(id: impl Into<String>, name: impl Into<String>, endpoint: impl Into<String>) -> Self {
+        let id = id.into();
+        Self {
+            provider: id.clone(),
+            id,
+            name: name.into(),
+            endpoint: endpoint.into(),
+        }
+    }
+}
+
+/// The environment variable carrying the machine's model providers to a
+/// running form, as JSON.
+///
+/// The other two catalogues live in `cobolt.toml` and so reach a form through
+/// the project; these do not exist there at all, so the environment is their
+/// only route — and it is one route rather than two, serving both the IDE's
+/// Run Form child and a deployed application whose operator sets it.
+pub const AGENT_PROVIDERS_ENV: &str = "COBOLT_AGENT_PROVIDERS";
+
+/// The model providers as JSON, for [`AGENT_PROVIDERS_ENV`].
+pub fn agent_to_json(connections: &[AgentConnection]) -> String {
+    serde_json::to_string(connections).unwrap_or_else(|_| "[]".to_owned())
+}
+
+/// Read them back. Unparseable text yields none rather than failing a launch.
+pub fn agent_from_json(raw: &str) -> Vec<AgentConnection> {
+    serde_json::from_str(raw.trim()).unwrap_or_default()
+}
+
+/// Copy a provider's connection onto an `AgentObject`.
+///
+/// Only the **connection**: `AgentModel`, `Temperature`, `MaximumTokens` and
+/// `TimeoutSeconds` stay the control's own, because spec 048 put tuning on the
+/// agent rather than the provider — one provider offers many models, and which
+/// one this control uses is a property of this control.
+///
+/// `AgentAPIKey` is not set here; it arrives from the environment.
+pub fn apply_agent(ctrl: &mut crate::Control, conn: &AgentConnection) {
+    use crate::PropValue as P;
+    ctrl.set_prop("AgentAPI", P::String(conn.provider.clone()));
+    ctrl.set_prop("AgentURL", P::String(conn.endpoint.clone()));
+}
+
+/// Resolve every `AgentObject` bound to a configured provider.
+pub fn resolve_agent_all(
+    controls: &mut [crate::Control],
+    connections: &[AgentConnection],
+) -> Vec<(String, String)> {
+    let mut dangling = Vec::new();
+    for ctrl in controls.iter_mut() {
+        if ctrl.control_type != crate::ControlType::AgentObject {
+            continue;
+        }
+        let Some(id) = configuration_id(ctrl) else {
+            continue;
+        };
+        match connections.iter().find(|c| c.id == id).cloned() {
+            Some(conn) => apply_agent(ctrl, &conn),
+            None => dangling.push((ctrl.id.clone(), id)),
+        }
+    }
+    dangling
+}
+
 /// Every named connection a project defines, in one record.
 ///
 /// One record rather than one per kind because a built application carries the
@@ -223,6 +317,10 @@ pub struct Catalogue {
     pub rest: Vec<RestConnection>,
     #[serde(default)]
     pub search: Vec<SearchConnection>,
+    /// Assembled from the machine's Model Providers rather than read from the
+    /// project — see [`AgentConnection`].
+    #[serde(default)]
+    pub agent: Vec<AgentConnection>,
 }
 
 impl Catalogue {
@@ -239,7 +337,7 @@ impl Catalogue {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rest.is_empty() && self.search.is_empty()
+        self.rest.is_empty() && self.search.is_empty() && self.agent.is_empty()
     }
 }
 

@@ -222,6 +222,71 @@ pub fn resolve_connection_key_secrets(
         .collect()
 }
 
+/// The machine's configured model providers, as an `AgentObject` sees them.
+///
+/// Built from the Model Providers Manager's own records, so there is exactly
+/// one place a provider is configured and one place its key is entered.
+pub fn agent_connections(
+    llm: &crate::llm::LlmConfig,
+) -> Vec<cobolt_forms::connections::AgentConnection> {
+    llm.provider_configs
+        .iter()
+        .map(|pc| {
+            let label = crate::llm::PROVIDERS
+                .iter()
+                .find(|p| p.id == pc.provider)
+                .map(|p| p.label)
+                .unwrap_or(pc.provider.as_str());
+            cobolt_forms::connections::AgentConnection::new(
+                pc.provider.clone(),
+                label.to_owned(),
+                pc.endpoint.clone(),
+            )
+        })
+        .collect()
+}
+
+/// The providers themselves, plus a key for each one this form actually binds
+/// to.
+///
+/// Two different journeys ending in the same child environment: the providers
+/// as one JSON variable, each key as its own. Only the providers this form
+/// uses contribute a key, so a running form never carries credentials it has
+/// no use for — the rule the Maps and Search keys already follow.
+pub fn resolve_agent_secrets(
+    form: &Form,
+    llm: &crate::llm::LlmConfig,
+) -> Vec<(String, String)> {
+    let providers = agent_connections(llm);
+    let bound: std::collections::BTreeSet<String> = collect_controls(&form.controls)
+        .iter()
+        .filter(|c| c.control_type == cobolt_forms::ControlType::AgentObject)
+        .filter_map(|c| cobolt_forms::connections::configuration_id(c))
+        .collect();
+    if bound.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![(
+        cobolt_forms::connections::AGENT_PROVIDERS_ENV.to_owned(),
+        cobolt_forms::connections::agent_to_json(&providers),
+    )];
+    for id in bound {
+        // The key lives where the Model Providers Manager put it — this is the
+        // reuse the whole change is for: no second copy, no key on the form.
+        let Some(key) = llm.api_keys.get(&crate::llm::provider_key_slot(&id)) else {
+            continue;
+        };
+        if key.trim().is_empty() {
+            continue;
+        }
+        out.push((
+            cobolt_forms::connections::connection_key_env(&id),
+            key.clone(),
+        ));
+    }
+    out
+}
+
 impl ExternalFormRun {
     /// Spawn `rcrun run-form <cfrm> <cbl>`. Looks for `rcrun` next to the
     /// current executable first (bundle + target/debug layouts), then in PATH.

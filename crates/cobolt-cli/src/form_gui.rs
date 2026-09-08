@@ -197,6 +197,8 @@ pub fn cmd_run_form(args: &[String]) {
         // before any form is seeded — including the embedded child forms
         // `host.rs` opens later, which cannot read `cobolt.toml` themselves.
         // A loose `.cfrm` outside any project simply has none.
+        // The machine's model providers arrive by environment, not manifest.
+        cobolt_form_host::seeding::publish_agent_connections_from_env();
         if let Some(m) = manifest.as_deref() {
             let catalogue = cobolt_compiler::project_connections(m);
             cobolt_form_host::seeding::publish_connections(catalogue.rest);

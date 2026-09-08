@@ -1,5 +1,65 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.74] — 2026-09-08
+
+### AgentObject binds to a configured model provider (step 3 of 3)
+
+An `AgentObject`'s API key had nowhere to live but the `.cfrm`. That is a file
+people commit, and it is exactly how a live Ollama key reached this
+repository's own `main`. Every form that talked to a model was another copy of
+the same secret.
+
+It now selects one of the machine's **configured Model Providers** — the list
+the Models Manager already owns, and the same one Grace and the specialists
+use. Not a third catalogue: a provider is configured once and its key entered
+once, which is the whole point (operator, 2026-09-08). When a control is bound
+its **`API Key` row disappears from the properties pane**, because there is
+nothing left for it to hold.
+
+The provider supplies the protocol and the endpoint. **`Model`,
+`Temperature`, `Maximum tokens` and `Timeout` stay on the control**, because
+spec 048 deliberately put tuning on the agent rather than the connection: one
+provider offers many models, and which one an agent uses is a property of that
+agent. A test asserts the model survives binding, since silently replacing it
+would be the obvious way to get this wrong.
+
+**The binding is machine-scoped, and says so.** Model Providers are configured
+per machine by design — "configuring Anthropic once should serve every
+project" — so unlike the REST and search catalogues this does not travel in
+`cobolt.toml`. A control bound to a provider that is not configured on the
+machine reports exactly that ("this machine has no such model provider
+configured"), not a broken project, and does **not** fall back to its own
+settings. That trade was made with open eyes: what it buys is that no agent key
+is ever written to a form.
+
+Providers reach a running application through `COBOLT_AGENT_PROVIDERS` and each
+key through `COBOLT_CONNECTION_KEY_<PROVIDER>`. Nothing is baked into a built
+binary, which is right: baking the build machine's providers would ship one
+developer's configuration to every user.
+
+Each host publishes the providers **explicitly** rather than reading the
+environment lazily on first use. A lazy read is resolved by whichever form
+seeds first and frozen there — invisible in production, order-dependent in
+tests.
+
+- `crates/cobolt-forms/src/connections.rs` — `AgentConnection`, `apply_agent`,
+  `resolve_agent_all`, `AGENT_PROVIDERS_ENV`.
+- `crates/cobolt-form-host/src/seeding.rs` — resolves agent bindings and routes
+  the credential to `AgentAPIKey`; `publish_agent_connections_from_env`.
+- `crates/cobolt-ide/src/form_runtime.rs` — the providers and, for the ones a
+  form actually binds to, their keys from the Models Manager's own store.
+- `crates/cobolt-ide/src/panels/properties.rs` — the selector, and the key row
+  hidden while bound.
+- `crates/cobolt-compiler/src/lib.rs`, `crates/cobolt-cli/src/form_gui.rs` —
+  every host publishes.
+- `assets/knowledge/chunked.data`, `docs/developers-guide-en.md`.
+
+A `Catalogue` initialiser inside a `#[cfg(test)]` block had been broken since
+the previous release: `cargo build -p <crate>` does not compile test code, so
+only the full sweep found it. Fixed here.
+
+Full workspace sweep: 3686 passed, 0 failed, 12 ignored.
+
 ## [PowerRustCOBOL 1.65.73] — 2026-09-08
 
 ### Web search gets named connections too

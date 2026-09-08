@@ -5146,6 +5146,11 @@ impl Control {
                 props.insert("LineStyle".into(), PropValue::String("Solid".into()));
             }
             ControlType::AgentObject => {
+                // Empty = this control's own connection below. Otherwise the
+                // id of one of the machine's configured Model Providers, whose
+                // provider and endpoint replace them — and whose key never
+                // touches this form.
+                props.insert("Configuration".into(), PropValue::String("".into()));
                 // Network / LLM connection
                 props.insert(
                     "AgentURL".into(),
