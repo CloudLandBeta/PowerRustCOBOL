@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.89] — 2026-09-08
+
+### A form loaded into the ContentPane repainted the main window's own sidebar
+
+The shell paints the application's chrome — the rail, the breadcrumb and the
+SideMenu's footer Panel — and it paints all of it **before** it hands the
+ContentPane to the host. Nothing on that path published a form theme, and there
+is exactly one slot on the egui context for each of theme pack, glass style and
+surface theme, last writer wins. So every theme-sensitive read in the chrome
+answered from whatever had painted last — the **occupant's** theme, left there
+by the embedded form at the end of the previous frame.
+
+Loading a form into the pane therefore repainted the main window's own footer in
+that form's theme. The operator saw it as the drop shadow on his footer image
+changing for a reason he had never asked for: "the footer belongs to the main
+window, not to an embedded form" (2026-09-08).
+
+It was never only Elegance. An Elegance occupant made it obvious because a
+self-contained theme closes the glass gate outright, but an ordinary Liquid
+Glass form leaked its **glass style** the same way — enough, on a Neumorphic
+main form, to swap the footer's soft relief for a plain drop shadow.
+
+- `FormHost::publish_root_theme` publishes the main form's theme pack, glass
+  style and surface theme, and the shell calls it **first**, before a single
+  panel. The host's own frame calls the same helper, so there is one place that
+  knows what the trio is.
+
+Measured, not inspected: the same shell and the same main form, rendered three
+times over — with nothing on the pane, with a Liquid Glass form on it, and with
+an Elegance form on it — must paint the MenuPane identically. It now paints 244
+identical shapes across all three. Against the old code the sidebar footer alone
+went from 287 shapes to 241 to 126 purely according to what was loaded beside
+it, and 217 of the rail's 244 shapes changed.
+
+
 ## [PowerRustCOBOL 1.65.88] — 2026-09-08
 
 ### A scrolling list bunched its rows up against the top and bottom borders

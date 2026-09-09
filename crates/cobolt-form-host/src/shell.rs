@@ -1088,6 +1088,13 @@ impl Shell {
         menu: impl FnOnce(&mut Ui),
         host: &mut crate::FormHost,
     ) -> ShellLayout {
+        // The chrome below is the MAIN form's, so the main form's theme is
+        // what paints it. Published FIRST, before a single panel: the rail,
+        // the breadcrumb and the footer all read it, and the host does not
+        // publish anything of its own until `pane_frame` at the bottom of this
+        // function — by which time the chrome is already on screen wearing
+        // whatever the pane's occupant left behind last frame.
+        host.publish_root_theme(root_ui.ctx());
         let mut menu_scroll = Vec2::ZERO;
         // See `show` — panel order is what makes FullHeight true or false.
         let mut breadcrumb_rect = Rect::NOTHING;
@@ -4668,6 +4675,253 @@ mod shell_event_tests {
             clicks.len(),
             1,
             "one click on a shell-hosted control must fire one onClick; got {evs:?}"
+        );
+    }
+
+    /// **The shell's chrome belongs to the MAIN form, whatever the pane
+    /// holds.**
+    ///
+    /// The rail, the breadcrumb and the SideMenu's footer Panel are drawn by
+    /// the shell BEFORE `host.pane_frame` runs -- and until 1.65.89 nothing on
+    /// that path published a form theme. Every theme-sensitive read in it
+    /// (`glass_config_applies`, `theme_token`, the corner radii) therefore
+    /// answered from whatever was left in the context: the occupant's theme,
+    /// published by `child_frame` at the END of the previous frame. Load an
+    /// Elegance form into the pane and the main window's own footer started
+    /// painting in Elegance -- which the operator saw as the drop shadow on
+    /// the footer image changing for no reason he had asked for (2026-09-08:
+    /// "the footer belongs to the main window, not to an embedded form").
+    ///
+    /// Measured as the operator sees it: the SAME shell, the SAME main form,
+    /// two runs that differ in NOTHING but the theme of the form on the pane.
+    /// Every shape the MenuPane paints must be identical.
+    #[test]
+    fn shell_chrome_is_immune_to_the_occupants_theme() {
+        use crate::host::{FormHostConfig, FormSource, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        fn program() -> cobolt_ast::program::Program {
+            let src = "\
+IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.\n";
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+
+        // The main form: a rail with a footer Panel, and in the footer an
+        // image wearing the drop shadow the developer designed for it.
+        fn main_form() -> (cobolt_forms::Form, Vec<cobolt_forms::Control>) {
+            let mut form = cobolt_forms::Form::new("MAIN-FORM", "Main", 800, 600);
+            // PowerDemo3's own shell form: `glass-style="Neumorphic Light"`.
+            // The style matters -- neumorphic relief REPLACES a drop shadow,
+            // and that swap is what the leaked theme undoes.
+            form.glass_style = cobolt_forms::model::GlassStyle::Neumorphic;
+            let mut side = cobolt_forms::Control::new(
+                "Side-1",
+                cobolt_forms::ControlType::SideMenu,
+                0,
+                0,
+            );
+            side.rect = cobolt_forms::model::Rect::new(0, 0, 220, 600);
+            let footer_id = cobolt_forms::model::side_menu_footer_id(&side.id);
+            let mut footer = cobolt_forms::Control::new(
+                &footer_id,
+                cobolt_forms::ControlType::Panel,
+                0,
+                520,
+            );
+            footer.rect = cobolt_forms::model::Rect::new(0, 520, 220, 80);
+            footer.parent = Some(side.id.clone());
+            footer.set_prop(cobolt_forms::model::SIDE_MENU_FOOTER_PROP, true);
+            let mut logo = cobolt_forms::Control::new(
+                "Footer-Logo",
+                cobolt_forms::ControlType::PictureBox,
+                20,
+                540,
+            );
+            logo.rect = cobolt_forms::model::Rect::new(20, 540, 60, 40);
+            logo.parent = Some(footer_id.clone());
+            logo.set_prop("ShadowEnabled", true);
+            logo.set_prop("ShadowColor", "#000000");
+            logo.set_prop("ShadowOpacity", 60i64);
+            // The footer's own caption, beside the logo -- a Label paints
+            // unconditionally, so the band is never empty.
+            let mut caption = cobolt_forms::Control::new(
+                "Footer-Caption",
+                cobolt_forms::ControlType::Label,
+                90,
+                545,
+            );
+            caption.rect = cobolt_forms::model::Rect::new(90, 545, 110, 30);
+            caption.parent = Some(footer_id.clone());
+            caption.set_prop("Caption", "PowerDemo");
+            let flat = vec![side.clone(), footer, logo, caption];
+            form.controls.push(side);
+            (form, flat)
+        }
+
+        // Everything the MenuPane painted on the last frame, as raw shapes.
+        let chrome_shapes = |occupant: Option<Arc<dyn cobolt_forms::surface_theme::SurfaceTheme>>| {
+            let (form, flat) = main_form();
+            let side_ctrl = form
+                .controls
+                .iter()
+                .find(|c| c.control_type == cobolt_forms::ControlType::SideMenu)
+                .cloned()
+                .expect("the rail is in the design");
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let source: FormSource = Box::new(|id: &str| {
+                Ok((
+                    cobolt_forms::Form::new(&id.trim().to_ascii_uppercase(), "Inner", 400, 300),
+                    program(),
+                ))
+            });
+            let theme_for_child = occupant
+                .clone()
+                .unwrap_or_else(cobolt_forms::surface_theme::liquid_glass);
+            let (host, _f) = crate::FormHost::new(FormHostConfig {
+                form,
+                flat,
+                state: HashMap::new(),
+                ev_tx: ev_tx.clone(),
+                input_tx: input_tx.clone(),
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx: form_req_tx.clone(),
+                form_source: Some(source),
+                // The pane's occupant is the ONLY thing that differs between
+                // the two runs.
+                child_theme: Some(Box::new(move |_form| (None, theme_for_child.clone()))),
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+                fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                // The MAIN form is Liquid Glass in both runs.
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Pane,
+            });
+
+            let mut chain = NavChain::default();
+            chain.push(NavEntry {
+                form_object: "MAIN-FORM".into(),
+                label: "Main".into(),
+                preserve_on_replace: false,
+                resident: Box::new(ChannelResident {
+                    form_object: "MAIN-FORM".into(),
+                    ev_tx: ev_tx.clone(),
+                }),
+            });
+            let mut shell = Shell::default();
+            shell.side_ctrl = Some(side_ctrl);
+            let mut app = ShellApp {
+                shell,
+                chain,
+                host,
+                side_menu_ctrl: Some("Side-1".into()),
+                state_path: None,
+                input_tx,
+                ev_tx,
+                form_req_tx,
+            };
+            if occupant.is_some() {
+                app.shell.pending_clicks = vec![MenuClick {
+                    slot: MenuSlot::Root,
+                    item_id: "open-form:INNER".into(),
+                    action: Some("open-form:INNER".into()),
+                    preserve_previous_form: false,
+                }];
+                app.process_menu_clicks();
+                assert_eq!(
+                    app.host.active_occupant_form(),
+                    Some("INNER"),
+                    "the form has to reach the pane, or this measures nothing"
+                );
+            }
+
+            let ctx = egui::Context::default();
+            let mut menu_rect = Rect::NOTHING;
+            let mut shapes = Vec::new();
+            // TWO frames: the leak is a value the occupant leaves behind, so
+            // the frame that reads it is the one AFTER the occupant painted.
+            for _ in 0..2 {
+                let mut full = ctx.run_ui(raw(Vec2::new(1000.0, 700.0)), |root_ui| {
+                    let ShellApp {
+                        shell, host, ..
+                    } = &mut app;
+                    menu_rect = shell.show_with_host(root_ui, |_ui| {}, host).menu_rect;
+                });
+                full.textures_delta.clear();
+                fn flatten(s: &egui::Shape, band: Rect, out: &mut Vec<String>) {
+                    match s {
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| flatten(s, band, out)),
+                        other => {
+                            let r = other.visual_bounding_rect();
+                            if r.is_finite() && band.contains_rect(r) {
+                                out.push(format!("{other:?}"));
+                            }
+                        }
+                    }
+                }
+                shapes = Vec::new();
+                for cs in &full.shapes {
+                    flatten(&cs.shape, menu_rect, &mut shapes);
+                }
+            }
+            assert!(menu_rect.width() > 1.0, "the rail was laid out");
+            (menu_rect, shapes)
+        };
+
+        // The BASELINE is the shell with nothing loaded: the main form owns
+        // the pane, so the chrome can only be painted in the main form's own
+        // theme. Every occupant must leave it exactly there.
+        let (rect_alone, alone) = chrome_shapes(None);
+        let (rect_glass, glass) =
+            chrome_shapes(Some(cobolt_forms::surface_theme::liquid_glass()));
+        let (rect_eleg, eleg) = chrome_shapes(Some(cobolt_forms::surface_theme::elegance()));
+
+        assert_eq!(rect_alone, rect_glass, "the rail is the same size either way");
+        assert_eq!(rect_alone, rect_eleg, "the rail is the same size either way");
+        assert!(!alone.is_empty(), "the rail painted something");
+
+        for (what, other) in [("Liquid Glass", &glass), ("Elegance", &eleg)] {
+            let differing = alone
+                .iter()
+                .zip(other.iter())
+                .filter(|(a, b)| a != b)
+                .count()
+                + alone.len().abs_diff(other.len());
+            assert_eq!(
+                differing,
+                0,
+                "loading a {what} form into the pane changed {differing} of the \
+                 MenuPane's own shapes ({} painted alone, {} with the form \
+                 loaded). The shell's chrome belongs to the main window.",
+                alone.len(),
+                other.len()
+            );
+        }
+
+        println!(
+            "049/050 -- MenuPane chrome identical ({} shapes) with nothing on \
+             the pane, with a Liquid Glass form on it and with an Elegance \
+             form on it",
+            alone.len()
         );
     }
 }

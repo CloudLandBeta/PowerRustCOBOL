@@ -3210,6 +3210,29 @@ impl FormHost {
         self.ui_impl(pane_ui);
     }
 
+    /// Publish the MAIN form's theme state — theme pack, glass style and
+    /// surface theme — onto `ctx`.
+    ///
+    /// There is exactly ONE slot for each on the context, and the last writer
+    /// wins until the next one. The shell paints the application's own chrome
+    /// — the rail, the breadcrumb, the SideMenu's footer Panel — BEFORE it
+    /// hands the ContentPane to [`Self::pane_frame`], so with nothing
+    /// published on that path every theme-sensitive read in the chrome
+    /// answered from whatever had painted last: the OCCUPANT's theme, left
+    /// there by `child_frame` at the end of the previous frame. Loading a form
+    /// into the pane therefore repainted the main window's own footer in that
+    /// form's theme — the operator saw an Elegance form change the drop shadow
+    /// on his footer image (2026-09-08: "the footer belongs to the main
+    /// window, not to an embedded form").
+    ///
+    /// Called by both surfaces that paint on the root form's behalf, so the
+    /// chrome is the MAIN form's whatever is on the pane.
+    pub(crate) fn publish_root_theme(&self, ctx: &egui::Context) {
+        cobolt_forms::paint::set_active_theme(ctx, self.root.theme_pack.clone());
+        cobolt_forms::paint::set_glass_style(ctx, self.root.glass_style);
+        cobolt_forms::paint::set_surface_theme(ctx, self.root.surface_theme.clone());
+    }
+
     /// One frame of the host. Split from [`eframe::App::ui`] (which only adds
     /// the unused `Frame` parameter) so the parity suite can drive frames
     /// through `Context::run_ui` headlessly (spec 042 R29).
@@ -3254,9 +3277,7 @@ impl FormHost {
         }
         // Theme pack + glass style for the unified painter (per frame — same
         // contract every host follows).
-        cobolt_forms::paint::set_active_theme(ctx, self.root.theme_pack.clone());
-        cobolt_forms::paint::set_glass_style(ctx, self.root.glass_style);
-        cobolt_forms::paint::set_surface_theme(ctx, self.root.surface_theme.clone());
+        self.publish_root_theme(ctx);
 
         // 047 R6 — Knob/Gauge/Switch/FileDropZone are real widgets from the
         // palette crate; they read their theme from the context and otherwise
