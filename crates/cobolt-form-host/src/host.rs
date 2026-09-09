@@ -551,6 +551,7 @@ impl FormHost {
             pointer_down: false,
             fx_transparent,
             fx_chrome_pending: fx_hide_chrome && form.title_visible,
+            fx_chrome_restore: None,
             fx_chrome_hidden_for_exit: false,
             // Window start position: the eight edge/corner positions and
             // Center need the monitor's actual size, which the builder cannot
@@ -2218,6 +2219,21 @@ pub struct FormHost {
     /// entrance plays with no fixed chrome; it is switched back on the frame
     /// the animation ends.
     fx_chrome_pending: bool,
+    /// The CLIENT rect the entrance played in, held across the frames it takes
+    /// the platform to put the chrome back on, so it can be restored.
+    ///
+    /// Adding a title bar does not mean the same thing everywhere. On macOS the
+    /// frame grows outward and the content keeps its size and its place. On
+    /// Windows the title bar is carved out of the window rect that already
+    /// exists, so the client area shrinks from the top and its origin moves
+    /// down — the effect plays across the strip that is about to become the
+    /// title bar, and the finished form then appears shifted down by exactly
+    /// that height (operator, 2026-09-09, comparing the two platforms).
+    ///
+    /// Rather than special-case an OS, the rect the effect played in is
+    /// recorded and put back. Where the platform already keeps it — macOS —
+    /// the recorded and the actual rect agree, and nothing is sent at all.
+    fx_chrome_restore: Option<(egui::Rect, u8)>,
     /// One-shot: the chrome was taken off for the EXIT animation.
     fx_chrome_hidden_for_exit: bool,
     /// When the current entrance playback started (first frame, or restore).
@@ -3286,6 +3302,44 @@ impl FormHost {
             self.visuals_set = true;
             ctx.set_visuals(egui::Visuals::light());
         }
+        // 038 — put the client area back where the entrance played, if adding
+        // the title bar took it out of that rect rather than growing the frame
+        // around it (see `fx_chrome_restore`). The platform is not asked which
+        // it does: the recorded rect is compared with the real one, so where
+        // they already agree this sends nothing.
+        if let Some((want, tries)) = self.fx_chrome_restore {
+            let now = ctx.input(|i| i.viewport().inner_rect);
+            match now {
+                // Moved or shrunk: give the client area its size back and pull
+                // the frame up by however much of it sits above that area, so
+                // the form lands exactly where the effect left it.
+                Some(now)
+                    if (now.size() - want.size()).length() > 0.5
+                        || (now.min - want.min).length() > 0.5 =>
+                {
+                    let outer = ctx.input(|i| i.viewport().outer_rect);
+                    self.viewport_cmd(ctx, egui::ViewportCommand::InnerSize(want.size()));
+                    if let Some(outer) = outer {
+                        let frame_offset = now.min - outer.min;
+                        self.viewport_cmd(
+                            ctx,
+                            egui::ViewportCommand::OuterPosition(want.min - frame_offset),
+                        );
+                    }
+                    self.fx_chrome_restore = None;
+                }
+                // Already right — macOS keeps the content in place, so the
+                // correction is a no-op there and stops asking.
+                Some(_) => self.fx_chrome_restore = None,
+                // The window has not reported yet; try a few more frames and
+                // then stop rather than watching for ever.
+                None => {
+                    self.fx_chrome_restore =
+                        tries.checked_sub(1).map(|left| (want, left)).filter(|_| tries > 1);
+                }
+            }
+        }
+
         // 037 R13 — a form designed to open Minimized minimizes on its first
         // frame (one-shot; the builder cannot pre-minimize).
         if self.start_minimized {
@@ -3913,6 +3967,18 @@ impl FormHost {
                 // stood still while the effect played).
                 if self.fx_chrome_pending {
                     self.fx_chrome_pending = false;
+                    // Where the effect just played, so it can be put back if
+                    // the platform takes the title bar out of it. A maximized
+                    // or fullscreen window owns no rect of its own to restore.
+                    let settled = ctx.input(|i| {
+                        i.viewport().maximized.unwrap_or(false)
+                            || i.viewport().fullscreen.unwrap_or(false)
+                    });
+                    self.fx_chrome_restore = if settled {
+                        None
+                    } else {
+                        ctx.input(|i| i.viewport().inner_rect).map(|r| (r, 8))
+                    };
                     self.viewport_cmd(ctx,egui::ViewportCommand::Decorations(true));
                 }
             } else {
@@ -6176,6 +6242,111 @@ mod parity {
         // …and the pointer aliases ride along, deliberately.
         assert!(on_bg.contains(&"onPointerDown".to_owned()));
         assert!(on_bg.contains(&"onPointerUp".to_owned()));
+    }
+
+    /// The finished form lands where the entrance played it, whichever way the
+    /// platform adds a title bar.
+    ///
+    /// macOS grows the frame outward and leaves the content alone. Windows
+    /// carves the title bar out of the window rect that already exists, so the
+    /// client area shrinks from the top and its origin moves down — the effect
+    /// runs across the strip that becomes the title bar, and the form then
+    /// appears shifted down by that height (operator, 2026-09-09).
+    ///
+    /// Both are driven here as viewport readings, so neither depends on which
+    /// machine the test runs on.
+    #[test]
+    fn the_form_stays_where_the_entrance_played_it_when_the_chrome_returns() {
+        let played_in =
+            egui::Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(800.0, 600.0));
+
+        // Drive the entrance to its end, so the chrome goes back on and the
+        // client rect it played in is recorded.
+        let settle = |app: &mut FormHost, ctx: &egui::Context, inner: egui::Rect, outer: egui::Rect| {
+            let mut input = raw();
+            input.viewports.insert(
+                egui::ViewportId::ROOT,
+                egui::ViewportInfo {
+                    inner_rect: Some(inner),
+                    outer_rect: Some(outer),
+                    ..Default::default()
+                },
+            );
+            frame(app, ctx, input)
+        };
+
+        // ── The platform that carves the bar out of the window (Windows) ─────
+        {
+            let (mut app, _pipes) = host_with("fade:1:linear", "none:0:linear", false);
+            let ctx = egui::Context::default();
+            let outer = egui::Rect::from_min_size(played_in.min, played_in.size());
+            // `fade` clamps to a 100 ms floor, so drive frames until it ends.
+            for _ in 0..40 {
+                settle(&mut app, &ctx, played_in, outer);
+                if app.fx_entrance_done {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(app.fx_entrance_done, "the entrance never finished");
+            assert!(
+                app.fx_chrome_restore.is_some(),
+                "the client rect the entrance played in must be recorded"
+            );
+
+            // The title bar takes 30 points off the top of the SAME window.
+            let carved = egui::Rect::from_min_size(
+                played_in.min + egui::vec2(0.0, 30.0),
+                played_in.size() - egui::vec2(0.0, 30.0),
+            );
+            let cmds = settle(&mut app, &ctx, carved, outer);
+
+            let sized = cmds.iter().any(
+                |c| matches!(c, egui::ViewportCommand::InnerSize(v) if *v == played_in.size()),
+            );
+            let moved = cmds.iter().any(|c| matches!(
+                c,
+                egui::ViewportCommand::OuterPosition(p)
+                    if (*p - (played_in.min - egui::vec2(0.0, 30.0))).length() < 0.5
+            ));
+            assert!(
+                sized,
+                "the client area must be given its designed size back: {cmds:?}"
+            );
+            assert!(
+                moved,
+                "the frame must be pulled up by the bar it grew, so the form \
+                 lands where the effect left it: {cmds:?}"
+            );
+            assert!(app.fx_chrome_restore.is_none(), "and it asks only once");
+        }
+
+        // ── The platform that grows the frame outward (macOS) ────────────────
+        {
+            let (mut app, _pipes) = host_with("fade:1:linear", "none:0:linear", false);
+            let ctx = egui::Context::default();
+            let outer =
+                egui::Rect::from_min_size(played_in.min - egui::vec2(0.0, 30.0), played_in.size());
+            for _ in 0..40 {
+                settle(&mut app, &ctx, played_in, outer);
+                if app.fx_entrance_done {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(app.fx_entrance_done, "the entrance never finished");
+
+            // The content did not move, so nothing may be sent about it.
+            let cmds = settle(&mut app, &ctx, played_in, outer);
+            assert!(
+                !cmds.iter().any(|c| matches!(
+                    c,
+                    egui::ViewportCommand::InnerSize(_) | egui::ViewportCommand::OuterPosition(_)
+                )),
+                "the content already sits where it was — correcting it would be \
+                 the bug, not the fix: {cmds:?}"
+            );
+        }
     }
 
     /// **Focus, theme, DPI, geometry, clipboard, drag and scroll all reach the

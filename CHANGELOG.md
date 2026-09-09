@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.98] — 2026-09-09
+
+### On Windows the entrance played in the title bar, and the form landed low
+
+While an entrance effect runs the window wears no chrome — a title bar would be
+the one fixed, un-animated thing on screen — and it is switched back on the
+frame the effect ends. Adding a title bar does not mean the same thing on every
+platform, and that had never been accounted for.
+
+macOS grows the frame **outward**: the content keeps its size and its place, and
+the bar appears above it. Windows carves the bar out of the window rect that
+already exists, so the client area shrinks from the top and its origin moves
+down. Both symptoms the operator reported follow from that one difference: the
+effect plays across the strip that is about to become the title bar, and when
+the bar arrives the finished form is sitting lower by exactly its height
+(operator, 2026-09-09, comparing the two platforms).
+
+The client rect the entrance played in is now recorded as the chrome goes back
+on, and put back if the platform took it away — the window's inner size is
+restored and the frame pulled up by however much of it sits above the client
+area. **No operating system is named anywhere in the fix:** the recorded rect is
+compared with the real one, so where the platform already keeps the content in
+place the comparison finds nothing to do and not one command is sent. A
+maximized or fullscreen window is skipped, having no rect of its own to restore.
+
+`the_form_stays_where_the_entrance_played_it_when_the_chrome_returns` drives
+both platform behaviours as viewport readings, so neither depends on the machine
+the test runs on, and it was verified to fail without the change.
+
 ## [PowerRustCOBOL 1.65.97] — 2026-09-09
 
 ### A chart title can carry its own size and colour
