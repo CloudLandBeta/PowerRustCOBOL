@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.101] — 2026-09-09
+
+### Every release archive carried 8.5 MB of knowledge store it never opened
+
+The chunked System KB is `include_bytes!`d into the IDE binary
+(`grace_host.rs`, `PREBUILT_CHUNKED_KB`) and installed from there to
+`~/PowerRustCOBOL/data/` on first run. Nothing in the workspace opens
+`assets/knowledge` from beside the executable — but the packaging step is a
+blanket `cp -R assets`, so a second, unread copy travelled in every download on
+every platform (operator, 2026-09-09).
+
+The staging step now deletes it again after the copy, on all four packages. The
+rule the workflow's own comment already stated is finally what the workflow
+does: everything the app opens at RUN time ships, and only what it embeds at
+COMPILE time is left behind.
+
+Copy-then-delete rather than an exclusion, so the line stays obvious. Measured
+on the real tree: `assets/` 126 MB → 118 MB staged.
+
+The verification step gained the guard that keeps it that way, in both
+directions — `assets/themes`, `assets/images/screenshots`, `assets/animations`
+and `assets/licenses` must be PRESENT (the app reads all four from beside its
+executable, the screenshots and animations since the documentation viewer began
+drawing them inline in 1.65.99), and `assets/knowledge` must be ABSENT. A
+missing theme pack is invisible until someone opens the designer; a returning
+knowledge store is invisible full stop, and just makes every download bigger.
+
 ## [PowerRustCOBOL 1.65.100] — 2026-09-09
 
 ### A status bar is the width of its window, and is never inside a container

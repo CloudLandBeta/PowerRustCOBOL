@@ -147,12 +147,22 @@ jobs:
 
       # Linux and Windows: one flat directory. The IDE spawns `rcrun` from its
       # own directory (Run Form) and reads `assets/` from beside its executable
-      # — theme packs, the welcome backgrounds, the licence texts — so the
-      # binaries and the whole assets tree have to travel together. Shipping a
+      # — theme packs, the welcome backgrounds, the licence texts, and the
+      # screenshots and animations the documentation viewer draws inline — so
+      # the binaries and the assets tree have to travel together. Shipping a
       # subset is what left an installed IDE with no themes and no background:
       # anything the binary opens at RUN time has to be in the package, and only
       # what it embeds at COMPILE time (the docs, the knowledge store, the icons
       # and every agent prompt) may be left behind.
+      #
+      # `assets/knowledge` is exactly that case and is deleted again after the
+      # copy: the 8.5 MB chunked store is `include_bytes!`d into the IDE binary
+      # (`grace_host.rs`, PREBUILT_CHUNKED_KB) and installed from there to
+      # `~/PowerRustCOBOL/data/` on first run. Nothing in the workspace opens it
+      # from beside the executable, so every archive was carrying 8.5 MB it
+      # never read (operator, 2026-09-09). Copy-then-delete rather than an
+      # exclusion so the rule stays one obvious line: everything ships, minus
+      # what is already inside the binary.
       #
       # `examples/` travels for the same reason: `example_project_manifest`
       # looks for `examples/PowerDemo3/PowerDemo3.project.toml` beside the
@@ -171,6 +181,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/cobolt-ide${{ matrix.ext }}" "$out/PowerRustCOBOL${{ matrix.ext }}"
           cp "target/${{ matrix.target }}/release/rcrun${{ matrix.ext }}" "$out/rcrun${{ matrix.ext }}"
           cp -R assets "$out/assets"
+          rm -rf "$out/assets/knowledge"
           git archive HEAD examples | tar -x -C "$out"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$out/"
 
@@ -223,6 +234,8 @@ jobs:
           cp "target/${{ matrix.target }}/release/cobolt-ide" "$app/Contents/MacOS/PowerRustCOBOL"
           cp "target/${{ matrix.target }}/release/rcrun" "$app/Contents/MacOS/rcrun"
           cp -R assets "$app/Contents/Resources/assets"
+          # Already inside the binary — see the Linux/Windows staging step.
+          rm -rf "$app/Contents/Resources/assets/knowledge"
           ln -s "../Resources/assets" "$app/Contents/MacOS/assets"
           git archive HEAD examples | tar -x -C "$app/Contents/Resources"
           ln -s "../Resources/examples" "$app/Contents/MacOS/examples"
@@ -293,6 +306,25 @@ jobs:
               ls -l "dist/$PKG"/*.dll
               ;;
           esac
+
+          # The assets the running app opens from beside its executable, and
+          # the one it does not. Both directions matter: a missing theme pack
+          # or screenshot is invisible until a user opens the form designer or
+          # the documentation, and the knowledge store creeping back in is
+          # invisible full stop — it just makes every download 8.5 MB bigger.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            res="dist/$PKG/PowerRustCOBOL.app/Contents/Resources"
+          else
+            res="dist/$PKG"
+          fi
+          for a in assets/themes assets/images/screenshots assets/animations assets/licenses; do
+            test -d "$res/$a" || { echo "::error::the package is missing $a, which the app reads at run time"; exit 1; }
+          done
+          if [ -e "$res/assets/knowledge" ]; then
+            echo "::error::assets/knowledge is back in the package — it is already \
+          inside the binary (grace_host.rs PREBUILT_CHUNKED_KB) and nothing reads it from disk"
+            exit 1
+          fi
 
           # The SDK is what makes Build work on a machine with no source
           # checkout. Shipping without it is invisible until someone presses
