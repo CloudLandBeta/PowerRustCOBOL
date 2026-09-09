@@ -1116,9 +1116,10 @@ hover, in a build that ships no examples.
 ### Reading the docs in the IDE (Help → Documentation)
 
 **Help → Documentation** opens a dedicated window that renders this guide and the
-other PowerRustCOBOL manuals — including their **Mermaid diagrams**, drawn inline
-(rendered in pure Rust, no browser required). The docs are bundled with the IDE,
-so it works offline; `Cmd+O` opens any local Markdown file too.
+other PowerRustCOBOL manuals — including their **Mermaid diagrams** and
+**screenshots**, drawn inline (rendered in pure Rust, no browser required). The
+docs are bundled with the IDE, so it works offline; `Cmd+O` opens any local
+Markdown file too, and its images are found beside it.
 
 The window has a searchable **document list** on the left and the rendered
 document on the right, plus an **icon toolbar** and **File / View / Help** menus.
@@ -1126,6 +1127,20 @@ In-document **search** highlights matches (blue on yellow); press **Go** or
 **Enter** to jump to the first match and **◀ / ▶** (or `,` / `.`) to step through
 them with a live `n/total` counter. The **table of contents** is clickable — both
 the side **outline** and the in-document `[…](#…)` links jump to their section.
+**Moving through a document** works the way a document should. The **arrow keys**
+scroll it: a tap moves one line, and holding one starts at that same reading pace
+and winds up to four times it, so a long manual can be crossed without letting
+go. `PageUp` / `PageDown` move a screen at a time, `Home` and `End` go to the
+ends. You can also **grab the page with the mouse and throw it** — press, drag,
+release, and it glides to a stop. (The arrows belong to the search box while the
+caret is in it, so they type there rather than scrolling.)
+
+Long manuals stay responsive because the window only lays out the part you are
+looking at, keeping a couple of screens either side ready in advance, and because
+the diagrams and screenshots are decoded on a **background thread** the moment
+you select a document — long before you scroll to them. An image still being
+prepared shows a placeholder in its place.
+
 You also get an adjustable **font size** that is *remembered between sessions*,
 zoom, full screen, keep-on-top (`⌘T`), open a local Markdown file (`⌘O`), and a
 view-source modal (`⌥⌘U`). **Print** (`⌘P`) exports the document — Mermaid

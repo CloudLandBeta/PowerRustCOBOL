@@ -1,5 +1,61 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.99] — 2026-09-09
+
+### The documentation window was slow, would not take the arrow keys, and showed no screenshots
+
+Six reports about Help → Documentation, one window (operator, 2026-09-09).
+
+**The screenshots were never drawn.** The guide places them as raw HTML —
+`<p align="center"><img src="../assets/images/screenshots/welcome.png" …></p>` —
+and the renderer's event walk dropped every HTML event on the floor, so the
+pictures of the IDE, the Designer and the rest simply were not there. Markdown's
+own `![alt](src)` was discarded the same way, leaving the alt text behind as if
+it were a paragraph. Both spellings now reach a drawing callback that owns
+loading, so the document says where the picture is and the viewer says how to
+find it.
+
+Finding it is the other half. The documents are embedded from the repository's
+`docs/`, and their paths are written against that directory. Joining
+`../assets/images/…` onto `<exe dir>/docs` lands on `<exe dir>/assets/images/…`
+— exactly where the release package puts the assets tree — so one relative path
+resolves both from a source build and from an installed app. That only works
+with a *textual* `..`, never `canonicalize`: in a package the `docs` directory
+does not exist, only the `assets` it points at.
+
+**It was slow because three things sat on the UI thread.** The Developer's Guide
+is 499 KB and 1 900 blocks:
+
+- Ten Mermaid diagrams, each rendered the first time it was scrolled to —
+  **189 ms** between them, the first also paying for loading the system font
+  database. Screenshots would have added **163 ms** more. All of it now goes to
+  a preparer thread the moment a document is selected, so it is decoded long
+  before the reader arrives, and the UI thread only uploads the finished pixels.
+- Every block laid out on every frame: **6.9 ms** warm, on top of whatever the
+  IDE's own window costs, since an immediate viewport shares its frame. Each
+  block's height is now remembered, and a block far enough outside the viewport
+  is replaced by exactly that much space instead of being laid out again —
+  **2.0 ms**, 38 blocks of 1 900. The document is the same height either way, so
+  no scrollbar and no scroll offset moves.
+- The whole source string was copied every frame. It is shared now.
+
+**The arrow keys did nothing.** They scroll: a tap moves one line, and holding
+one starts at that same pace and accelerates to four times it over two seconds
+and no further — fast enough to cross the guide, slow at the start so a held key
+does not overshoot the next paragraph. `PageUp` / `PageDown` move a screen,
+`Home` and `End` go to the ends. None of them fire while the caret is in the
+search box, where the arrows belong to the field.
+
+**The page could not be grabbed.** egui carries a released drag's velocity into
+a kinetic glide, but only for touch screens by default. The documentation is
+read with a mouse, so drag-to-scroll is switched on, with grab and grabbing
+cursors.
+
+The window itself still draws on the application's one egui context —
+`show_viewport_immediate` shares it, and egui is single-threaded per context —
+so what moved to its own thread is the work, which is what the frame rate
+actually depends on.
+
 ## [PowerRustCOBOL 1.65.98] — 2026-09-09
 
 ### On Windows the entrance played in the title bar, and the form landed low

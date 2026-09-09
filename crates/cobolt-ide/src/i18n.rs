@@ -1477,6 +1477,8 @@ pub struct Tr {
     pub doc_font_size: &'static str,
     pub doc_placeholder: &'static str,
     pub doc_mermaid_error: &'static str,
+    pub doc_image_error: &'static str,
+    pub doc_scroll_keys: &'static str,
 
     // ── Debug settings (Help menu) ────────────────────────────────────────────
     pub debug_menu_label: &'static str, // Help-menu item
@@ -2810,6 +2812,8 @@ const EN: Tr = Tr {
     doc_font_size:   "Font size",
     doc_placeholder: "Select a manual from the list of documents on the left to view it.",
     doc_mermaid_error: "Could not render diagram",
+    doc_image_error: "Could not load image",
+    doc_scroll_keys: "Scroll (hold to go faster)",
 
     debug_menu_label:   "🐞 Debug Settings…",
     sdk_menu_label:     "🧰 Platform SDK Location…",
@@ -4078,6 +4082,8 @@ const ES: Tr = Tr {
     doc_font_size:   "Tamaño de fuente",
     doc_placeholder: "Seleccione un manual de la lista de documentos a la izquierda para verlo.",
     doc_mermaid_error: "No se pudo renderizar el diagrama",
+    doc_image_error: "No se pudo cargar la imagen",
+    doc_scroll_keys: "Desplazar (mantener para ir más rápido)",
 
     debug_menu_label:   "🐞 Ajustes de depuración…",
     sdk_menu_label:     "🧰 Ubicación del SDK de la plataforma…",
@@ -5346,6 +5352,8 @@ const PT: Tr = Tr {
     doc_font_size:   "Tamanho da fonte",
     doc_placeholder: "Selecione um manual na lista de documentos à esquerda para visualizá-lo.",
     doc_mermaid_error: "Não foi possível renderizar o diagrama",
+    doc_image_error: "Não foi possível carregar a imagem",
+    doc_scroll_keys: "Rolar (segure para acelerar)",
 
     debug_menu_label:   "🐞 Configurações de depuração…",
     sdk_menu_label:     "🧰 Local do SDK da plataforma…",
@@ -6613,6 +6621,8 @@ const JA: Tr = Tr {
     doc_font_size:   "フォントサイズ",
     doc_placeholder: "左側のドキュメント一覧からマニュアルを選択して表示します。",
     doc_mermaid_error: "図を描画できませんでした",
+    doc_image_error: "画像を読み込めませんでした",
+    doc_scroll_keys: "スクロール（長押しで加速）",
 
     debug_menu_label:   "🐞 デバッグ設定…",
     sdk_menu_label:     "🧰 プラットフォーム SDK の場所…",
@@ -7888,6 +7898,8 @@ const ZH: Tr = Tr {
     doc_font_size: "字体大小",
     doc_placeholder: "从左侧的文档列表中选择一个手册以查看。",
     doc_mermaid_error: "无法渲染图表",
+    doc_image_error: "无法加载图片",
+    doc_scroll_keys: "滚动（长按加速）",
 
     debug_menu_label:   "🐞 调试设置…",
     sdk_menu_label:     "🧰 平台 SDK 位置…",
@@ -9156,6 +9168,8 @@ const FR: Tr = Tr {
     doc_font_size:   "Taille de police",
     doc_placeholder: "Sélectionnez un manuel dans la liste des documents à gauche pour le consulter.",
     doc_mermaid_error: "Impossible de générer le diagramme",
+    doc_image_error: "Impossible de charger l'image",
+    doc_scroll_keys: "Défiler (maintenir pour accélérer)",
 
     debug_menu_label:   "🐞 Paramètres de débogage…",
     sdk_menu_label:     "🧰 Emplacement du SDK de la plateforme…",

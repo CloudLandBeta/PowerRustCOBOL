@@ -10,9 +10,21 @@
 //! draws egui directly, which gives full control over the things the docs need:
 //! word-wrapped text, headings (with rects captured for the table-of-contents),
 //! **COBOL-coloured code in its own boxed block**, tables, blockquotes,
-//! inline search-term highlighting (blue-on-yellow), and inline Mermaid diagrams
-//! (drawn via a caller-supplied closure). Every block is a single egui widget,
-//! so there are no widget-id clashes.
+//! inline search-term highlighting (blue-on-yellow), inline Mermaid diagrams and
+//! embedded images (both drawn via a caller-supplied closure). Every block is a
+//! single egui widget, so there are no widget-id clashes.
+//!
+//! # Drawing only what is on screen
+//!
+//! The Developer's Guide is half a megabyte of Markdown — around four thousand
+//! blocks. Laying every one of them out on every frame is what made the
+//! documentation window crawl. [`BlockCache`] fixes that: each block's height is
+//! remembered from the pass that drew it, and a block far enough outside the
+//! viewport is replaced by that much empty space instead of being laid out
+//! again. The scrollbar and every scroll offset stay exactly where they were,
+//! because the reserved space is the height the block really had.
+//!
+//! A caller that passes no cache draws everything, exactly as before.
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontId, RichText, Stroke, Ui, Vec2};
@@ -53,6 +65,80 @@ pub enum TableLayout {
     /// whose first columns are short values and whose last is prose
     /// (spec 044: crate · version · downloads · description).
     TightResizable,
+}
+
+/// One image the document embeds — from Markdown `![alt](src)` or from an HTML
+/// `<img src=… alt=… width=…>` tag, which is how the guide places its
+/// screenshots. The renderer never loads anything itself: it hands this to the
+/// caller's closure, which owns path resolution and the texture cache.
+pub struct ImageRef<'a> {
+    /// The `src` exactly as the document wrote it, e.g.
+    /// `../assets/images/screenshots/welcome.png`.
+    pub src: &'a str,
+    /// The `alt` text, shown when the image cannot be loaded.
+    pub alt: &'a str,
+    /// The `width=` attribute in CSS pixels, when the tag carried one.
+    pub width: Option<f32>,
+}
+
+/// Remembered block heights, so a long document only lays out what is near the
+/// viewport. See the module documentation.
+#[derive(Default)]
+pub struct BlockCache {
+    /// Identity of the layout these heights were measured under (document,
+    /// content width, body font size). Anything else and they do not apply.
+    key: u64,
+    /// Height of block *i*, in points, or `0.0` for a block never drawn yet.
+    heights: Vec<f32>,
+    /// Blocks actually drawn in the last pass — the measurement behind the
+    /// speed claim, and what the tests assert on.
+    drawn: usize,
+    /// How far past the viewport to keep drawing for real, in points. Blocks
+    /// inside this margin are ready before they are scrolled into view.
+    read_ahead: f32,
+}
+
+impl BlockCache {
+    /// A cache that keeps `read_ahead` points of drawn-for-real content above
+    /// and below the viewport.
+    pub fn new(read_ahead: f32) -> Self {
+        Self {
+            read_ahead,
+            ..Default::default()
+        }
+    }
+
+    /// Point the cache at a layout. Remembered heights are dropped when the
+    /// document, the content width or the font size changes, because they were
+    /// measured under the old one.
+    pub fn retarget(&mut self, key: u64) {
+        if self.key != key {
+            self.key = key;
+            self.heights.clear();
+            self.drawn = 0;
+        }
+    }
+
+    /// Blocks drawn for real in the last pass (the rest were reserved space).
+    pub fn drawn(&self) -> usize {
+        self.drawn
+    }
+
+    /// Blocks the last pass walked, drawn or reserved.
+    pub fn blocks(&self) -> usize {
+        self.heights.len()
+    }
+}
+
+/// The callbacks and caches a render pass may be given. Everything is optional
+/// except the Mermaid drawer, so existing callers are unaffected.
+pub struct Extras<'a> {
+    /// Draws one Mermaid diagram; its code is passed.
+    pub mermaid: &'a mut dyn FnMut(&mut Ui, &str),
+    /// Draws one embedded image. Without it, images render as their alt text.
+    pub image: Option<&'a mut dyn FnMut(&mut Ui, &ImageRef<'_>)>,
+    /// Block-height memory. Without it, every block is drawn every pass.
+    pub cache: Option<&'a mut BlockCache>,
 }
 
 /// Result of a render pass.
@@ -104,7 +190,31 @@ pub fn render(
     opts: &RenderOpts,
     mermaid: &mut dyn FnMut(&mut Ui, &str),
 ) -> RenderOutput {
-    let mut r = Renderer::new(ui, opts);
+    render_with(
+        ui,
+        markdown,
+        opts,
+        Extras {
+            mermaid,
+            image: None,
+            cache: None,
+        },
+    )
+}
+
+/// Render `markdown` into `ui` with images and/or viewport-limited drawing.
+pub fn render_with(
+    ui: &mut Ui,
+    markdown: &str,
+    opts: &RenderOpts,
+    extras: Extras<'_>,
+) -> RenderOutput {
+    let Extras {
+        mermaid,
+        mut image,
+        cache,
+    } = extras;
+    let mut r = Renderer::new(ui, opts, cache);
     let parser = Parser::new_ext(
         markdown,
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
@@ -112,9 +222,17 @@ pub fn render(
     let events: Vec<Event> = parser.collect();
     let mut i = 0;
     while i < events.len() {
-        i = r.event(ui, &events, i, mermaid);
+        i = r.event(ui, &events, i, mermaid, &mut image);
     }
     r.flush_block(ui);
+    let drawn = r.drawn;
+    let blocks = r.block_idx;
+    if let Some(c) = r.cache.as_mut() {
+        c.drawn = drawn;
+        // A pass that ended early (a shorter document) must not leave the
+        // heights of the longer one behind it.
+        c.heights.truncate(blocks);
+    }
     RenderOutput {
         heading_count: r.heading_idx,
         match_count: r.match_count,
@@ -176,11 +294,51 @@ struct Renderer<'a> {
     scroll_block: bool,
     /// Screen-space top Y of the block to scroll to (active match or heading).
     scroll_target_y: Option<f32>,
+    /// Remembered block heights, when the caller supplied a cache.
+    cache: Option<&'a mut BlockCache>,
+    /// Screen-space band that is drawn for real: the viewport, grown by the
+    /// cache's read-ahead margin.
+    live: egui::Rect,
+    /// Index of the next block, in document order.
+    block_idx: usize,
+    /// Blocks drawn for real in this pass.
+    drawn: usize,
+    /// The block being accumulated will be reserved rather than drawn, so its
+    /// layout job is never built.
+    reserving: bool,
+    /// Which block [`Renderer::reserving`] was decided for.
+    ///
+    /// Two decisions are taken about the same block — one when it starts, so
+    /// its layout job need not be built, and one at the flush, which places it
+    /// — and they must agree. If the first said reserve and the second said
+    /// draw, an empty block would be drawn and its height recorded as nothing,
+    /// shortening the document silently.
+    ///
+    /// Today they cannot disagree: the decision is re-taken at every event
+    /// until a block actually begins accumulating, which is the same cursor
+    /// position the flush sees. `the_reserve_boundary_never_lands_inside_a_block`
+    /// passes with this field ignored, so this is a guard rather than a fix —
+    /// it costs one comparison and makes the agreement structural instead of a
+    /// consequence of where the spacing calls happen to sit.
+    reserve_for: Option<usize>,
+}
+
+/// A block being placed: where it starts, and the height it may stand in for.
+struct Block {
+    /// Index in document order — the slot its height is remembered in.
+    idx: usize,
+    /// Screen-space Y the block starts at.
+    y0: f32,
+    /// The remembered height, when this block is far enough off screen to be
+    /// reserved rather than drawn.
+    skip: Option<f32>,
 }
 
 impl<'a> Renderer<'a> {
-    fn new(ui: &Ui, opts: &'a RenderOpts) -> Self {
+    fn new(ui: &Ui, opts: &'a RenderOpts, cache: Option<&'a mut BlockCache>) -> Self {
         let v = ui.visuals();
+        let read_ahead = cache.as_ref().map(|c| c.read_ahead).unwrap_or(0.0);
+        let live = ui.clip_rect().expand2(egui::vec2(0.0, read_ahead));
         Self {
             base: opts.base,
             search: opts.search,
@@ -206,6 +364,82 @@ impl<'a> Renderer<'a> {
             scroll_to_active: opts.scroll_to_active,
             scroll_block: false,
             scroll_target_y: None,
+            cache,
+            live,
+            block_idx: 0,
+            drawn: 0,
+            reserving: false,
+            reserve_for: None,
+        }
+    }
+
+    /// Would the block about to start be reserved rather than drawn?
+    ///
+    /// Asked before a single character of it is turned into a layout job — the
+    /// building is most of the cost, and a reserved block never shows any of it.
+    fn will_reserve(&self, ui: &Ui) -> bool {
+        let y0 = ui.cursor().top();
+        self.cache
+            .as_ref()
+            .and_then(|c| c.heights.get(self.block_idx).copied())
+            .filter(|h| *h > 0.0)
+            .is_some_and(|h| y0 + h < self.live.top() || y0 > self.live.bottom())
+    }
+
+    /// Tally the search matches in `text` without building anything, for a
+    /// block that will be reserved. The count has to be right whether or not
+    /// the block is drawn — it is what the match navigator counts through.
+    fn count_matches(&mut self, text: &str) {
+        if self.search.is_empty() {
+            return;
+        }
+        let hay = text.to_lowercase();
+        let mut start = 0usize;
+        while let Some(rel) = hay[start..].find(self.search) {
+            if self.active_match == Some(self.match_count) && self.scroll_to_active {
+                self.scroll_block = true;
+            }
+            self.match_count += 1;
+            start += rel + self.search.len();
+        }
+    }
+
+    /// Claim the next block slot. `Block::skip` carries the remembered height
+    /// when this block is far enough outside the live band to be reserved
+    /// rather than laid out again.
+    fn begin_block(&mut self, ui: &Ui) -> Block {
+        let idx = self.block_idx;
+        self.block_idx += 1;
+        let y0 = ui.cursor().top();
+        let height = self
+            .cache
+            .as_ref()
+            .and_then(|c| c.heights.get(idx).copied())
+            // A block never drawn yet has no height to stand in for it, and a
+            // zero-height one costs nothing to draw.
+            .filter(|h| *h > 0.0);
+        // Consume any decision already taken for this block.
+        let decided = (self.reserve_for.take() == Some(idx)).then_some(self.reserving);
+        self.reserving = false;
+        let skip = match decided {
+            Some(true) => height,
+            Some(false) => None,
+            None => height.filter(|h| y0 + h < self.live.top() || y0 > self.live.bottom()),
+        };
+        if skip.is_none() {
+            self.drawn += 1;
+        }
+        Block { idx, y0, skip }
+    }
+
+    /// Record what the block just drawn actually measured.
+    fn end_block(&mut self, ui: &Ui, b: Block) {
+        let h = (ui.cursor().top() - b.y0).max(0.0);
+        if let Some(c) = self.cache.as_mut() {
+            if c.heights.len() <= b.idx {
+                c.heights.resize(b.idx + 1, 0.0);
+            }
+            c.heights[b.idx] = h;
         }
     }
 
@@ -240,6 +474,12 @@ impl<'a> Renderer<'a> {
             self.runs = Some(Runs {
                 job: LayoutJob::default(),
             });
+        }
+        if self.reserving {
+            // Nothing of this block will be seen. The empty `Runs` above still
+            // stands for it, so it claims its slot and reserves its height.
+            self.count_matches(text);
+            return;
         }
         let (font, color) = self.font_for(self.inline, self.heading);
         let mut fmt = TextFormat {
@@ -326,6 +566,21 @@ impl<'a> Renderer<'a> {
 
         let indent = self.quote_depth as f32 * 14.0;
         let scroll_match = std::mem::replace(&mut self.scroll_block, false);
+        let b = self.begin_block(ui);
+        if let Some(h) = b.skip {
+            // Reserved, not drawn — but a jump to a heading or a match that
+            // lands here still needs its position, and this is exactly it.
+            let wanted = scroll_match
+                || (heading.is_some() && self.scroll_to_heading == Some(self.heading_idx));
+            if wanted {
+                self.scroll_target_y = Some(b.y0);
+            }
+            if heading.is_some() {
+                self.heading_idx += 1;
+            }
+            ui.add_space(h);
+            return;
+        }
         ui.horizontal_wrapped(|ui| {
             if indent > 0.0 {
                 ui.add_space(indent);
@@ -345,6 +600,7 @@ impl<'a> Renderer<'a> {
         if heading.is_some() {
             ui.add_space(self.base * 0.25);
         }
+        self.end_block(ui, b);
     }
 
     /// Draw a block that contains links: text runs as labels, links as clickable
@@ -356,6 +612,19 @@ impl<'a> Renderer<'a> {
         let indent = self.quote_depth as f32 * 14.0;
         let scroll_match = std::mem::replace(&mut self.scroll_block, false);
 
+        let b = self.begin_block(ui);
+        if let Some(h) = b.skip {
+            let wanted = scroll_match
+                || (heading.is_some() && self.scroll_to_heading == Some(self.heading_idx));
+            if wanted {
+                self.scroll_target_y = Some(b.y0);
+            }
+            if heading.is_some() {
+                self.heading_idx += 1;
+            }
+            ui.add_space(h);
+            return;
+        }
         let inner = ui.horizontal_wrapped(|ui| {
             if indent > 0.0 {
                 ui.add_space(indent);
@@ -380,9 +649,15 @@ impl<'a> Renderer<'a> {
             self.scroll_target_y = Some(inner.response.rect.top());
         }
         if heading.is_some() {
+            // A heading that carries a link is still an outline entry, and the
+            // outline must be able to jump to it.
+            if self.scroll_to_heading == Some(self.heading_idx) {
+                self.scroll_target_y = Some(inner.response.rect.top());
+            }
             self.heading_idx += 1;
             ui.add_space(self.base * 0.25);
         }
+        self.end_block(ui, b);
     }
 
     fn event(
@@ -391,9 +666,16 @@ impl<'a> Renderer<'a> {
         events: &[Event],
         i: usize,
         mermaid: &mut dyn FnMut(&mut Ui, &str),
+        image: &mut Option<&mut dyn FnMut(&mut Ui, &ImageRef<'_>)>,
     ) -> usize {
+        // Nothing is being accumulated, so whatever this event opens is the
+        // start of the next block: settle now whether it is worth building.
+        if self.runs.is_none() && self.segs.is_empty() && self.link_target.is_none() {
+            self.reserving = self.will_reserve(ui);
+            self.reserve_for = Some(self.block_idx);
+        }
         match &events[i] {
-            Event::Start(tag) => self.start(ui, tag.clone(), events, i, mermaid),
+            Event::Start(tag) => self.start(ui, tag.clone(), events, i, mermaid, image),
             Event::End(tag) => {
                 self.end(ui, *tag);
                 i + 1
@@ -419,14 +701,57 @@ impl<'a> Renderer<'a> {
             }
             Event::Rule => {
                 self.flush_block(ui);
-                ui.separator();
+                let b = self.begin_block(ui);
+                match b.skip {
+                    Some(h) => ui.add_space(h),
+                    None => {
+                        ui.separator();
+                        self.end_block(ui, b);
+                    }
+                }
                 i + 1
             }
             Event::TaskListMarker(done) => {
                 self.push_text(if *done { "☑ " } else { "☐ " });
                 i + 1
             }
+            // The guide places its screenshots as raw HTML —
+            // `<p align="center"><img src=… width=…></p>` — which arrives here
+            // as one HTML event per block. Anything else in the block (the
+            // `<p>` wrapper, comments) is not rendered.
+            Event::Html(html) | Event::InlineHtml(html) => {
+                for img in html_images(html) {
+                    self.draw_image(ui, &img, image);
+                }
+                i + 1
+            }
             _ => i + 1,
+        }
+    }
+
+    /// Draw one embedded image through the caller's closure, or its alt text
+    /// when the caller supplied none.
+    fn draw_image(
+        &mut self,
+        ui: &mut Ui,
+        img: &ImageRef<'_>,
+        image: &mut Option<&mut dyn FnMut(&mut Ui, &ImageRef<'_>)>,
+    ) {
+        self.flush_block(ui);
+        let Some(draw) = image else {
+            if !img.alt.is_empty() {
+                self.push_text(img.alt);
+                self.flush_block(ui);
+            }
+            return;
+        };
+        let b = self.begin_block(ui);
+        match b.skip {
+            Some(h) => ui.add_space(h),
+            None => {
+                draw(ui, img);
+                self.end_block(ui, b);
+            }
         }
     }
 
@@ -437,6 +762,7 @@ impl<'a> Renderer<'a> {
         events: &[Event],
         i: usize,
         mermaid: &mut dyn FnMut(&mut Ui, &str),
+        image: &mut Option<&mut dyn FnMut(&mut Ui, &ImageRef<'_>)>,
     ) -> usize {
         match tag {
             Tag::Heading { level, .. } => {
@@ -481,6 +807,13 @@ impl<'a> Renderer<'a> {
                 self.runs = Some(Runs {
                     job: LayoutJob::default(),
                 });
+                // A list item is a block of its own, and `flush_block` has
+                // already run, so this is where its fate is decided.
+                self.reserving = self.will_reserve(ui);
+                self.reserve_for = Some(self.block_idx);
+                if self.reserving {
+                    return i + 1;
+                }
                 // Prepend the marker as dim text.
                 let (font, _c) = self.font_for(Inline::none(), None);
                 self.runs.as_mut().unwrap().job.append(
@@ -516,10 +849,17 @@ impl<'a> Renderer<'a> {
                     }
                     j += 1;
                 }
-                if lang.eq_ignore_ascii_case("mermaid") {
-                    mermaid(ui, &code);
-                } else {
-                    self.draw_code_box(ui, &code, &lang);
+                let b = self.begin_block(ui);
+                match b.skip {
+                    Some(h) => ui.add_space(h),
+                    None => {
+                        if lang.eq_ignore_ascii_case("mermaid") {
+                            mermaid(ui, &code);
+                        } else {
+                            self.draw_code_box(ui, &code, &lang);
+                        }
+                        self.end_block(ui, b);
+                    }
                 }
                 j + 1 // skip past End(CodeBlock)
             }
@@ -527,9 +867,30 @@ impl<'a> Renderer<'a> {
                 self.flush_block(ui);
                 self.draw_table(ui, events, i)
             }
-            Tag::Image { .. } => {
-                // Skip image data; emit the alt text (collected as following Text).
-                i + 1
+            Tag::Image { dest_url, .. } => {
+                // `![alt](src)`. The alt text lives in the events up to
+                // `End(Image)`; it is the image's fallback, not body text, so
+                // it is collected here rather than pushed into the block.
+                let mut alt = String::new();
+                let mut j = i + 1;
+                while j < events.len() {
+                    match &events[j] {
+                        Event::Text(t) | Event::Code(t) => alt.push_str(t),
+                        Event::End(TagEnd::Image) => break,
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                self.draw_image(
+                    ui,
+                    &ImageRef {
+                        src: &dest_url,
+                        alt: &alt,
+                        width: None,
+                    },
+                    image,
+                );
+                j + 1 // skip past End(Image)
             }
             _ => i + 1,
         }
@@ -599,6 +960,13 @@ impl<'a> Renderer<'a> {
     /// Render a Markdown table with wrapped cells. Returns the index just past
     /// the table's `End` event.
     fn draw_table(&mut self, ui: &mut Ui, events: &[Event], start: usize) -> usize {
+        // Claimed before the cells are built, not after: a table off screen is
+        // reserved without its rows ever being assembled.
+        let b = self.begin_block(ui);
+        if let Some(h) = b.skip {
+            ui.add_space(h);
+            return table_end(events, start);
+        }
         // Collect rows of cells (each cell is the concatenated text).
         let mut rows: Vec<Vec<Cell>> = Vec::new();
         let mut cur_row: Vec<Cell> = Vec::new();
@@ -646,10 +1014,12 @@ impl<'a> Renderer<'a> {
 
         let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
         if cols == 0 {
+            self.end_block(ui, b);
             return j;
         }
         if self.table_layout == TableLayout::TightResizable {
             self.draw_table_tight(ui, &rows, cols, start);
+            self.end_block(ui, b);
             return j;
         }
         let col_w = (ui.available_width() / cols as f32 - 8.0).max(60.0);
@@ -691,6 +1061,7 @@ impl<'a> Renderer<'a> {
                     });
             });
         ui.add_space(self.base * 0.4);
+        self.end_block(ui, b);
         j
     }
 
@@ -846,6 +1217,78 @@ impl<'a> Renderer<'a> {
     }
 }
 
+/// Index just past a table's `End` event, without touching its cells — what a
+/// reserved table needs and all it needs.
+fn table_end(events: &[Event], start: usize) -> usize {
+    let mut depth = 1; // already inside Table
+    let mut j = start + 1;
+    while j < events.len() && depth > 0 {
+        match &events[j] {
+            Event::Start(Tag::Table(_)) => depth += 1,
+            Event::End(TagEnd::Table) => depth -= 1,
+            _ => {}
+        }
+        j += 1;
+    }
+    j
+}
+
+/// Pull every `<img>` out of a raw-HTML block.
+///
+/// Deliberately a scan for one tag rather than an HTML parser: the guide's
+/// screenshots are written as `<p align="center"><img src=… alt=… width=…></p>`
+/// and nothing else in the documentation needs HTML. Attribute values may be
+/// quoted with `"` or `'`.
+fn html_images(html: &str) -> Vec<ImageRef<'_>> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("<img") {
+        let after = &rest[at + 4..];
+        // The tag ends at the first `>`; a malformed tag ends the scan.
+        let Some(end) = after.find('>') else { break };
+        let tag = &after[..end];
+        if let Some(src) = html_attr(tag, "src") {
+            out.push(ImageRef {
+                src,
+                alt: html_attr(tag, "alt").unwrap_or(""),
+                width: html_attr(tag, "width").and_then(|w| w.trim().parse::<f32>().ok()),
+            });
+        }
+        rest = &after[end + 1..];
+    }
+    out
+}
+
+/// Value of `name="…"` (or `name='…'`) inside one tag's attribute text.
+fn html_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let mut rest = tag;
+    loop {
+        let at = rest.find(name)?;
+        let before_ok = at == 0
+            || rest[..at]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_whitespace());
+        let after = &rest[at + name.len()..];
+        let trimmed = after.trim_start();
+        // `width=` must not match inside `data-width=`, and `src=` must be
+        // followed by its `=` rather than being the prefix of another name.
+        if before_ok && trimmed.starts_with('=') {
+            let value = trimmed[1..].trim_start();
+            let quote = value.chars().next()?;
+            if quote == '"' || quote == '\'' {
+                let inner = &value[1..];
+                let end = inner.find(quote)?;
+                return Some(&inner[..end]);
+            }
+            // Unquoted: up to the next whitespace.
+            let end = value.find(char::is_whitespace).unwrap_or(value.len());
+            return Some(&value[..end]);
+        }
+        rest = after;
+    }
+}
+
 // Small helper: pick the more visible of two colours (used to fake bold).
 trait MaxColor {
     fn max_color(self, other: Color32) -> Color32;
@@ -869,6 +1312,376 @@ fn _vec2(_: Vec2) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Render `markdown` for `frames` frames inside a scroll area of
+    /// `viewport` points, with a block cache, and report what the last pass
+    /// walked and what it actually drew.
+    fn cached_pass(markdown: &str, viewport: f32, frames: usize) -> (usize, usize) {
+        let mut cache = BlockCache::new(0.0); // no read-ahead: measure the band itself
+        run_frames(markdown, viewport, frames, Some(&mut cache));
+        (cache.blocks(), cache.drawn())
+    }
+
+    /// The same, with no cache at all — what every frame used to cost.
+    fn uncached_pass(markdown: &str, viewport: f32, frames: usize) {
+        run_frames(markdown, viewport, frames, None);
+    }
+
+    fn run_frames(markdown: &str, viewport: f32, frames: usize, mut cache: Option<&mut BlockCache>) {
+        let ctx = egui::Context::default();
+        for _ in 0..frames {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, viewport),
+                )),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        render_with(
+                            ui,
+                            markdown,
+                            &RenderOpts {
+                                base: 14.0,
+                                search: "",
+                                scroll_to_heading: None,
+                                active_match: None,
+                                scroll_to_active: false,
+                                anchors: &[],
+                                table_layout: TableLayout::Equal,
+                            },
+                            Extras {
+                                mermaid: &mut |_, _| {},
+                                image: None,
+                                cache: cache.as_deref_mut(),
+                            },
+                        );
+                    });
+                });
+            })
+            .textures_delta
+            .clear();
+        }
+    }
+
+    /// The point of the cache: a long document stops laying itself out in
+    /// full on every frame. The first pass has no heights to stand in for
+    /// anything, so it draws everything; the second draws only the band that
+    /// is actually on screen.
+    #[test]
+    fn a_long_document_only_draws_what_is_on_screen() {
+        let md: String = (0..400)
+            .map(|i| format!("## Section {i}\n\nSome prose in section {i}.\n\n"))
+            .collect();
+
+        let (blocks_first, drawn_first) = cached_pass(&md, 400.0, 1);
+        assert_eq!(
+            blocks_first, drawn_first,
+            "the first pass has no remembered heights, so it must draw every block"
+        );
+        assert!(blocks_first >= 800, "expected ~800 blocks, got {blocks_first}");
+
+        let (blocks, drawn) = cached_pass(&md, 400.0, 2);
+        assert_eq!(
+            blocks, blocks_first,
+            "the same document must walk the same number of blocks either way"
+        );
+        assert!(
+            drawn * 10 < blocks,
+            "a 400-point viewport over {blocks} blocks should draw a small \
+             fraction of them, not {drawn}"
+        );
+    }
+
+    /// Reserved space is the height the block really had, so the document is
+    /// exactly as tall either way — otherwise the scrollbar would jump as the
+    /// reader scrolled.
+    #[test]
+    fn reserving_a_block_keeps_the_document_the_same_height() {
+        fn total_height(markdown: &str, cache: Option<&mut BlockCache>) -> f32 {
+            let ctx = egui::Context::default();
+            let mut height = 0.0;
+            let mut cache = cache;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 300.0),
+                )),
+                ..Default::default()
+            };
+            ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().show(root_ui, |ui| {
+                    let out = egui::ScrollArea::vertical().show(ui, |ui| {
+                        render_with(
+                            ui,
+                            markdown,
+                            &RenderOpts {
+                                base: 14.0,
+                                search: "",
+                                scroll_to_heading: None,
+                                active_match: None,
+                                scroll_to_active: false,
+                                anchors: &[],
+                                table_layout: TableLayout::Equal,
+                            },
+                            Extras {
+                                mermaid: &mut |_, _| {},
+                                image: None,
+                                cache: cache.as_deref_mut(),
+                            },
+                        );
+                    });
+                    height = out.content_size.y;
+                });
+            })
+            .textures_delta
+            .clear();
+            height
+        }
+
+        let md: String = (0..120)
+            .map(|i| format!("## Section {i}\n\nProse for section {i}.\n\n"))
+            .collect();
+
+        let uncached = total_height(&md, None);
+        let mut cache = BlockCache::new(0.0);
+        total_height(&md, Some(&mut cache)); // first pass measures
+        let cached = total_height(&md, Some(&mut cache)); // second reserves
+        assert!(
+            cache.drawn() < cache.blocks(),
+            "the second pass must have reserved something to be a real test"
+        );
+        assert!(
+            (uncached - cached).abs() < 1.0,
+            "reserving changed the document height: {uncached} vs {cached}"
+        );
+    }
+
+    /// The decision to reserve a block is taken when the block *starts*, so its
+    /// layout job is never built — but a heading, a list and a quote all add
+    /// spacing between that moment and the flush. If the flush took its own
+    /// decision from the moved position it could disagree and draw a block
+    /// whose text was never assembled: an empty block, recorded as no height,
+    /// silently shortening the document.
+    ///
+    /// Sweeping the viewport height walks that boundary across every kind of
+    /// block in turn; the document must measure the same every time.
+    #[test]
+    fn the_reserve_boundary_never_lands_inside_a_block() {
+        let md: String = (0..60)
+            .map(|i| {
+                format!(
+                    "## Heading {i}\n\nProse {i} with a [link](#heading-{i}) in it.\n\n\
+                     - item {i} one\n- item {i} two\n\n> quoted {i}\n\n\
+                     | a | b |\n|---|---|\n| {i} | x |\n\n```\ncode {i}\n```\n\n"
+                )
+            })
+            .collect();
+
+        let expected = document_height(&md, 400.0, None);
+        for step in 0..24 {
+            let viewport = 180.0 + step as f32 * 31.0;
+            let mut cache = BlockCache::new(0.0);
+            // Three passes: measure, reserve, and reserve again from the
+            // heights the reserving pass recorded.
+            document_height(&md, viewport, Some(&mut cache));
+            document_height(&md, viewport, Some(&mut cache));
+            let settled = document_height(&md, viewport, Some(&mut cache));
+            assert!(
+                (settled - expected).abs() < 1.0,
+                "viewport {viewport}: document measured {settled}, not {expected} \
+                 — a block was reserved and drawn out of step"
+            );
+            assert!(
+                cache.drawn() < cache.blocks(),
+                "viewport {viewport}: nothing was reserved, so this proves nothing"
+            );
+        }
+    }
+
+    /// Height of the whole document, as the scroll area measures it.
+    fn document_height(markdown: &str, viewport: f32, cache: Option<&mut BlockCache>) -> f32 {
+        let ctx = egui::Context::default();
+        let mut height = 0.0;
+        let mut cache = cache;
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, viewport),
+            )),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                let out = egui::ScrollArea::vertical().show(ui, |ui| {
+                    render_with(
+                        ui,
+                        markdown,
+                        &RenderOpts {
+                            base: 14.0,
+                            search: "",
+                            scroll_to_heading: None,
+                            active_match: None,
+                            scroll_to_active: false,
+                            anchors: &[],
+                            table_layout: TableLayout::Equal,
+                        },
+                        Extras {
+                            mermaid: &mut |_, _| {},
+                            image: None,
+                            cache: cache.as_deref_mut(),
+                        },
+                    );
+                });
+                height = out.content_size.y;
+            });
+        })
+        .textures_delta
+        .clear();
+        height
+    }
+
+    /// The document this was all for. The Developer's Guide is the largest
+    /// thing the viewer opens, and the guard is on the *fraction* drawn, not on
+    /// a wall-clock number that would differ on every machine — but the pass
+    /// times are printed (`--nocapture`) so the cost can be read off directly.
+    #[test]
+    fn the_developers_guide_settles_to_a_fraction_of_itself() {
+        let docs = crate::docs_embed::doc_list(crate::i18n::Language::English);
+        let guide = docs
+            .iter()
+            .find(|d| d.id.starts_with("developers-guide"))
+            .expect("the guide ships");
+
+        // Warm the galley cache the same way for both, so the comparison is
+        // of the work done and not of a cold font atlas.
+        uncached_pass(&guide.source, 700.0, 1);
+        let t0 = std::time::Instant::now();
+        uncached_pass(&guide.source, 700.0, 4);
+        let before = t0.elapsed() / 4;
+
+        let (blocks, drawn) = cached_pass(&guide.source, 700.0, 1);
+        let t1 = std::time::Instant::now();
+        let (_, drawn_steady) = cached_pass(&guide.source, 700.0, 5);
+        let after = t1.elapsed() / 5;
+
+        eprintln!(
+            "developers guide: {} KB, {blocks} blocks\n  \
+             every block, every frame : {before:?}\n  \
+             only what is on screen   : {after:?}  ({drawn} of {blocks} blocks drawn)",
+            guide.source.len() / 1024,
+        );
+
+        assert!(
+            drawn * 20 < blocks,
+            "a screenful of a {blocks}-block guide should be a few dozen blocks, not {drawn}"
+        );
+        assert_eq!(
+            drawn, drawn_steady,
+            "the drawn band must be stable from frame to frame"
+        );
+    }
+
+    /// A screenshot written as raw HTML reaches the image callback with its
+    /// source, its alt text and the width the document asked for.
+    #[test]
+    fn an_html_screenshot_reaches_the_image_callback() {
+        let md = concat!(
+            "Before.\n\n",
+            r#"<p align="center"><img src="../assets/images/screenshots/welcome.png" alt="The welcome screen" width="900"></p>"#,
+            "\n\nAfter.\n",
+        );
+        let ctx = egui::Context::default();
+        let mut seen: Vec<(String, String, Option<f32>)> = Vec::new();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                render_with(
+                    ui,
+                    md,
+                    &RenderOpts {
+                        base: 14.0,
+                        search: "",
+                        scroll_to_heading: None,
+                        active_match: None,
+                        scroll_to_active: false,
+                        anchors: &[],
+                        table_layout: TableLayout::Equal,
+                    },
+                    Extras {
+                        mermaid: &mut |_, _| {},
+                        image: Some(&mut |_ui: &mut Ui, img: &ImageRef<'_>| {
+                            seen.push((img.src.to_owned(), img.alt.to_owned(), img.width));
+                        }),
+                        cache: None,
+                    },
+                );
+            });
+        })
+        .textures_delta
+        .clear();
+
+        assert_eq!(
+            seen,
+            vec![(
+                "../assets/images/screenshots/welcome.png".to_string(),
+                "The welcome screen".to_string(),
+                Some(900.0)
+            )],
+            "the guide's screenshots must reach the caller that can load them"
+        );
+    }
+
+    /// Markdown's own image syntax goes to the same place, and its alt text is
+    /// the image's fallback rather than a stray paragraph of body text.
+    #[test]
+    fn a_markdown_image_reaches_the_callback_with_its_alt() {
+        let ctx = egui::Context::default();
+        let mut seen: Vec<(String, String)> = Vec::new();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default().show(root_ui, |ui| {
+                render_with(
+                    ui,
+                    "![a diagram](pic.png)\n",
+                    &RenderOpts {
+                        base: 14.0,
+                        search: "",
+                        scroll_to_heading: None,
+                        active_match: None,
+                        scroll_to_active: false,
+                        anchors: &[],
+                        table_layout: TableLayout::Equal,
+                    },
+                    Extras {
+                        mermaid: &mut |_, _| {},
+                        image: Some(&mut |_ui: &mut Ui, img: &ImageRef<'_>| {
+                            seen.push((img.src.to_owned(), img.alt.to_owned()));
+                        }),
+                        cache: None,
+                    },
+                );
+            });
+        })
+        .textures_delta
+        .clear();
+
+        assert_eq!(seen, vec![("pic.png".to_string(), "a diagram".to_string())]);
+    }
 
     /// Every string this markdown actually paints, with how many wrapped
     /// rows each one occupies — the ground truth for "did that cell render

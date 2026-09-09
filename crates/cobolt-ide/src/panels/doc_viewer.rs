@@ -5,33 +5,196 @@
 // See the LICENSE file in the project root for full license information.
 
 //! Documentation viewer — a separate window (egui viewport) that renders the
-//! embedded PowerRustCOBOL documentation (Markdown + Mermaid diagrams) with a
-//! custom theme-aware renderer ([`crate::panels::md_render`]).
+//! embedded PowerRustCOBOL documentation (Markdown, Mermaid diagrams and
+//! screenshots) with a custom theme-aware renderer
+//! ([`crate::panels::md_render`]).
 //!
 //! Each document is a separate entry in the left-hand list; selecting one loads
-//! it, and `Cmd+O` adds an external `.md` file to the list. Mermaid blocks are
-//! rendered to images via the pure-Rust `mermaid-rs-renderer` (→ SVG) + `resvg`.
-//! The window is theme- and I18N-aware and offers File/View/Help menus, zoom, a
-//! font-size control, an outline (table of contents), in-document search with
-//! highlighting, a view-source modal, keyboard shortcuts, and PDF print.
+//! it, and `Cmd+O` adds an external `.md` file to the list. The window is theme-
+//! and I18N-aware and offers File/View/Help menus, zoom, a font-size control, an
+//! outline (table of contents), in-document search with highlighting, a
+//! view-source modal, keyboard shortcuts, and PDF print.
+//!
+//! # Keeping the window responsive
+//!
+//! Three things used to happen on the UI thread, and the Developer's Guide is
+//! big enough — 499 KB, 1 900 blocks, a dozen screenshots, ten diagrams — that
+//! all three showed:
+//!
+//! 1. **Diagrams were rendered when first scrolled to**, stalling the frame
+//!    that reached them; the guide's ten cost **189 ms** between them, and the
+//!    first also paid for loading the system font database. Now a background
+//!    thread ([`prepare_thread`]) decodes *everything the document embeds* the
+//!    moment the document is selected — for the guide, 189 ms of diagrams and
+//!    163 ms of screenshots, none of it on the UI thread any more.
+//! 2. **Every block was laid out on every frame** — 6.9 ms for the guide, on
+//!    top of whatever the IDE's own window costs, since an immediate viewport
+//!    shares its frame. Now [`md_render::BlockCache`] remembers each block's
+//!    height and the renderer draws only what is near the viewport, plus
+//!    [`READ_AHEAD`] points either side: **2.0 ms**, and 38 blocks of 1 900.
+//! 3. **The whole source string was copied every frame.** It is an [`Arc`] now.
+//!
+//! The window itself still draws on the application's single egui context —
+//! `show_viewport_immediate` shares it — so "its own thread" is where the *work*
+//! lives, which is what the frame rate actually depends on.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::sync::{Arc, OnceLock};
 
 use egui::{Context, Key, ViewportBuilder, ViewportCommand, ViewportId};
 
 use crate::docs_embed::{self, DocEntry};
 use crate::i18n::{Language, Tr};
-use crate::panels::md_render::{self, RenderOpts};
+use crate::panels::md_render::{self, ImageRef, RenderOpts};
 use crate::version::VERSION;
 
-/// A rendered Mermaid diagram (or the error that prevented it).
-enum MermaidTex {
+/// Points per second a held scroll key moves the document, before acceleration.
+const BASE_SPEED: f32 = 320.0;
+/// The ceiling on the acceleration ramp: four times the starting pace.
+const MAX_FACTOR: f32 = 4.0;
+/// Seconds of holding it takes to reach [`MAX_FACTOR`].
+const ACCEL_TIME: f32 = 2.0;
+/// A held key scrolls continuously only after this long, so that a tap stays a
+/// tap — one line — rather than launching a glide.
+const REPEAT_DELAY: f32 = 0.25;
+
+/// Speed multiplier for a scroll key held `held` seconds: `None` while it is
+/// still a tap, then `1.0` rising to [`MAX_FACTOR`] over [`ACCEL_TIME`] and
+/// never past it.
+///
+/// It starts at exactly 1 — the reader's normal pace — because a key that
+/// begins fast cannot be used to move one paragraph.
+fn accel_factor(held: f32) -> Option<f32> {
+    if held <= REPEAT_DELAY {
+        return None;
+    }
+    let ramp = (held - REPEAT_DELAY) / ACCEL_TIME;
+    Some((1.0 + ramp * (MAX_FACTOR - 1.0)).min(MAX_FACTOR))
+}
+
+/// How far beyond the viewport the renderer keeps drawing for real, in points.
+/// Roughly two screens either way: far enough that a fast drag never overtakes
+/// the drawn band, near enough that a long document still costs little.
+const READ_AHEAD: f32 = 1600.0;
+
+/// Widest a decoded screenshot is kept, in pixels. The guide displays them at
+/// 900 points, so this is still sharp on a 2× display while keeping a dozen
+/// images from turning into hundreds of megabytes of texture.
+const MAX_IMAGE_WIDTH: u32 = 1600;
+
+/// A decoded document asset — a Mermaid diagram or an embedded image — or the
+/// error that prevented it.
+enum Asset {
+    /// Being decoded on the preparer thread.
+    Pending,
     Ok {
         tex: egui::TextureHandle,
+        /// Logical (point) size, which for a diagram is half the pixel size
+        /// because it is rendered at 2×.
         size: egui::Vec2,
     },
     Err(String),
+}
+
+/// One asset to decode, as the preparer sees it.
+enum AssetJob {
+    /// A ```mermaid fence, by its code.
+    Mermaid(String),
+    /// An embedded image, already resolved to a file on disk.
+    Image(PathBuf),
+}
+
+/// Pixels ready for the UI thread to upload as a texture.
+enum Decoded {
+    Ok {
+        image: egui::ColorImage,
+        /// Logical size in points (half the pixel size for a 2× diagram).
+        size: egui::Vec2,
+    },
+    Err(String),
+}
+
+/// The preparer thread and its two channels.
+struct Prep {
+    jobs: Sender<Vec<(u64, AssetJob)>>,
+    done: Receiver<(u64, Decoded)>,
+}
+
+/// Decode every asset of a document, newest request first, off the UI thread.
+///
+/// Each batch is one document's worth of work in reading order, so the top of
+/// the document is ready first. A batch is abandoned as soon as a newer one
+/// arrives — the reader has moved on, and finishing the old one only delays
+/// what they are actually looking at.
+fn prepare_thread(
+    ctx: Context,
+    jobs: Receiver<Vec<(u64, AssetJob)>>,
+    done: Sender<(u64, Decoded)>,
+) {
+    while let Ok(batch) = jobs.recv() {
+        // Skip straight to the newest queued document.
+        let mut batch = batch;
+        while let Ok(newer) = jobs.try_recv() {
+            batch = newer;
+        }
+        for (key, job) in batch {
+            let decoded = match job {
+                AssetJob::Mermaid(code) => match render_mermaid_image(&code) {
+                    Ok((image, size)) => Decoded::Ok { image, size },
+                    Err(e) => Decoded::Err(e),
+                },
+                AssetJob::Image(path) => decode_image_file(&path),
+            };
+            if done.send((key, decoded)).is_err() {
+                return; // the viewer is gone
+            }
+            ctx.request_repaint();
+            // A newer document is waiting: drop this one and take it.
+            if !matches!(jobs.try_recv(), Err(TryRecvError::Empty)) {
+                break;
+            }
+        }
+    }
+}
+
+/// Read and decode one image file, shrinking anything wider than
+/// [`MAX_IMAGE_WIDTH`] so a document full of screenshots stays affordable.
+fn decode_image_file(path: &Path) -> Decoded {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => return Decoded::Err(format!("{}: {e}", path.display())),
+    };
+    let img = match image::load_from_memory(&bytes) {
+        Ok(i) => i,
+        Err(e) => return Decoded::Err(e.to_string()),
+    };
+    let mut img = img.into_rgba8();
+    if img.width() > MAX_IMAGE_WIDTH {
+        let h = (img.height() as f32 * MAX_IMAGE_WIDTH as f32 / img.width() as f32).round();
+        img = image::imageops::resize(
+            &img,
+            MAX_IMAGE_WIDTH,
+            (h as u32).max(1),
+            image::imageops::FilterType::CatmullRom,
+        );
+    }
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let pixels: Vec<egui::Color32> = img
+        .pixels()
+        .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+        .collect();
+    Decoded::Ok {
+        image: egui::ColorImage {
+            size: [w, h],
+            source_size: egui::vec2(w as f32, h as f32),
+            pixels,
+        },
+        // Screenshots are laid out from the document's own `width=`, so the
+        // logical size here is only the aspect ratio's source.
+        size: egui::vec2(w as f32, h as f32),
+    }
 }
 
 /// The documentation viewer window state.
@@ -44,7 +207,20 @@ pub struct DocViewer {
     extra: Vec<DocEntry>,
     selected: Option<usize>,
     outline: Vec<(u8, String, usize)>,
-    mermaid: HashMap<u64, MermaidTex>,
+    /// The selected document's source, shared with the preparer rather than
+    /// copied on every frame.
+    current: Option<Arc<String>>,
+    /// Decoded diagrams and images, keyed by content.
+    assets: HashMap<u64, Asset>,
+    /// Keys already handed to the preparer, so nothing is queued twice.
+    queued: HashSet<u64>,
+    /// The preparer thread, started on first use.
+    prep: Option<Prep>,
+    /// Work queued before the thread existed — the first document is usually
+    /// selected before there is an egui context to hand it.
+    pending_batch: Option<Vec<(u64, AssetJob)>>,
+    /// Remembered block heights, so only what is near the viewport is drawn.
+    blocks: md_render::BlockCache,
 
     // Left "Search": filters the list.
     list_filter: String,
@@ -59,6 +235,16 @@ pub struct DocViewer {
     /// Pending explicit vertical scroll offset to apply to the viewer next frame
     /// (drives match/heading jumps deterministically).
     pending_offset: Option<f32>,
+    /// Where the document is scrolled to, mirrored from the scroll area so the
+    /// keyboard can move it.
+    scroll_y: f32,
+    /// The largest offset the document can be scrolled to (End, PageDown).
+    scroll_max: f32,
+    /// Height of the scrolled viewport, for page-sized jumps.
+    page_h: f32,
+    /// How long a scroll key has been held, which is what the acceleration
+    /// ramp is a function of.
+    key_hold: f32,
 
     show_outline: bool,
     /// Heading index to scroll to next frame (outline click).
@@ -85,13 +271,22 @@ impl Default for DocViewer {
             extra: Vec::new(),
             selected: None,
             outline: Vec::new(),
-            mermaid: HashMap::new(),
+            current: None,
+            assets: HashMap::new(),
+            queued: HashSet::new(),
+            prep: None,
+            pending_batch: None,
+            blocks: md_render::BlockCache::new(READ_AHEAD),
             list_filter: String::new(),
             find_query: String::new(),
             find_idx: 0,
             find_total: 0,
             find_scroll: false,
             pending_offset: None,
+            scroll_y: 0.0,
+            scroll_max: 0.0,
+            page_h: 0.0,
+            key_hold: 0.0,
             show_outline: false,
             scroll_to_heading: None,
             font_pt: default_font_pt(),
@@ -240,6 +435,7 @@ impl DocViewer {
             self.docs.extend(self.extra.iter().cloned());
             self.selected = prev_id.and_then(|id| self.docs.iter().position(|d| d.id == id));
             self.rebuild_outline();
+            self.adopt_selected();
         }
     }
 
@@ -248,7 +444,100 @@ impl DocViewer {
             self.selected = Some(idx);
             self.find_query.clear();
             self.rebuild_outline();
+            self.pending_offset = Some(0.0);
+            self.scroll_y = 0.0;
+            self.adopt_selected();
         }
+    }
+
+    /// Take up the selected document: hold its source without copying it, and
+    /// put everything it embeds in front of the preparer thread straight away,
+    /// so the diagrams and screenshots are decoded long before the reader
+    /// scrolls to them.
+    fn adopt_selected(&mut self) {
+        let Some(doc) = self.selected.and_then(|i| self.docs.get(i)) else {
+            self.current = None;
+            return;
+        };
+        let source = Arc::new(doc.source.clone());
+        self.current = Some(source.clone());
+        let roots = self.asset_roots();
+        let batch: Vec<(u64, AssetJob)> = scan_assets(&source, &roots)
+            .into_iter()
+            .filter(|(key, _)| self.queued.insert(*key))
+            .collect();
+        for (key, _) in &batch {
+            self.assets.insert(*key, Asset::Pending);
+        }
+        if batch.is_empty() {
+            return;
+        }
+        if let Some(prep) = &self.prep {
+            let _ = prep.jobs.send(batch);
+        } else {
+            // The thread has not started yet (no Context until the first
+            // frame); `show` sends this batch once it has one.
+            self.pending_batch = Some(batch);
+        }
+    }
+
+    /// Turn finished pixels into textures. Only the UI thread may do this, so
+    /// it happens once per frame rather than in the preparer.
+    fn drain_prepared(&mut self, ctx: &Context) {
+        let Some(prep) = &self.prep else { return };
+        // Bounded per frame: a batch of large screenshots arriving at once must
+        // not spend the whole frame uploading.
+        for _ in 0..4 {
+            match prep.done.try_recv() {
+                Ok((key, Decoded::Ok { image, size })) => {
+                    let tex = ctx.load_texture("doc_asset", image, egui::TextureOptions::LINEAR);
+                    self.assets.insert(key, Asset::Ok { tex, size });
+                }
+                Ok((key, Decoded::Err(e))) => {
+                    self.assets.insert(key, Asset::Err(e));
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    /// Directories a document's relative `src` may be resolved against.
+    ///
+    /// The documents are embedded from the repository's `docs/`, and their
+    /// image paths are written against that directory — `../assets/images/…`.
+    /// Joining that onto `<exe dir>/docs` lands on `<exe dir>/assets/images/…`,
+    /// which is exactly where the release package puts the assets tree, so the
+    /// same relative path works from an installed app and from a source build.
+    fn asset_roots(&self) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+        // A document opened from disk resolves against its own directory first.
+        if let Some(doc) = self.selected.and_then(|i| self.docs.get(i)) {
+            let p = Path::new(&doc.id);
+            if p.is_file() {
+                if let Some(dir) = p.parent() {
+                    roots.push(dir.to_path_buf());
+                }
+            }
+        }
+        if let Some(exe_dir) = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+        {
+            roots.push(exe_dir.join("docs"));
+            // macOS: the executable lives in Contents/MacOS and the assets in
+            // Contents/Resources, with a symlink between them — but a bundle
+            // built by hand may not have the symlink.
+            roots.push(exe_dir.join("../Resources/docs"));
+        }
+        // The repository this binary was built from — a `cargo run` or a
+        // `target/release` build straight out of the tree.
+        roots.push(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs")
+                .to_path_buf(),
+        );
+        roots.push(PathBuf::from("docs"));
+        roots
     }
 
     fn rebuild_outline(&mut self) {
@@ -325,7 +614,10 @@ impl DocViewer {
                 if ctx.input(|i| i.viewport().close_requested()) {
                     self.open = false;
                 }
+                self.start_preparer(ctx);
+                self.drain_prepared(ctx);
                 self.handle_shortcuts(ctx);
+                self.handle_scroll_keys(ctx);
                 self.menu_bar(root_ui, tr);
                 self.toolbar(root_ui, tr);
                 self.left_pane(root_ui, tr);
@@ -336,6 +628,100 @@ impl DocViewer {
                 self.modals(ctx, tr);
             },
         );
+    }
+
+    /// Start the preparer thread on the first frame, and hand it anything that
+    /// was queued before there was a context to wake.
+    fn start_preparer(&mut self, ctx: &Context) {
+        if self.prep.is_none() {
+            let (jobs_tx, jobs_rx) = std::sync::mpsc::channel::<Vec<(u64, AssetJob)>>();
+            let (done_tx, done_rx) = std::sync::mpsc::channel::<(u64, Decoded)>();
+            let thread_ctx = ctx.clone();
+            std::thread::Builder::new()
+                .name("doc-assets".into())
+                .spawn(move || prepare_thread(thread_ctx, jobs_rx, done_tx))
+                .ok();
+            self.prep = Some(Prep {
+                jobs: jobs_tx,
+                done: done_rx,
+            });
+        }
+        if let (Some(batch), Some(prep)) = (self.pending_batch.take(), &self.prep) {
+            let _ = prep.jobs.send(batch);
+        }
+    }
+
+    /// Scroll the document from the keyboard.
+    ///
+    /// A tap moves one line. Holding starts at the same reading pace and winds
+    /// up to four times that over [`ACCEL_TIME`] — fast enough to cross a long
+    /// guide, slow at the start so a held key never overshoots the next
+    /// paragraph.
+    fn handle_scroll_keys(&mut self, ctx: &Context) {
+        // Never while the search box has the caret: the arrows belong to it.
+        if ctx.memory(|m| m.focused().is_some()) {
+            self.key_hold = 0.0;
+            return;
+        }
+        let line = self.font_pt * 1.6;
+        let page = (self.page_h - line * 2.0).max(line);
+        let (down, up, pg_dn, pg_up, home, end, dt) = ctx.input(|i| {
+            (
+                i.key_down(Key::ArrowDown),
+                i.key_down(Key::ArrowUp),
+                i.key_pressed(Key::PageDown),
+                i.key_pressed(Key::PageUp),
+                i.key_pressed(Key::Home),
+                i.key_pressed(Key::End),
+                i.stable_dt.min(0.1),
+            )
+        });
+        let (tap_down, tap_up) =
+            ctx.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp)));
+
+        let mut delta = 0.0;
+        // The tap: one line, the moment the key goes down.
+        if tap_down {
+            delta += line;
+        }
+        if tap_up {
+            delta -= line;
+        }
+        if down || up {
+            self.key_hold += dt;
+            if let Some(factor) = accel_factor(self.key_hold) {
+                let step = BASE_SPEED * factor * dt;
+                if down {
+                    delta += step;
+                }
+                if up {
+                    delta -= step;
+                }
+            }
+            // Holding a key produces no events of its own; ask for the frames.
+            ctx.request_repaint();
+        } else {
+            self.key_hold = 0.0;
+        }
+        if pg_dn {
+            delta += page;
+        }
+        if pg_up {
+            delta -= page;
+        }
+
+        if home {
+            self.pending_offset = Some(0.0);
+            return;
+        }
+        if end {
+            self.pending_offset = Some(self.scroll_max);
+            return;
+        }
+        if delta != 0.0 {
+            let base = self.pending_offset.unwrap_or(self.scroll_y);
+            self.pending_offset = Some((base + delta).clamp(0.0, self.scroll_max.max(0.0)));
+        }
     }
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
@@ -635,7 +1021,9 @@ impl DocViewer {
                 return;
             }
 
-            let source = self.docs[self.selected.unwrap()].source.clone();
+            let Some(source) = self.current.clone() else {
+                return;
+            };
             let search = self.find_query.trim().to_lowercase();
             let base = self.font_pt;
             let scroll_to = self.scroll_to_heading.take();
@@ -643,6 +1031,8 @@ impl DocViewer {
             let scroll_active = self.find_scroll;
             self.find_scroll = false;
             let mtr = tr.doc_mermaid_error;
+            let itr = tr.doc_image_error;
+            let roots = self.asset_roots();
             // GitHub-style anchors so in-document ToC links can jump to sections.
             let anchors: Vec<(String, usize)> = self
                 .outline
@@ -652,13 +1042,39 @@ impl DocViewer {
                 .collect();
 
             let want_heading_jump = scroll_to.is_some();
-            let mut sa = egui::ScrollArea::vertical().auto_shrink([false, false]);
+            let mut sa = egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                // Grab the page and throw it: egui carries the pointer's
+                // velocity into a kinetic glide when the drag is released.
+                // Off by default because it is meant for touch screens; the
+                // documentation is read with a mouse, and this is how a reader
+                // expects a document to move.
+                .scroll_source(egui::containers::scroll_area::ScrollSource {
+                    drag: egui::containers::scroll_area::DragScroll::Always,
+                    ..Default::default()
+                })
+                .on_hover_cursor(egui::CursorIcon::Grab)
+                .on_drag_cursor(egui::CursorIcon::Grabbing);
             if let Some(off) = self.pending_offset.take() {
                 sa = sa.vertical_scroll_offset(off);
             }
+            // Heights are only valid for the layout they were measured under.
+            let doc_id = self.selected.and_then(|i| self.docs.get(i)).map(|d| &d.id);
+            self.blocks.retarget(layout_key(
+                doc_id.map(String::as_str).unwrap_or(""),
+                ui.available_width(),
+                base,
+            ));
             let sa_out = sa.show(ui, |ui| {
                 ui.set_max_width(ui.available_width());
-                let mermaid = &mut self.mermaid;
+                // Both drawing closures need the same asset table, and the
+                // renderer holds both at once — one cell, borrowed in turn.
+                let sink = std::cell::RefCell::new(AssetSink {
+                    assets: &mut self.assets,
+                    queued: &mut self.queued,
+                    prep: self.prep.as_ref(),
+                });
+                let roots = &roots;
                 let opts = RenderOpts {
                     search: &search,
                     base,
@@ -668,11 +1084,53 @@ impl DocViewer {
                     anchors: &anchors,
                     table_layout: md_render::TableLayout::Equal,
                 };
-                md_render::render(ui, &source, &opts, &mut |ui, code| {
-                    draw_mermaid(mermaid, ui, code, mtr);
-                })
+                // Both closures are a safety net: the preparer was handed every
+                // asset when the document was selected, so what they normally
+                // find is either finished pixels or a job already running.
+                let mut mermaid = |ui: &mut egui::Ui, code: &str| {
+                    let key = fnv1a(code);
+                    {
+                        let mut s = sink.borrow_mut();
+                        if !s.assets.contains_key(&key) {
+                            s.queue(key, AssetJob::Mermaid(code.to_string()));
+                        }
+                    }
+                    draw_asset(sink.borrow().assets, ui, key, None, code, mtr);
+                };
+                let mut image = |ui: &mut egui::Ui, img: &ImageRef<'_>| {
+                    let key = asset_key(img.src);
+                    {
+                        let mut s = sink.borrow_mut();
+                        if !s.assets.contains_key(&key) {
+                            match resolve_asset(img.src, roots) {
+                                Some(path) => s.queue(key, AssetJob::Image(path)),
+                                // Under none of the roots: say so, rather than
+                                // leaving a placeholder waiting on a job that
+                                // can never finish.
+                                None => {
+                                    s.assets.insert(key, Asset::Err(img.src.to_string()));
+                                }
+                            }
+                        }
+                    }
+                    draw_asset(sink.borrow().assets, ui, key, img.width, img.alt, itr);
+                };
+                md_render::render_with(
+                    ui,
+                    &source,
+                    &opts,
+                    md_render::Extras {
+                        mermaid: &mut mermaid,
+                        image: Some(&mut image),
+                        cache: Some(&mut self.blocks),
+                    },
+                )
             });
             let out = sa_out.inner;
+            // Mirror the scroll state so the keyboard can drive it next frame.
+            self.scroll_y = sa_out.state.offset.y;
+            self.page_h = sa_out.inner_rect.height();
+            self.scroll_max = (sa_out.content_size.y - self.page_h).max(0.0);
 
             // Convert the target block's screen-Y into a scroll offset and apply
             // it next frame (deterministic; `scroll_to_me` is unreliable here).
@@ -740,6 +1198,7 @@ impl DocViewer {
                         ("⌘T", tr.doc_on_top),
                         ("⌘P", tr.doc_print),
                         ("⌘+ / ⌘-", tr.doc_font_size),
+                        ("↑ ↓ ⇞ ⇟ ⇱ ⇲", tr.doc_scroll_keys),
                     ];
                     egui::Grid::new("doc_shortcuts_grid")
                         .striped(true)
@@ -767,37 +1226,251 @@ impl DocViewer {
     }
 }
 
-/// Draw one Mermaid diagram into `ui`, rendering+caching it on first use.
-fn draw_mermaid(
-    cache: &mut HashMap<u64, MermaidTex>,
+/// The asset table as the two drawing closures see it.
+struct AssetSink<'a> {
+    assets: &'a mut HashMap<u64, Asset>,
+    queued: &'a mut HashSet<u64>,
+    prep: Option<&'a Prep>,
+}
+
+impl AssetSink<'_> {
+    /// Hand one asset to the preparer, once.
+    fn queue(&mut self, key: u64, job: AssetJob) {
+        self.assets.insert(key, Asset::Pending);
+        if !self.queued.insert(key) {
+            return; // already in flight
+        }
+        if let Some(p) = self.prep {
+            let _ = p.jobs.send(vec![(key, job)]);
+        }
+    }
+}
+
+/// Draw one prepared asset — a diagram or an image.
+///
+/// `declared` is the document's own `width=` for an image, in points, and
+/// `fallback` is the text to show when it could not be prepared (a diagram's
+/// source, an image's alt text).
+fn draw_asset(
+    assets: &HashMap<u64, Asset>,
     ui: &mut egui::Ui,
-    code: &str,
+    key: u64,
+    declared: Option<f32>,
+    fallback: &str,
     err_label: &str,
 ) {
-    let key = fnv1a(code);
-    let entry = cache
-        .entry(key)
-        .or_insert_with(|| render_mermaid(ui.ctx(), code));
-    match entry {
-        MermaidTex::Ok { tex, size } => {
-            let avail = ui.available_width().max(1.0);
-            let w = size.x.min(avail);
+    let avail = ui.available_width().max(1.0);
+    match assets.get(&key) {
+        Some(Asset::Ok { tex, size }) => {
+            // The document's width wins where it gave one, but never wider
+            // than the pane; the aspect ratio is always the image's own.
+            let w = declared.unwrap_or(size.x).min(avail);
             let h = if size.x > 0.0 {
                 w * size.y / size.x
             } else {
                 size.y
             };
             ui.add_space(6.0);
-            ui.add(egui::Image::new((tex.id(), egui::vec2(w, h))));
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Image::new((tex.id(), egui::vec2(w, h))));
+            });
             ui.add_space(6.0);
         }
-        MermaidTex::Err(e) => {
+        // Still decoding: hold a plausible amount of room so the text around it
+        // does not jump far when the pixels land.
+        Some(Asset::Pending) | None => {
+            let w = declared.unwrap_or(360.0).min(avail);
+            let h = w * 0.6;
+            ui.add_space(6.0);
+            ui.vertical_centered(|ui| {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+                ui.painter().rect_stroke(
+                    rect,
+                    egui::CornerRadius::same(4),
+                    egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color),
+                    egui::StrokeKind::Inside,
+                );
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "…",
+                    egui::FontId::proportional(18.0),
+                    ui.visuals().weak_text_color(),
+                );
+            });
+            ui.add_space(6.0);
+        }
+        Some(Asset::Err(e)) => {
             ui.add_space(4.0);
             ui.label(egui::RichText::new(format!("⚠ {err_label}: {e}")).weak());
-            ui.add(egui::Label::new(egui::RichText::new(code).monospace()).wrap());
+            if !fallback.is_empty() {
+                ui.add(egui::Label::new(egui::RichText::new(fallback).monospace()).wrap());
+            }
             ui.add_space(4.0);
         }
     }
+}
+
+/// Identity of a layout, for the block-height cache: the same document at the
+/// same width and font size measures the same heights, and nothing else does.
+fn layout_key(doc_id: &str, width: f32, base: f32) -> u64 {
+    let mut h = fnv1a(doc_id);
+    h ^= (width.round() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
+    h ^= ((base * 10.0).round() as i64 as u64).wrapping_mul(0xc2b2ae3d27d4eb4f);
+    h
+}
+
+/// Everything `source` embeds, in reading order, ready for the preparer.
+///
+/// Both spellings of an image are collected: Markdown `![alt](src)` and the raw
+/// `<img src=…>` the guide writes for its screenshots. An image whose file
+/// cannot be found under any root is skipped here and reported by the drawing
+/// side, which knows the language to report it in.
+fn scan_assets(source: &str, roots: &[PathBuf]) -> Vec<(u64, AssetJob)> {
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
+
+    let mut out: Vec<(u64, AssetJob)> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    let mut push = |key: u64, job: AssetJob, out: &mut Vec<(u64, AssetJob)>| {
+        if seen.insert(key) {
+            out.push((key, job));
+        }
+    };
+
+    let parser = Parser::new_ext(
+        source,
+        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+    );
+    let events: Vec<Event> = parser.collect();
+    let mut i = 0;
+    while i < events.len() {
+        match &events[i] {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang)))
+                if lang.eq_ignore_ascii_case("mermaid") =>
+            {
+                let mut code = String::new();
+                let mut j = i + 1;
+                while j < events.len() {
+                    match &events[j] {
+                        Event::Text(t) => code.push_str(t),
+                        Event::End(pulldown_cmark::TagEnd::CodeBlock) => break,
+                        _ => {}
+                    }
+                    j += 1;
+                }
+                push(fnv1a(&code), AssetJob::Mermaid(code), &mut out);
+                i = j + 1;
+                continue;
+            }
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                if let Some(path) = resolve_asset(dest_url, roots) {
+                    push(asset_key(dest_url), AssetJob::Image(path), &mut out);
+                }
+            }
+            Event::Html(html) | Event::InlineHtml(html) => {
+                for src in html_image_srcs(html) {
+                    if let Some(path) = resolve_asset(src, roots) {
+                        push(asset_key(src), AssetJob::Image(path), &mut out);
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+/// The `src` of every `<img>` in a raw-HTML block. A deliberate twin of
+/// `md_render`'s own scan: this one runs before there is a `Ui`, and only needs
+/// the path.
+fn html_image_srcs(html: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("<img") {
+        let after = &rest[at + 4..];
+        let Some(end) = after.find('>') else { break };
+        if let Some(src) = attr_value(&after[..end], "src") {
+            out.push(src);
+        }
+        rest = &after[end + 1..];
+    }
+    out
+}
+
+/// Value of `name="…"` in one tag's attribute text.
+fn attr_value<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let mut rest = tag;
+    loop {
+        let at = rest.find(name)?;
+        let before_ok = at == 0
+            || rest[..at]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_whitespace());
+        let after = &rest[at + name.len()..];
+        let trimmed = after.trim_start();
+        if before_ok && trimmed.starts_with('=') {
+            let value = trimmed[1..].trim_start();
+            let quote = value.chars().next()?;
+            if quote == '"' || quote == '\'' {
+                let inner = &value[1..];
+                let end = inner.find(quote)?;
+                return Some(&inner[..end]);
+            }
+            let end = value.find(char::is_whitespace).unwrap_or(value.len());
+            return Some(&value[..end]);
+        }
+        rest = after;
+    }
+}
+
+/// Cache key for an image: its `src` as the document wrote it. Two documents
+/// naming the same screenshot share one texture.
+fn asset_key(src: &str) -> u64 {
+    fnv1a(src)
+}
+
+/// Find `src` under the first root that has it.
+///
+/// An absolute path and a `file:` URL are taken as they are; anything remote
+/// (`http:`, `data:`) is not fetched — the documentation ships with the app and
+/// must render with no network.
+fn resolve_asset(src: &str, roots: &[PathBuf]) -> Option<PathBuf> {
+    let src = src.trim();
+    if src.is_empty() || src.starts_with("http://") || src.starts_with("https://") {
+        return None;
+    }
+    let src = src.strip_prefix("file://").unwrap_or(src);
+    let raw = Path::new(src);
+    if raw.is_absolute() {
+        return raw.is_file().then(|| raw.to_path_buf());
+    }
+    roots
+        .iter()
+        .map(|root| normalize(&root.join(raw)))
+        .find(|p| p.is_file())
+}
+
+/// Resolve `.` and `..` textually, without touching the filesystem.
+///
+/// `canonicalize` cannot be used: `<exe dir>/docs` is the anchor the embedded
+/// documents' paths are written against, and in a release package that
+/// directory does not exist — only the `../assets/…` it points at does.
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// Headings of a document for the outline: `(level, title, char offset)`.
@@ -853,16 +1526,8 @@ fn mermaid_fontdb() -> Arc<resvg::usvg::fontdb::Database> {
     .clone()
 }
 
-fn render_mermaid(ctx: &Context, code: &str) -> MermaidTex {
-    match render_mermaid_image(code) {
-        Ok((image, logical)) => {
-            let tex = ctx.load_texture("mermaid_diagram", image, egui::TextureOptions::LINEAR);
-            MermaidTex::Ok { tex, size: logical }
-        }
-        Err(e) => MermaidTex::Err(e),
-    }
-}
-
+/// Render a diagram to pixels. Runs on the preparer thread — it never touches
+/// an egui context, only the returned image does.
 fn render_mermaid_image(code: &str) -> Result<(egui::ColorImage, egui::Vec2), String> {
     let pixmap = render_mermaid_pixmap(code, 2.0)?;
     let (w, h) = (pixmap.width(), pixmap.height());
@@ -1142,6 +1807,101 @@ mod tests {
         assert!(img.size[0] > 0 && img.size[1] > 0);
         assert!(size.x > 0.0 && size.y > 0.0);
         assert!(img.pixels.iter().any(|p| p.a() > 0));
+    }
+
+    /// The guide writes its screenshots as raw HTML, and the scan that feeds
+    /// the preparer has to find them — this is the shape it must handle.
+    #[test]
+    fn html_screenshots_are_found_in_the_guide() {
+        let block = r#"<p align="center"><img src="../assets/images/screenshots/welcome.png" alt="The welcome screen" width="900"></p>"#;
+        assert_eq!(
+            html_image_srcs(block),
+            vec!["../assets/images/screenshots/welcome.png"]
+        );
+        assert_eq!(attr_value(block, "alt"), Some("The welcome screen"));
+        assert_eq!(attr_value(block, "width"), Some("900"));
+
+        // Two in one block, single quotes, and no width.
+        let two = "<img src='a.png'><img src=\"b.png\" width=\"120\">";
+        assert_eq!(html_image_srcs(two), vec!["a.png", "b.png"]);
+    }
+
+    /// The real guide, as it ships: the scan must actually come back with the
+    /// screenshots and diagrams, or the preparer has nothing to prepare.
+    #[test]
+    fn the_guide_scan_finds_its_screenshots_and_diagrams() {
+        let docs = docs_embed::doc_list(Language::English);
+        let guide = docs
+            .iter()
+            .find(|d| d.id.starts_with("developers-guide"))
+            .expect("the guide ships");
+        // No roots: images cannot resolve, so only the diagrams come back —
+        // which is exactly how a scan behaves on a machine missing assets/.
+        let diagrams = scan_assets(&guide.source, &[]);
+        assert!(
+            diagrams
+                .iter()
+                .all(|(_, j)| matches!(j, AssetJob::Mermaid(_))),
+            "with no roots, no image job can be produced"
+        );
+
+        // With the repository root, every `<img>` in the guide resolves.
+        let roots = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs")];
+        let all = scan_assets(&guide.source, &roots);
+        let images = all
+            .iter()
+            .filter(|(_, j)| matches!(j, AssetJob::Image(_)))
+            .count();
+        assert!(
+            images >= 8,
+            "the guide embeds a dozen screenshots; the scan found {images}"
+        );
+    }
+
+    /// `../assets/…` is resolved against a `docs` directory that need not
+    /// exist — which is the whole trick that makes one relative path work both
+    /// from the repository and from an installed app.
+    #[test]
+    fn asset_paths_resolve_through_a_directory_that_is_not_there() {
+        let root = Path::new("/opt/PowerRustCOBOL/docs"); // never created
+        assert_eq!(
+            normalize(&root.join("../assets/images/screenshots/x.png")),
+            PathBuf::from("/opt/PowerRustCOBOL/assets/images/screenshots/x.png")
+        );
+
+        // And a real one resolves for real: the guide's own mascot.
+        let roots = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs")];
+        let found = resolve_asset("../assets/images/powerrustcobol-mascot.png", &roots)
+            .expect("the mascot ships in the repository");
+        assert!(found.is_file());
+
+        // Remote sources are never fetched — the docs render offline.
+        assert!(resolve_asset("https://example.com/a.png", &roots).is_none());
+    }
+
+    /// Holding an arrow key starts at the reading pace and winds up to exactly
+    /// four times it, never further.
+    #[test]
+    fn held_arrow_keys_accelerate_to_four_times_and_stop() {
+        // A tap is not a hold.
+        assert_eq!(accel_factor(0.0), None);
+        assert_eq!(accel_factor(REPEAT_DELAY), None);
+
+        // The hold begins at the normal pace.
+        let start = accel_factor(REPEAT_DELAY + 0.001).expect("holding");
+        assert!(
+            (start - 1.0).abs() < 0.01,
+            "a hold must start at 1×, not {start}×"
+        );
+
+        // Half way up the ramp, half way up the range.
+        let mid = accel_factor(REPEAT_DELAY + ACCEL_TIME / 2.0).expect("holding");
+        assert!((mid - 2.5).abs() < 0.01, "expected 2.5×, got {mid}×");
+
+        // And it stops at four, however long it is held.
+        assert_eq!(accel_factor(REPEAT_DELAY + ACCEL_TIME), Some(MAX_FACTOR));
+        assert_eq!(accel_factor(600.0), Some(MAX_FACTOR));
+        assert!(accel_factor(f32::MAX).unwrap() <= MAX_FACTOR);
     }
 
     #[test]
