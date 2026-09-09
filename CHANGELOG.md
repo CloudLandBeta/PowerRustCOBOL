@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.94] — 2026-09-09
+
+### Help → Examples was greyed out in every release build
+
+`example_project_manifest` searches for
+`examples/PowerDemo3/PowerDemo3.project.toml` beside the executable — that is
+the first place an installed build looks — but the release workflow staged only
+`assets/`. So the menu entry disabled itself on every downloaded package, and
+the flagship demo, the one thing that shows each control wired and running, was
+reachable only from a source checkout (operator, 2026-09-09).
+
+`examples/` now travels with `assets/` in all three packages: beside the
+binaries on Linux and Windows, and in `Contents/Resources` on macOS with a
+`Contents/MacOS/examples` symlink, exactly as `assets` is already arranged, so
+the exe-relative search finds it without data files landing in `MacOS/`.
+
+**Staged with `git archive`, not `cp -R`.** The working tree also holds that
+project's own build output — `target/`, `bin/`, generated data — which is about
+280 MB against the 27 MB that is actually tracked. `git archive HEAD examples`
+takes the tracked tree and nothing else, so the packages grow by 27 MB rather
+than by ten times that, and a developer's local build never leaks into a
+release.
+
+The package check that already guards the platform SDK now guards this too,
+testing the very path the IDE searches. A missing example project is invisible
+until someone opens the menu and finds it greyed out, which is precisely how
+this shipped unnoticed.
+
 ## [PowerRustCOBOL 1.65.93] — 2026-09-09
 
 ### The Developer's Guide, reviewed section by section against the code
