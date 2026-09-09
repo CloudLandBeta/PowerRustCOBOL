@@ -742,6 +742,44 @@ pub(crate) fn footer_id_scope() -> egui::Id {
 
 impl FormBody {
 
+    /// Which page each `TabControl` is showing RIGHT NOW.
+    ///
+    /// `containers::is_visible` decides a control's visibility from this map,
+    /// and falls back to the DESIGNED `SelectedTab` when a TabControl is not in
+    /// it. Every host path used to hand it `ActiveTabs::default()` — an empty
+    /// map, rebuilt empty every frame — so the fallback was the only thing that
+    /// ever answered, and the designed page was the only page a running form
+    /// could show. Clicking a tab wrote `SelectedTab` into the live state and
+    /// then nothing happened, while the IDE's Preview (which builds this map
+    /// from its own live values) worked perfectly (operator, 2026-09-09:
+    /// "TabControl: Clicking in a Run form does not change the page. Preview
+    /// works fine").
+    ///
+    /// Built here rather than in each of the three frame paths, because a form
+    /// behaviour has to reach `rcrun run-form`, an embedded child form AND the
+    /// compiled binary.
+    pub(crate) fn active_tabs(&self) -> cobolt_forms::containers::ActiveTabs {
+        self.controls
+            .iter()
+            .filter(|c| c.control_type == cobolt_forms::ControlType::TabControl)
+            .filter_map(|c| {
+                let live = self
+                    .state
+                    .keys()
+                    .find(|k| k.eq_ignore_ascii_case(&c.id))
+                    .and_then(|k| self.state.get(k))
+                    .and_then(|st| {
+                        st.props
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case("SelectedTab"))
+                            .map(|(_, v)| v.clone())
+                    });
+                live.and_then(|v| v.trim().parse::<u32>().ok())
+                    .map(|tab| (c.id.clone(), tab))
+            })
+            .collect()
+    }
+
     /// Draw the SideMenu's footer Panel — and whatever the developer dropped
     /// into it — inside the rail's own footer band, and forward what the
     /// operator does there to the interpreter.
@@ -800,7 +838,7 @@ impl FormBody {
             hidden: None,
             special_names: &self.special_names,
         };
-        let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+        let active_tabs = self.active_tabs();
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(band));
         child.set_clip_rect(band.intersect(ui.clip_rect()));
         let input = cobolt_forms::render::RenderInput {
@@ -1884,7 +1922,7 @@ impl FormBody {
                 hidden: Some(&self.footer_ids),
                 special_names: &self.special_names,
             };
-            let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+            let active_tabs = self.active_tabs();
             // The surface is the Ui handed to us, never the window: for a
             // child WINDOW that is the viewport (unchanged), for the
             // ContentPane occupant it is the pane.
@@ -3965,7 +4003,7 @@ impl FormHost {
                 hidden: Some(&self.root.footer_ids),
                 special_names: &self.root.special_names,
             };
-            let active_tabs = cobolt_forms::containers::ActiveTabs::default();
+            let active_tabs = self.root.active_tabs();
             let backdrop = self.root.backdrop(ctx, ctx.content_rect().size());
             let pane_chrome = self.pane_chrome.take();
             let mut out = cobolt_forms::render::RenderOutput::default();
@@ -4555,6 +4593,114 @@ mod parity {
             is_visible(&host),
             "SET …::VISIBLE TO 1 must bring it back — hiding is not one-way"
         );
+    }
+
+    /// **Clicking a tab changes the page in a RUN form, not only in Preview.**
+    ///
+    /// `containers::is_visible` decides which page's controls are drawn from the
+    /// `ActiveTabs` map, falling back to the DESIGNED `SelectedTab` when the map
+    /// has no entry. Every host frame built that map as
+    /// `ActiveTabs::default()` — empty, and rebuilt empty each frame — so the
+    /// fallback was the only thing that ever answered and the designed page was
+    /// the only page a running form could ever show. The click was not lost:
+    /// it wrote `SelectedTab` into the live state and was forwarded to the
+    /// interpreter. Nothing read it back (operator, 2026-09-09: "TabControl:
+    /// Clicking in a Run form does not change the page. Preview works fine").
+    ///
+    /// Driven exactly as a click drives it: `forward_interaction` writes the
+    /// prop update into the live state, which is what this asserts against.
+    #[test]
+    fn a_tab_click_changes_the_page_in_a_run_form() {
+        let mut form = cobolt_forms::Form::new("TAB-FORM", "Tabs", 400, 300);
+        let mut tabs =
+            cobolt_forms::Control::new("TABS-1", cobolt_forms::ControlType::TabControl, 10, 10);
+        tabs.rect = cobolt_forms::model::Rect::new(10, 10, 360, 240);
+        tabs.set_prop("Tabs", cobolt_forms::PropValue::String("One\nTwo".into()));
+        tabs.set_prop("SelectedTab", cobolt_forms::PropValue::Int(0));
+        let mut page0 =
+            cobolt_forms::Control::new("LBL-ONE", cobolt_forms::ControlType::Label, 30, 60);
+        page0.parent = Some("TABS-1".into());
+        page0.tab = Some(0);
+        let mut page1 =
+            cobolt_forms::Control::new("LBL-TWO", cobolt_forms::ControlType::Label, 30, 60);
+        page1.parent = Some("TABS-1".into());
+        page1.tab = Some(1);
+        form.controls.push(tabs.clone());
+        let flat = vec![tabs, page0, page1];
+
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = FormHost::new(FormHostConfig {
+            form,
+            flat: flat.clone(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(),
+            fx_exit: FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+
+        // Exactly the question the renderer asks, through the map the host
+        // hands it.
+        let shows = |h: &FormHost, id: &str| -> bool {
+            let controls = &h.root.controls;
+            let idx = controls
+                .iter()
+                .position(|c| c.id == id)
+                .expect("the control is in the form");
+            let st = crate::state::LiveState {
+                state: &h.root.state,
+                anim: &h.root.anim,
+                hidden: None,
+                special_names: &h.root.special_names,
+            };
+            cobolt_forms::containers::is_visible(controls, idx, &h.root.active_tabs(), &|c| {
+                cobolt_forms::render::FormState::visible(&st, c)
+            })
+        };
+
+        assert!(shows(&host, "LBL-ONE"), "page 0 is the designed page");
+        assert!(!shows(&host, "LBL-TWO"), "page 1 starts hidden");
+
+        // What a click does: `forward_interaction` writes the prop update into
+        // the live state under the DESIGNED spelling.
+        host.root.state_entry_mut("TABS-1").set("SelectedTab", "1".into());
+        assert!(
+            shows(&host, "LBL-TWO"),
+            "clicking tab 2 must show page 1 — this is the operator's report"
+        );
+        assert!(!shows(&host, "LBL-ONE"), "…and hide page 0");
+
+        // And through the interpreter's own spelling, which arrives upper-cased.
+        host.root
+            .apply_interpreter_update(StateUpdate::new("TABS-1", "SELECTEDTAB", "0"), false);
+        assert!(
+            shows(&host, "LBL-ONE"),
+            "SET TABS-1::SelectedTab TO 0 must go back to page 0"
+        );
+        assert!(!shows(&host, "LBL-TWO"), "…and hide page 1 again");
     }
 
     fn host_with_surface(

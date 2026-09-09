@@ -1021,7 +1021,7 @@ fn mask_container_notches(
     for (idx, base) in controls.iter().enumerate() {
         // Which control types can need a mask is `notch_mask_rounding`'s to
         // decide — this loop only skips what is not on screen.
-        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
+        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
         let live = input.state.live(base);
@@ -1094,7 +1094,7 @@ fn draw_deferred_groupbox_captions(
             continue;
         }
         if !input.state.visible(base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs)
+            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| input.state.visible(c))
         {
             continue;
         }
@@ -1128,7 +1128,7 @@ fn draw_deferred_tabcontrol_tabs(
             continue;
         }
         if !input.state.visible(base)
-            || !containers::is_visible(input.controls, idx, input.active_tabs)
+            || !containers::is_visible(input.controls, idx, input.active_tabs, &|c| input.state.visible(c))
         {
             continue;
         }
@@ -2086,7 +2086,7 @@ fn render_form_inner(
         if !input.state.visible(base) {
             continue;
         }
-        if !containers::is_visible(controls, idx, input.active_tabs) {
+        if !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
 
@@ -2489,7 +2489,7 @@ fn collect_tab_targets(
     let mut sequence = 0usize;
     for &idx in order {
         let base = &controls[idx];
-        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
+        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
         if input.state.enabled(base) && is_tab_focusable(&base.control_type) {
@@ -2543,7 +2543,7 @@ fn collect_default_button_target(
     let mut sequence = 0usize;
     for &idx in order {
         let base = &controls[idx];
-        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs) {
+        if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
         if input.state.enabled(base) && matches!(base.control_type, ControlType::Button) {
@@ -2579,7 +2579,7 @@ fn focused_control_is_input(
     };
     controls.iter().enumerate().any(|(idx, base)| {
         input.state.visible(base)
-            && containers::is_visible(controls, idx, input.active_tabs)
+            && containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c))
             && input.state.enabled(base)
             && is_enter_input_control(&base.control_type)
             && tab_focus_id(scope, &input.state.live(base)) == focused
@@ -2718,7 +2718,7 @@ pub fn render_faces(
         if !input.state.visible(base) {
             continue;
         }
-        if !containers::is_visible(controls, idx, input.active_tabs) {
+        if !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
 
@@ -3507,7 +3507,7 @@ fn visible_enabled_events(
         return;
     }
     let visible =
-        input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs);
+        input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c));
     let enabled = input.state.enabled(base);
     let mem = rt_id_in(scope, &base.id).with("vis-en");
 
@@ -19451,6 +19451,122 @@ mod splitter_subtree_tests {
             "outer divider 50→70%: inner splitter +{d_inner} · its pane +{} · its content +{} — all one move",
             dx(&inner_pane1),
             dx("RADIO-5")
+        );
+    }
+}
+
+// ── Hiding a container hides what is inside it ──────────────────────────────
+//
+// The operator's report (2026-09-09): "Hiding a Groupbox does not hide its
+// children."
+#[cfg(test)]
+mod container_visibility_tests {
+    use super::*;
+    use crate::model::{Control, ControlType as CT, PropValue};
+
+    /// A GroupBox with one Label inside it, and one Label outside as a control:
+    /// whatever hides the group must leave the outsider alone.
+    fn scene() -> Vec<Control> {
+        let mut grp = Control::new("Group-1", CT::GroupBox, 10, 10);
+        grp.rect = crate::model::Rect::new(10, 10, 220, 120);
+        let mut inside = Control::new("Lbl-Inside", CT::Label, 30, 50);
+        inside.rect = crate::model::Rect::new(30, 50, 160, 24);
+        inside.parent = Some("Group-1".into());
+        inside.set_prop("Caption", PropValue::String("INSIDE-THE-GROUP".into()));
+        let mut outside = Control::new("Lbl-Outside", CT::Label, 30, 200);
+        outside.rect = crate::model::Rect::new(30, 200, 160, 24);
+        outside.set_prop("Caption", PropValue::String("OUTSIDE-THE-GROUP".into()));
+        vec![grp, inside, outside]
+    }
+
+    /// Live state that hides exactly one control by id — what COBOL's
+    /// `SET Group-1::Visible TO 0` amounts to.
+    struct Hiding(&'static str);
+    impl FormState for Hiding {
+        fn visible(&self, base: &Control) -> bool {
+            base.id != self.0
+        }
+    }
+
+    /// Every caption painted by rendering `controls` under `state`.
+    fn painted_captions(controls: Vec<Control>, state: &dyn FormState) -> Vec<String> {
+        let ctx = egui::Context::default();
+        crate::paint::set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+        let mut full = ctx.run_ui(input, |root_ui| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show_inside(root_ui, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state,
+                        form_size: Vec2::new(400.0, 300.0),
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = render_form(ui, &inp);
+                });
+        });
+        full.textures_delta.clear();
+        fn collect(s: &egui::Shape, out: &mut Vec<String>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in &full.shapes {
+            collect(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    /// **A control inside a hidden GroupBox is not drawn.**
+    ///
+    /// `containers::is_visible` walked the ancestor chain asking one question
+    /// only — is an ancestor TabControl showing a different page? — so a hidden
+    /// GroupBox kept painting everything inside it. The children were not
+    /// members of the group as far as visibility was concerned; only tabs were
+    /// (operator, 2026-09-09: "Hiding a Groupbox does not hide its children").
+    #[test]
+    fn a_control_inside_a_hidden_group_is_not_drawn() {
+        let all = painted_captions(scene(), &DesignedState);
+        assert!(
+            all.iter().any(|t| t.contains("INSIDE-THE-GROUP")),
+            "the child paints while the group is shown, or this measures nothing: {all:?}"
+        );
+
+        // Hidden at RUNTIME — what `SET Group-1::Visible TO 0` does.
+        let live = painted_captions(scene(), &Hiding("Group-1"));
+        assert!(
+            !live.iter().any(|t| t.contains("INSIDE-THE-GROUP")),
+            "hiding the group must hide what is inside it: {live:?}"
+        );
+        assert!(
+            live.iter().any(|t| t.contains("OUTSIDE-THE-GROUP")),
+            "…and must leave everything else alone: {live:?}"
+        );
+
+        // A form designed `visible="false"` needs no separate rule: every live
+        // surface seeds its state from the design (`FormBody` state entry,
+        // `visible: ctrl.visible`), so it arrives here as the case above.
+        // The DESIGNER canvas deliberately paints a hidden control anyway —
+        // otherwise it could not be selected to be shown again.
+
+        // And the rule does not over-reach: hiding the CHILD leaves the group.
+        let child = painted_captions(scene(), &Hiding("Lbl-Inside"));
+        assert!(
+            !child.iter().any(|t| t.contains("INSIDE-THE-GROUP")),
+            "hiding the child hides the child: {child:?}"
+        );
+        assert!(
+            child.iter().any(|t| t.contains("OUTSIDE-THE-GROUP")),
+            "…and nothing else: {child:?}"
         );
     }
 }

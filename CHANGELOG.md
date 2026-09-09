@@ -1,5 +1,63 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.91] — 2026-09-09
+
+### Hiding a container did not hide what was inside it
+
+`containers::is_visible` walks a control's ancestors, and it asked exactly one
+question of each: is this an ancestor `TabControl` showing a different page? It
+never asked whether the ancestor was itself hidden. So a GroupBox with
+`Visible = 0` went on painting every control inside it — as far as visibility
+was concerned its children were not members of the group at all; only tab pages
+were (operator, 2026-09-09: "Hiding a Groupbox does not hide its children").
+
+The Developer's Guide had promised this for as long as it has described
+containers — "a control placed inside one becomes its child and moves, clips,
+and **hides** with it". Two of those three were true.
+
+- `is_visible` now refuses a control whose ancestor is hidden, by the designed
+  `visible` flag **or** by the live state, since a form can be saved with a
+  hidden group and can hide one while it runs.
+- It takes the live answer as a **parameter**, which changes its signature and
+  so forced all eleven call sites to decide rather than silently inherit the
+  old behaviour. The two surfaces answer differently on purpose: a running form
+  passes its state, while the designer canvas, the hit test and the drop-target
+  search pass a constant `true` — a control the design hides must still be
+  selectable and still be a legal drop target, or it could never be shown again.
+- A child's own `Visible` is never written, only read past. Showing a group
+  again restores exactly what was showing before it was hidden, not everything
+  in it.
+
+### Clicking a tab did nothing in a run form, while Preview worked
+
+The click was never lost. It wrote `SelectedTab` into the live state and
+forwarded it to the interpreter, and `onTabClick` / `onTabChanged` fired. What
+never happened is anything reading it back: `is_visible` picks the live page out
+of the `ActiveTabs` map and falls back to the **designed** `SelectedTab` when
+the map has no entry for that control — and every host frame built that map as
+`ActiveTabs::default()`, empty, rebuilt empty on every frame. The fallback was
+the only thing that ever answered, so the designed page was the only page a
+running form could show (operator, 2026-09-09).
+
+Preview was fine because the IDE builds the same map from its own live values.
+That difference *was* the bug.
+
+- `FormBody::active_tabs()` builds the map from live state, and lives on the
+  body rather than in each frame path so it reaches all three hosts — `rcrun
+  run-form`, an embedded child form, and the compiled binary the developer
+  ships, which is the one that gets forgotten.
+
+Both are measured, and each test was verified to fail without its own half: a
+Label inside a hidden GroupBox is not painted while its neighbour outside still
+is; and a tab click, driven exactly as `forward_interaction` drives it, flips
+which page's controls the renderer will draw — through the designed spelling
+and through the interpreter's upper-cased one.
+
+The System KB now records both: `Visible` says hiding a container hides its
+contents, `SelectedTab` says the page a running form shows is always the live
+value and never the designed one. `chunked.data` regenerated (1528 records).
+
+
 ## [PowerRustCOBOL 1.65.90] — 2026-09-08
 
 ### A form file can no longer carry an API key

@@ -1722,6 +1722,12 @@ TabControl page, and so on).
   rounds the container's frame.
 - **Opacity** — a container's **Opacity** (0–100) fades the container *and its
   children together*, so you can dim a whole group at once.
+- **Visibility** — hiding a container hides everything inside it. A container
+  that is not drawn has no inside to draw into, so `SET MY-GROUP::Visible TO 0`
+  takes its children with it and `SET MY-GROUP::Visible TO 1` brings them back.
+  The children's own `Visible` is never touched, so a control you had hidden
+  individually stays hidden when the group returns — showing a group restores
+  exactly what was showing before, not everything in it.
 - **Auto-scroll** — turn **Auto-scroll** on for a container whose children may
   overflow its bounds. (When off, overflowing content is simply clipped.)
 - **TabControl pages** — each tab owns its own set of children. Click a tab in

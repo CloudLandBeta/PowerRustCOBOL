@@ -110,14 +110,40 @@ pub fn has_descendants(controls: &[Control], idx: usize) -> bool {
         .any(|(child_idx, _)| child_idx != idx && is_descendant(controls, child_idx, idx))
 }
 
-/// `true` unless an ancestor `TabControl` has a different page selected than the
-/// branch this control sits on (an inactive tab hides its children).
-pub fn is_visible(controls: &[Control], idx: usize, active: &ActiveTabs) -> bool {
+/// `true` unless some ANCESTOR hides this control: a container that is itself
+/// hidden, or a `TabControl` showing a different page than the branch this
+/// control sits on.
+///
+/// `ancestor_shown` answers "is this container visible right now?" for each
+/// ancestor in turn — the live state on a running surface, and a constant
+/// `true` where there is none (the designer canvas paints a hidden control
+/// anyway, or it could never be selected to be shown again).
+///
+/// It is a PARAMETER rather than a lookup because the two things that hide a
+/// container live in different places: the designed `visible` flag travels with
+/// the control, and `SET Group-1::Visible TO 0` lives in the interpreter's
+/// state. Callers with state must pass it; the signature is what makes them
+/// decide, because this function used to ask about tabs and nothing else — so
+/// a hidden GroupBox went on painting everything inside it, its children not
+/// members of the group as far as visibility was concerned (operator,
+/// 2026-09-09: "Hiding a Groupbox does not hide its children").
+pub fn is_visible(
+    controls: &[Control],
+    idx: usize,
+    active: &ActiveTabs,
+    ancestor_shown: &dyn Fn(&Control) -> bool,
+) -> bool {
     let mut cur = idx;
     while let Some(pid) = controls[cur].parent.clone() {
         let Some(p) = index_of(controls, &pid) else {
             break;
         };
+        // A container that is not on screen has no inside to be on screen in.
+        // Both the designed flag and the live answer, because a form can be
+        // saved with a hidden group AND hide one while it runs.
+        if !controls[p].visible || !ancestor_shown(&controls[p]) {
+            return false;
+        }
         if controls[p].control_type == ControlType::TabControl {
             let act = active.get(&pid).copied().unwrap_or_else(|| {
                 controls[p]
@@ -211,7 +237,9 @@ pub fn resolve_drop_target(
         if idx == dragged || is_descendant(controls, idx, dragged) {
             continue;
         }
-        if !is_visible(controls, idx, active) {
+        // The canvas: a control hidden by the DESIGN is still a legal
+        // drop target, so this asks only the tab question.
+        if !is_visible(controls, idx, active, &|_| true) {
             continue;
         }
         // Must be inside the control's own clip (ancestor content areas).
@@ -329,10 +357,10 @@ mod tests {
         c[2].tab = Some(1);
         let mut active = ActiveTabs::new();
         active.insert("Tabs".into(), 0);
-        assert!(is_visible(&c, 1, &active));
-        assert!(!is_visible(&c, 2, &active));
+        assert!(is_visible(&c, 1, &active, &|_| true));
+        assert!(!is_visible(&c, 2, &active, &|_| true));
         active.insert("Tabs".into(), 1);
-        assert!(is_visible(&c, 2, &active));
+        assert!(is_visible(&c, 2, &active, &|_| true));
     }
 
     #[test]

@@ -4327,7 +4327,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         // ── TabControl ──
         "Tabs" => ("one tab title per line", "The tab pages."),
         "TabPosition" => ("one of: `Top` | `Bottom` | `Left` | `Right`", "Edge the tab strip sits on."),
-        "SelectedTab" => ("0-based tab index", "Currently active tab."),
+        "SelectedTab" => ("0-based tab index", "Currently active tab. The operator clicking a tab header writes this, and writing it from COBOL turns the page exactly as a click does — the page a running form shows is always this value, never the one the form was designed with."),
         "ActiveTabColor" => (COLOR_DOMAIN, "Highlight color of the active tab."),
         "TabPadding" => ("pixels ≥ 0", "Padding inside each tab header."),
 
@@ -5237,7 +5237,7 @@ fn controls_reference_doc() -> String {
     doc.push_str("Layout fields (settable like any property):\n\n");
     for (sig, dom, desc) in [
         ("Name", "String — control identifier", "The control id (assigned by the designer; treat as read-only). It becomes a COBOL word in the generated program (`WS-<id>-TEXT`, `<id>-OPEN`), so it may hold ONLY letters, digits and hyphens — `TEXTBOX-1`, never `TEXTBOX_1`."),
-        ("Visible", "Boolean — `1`/`0`", "Whether the control is drawn."),
+        ("Visible", "Boolean — `1`/`0`", "Whether the control is drawn. Hiding a CONTAINER hides everything inside it: a GroupBox, Panel, TabControl or Splitter pane that is not drawn has no inside to draw into, so its children go with it and come back with it. The children's own `Visible` is untouched — showing the container again restores exactly what was showing before."),
         ("Enabled", "Boolean — `1`/`0`", "Whether the control accepts input."),
         ("X", "Integer — pixels from the form's left edge", "Horizontal position."),
         ("Y", "Integer — pixels from the form's top edge", "Vertical position."),

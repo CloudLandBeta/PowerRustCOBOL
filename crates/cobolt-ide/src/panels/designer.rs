@@ -3957,7 +3957,14 @@ impl DesignerPanel {
             if c.control_type != ControlType::TabControl {
                 continue;
             }
-            if !super::containers::is_visible(&self.form.controls, idx, &self.active_tabs) {
+            // The canvas shows a hidden control so it can still be
+            // selected; only the tab question applies here.
+            if !super::containers::is_visible(
+                &self.form.controls,
+                idx,
+                &self.active_tabs,
+                &|_| true,
+            ) {
                 continue;
             }
             let origin = egui::pos2(c.rect.x as f32, c.rect.y as f32);
@@ -3989,7 +3996,9 @@ impl DesignerPanel {
         let view = self.rail_view_controls(&self.form.controls);
         let controls: &[Control] = view.as_deref().unwrap_or(&self.form.controls);
         for &idx in super::containers::render_order(controls).iter().rev() {
-            if !super::containers::is_visible(controls, idx, &self.active_tabs) {
+            // Hit-testing on the CANVAS: a control the design hides is
+            // still selectable there, so only the tab question applies.
+            if !super::containers::is_visible(controls, idx, &self.active_tabs, &|_| true) {
                 continue;
             }
             if let Some(clip) = super::containers::clip_rect(controls, idx) {
