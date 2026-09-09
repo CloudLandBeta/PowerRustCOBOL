@@ -1103,7 +1103,8 @@ fn draw_deferred_groupbox_captions(
             continue;
         };
         let tf = input.state.transform(base);
-        let enabled = input.state.enabled(base);
+        let enabled = input.state.enabled(base)
+            && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
         let alpha = containers::ancestor_opacity(input.controls, idx)
             * tf.alpha
             * if enabled { 1.0 } else { 0.45 };
@@ -1137,7 +1138,8 @@ fn draw_deferred_tabcontrol_tabs(
             continue;
         };
         let tf = input.state.transform(base);
-        let enabled = input.state.enabled(base);
+        let enabled = input.state.enabled(base)
+            && containers::is_enabled(input.controls, idx, &|c| input.state.enabled(c));
         let alpha = containers::ancestor_opacity(input.controls, idx)
             * tf.alpha
             * if enabled { 1.0 } else { 0.45 };
@@ -2243,7 +2245,8 @@ fn render_form_inner(
         let pic_border = picturebox_container_border(controls, input.state, idx, origin, scroll);
 
         let anc = containers::ancestor_opacity(controls, idx);
-        let enabled = input.state.enabled(base);
+        let enabled = input.state.enabled(base)
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c));
         let alpha = anc * tf.alpha * if enabled { 1.0 } else { 0.45 };
         // Kept for the corner-notch pass, which runs after this loop and cannot
         // recompute it — `tf` only exists here.
@@ -2492,7 +2495,8 @@ fn collect_tab_targets(
         if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
-        if input.state.enabled(base) && is_tab_focusable(&base.control_type) {
+        if input.state.enabled(base)
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c)) && is_tab_focusable(&base.control_type) {
             let live = input.state.live(base);
             targets.push(TabTarget {
                 tab_order: base.tab_order,
@@ -2546,7 +2550,8 @@ fn collect_default_button_target(
         if !input.state.visible(base) || !containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c)) {
             continue;
         }
-        if input.state.enabled(base) && matches!(base.control_type, ControlType::Button) {
+        if input.state.enabled(base)
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c)) && matches!(base.control_type, ControlType::Button) {
             let live = input.state.live(base);
             let target = DefaultButtonTarget {
                 sequence,
@@ -2581,6 +2586,7 @@ fn focused_control_is_input(
         input.state.visible(base)
             && containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c))
             && input.state.enabled(base)
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c))
             && is_enter_input_control(&base.control_type)
             && tab_focus_id(scope, &input.state.live(base)) == focused
 
@@ -2748,7 +2754,8 @@ pub fn render_faces(
         };
 
         let anc = containers::ancestor_opacity(controls, idx);
-        let enabled = input.state.enabled(base);
+        let enabled = input.state.enabled(base)
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c));
         let alpha = anc * tf.alpha * if enabled { 1.0 } else { 0.45 };
 
         let mut face = live.clone();
@@ -3508,7 +3515,8 @@ fn visible_enabled_events(
     }
     let visible =
         input.state.visible(base) && containers::is_visible(controls, idx, input.active_tabs, &|c| input.state.visible(c));
-    let enabled = input.state.enabled(base);
+    let enabled = input.state.enabled(base)
+            && containers::is_enabled(controls, idx, &|c| input.state.enabled(c));
     let mem = rt_id_in(scope, &base.id).with("vis-en");
 
     let prev = ui.ctx().memory(|m| m.data.get_temp::<(bool, bool)>(mem));
@@ -19568,5 +19576,191 @@ mod container_visibility_tests {
             child.iter().any(|t| t.contains("OUTSIDE-THE-GROUP")),
             "…and nothing else: {child:?}"
         );
+    }
+}
+
+// ── Disabling a container disables what is inside it ────────────────────────
+//
+// The operator's report (2026-09-09): "disabling a group box should also
+// disable all of its children. Enabling a group box should also enable all of
+// its children. Same applies to panels/splitters/tabcontrol."
+#[cfg(test)]
+mod container_enabled_tests {
+    use super::*;
+    use crate::model::{Control, ControlType as CT, PropValue};
+
+    /// Live state that disables exactly one control by id — what COBOL's
+    /// `SET Group-1::Enabled TO 0` amounts to.
+    struct Disabling(&'static str);
+    impl FormState for Disabling {
+        fn enabled(&self, base: &Control) -> bool {
+            base.id != self.0
+        }
+    }
+
+    /// A container of `kind` holding a Button, plus a Button outside it.
+    fn scene(kind: CT) -> Vec<Control> {
+        let mut container = Control::new("Container-1", kind, 10, 10);
+        container.rect = crate::model::Rect::new(10, 10, 240, 140);
+        // BOUND, deliberately: an unbound control emits no `onClick` at all
+        // (`want("onClick")` gates on the binding), so a repro built without
+        // one cannot fail no matter how broken the enabling is.
+        let bind = |c: &mut Control| {
+            c.events.push(crate::model::EventBinding {
+                event: "onClick".into(),
+                paragraph: format!("{}--CLICK", c.id.to_uppercase()),
+                code: "           CONTINUE.".into(),
+            });
+        };
+        let mut inside = Control::new("Btn-Inside", CT::Button, 40, 60);
+        inside.rect = crate::model::Rect::new(40, 60, 120, 30);
+        inside.parent = Some("Container-1".into());
+        inside.set_prop("Caption", PropValue::String("Inside".into()));
+        bind(&mut inside);
+        let mut outside = Control::new("Btn-Outside", CT::Button, 40, 200);
+        outside.rect = crate::model::Rect::new(40, 200, 120, 30);
+        outside.set_prop("Caption", PropValue::String("Outside".into()));
+        bind(&mut outside);
+        vec![container, inside, outside]
+    }
+
+    /// Click both buttons and report which ones answered with an `onClick`.
+    fn clicked_ids(controls: Vec<Control>, state: &dyn FormState) -> Vec<String> {
+        let ctx = egui::Context::default();
+        crate::paint::set_surface_theme(&ctx, crate::surface_theme::liquid_glass());
+        let active = ActiveTabs::new();
+        let mut fired: Vec<String> = Vec::new();
+
+        let mut t = 0.0_f64;
+        let mut frame = |events: Vec<egui::Event>, fired: &mut Vec<String>| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(400.0, 300.0)));
+            t += 0.016;
+            input.time = Some(t);
+            input.predicted_dt = 0.016;
+            input.events = events;
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        let inp = RenderInput {
+                            controls: &controls,
+                            state,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let out = render_form(ui, &inp);
+                        for ev in &out.events {
+                            if ev.event.eq_ignore_ascii_case("onClick") {
+                                fired.push(ev.ctrl_id.clone());
+                            }
+                        }
+                    });
+            });
+            full.textures_delta.clear();
+        };
+
+        let btn = |p: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+
+        // egui resolves interaction against the previous frame's widgets, so a
+        // registering frame comes first.
+        // egui resolves interaction against the PREVIOUS frame's widgets, and a
+        // click is a press and a release in separate frames.
+        for p in [pos2(100.0, 75.0), pos2(100.0, 215.0)] {
+            frame(vec![egui::Event::PointerMoved(p)], &mut fired);
+            frame(vec![egui::Event::PointerMoved(p), btn(p, true)], &mut fired);
+            frame(vec![btn(p, false)], &mut fired);
+            frame(Vec::new(), &mut fired);
+        }
+        fired
+    }
+
+    /// Live state that disables any of several controls.
+    struct DisablingAny(&'static [&'static str]);
+    impl FormState for DisablingAny {
+        fn enabled(&self, base: &Control) -> bool {
+            !self.0.iter().any(|id| *id == base.id)
+        }
+    }
+
+    /// **Switching a container back on restores each child to its OWN
+    /// setting — not to "enabled".**
+    ///
+    /// For the ordinary case this is exactly what the operator asked for:
+    /// children that were never disabled individually all come back with the
+    /// group. The one place it differs from a literal reading of "enabling a
+    /// group box should also enable all of its children" is a child the
+    /// developer disabled ON PURPOSE — a Save button held off until the form
+    /// validates, say. That child stays disabled, because nothing is ever
+    /// WRITTEN to a child: the ancestor walk only reads past it.
+    ///
+    /// The alternative — forcing every child's `Enabled` to true when the group
+    /// is switched on — would silently destroy that setting, and no RAD tool
+    /// behaves that way. Said out loud here so the choice is visible rather
+    /// than buried.
+    #[test]
+    fn switching_a_container_back_on_restores_each_childs_own_setting() {
+        // Group off, child never touched: the child is off with it.
+        let off = clicked_ids(scene(CT::GroupBox), &DisablingAny(&["Container-1"]));
+        assert!(!off.iter().any(|id| id == "Btn-Inside"), "{off:?}");
+
+        // Group ON again: the child answers, with nothing else done to it.
+        let on = clicked_ids(scene(CT::GroupBox), &DisablingAny(&[]));
+        assert!(
+            on.iter().any(|id| id == "Btn-Inside"),
+            "switching the group back on must bring its children back: {on:?}"
+        );
+
+        // …but a child disabled IN ITS OWN RIGHT stays disabled when the group
+        // returns. Its setting is the developer's, and the group did not make it.
+        let own = clicked_ids(scene(CT::GroupBox), &DisablingAny(&["Btn-Inside"]));
+        assert!(
+            !own.iter().any(|id| id == "Btn-Inside"),
+            "a child disabled on its own stays disabled: {own:?}"
+        );
+        assert!(
+            own.iter().any(|id| id == "Btn-Outside"),
+            "…and nothing else is affected: {own:?}"
+        );
+    }
+
+    /// **A control inside a disabled container is disabled with it, and comes
+    /// back when the container does.**
+    ///
+    /// `enabled` was asked of the control alone — `input.state.enabled(base)`,
+    /// eight times over, never once of its ancestors. So a GroupBox with
+    /// `Enabled = 0` looked disabled and every button inside it still took
+    /// clicks. The visibility side of this was fixed in 1.65.91; enabling is
+    /// the same walk and had the same hole (operator, 2026-09-09).
+    #[test]
+    fn a_control_inside_a_disabled_container_takes_no_clicks() {
+        for kind in [CT::GroupBox, CT::Panel, CT::Splitter, CT::TabControl] {
+            let live = clicked_ids(scene(kind.clone()), &DesignedState);
+            assert!(
+                live.iter().any(|id| id == "Btn-Inside"),
+                "{kind:?}: the child answers while the container is enabled, or \
+                 this measures nothing: {live:?}"
+            );
+
+            let off = clicked_ids(scene(kind.clone()), &Disabling("Container-1"));
+            assert!(
+                !off.iter().any(|id| id == "Btn-Inside"),
+                "{kind:?}: a control inside a DISABLED container must not take \
+                 clicks: {off:?}"
+            );
+            assert!(
+                off.iter().any(|id| id == "Btn-Outside"),
+                "{kind:?}: …and everything outside it must be untouched: {off:?}"
+            );
+        }
     }
 }

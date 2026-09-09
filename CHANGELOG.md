@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.92] — 2026-09-09
+
+### Disabling a container did not disable what was inside it
+
+The other half of 1.65.91. `enabled` was asked of the control alone —
+`input.state.enabled(base)`, eight times over in the renderer — and never once
+of its ancestors. So a GroupBox with `Enabled = 0` looked switched off while
+every button inside it went on taking clicks. The same held for a Panel, a
+Splitter and a TabControl (operator, 2026-09-09).
+
+`containers::is_enabled` is the sibling of `is_visible`: the same ancestor walk,
+now gating all eight reads. Because `enabled` drives the painting as well as the
+interaction, the children grey out as well as stop responding. A Splitter
+reaches its contents through its pane Panels and a TabControl through its pages,
+so all four kinds the operator named are covered by the one walk.
+
+Tabs are deliberately not consulted here, unlike in `is_visible`: an unselected
+page is not drawn at all, so there is nothing on it to enable or disable.
+
+**Enabling restores each child to its OWN setting, not to "enabled".** For the
+ordinary case that is exactly what was asked — children never touched
+individually all come back with the group. It differs only for a child disabled
+*on purpose*: a Save button held off until a form validates stays off when the
+group returns. Nothing is ever written to a child; the walk only reads past it,
+so no setting of the developer's is destroyed. The alternative — forcing every
+child to enabled — is what no RAD tool does, and it would silently throw that
+setting away. Recorded in a test of its own so the choice is visible rather than
+buried.
+
+Both tests were verified to fail without the change. The first repro could not
+have failed at all: its buttons carried no `onClick` binding, and emission is
+gated on the binding, so an unbound control reports nothing however broken the
+enabling is. The fixture now binds handlers deliberately and says why. (A click
+also needs its press and release in separate frames, with time advancing —
+both in one frame produces no egui click.)
+
+KB: `Enabled` records the container rule and the non-destructive restore;
+`chunked.data` regenerated (1529 records). The guide gains a matching bullet
+beside the visibility one added in 1.65.91.
+
+
 ## [PowerRustCOBOL 1.65.91] — 2026-09-09
 
 ### Hiding a container did not hide what was inside it

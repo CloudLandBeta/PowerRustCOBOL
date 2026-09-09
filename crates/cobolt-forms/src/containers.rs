@@ -160,6 +160,44 @@ pub fn is_visible(
     true
 }
 
+/// `true` unless some ANCESTOR disables this control.
+///
+/// The sibling of [`is_visible`], and the same walk for the same reason: a
+/// container that is switched off switches off what is inside it. A GroupBox,
+/// Panel, Splitter or TabControl with `Enabled = 0` looked disabled and every
+/// control inside it went on taking clicks, because `enabled` was only ever
+/// asked of the control itself — eight times over in the renderer, never once
+/// of its ancestors (operator, 2026-09-09).
+///
+/// `ancestor_enabled` answers "is this container switched on right now?" for
+/// each ancestor in turn: the live state on a running surface, a constant
+/// `true` where there is none.
+///
+/// Nothing is WRITTEN to the children. Switching a container back on therefore
+/// restores each child to its own `Enabled` — a control the developer disabled
+/// individually stays disabled, which is what every RAD tool does and the only
+/// behaviour that does not quietly destroy the developer's setting.
+///
+/// Tabs are deliberately not consulted here: an unselected page is not drawn at
+/// all, so there is nothing on it to enable or disable.
+pub fn is_enabled(
+    controls: &[Control],
+    idx: usize,
+    ancestor_enabled: &dyn Fn(&Control) -> bool,
+) -> bool {
+    let mut cur = idx;
+    while let Some(pid) = controls[cur].parent.clone() {
+        let Some(p) = index_of(controls, &pid) else {
+            break;
+        };
+        if !controls[p].enabled || !ancestor_enabled(&controls[p]) {
+            return false;
+        }
+        cur = p;
+    }
+    true
+}
+
 fn intersect(a: Rect, b: Rect) -> Rect {
     let x0 = a.x.max(b.x);
     let y0 = a.y.max(b.y);

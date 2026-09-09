@@ -5238,7 +5238,7 @@ fn controls_reference_doc() -> String {
     for (sig, dom, desc) in [
         ("Name", "String — control identifier", "The control id (assigned by the designer; treat as read-only). It becomes a COBOL word in the generated program (`WS-<id>-TEXT`, `<id>-OPEN`), so it may hold ONLY letters, digits and hyphens — `TEXTBOX-1`, never `TEXTBOX_1`."),
         ("Visible", "Boolean — `1`/`0`", "Whether the control is drawn. Hiding a CONTAINER hides everything inside it: a GroupBox, Panel, TabControl or Splitter pane that is not drawn has no inside to draw into, so its children go with it and come back with it. The children's own `Visible` is untouched — showing the container again restores exactly what was showing before."),
-        ("Enabled", "Boolean — `1`/`0`", "Whether the control accepts input."),
+        ("Enabled", "Boolean — `1`/`0`", "Whether the control accepts input. Disabling a CONTAINER disables everything inside it: a GroupBox, Panel, Splitter or TabControl set to 0 stops its children taking clicks and keystrokes, and switching it back to 1 brings them back. The children's own `Enabled` is never written, so a control you disabled in its own right stays disabled when the container returns — enabling a group restores what it was, not everything in it."),
         ("X", "Integer — pixels from the form's left edge", "Horizontal position."),
         ("Y", "Integer — pixels from the form's top edge", "Vertical position."),
         ("Width", "Integer — pixels > 0", "Control width."),

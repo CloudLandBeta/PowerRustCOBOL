@@ -1722,6 +1722,12 @@ TabControl page, and so on).
   rounds the container's frame.
 - **Opacity** — a container's **Opacity** (0–100) fades the container *and its
   children together*, so you can dim a whole group at once.
+- **Enabled** — disabling a container disables everything inside it, so
+  `SET MY-GROUP::Enabled TO 0` switches off a whole page of fields at once and
+  `SET MY-GROUP::Enabled TO 1` switches them back on. As with visibility, the
+  children's own `Enabled` is never written: a control you disabled in its own
+  right — a Save button held off until the form validates, say — stays disabled
+  when the group returns.
 - **Visibility** — hiding a container hides everything inside it. A container
   that is not drawn has no inside to draw into, so `SET MY-GROUP::Visible TO 0`
   takes its children with it and `SET MY-GROUP::Visible TO 1` brings them back.
