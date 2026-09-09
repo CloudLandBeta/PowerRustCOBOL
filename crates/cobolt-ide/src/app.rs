@@ -5584,6 +5584,17 @@ impl CoboltApp {
         let mut changed = false;
         // Collected inside the closure that borrows `self.inspect`; applied after.
         let mut pending_proc_delete: Option<PendingProcDelete> = None;
+        // …and the credentials the inspector collected, for the same reason:
+        // storing one needs `self.llm`, which the closure has borrowed away.
+        let mut pending_creds: Vec<(String, String, String)> = Vec::new();
+        let mut creds_form = String::new();
+        // Which controls already have a key on file, worked out here for the
+        // same reason: `self.llm` is unreachable once the closure has `self`.
+        let stored_creds: Vec<String> = self
+            .inspect
+            .as_ref()
+            .map(|st| self.controls_with_stored_credentials(&st.designer.form))
+            .unwrap_or_default();
 
         // Live-refresh from disk before drawing so a Designer save (or any
         // external write) of this form is reflected in the Main-Pane inspector.
@@ -5651,7 +5662,7 @@ impl CoboltApp {
                 // The machine's model providers, not the project's — hoisted off
                 // `self` for the same borrow reason as the two above.
                 let agent_connections = crate::form_runtime::agent_connections(&self.llm);
-                let action = {
+                let mut action = {
                     let d = &mut st.designer;
                     // Publish the form's surface theme before the inspector
                     // draws. The colour picker offers the ACTIVE theme's
@@ -5673,11 +5684,16 @@ impl CoboltApp {
                     props.set_search_connections(&search_connections);
                 props.set_agent_connections(&agent_connections);
                     props.set_agent_connections(&agent_connections);
+                    props.set_stored_credentials(&stored_creds);
                     props.show(ui, unsafe { &*form }, sel, &indexed_files, tr)
                 };
                 for (cid, key, value) in action.set_props {
                     st.designer.set_property(&cid, &key, value);
                     changed = true;
+                }
+                if !action.set_credentials.is_empty() {
+                    pending_creds = std::mem::take(&mut action.set_credentials);
+                    creds_form = st.designer.form.name.clone();
                 }
                 if let Some(binding) = action.create_data_binding {
                     let b = binding.clone();
@@ -5720,6 +5736,7 @@ impl CoboltApp {
         if pending_proc_delete.is_some() {
             self.pending_proc_delete = pending_proc_delete;
         }
+        self.store_control_credentials(&creds_form, pending_creds);
 
         if changed {
             let gate_input = self.inspect.as_ref().map(|st| {
@@ -15857,6 +15874,69 @@ impl CoboltApp {
         }
     }
 
+    /// Which controls of `form` have a credential on file in the machine-local
+    /// store. Ids only — the pane never sees a key.
+    /// Runs every frame, so it asks the cheap question first: only a control
+    /// that HAS a credential property can have a credential on file, and a form
+    /// holds a handful of those among however many hundred controls. Building a
+    /// slot name for each of the rest would allocate a string per control per
+    /// frame to answer `None` every time.
+    fn controls_with_stored_credentials(&self, form: &cobolt_forms::Form) -> Vec<String> {
+        fn walk<'a>(cs: &'a [cobolt_forms::Control], out: &mut Vec<&'a cobolt_forms::Control>) {
+            for c in cs {
+                if cobolt_forms::connections::CREDENTIAL_PROPS
+                    .iter()
+                    .any(|p| c.get_prop(p).is_some())
+                {
+                    out.push(c);
+                }
+                walk(&c.children, out);
+            }
+        }
+        let mut service = Vec::new();
+        walk(&form.controls, &mut service);
+        service
+            .into_iter()
+            .filter(|c| {
+                let slot = cobolt_forms::connections::control_key_slot(&form.name, &c.id);
+                self.llm
+                    .api_keys
+                    .get(&slot)
+                    .is_some_and(|k| !k.trim().is_empty())
+            })
+            .map(|c| c.id.clone())
+            .collect()
+    }
+
+    /// Store credentials the inspector collected in the machine-local file,
+    /// under each control's own slot.
+    ///
+    /// They never touch the control, so they never reach the `.cfrm` — which
+    /// refuses to carry one anyway (R31). A blank clears the slot: erasing the
+    /// box is how a developer withdraws a key, and leaving the old one on file
+    /// would make that a lie.
+    fn store_control_credentials(
+        &mut self,
+        form_name: &str,
+        creds: Vec<(String, String, String)>,
+    ) {
+        if creds.is_empty() {
+            return;
+        }
+        for (ctrl_id, _prop, secret) in creds {
+            let slot = cobolt_forms::connections::control_key_slot(form_name, &ctrl_id);
+            if secret.trim().is_empty() {
+                self.llm.withdraw_api_key(&slot);
+            } else {
+                self.llm.store_api_key(slot, &secret);
+            }
+        }
+        if let Err(e) = self.llm.save() {
+            self.output
+                .push_status(format!("could not store the credential: {e}"));
+        }
+    }
+
     fn show_designer_window(&mut self, panel_ui: &mut egui::Ui, idx: usize, tr: &Tr) {
         // Panels are Ui-hosted since egui 0.35; everything else in this
         // method still wants a Context.
@@ -16314,6 +16394,9 @@ impl CoboltApp {
         // `designer::show_props_drawer` for why the two-sibling layout could not
         // be dragged at all.
         let props_hidden = self.designers[idx].1.props_hidden;
+        // Before the closure takes `self`: the pane is told WHICH controls have
+        // a key on file, never what the keys are.
+        let stored_creds = self.controls_with_stored_credentials(&self.designers[idx].1.form);
         let drawer = crate::panels::designer::show_props_drawer(
             panel_ui,
             idx,
@@ -16338,6 +16421,7 @@ impl CoboltApp {
                 props.set_rest_connections(&rest_connections);
                 props.set_search_connections(&search_connections);
                 props.set_agent_connections(&agent_connections);
+                props.set_stored_credentials(&stored_creds);
                 // SAFETY: we only read *form; no aliased write exists.
                 props.show_multi(
                     ui,
@@ -16349,7 +16433,7 @@ impl CoboltApp {
                 )
             },
         );
-        let inspector_action = drawer
+        let mut inspector_action = drawer
             .inner
             .unwrap_or_else(crate::panels::properties::InspectorAction::default);
         if drawer.toggled {
@@ -16357,6 +16441,12 @@ impl CoboltApp {
         }
 
         // ── Apply inspector actions ───────────────────────────────────────────
+        // The credentials first: they go to the machine-local store, never onto
+        // a control, so they are the one inspector action that does NOT make
+        // the form dirty and does not belong in the loop below.
+        let creds = std::mem::take(&mut inspector_action.set_credentials);
+        let creds_form = self.designers[idx].1.form.name.clone();
+        self.store_control_credentials(&creds_form, creds);
         let mut preview_triggered = false;
         for (ctrl_id, key, value) in inspector_action.set_props {
             if key.starts_with("_PreviewAnim") {

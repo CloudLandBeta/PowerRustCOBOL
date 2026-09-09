@@ -1,5 +1,65 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.90] — 2026-09-08
+
+### A form file can no longer carry an API key
+
+Typing a key into the designer's **API Key** box wrote it onto the control, and
+a control is what gets serialised. That is how a live Ollama key reached a
+public `origin/main` — `f2541c9`, `PowerDemo3/forms/Non-Visual/agent-form.cfrm`
+line 266, in the clear. Nothing stripped it: the only guard that existed kept
+`AgentAPIKey` out of *Copy Style*, which is a different journey entirely.
+
+The three properties that hold a credential are the three the System KB
+documents as `secret string` — a REST Client's `AuthToken`, a Web Search's
+`ApiKey`, an Agent Object's `AgentAPIKey`. `SearchEngineId` is deliberately not
+among them (the KB is explicit that a `cx` value is "a plain, non-secret id"),
+nor is `ConnectionString`, which is an address a form cannot reach its database
+without.
+
+- **The refusal is in the serialiser**, at the one place that writes a property,
+  so it holds for every caller — the IDE, `rcrun`, the compiler, and any example
+  that builds a form by hand. A guarantee that depends on every writer upstream
+  remembering is not a guarantee. The property is still written, so the file's
+  shape and every round trip are unchanged; what is withheld is the value.
+- **The key is not lost.** It goes to the machine-local credential file under
+  the control's own slot, and the running form is handed it through the
+  environment — the same journey a named connection's key already took, and it
+  reaches all three hosts because it is resolved in the one place they share.
+- **The box says which empty it is** — *stored on this machine* or *no key on
+  file*. Without that a developer types a key, tabs away, sees a blank box and
+  concludes the save failed.
+- **Clearing the box withdraws the key** from the machine too, marker and all.
+  An empty box that left the old credential authenticating would be a lie.
+- A control **bound to a connection or a provider ignores a stale local key**.
+  Two keys for one control is the proliferation the connections exist to end.
+
+The KB entries for all three properties now say where the key lives, and
+`chunked.data` is regenerated. The Developer's Guide caveat that used to advise
+*"never embed secrets in a form you intend to ship"* now records that a form
+file cannot carry one.
+
+Five tests, each verified to fail without its half of the change: the serialiser
+withholds the value while keeping every neighbouring setting; the IDE publishes
+a local key and stops publishing a withdrawn one; a bound control refuses the
+stale local key at both ends — the IDE will not publish it and the host will not
+apply a hand-set one, so a deployed binary cannot answer differently from the
+IDE; and the host lands the environment value on the property the control
+actually reads.
+
+A repo-wide scan of all 119 form files found **one live credential still in a
+tracked file**, not merely in history: a reqres.in free-tier token in
+`PowerDemo3/forms/Non-Visual/restapi-form.cfrm` line 710, public since `8459d89`.
+It is blanked here — the next save of that form would have blanked it anyway —
+so no tracked form file carries a credential any more. The REST demo needs the
+token re-entered through the API Key box, which now routes it to the machine.
+
+**This does not retract the keys already in the published history.** `f2541c9`
+(an Ollama key) and `8459d89` (the reqres.in token) are both ancestors of
+`origin/main` and the repository is public. The Ollama value is no longer the
+one in use; only revoking each at its provider closes them.
+
+
 ## [PowerRustCOBOL 1.65.89] — 2026-09-08
 
 ### A form loaded into the ContentPane repainted the main window's own sidebar

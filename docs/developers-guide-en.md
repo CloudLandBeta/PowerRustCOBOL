@@ -6910,8 +6910,26 @@ reference: `docs/database-runtime-en.md`.
   `onThinking`, which your COBOL handlers consume.
 
 > ⚠️ **Caveat.** Network features reach the outside world — handle errors and
-> timeouts in COBOL, and never embed secrets (API keys, tokens) in a form you
-> intend to ship. Treat those as runtime configuration.
+> timeouts in COBOL. Treat credentials as runtime configuration, never as part
+> of the design.
+>
+> **A form file cannot carry a credential.** The three properties that hold one
+> — a REST Client's `AuthToken`, a Web Search's `ApiKey`, an Agent Object's
+> `AgentAPIKey` — are stored **on your machine**, not in the `.cfrm`. Type a key
+> into the properties pane and it goes to the local credential file; the running
+> form is handed it when it starts. Save the form, open the `.cfrm` in a text
+> editor, and the property is there and empty. That holds however the key was
+> entered, so a key cannot reach the repository your team shares by being typed
+> in the designer and forgotten.
+>
+> The box tells you which empty it is: *stored on this machine* when a key is on
+> file for that control, *no key on file* when there is none. Clearing the box
+> withdraws the key from the machine as well — an empty box never means a
+> forgotten credential is still authenticating on your behalf.
+>
+> For a credential several forms share, prefer a **named connection** (REST and
+> Web Search) or a **Model Provider** (Agent Object): one place to enter it, one
+> place to rotate it, and the forms carry only its id.
 
 ### Configuring the REST Client
 
@@ -7040,8 +7058,9 @@ A complete pair of handlers, with everything else configured in the designer:
 > ⚠️ **Caveat.** Turn `VerifyTLS` off only against a development server with a
 > self-signed certificate. With verification off, nothing distinguishes the
 > real server from anything else answering at that address — never ship a form
-> that way. And keep credentials out of shipped forms (see the caveat above):
-> set `AuthToken` as runtime configuration.
+> that way. `AuthToken` needs no such care: the form file cannot carry it (see
+> the caveat above), so it is runtime configuration whether you meant it to be
+> or not.
 
 ### Asynchronous I/O (`Mode`, `Busy`, `TimeoutMs`, `Cancel()`)
 

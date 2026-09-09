@@ -1593,7 +1593,25 @@ fn write_control<W: std::io::Write>(w: &mut Writer<W>, ctrl: &Control) -> Result
 
     // Properties
     for (name, value) in &ctrl.properties {
-        let text = prop_to_string(value);
+        // R31 — a `.cfrm` NEVER carries a credential's value. The property is
+        // still written, so the file's shape and every round trip are
+        // unchanged; what is withheld is the secret itself.
+        //
+        // This is the last line, not the first: the IDE routes a typed key to
+        // the machine-local store before it ever reaches the model, and the
+        // running form is handed it through the environment. But a form file
+        // is committed, and a key typed into the designer's API Key box
+        // reached `origin/main` in the clear (2026-09-07, an Ollama key in
+        // `PowerDemo3/forms/Non-Visual/agent-form.cfrm`). A guarantee that
+        // depends on every writer upstream remembering is not a guarantee, so
+        // the ONE place that writes a property enforces it for every caller —
+        // the IDE, `rcrun`, the compiler and any example that builds a form by
+        // hand.
+        let text = if crate::connections::is_credential_prop(name) {
+            String::new()
+        } else {
+            prop_to_string(value)
+        };
         let mut prop = BytesStart::new("Property");
         prop.push_attribute(("name", name.as_str()));
         w.write_event(Event::Start(prop))?;

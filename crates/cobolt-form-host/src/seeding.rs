@@ -112,7 +112,7 @@ pub fn publish_agent_connections_from_env() {
 /// Runs inside [`build_object_seed`] so all three form hosts get it from one
 /// place — the parity rule this module exists for. The non-secret half comes
 /// from the published catalogue; the key never travels with it.
-fn resolve_connections(controls: &mut [cobolt_forms::Control]) {
+fn resolve_connections(form_name: &str, controls: &mut [cobolt_forms::Control]) {
     let conns = connections();
     for (ctrl_id, missing) in cobolt_forms::connections::resolve_all(controls, conns) {
         // Nothing else can report this: the form is already running and COBOL
@@ -166,6 +166,42 @@ fn resolve_connections(controls: &mut [cobolt_forms::Control]) {
         };
         c.set_prop(prop, cobolt_forms::PropValue::String(key));
     }
+    // …and the same journey for a control on its OWN settings. Its key is not
+    // in the form file — `save_form` refuses to write one (R31) — so it
+    // arrives here exactly as a connection's does: the IDE reads the local
+    // store under the control's slot and sets this variable on the child.
+    //
+    // AFTER the connection pass, and never for a BOUND control: a control
+    // bound to a connection takes that connection's credential and nothing
+    // else. "Its own settings are NOT used as a fallback" is the rule the
+    // resolution above reports a dangling binding for, and it holds here too —
+    // the IDE publishes no variable for a bound control, and a deployer who
+    // sets one by hand must not get a different answer from the binary than
+    // from the IDE.
+    for c in controls.iter_mut() {
+        if cobolt_forms::connections::configuration_id(c).is_some() {
+            continue;
+        }
+        for prop in cobolt_forms::connections::CREDENTIAL_PROPS {
+            if c.get_prop(prop).is_none() {
+                continue;
+            }
+            if !c
+                .get_prop(prop)
+                .map(|v| v.as_str().trim().is_empty())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let var = cobolt_forms::connections::control_key_env(form_name, &c.id);
+            let Ok(key) = std::env::var(&var) else {
+                continue;
+            };
+            if !key.trim().is_empty() {
+                c.set_prop(prop, cobolt_forms::PropValue::String(key));
+            }
+        }
+    }
 }
 
 /// The (maps, search) API keys from this process's environment — `None` when
@@ -198,7 +234,7 @@ pub fn build_object_seed(
     // auth and timeouts here, before any property is read — so the interpreter
     // sees an ordinary control and knows nothing about connections.
     let mut resolved = flat.to_vec();
-    resolve_connections(&mut resolved);
+    resolve_connections(&form.name, &mut resolved);
     let flat = &resolved[..];
 
     // 049 R30/R33 — the FORM ITSELF is seeded as an object, carrying the
@@ -491,6 +527,78 @@ mod tests {
         form.controls.push(label);
         let flat = form.controls.clone();
         (form, flat)
+    }
+
+    /// **A control on LOCAL settings gets its credential from the environment,
+    /// because the form file no longer carries one.**
+    ///
+    /// `save_form` refuses to write a credential (R31), so a local key has
+    /// exactly one route into a running form: the IDE reads it from the
+    /// machine-local store under the control's slot and sets this variable on
+    /// the child. All three hosts build their seed through this function, so
+    /// resolving it here is what gets it to `rcrun run-form`, an embedded child
+    /// form AND the compiled binary the developer ships.
+    #[test]
+    fn a_local_controls_credential_arrives_from_the_environment() {
+        let mut agent = Control::new("AGENT-LOCAL", ControlType::AgentObject, 0, 0);
+        agent.set_prop("AgentAPI", PropValue::String("Ollama".into()));
+        // What a saved form carries: the property, empty.
+        agent.set_prop("AgentAPIKey", PropValue::String(String::new()));
+
+        let (form, flat) = form_with(agent);
+        std::env::set_var(
+            cobolt_forms::connections::control_key_env(&form.name, "AGENT-LOCAL"),
+            "ollama-secret",
+        );
+
+        let seed = build_object_seed(&form, &flat, None, None);
+        let props = &seed
+            .iter()
+            .find(|(id, _, _)| id == "AGENT-LOCAL")
+            .expect("the control is seeded")
+            .2;
+        assert_eq!(
+            props
+                .iter()
+                .find(|(n, _)| n == "AgentAPIKey")
+                .map(|(_, v)| v.as_str()),
+            Some("ollama-secret"),
+            "the local key must reach the property the control actually reads"
+        );
+        std::env::remove_var(cobolt_forms::connections::control_key_env(
+            &form.name,
+            "AGENT-LOCAL",
+        ));
+    }
+
+    /// …and a BOUND control does not, even when the variable is set by hand.
+    /// A binding is a decision; a leftover local key must not quietly override
+    /// it in the shipped binary while the IDE ignores it.
+    #[test]
+    fn a_bound_control_refuses_a_hand_set_local_credential() {
+        let mut agent = Control::new("AGENT-BOUND", ControlType::AgentObject, 0, 0);
+        agent.set_prop("AgentAPIKey", PropValue::String(String::new()));
+        agent.set_prop("Configuration", PropValue::String("no-such-provider".into()));
+
+        let (form, flat) = form_with(agent);
+        let var = cobolt_forms::connections::control_key_env(&form.name, "AGENT-BOUND");
+        std::env::set_var(&var, "a-stale-local-key");
+
+        let seed = build_object_seed(&form, &flat, None, None);
+        let props = &seed
+            .iter()
+            .find(|(id, _, _)| id == "AGENT-BOUND")
+            .expect("the control is seeded")
+            .2;
+        assert_eq!(
+            props
+                .iter()
+                .find(|(n, _)| n == "AgentAPIKey")
+                .map(|(_, v)| v.as_str()),
+            Some(""),
+            "a bound control must not pick up a local key"
+        );
+        std::env::remove_var(&var);
     }
 
     /// **A control bound to a project connection is resolved before the

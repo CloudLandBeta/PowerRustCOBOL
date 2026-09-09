@@ -764,6 +764,20 @@ impl LlmConfig {
         moved
     }
 
+    /// Withdraw the credential in `slot`, from this process AND from the
+    /// machine — the local file, and the OS vault when one is in use.
+    ///
+    /// Erasing the API Key box is how a developer takes a key back, so leaving
+    /// the old value on file would make the empty box a lie: the form would
+    /// keep authenticating with a credential the developer believes is gone.
+    /// The deletion marker is what carries that through `save`, the same way
+    /// deleting a model profile does.
+    pub fn withdraw_api_key(&mut self, slot: &str) {
+        self.api_keys.remove(slot);
+        self.api_key_saved_at.remove(slot);
+        self.deleted_api_key_slots.insert(slot.to_owned());
+    }
+
     /// Forget everything a retired slot owned (spec 048 R25): used for the
     /// credentials migration discards, so a dead `profile::<uuid>` slot cannot
     /// linger and be reported as a live key's age.

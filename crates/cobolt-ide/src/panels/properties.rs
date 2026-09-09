@@ -624,10 +624,29 @@ pub struct MultiSelection {
     pub common_keys: Vec<String>,
 }
 
+/// What an empty API Key box means: the key lives in the machine-local store
+/// now, never on the control, so the box is empty either way and has to say
+/// WHICH empty it is. Without this a developer types a key, tabs away, sees a
+/// blank box and concludes the save failed.
+fn cred_hint(on_file: bool) -> &'static str {
+    if on_file {
+        "stored on this machine"
+    } else {
+        "no key on file"
+    }
+}
+
 /// Actions the inspector wants the designer to perform this frame.
 #[derive(Default)]
 pub struct InspectorAction {
     pub set_props: Vec<(String, String, PropValue)>,
+    /// `(ctrl_id, prop, secret)` — a credential the developer typed.
+    ///
+    /// Deliberately NOT `set_props`: a credential must never reach the control,
+    /// because a control is what gets written to the `.cfrm`. The caller stores
+    /// it in the machine-local credential file under the control's own slot,
+    /// and the running form is handed it through the environment (R31).
+    pub set_credentials: Vec<(String, String, String)>,
     pub form_props: Vec<(String, String)>,
     /// `(ctrl_id, event_name)` — emitted when the user clicks an event row to open the modal editor.
     /// `ctrl_id` is empty for form-level events.
@@ -3519,6 +3538,10 @@ pub struct PropertiesPanel {
     search_connections: Vec<cobolt_forms::connections::SearchConnection>,
     /// The machine's configured model providers, for AgentObject bindings.
     agent_connections: Vec<cobolt_forms::connections::AgentConnection>,
+    /// Control ids whose credential is on file in the machine-local store.
+    /// The key itself never comes here -- only the fact that there is one, so
+    /// an empty box can say so instead of looking like a failed save.
+    stored_credentials: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3554,6 +3577,7 @@ impl PropertiesPanel {
             rest_connections: Vec::new(),
             search_connections: Vec::new(),
             agent_connections: Vec::new(),
+            stored_credentials: Default::default(),
         }
     }
 
@@ -3581,6 +3605,16 @@ impl PropertiesPanel {
     }
 
     /// Tell the pane which model providers this machine has configured.
+    /// Tell the pane which controls of the current form have a credential
+    /// stored on this machine.
+    pub fn set_stored_credentials(&mut self, ids: &[String]) {
+        if self.stored_credentials.len() != ids.len()
+            || ids.iter().any(|i| !self.stored_credentials.contains(i))
+        {
+            self.stored_credentials = ids.iter().cloned().collect();
+        }
+    }
+
     pub fn set_agent_connections(
         &mut self,
         connections: &[cobolt_forms::connections::AgentConnection],
@@ -8163,6 +8197,9 @@ impl PropertiesPanel {
                             .get_prop("AgentAPIKey")
                             .map(|v| v.as_str().to_owned())
                             .unwrap_or_default();
+                        // The key is not on the control any more, so an empty box
+                        // means nothing on its own. Say which empty it is.
+                        let on_file = self.stored_credentials.contains(id);
                         let bk = format!("{id}-AgentAPIKey");
                         let wid = egui::Id::new(&bk);
                         let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
@@ -8175,14 +8212,18 @@ impl PropertiesPanel {
                                     egui::TextEdit::singleline(buf)
                                         .id(wid)
                                         .password(true)
+                                        .hint_text(cred_hint(on_file))
                                         .desired_width(ui.available_width()),
                                 )
                                 .lost_focus()
                             {
-                                action.set_props.push((
+                                // To the machine-local store, NOT onto the control:
+                                // a control is what gets written to the `.cfrm`,
+                                // and a form file never carries a credential (R31).
+                                action.set_credentials.push((
                                     id.to_owned(),
                                     "AgentAPIKey".into(),
-                                    PropValue::String(buf.clone()),
+                                    buf.clone(),
                                 ));
                             }
                         });
@@ -8411,6 +8452,9 @@ impl PropertiesPanel {
                         .get_prop("AuthToken")
                         .map(|v| v.as_str().to_owned())
                         .unwrap_or_default();
+                    // The key is not on the control any more, so an empty box
+                    // means nothing on its own. Say which empty it is.
+                    let on_file = self.stored_credentials.contains(id);
                     let bk = format!("{id}-AuthToken");
                     let wid = egui::Id::new(&bk);
                     let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
@@ -8423,14 +8467,18 @@ impl PropertiesPanel {
                                 egui::TextEdit::singleline(buf)
                                     .id(wid)
                                     .password(true)
+                                    .hint_text(cred_hint(on_file))
                                     .desired_width(ui.available_width()),
                             )
                             .lost_focus()
                         {
-                            action.set_props.push((
+                            // To the machine-local store, NOT onto the control:
+                            // a control is what gets written to the `.cfrm`,
+                            // and a form file never carries a credential (R31).
+                            action.set_credentials.push((
                                 id.to_owned(),
                                 "AuthToken".into(),
-                                PropValue::String(buf.clone()),
+                                buf.clone(),
                             ));
                         }
                     });
@@ -8884,6 +8932,9 @@ impl PropertiesPanel {
                             .get_prop("ApiKey")
                             .map(|v| v.as_str().to_owned())
                             .unwrap_or_default();
+                        // The key is not on the control any more, so an empty box
+                        // means nothing on its own. Say which empty it is.
+                        let on_file = self.stored_credentials.contains(id);
                         let bk = format!("{id}-ApiKey");
                         let wid = egui::Id::new(&bk);
                         let buf = self.text_bufs.entry(bk).or_insert(cur.clone());
@@ -8896,15 +8947,18 @@ impl PropertiesPanel {
                                     egui::TextEdit::singleline(buf)
                                         .id(wid)
                                         .password(true)
-                                        .hint_text("project key")
+                                        .hint_text(cred_hint(on_file))
                                         .desired_width(ui.available_width()),
                                 )
                                 .lost_focus()
                             {
-                                action.set_props.push((
+                                // To the machine-local store, NOT onto the control:
+                                // a control is what gets written to the `.cfrm`,
+                                // and a form file never carries a credential (R31).
+                                action.set_credentials.push((
                                     id.to_owned(),
                                     "ApiKey".into(),
-                                    PropValue::String(buf.clone()),
+                                    buf.clone(),
                                 ));
                             }
                         });

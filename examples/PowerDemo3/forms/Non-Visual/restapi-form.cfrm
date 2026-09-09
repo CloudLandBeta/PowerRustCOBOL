@@ -707,7 +707,7 @@
     <Property name="BaseURL">https://reqres.in/api/users?page=2</Property>
     <Property name="DefaultMethod">GET</Property>
     <Property name="AuthType">APIKey</Property>
-    <Property name="AuthToken">free_user_3I5ErhiWCn6hRqaDzpjBWSSIp7O</Property>
+    <Property name="AuthToken"></Property>
     <Property name="TimeoutSeconds">30</Property>
     <Property name="TimeoutMs">30000</Property>
     <Property name="FollowRedirects">true</Property>

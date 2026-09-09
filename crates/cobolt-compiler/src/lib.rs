@@ -4366,7 +4366,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "AgentURL" => ("HTTP(S) URL", "Base URL of the LLM provider."),
         "AgentModel" => ("model id string", "Model requested from the provider."),
         "AgentAPI" => ("one of: `Ollama` | `LMStudio` | `OpenAI` | `Anthropic` | `Custom`", "Provider protocol."),
-        "AgentAPIKey" => ("secret string or empty", "API key when the provider needs one."),
+        "AgentAPIKey" => (
+            "secret string or empty",
+            "API key when the provider needs one. STORED ON YOUR MACHINE, never in the form: what you type in the designer goes to the local credential file and the running form is handed it at start-up, so the `.cfrm` you commit carries an empty value however the key was entered. Prefer binding the control to a Model Provider instead — one place to enter the key, one place to rotate it.",
+        ),
         "AgentEndpoint" => ("URL path or empty", "Overrides the provider's default endpoint."),
         "SystemPrompt" => ("free text", "System prompt sent with every request."),
         "Temperature" => ("0-100 (maps to 0.0-1.0)", "Sampling temperature."),
@@ -4385,7 +4388,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "BaseURL" => ("HTTP(S) URL", "The address the control's verbs request. A verb called with no URL argument uses it as it stands; a relative argument is joined onto it; an argument carrying its own scheme (`https://...`) is used unchanged."),
         "DefaultMethod" => ("one of: `GET` | `POST` | `PUT` | `PATCH` | `DELETE` | `HEAD` | `OPTIONS`", "The verb `Call()` uses when given no method argument. The named verbs (`get`, `post`, `put`, `delete`) always use their own."),
         "AuthType" => ("one of: `None` | `Bearer` | `Basic` | `APIKey`", "Authentication scheme, applied to every request the control sends. `Bearer` sends `Authorization: Bearer <AuthToken>`; `Basic` sends `Authorization: Basic <AuthToken>`, base64-encoding the token when it is written `user:password`; `APIKey` sends `X-API-Key: <AuthToken>`. An API wanting a different header name uses `DefaultHeaders` instead."),
-        "AuthToken" => ("secret string or empty", "Token/credentials for AuthType. Empty sends no authentication header at all, rather than an empty one."),
+        "AuthToken" => (
+            "secret string or empty",
+            "Token/credentials for AuthType. Empty sends no authentication header at all, rather than an empty one. STORED ON YOUR MACHINE, never in the form: what you type in the designer goes to the local credential file and the running form is handed it at start-up, so the `.cfrm` you commit carries an empty value however the token was entered. A named REST connection is the better home for one shared by several forms.",
+        ),
         "DefaultHeaders" => ("`key:value` pairs, newline-separated", "Headers sent with every request. A line with no colon is ignored. A header set at run time with `COBOL-HTTP-SET-HEADER` overrides the one named here."),
         "FollowRedirects" => (BOOL_DOMAIN, "Follows HTTP redirects."),
         "VerifyTLS" => (BOOL_DOMAIN, "Verifies TLS certificates."),
@@ -4696,7 +4702,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "ApiKey" => (
             "secret string, or empty",
-            "Per-control override of the project's search credential (Settings → Integrations). Empty — the normal case — means \"use the project's key\". Set it only when one form must search under a different account than the project default. SearXNG needs no key.",
+            "Per-control override of the project's search credential (Settings → Integrations). Empty — the normal case — means \"use the project's key\". Set it only when one form must search under a different account than the project default. SearXNG needs no key. STORED ON YOUR MACHINE, never in the form: what you type in the designer goes to the local credential file and the running form is handed it at start-up, so the `.cfrm` you commit carries an empty value however the key was entered.",
         ),
         "SearchEngineId" => ("Google Programmable Search Engine `cx` value", "Which Custom Search engine to query — a plain, non-secret id, not the API key. Read only when Provider is Google; the other providers search the whole web without being told where."),
         "Query" => ("free text", "Search query text. Set this before INVOKE 'Search'."),

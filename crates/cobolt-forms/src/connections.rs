@@ -374,6 +374,67 @@ pub fn connection_key_env(id: &str) -> String {
     )
 }
 
+// ── A control's OWN credential (R31) ────────────────────────────────────────
+
+/// The control properties that hold a **credential** rather than a setting.
+///
+/// Exactly the three the System KB documents as `secret string` — a WebSearch's
+/// `ApiKey`, an AgentObject's `AgentAPIKey`, a RestClient's `AuthToken`. The
+/// KB's own wording is the authority, so the two cannot drift: a fourth secret
+/// property added there belongs here in the same change.
+///
+/// `SearchEngineId` is deliberately absent. The KB is explicit that a `cx`
+/// value is "a plain, non-secret id, not the API key", and `ConnectionString`
+/// is an ADDRESS a form cannot reach its database without — withholding either
+/// would break working forms to protect nothing.
+pub const CREDENTIAL_PROPS: [&str; 3] = ["AgentAPIKey", "ApiKey", "AuthToken"];
+
+/// Is `name` one of [`CREDENTIAL_PROPS`]? Case-insensitive, because a property
+/// name reaches this from XML a human may have edited.
+pub fn is_credential_prop(name: &str) -> bool {
+    CREDENTIAL_PROPS
+        .iter()
+        .any(|p| p.eq_ignore_ascii_case(name.trim()))
+}
+
+/// The local-store slot holding ONE control's own credential.
+///
+/// A control on LOCAL settings — not bound to a named connection — still needs
+/// somewhere for its key to live, and that somewhere is never the `.cfrm`: a
+/// form file is committed, and a key typed into the designer's API Key box
+/// reached `origin/main` in the clear exactly that way (2026-09-07). The
+/// form and the control together name the slot, so two forms may each keep
+/// their own key for a control of the same name.
+pub fn control_key_slot(form: &str, control_id: &str) -> String {
+    format!(
+        "control::{}::{}",
+        form.trim().to_ascii_uppercase(),
+        control_id.trim()
+    )
+}
+
+/// The environment variable carrying one control's own credential to a running
+/// form — the local-settings sibling of [`connection_key_env`], and the same
+/// contract: the IDE reads the slot and sets the variable, the form host reads
+/// the variable back.
+///
+/// Every character an environment name may not carry becomes `_`, and the two
+/// halves are joined by a DOUBLE underscore so `A_B`+`C` and `A`+`B_C` cannot
+/// collide on one name.
+pub fn control_key_env(form: &str, control_id: &str) -> String {
+    let clean = |s: &str| -> String {
+        s.trim()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+            .collect()
+    };
+    format!(
+        "COBOLT_CONTROL_KEY_{}__{}",
+        clean(form),
+        clean(control_id)
+    )
+}
+
 /// The connection a control is bound to, or `None` when it is on its own
 /// local settings.
 ///
@@ -604,5 +665,114 @@ mod tests {
         assert_eq!(minimal.timeout_seconds, 30);
         assert_eq!(minimal.default_method, "GET");
         assert_eq!(minimal.auth_type, "None");
+    }
+}
+
+// ── A credential never reaches the file (R31) ───────────────────────────────
+#[cfg(test)]
+mod credential_serialisation_tests {
+    use crate::model::{Control, ControlType as CT, PropValue};
+    use crate::{connections, Form};
+
+    /// A key nothing else in a form would produce, so finding it anywhere in
+    /// the text is unambiguous.
+    const SECRET: &str = "6160-NOT-A-REAL-KEY-but-shaped-like-one-0123456789ab";
+
+    fn form_with_typed_keys() -> Form {
+        let mut form = Form::new("AGENT-FORM", "Agent", 800, 600);
+        for (id, ct, prop) in [
+            ("Agent-Helper", CT::AgentObject, "AgentAPIKey"),
+            ("Web-Find", CT::WebSearch, "ApiKey"),
+            ("Rest-1", CT::RestClient, "AuthToken"),
+        ] {
+            let mut c = Control::new(id, ct, 10, 10);
+            c.set_prop(prop, PropValue::String(SECRET.into()));
+            form.controls.push(c);
+        }
+        form
+    }
+
+    /// **A credential typed into a control never reaches the `.cfrm`.**
+    ///
+    /// It did: an Ollama key typed into the AgentObject's API Key box was
+    /// serialised with every other property and pushed to a public
+    /// `origin/main` (`f2541c9`, `PowerDemo3/forms/Non-Visual/agent-form.cfrm`
+    /// line 266). Nothing stripped it — the only guard that existed kept
+    /// `AgentAPIKey` out of Copy Style, which is a different journey entirely.
+    ///
+    /// The property is still written, so the file's shape does not change and
+    /// a form round-trips exactly as before. What is withheld is the value.
+    #[test]
+    fn a_typed_credential_is_never_written_to_the_form_file() {
+        let text = crate::xml::form_to_string(&form_with_typed_keys()).expect("serialises");
+
+        assert!(
+            !text.contains(SECRET),
+            "the credential reached the .cfrm:\n{text}"
+        );
+        // …and it is withheld by being EMPTY, not by being dropped: a reader
+        // that expects the property still finds it.
+        for prop in connections::CREDENTIAL_PROPS {
+            assert!(
+                text.contains(&format!("<Property name=\"{prop}\"></Property>"))
+                    || text.contains(&format!("<Property name=\"{prop}\"/>")),
+                "{prop} should still be present and empty:\n{text}"
+            );
+        }
+    }
+
+    /// The refusal is narrow: everything that is NOT a credential is written
+    /// exactly as before. A rule that quietly ate settings would be a worse
+    /// bug than the one it fixes.
+    #[test]
+    fn only_the_three_credentials_are_withheld() {
+        let mut form = Form::new("F", "F", 400, 300);
+        let mut c = Control::new("Web-Find", CT::WebSearch, 10, 10);
+        // The neighbours a WebSearch keeps beside its key, including the two
+        // that LOOK secret and are not: a `cx` id and a connection id.
+        for (k, v) in [
+            ("ApiKey", SECRET),
+            ("SearchEngineId", "0123456789abcdef0:aq1sw2de3"),
+            ("Configuration", "5fe1cd6d-1551-49d0-ba18-38dfb9804eb2"),
+            ("Query", "rust cobol"),
+            ("Provider", "Brave"),
+        ] {
+            c.set_prop(k, PropValue::String(v.into()));
+        }
+        form.controls.push(c);
+        let text = crate::xml::form_to_string(&form).expect("serialises");
+
+        assert!(!text.contains(SECRET), "the key still leaked:\n{text}");
+        for kept in [
+            "0123456789abcdef0:aq1sw2de3",
+            "5fe1cd6d-1551-49d0-ba18-38dfb9804eb2",
+            "rust cobol",
+            "Brave",
+        ] {
+            assert!(text.contains(kept), "{kept} must survive the save:\n{text}");
+        }
+    }
+
+    /// The slot and the variable are one journey with two ends in different
+    /// crates: the IDE writes the store under the slot, the form host reads
+    /// the variable. A control id carrying a dash — which every designed id
+    /// may — must not produce a name the environment cannot hold.
+    #[test]
+    fn a_controls_own_key_has_a_slot_and_a_variable() {
+        let slot = connections::control_key_slot("agent-form", "Agent-Helper");
+        assert_eq!(slot, "control::AGENT-FORM::Agent-Helper");
+
+        let var = connections::control_key_env("agent-form", "Agent-Helper");
+        assert_eq!(var, "COBOLT_CONTROL_KEY_AGENT_FORM__AGENT_HELPER");
+        assert!(
+            var.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
+            "an environment name may hold nothing else: {var}"
+        );
+        // The double underscore is what stops two different (form, control)
+        // pairs landing on one variable.
+        assert_ne!(
+            connections::control_key_env("a_b", "c"),
+            connections::control_key_env("a", "b_c"),
+        );
     }
 }

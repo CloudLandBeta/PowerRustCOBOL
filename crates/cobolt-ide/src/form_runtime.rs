@@ -222,6 +222,42 @@ pub fn resolve_connection_key_secrets(
         .collect()
 }
 
+/// Every LOCAL control credential this form needs, as `(env name, value)`.
+///
+/// The sibling of [`resolve_connection_key_secrets`] for a control that is NOT
+/// bound to a named connection. Its key lives in the machine-local store under
+/// the control's own slot — never in the `.cfrm`, which refuses to carry one —
+/// so this is the only way it reaches the running form.
+///
+/// A control whose credential property is absent asks for nothing: the slot is
+/// consulted only for the three properties that hold one.
+pub fn resolve_control_key_secrets(
+    form: &Form,
+    llm: &crate::llm::LlmConfig,
+) -> Vec<(String, String)> {
+    collect_controls(&form.controls)
+        .iter()
+        .filter(|c| {
+            cobolt_forms::connections::CREDENTIAL_PROPS
+                .iter()
+                .any(|p| c.get_prop(p).is_some())
+        })
+        // A bound control takes the CONNECTION's key; its local slot, if one
+        // was ever filled, is not what the developer chose.
+        .filter(|c| cobolt_forms::connections::configuration_id(c).is_none())
+        .filter_map(|c| {
+            let slot = cobolt_forms::connections::control_key_slot(&form.name, &c.id);
+            let key = llm.api_keys.get(&slot)?;
+            (!key.trim().is_empty()).then(|| {
+                (
+                    cobolt_forms::connections::control_key_env(&form.name, &c.id),
+                    key.clone(),
+                )
+            })
+        })
+        .collect()
+}
+
 /// The machine's configured model providers, as an `AgentObject` sees them.
 ///
 /// Built from the Model Providers Manager's own records, so there is exactly
@@ -310,6 +346,7 @@ pub fn credential_env_for(
             .chain(resolve_search_api_key_secret(form, llm))
             .map(|(name, value)| (name.to_owned(), value))
             .chain(resolve_connection_key_secrets(form, llm, catalogue))
+            .chain(resolve_control_key_secrets(form, llm))
             .chain(resolve_agent_secrets(form, llm));
         for (name, value) in from_form {
             if !out.iter().any(|(n, _)| n == &name) {
@@ -785,6 +822,96 @@ mod agent_provider_tests {
             all.iter().find(|(n, _)| n == &want).map(|(_, v)| v.as_str()),
             Some("brave-secret"),
             "a child form's connection key must reach the process that will open it"
+        );
+    }
+
+    /// **A control on its OWN settings still gets its key — from the store,
+    /// never from the form file.**
+    ///
+    /// The whole journey in one place, because its two ends live in different
+    /// crates and neither is any use alone: the IDE writes the typed key to the
+    /// machine-local store under the control's slot, resolves it to an
+    /// environment variable here, and the form host reads that variable back
+    /// onto the property the control actually uses.
+    ///
+    /// Before this, a local key had exactly one home — the `.cfrm` — which is
+    /// how an Ollama key reached a public `origin/main` (`f2541c9`).
+    #[test]
+    fn a_local_controls_key_travels_by_the_store_not_the_form_file() {
+        use cobolt_forms::{Control, ControlType, Form, PropValue};
+
+        let mut form = Form::new("AGENT-FORM", "Agent", 800, 600);
+        let mut agent = Control::new("Agent-Helper", ControlType::AgentObject, 0, 0);
+        // Local settings: no `Configuration`, and the property empty — which is
+        // all a saved form can ever carry.
+        agent.set_prop("AgentAPIKey", PropValue::String(String::new()));
+        form.controls.push(agent);
+
+        let mut llm = LlmConfig::defaults();
+        let slot = cobolt_forms::connections::control_key_slot(&form.name, "Agent-Helper");
+        llm.store_api_key(slot.clone(), "ollama-secret");
+        let empty = cobolt_forms::connections::Catalogue {
+            rest: Vec::new(),
+            search: Vec::new(),
+            agent: Vec::new(),
+        };
+
+        let want = cobolt_forms::connections::control_key_env(&form.name, "Agent-Helper");
+        let env = credential_env_for(std::slice::from_ref(&form), &llm, &empty);
+        assert_eq!(
+            env.iter().find(|(n, _)| n == &want).map(|(_, v)| v.as_str()),
+            Some("ollama-secret"),
+            "the local key must be published to the child process: {env:?}"
+        );
+
+        // Withdrawing it is a real withdrawal: the box was cleared, so nothing
+        // is published and the form authenticates with nothing.
+        llm.withdraw_api_key(&slot);
+        let env = credential_env_for(std::slice::from_ref(&form), &llm, &empty);
+        assert!(
+            !env.iter().any(|(n, _)| n == &want),
+            "a withdrawn key must stop being published: {env:?}"
+        );
+    }
+
+    /// A control BOUND to a connection takes the connection's key, never a
+    /// local one left over from before it was bound. Two keys for one control
+    /// is exactly the proliferation the connections exist to end.
+    #[test]
+    fn a_bound_control_ignores_a_stale_local_key() {
+        use cobolt_forms::{connections::SearchConnection, Control, ControlType, Form, PropValue};
+
+        let conn = SearchConnection::new("cccc-dddd", "Brave");
+        let mut form = Form::new("SEARCH-FORM", "Search", 800, 600);
+        let mut ws = Control::new("Web-Find", ControlType::WebSearch, 0, 0);
+        ws.set_prop("ApiKey", PropValue::String(String::new()));
+        ws.set_prop("Configuration", PropValue::String(conn.id.clone()));
+        form.controls.push(ws);
+
+        let mut llm = LlmConfig::defaults();
+        llm.store_api_key(
+            cobolt_forms::connections::connection_key_slot(&conn.id),
+            "the-connections-key",
+        );
+        llm.store_api_key(
+            cobolt_forms::connections::control_key_slot(&form.name, "Web-Find"),
+            "a-stale-local-key",
+        );
+        let catalogue = cobolt_forms::connections::Catalogue {
+            rest: Vec::new(),
+            search: vec![conn.clone()],
+            agent: Vec::new(),
+        };
+
+        let env = credential_env_for(std::slice::from_ref(&form), &llm, &catalogue);
+        assert!(
+            !env.iter()
+                .any(|(_, v)| v == "a-stale-local-key"),
+            "a bound control must not carry its old local key: {env:?}"
+        );
+        assert!(
+            env.iter().any(|(_, v)| v == "the-connections-key"),
+            "…and must carry the connection's: {env:?}"
         );
     }
 
