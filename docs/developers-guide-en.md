@@ -1665,6 +1665,9 @@ A chart also honours its own **captions, labels and legend**:
 
 | Property                    | What it does                                                                                                                                           |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Title`                     | The caption printed above the plot. Empty draws none, and takes no room.                                                                                |
+| `TitleFontSize`             | The title's own point size. **0** — the default — leaves it following the chart's `FontSize`. The band above the plot grows with it, so a large title takes room rather than printing over the data. |
+| `TitleColor`                | The title's own colour. **Empty** — the default — keeps the automatic choice, which reads dark on a face that can carry it and switches to the readable pole when it cannot. |
 | `XAxisLabel` / `YAxisLabel` | Free-text axis captions. Room is reserved for them in the margins, so a caption never runs across the data. Empty means no caption and no space taken. |
 | `ShowLegend`                | Slice names beside a pie or donut; series names under a bar, line, area or scatter chart. **Ticked by default.**                                        |
 | `ShowLabels`                | A label on every pie/donut slice. **Ticked by default.**                                                                                                |
@@ -1673,6 +1676,13 @@ A chart also honours its own **captions, labels and legend**:
 | `FillAlpha`                 | The opacity an area chart fills at, 0–100 %.                                                                                                          |
 | `AnimateValues`             | Animate a **change of data**: the chart travels from the values it is showing to the new ones instead of cutting to them. Off by default.               |
 | `AnimationDuration`         | How long that move takes, in milliseconds. Shown only while `AnimateValues` is ticked. Default 2000; anything under 250 is raised to 250.               |
+
+> **The rest of a chart's type follows `FontSize`.** The legend, the axis
+> captions and the value labels are all sized from the chart's own `FontSize`,
+> like the text of any other control — so one property enlarges the whole chart's
+> lettering, and `TitleFontSize` is there for when the title alone should differ.
+> Each reserved band grows with the type, so larger text takes room instead of
+> overlapping the plot.
 
 **Animating a change of data.** Tick `AnimateValues` and every later push —
 `AddPoint`, `Clear`, a `DataSource` refresh — is *travelled to* rather than

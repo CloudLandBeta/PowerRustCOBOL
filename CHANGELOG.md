@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.97] — 2026-09-09
+
+### A chart title can carry its own size and colour
+
+`TitleFontSize` and `TitleColor` give the title type of its own, independent of
+the rest of the chart (operator, 2026-09-09). Both default to "follow the
+chart", so a chart nobody has touched here is drawn exactly as it was.
+
+**`TitleFontSize`** is a point size like every other `FontSize`, and is
+deliberately NOT put through `CHART_FONT_SCALE`: a developer who asks for 24
+gets 24. **`0`** leaves the title following the chart's own `FontSize`, which is
+what every chart drawn before this behaves like. The band reserved above the
+plot is sized from whichever wins, so a title made larger takes room rather than
+printing over the data it labels — the same rule the legend and the axis
+captions already follow.
+
+**`TitleColor`** is empty by default, and empty cannot simply mean grey: the
+title picks a colour that reads on the face it sits on, because a fixed grey is
+invisible on a dark `Monochrome` face and near-invisible on a white one. Empty
+keeps that choice; a colour you set is used as given.
+
+Both appear in the inspector under the title itself, both round-trip through the
+`.cfrm` (the per-control property test picks them up on its own), and both are
+in the System KB — `chunked.data` regenerated, 1541 records. The guide's chart
+property table documents them, and now also states plainly that the legend, the
+captions and the value labels follow the chart's `FontSize`.
+
 ## [PowerRustCOBOL 1.65.96] — 2026-09-09
 
 ### A chart ignored its own FontSize

@@ -8888,10 +8888,21 @@ pub fn draw_chart_preview(
     // The top band has to clear the TITLE at its own size — on a short chart
     // 12 % of the height is less than one line, and the title would be drawn
     // over the plot it labels.
+    // `TitleFontSize` sizes the title on its own; `0` — the default — leaves it
+    // following the chart's `FontSize` exactly as it always has. The value is a
+    // point size like every other `FontSize`, so it is NOT put through
+    // `type_scale`: a developer who asks for 24 gets 24.
+    let title_font = match ctrl.get_prop("TitleFontSize").map(|v| v.as_i64()) {
+        Some(pt) if pt > 0 => (pt as f32).clamp(4.0, 200.0),
+        _ => 10.0 * type_scale,
+    };
+    // The band reserved for it is sized from THAT, so a title the developer
+    // enlarged takes room rather than printing over the plot it labels — the
+    // same rule every other band here follows.
     let title_band = if title_text.is_empty() {
         0.0
     } else {
-        10.0 * type_scale * 1.5
+        title_font * 1.5
     };
     let mut margin_l = rect.width() * 0.10 + cap_w;
     let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
@@ -8945,15 +8956,24 @@ pub fn draw_chart_preview(
     // the legend already take `chrome` for exactly this reason, three lines
     // above; the title was the one margin-dweller that did not.
     if !title_text.is_empty() {
+        // `TitleColor`, when the developer picked one. Empty keeps the
+        // automatic choice: dark grey when the face can carry it and the
+        // readable pole when it cannot — a fixed grey was invisible on a dark
+        // `Monochrome` face and near-invisible on a white one (operator,
+        // 2026-09-02), which is why "no colour" cannot mean "grey".
+        let title_colour = ctrl
+            .get_prop("TitleColor")
+            .map(|v| v.as_str().to_owned())
+            .filter(|c| !c.trim().is_empty())
+            .map(|c| parse_color(&c))
+            .filter(|c| c.a() > 0)
+            .unwrap_or_else(|| caret_color(bg, Color32::DARK_GRAY));
         chrome.text(
             Pos2::new(rect.center().x, rect.min.y + margin_t * 0.5),
             egui::Align2::CENTER_CENTER,
             &title_text,
-            egui::FontId::proportional(10.0 * type_scale),
-            // Dark grey when the face can carry it, and the readable pole when
-            // it cannot — a fixed grey was invisible on a dark `Monochrome`
-            // face and near-invisible on a white one (operator, 2026-09-02).
-            caret_color(bg, Color32::DARK_GRAY),
+            egui::FontId::proportional(title_font),
+            title_colour,
         );
     }
 
@@ -16408,6 +16428,81 @@ slice = [4, 4, 4, 4]
                  reaching every piece of type"
             );
         }
+    }
+
+    /// The chart title takes its own size and colour when asked, and keeps the
+    /// behaviour it had when not.
+    #[test]
+    fn a_chart_title_carries_its_own_size_and_colour() {
+        // (requested size, colour) of every text the chart draws.
+        let title_of = |set: &dyn Fn(&mut Control)| -> Vec<(u32, Color32)> {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            c.set_prop("Title", PropValue::String("Quarterly".into()));
+            set(&mut c);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<(u32, Color32)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Text(t) => {
+                        if t.galley.job.text.contains("Quarterly") {
+                            for sec in &t.galley.job.sections {
+                                out.push((
+                                    sec.format.font_id.size.round() as u32,
+                                    t.override_text_color.unwrap_or(sec.format.color),
+                                ));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out
+        };
+
+        let plain = title_of(&|_| {});
+        assert_eq!(plain.len(), 1, "the chart drew its title once");
+        let (plain_size, plain_colour) = plain[0];
+
+        // Sized on its own, independent of the chart's own FontSize.
+        let sized = title_of(&|c| c.set_prop("TitleFontSize", PropValue::Int(40)));
+        assert_eq!(sized[0].0, 40, "TitleFontSize must set the title's size");
+        assert_ne!(plain_size, 40, "the fixture must not already be 40pt");
+
+        // Coloured on its own.
+        let red = title_of(&|c| c.set_prop("TitleColor", PropValue::String("#FF0000".into())));
+        assert_eq!(
+            (red[0].1.r(), red[0].1.g(), red[0].1.b()),
+            (255, 0, 0),
+            "TitleColor must set the title's colour"
+        );
+
+        // And the defaults keep what the title always did.
+        let defaults = title_of(&|c| {
+            c.set_prop("TitleFontSize", PropValue::Int(0));
+            c.set_prop("TitleColor", PropValue::String(String::new()));
+        });
+        assert_eq!(
+            defaults[0],
+            (plain_size, plain_colour),
+            "0 / empty must leave the title exactly as it was"
+        );
+
+        println!(
+            "\n  Chart title — default {plain_size}pt {plain_colour:?}, \
+             TitleFontSize 40 honoured, TitleColor #FF0000 honoured\n"
+        );
     }
 
     /// T7/AC9 — under Elegance the glass style is inert.

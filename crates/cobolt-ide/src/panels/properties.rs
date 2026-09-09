@@ -9059,6 +9059,23 @@ impl PropertiesPanel {
                     "Sales by Region",
                     action,
                 );
+                // The title's own type and colour, beneath the title itself.
+                // Both carry a "follow the chart" default so a chart nobody has
+                // touched here is drawn exactly as it was: 0 means the size
+                // comes from the chart's own FontSize, and no colour means the
+                // title keeps picking one that reads on the face it sits on.
+                int_prop_row(
+                    ui,
+                    id,
+                    "TitleFontSize",
+                    "Title font size",
+                    ctrl,
+                    action,
+                    0..=200,
+                    None,
+                    0,
+                );
+                color_row_labeled(ui, id, "TitleColor", "Title colour", ctrl, action);
                 bool_row_inline(ui, id, "ShowLegend", "Show legend", ctrl, action);
                 bool_row_inline(ui, id, "ShowGridLines", "Show grid lines", ctrl, action);
                 bool_row_inline(ui, id, "ShowXAxis", "Show X axis line", ctrl, action);

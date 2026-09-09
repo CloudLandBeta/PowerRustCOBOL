@@ -4440,6 +4440,22 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
 
         // ── Charts ──
         "Title" => ("free text", "Chart title (also the window title on Form methods)."),
+        "TitleFontSize" => (
+            "points >= 0; 0 = follow the chart",
+            "The title's own point size. **0** - the default - leaves it following \
+             the chart's own `FontSize`, which is how every chart drawn before \
+             this property behaves. Set it and the title is that size exactly, \
+             and the band reserved above the plot grows with it, so a large \
+             title takes room rather than printing over the plot it labels.",
+        ),
+        "TitleColor" => (
+            "hex colour; empty = automatic",
+            "The title's own colour. **Empty** - the default - keeps the automatic \
+             choice, which reads dark on a face that can carry it and switches to \
+             the readable pole when it cannot. That is why blank cannot simply \
+             mean grey: a fixed grey is invisible on a dark `Monochrome` face and \
+             near-invisible on a white one.",
+        ),
         "ShowLegend" => (BOOL_DOMAIN, "Shows the series legend."),
         "ShowGridLines" => (BOOL_DOMAIN, "Shows the plot grid."),
         "ShowXAxis" => (BOOL_DOMAIN, "Shows the X axis line."),

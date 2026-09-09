@@ -5553,6 +5553,15 @@ impl Control {
             | ControlType::DonutChart => {
                 // Visual
                 props.insert("Title".into(), PropValue::String("".into()));
+                // The title's own type, independent of the chart's `FontSize`.
+                // `0` means "follow the chart", which is what every chart drawn
+                // before these existed does, so nothing moves until one is set.
+                props.insert("TitleFontSize".into(), PropValue::Int(0));
+                // Empty means "pick a colour that reads on the face" — the
+                // behaviour the title has always had, which is why it cannot be
+                // a plain colour default: a fixed grey is invisible on a dark
+                // Monochrome face and near-invisible on a white one.
+                props.insert("TitleColor".into(), PropValue::String("".into()));
                 props.insert("ShowLegend".into(), PropValue::Bool(true));
                 props.insert("ShowGridLines".into(), PropValue::Bool(true));
                 // Independent X/Y axis-line visibility (default on).
