@@ -988,6 +988,23 @@ const ALL_HANDLES: [Handle; 8] = [
     Handle::BotRight,
 ];
 
+/// The knobs a control whose WIDTH is not the developer's may show: the two
+/// that change height alone. Every other handle moves an edge that is going to
+/// be re-pinned on the next frame, so offering it would be a lie.
+const HEIGHT_ONLY_HANDLES: [Handle; 2] = [Handle::Top, Handle::Bot];
+
+/// Which resize knobs this control gets.
+///
+/// A StatusBar spans its window by rule, so its left and right edges are not
+/// draggable — see `Form::sync_status_bars`.
+fn handles_for(ctrl: &Control) -> &'static [Handle] {
+    if ctrl.control_type == ControlType::StatusBar {
+        &HEIGHT_ONLY_HANDLES
+    } else {
+        &ALL_HANDLES
+    }
+}
+
 fn handle_pos(r: &cobolt_forms::model::Rect, h: Handle) -> Pos2 {
     let (x, y, w, hh) = (r.x as f32, r.y as f32, r.w as f32, r.h as f32);
     match h {
@@ -6120,6 +6137,10 @@ impl DesignerPanel {
         // …and every Responsive MenuBar, so the bar follows a form resize
         // and a MenuBarStyle edit the way the sidebar follows FullHeight.
         self.form.sync_menu_bar_responsive();
+        // …and every StatusBar, which follows a form resize with no property
+        // to set: a status bar is always the width of its window, and never
+        // inside a container.
+        self.form.sync_status_bars();
         // …and its footer Panel with it: created if absent, re-pinned to the
         // footer band otherwise. Runs AFTER the height sync, because the band
         // is measured from the sidebar's bottom edge.
@@ -8057,8 +8078,13 @@ impl DesignerPanel {
                             let pts = [Pos2::new(p1.0, p1.1), Pos2::new(p2.0, p2.1)];
                             draw_handles(&painter, origin, &pts, glass);
                         } else {
+                            let knobs = self
+                                .form
+                                .find_control(&sid)
+                                .map(handles_for)
+                                .unwrap_or(&ALL_HANDLES);
                             let pts: Vec<Pos2> =
-                                ALL_HANDLES.iter().map(|&h| handle_pos(&rect, h)).collect();
+                                knobs.iter().map(|&h| handle_pos(&rect, h)).collect();
                             draw_handles(&painter, origin, &pts, glass);
                         }
                         // The hit-test reads the same rect, so a knob is
@@ -11724,8 +11750,13 @@ impl DesignerPanel {
             None
         } else {
             self.selected_ids.first().and_then(|sid| {
+                let knobs = self
+                    .form
+                    .find_control(sid)
+                    .map(handles_for)
+                    .unwrap_or(&ALL_HANDLES);
                 self.handle_rect_of(sid).and_then(|r| {
-                    for &h in &ALL_HANDLES {
+                    for &h in knobs {
                         let hp = handle_pos(&r, h);
                         let dist =
                             ((px as f32 - hp.x).powi(2) + (py as f32 - hp.y).powi(2)).sqrt();
@@ -14799,6 +14830,58 @@ mod shell_prop_tests {
             "049 FormFormat plumbing — 3 transitions on a normal form \
              (Standalone→Embedded→Both, case-insensitive), main form pinned Standalone"
         );
+    }
+
+    /// A status bar spans its window and stays out of containers, with nothing
+    /// to set — the two rules the operator asked for (2026-09-09), checked at
+    /// the level the designer actually enforces them: the per-frame sync, the
+    /// drop resolver, and the knobs the canvas offers.
+    #[test]
+    fn a_status_bar_spans_the_window_and_stays_out_of_containers() {
+        let mut d = DesignerPanel::new(Form::new("MAIN", "Main", 640, 480));
+        d.form
+            .controls
+            .push(Control::new("Panel-1", ControlType::Panel, 20, 20));
+        let mut bar = Control::new("SB-1", ControlType::StatusBar, 100, 440);
+        bar.rect = cobolt_forms::model::Rect::new(100, 440, 300, 26);
+        d.form.controls.push(bar);
+
+        // What `show` runs at the top of every frame.
+        d.form.sync_status_bars();
+        let c = d.form.find_control("SB-1").unwrap();
+        assert_eq!((c.rect.x, c.rect.w), (0, 640), "the window's full width");
+        assert_eq!((c.rect.y, c.rect.h), (440, 26), "Y and Height are the developer's");
+
+        // A form resize carries it, with no property involved.
+        d.form.width = 1024;
+        d.form.sync_status_bars();
+        assert_eq!(d.form.find_control("SB-1").unwrap().rect.w, 1024);
+
+        // Dragged onto the panel, it still belongs to the form.
+        let idx = d
+            .form
+            .controls
+            .iter()
+            .position(|c| c.id == "SB-1")
+            .unwrap();
+        assert_eq!(
+            super::super::containers::resolve_drop_target(
+                &d.form.controls,
+                60,
+                60,
+                idx,
+                &d.active_tabs
+            ),
+            super::super::containers::DropTarget::Form
+        );
+        d.reparent_to_drop("SB-1");
+        assert_eq!(d.form.find_control("SB-1").unwrap().parent, None);
+
+        // And the canvas offers only the knobs that can do anything.
+        let knobs = handles_for(d.form.find_control("SB-1").unwrap());
+        assert_eq!(knobs, &HEIGHT_ONLY_HANDLES, "height only: the width is not draggable");
+        let panel = d.form.find_control("Panel-1").unwrap();
+        assert_eq!(handles_for(panel).len(), 8, "every other control keeps all eight");
     }
 
     /// 049 — the designer's per-frame sync is what makes a FullHeight

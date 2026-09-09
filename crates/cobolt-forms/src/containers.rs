@@ -259,6 +259,7 @@ pub fn ancestor_opacity(controls: &[Control], idx: usize) -> f32 {
 /// its descendants are never valid targets — cycle guard).
 ///
 /// Rules, innermost/topmost first:
+/// * a **StatusBar** always belongs to the form — see below;
 /// * over a **container's content area** → `Into` that container (R8); for a
 ///   `TabControl`, the active page's `tab` (R9 — chrome / inactive pages are not
 ///   content and are skipped);
@@ -271,6 +272,17 @@ pub fn resolve_drop_target(
     dragged: usize,
     active: &ActiveTabs,
 ) -> DropTarget {
+    // A status bar reports on the window, so it is never a child of anything
+    // (operator, 2026-09-09). Refusing it HERE rather than at the drop is what
+    // makes the drop hint agree with the drop: the hint asks this same
+    // question, so no container ever lights up for a status bar being dragged
+    // over it.
+    if controls
+        .get(dragged)
+        .is_some_and(|c| c.control_type == ControlType::StatusBar)
+    {
+        return DropTarget::Form;
+    }
     for &idx in render_order(controls).iter().rev() {
         if idx == dragged || is_descendant(controls, idx, dragged) {
             continue;
@@ -426,6 +438,40 @@ mod tests {
         assert_eq!(
             resolve_drop_target(&c, 100, 100, 0, &active),
             DropTarget::Form
+        );
+    }
+
+    /// A status bar dropped straight onto a container still belongs to the
+    /// form — the one control this is true of, and true wherever it is dropped
+    /// (operator, 2026-09-09). The same question drives the drop HINT, so no
+    /// container lights up for one either.
+    #[test]
+    fn a_status_bar_never_lands_in_a_container() {
+        let mut c = vec![
+            ctrl("Pnl", ControlType::Panel, 0, 0, 400, 300, None),
+            ctrl("Tabs", ControlType::TabControl, 0, 0, 300, 200, None),
+            ctrl("SB", ControlType::StatusBar, 20, 20, 200, 22, None),
+        ];
+        c[1].tab = Some(0);
+        let mut active = ActiveTabs::new();
+        active.insert("Tabs".into(), 0);
+
+        // Over the panel's content, over the tab page's content, over both.
+        for (x, y) in [(100, 100), (150, 150), (20, 250)] {
+            assert_eq!(
+                resolve_drop_target(&c, x, y, 2, &active),
+                DropTarget::Form,
+                "a status bar dropped at ({x}, {y}) must still belong to the form"
+            );
+        }
+
+        // The rule is about the STATUS BAR, not the point: an ordinary control
+        // dropped at the same place is still adopted.
+        c.push(ctrl("Btn", ControlType::Button, 0, 0, 60, 20, None));
+        assert_ne!(
+            resolve_drop_target(&c, 100, 100, 3, &active),
+            DropTarget::Form,
+            "the refusal must not have disabled containment for everything else"
         );
     }
 

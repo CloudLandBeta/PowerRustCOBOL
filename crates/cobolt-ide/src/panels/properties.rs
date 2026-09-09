@@ -4001,13 +4001,19 @@ impl PropertiesPanel {
         tr: &Tr,
     ) {
         section_header(ui, tr.sec_geometry);
+        // A StatusBar spans its window by rule, so its X and Width are the
+        // form's, not the developer's — the mirror of a FullHeight SideMenu on
+        // the other axis. Greyed rather than hidden: the numbers stay visible.
+        let horizontal_inert = ctrl.control_type == ControlType::StatusBar;
         let mut x = ctrl.rect.x;
-        property_row(ui, "X", |ui| {
-            if ui.add(DragValue::new(&mut x).speed(1)).changed() {
-                action
-                    .set_props
-                    .push((id.to_owned(), "X".into(), PropValue::Int(x as i64)));
-            }
+        ui.add_enabled_ui(!horizontal_inert, |ui| {
+            property_row(ui, "X", |ui| {
+                if ui.add(DragValue::new(&mut x).speed(1)).changed() {
+                    action
+                        .set_props
+                        .push((id.to_owned(), "X".into(), PropValue::Int(x as i64)));
+                }
+            });
         });
         // 049 — a FullHeight SideMenu owns the window's whole vertical extent,
         // so its Y and Height are the shell's to set, not the developer's.
@@ -4024,15 +4030,17 @@ impl PropertiesPanel {
             });
         });
         let mut w = ctrl.rect.w;
-        property_row(ui, "Width", |ui| {
-            if ui
-                .add(DragValue::new(&mut w).speed(1).range(1..=9999))
-                .changed()
-            {
-                action
-                    .set_props
-                    .push((id.to_owned(), "Width".into(), PropValue::Int(w as i64)));
-            }
+        ui.add_enabled_ui(!horizontal_inert, |ui| {
+            property_row(ui, "Width", |ui| {
+                if ui
+                    .add(DragValue::new(&mut w).speed(1).range(1..=9999))
+                    .changed()
+                {
+                    action
+                        .set_props
+                        .push((id.to_owned(), "Width".into(), PropValue::Int(w as i64)));
+                }
+            });
         });
         let mut h = ctrl.rect.h;
         ui.add_enabled_ui(!vertical_inert, |ui| {

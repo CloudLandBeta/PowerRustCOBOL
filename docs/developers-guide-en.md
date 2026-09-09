@@ -1639,6 +1639,18 @@ What you do **not** set is where they sit: the division line decides that.
 > round, and its `SplitPosition` (which used to be a pixel offset) is reset
 > to 50 %. Set the orientation you want and drag the line back into place —
 > it is a one-time correction, and nothing you put on the form is lost.
+A **StatusBar** is the width of its window, always. You do not set its `X` or
+its `Width` — they are the form's, they follow a form resize on their own, and
+the designer shows them greyed and offers only the top and bottom resize knobs.
+Its `Y` and `Height` are still yours: where along the bottom edge it sits, and
+how tall it is, are your decision. It is also **the one control that cannot go
+inside a container** — drop or drag it over a Panel, a GroupBox, a Splitter pane
+or a tab page and it belongs to the *form* just the same, with no container
+lighting up as a target. A status bar reports on the window, so a strip that is
+narrower than the window, or clipped inside a panel, is not one. (This is not
+the MenuBar's `MenuBarStyle`, which is a choice and defaults to the width you
+drew; a status bar has no such choice.)
+
 > A **SideMenu** is the one control that changes how the whole application
 > starts: put it on the main form and the application opens as a *shell* with a
 > navigation sidebar instead of one window per form — see

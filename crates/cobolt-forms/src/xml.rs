@@ -559,6 +559,11 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
     // …and every Responsive MenuBar to the form width, on load, for exactly
     // the same reason: one truthful rect, derived once.
     form.sync_menu_bar_responsive();
+    // …and every StatusBar, which has no property and no opt-out: full width,
+    // and never inside a container. A form hand-edited (or saved before the
+    // rule existed) with a status bar nested in a Panel is repaired here
+    // rather than in each surface.
+    form.sync_status_bars();
     // …and every Splitter's two pane Panels, for the same reason: they are
     // derived geometry, so deriving them once on load means the designer, the
     // preview, the running form, the shell and codegen all read the same two

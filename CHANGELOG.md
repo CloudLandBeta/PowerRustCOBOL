@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.100] — 2026-09-09
+
+### A status bar is the width of its window, and is never inside a container
+
+Two rules the control did not enforce, and now does with no property to set and
+no way to opt out (operator, 2026-09-09).
+
+**Its width is the window's.** `X` is 0 and `Width` is the form's width, and it
+follows a form resize on its own. A status bar reports on the WINDOW, so a strip
+narrower than the window is not one — which is why this is not the MenuBar's
+`MenuBarStyle`, an opt-in that defaults to leaving the bar where it was drawn.
+`Y` and `Height` stay the developer's: where along the bottom edge it sits, and
+how tall it is, are still theirs. In the designer the left and right resize
+knobs are no longer offered — only the top and bottom ones — and `X` and `Width`
+are greyed in the inspector, the way a FullHeight SideMenu's `Y` and `Height`
+already were. The numbers stay readable; they simply are not editable.
+
+**It is never inside a container.** Dropping or dragging one over a Panel, a
+GroupBox, a Splitter pane or a TabControl page parents it to the form instead,
+and no container lights up as a drop target while one is being dragged — the
+refusal lives in the shared drop resolver, which is the same question the drop
+HINT asks, so the highlight and the drop can never disagree.
+
+Both rules are applied to the MODEL, on load and on every designer frame, which
+is what makes every surface agree without any of them knowing the rules exist:
+designer canvas, preview, Run Form and a compiled application all read one
+corrected rect. Both loaders go through `read_form`, so `rcrun run-form`,
+embedded child forms and the compiled binary are covered by construction.
+
+A form whose XML nests a status bar in a container — hand-edited, or saved
+before this — is repaired on load: the bar is moved out to the form and keeps
+its id, its properties and its handlers. Moved, never removed. The one status
+bar in the shipped example project was already full width with no parent, so no
+shipped form changes.
+
+System KB updated and `chunked.data` regenerated in the same change.
+
 ## [PowerRustCOBOL 1.65.99] — 2026-09-09
 
 ### The documentation window was slow, would not take the arrow keys, and showed no screenshots

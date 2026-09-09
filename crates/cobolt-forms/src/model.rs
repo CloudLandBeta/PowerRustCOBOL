@@ -7131,6 +7131,39 @@ impl Form {
         walk(&mut self.controls, form_w);
     }
 
+    /// Pin every StatusBar to the form's full width, and take it out of any
+    /// container it has ended up in (operator, 2026-09-09).
+    ///
+    /// Unlike the MenuBar's `Responsive`, this is not a property and there is
+    /// no opt-out: a status bar reports on the WINDOW, so a strip narrower than
+    /// the window — or one clipped inside a Panel, a GroupBox or a tab page —
+    /// is not a status bar. Applying it to the MODEL is what makes every
+    /// surface agree without any of them knowing the rule exists: designer
+    /// canvas, preview, Run Form and a compiled application all read one
+    /// corrected rect.
+    ///
+    /// Only x and width are taken. The bar's Y and Height stay the
+    /// developer's — where along the bottom edge it sits, and how tall it is,
+    /// are still theirs to choose.
+    ///
+    /// Un-parenting is not deletion: the control, its properties and its
+    /// handlers are untouched, and it reappears on the form itself.
+    pub fn sync_status_bars(&mut self) {
+        let form_w = self.width as i32;
+        fn walk(controls: &mut [Control], form_w: i32) {
+            for c in controls {
+                if c.control_type == ControlType::StatusBar {
+                    c.parent = None;
+                    c.tab = None;
+                    c.rect.x = 0;
+                    c.rect.w = form_w.max(1);
+                }
+                walk(&mut c.children, form_w);
+            }
+        }
+        walk(&mut self.controls, form_w);
+    }
+
     pub fn sync_side_menu_full_height(&mut self) {
         let form_h = self.height as i32;
         fn walk(controls: &mut [Control], form_h: i32) {
@@ -8092,6 +8125,60 @@ mod tests {
         assert_eq!(distance_to_segment(14.0, 0.0, a, b), 4.0);
         // A degenerate segment is a point.
         assert_eq!(distance_to_segment(3.0, 4.0, a, a), 5.0);
+    }
+
+    /// A status bar is as wide as its window, always — and unlike the MenuBar
+    /// there is no property and no opt-out. Its Y and Height stay the
+    /// developer's.
+    #[test]
+    fn a_status_bar_spans_the_form_width_and_keeps_its_own_height() {
+        let mut form = Form::new("F", "F", 1288, 720);
+        let mut bar = Control::new("SB", ControlType::StatusBar, 40, 690);
+        bar.rect = Rect::new(40, 690, 400, 22);
+        form.add_control(bar);
+
+        form.sync_status_bars();
+        let bar = form.find_control("SB").expect("bar");
+        assert_eq!((bar.rect.x, bar.rect.w), (0, 1288), "full width, from x = 0");
+        assert_eq!(
+            (bar.rect.y, bar.rect.h),
+            (690, 22),
+            "where it sits and how tall it is stay the developer's"
+        );
+
+        // …and it follows a form resize with nothing to set.
+        form.width = 640;
+        form.sync_status_bars();
+        assert_eq!(form.find_control("SB").expect("bar").rect.w, 640);
+    }
+
+    /// A status bar nested in a container — by a hand-edited `.cfrm`, or one
+    /// saved before the rule existed — is moved out to the form. Moved, never
+    /// removed: the control keeps its id, its properties and its handlers.
+    #[test]
+    fn a_status_bar_is_taken_out_of_any_container() {
+        let mut form = Form::new("F", "F", 900, 600);
+        form.add_control(Control::new("Panel-1", ControlType::Panel, 20, 20));
+        let mut bar = Control::new("SB", ControlType::StatusBar, 30, 500);
+        bar.rect = Rect::new(30, 500, 200, 22);
+        bar.parent = Some("Panel-1".into());
+        bar.tab = Some(2);
+        bar.set_prop("Items", PropValue::String("Ready".into()));
+        form.add_control(bar);
+
+        form.sync_status_bars();
+        let bar = form.find_control("SB").expect("the bar is never deleted");
+        assert_eq!(bar.parent, None, "a status bar belongs to the form");
+        assert_eq!(bar.tab, None, "and to no tab page either");
+        assert_eq!(
+            bar.get_prop("Items").map(|v| v.as_str().to_string()),
+            Some("Ready".to_string()),
+            "moving it must not touch what the developer put on it"
+        );
+        assert!(
+            form.find_control("Panel-1").is_some(),
+            "the container it came out of is untouched"
+        );
     }
 
     /// A MenuBar ships `Free`: the width it was drawn at, exactly as before
