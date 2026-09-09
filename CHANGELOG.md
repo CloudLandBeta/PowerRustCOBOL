@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.96] — 2026-09-09
+
+### A chart ignored its own FontSize
+
+The inspector offers a chart a **FontSize** row like any other control, and it
+moved nothing: not the title, not the legend, not the axis captions, not the
+value labels (operator, 2026-09-09). Every size in `draw_chart_preview` was
+`CHART_FONT_SCALE` applied to a hard-coded 8, 9 or 10 pt, and the control's own
+property was never read.
+
+The scale is now per-control — `CHART_FONT_SCALE * (FontSize / CHART_FONT_BASE)`
+— and it multiplies the reserved bands as well as the type, so larger text takes
+room rather than overlapping the plot, which is what the constant was written to
+do in the first place.
+
+**An untouched chart is left exactly where it was.** `CHART_FONT_BASE` is 14,
+the value `Control::new` seeds every control's `FontSize` at, so a chart nobody
+has restyled scales by exactly 1.0. It is also the fallback when the property is
+absent — deliberately not `ctrl_font_size`'s own 11 — because a chart read from
+a `.cfrm` written before the property existed carries none, and answering 11
+there would have quietly shrunk every existing chart by a fifth.
+
+`chart_type_follows_the_controls_font_size` pins both halves: the untouched
+chart still draws at 16/18/20 pt, and doubling `FontSize` doubles every one of
+them to 32/36/40.
+
 ## [PowerRustCOBOL 1.65.95] — 2026-09-09
 
 ### Liquid Glass buttons were striped on Windows and clean on macOS

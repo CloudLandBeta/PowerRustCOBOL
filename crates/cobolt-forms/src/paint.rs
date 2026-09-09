@@ -8561,6 +8561,19 @@ fn grad_area_mesh(
 /// takes room rather than overlapping the plot.
 pub(crate) const CHART_FONT_SCALE: f32 = 2.0;
 
+/// The `FontSize` an untouched chart carries, and therefore the size the scale
+/// above is expressed against.
+///
+/// `Control::new` seeds every control's `FontSize` at 14, so dividing by that
+/// same number leaves a chart nobody has restyled scaled by exactly 1.0 —
+/// looking precisely as it did.
+///
+/// It is ALSO the fallback when the property is absent, which is not the same
+/// as [`ctrl_font_size`]'s: a chart read from a `.cfrm` written before the
+/// property existed has none, and answering 11 there would have quietly shrunk
+/// every existing chart by a fifth.
+pub(crate) const CHART_FONT_BASE: f32 = 14.0;
+
 fn grad_slice_mesh(
     center: Pos2,
     start: f32,
@@ -8641,6 +8654,22 @@ pub fn draw_chart_preview(
 
     let _ = selected; // selection border drawn by caller
     let control_rect = rect;
+
+    // Every piece of type a chart draws — the title, the legend, the axis
+    // captions, the value labels — and every band reserved to hold them scales
+    // with the control's own `FontSize`, the way text on every other control
+    // does. It did not before: the sizes below were the constant alone, so the
+    // FontSize row the inspector offers moved nothing at all on a chart
+    // (operator, 2026-09-09).
+    //
+    // Expressed against `CHART_FONT_BASE` so a chart nobody has restyled is
+    // scaled by exactly 1.0 and is left as it was.
+    let chart_font_size = ctrl
+        .get_prop("FontSize")
+        .map(|v| v.as_i64() as f32)
+        .unwrap_or(CHART_FONT_BASE)
+        .clamp(4.0, 200.0);
+    let type_scale = CHART_FONT_SCALE * (chart_font_size / CHART_FONT_BASE);
 
     // ── Background ────────────────────────────────────────────────────────────
     // `HideBackground` suppresses the panel fill + border frame so only the chart
@@ -8835,24 +8864,24 @@ pub fn draw_chart_preview(
         * 255.0) as u8;
     // Read before the layout: the top band has to be sized against it.
     let title_text = chart_str("Title");
-    let cap_font = egui::FontId::proportional(9.0 * CHART_FONT_SCALE);
-    let legend_font = egui::FontId::proportional(9.0 * CHART_FONT_SCALE);
+    let cap_font = egui::FontId::proportional(9.0 * type_scale);
+    let legend_font = egui::FontId::proportional(9.0 * type_scale);
     // Room reserved for whatever the properties asked to be drawn. Reserved
     // rather than overlaid: a caption written across the plot is worse than no
     // caption at all.
     //
     // Every band scales with the type, or doubling the font would simply write
     // twice the text into the same strip (operator, 2026-09-02).
-    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 * CHART_FONT_SCALE };
-    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 * CHART_FONT_SCALE };
+    let cap_h = if x_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
+    let cap_w = if y_caption.is_empty() { 0.0 } else { 13.0 * type_scale };
     // A pie's legend lists its slices, so it stands beside the chart; a
     // category chart's lists its series, so it sits under it.
     let legend_w = if show_legend && is_pie {
-        (rect.width() * 0.30).min(90.0 * CHART_FONT_SCALE)
+        (rect.width() * 0.30).min(90.0 * type_scale)
     } else {
         0.0
     };
-    let legend_h = if show_legend && !is_pie { 13.0 * CHART_FONT_SCALE } else { 0.0 };
+    let legend_h = if show_legend && !is_pie { 13.0 * type_scale } else { 0.0 };
 
     // Inner plot area (leave margin for axes / labels).
     //
@@ -8862,7 +8891,7 @@ pub fn draw_chart_preview(
     let title_band = if title_text.is_empty() {
         0.0
     } else {
-        10.0 * CHART_FONT_SCALE * 1.5
+        10.0 * type_scale * 1.5
     };
     let mut margin_l = rect.width() * 0.10 + cap_w;
     let mut margin_b = rect.height() * 0.12 + cap_h + legend_h;
@@ -8920,7 +8949,7 @@ pub fn draw_chart_preview(
             Pos2::new(rect.center().x, rect.min.y + margin_t * 0.5),
             egui::Align2::CENTER_CENTER,
             &title_text,
-            egui::FontId::proportional(10.0 * CHART_FONT_SCALE),
+            egui::FontId::proportional(10.0 * type_scale),
             // Dark grey when the face can carry it, and the readable pole when
             // it cannot — a fixed grey was invisible on a dark `Monochrome`
             // face and near-invisible on a white one (operator, 2026-09-02).
@@ -9333,7 +9362,7 @@ pub fn draw_chart_preview(
                             at,
                             egui::Align2::CENTER_CENTER,
                             text,
-                            egui::FontId::proportional(9.0 * CHART_FONT_SCALE),
+                            egui::FontId::proportional(9.0 * type_scale),
                             // Against what the slice IS, so a dark gradient
                             // takes white ink instead of the near-black it was
                             // getting (operator, 2026-09-02).
@@ -9483,7 +9512,7 @@ pub fn draw_chart_preview(
             Pos2::new(rect.center().x, rect.max.y - margin_b * 0.4),
             egui::Align2::CENTER_CENTER,
             format!("⬡ {ds}"),
-            egui::FontId::proportional(8.5 * CHART_FONT_SCALE),
+            egui::FontId::proportional(8.5 * type_scale),
             hint_c,
         );
     }
@@ -9507,7 +9536,7 @@ pub fn draw_chart_preview(
             Pos2::new(rect.max.x - margin_r - 2.0, rect.min.y + margin_t * 0.45),
             egui::Align2::RIGHT_CENTER,
             badge,
-            egui::FontId::proportional(8.0 * CHART_FONT_SCALE),
+            egui::FontId::proportional(8.0 * type_scale),
             badge_c,
         );
     }
@@ -16288,6 +16317,97 @@ slice = [4, 4, 4, 4]
              difference that can be represented at all; more than that is a \
              real change, and macOS renders this control correctly today"
         );
+    }
+
+    /// A chart's type follows the control's `FontSize`.
+    ///
+    /// It did not: every size in `draw_chart_preview` was the constant alone,
+    /// so the FontSize row the inspector offers on a chart moved the title, the
+    /// legend, the captions and the value labels not at all (operator,
+    /// 2026-09-09).
+    ///
+    /// The untouched size is pinned in the same test, because scaling text is
+    /// only safe if a chart nobody restyled is left exactly as it was.
+    #[test]
+    fn chart_type_follows_the_controls_font_size() {
+        let sizes_at = |font_size: Option<i64>| -> Vec<u32> {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            c.set_prop("Title", PropValue::String("Quarterly".into()));
+            c.set_prop("XAxisLabel", PropValue::String("Quarter".into()));
+            if let Some(fs) = font_size {
+                c.set_prop("FontSize", PropValue::Int(fs));
+            }
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, out: &mut Vec<u32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Text(t) => {
+                        // The REQUESTED size, not the rasterised row height:
+                        // the atlas rounds heights to what it has, which hides
+                        // the factor being measured.
+                        for sec in &t.galley.job.sections {
+                            out.push((sec.format.font_id.size * 100.0).round() as u32);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out.sort_unstable();
+            out.dedup();
+            out
+        };
+
+        let untouched = sizes_at(None);
+        let doubled = sizes_at(Some((CHART_FONT_BASE as i64) * 2));
+
+        println!("\n  Chart glyph heights (x100):");
+        println!("    untouched:     {untouched:?}");
+        println!("    FontSize x2:   {doubled:?}");
+
+        assert!(
+            !untouched.is_empty(),
+            "the chart drew no text at all — the fixture is wrong, not the code"
+        );
+        // The sizes the chart shipped with: 8, 9 and 10 pt through
+        // `CHART_FONT_SCALE`. Pinned, because scaling type is only safe if a
+        // chart nobody restyled — including one read from a `.cfrm` that
+        // predates the property — is left exactly where it was.
+        assert_eq!(
+            untouched,
+            vec![1600, 1800, 2000],
+            "an untouched chart no longer draws at its original sizes"
+        );
+        assert_ne!(
+            untouched, doubled,
+            "doubling FontSize changed nothing: a chart still ignores it"
+        );
+
+        // Every height must have grown, and by the factor asked for.
+        assert_eq!(
+            untouched.len(),
+            doubled.len(),
+            "doubling FontSize changed WHICH text is drawn, not just its size"
+        );
+        for (u, d) in untouched.iter().zip(&doubled) {
+            let ratio = f64::from(*d) / f64::from(*u);
+            assert!(
+                (ratio - 2.0).abs() < 0.12,
+                "a glyph went from {u} to {d} (x{ratio:.2}) — the scale is not \
+                 reaching every piece of type"
+            );
+        }
     }
 
     /// T7/AC9 — under Elegance the glass style is inert.
