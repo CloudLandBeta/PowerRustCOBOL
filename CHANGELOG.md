@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.95] — 2026-09-09
+
+### Liquid Glass buttons were striped on Windows and clean on macOS
+
+The frosted field of `draw_glass` and `draw_glass_enhanced` was a stack of one
+translucent `rect_filled` per point-row. egui antialiases each rect on its own,
+so two abutting translucent bands feather **against** each other instead of
+summing — and whether that shows depends entirely on how tall a band lands in
+physical pixels. At `pixels_per_point` 2, a retina Mac, a band is 2 px and the
+feather falls on the boundary invisibly. At the 1 and 1.25 a Windows machine
+usually runs, the feather is as wide as the band itself and every boundary
+draws a line: the horizontal striping across the whole face (operator,
+2026-09-09, with a screenshot of each platform).
+
+`glass_frost_gradient` draws it as **one mesh** whose consecutive rows share
+their vertices, so there is no interior edge left to feather and the GPU
+interpolates between them. It is the same reason `draw_glass_circle` has always
+used polygon fans rather than stacked `circle_filled`s, noted there as giving
+"zero banding".
+
+**Nothing changes on the platform that was already correct.** The mesh keeps the
+bands' own parameterisation, so every vertex carries the colour its band
+carried and the gradient runs through the identical sequence at the identical
+heights; only the transition between two neighbours becomes a ramp rather than
+a step. The curve is now sampled at least 256 times whatever the control's
+height — the bands could sample only once per point, which on a 20 px control
+left neighbours 7/255 apart and a ramp up to 4/255 from the step it replaced.
+At 256 samples neighbours are 1/255 apart, so the most any pixel can move is
+**1/255**: one 8-bit step, the smallest difference representable.
+`the_mesh_cannot_shift_a_pixel_a_display_could_show` measures and pins that.
+
+`the_glass_face_does_not_emit_one_primitive_per_row` pins the defect itself:
+the face emitted 32 primitives at 24 px and 248 at 240 px, and now emits 9 at
+both. It was verified to fail without the change.
+
+**Two guards re-blessed, and one deliberately not.** The 057 corner goldens
+move from 84 lines to 38: every removed line is a 1 px `RECT` and the single
+`MESH` that replaces them carries the same bbox and the same clip, so the mask
+geometry those goldens exist to pin is untouched. The Elegance baseline moves
+on its four glass rows — and **not** on its two Neumorphic ones, which stay at
+641/657 because that style paints its own relief and never reached the band
+stack. That the Neumorphic rows did not move is the check that this changed the
+frost and nothing else.
+
+Two test helpers that walked shapes looking only for `Shape::Rect` now read
+meshes as well. They were blind to a whole class of primitive — background
+gradients have been meshes for some time — so what they measure no longer
+depends on which primitive a face happens to use.
+
 ## [PowerRustCOBOL 1.65.94] — 2026-09-09
 
 ### Help → Examples was greyed out in every release build

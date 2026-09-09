@@ -34,6 +34,25 @@ fn fills(ctrl: &Control, style: GlassStyle) -> Vec<(egui::Rect, Color32)> {
         match s {
             egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, p)),
             egui::Shape::Rect(r) => p.push((r.rect, r.fill)),
+            // The glass face is ONE mesh of shared-vertex rows rather than a
+            // stack of rects, so each row is reported as the rect it covers —
+            // what is measured must not depend on the primitive.
+            egui::Shape::Mesh(m) => {
+                let rows: Vec<&[egui::epaint::Vertex]> = m.vertices.chunks(2).collect();
+                for w in rows.windows(2) {
+                    let (top, bot) = (w[0], w[1]);
+                    if top.len() < 2 || bot.len() < 2 {
+                        continue;
+                    }
+                    p.push((
+                        egui::Rect::from_min_max(
+                            top[0].pos,
+                            egui::pos2(bot[1].pos.x, bot[0].pos.y),
+                        ),
+                        top[0].color,
+                    ));
+                }
+            }
             _ => {}
         }
     }

@@ -706,6 +706,120 @@ fn glass_frost_opacity(bg_underlay: Option<Color32>) -> f32 {
 }
 
 
+/// The frosted field and depth tint of the glass styles, as **one mesh**.
+///
+/// This replaces a stack of one translucent `rect_filled` per point-row. Each
+/// such rect is antialiased on its own, so two abutting translucent bands
+/// feather against each other instead of summing, and whether that shows
+/// depends entirely on how tall a band lands in PHYSICAL pixels: at
+/// `pixels_per_point` 2 (a macOS retina display) a band is 2 px and the feather
+/// falls on the boundary invisibly, while at 1 or 1.25 — the usual Windows
+/// scales — the feather is as wide as the band itself and every boundary draws
+/// a line. That is the horizontal striping reported on Windows and never seen
+/// on macOS (operator, 2026-09-09).
+///
+/// Consecutive rows here SHARE their vertices, so there is no interior edge
+/// left to feather and the GPU interpolates the colour across it. It is the
+/// same reason [`draw_glass_circle`] uses polygon fans rather than stacked
+/// `circle_filled`s, noted there as giving "zero banding".
+///
+/// The rows, the colour curve and the per-row corner insets are unchanged; only
+/// the primitive they are drawn with is.
+fn glass_frost_gradient(
+    painter: &egui::Painter,
+    x0: f32,
+    x1: f32,
+    y0: f32,
+    y1: f32,
+    rnd: egui::CornerRadius,
+    base: Color32,
+    am: f32,
+    frost: f32,
+) {
+    let h = y1 - y0;
+    if h <= 0.0 || x1 <= x0 {
+        return;
+    }
+
+    // Each row is horizontally inset to follow the rounded corner arcs (egui's
+    // rounding on a 1px-tall rect is capped to 0.5px, so we compute it here).
+    let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
+        let dy = (y - edge).abs();
+        if dy >= r || r < 0.5 {
+            return 0.0;
+        }
+        // Extra 0.5px so the fill sits under the border stroke's inner edge
+        (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
+    };
+
+    let colour_at = |u: f32| -> Color32 {
+        let u = u.clamp(0.0, 1.0);
+        let smooth = u * u * (3.0 - 2.0 * u);
+        let glass_alpha = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
+        let lip = 10.0 * (1.0 - u).powf(5.2);
+        let mix_base = 0.035;
+        let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
+        let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
+        let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
+        let ga = ((glass_alpha + lip) * am * frost).clamp(0.0, 255.0);
+        let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) * frost;
+        let dr = 28.0 * am * da / 255.0;
+        let dg = 44.0 * am * da / 255.0;
+        let db = 56.0 * am * da / 255.0;
+        let d_alpha = da * am;
+        Color32::from_rgba_premultiplied(
+            (gr * ga / 255.0 + dr).clamp(0.0, 255.0) as u8,
+            (gg * ga / 255.0 + dg).clamp(0.0, 255.0) as u8,
+            (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8,
+            (ga + d_alpha).clamp(0.0, 255.0) as u8,
+        )
+    };
+
+    // One row per point, as the bands were: the curve's `lip` term is very
+    // sharp near the top, so it is sampled densely rather than at a few stops.
+    //
+    // `t` keeps the bands' OWN parameterisation — `i / (rows - 1)`, not
+    // `(y - y0) / h` — so vertex `i` carries exactly the colour band `i` had.
+    // The gradient therefore passes through the identical sequence of colours
+    // and only the transition between two of them changes, from a hard step
+    // (plus the feathered seam this is removing) to a linear ramp. That is what
+    // keeps a display where the seam was already invisible — a 2x retina one —
+    // looking exactly as it did.
+    // At least 256 samples, whatever the control's height. The bands could only
+    // ever sample once per point, so on a short control two neighbours were up
+    // to 7/255 apart and a ramp between them could sit 4/255 from the step it
+    // replaced — small, but not nothing, and macOS renders this correctly
+    // today. Sampling the curve finely enough that neighbours differ by ~1/255
+    // makes the ramp and the step round to the same 8-bit colour.
+    let rows = (h.ceil() as usize).max(256);
+    // `t` at a given y is the bands' own mapping — band `i` sat at `y0 + i`
+    // with `t = i / (rows - 1)` — so every colour the gradient used to pass
+    // through is still passed through, at the same height.
+    let span = (h - 1.0).max(1.0);
+    let uv = egui::pos2(0.0, 0.0);
+    let mut mesh = egui::epaint::Mesh::default();
+    for i in 0..=rows {
+        let y = y0 + h * i as f32 / rows as f32;
+        let colour = colour_at((y - y0) / span);
+        let left = arc_inset(y, f32::from(rnd.nw), y0).max(arc_inset(y, f32::from(rnd.sw), y1));
+        let right = arc_inset(y, f32::from(rnd.ne), y0).max(arc_inset(y, f32::from(rnd.se), y1));
+        let bx0 = x0 + left;
+        let bx1 = (x1 - right).max(bx0);
+        for x in [bx0, bx1] {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: Pos2::new(x, y),
+                uv,
+                color: colour,
+            });
+        }
+    }
+    for i in 0..rows {
+        let a = (i * 2) as u32;
+        mesh.indices.extend([a, a + 1, a + 2, a + 1, a + 3, a + 2]);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
 pub fn draw_glass(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -773,73 +887,8 @@ pub fn draw_glass(
     // `glass_frost_opacity`. `1.0` (nobody picked one) is the look as it was.
     let frost = glass_frost_opacity(bg_underlay);
 
-    // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
-    // Each 1px band is horizontally inset to follow the rounded corner arcs
-    // (egui's rounding on a 1px-tall rect is capped to 0.5px, so we compute
-    // the inset ourselves). This gives perfect rounded corners with no bleed.
-    {
-        let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
-            let dy = (y - edge).abs();
-            if dy >= r || r < 0.5 {
-                return 0.0;
-            }
-            // Extra 0.5px so the fill sits under the border stroke's inner edge
-            (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
-        };
-        let band_count = h.ceil() as usize;
-        for i in 0..band_count {
-            let t = i as f32 / (band_count as f32 - 1.0).max(1.0);
-            let y_top = y0 + i as f32;
-            let y_bot = (y_top + 1.0).min(y1);
-            if y_bot <= y_top {
-                continue;
-            }
-
-            // Use the y closest to each corner edge for tightest inset
-            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(
-                y_bot,
-                f32::from(rnd.sw),
-                y1,
-            ));
-            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(
-                y_bot,
-                f32::from(rnd.se),
-                y1,
-            ));
-            let bx0 = x0 + left_inset;
-            let bx1 = x1 - right_inset;
-            if bx1 <= bx0 {
-                continue;
-            }
-
-            let band_rect = egui::Rect::from_min_max(Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot));
-
-            let u = t.clamp(0.0, 1.0);
-            let smooth = u * u * (3.0 - 2.0 * u);
-            let glass_alpha = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
-            let lip = 10.0 * (1.0 - u).powf(5.2);
-            let mix_base = 0.035;
-            let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
-            let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
-            let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
-            let ga = ((glass_alpha + lip) * am * frost).clamp(0.0, 255.0);
-            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) * frost;
-            let dr = 28.0 * am * da / 255.0;
-            let dg = 44.0 * am * da / 255.0;
-            let db = 56.0 * am * da / 255.0;
-            let d_alpha = da * am;
-            let fr = (gr * ga / 255.0 + dr).clamp(0.0, 255.0) as u8;
-            let fg = (gg * ga / 255.0 + dg).clamp(0.0, 255.0) as u8;
-            let fb = (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8;
-            let fa = (ga + d_alpha).clamp(0.0, 255.0) as u8;
-
-            painter.rect_filled(
-                band_rect,
-                0.0,
-                Color32::from_rgba_premultiplied(fr, fg, fb, fa),
-            );
-        }
-    }
+    // ── 2+3. Frosted field + depth tint ───────────────────────────────────────
+    glass_frost_gradient(painter, x0, x1, y0, y1, rnd, base, am, frost);
 
     // ── 4. Single rounded frame ───────────────────────────────────────────────
     let (border_w, border_c) = if selected {
@@ -942,64 +991,8 @@ pub fn draw_glass_enhanced(
     // `glass_frost_opacity`. `1.0` (nobody picked one) is the look as it was.
     let frost = glass_frost_opacity(bg_underlay);
 
-    // ── 2+3. Frosted field + depth tint via stacked rounded-rect bands ─────
-    {
-        let arc_inset = |y: f32, r: f32, edge: f32| -> f32 {
-            let dy = (y - edge).abs();
-            if dy >= r || r < 0.5 {
-                return 0.0;
-            }
-            (r - (r * r - (r - dy) * (r - dy)).max(0.0).sqrt() + 0.5).max(0.0)
-        };
-        let band_count = h.ceil() as usize;
-        for i in 0..band_count {
-            let t = i as f32 / (band_count as f32 - 1.0).max(1.0);
-            let y_top = y0 + i as f32;
-            let y_bot = (y_top + 1.0).min(y1);
-            if y_bot <= y_top {
-                continue;
-            }
-            let left_inset = arc_inset(y_top, f32::from(rnd.nw), y0).max(arc_inset(
-                y_bot,
-                f32::from(rnd.sw),
-                y1,
-            ));
-            let right_inset = arc_inset(y_top, f32::from(rnd.ne), y0).max(arc_inset(
-                y_bot,
-                f32::from(rnd.se),
-                y1,
-            ));
-            let bx0 = x0 + left_inset;
-            let bx1 = x1 - right_inset;
-            if bx1 <= bx0 {
-                continue;
-            }
-            let band_rect = egui::Rect::from_min_max(Pos2::new(bx0, y_top), Pos2::new(bx1, y_bot));
-            let u = t.clamp(0.0, 1.0);
-            let smooth = u * u * (3.0 - 2.0 * u);
-            let glass_alpha = 30.0 + 82.0 * (1.0 - smooth).powf(1.18);
-            let lip = 10.0 * (1.0 - u).powf(5.2);
-            let mix_base = 0.035;
-            let gr = 255.0 * (1.0 - mix_base) + base.r() as f32 * mix_base;
-            let gg = 255.0 * (1.0 - mix_base) + base.g() as f32 * mix_base;
-            let gb = 255.0 * (1.0 - mix_base) + base.b() as f32 * mix_base;
-            let ga = ((glass_alpha + lip) * am * frost).clamp(0.0, 255.0);
-            let da = (1.0 + 13.0 * smooth.powf(1.5)).clamp(0.0, 18.0) * frost;
-            let dr = 28.0 * am * da / 255.0;
-            let dg = 44.0 * am * da / 255.0;
-            let db = 56.0 * am * da / 255.0;
-            let d_alpha = da * am;
-            let fr = (gr * ga / 255.0 + dr).clamp(0.0, 255.0) as u8;
-            let fg = (gg * ga / 255.0 + dg).clamp(0.0, 255.0) as u8;
-            let fb = (gb * ga / 255.0 + db).clamp(0.0, 255.0) as u8;
-            let fa = (ga + d_alpha).clamp(0.0, 255.0) as u8;
-            painter.rect_filled(
-                band_rect,
-                0.0,
-                Color32::from_rgba_premultiplied(fr, fg, fb, fa),
-            );
-        }
-    }
+    // ── 2+3. Frosted field + depth tint ───────────────────────────────────────
+    glass_frost_gradient(painter, x0, x1, y0, y1, rnd, base, am, frost);
 
     // ── 4. Highlight band (top edge, locked light direction) ─────────────────
     // A bright translucent strip along the top ~6-8 px, implying overhead light.
@@ -16175,6 +16168,128 @@ slice = [4, 4, 4, 4]
         assert_eq!(theme_alpha(half, 0.5).a(), 64);
     }
 
+    /// The glass face is ONE mesh, not a stack of one rect per point-row.
+    ///
+    /// Stacked translucent rects are what striped the Liquid Glass buttons on
+    /// Windows and not on macOS: each rect is antialiased on its own, so two
+    /// abutting bands feather against each other, and the feather only
+    /// disappears when a band happens to be 2 physical pixels tall — which is
+    /// the retina case and not the 1x/1.25x Windows one (operator, 2026-09-09).
+    ///
+    /// The defect is invisible to a colour check and impossible to reproduce
+    /// headlessly at a fixed scale, so what is asserted is the property that
+    /// caused it: the number of primitives the face emits must NOT grow with
+    /// the control's height. A per-row stack fails this by construction; a
+    /// shared-vertex mesh passes it at any size.
+    #[test]
+    fn the_glass_face_does_not_emit_one_primitive_per_row() {
+        let button_of_height = |h: f32| -> Vec<Control> {
+            let mut c = Control::new("Button-1", ControlType::Button, 10, 10);
+            c.rect = crate::model::Rect::new(10, 10, 300, h as i32);
+            vec![c]
+        };
+
+        // Two heights far enough apart that a per-row stack could not hide it.
+        let short = painted_leaf_count(&button_of_height(24.0), GS::Classic, None, glass());
+        let tall = painted_leaf_count(&button_of_height(240.0), GS::Classic, None, glass());
+
+        println!("\n  Liquid Glass button — painted primitives by height:");
+        println!("    height  24: {short}");
+        println!("    height 240: {tall}");
+
+        assert_eq!(
+            short, tall,
+            "the glass face still scales with height: {short} primitives at 24px \
+             but {tall} at 240px. That is a per-row stack, and a stack of \
+             translucent antialiased rects is what stripes on a 1x display."
+        );
+    }
+
+    /// What the mesh can change on a display that never showed the striping.
+    ///
+    /// The mesh keeps the bands' own parameterisation, so vertex `i` carries
+    /// exactly the colour band `i` had: the gradient runs through the identical
+    /// sequence of colours. The ONLY difference is that the transition between
+    /// two neighbours is a linear ramp instead of a hard step, so the largest
+    /// deviation any pixel can see is half the gap between two adjacent rows.
+    ///
+    /// This measures that gap. macOS renders this control correctly today, and
+    /// this is the bound on how far the fix can move it (operator asked for
+    /// exactly this guarantee, 2026-09-09).
+    #[test]
+    fn the_mesh_cannot_shift_a_pixel_a_display_could_show() {
+        let ctx = egui::Context::default();
+        set_glass_style(&ctx, GS::Classic);
+        set_surface_theme(&ctx, glass());
+
+        let mut worst = 0i32;
+        let mut worst_h = 0i32;
+        for h in [20, 24, 32, 40, 64, 120, 240, 300] {
+            let mut c = Control::new("Button-1", ControlType::Button, 10, 10);
+            c.rect = crate::model::Rect::new(10, 10, 300, h);
+
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0)));
+            let mut full = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+                    });
+            });
+            full.textures_delta.clear();
+
+            fn meshes(s: &egui::Shape, out: &mut Vec<egui::epaint::Mesh>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| meshes(s, out)),
+                    egui::Shape::Mesh(m) => out.push((**m).clone()),
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for cs in &full.shapes {
+                meshes(&cs.shape, &mut found);
+            }
+            let face = found
+                .iter()
+                .max_by_key(|m| m.vertices.len())
+                .expect("the glass face is painted as a mesh");
+
+            // Two vertices per row; compare row i against row i + 1.
+            for pair in face.vertices.chunks(2).collect::<Vec<_>>().windows(2) {
+                let (a, b) = (pair[0][0].color, pair[1][0].color);
+                for (x, y) in [
+                    (a.r(), b.r()),
+                    (a.g(), b.g()),
+                    (a.b(), b.b()),
+                    (a.a(), b.a()),
+                ] {
+                    let d = (i32::from(x) - i32::from(y)).abs();
+                    if d > worst {
+                        worst = d;
+                        worst_h = h;
+                    }
+                }
+            }
+        }
+
+        // Half the largest adjacent-row gap, rounded up: the most a ramp can
+        // sit away from the step it replaced.
+        let max_shift = worst.div_euclid(2) + worst.rem_euclid(2);
+        println!(
+            "\n  Glass face — largest gap between adjacent rows: {worst}/255 \
+             (at height {worst_h}px)"
+        );
+        println!("  So the most any pixel can move: {max_shift}/255\n");
+
+        assert!(
+            max_shift <= 1,
+            "a pixel could move {max_shift}/255. One 8-bit step is the smallest \
+             difference that can be represented at all; more than that is a \
+             real change, and macOS renders this control correctly today"
+        );
+    }
+
     /// T7/AC9 — under Elegance the glass style is inert.
     ///
     /// The whole point of the R13 seam: before it, a checkbox's tick box (and
@@ -16620,6 +16735,28 @@ slice = [4, 4, 4, 4]
                     egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rects, texts)),
                     egui::Shape::Rect(r) => {
                         rects.push((r.fill, r.rect, r.corner_radius.nw as f32))
+                    }
+                    // The glass face is ONE mesh of shared-vertex rows, not a
+                    // stack of rects (see `glass_frost_gradient`). Report each
+                    // row as the rect it covers, so what this measures does not
+                    // depend on which primitive the face happens to use.
+                    egui::Shape::Mesh(m) => {
+                        let rows: Vec<&[egui::epaint::Vertex]> =
+                            m.vertices.chunks(2).collect();
+                        for w in rows.windows(2) {
+                            let (top, bot) = (w[0], w[1]);
+                            if top.len() < 2 || bot.len() < 2 {
+                                continue;
+                            }
+                            rects.push((
+                                top[0].color,
+                                Rect::from_min_max(
+                                    top[0].pos,
+                                    Pos2::new(bot[1].pos.x, bot[0].pos.y),
+                                ),
+                                0.0,
+                            ));
+                        }
                     }
                     egui::Shape::Text(t) => {
                         texts.push(t.override_text_color.unwrap_or(t.fallback_color))
@@ -18613,11 +18750,24 @@ mod elegance_baseline_tests {
         // 41 dashes where the four edges made 40 (measured on a drop-zone-only
         // scene), so every row moved by exactly +1 in both themes and all four
         // styles: one control, not the seam.
+        //
+        // Re-blessed in 1.65.95: the frosted field of `draw_glass` and
+        // `draw_glass_enhanced` is ONE mesh instead of a stack of one
+        // translucent rect per point-row, which is what striped the Liquid
+        // Glass buttons on Windows and not on macOS (see
+        // `glass_frost_gradient`). The four glass rows lose one leaf per row of
+        // every glassed control and gain one mesh; the two **Neumorphic** rows
+        // are untouched at 641/657, because that style paints its own relief
+        // and never reached the band stack — which is the check that this moved
+        // the frost and nothing else. What is painted is the same: every vertex
+        // carries the colour its band carried, and
+        // `the_mesh_cannot_shift_a_pixel_a_display_could_show` pins the largest
+        // possible difference at 1/255.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 1444),
-            ("asset-pack", GS::Classic, 1266),
-            ("liquid-glass", GS::Enhanced, 1544),
-            ("asset-pack", GS::Enhanced, 1340),
+            ("liquid-glass", GS::Classic, 651),
+            ("asset-pack", GS::Classic, 661),
+            ("liquid-glass", GS::Enhanced, 751),
+            ("asset-pack", GS::Enhanced, 735),
             ("liquid-glass", GS::Neumorphic, 641),
             ("asset-pack", GS::Neumorphic, 657),
             ("liquid-glass", GS::NeumorphicDark, 641),
