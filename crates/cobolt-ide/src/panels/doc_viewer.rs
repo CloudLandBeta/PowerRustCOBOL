@@ -339,13 +339,14 @@ impl DocViewer {
     }
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
-        let (cmd, alt, f, o, w, t, u, plus, minus, prev, next) = ctx.input(|i| {
+        let (cmd, alt, f, o, p, w, t, u, plus, minus, prev, next) = ctx.input(|i| {
             let m = i.modifiers;
             (
                 m.command,
                 m.alt,
                 i.key_pressed(Key::F),
                 i.key_pressed(Key::O),
+                i.key_pressed(Key::P),
                 i.key_pressed(Key::W),
                 i.key_pressed(Key::T),
                 i.key_pressed(Key::U),
@@ -369,6 +370,11 @@ impl DocViewer {
         }
         if cmd && o {
             self.open_external();
+        }
+        // ⌘P — advertised by the toolbar tooltip and the shortcut list, so it
+        // has to actually fire.
+        if cmd && p {
+            self.print();
         }
         if cmd && w {
             self.open = false;

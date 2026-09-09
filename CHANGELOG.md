@@ -1,5 +1,74 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.93] — 2026-09-09
+
+### The Developer's Guide, reviewed section by section against the code
+
+The guide was split into its 92 constituent sections and every one checked
+against the source rather than against memory. What follows is what was wrong.
+
+**Code that could not work as printed.** §4's very first walkthrough taught
+`SET "Hello from COBOL!" TO Label-1::caption` — `parse_set` takes its receivers
+*before* `TO`, so that assigned a property into a string literal. §10 taught a
+LINKAGE SECTION of `01 COBOL-EVENT-DATA. 05 COBOL-ARRAY-INDEX PIC S9(9) COMP-5.`
+against a generator that emits `01 CONTROL-ARRAY-INDEX PIC S9(4) COMP-5.` —
+wrong name, PICTURE and level, copied from a hypothetical example in a Rust doc
+comment. It now documents the two payloads that exist, `CONTROL-ARRAY-INDEX`
+and the `CONTROL-NODE-DATA` group.
+
+**Interfaces that were never implemented.** §8 documented
+`INVOKE MENU1 'SetItemEnabled'` and `MENU1::GetItemEnabled(...)`. Neither name
+exists anywhere in the tree; only the Rust helpers behind them do, wired to no
+COBOL name — and `GetItemEnabled` is not in `is_known_method` either, so even
+the call form would have parsed its parentheses as a subscript and done nothing
+silently. §16 credited the AI Agent with `onStreamChunk` and `onThinking`, which
+exist nowhere; its events are `onResponse` and `onError`. The REST Client's were
+described as "responses, errors, timeouts, and progress" — there is no progress
+event, and its primary `onResponseReceived` cannot be bound at all.
+
+**Catalogues that had drifted.** The project tree has seven categories, not six
+(Project's Crates was missing) and Generated Code has no `+` button. The toolbox
+shows seven groups in its own order, not eight in the tree's — `Dialogs` is
+defined but empty, so it never appears. 32 themes, not 28, and the three
+Neumorphic palettes were unlisted. Four procedural styles, not three. 1112
+icons, not 1110. Five breadcrumb properties, not three. The universal form
+surface has 16 entries; `PreventReset` was missing from the list although
+another section calls it part of that surface. The binding-target list omitted
+Knob/Gauge/Switch and Maps, which is why it contradicted §8. The PowerDemo3
+breakdown summed to 41 of 42 forms, and its extension comments number 462 per
+language, not 484.
+
+**Claims the code had overtaken.** RELATIVE files were still "planned" in §23
+though they shipped at 1.62.76 and §13 documents them. Repeating groups still
+carried "runtime instancing, indexed event dispatch and data binding are
+delivered in later phases"; all three work. `WebSearch` was missing from the
+async-I/O surface even though it, like `RestClient`, defaults to `Async`.
+
+**Structure and presentation.** An unclosed ```` ```cobol ```` fence had
+swallowed a heading and four paragraphs into a code block. `Window effects` was
+an H2, which orphaned three sections that belong to §5. A heading skipped from
+H3 to H5, and three more from H2 to H4; the guide now has no level jumps at any
+depth. 99 missing spaces before bold, inline code and italic openers. Every
+image alt text was wrong or was a truncated capture instruction; one was a
+heading from an unrelated section, and one image illustrated the wrong note.
+
+**Content added.** `COBOL-WRITE-FILE` / `COBOL-APPEND-FILE` — listed as a
+shipped capability in the support matrix and documented nowhere — now have a
+§13 section. §19 gained the nine Help → Debug Settings switches. The glossary
+went from 11 entries to 29, alphabetised.
+
+**One code fix each, found by documenting them.** The docs viewer advertised
+`⌘P` in its toolbar tooltip and its shortcut list but never read `Key::P`, so
+printing by keyboard did nothing; it is wired now. And `OS_VAULT_SHIPS_IN`
+retargeted from `RC3` to `the official release` (operator, 2026-09-09), which is
+what the guide and the IDE's own refusal message both now say.
+
+Everything above was verified against the source before being changed; the
+sections that turned out to be correct — RELATIVE's status table, the
+DECLARATIVES statuses, `STRING`'s default delimiters, `PERFORM … VARYING`'s
+three rules, the WebSearch provider caps, FileDropZone's surface,
+`cobolt_windows` — were left alone.
+
 ## [PowerRustCOBOL 1.65.92] — 2026-09-09
 
 ### Disabling a container did not disable what was inside it

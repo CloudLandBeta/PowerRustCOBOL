@@ -33,10 +33,11 @@
 //! # The OS vault
 //!
 //! [`Vault::OsVault`] is the right answer and it is **not available yet** — it
-//! ships in **RC3**, once it has a UI that can inspect, rotate and clear what it
-//! holds (see [`crate::secrets`]: writing a secret a developer can only remove by
-//! hunting through Keychain is worse than not writing it). The choice is offered
-//! and refused, rather than hidden, so nobody has to guess whether it is coming.
+//! ships in **the official release**, once it has a UI that can inspect, rotate
+//! and clear what it holds (see [`crate::secrets`]: writing a secret a developer
+//! can only remove by hunting through Keychain is worse than not writing it).
+//! The choice is offered and refused, rather than hidden, so nobody has to guess
+//! whether it is coming.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -49,8 +50,9 @@ use crate::llm::LlmConfig;
 /// secrets-management UI ships — see the module docs.
 pub const OS_VAULT_AVAILABLE: bool = false;
 
-/// The release that will offer [`Vault::OsVault`] (operator, 2026-08-17).
-pub const OS_VAULT_SHIPS_IN: &str = "RC3";
+/// The release that will offer [`Vault::OsVault`] (operator, 2026-08-17; retargeted
+/// from RC3 to the official release by the operator, 2026-09-09).
+pub const OS_VAULT_SHIPS_IN: &str = "the official release";
 
 /// The format version written into a config file, so a future reader can tell
 /// what it is looking at instead of guessing.
@@ -514,7 +516,7 @@ mod tests {
 
     /// The vault choices, and the one that is not ready.
     #[test]
-    fn the_os_vault_is_offered_and_refused_until_rc3() {
+    fn the_os_vault_is_offered_and_refused_until_the_official_release() {
         assert!(Vault::Session.available());
         assert!(Vault::LocalFile.available());
         assert!(
