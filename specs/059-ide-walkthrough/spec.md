@@ -1,6 +1,6 @@
 # Spec — IDE Walkthrough
 
-- **Status:** draft → **awaiting review** (open questions in §7; no implementation yet)
+- **Status:** draft → **ready for `/plan`** (every question settled; no implementation yet)
 - **Folder:** specs/059-ide-walkthrough/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-09
 
@@ -33,7 +33,8 @@ the project tree are for* at the moment a developer first sees them.
 - **Teaching the components.** Each balloon is one or two sentences; depth stays
   in the Developer's Guide.
 - **A tutorial that makes the developer do things.** The tour is read, not
-  performed (settled — see §7 Q1's resolution below).
+  performed (the operator chose the spotlight over a click-to-advance
+  tutorial — see §8).
 - **A second walkthrough per feature.** This describes the IDE's main components
   once; it is not a framework for onboarding every future panel.
 - **Replacing the AI-setup invitation** (`hide_ai_setup_prompt`), which is a
@@ -52,7 +53,7 @@ below is the canonical source for translation; wording may be tightened during
 | 3 | **Indexed Files** | The ISAM indexed-file editor and visualiser. |
 | 4 | **Assets** | Images, documents and whatever else your application requires. |
 | 5 | **Knowledge Base** | Your project's KB — specifications, legal information, application-domain knowledge, and anything the agents need in order to generate code well. |
-| 6 | **The Output pane** | *(operator's list names the pane; its sentence is still to be written — see §7 Q2.)* |
+| 6 | **The Output pane** | Where the IDE answers you: build and compile messages, program output, diagnostics and the results of what you run. |
 
 Every one of these already exists in the IDE and is a real anchor:
 `Category::Forms`, `Category::IndexedFiles`, `Category::Assets` and
@@ -177,29 +178,35 @@ and its label is `tr.cat_documentation`, "Knowledge Base"), the project tree's
 - **Spotlight style** (operator, 2026-09-09): dim the IDE, highlight the target,
   block input beneath. Not a non-blocking balloon, and not a
   click-the-component-to-advance tutorial.
+- **The Output pane's balloon** (operator, 2026-09-10): *"Where the IDE answers
+  you: build and compile messages, program output, diagnostics and the results
+  of what you run."* — the last of the six texts, and the one the operator's
+  original list left unwritten.
 
-## 9. Open questions
+## 9. Settled by the author, and easy to reverse
 
-- **Q1 — The Output pane's sentence.** The operator's list names it without
-  saying what the balloon should tell the developer. Proposed: *"Where the IDE
-  answers you: build and compile messages, program output, diagnostics and the
-  results of what you run."* Confirm or replace.
+Three questions the operator did not need to answer, resolved here with the
+reasoning so a different call is a one-line change rather than an argument.
+Every one of them is a design detail inside the scope the operator already set;
+none changes what is built.
 
-- **Q2 — Does Skip count as "shown"?** R8 says any exit sets the flag, on the
-  ground that a tour which returns after being skipped is a nag. The other
-  reading is that only *finishing* counts, so a developer who skipped by
-  accident gets it again next time. Confirm R8 as written.
+- **Skip counts as shown** (R8 as written). Any exit — finishing, Skip, `Esc` —
+  sets the flag. A tour that comes back after being skipped is a nag, and the
+  Help menu makes replaying it trivial, so the cost of being wrong is one menu
+  click. The alternative (only finishing counts) would show it again to the very
+  developer who has just said no.
 
-- **Q3 — Project settings is a node, not a pane.** Steps 2–6 point at things
-  that are visibly on screen; step 1's subject is reached by selecting the
-  project tree's **root node**, which opens the settings form beside the tree.
-  Should step 1 point at that root node (simple, honest, but the developer sees
-  only a tree row), or open the settings form and point at that (a better
-  picture of what the step is about, but the tour then changes the IDE's state
-  as it runs)?
+- **Step 1 points at the project tree's root node**, and the Walkthrough does
+  **not** open the settings form to make a better picture. The tour describes the
+  IDE; it must not rearrange the IDE while describing it, or the developer ends
+  the tour somewhere they did not put themselves. The balloon says what the root
+  node is *for*, which is what a tour is.
 
-- **Q4 — Is one showing per machine enough?** R7 fires on the first project
-  ever opened on this machine. A developer who installs on a second machine
-  sees it again, which seems right; a developer who wipes their preferences also
-  sees it again, which also seems right. Confirm there is no wish for
-  "show it again after an upgrade".
+- **One showing per machine** (R7 as written). A second machine shows it again,
+  which is right — it is a new place to learn. Wiped preferences show it again,
+  which is also right. Nothing re-arms it on upgrade: a developer who knows the
+  IDE does not need re-teaching because the version changed.
+
+## 10. Open questions
+
+*(None. The spec is ready for `/plan`.)*
