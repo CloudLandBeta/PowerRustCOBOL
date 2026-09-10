@@ -145,6 +145,35 @@ flowchart LR
 
 ## 3. Installing and launching
 
+Every release offers each platform **two downloads**, and either is complete —
+they carry the same application, the same `rcrun`, the same themes, examples and
+platform SDK.
+
+| Your machine | Installer | Archive |
+| --- | --- | --- |
+| Windows 10 / 11, 64-bit | `.msi` — double-click, or `msiexec /i … /quiet` to deploy it silently | `.zip` |
+| Macs with Apple Silicon | `.dmg` — drag PowerRustCOBOL to Applications | `.tar.gz` |
+| Intel Macs | `.dmg` | `.tar.gz` |
+| Debian, Ubuntu, Mint and relatives | `.deb` — `sudo apt install ./PowerRustCOBOL-*.deb` | `.tar.gz` |
+| Any other Linux, 64-bit | — | `.tar.gz` |
+
+Take the **installer** if you want the usual things: a Start Menu or
+Applications entry, a desktop launcher, `rcrun` on your `PATH`, and a clean way
+to remove it later. Take the **archive** if you would rather not install
+anything — unpack it anywhere and run it, including from a memory stick or a
+machine where you cannot install software. The `.deb` puts the application in
+`/opt/powerrustcobol` and links `powerrustcobol` and `rcrun` into `/usr/bin`.
+
+> ⚠️ **Neither is signed yet**, so each platform warns once on first run.
+> On **macOS**: right-click the app and choose *Open*, or clear the quarantine
+> flag with `xattr -dr com.apple.quarantine PowerRustCOBOL.app`. On **Windows**:
+> SmartScreen offers *More info* → *Run anyway*. An installer is no more trusted
+> than an archive here — the warning is about the missing certificate, not the
+> format.
+
+Linux needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fedora 36+) and the
+OpenGL, X11 or Wayland libraries your desktop already provides.
+
 Launch the IDE; on first run you are greeted with an empty workspace and the
 prompt *"Open a COBOL file to get started."* You can either open a single `.cbl`
 file or create a full **project** (recommended — see §6).

@@ -1,5 +1,55 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.104] — 2026-09-10
+
+### Every platform now has an installer, not only an archive
+
+A release offered four archives: unpack anywhere and run. That is the right
+download for someone who cannot install software, and the wrong one for
+everybody else — no Start Menu entry, no Applications entry, no desktop
+launcher, no `rcrun` on `PATH`, and no supported way to remove it again.
+
+Each platform now also builds the installer its users expect, so a release
+carries eight downloads:
+
+- **Windows — `.msi`**, which is what a Windows shop deploys: silent install
+  (`msiexec /i … /quiet`), Add/Remove Programs, group policy. WiX harvests the
+  staged tree with `heat`, so every asset, example and SDK file is listed
+  without anyone maintaining a manifest. The `UpgradeCode` is fixed for the
+  product's life — that is what makes the next install an upgrade rather than a
+  second copy beside the first.
+- **macOS — `.dmg`**, the drag-to-Applications window every Mac user knows. Only
+  the bundle goes in; the archive's loose `rcrun` is a symlink into it, and the
+  IDE finds its own copy beside its executable.
+- **Linux — `.deb`**, for the largest family of desktops. The application goes
+  to `/opt/powerrustcobol` with `powerrustcobol` and `rcrun` linked into
+  `/usr/bin`, plus a `.desktop` entry and a 256-point icon.
+
+**Each is built FROM the staged archive**, never from a fresh file list. The app
+reads `assets/`, `examples/`, `sdk/` and `rcrun` from beside its executable, and
+a hand-written manifest that misses one of them is exactly how an install ends
+up with no themes — so the installers wrap the very directory the archive steps
+already assembled and checked, and the two cannot disagree about what ships.
+Each one then re-checks the tree it produced: the `.dmg` mounts itself and
+verifies the bundle's signature survived the round trip, and the `.deb` lists its
+own contents back.
+
+The release job fails if any platform contributed an archive without its
+installer — a release quietly offering four downloads where it should offer
+eight is the failure that would otherwise go unnoticed.
+
+**Nothing is signed.** SmartScreen and Gatekeeper key off a paid certificate
+(Authenticode; Apple Developer ID), so an `.msi` earns exactly the same
+first-run warning a `.zip` does: an installer is not inherently more trusted.
+Notarising the `.dmg` would run here happily, but it needs that certificate in
+the repository secrets first.
+
+Verified as far as this machine allows: the `.dmg` step was run verbatim and
+its checks pass (volume mounts, Applications link present, ad-hoc signature
+verifies through the round trip); the `.deb` step was run against a staged
+fixture with `dpkg-deb` stubbed, producing the correct control file, symlinks,
+desktop entry and tree. The `.msi` step has not been executed — there is no
+Windows or WiX here — so the first workflow run is its test.
 ## [PowerRustCOBOL 1.65.103] — 2026-09-10
 
 ### A collapsed sidebar showed no way to open itself again
