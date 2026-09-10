@@ -1026,13 +1026,42 @@ fn paint_header(painter: &egui::Painter, rect: Rect, state: &SidebarState<'_>) {
     // rail and in the middle of the header pane — whose height the rail keeps
     // in both states, so the mark does not move when it collapses.
     if state.collapsed {
-        if let Some(tex) = state.header_icon {
-            painter.image(
-                tex,
-                Rect::from_center_size(rect.center(), Vec2::splat(HEADER_ICON)),
-                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
-                Color32::WHITE,
-            );
+        match state.header_icon {
+            Some(tex) => {
+                painter.image(
+                    tex,
+                    Rect::from_center_size(rect.center(), Vec2::splat(HEADER_ICON)),
+                    Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            }
+            // With no `HeaderIcon` this pane painted NOTHING, and a blank strip
+            // is not a control: the rail was still folded and unfolded by
+            // clicking here, but there was nothing to see and nothing to aim
+            // at. Every surface where the rail is an ordinary control — an
+            // EMBEDDED form on the shell's ContentPane, a plain form window,
+            // the designer canvas — showed a collapsed sidebar that looked
+            // like it could not be opened again (operator, 2026-09-10).
+            //
+            // So the pane shows the Open/Collapsed control itself, the same
+            // vector arrow the shell's breadcrumb puts at its head, pointing
+            // the way the next click goes. This is the collapsed twin of what
+            // the OPEN header already does: with no logo it outlines the box
+            // rather than leaving the pane empty.
+            //
+            // Only when there is no icon. A developer who gave the rail a
+            // HeaderIcon chose that mark, and it is visible and clickable —
+            // drawing an arrow over it would be a second affordance for what
+            // the whole pane already does, which is the very reason there is
+            // no hamburger here.
+            None => {
+                crate::icons::draw_menu_icon_styled(
+                    painter,
+                    Rect::from_center_size(rect.center(), Vec2::splat(HEADER_ICON * 0.55)),
+                    crate::breadcrumb::toggle_icon(true),
+                    &state.icon_style,
+                );
+            }
         }
         return;
     }
@@ -2719,6 +2748,108 @@ mod tests {
              (0,{},200,72); idempotent; follows a rail resize; zero-height when \
              collapsed",
             744 - 72
+        );
+    }
+
+    /// A COLLAPSED rail with no `HeaderIcon` must still show its Open/Collapsed
+    /// control.
+    ///
+    /// It used to paint nothing at all there: the pane was still the toggle and
+    /// still took the click, but with no logo to stand in for it the strip was
+    /// blank, so a collapsed sidebar looked like it could not be opened again.
+    /// It showed on every surface where the rail is an ordinary control — an
+    /// embedded form on the shell's ContentPane most of all, because there is no
+    /// breadcrumb of its own above it carrying the control (operator,
+    /// 2026-09-10).
+    ///
+    /// Measured against what the frame PAINTED inside the header pane, not
+    /// against a shape count: something drawn outside the pane would look
+    /// identical to nothing drawn at all.
+    #[test]
+    fn a_collapsed_rail_with_no_header_icon_still_shows_its_toggle() {
+        use crate::model::{ControlType, PropValue};
+
+        /// Everything painted inside `band`, as (top-left, kind).
+        fn painted_in(shape: &egui::Shape, band: Rect, out: &mut Vec<&'static str>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| painted_in(s, band, out)),
+                egui::Shape::Path(p) => {
+                    if p.points.iter().any(|pt| band.contains(*pt)) {
+                        out.push("path");
+                    }
+                }
+                egui::Shape::LineSegment { points, .. } => {
+                    if points.iter().any(|pt| band.contains(*pt)) {
+                        out.push("line");
+                    }
+                }
+                egui::Shape::Circle(c) => {
+                    if band.contains(c.center) {
+                        out.push("circle");
+                    }
+                }
+                egui::Shape::Rect(r) => {
+                    if band.contains(r.rect.center()) {
+                        out.push("rect");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let paint_header_of = |collapsed: bool| -> Vec<&'static str> {
+            let mut rail = crate::model::Control::new("SideMenu-1", ControlType::SideMenu, 0, 0);
+            rail.rect = crate::model::Rect::new(0, 0, 220, 600);
+            rail.set_prop("Collapsed", PropValue::Bool(collapsed));
+            // No HeaderIcon and no HeaderImage: the case that painted nothing.
+            let ctx = egui::Context::default();
+            let width = shown_width(&rail, collapsed);
+            let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 600.0));
+            let mut found = Vec::new();
+            let mut full = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 700.0))),
+                    ..Default::default()
+                },
+                |ui| {
+                    let items: Vec<MenuItem> = Vec::new();
+                    let expanded: Vec<String> = Vec::new();
+                    let mut state = state_for_control(ui.ctx(), &rail, &items, 255, &expanded);
+                    state.collapsed = collapsed;
+                    let rows = layout(rect, &state);
+                    paint(ui.painter(), rect, &rows, &state);
+                },
+            );
+            full.textures_delta.clear();
+            // The header pane only — the menu and footer draw their own things.
+            let header = Rect::from_min_size(
+                Pos2::ZERO,
+                Vec2::new(width, SidebarChrome::from_control(&rail).header_h),
+            );
+            for cs in &full.shapes {
+                painted_in(&cs.shape, header, &mut found);
+            }
+            found
+        };
+
+        let collapsed = paint_header_of(true);
+        assert!(
+            !collapsed.is_empty(),
+            "a collapsed rail with no header icon painted nothing in its header \
+             pane — there is no fold/unfold control to see or aim at"
+        );
+
+        // And the open state, which always had its logo placeholder, still does.
+        assert!(
+            !paint_header_of(false).is_empty(),
+            "the open header must keep drawing its logo box"
+        );
+
+        println!(
+            "049 collapsed header — {} shape(s) painted in the collapsed header \
+             pane (was 0), {} in the open one",
+            collapsed.len(),
+            paint_header_of(false).len()
         );
     }
 

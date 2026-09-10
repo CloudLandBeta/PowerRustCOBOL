@@ -8655,7 +8655,11 @@ where the logo goes and how big it will be before you have one.
 
 A **collapsed** rail does not show the logo at all: it shows **HeaderIcon**, a
 purpose-made 45 x 45 mark, because an image drawn for a 270-point header cannot
-be read at rail width.
+be read at rail width. Set no **HeaderIcon** and the pane draws the
+**fold/unfold arrow** instead, so a collapsed rail always shows the control that
+opens it again rather than a blank strip. That matters most in an **embedded
+form**, where the rail is an ordinary control on the ContentPane and there is no
+breadcrumb of its own above it to carry that control.
 
 **The footer panel is yours.** Every SideMenu owns a Panel in its footer band,
 and it is an ordinary container: drop controls into it, style it through the

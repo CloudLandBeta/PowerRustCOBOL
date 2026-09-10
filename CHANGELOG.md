@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.103] — 2026-09-10
+
+### A collapsed sidebar showed no way to open itself again
+
+The rail's header pane IS its Open/Collapsed control — clicking anywhere in it
+folds or unfolds the rail, which is why there has deliberately never been a
+hamburger glyph beside it. Open, that pane shows the developer's `HeaderImage`,
+or an outlined box where the logo goes when they have not set one. Collapsed, it
+shows their `HeaderIcon` — and with no `HeaderIcon` it painted **nothing at
+all**.
+
+So the pane went on taking the click while showing a blank strip: the control
+was there, and there was nothing to see or aim at. It looked like a collapsed
+sidebar that could not be opened again (operator, 2026-09-10).
+
+The collapsed pane now draws the fold/unfold arrow itself when there is no
+icon — the same vector arrow the shell's breadcrumb puts at its head, pointing
+the way the next click goes. This is the collapsed twin of the rule the OPEN
+header already followed: with no logo it outlines the box rather than leaving
+the pane empty. A rail that HAS a `HeaderIcon` is untouched: that mark is
+already visible and already clickable, and drawing an arrow over it would be the
+second affordance the no-hamburger rule exists to prevent.
+
+It shows on every surface where the rail is an ordinary control, and worst in an
+**embedded form** on the shell's ContentPane — there is no breadcrumb of its own
+above such a rail to carry the control, so the blank header was the only one it
+had. A plain form window and the designer canvas had the same gap.
+
+Guarded by what the frame actually PAINTS inside the header pane, not by a shape
+count: something drawn outside the pane would look identical to nothing drawn at
+all. The test fails without the fix (8 shapes where there were 0).
+
+System KB updated and `chunked.data` regenerated in the same change.
+
 ## [PowerRustCOBOL 1.65.102] — 2026-09-10
 
 ### A sidebar lost its fold control when its form was opened from another sidebar
