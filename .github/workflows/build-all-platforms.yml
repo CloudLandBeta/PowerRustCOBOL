@@ -117,7 +117,7 @@ jobs:
             ext: ""
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # openssl-sys links the system OpenSSL (native-tls), and eframe needs the
       # xcb/xkbcommon headers. Everything else the tree touches — winit's X11
@@ -513,11 +513,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root=$(mktemp -d)
+          # The runner's disk is the constraint, not the packaging. The staged
+          # tree is ~400 MB, and the first version of this step COPIED it into
+          # the package root and then let dpkg-deb write a third copy — on a
+          # runner whose root filesystem is already carrying `target/` from a
+          # release build of the whole workspace. It ran out, and said so in the
+          # least obvious way available: `tar: stdout: write error`, then
+          # `dpkg-deb: error: tar subprocess returned error exit status 2`.
+          #
+          # So the payload is HARDLINKED, not copied (`cp -al`): dpkg-deb reads
+          # through the links exactly as it would through copies, and the tree
+          # costs inodes rather than gigabytes. The package root lives inside
+          # the workspace rather than in $(mktemp -d) so it is certainly on the
+          # same filesystem as `dist/` — hardlinks cannot cross one, and
+          # /tmp is not guaranteed to be the same disk.
+          #
+          # `df -h` before and after because a disk that runs out mid-archive
+          # blames the archiver. Next time the log will name the real cause.
+          df -h /
+          root=dist/debroot
+          rm -rf "$root"
           install -d "$root/DEBIAN" "$root/opt/powerrustcobol" \
             "$root/usr/bin" "$root/usr/share/applications" \
             "$root/usr/share/icons/hicolor/256x256/apps"
-          cp -R "dist/$PKG/." "$root/opt/powerrustcobol/"
+          cp -al "dist/$PKG/." "$root/opt/powerrustcobol/"
           # Debian's own size field, in KiB, as the archive tools report it.
           size=$(du -sk "$root/opt" | cut -f1)
           cat > "$root/DEBIAN/control" <<CONTROL
@@ -543,11 +562,14 @@ jobs:
 
           dpkg-deb --root-owner-group --build "$root" "dist/${PKG}.deb"
           test -s "dist/${PKG}.deb"
+          df -h /
           # Prove the tree the app actually reads survived the packaging, the
           # same way the archive is checked.
           dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/assets/themes/"
           dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/sdk/Cargo.toml"
           dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/examples/PowerDemo3/"
+          # The links have done their job; the .rpm needs the room next.
+          rm -rf "$root"
 
       # …and an .rpm, so the other half of the Linux desktop world has an
       # installer too rather than only the tarball: Fedora, RHEL, CentOS Stream,
@@ -567,7 +589,8 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get install -y --no-install-recommends rpm
-          top=$(mktemp -d)
+          top=$PWD/dist/rpmbuild
+          rm -rf "$top"
           mkdir -p "$top"/{BUILD,RPMS,SOURCES,SPECS,BUILDROOT}
           cat > "$top/SPECS/powerrustcobol.spec" <<'SPEC'
           %global __os_install_post %{nil}
@@ -591,7 +614,7 @@ jobs:
           mkdir -p %{buildroot}/opt/powerrustcobol %{buildroot}/usr/bin \
                    %{buildroot}/usr/share/applications \
                    %{buildroot}/usr/share/icons/hicolor/256x256/apps
-          cp -R %{srcdir}/. %{buildroot}/opt/powerrustcobol/
+          cp -al %{srcdir}/. %{buildroot}/opt/powerrustcobol/
           ln -s /opt/powerrustcobol/PowerRustCOBOL %{buildroot}/usr/bin/powerrustcobol
           ln -s /opt/powerrustcobol/rcrun %{buildroot}/usr/bin/rcrun
           install -m 0644 %{deskdir}/powerrustcobol.desktop \
@@ -607,6 +630,9 @@ jobs:
           /usr/share/icons/hicolor/256x256/apps/powerrustcobol.png
           SPEC
 
+          # Same disk rule as the .deb: _topdir inside the workspace, so the
+          # buildroot's hardlinks land on the filesystem `dist/` is on.
+          df -h /
           rpmbuild -bb "$top/SPECS/powerrustcobol.spec" \
             --define "_topdir $top" \
             --define "ver $VERSION" \
@@ -620,6 +646,10 @@ jobs:
           rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/assets/themes/"
           rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$"
           rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/examples/PowerDemo3/"
+          # Nothing below needs the build tree or the staged desktop entry, and
+          # the artifact upload takes all of dist/.
+          rm -rf "$top" dist/linux
+          df -h /
 
       # Artifact zips drop the Unix executable bit and flatten symlinks; a
       # tarball keeps both, so the app bundle survives the download intact.
@@ -640,7 +670,7 @@ jobs:
           Compress-Archive -Path "dist/$env:PKG" -DestinationPath "dist/$env:PKG.zip"
           Remove-Item -Recurse -Force "dist/$env:PKG"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.PKG }}
           path: dist/
@@ -658,9 +688,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/incoming
           merge-multiple: true

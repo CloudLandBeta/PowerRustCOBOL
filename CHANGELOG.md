@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.106] — 2026-09-10
+
+### The Linux packages ran the runner out of disk, and the actions were a Node version behind
+
+**Run 13 built the `.dmg` on both Macs and then failed on Linux**, in the least
+obvious way a full disk can:
+
+```
+dpkg-deb: building package 'powerrustcobol' in 'dist/PowerRustCOBOL-…-linux-x86_64.deb'.
+tar: stdout: write error
+dpkg-deb: error: tar subprocess returned error exit status 2
+```
+
+Not the packaging. The staged tree is around 400 MB, and the step COPIED it into
+the package root before letting `dpkg-deb` write a third copy — on a runner
+whose root filesystem was already carrying `target/` from a release build of the
+whole workspace. `tar` reported the only thing it could see: it could not write.
+
+Both Linux packages now **hardlink** the payload (`cp -al`) instead of copying
+it. `dpkg-deb` and `rpmbuild` read through the links exactly as they would
+through copies, so the package root costs inodes rather than gigabytes, and the
+peak requirement drops by a whole copy of the tree. The package root and
+rpmbuild's `_topdir` moved from `$(mktemp -d)` into the workspace as well, since
+a hardlink cannot cross a filesystem and `/tmp` is not guaranteed to be the same
+disk as `dist/`.
+
+`df -h /` now prints before and after each Linux package. A disk that runs out
+mid-archive blames the archiver, and that is exactly how an hour went; the next
+failure will name its own cause.
+
+**The actions were also a major version behind.** GitHub now forces
+`actions/checkout@v4` and `actions/upload-artifact@v4` onto Node 24 and warns
+that Node 20 is deprecated. All three are on their current majors —
+`checkout@v7`, `upload-artifact@v7`, `download-artifact@v8` — each confirmed to
+declare `runs.using: node24` rather than assumed to.
+
+The `.dmg` is now proven on real runners: run 13 produced both macOS artifacts
+(401 MB and 408 MB) before Linux stopped it. The `.msi` was still building when
+that run was read, and the `.rpm` has never reached a runner — it is new in
+1.65.105 and run 13 predates it.
+
 ## [PowerRustCOBOL 1.65.105] — 2026-09-10
 
 ### The other half of the Linux desktop world gets an installer too
