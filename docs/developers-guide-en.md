@@ -155,14 +155,16 @@ platform SDK.
 | Macs with Apple Silicon | `.dmg` — drag PowerRustCOBOL to Applications | `.tar.gz` |
 | Intel Macs | `.dmg` | `.tar.gz` |
 | Debian, Ubuntu, Mint and relatives | `.deb` — `sudo apt install ./PowerRustCOBOL-*.deb` | `.tar.gz` |
+| Fedora, RHEL, CentOS Stream, openSUSE | `.rpm` — `sudo dnf install ./PowerRustCOBOL-*.rpm` | `.tar.gz` |
 | Any other Linux, 64-bit | — | `.tar.gz` |
 
 Take the **installer** if you want the usual things: a Start Menu or
 Applications entry, a desktop launcher, `rcrun` on your `PATH`, and a clean way
 to remove it later. Take the **archive** if you would rather not install
 anything — unpack it anywhere and run it, including from a memory stick or a
-machine where you cannot install software. The `.deb` puts the application in
-`/opt/powerrustcobol` and links `powerrustcobol` and `rcrun` into `/usr/bin`.
+machine where you cannot install software. Both Linux packages put the
+application in `/opt/powerrustcobol` and link `powerrustcobol` and `rcrun` into
+`/usr/bin`; on any other distribution the archive is the download.
 
 > ⚠️ **Neither is signed yet**, so each platform warns once on first run.
 > On **macOS**: right-click the app and choose *Open*, or clear the quarantine

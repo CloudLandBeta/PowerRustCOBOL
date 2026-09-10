@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.105] — 2026-09-10
+
+### The other half of the Linux desktop world gets an installer too
+
+1.65.104 gave Windows an `.msi`, macOS a `.dmg` and Linux a `.deb`. That left
+Fedora, RHEL, CentOS Stream and openSUSE with the tarball and nothing else — a
+download-and-run that works, but no menu entry, no launcher on `PATH` and no
+`dnf remove`.
+
+Linux now builds an **`.rpm`** as well, from the same staged directory, with the
+same `/opt/powerrustcobol` tree, the same `/usr/bin` links and the same menu
+entry. The `.deb` and the `.rpm` differ only in the packaging format. A release
+now carries **nine downloads**: every platform an archive, and every platform at
+least one installer.
+
+Three settings make `rpmbuild` accept a payload it did not compile:
+`__os_install_post` off so it does not strip binaries it has no sources for,
+`debug_package` off so it does not demand a debuginfo package from them, and
+`AutoReqProv: no` so it does not derive dependencies by reading every shared
+object in the tree — which would pin the package to the exact library versions
+of the machine that BUILT it, the opposite of what a self-contained bundle
+wants.
+
+The desktop entry and icon both Linux packages install are now staged **once**,
+in a step of their own, instead of written twice. A menu entry that differed
+between the `.deb` and the `.rpm` is exactly the kind of difference nobody would
+notice until a user on one distribution reported a missing icon.
+
+**No AppImage.** It would need `appimagetool` fetched as an opaque binary at
+build time, and the tarball already gives every other distribution
+download-and-run; the only thing an AppImage would add over it is the menu entry
+the `.deb` and `.rpm` already provide where they apply. Worth revisiting if
+someone asks for it.
+
+Verified as far as this machine allows: the `.deb` step was re-run against a
+staged fixture after the refactor and still passes, and the desktop-entry step
+produces the file and icon both packages read. The `.rpm` step has NOT been
+executed — there is no rpm tooling on macOS — so like the `.msi`, the first
+workflow run is its test. Its spec file was checked for shape after YAML
+parsing, which is where a step like this usually breaks.
+
 ## [PowerRustCOBOL 1.65.104] — 2026-09-10
 
 ### Every platform now has an installer, not only an archive

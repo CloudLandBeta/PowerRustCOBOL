@@ -12,17 +12,25 @@
 # releases page, where anyone can fetch them without a GitHub account. Leave it
 # clear for a build you only want to inspect.
 #
-# EIGHT downloads, two per platform, both carrying the same application:
+# NINE downloads. Every platform gets an archive and at least one installer,
+# all of them carrying the same application:
 #
 #   an ARCHIVE   self-contained — unpack it anywhere and run it, with nothing to
 #                install first, including where the user cannot install
-#                software. This is also the only download for a Linux that is
-#                not Debian-based.
-#   an INSTALLER .msi on Windows, .dmg on macOS, .deb on Linux. Built FROM the
+#                software. Every platform has one; on a Linux that is neither
+#                Debian- nor RPM-based it is the only download.
+#   an INSTALLER .msi on Windows, .dmg on macOS, .deb and .rpm on Linux — the
+#                two halves of the Linux desktop world, which between them cover
+#                Debian/Ubuntu/Mint and Fedora/RHEL/openSUSE. Built FROM the
 #                staged archive, never from a fresh file list, so the two can
 #                never disagree about what ships. What it adds is the install:
 #                a Start Menu / Applications entry, a desktop launcher, rcrun on
 #                PATH, and a supported way to remove it again.
+#
+# No AppImage. It would need appimagetool fetched as an opaque binary at build
+# time, and the tarball already gives every other distro download-and-run; the
+# only thing an AppImage would add over it is the menu entry the .deb and .rpm
+# already provide where they apply. Worth revisiting only if someone asks.
 #
 # NEITHER IS SIGNED. SmartScreen and Gatekeeper key off a paid certificate
 # (Authenticode; Apple Developer ID), so an .msi earns exactly the same first-run
@@ -474,14 +482,32 @@ jobs:
           test -f "$mnt/PowerRustCOBOL.app/Contents/Resources/sdk/Cargo.toml"
           hdiutil detach "$mnt"
 
+      # The desktop entry and the launcher paths both Linux packages install.
+      # Written once here rather than twice below: a menu entry that differs
+      # between the .deb and the .rpm is a difference nobody would notice until
+      # a user on one distro reported a missing icon.
+      - name: Stage the Linux desktop entry
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/linux
+          cat > dist/linux/powerrustcobol.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=PowerRustCOBOL
+          Comment=The RAD IDE for COBOL-85
+          Exec=/opt/powerrustcobol/PowerRustCOBOL
+          Icon=powerrustcobol
+          Terminal=false
+          Categories=Development;IDE;
+          DESKTOP
+          cp assets/images/powerrustcobol-icon.png dist/linux/powerrustcobol.png
+
       # Linux: a .deb, which is what the largest family of desktops installs
       # with a double-click and what `apt` can remove again. The tree goes to
       # /opt (it is a self-contained application directory, not a set of files
       # belonging in /usr), with the launcher and the menu entry pointing at it.
-      #
-      # An .rpm and an AppImage would follow the same shape from the same staged
-      # directory; the tarball already serves those users, so they are not built
-      # until someone asks.
       - name: Build the installer (.deb)
         if: runner.os == 'Linux'
         shell: bash
@@ -510,18 +536,10 @@ jobs:
 
           ln -s /opt/powerrustcobol/PowerRustCOBOL "$root/usr/bin/powerrustcobol"
           ln -s /opt/powerrustcobol/rcrun "$root/usr/bin/rcrun"
-          cp assets/images/powerrustcobol-icon.png \
+          cp dist/linux/powerrustcobol.png \
             "$root/usr/share/icons/hicolor/256x256/apps/powerrustcobol.png"
-          cat > "$root/usr/share/applications/powerrustcobol.desktop" <<'DESKTOP'
-          [Desktop Entry]
-          Type=Application
-          Name=PowerRustCOBOL
-          Comment=The RAD IDE for COBOL-85
-          Exec=/opt/powerrustcobol/PowerRustCOBOL
-          Icon=powerrustcobol
-          Terminal=false
-          Categories=Development;IDE;
-          DESKTOP
+          cp dist/linux/powerrustcobol.desktop \
+            "$root/usr/share/applications/powerrustcobol.desktop"
 
           dpkg-deb --root-owner-group --build "$root" "dist/${PKG}.deb"
           test -s "dist/${PKG}.deb"
@@ -530,6 +548,78 @@ jobs:
           dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/assets/themes/"
           dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/sdk/Cargo.toml"
           dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/examples/PowerDemo3/"
+
+      # …and an .rpm, so the other half of the Linux desktop world has an
+      # installer too rather than only the tarball: Fedora, RHEL, CentOS Stream,
+      # openSUSE. Same tree, same launchers, same menu entry — the .deb and this
+      # differ only in the packaging format.
+      #
+      # Three settings make rpmbuild accept a payload it did not compile.
+      # `__os_install_post` off keeps it from stripping binaries it has no
+      # sources for; `debug_package` off stops it demanding a debuginfo package
+      # from them; `AutoReqProv: no` stops it deriving dependencies by reading
+      # every shared object in the tree, which would pin the package to the
+      # exact library versions of the machine that BUILT it — the opposite of
+      # what a self-contained bundle wants.
+      - name: Build the installer (.rpm)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends rpm
+          top=$(mktemp -d)
+          mkdir -p "$top"/{BUILD,RPMS,SOURCES,SPECS,BUILDROOT}
+          cat > "$top/SPECS/powerrustcobol.spec" <<'SPEC'
+          %global __os_install_post %{nil}
+          %global debug_package %{nil}
+          Name:           powerrustcobol
+          Version:        %{ver}
+          Release:        1
+          Summary:        PowerRustCOBOL AI - the RAD IDE for COBOL-85
+          License:        Apache-2.0
+          URL:            https://github.com/CloudLandBeta/PowerRustCOBOL
+          BuildArch:      x86_64
+          AutoReqProv:    no
+
+          %description
+          Design forms visually, run them on a fast tree-walking COBOL-85
+          runtime, and compile to a single self-contained binary. Ships with
+          rcrun, the command-line runtime.
+
+          %install
+          rm -rf %{buildroot}
+          mkdir -p %{buildroot}/opt/powerrustcobol %{buildroot}/usr/bin \
+                   %{buildroot}/usr/share/applications \
+                   %{buildroot}/usr/share/icons/hicolor/256x256/apps
+          cp -R %{srcdir}/. %{buildroot}/opt/powerrustcobol/
+          ln -s /opt/powerrustcobol/PowerRustCOBOL %{buildroot}/usr/bin/powerrustcobol
+          ln -s /opt/powerrustcobol/rcrun %{buildroot}/usr/bin/rcrun
+          install -m 0644 %{deskdir}/powerrustcobol.desktop \
+            %{buildroot}/usr/share/applications/powerrustcobol.desktop
+          install -m 0644 %{deskdir}/powerrustcobol.png \
+            %{buildroot}/usr/share/icons/hicolor/256x256/apps/powerrustcobol.png
+
+          %files
+          /opt/powerrustcobol
+          /usr/bin/powerrustcobol
+          /usr/bin/rcrun
+          /usr/share/applications/powerrustcobol.desktop
+          /usr/share/icons/hicolor/256x256/apps/powerrustcobol.png
+          SPEC
+
+          rpmbuild -bb "$top/SPECS/powerrustcobol.spec" \
+            --define "_topdir $top" \
+            --define "ver $VERSION" \
+            --define "srcdir $PWD/dist/$PKG" \
+            --define "deskdir $PWD/dist/linux"
+          built=$(find "$top/RPMS" -name '*.rpm' | head -1)
+          test -s "$built"
+          cp "$built" "dist/${PKG}.rpm"
+          # The same three checks the .deb makes, against the payload rpm
+          # actually recorded.
+          rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/assets/themes/"
+          rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$"
+          rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/examples/PowerDemo3/"
 
       # Artifact zips drop the Unix executable bit and flatten symlinks; a
       # tarball keeps both, so the app bundle survives the download intact.
@@ -588,14 +678,15 @@ jobs:
           packages="$RUNNER_TEMP/packages"
           mkdir -p "$packages"
           find "$RUNNER_TEMP/incoming" -type f \
-            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' \) \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.msi' -o -name '*.dmg' \
+               -o -name '*.deb' -o -name '*.rpm' \) \
             -exec mv -t "$packages/" {} +
           # Every platform must have contributed BOTH its archive and its
           # installer. A release that quietly offers four downloads where it
           # should offer eight is the failure this catches: the installer steps
           # are new, and a silently missing one looks exactly like a platform
           # nobody built for.
-          for want in msi dmg deb; do
+          for want in msi dmg deb rpm; do
             ls "$packages"/*."$want" >/dev/null 2>&1 \
               || { echo "::error::no .$want installer reached the release"; exit 1; }
           done
@@ -639,6 +730,7 @@ jobs:
             "| PowerRustCOBOL-$VERSION-macos-x86_64.dmg | Intel Macs |" \
             "| PowerRustCOBOL-$VERSION-windows-x86_64.msi | Windows 10 and 11, 64-bit |" \
             "| PowerRustCOBOL-$VERSION-linux-x86_64.deb | Debian, Ubuntu, Mint and relatives |" \
+            "| PowerRustCOBOL-$VERSION-linux-x86_64.rpm | Fedora, RHEL, CentOS Stream, openSUSE |" \
             "" \
             "**Archives** — unpack anywhere and run, nothing installed. Use one of these on a Linux that is not Debian-based, or where you cannot install software." \
             "" \
