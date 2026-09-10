@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.102] — 2026-09-10
+
+### A sidebar lost its fold control when its form was opened from another sidebar
+
+Two reports, both about a gesture that worked everywhere except where it
+mattered (operator, 2026-09-10).
+
+**The sidebar's fold/unfold control.** A form carrying a SideMenu opens as a
+SHELL when it is the root — `rcrun run-form`, a built application — and the
+shell's breadcrumb carries the rail's Open/Collapsed control at its head. The
+designer canvas and the preview draw that same strip, so it is the control the
+developer designs against.
+
+Opened as a CHILD WINDOW by another form's sidebar, the very same form was a
+bare viewport: `update_children` handed `child_frame` `None` for its chrome,
+which is right for the shell's OWN breadcrumb and wrong for the form's. The rail
+could still be folded by clicking its header — that has always been the
+affordance the rail itself carries — but there was nothing to see and nothing to
+aim at, so the button was simply gone.
+
+A child window whose form carries a SideMenu now draws the breadcrumb strip
+itself, through the shared renderer the designer and the shell both use: a live
+toggle, and ONE STATIC SEGMENT naming the form. No chain — a navigation chain is
+a fact of the shell, and a child window is not in one, which is exactly the
+reasoning the design surfaces already follow. The toggle writes `Collapsed` and
+fires `onMenuOpen`/`onMenuClose` through the same door the rail's header click
+uses, so the two affordances cannot disagree. A form with no SideMenu draws no
+strip and is untouched.
+
+It lands in `FormHost::update_children`, which is the one child-window loop all
+three hosts run — `rcrun run-form`, embedded child forms and the compiled
+binary — so the fix reaches every surface by construction.
+
+### Letting go of a thrown document only counted over the document
+
+Grab-and-throw (1.65.99) was egui's own drag-to-scroll, which measures a throw's
+speed from `pointer.velocity()` at the moment it sees the button released. That
+history belongs to the POINTER, not to the drag: release anywhere but over the
+document and the speed read back is nothing, so the page stopped dead instead of
+gliding.
+
+The gesture is the viewer's own now. The grab must still start over the document
+— that is what makes it a grab of the document rather than of the list beside it
+— but from there it belongs to the developer's hand: the drag follows the
+pointer wherever it goes, and the release counts wherever it happens, over the
+toolbar, over the document list, or outside the window entirely. The speed comes
+from the samples taken during the drag, so a hand that slowed to a stop before
+letting go throws nothing, and a press on a moving page catches it.
+
+egui's own drag-to-scroll is switched off for that area rather than left on
+beside this, or one gesture would move the page twice. Its `vel` is private and
+has no setter, so injecting the missing speed into it was never an option.
+
+System KB updated and `chunked.data` regenerated in the same change.
+
 ## [PowerRustCOBOL 1.65.101] — 2026-09-09
 
 ### Every release archive carried 8.5 MB of knowledge store it never opened

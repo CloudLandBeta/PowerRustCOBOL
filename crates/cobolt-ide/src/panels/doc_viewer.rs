@@ -50,6 +50,38 @@ use crate::i18n::{Language, Tr};
 use crate::panels::md_render::{self, ImageRef, RenderOpts};
 use crate::version::VERSION;
 
+/// How fast a thrown document has to be still moving to keep gliding, in
+/// points per second. Below this it stops rather than creeping.
+const THROW_STOP_SPEED: f32 = 20.0;
+/// How hard a thrown document is slowed, in points per second squared.
+const THROW_FRICTION: f32 = 1000.0;
+/// How much of the recent gesture a throw's speed is measured over, in seconds.
+/// Long enough to be steady, short enough that a drag which stopped before the
+/// release throws nothing — letting go of a document you have stopped moving
+/// should leave it where it is.
+const THROW_SAMPLE: f64 = 0.12;
+
+/// A grab-and-throw in flight: where the pointer has been, and when.
+///
+/// The gesture is tracked here rather than left to egui's own drag-to-scroll
+/// because egui measures the throw's speed from `pointer.velocity()` at the
+/// moment it sees the button released — and that history belongs to the
+/// pointer, not to the drag. Release the button anywhere but over the document
+/// and the speed read back is nothing, so the page stopped dead instead of
+/// gliding (operator, 2026-09-10: the release "should occur anywhere in the
+/// screen, not only over the document").
+///
+/// Ours is measured from the samples taken while the button was down, which is
+/// the gesture the developer actually made, and it does not care where the
+/// button came up.
+#[derive(Default)]
+struct Throw {
+    /// `(time, pointer y)` for the last [`THROW_SAMPLE`] seconds of the drag.
+    samples: Vec<(f64, f32)>,
+    /// Where the pointer was last frame, for this frame's drag delta.
+    last_y: f32,
+}
+
 /// Points per second a held scroll key moves the document, before acceleration.
 const BASE_SPEED: f32 = 320.0;
 /// The ceiling on the acceleration ramp: four times the starting pace.
@@ -59,6 +91,23 @@ const ACCEL_TIME: f32 = 2.0;
 /// A held key scrolls continuously only after this long, so that a tap stays a
 /// tap — one line — rather than launching a glide.
 const REPEAT_DELAY: f32 = 0.25;
+
+/// How fast the page was moving when it was let go, in points per second.
+///
+/// Measured across the samples the drag left behind — oldest to newest — so a
+/// hand that slowed to a stop before releasing throws nothing, and one still
+/// moving throws at the speed it was moving. Positive is a throw UP the
+/// document (the pointer moving up), which scrolls forward.
+fn throw_speed(samples: &[(f64, f32)]) -> f32 {
+    let (Some((t0, y0)), Some((t1, y1))) = (samples.first(), samples.last()) else {
+        return 0.0;
+    };
+    let dt = (t1 - t0) as f32;
+    if dt <= 0.0 {
+        return 0.0;
+    }
+    (y1 - y0) / dt
+}
 
 /// Speed multiplier for a scroll key held `held` seconds: `None` while it is
 /// still a tap, then `1.0` rising to [`MAX_FACTOR`] over [`ACCEL_TIME`] and
@@ -245,6 +294,14 @@ pub struct DocViewer {
     /// How long a scroll key has been held, which is what the acceleration
     /// ramp is a function of.
     key_hold: f32,
+    /// The grab-and-throw in flight, if the developer has hold of the page.
+    throw: Option<Throw>,
+    /// A thrown page's remaining speed, in points per second. Zero when the
+    /// page is at rest.
+    glide: f32,
+    /// Where the document was on screen last frame — what a grab has to start
+    /// inside of. The release does not have to be anywhere near it.
+    doc_rect: egui::Rect,
 
     show_outline: bool,
     /// Heading index to scroll to next frame (outline click).
@@ -287,6 +344,9 @@ impl Default for DocViewer {
             scroll_max: 0.0,
             page_h: 0.0,
             key_hold: 0.0,
+            throw: None,
+            glide: 0.0,
+            doc_rect: egui::Rect::NOTHING,
             show_outline: false,
             scroll_to_heading: None,
             font_pt: default_font_pt(),
@@ -618,6 +678,7 @@ impl DocViewer {
                 self.drain_prepared(ctx);
                 self.handle_shortcuts(ctx);
                 self.handle_scroll_keys(ctx);
+                self.handle_throw(ctx);
                 self.menu_bar(root_ui, tr);
                 self.toolbar(root_ui, tr);
                 self.left_pane(root_ui, tr);
@@ -648,6 +709,85 @@ impl DocViewer {
         }
         if let (Some(batch), Some(prep)) = (self.pending_batch.take(), &self.prep) {
             let _ = prep.jobs.send(batch);
+        }
+    }
+
+    /// Grab the page, drag it, and throw it.
+    ///
+    /// The grab must start over the document — that is what makes it a grab of
+    /// the document rather than of the list beside it — but from then on the
+    /// gesture belongs to the developer's hand: the drag follows the pointer
+    /// wherever it goes, and **the release counts wherever it happens**, over
+    /// the toolbar, over the document list, or outside the window entirely.
+    ///
+    /// Driven here rather than by `ScrollArea`'s own drag-to-scroll (which is
+    /// switched off for this area) so the throw's speed comes from the samples
+    /// taken during the drag. See [`Throw`] for why egui's own measurement
+    /// could not answer it.
+    fn handle_throw(&mut self, ctx: &Context) {
+        let (down, pos, time, dt) = ctx.input(|i| {
+            (
+                i.pointer.primary_down(),
+                i.pointer.latest_pos(),
+                i.time,
+                i.stable_dt.min(0.1),
+            )
+        });
+
+        match (&mut self.throw, down) {
+            // Nothing in hand: a press over the document takes hold of it, and
+            // stops whatever glide was still running — catching a moving page
+            // is how every touch surface behaves.
+            (None, true) => {
+                if let Some(p) = pos.filter(|p| self.doc_rect.contains(*p)) {
+                    self.glide = 0.0;
+                    self.throw = Some(Throw {
+                        samples: vec![(time, p.y)],
+                        last_y: p.y,
+                    });
+                }
+            }
+            // In hand: drag by the frame's movement, and remember where the
+            // pointer has been for the throw.
+            (Some(t), true) => {
+                if let Some(p) = pos {
+                    let delta = p.y - t.last_y;
+                    t.last_y = p.y;
+                    t.samples.push((time, p.y));
+                    t.samples.retain(|(s, _)| time - *s <= THROW_SAMPLE);
+                    if delta != 0.0 {
+                        let base = self.pending_offset.unwrap_or(self.scroll_y);
+                        self.pending_offset =
+                            Some((base - delta).clamp(0.0, self.scroll_max.max(0.0)));
+                    }
+                }
+            }
+            // Let go — anywhere. What the page does now is decided by how the
+            // hand was moving, not by where it stopped.
+            (Some(_), false) => {
+                let t = self.throw.take().expect("matched Some");
+                self.glide = throw_speed(&t.samples);
+                ctx.request_repaint();
+            }
+            (None, false) => {}
+        }
+
+        // The glide, with the friction a thrown thing has.
+        if self.throw.is_none() && self.glide != 0.0 {
+            let friction = THROW_FRICTION * dt;
+            if friction >= self.glide.abs() || self.glide.abs() < THROW_STOP_SPEED {
+                self.glide = 0.0;
+            } else {
+                self.glide -= friction * self.glide.signum();
+                let base = self.pending_offset.unwrap_or(self.scroll_y);
+                let next = (base - self.glide * dt).clamp(0.0, self.scroll_max.max(0.0));
+                // Run into either end and the throw is spent.
+                if next == base {
+                    self.glide = 0.0;
+                }
+                self.pending_offset = Some(next);
+                ctx.request_repaint();
+            }
         }
     }
 
@@ -1044,17 +1184,15 @@ impl DocViewer {
             let want_heading_jump = scroll_to.is_some();
             let mut sa = egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
-                // Grab the page and throw it: egui carries the pointer's
-                // velocity into a kinetic glide when the drag is released.
-                // Off by default because it is meant for touch screens; the
-                // documentation is read with a mouse, and this is how a reader
-                // expects a document to move.
+                // Grab-and-throw is `handle_throw`'s, not egui's: egui reads a
+                // throw's speed from the pointer's own history at the moment
+                // the button comes up, which is empty unless the release
+                // happened over the document. Leaving its drag on as well
+                // would move the page twice for one gesture.
                 .scroll_source(egui::containers::scroll_area::ScrollSource {
-                    drag: egui::containers::scroll_area::DragScroll::Always,
+                    drag: egui::containers::scroll_area::DragScroll::Never,
                     ..Default::default()
-                })
-                .on_hover_cursor(egui::CursorIcon::Grab)
-                .on_drag_cursor(egui::CursorIcon::Grabbing);
+                });
             if let Some(off) = self.pending_offset.take() {
                 sa = sa.vertical_scroll_offset(off);
             }
@@ -1131,6 +1269,20 @@ impl DocViewer {
             self.scroll_y = sa_out.state.offset.y;
             self.page_h = sa_out.inner_rect.height();
             self.scroll_max = (sa_out.content_size.y - self.page_h).max(0.0);
+            // What a grab has to start inside of, next frame. The release is
+            // not tested against it — see `handle_throw`.
+            self.doc_rect = sa_out.inner_rect;
+            // The hand: open over the document, closed while it is held. Set
+            // here because egui's own drag cursors travel with its
+            // drag-to-scroll, which this area does not use.
+            if self.throw.is_some() {
+                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+            } else if ctx
+                .pointer_interact_pos()
+                .is_some_and(|p| sa_out.inner_rect.contains(p))
+            {
+                ctx.set_cursor_icon(egui::CursorIcon::Grab);
+            }
 
             // Convert the target block's screen-Y into a scroll offset and apply
             // it next frame (deterministic; `scroll_to_me` is unreliable here).
@@ -1877,6 +2029,56 @@ mod tests {
 
         // Remote sources are never fetched — the docs render offline.
         assert!(resolve_asset("https://example.com/a.png", &roots).is_none());
+    }
+
+    /// A throw's speed is the hand's speed, measured over the drag — and it
+    /// does not know or care where the button came up, which is the whole
+    /// point (operator, 2026-09-10).
+    #[test]
+    fn a_throw_takes_its_speed_from_the_drag_not_the_release() {
+        // 100 points up in a tenth of a second: 1000 points per second.
+        let samples = vec![(1.00, 400.0), (1.05, 350.0), (1.10, 300.0)];
+        assert!(
+            (throw_speed(&samples) - -1000.0).abs() < 1.0,
+            "expected -1000 pt/s, got {}",
+            throw_speed(&samples)
+        );
+
+        // A hand that stopped before letting go throws nothing, however far it
+        // travelled earlier — the samples older than THROW_SAMPLE are gone by
+        // then, which is what leaves a stopped page where it is.
+        let stopped = vec![(2.00, 300.0), (2.05, 300.0), (2.10, 300.0)];
+        assert_eq!(throw_speed(&stopped), 0.0);
+
+        // Degenerate input is not a divide by zero.
+        assert_eq!(throw_speed(&[]), 0.0);
+        assert_eq!(throw_speed(&[(1.0, 10.0)]), 0.0);
+        assert_eq!(throw_speed(&[(1.0, 10.0), (1.0, 90.0)]), 0.0);
+    }
+
+    /// The glide is spent by friction rather than running for ever, and it
+    /// stops instead of creeping once it is slower than the eye can follow.
+    #[test]
+    fn a_thrown_page_comes_to_rest() {
+        // Friction is THROW_FRICTION points per second per second, so a throw
+        // of 1000 pt/s has about a second in it.
+        let mut speed: f32 = 1000.0;
+        let dt = 1.0 / 60.0;
+        let mut frames = 0;
+        while speed != 0.0 && frames < 600 {
+            let friction = THROW_FRICTION * dt;
+            if friction >= speed.abs() || speed.abs() < THROW_STOP_SPEED {
+                speed = 0.0;
+            } else {
+                speed -= friction * speed.signum();
+            }
+            frames += 1;
+        }
+        assert!(speed == 0.0, "a throw must come to rest");
+        assert!(
+            (30..=90).contains(&frames),
+            "a 1000 pt/s throw should settle in about a second at 60 fps, took {frames} frames"
+        );
     }
 
     /// Holding an arrow key starts at the reading pace and winds up to exactly

@@ -463,6 +463,7 @@ impl FormHost {
             root: FormBody {
                 drawn_reported: false,
                 form_name: form.name.clone(),
+            last_window_crumb: None,
                 footer_ids: footer_ids.clone(),
                 theme_pack,
                 surface_theme,
@@ -623,6 +624,11 @@ pub(crate) fn motion_bindings(
 
 pub(crate) struct FormBody {
     pub(crate) form_name: String,
+    /// 049/051 — where this body's OWN breadcrumb strip put its pieces last
+    /// frame, for a form running in a stand-alone WINDOW. `None` for a body
+    /// with no SideMenu, and for the ContentPane occupant, whose strip is the
+    /// shell's. See [`Self::window_crumb_chrome`].
+    pub(crate) last_window_crumb: Option<cobolt_forms::breadcrumb::BreadcrumbLayout>,
     /// `drawn_rects` has already been reported for this body — it is printed
     /// ONCE, on the first frame that actually placed controls, not per frame.
     pub(crate) drawn_reported: bool,
@@ -1834,6 +1840,127 @@ impl FormBody {
     /// pane, no supervisor (the parent host owns those); everything a live
     /// form needs, through the same shared render engine. `blocked` disables
     /// input while the child's own modal child lives (R28).
+    /// This body's SideMenu, when it has one — the rail that owns a breadcrumb.
+    fn own_side_menu(&self) -> Option<&cobolt_forms::Control> {
+        cobolt_forms::breadcrumb::shell_side_menu_in(&self.controls)
+    }
+
+    /// The rail's live Open/Collapsed state, which is what the toggle's arrow
+    /// has to show: the designed property only says what it opened as.
+    fn side_menu_collapsed(&self, side_id: &str) -> bool {
+        match self.state.get(side_id).and_then(|s| s.props.get("Collapsed")) {
+            Some(v) => matches!(v.trim(), "1" | "true" | "True" | "TRUE"),
+            None => self
+                .own_side_menu()
+                .map(|c| c.side_menu_collapsed())
+                .unwrap_or(false),
+        }
+    }
+
+    /// The breadcrumb strip a form running in its OWN WINDOW draws for itself.
+    ///
+    /// A form carrying a SideMenu opens as a SHELL when it is the root — that
+    /// is what `rcrun run-form` and a built application do — and the shell's
+    /// breadcrumb carries the rail's Open/Collapsed control at its head. The
+    /// designer canvas and the preview draw that same strip, so it is the
+    /// control the developer designs against.
+    ///
+    /// Spawned as a CHILD WINDOW by another form's sidebar, the very same form
+    /// was a bare viewport with no shell over it (`child_frame` is handed
+    /// `None` for its chrome), so the control had nowhere to live: the rail
+    /// could still be folded by clicking its header, but there was nothing to
+    /// see or aim at. The operator reported it as the sidebar losing its
+    /// fold/unfold button when the form is launched from another sidebar
+    /// window (2026-09-10).
+    ///
+    /// The chain is ONE STATIC SEGMENT — this form — for the reason the design
+    /// surfaces give: a navigation chain is a runtime fact of the SHELL, and a
+    /// child window is not in one, so there is nothing else to honestly show.
+    /// The toggle is live.
+    ///
+    /// Returns the painter `child_frame` runs between the backdrop and the
+    /// controls, so the strip sits under anything the developer placed over the
+    /// band — exactly where the designer canvas puts it.
+    /// `label` is what the chain calls this form — the window title the
+    /// child was opened with, which is already the designed Title with the
+    /// form object as its fallback.
+    pub(crate) fn window_crumb_chrome(
+        &mut self,
+        ui: &egui::Ui,
+        window: egui::Rect,
+        label: &str,
+    ) -> Option<Box<dyn Fn(&egui::Painter, egui::Rect)>> {
+        use cobolt_forms::breadcrumb as bc;
+        let side = self.own_side_menu()?.clone();
+        let collapsed = self.side_menu_collapsed(&side.id);
+        let rail = cobolt_forms::sidebar::shown_width(&side, collapsed);
+        let rect = bc::strip_rect(&side, rail, window.width(), window.min)?;
+
+        let ctx = ui.ctx().clone();
+        let bg = bc::strip_background_for(&side, &self.bg_hex, self.transparency);
+        let segments = vec![if label.trim().is_empty() {
+            self.form_name.clone()
+        } else {
+            label.to_owned()
+        }];
+        let mut state = bc::state_for_control(&ctx, &side, &segments, bg);
+        state.collapsed = collapsed;
+        let layout = bc::layout(ui.painter(), rect, &state);
+        state.toggle_hovered = ctx
+            .pointer_interact_pos()
+            .is_some_and(|p| bc::toggle_hit(&layout, p));
+        self.last_window_crumb = Some(layout.clone());
+
+        // The state borrows `segments`, so both travel into the closure.
+        let side_for_paint = side.clone();
+        let collapsed_for_paint = collapsed;
+        let hovered = state.toggle_hovered;
+        Some(Box::new(move |painter: &egui::Painter, _pane: egui::Rect| {
+            let mut st = bc::state_for_control(&ctx, &side_for_paint, &segments, bg);
+            st.collapsed = collapsed_for_paint;
+            st.toggle_hovered = hovered;
+            bc::paint(painter, rect, &st, &layout);
+        }))
+    }
+
+    /// Register the window strip's toggle against what it laid out this frame,
+    /// and fold or unfold the rail when it is clicked.
+    ///
+    /// Registered BEFORE the form's controls, so a control the developer placed
+    /// over the band still wins the pointer: the strip is chrome, and chrome
+    /// never steals a click from the developer's own control.
+    pub(crate) fn window_crumb_interact(&mut self, ui: &mut egui::Ui) {
+        let Some(layout) = self.last_window_crumb.clone() else {
+            return;
+        };
+        let Some(side_id) = self.own_side_menu().map(|c| c.id.clone()) else {
+            return;
+        };
+        if !ui
+            .interact(
+                layout.toggle,
+                ui.id().with(("window-crumb-toggle", &side_id)),
+                egui::Sense::click(),
+            )
+            .clicked()
+        {
+            return;
+        }
+        // The same write the rail's own header click makes, through the same
+        // door, so the two affordances cannot disagree and the COBOL handler
+        // hears about either one.
+        let collapsed = self.side_menu_collapsed(&side_id);
+        let next = if collapsed { "0" } else { "1" };
+        self.forward_interaction(
+            &[(side_id.clone(), "Collapsed".to_owned(), next.to_owned())],
+            vec![cobolt_forms::render::UiEvent {
+                ctrl_id: side_id.clone(),
+                event: if collapsed { "onMenuOpen" } else { "onMenuClose" }.to_owned(),
+                value: None,
+            }],
+        );
+    }
+
     pub(crate) fn child_frame(
         &mut self,
         panel_ui: &mut egui::Ui,
@@ -2944,6 +3071,7 @@ impl FormHost {
         let body = FormBody {
             drawn_reported: false,
             form_name: form.name.clone(),
+            last_window_crumb: None,
             // An occupant is a form INSIDE the pane; the rail belongs to the
             // shell's main form, so an occupant has no footer band of its own
             // and nothing is withheld from its content pass.
@@ -3047,7 +3175,17 @@ impl FormHost {
                     vp_ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     close_requested = true;
                 }
-                child.body.child_frame(vp_ui, blocked, None);
+                // 049/051 — a child window whose form carries a SideMenu draws
+                // its own breadcrumb strip, so the rail keeps the Open/Collapsed
+                // control it has on every other surface. A form with no
+                // SideMenu produces no strip and nothing changes for it.
+                let window = vp_ui.max_rect();
+                let label = child.title.clone();
+                let chrome = child.body.window_crumb_chrome(vp_ui, window, &label);
+                if !blocked {
+                    child.body.window_crumb_interact(vp_ui);
+                }
+                child.body.child_frame(vp_ui, blocked, chrome.as_deref());
             });
             if close_requested {
                 close_requests.push(handle);
@@ -4398,6 +4536,168 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             surface: Surface::Window,
         });
         (host, closed_rx, form_req_tx)
+    }
+
+    /// A form whose rail is exactly what a shell would open on: one SideMenu,
+    /// full height, 200 wide.
+    fn form_with_side_menu() -> cobolt_forms::Form {
+        let mut form = cobolt_forms::Form::new("DETAIL", "Detail", 640, 420);
+        let mut side =
+            cobolt_forms::Control::new("SideMenu-1", cobolt_forms::ControlType::SideMenu, 0, 0);
+        side.rect = cobolt_forms::model::Rect::new(0, 0, 200, 420);
+        form.add_control(side);
+        form
+    }
+
+    /// A host whose ROOT body carries a SideMenu — the body shape a spawned
+    /// child window has when its form is one that would open as a shell.
+    fn host_with_side_menu() -> FormHost {
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let form = form_with_side_menu();
+        // The body renders from the FLATTENED list, which is what every real
+        // caller passes; an empty one would give the body no controls at all.
+        let mut flat = Vec::new();
+        crate::flatten_controls(&form.controls, &mut flat);
+        let (host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat,
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx,
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        host
+    }
+
+    /// 049/051 — a form with a SideMenu running in its own WINDOW draws the
+    /// breadcrumb strip itself, so the rail keeps its Open/Collapsed control.
+    ///
+    /// Spawned as a child window by another form's sidebar, such a form used to
+    /// get no chrome at all (`child_frame` was handed `None`) and the rail lost
+    /// the fold/unfold button it has on every other surface — the designer
+    /// canvas, the preview and `rcrun run-form`, which opens the same form as a
+    /// shell (operator, 2026-09-10).
+    #[test]
+    fn a_window_with_a_side_menu_draws_its_own_fold_control() {
+        let mut host = host_with_side_menu();
+        let ctx = egui::Context::default();
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 420.0));
+
+        // Frame 1: lay the strip out and find the toggle.
+        let mut toggle = egui::Rect::NOTHING;
+        let mut painted = false;
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            let chrome = host.root.window_crumb_chrome(ui, window, "Detail");
+            painted = chrome.is_some();
+            if let Some(c) = &chrome {
+                c(ui.painter(), window);
+            }
+            toggle = host.root.last_window_crumb.as_ref().unwrap().toggle;
+        })
+        .textures_delta
+        .clear();
+
+        assert!(painted, "a form with a SideMenu must draw its own strip");
+        assert!(
+            toggle.width() > 4.0 && toggle.height() > 4.0,
+            "the fold control must be a real target, got {toggle:?}"
+        );
+        assert!(
+            window.contains(toggle.center()),
+            "the fold control must sit inside the window, got {toggle:?}"
+        );
+        assert!(
+            !host.root.side_menu_collapsed("SideMenu-1"),
+            "the rail starts open"
+        );
+
+        // Click it, exactly where it was drawn. Press and release are separate
+        // frames, and the toggle is registered on every one of them: egui hit-
+        // tests a press against the widgets the PREVIOUS frame declared, so a
+        // control that appears only on the frame of the press is never pressed.
+        let click = toggle.center();
+        let button = |pressed: bool| egui::RawInput {
+            events: vec![
+                egui::Event::PointerMoved(click),
+                egui::Event::PointerButton {
+                    pos: click,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            ..Default::default()
+        };
+        for input in [
+            egui::RawInput {
+                events: vec![egui::Event::PointerMoved(click)],
+                ..Default::default()
+            },
+            button(true),
+            button(false),
+        ] {
+            ctx.run_ui(input, |ui| {
+                let _ = host.root.window_crumb_chrome(ui, window, "Detail");
+                host.root.window_crumb_interact(ui);
+            })
+            .textures_delta
+            .clear();
+        }
+
+        assert!(
+            host.root.side_menu_collapsed("SideMenu-1"),
+            "clicking the fold control must collapse the rail"
+        );
+
+        println!(
+            "049/051 window fold control — strip laid out, toggle {:.0}x{:.0} at ({:.0}, {:.0}), \
+             one click folded the rail",
+            toggle.width(),
+            toggle.height(),
+            toggle.center().x,
+            toggle.center().y
+        );
+    }
+
+    /// …and a form with no SideMenu produces no strip at all, so an ordinary
+    /// child window is untouched by any of this.
+    #[test]
+    fn a_window_without_a_side_menu_draws_no_strip() {
+        let (mut host, _closed, _req) = host_with_source(false);
+        let ctx = egui::Context::default();
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 200.0));
+        let mut chrome_some = false;
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            chrome_some = host.root.window_crumb_chrome(ui, window, "Main").is_some();
+        })
+        .textures_delta
+        .clear();
+        assert!(!chrome_some, "no SideMenu, no strip");
+        assert!(host.root.last_window_crumb.is_none());
     }
 
     fn spawn_action(handle: &str, form: &str) -> cobolt_runtime::form_host::HostAction {
@@ -5780,6 +6080,7 @@ mod parity {
         FormBody {
             drawn_reported: false,
             form_name: "TIMER-FORM".to_owned(),
+            last_window_crumb: None,
             footer_ids: std::collections::HashSet::new(),
             theme_pack: None,
             surface_theme: cobolt_forms::surface_theme::liquid_glass(),

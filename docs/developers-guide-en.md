@@ -1132,7 +1132,12 @@ scroll it: a tap moves one line, and holding one starts at that same reading pac
 and winds up to four times it, so a long manual can be crossed without letting
 go. `PageUp` / `PageDown` move a screen at a time, `Home` and `End` go to the
 ends. You can also **grab the page with the mouse and throw it** — press, drag,
-release, and it glides to a stop. (The arrows belong to the search box while the
+release, and it glides to a stop. The grab has to start over the document, but
+from there the gesture is yours: the drag follows the pointer wherever it goes,
+and **you can let go anywhere on screen** — over the toolbar, over the document
+list, or outside the window — and the page still flies. Let go while your hand
+is already still and it simply stays where you put it; catch a moving page with
+a press and it stops dead. (The arrows belong to the search box while the
 caret is in it, so they type there rather than scrolling.)
 
 Long manuals stay responsive because the window only lays out the part you are
@@ -9068,6 +9073,13 @@ which of them may load it:
 Windows opened this way are parented to the **shell**, whichever form ran
 the INVOKE — closing the application closes them. The target needs
 `Standalone` or `Both`.
+
+> **A target that has its own SideMenu keeps its Open/Collapsed control.**
+> Run such a form on its own and it opens as a shell, whose breadcrumb carries
+> that control at its head. Opened as a child window it is a plain window with
+> no shell over it, so it draws the strip itself: the same live toggle, and one
+> static segment naming the form. There is no navigation chain to show — a
+> chain is a fact of the shell, and a child window is not in one.
 
 **Sync is implicitly modal.** From a menu click or from COBOL: while a
 Sync-opened window lives, its parent's whole face — the shell's chrome
