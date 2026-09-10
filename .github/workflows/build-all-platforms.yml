@@ -8,12 +8,27 @@
 # runtime) for every supported desktop platform.
 #   Actions -> "Build PowerRustCOBOL (all platforms)" -> Run workflow
 #
-# Tick "Publish the packages as a GitHub Release" to put the four downloads on
-# the releases page, where anyone can fetch them without a GitHub account.
-# Leave it clear for a build you only want to inspect.
+# Tick "Publish the packages as a GitHub Release" to put the downloads on the
+# releases page, where anyone can fetch them without a GitHub account. Leave it
+# clear for a build you only want to inspect.
 #
-# Each package is self-contained: unpack it anywhere and run it, with nothing
-# to install first.
+# EIGHT downloads, two per platform, both carrying the same application:
+#
+#   an ARCHIVE   self-contained — unpack it anywhere and run it, with nothing to
+#                install first, including where the user cannot install
+#                software. This is also the only download for a Linux that is
+#                not Debian-based.
+#   an INSTALLER .msi on Windows, .dmg on macOS, .deb on Linux. Built FROM the
+#                staged archive, never from a fresh file list, so the two can
+#                never disagree about what ships. What it adds is the install:
+#                a Start Menu / Applications entry, a desktop launcher, rcrun on
+#                PATH, and a supported way to remove it again.
+#
+# NEITHER IS SIGNED. SmartScreen and Gatekeeper key off a paid certificate
+# (Authenticode; Apple Developer ID), so an .msi earns exactly the same first-run
+# warning a .zip does — an installer is not inherently more trusted. Notarising
+# the .dmg would run here happily (`xcrun notarytool submit`), but it needs that
+# certificate in the repository secrets first.
 #
 #   Windows   the Visual C++ runtime DLLs travel with the executables
 #             (.cargo/config.toml links the dynamic CRT deliberately, so those
@@ -352,6 +367,170 @@ jobs:
           test -d "$ex/PowerDemo3/forms" \
             || { echo "::error::the example project is incomplete: forms/"; exit 1; }
 
+      # ── Installers ──────────────────────────────────────────────────────────
+      #
+      # Built from the STAGED package, never from a fresh file list: the app
+      # reads assets/, examples/, sdk/ and rcrun from beside its executable, and
+      # a hand-written manifest that misses one of them is exactly how an
+      # install ends up with no themes. Everything below wraps `dist/$PKG`,
+      # which the steps above have already assembled and checked.
+      #
+      # They run BEFORE the archive steps, which delete that directory.
+      #
+      # None of this is signed. An installer is not inherently more trusted than
+      # a zip: SmartScreen and Gatekeeper key off a paid certificate
+      # (Authenticode; Apple Developer ID), so the same first-run warning
+      # applies until the operator buys one. What an installer adds is the
+      # install itself — Start Menu and Applications entries, a desktop file, an
+      # uninstaller, and a path the platform's own tooling understands.
+
+      # Windows: an MSI, because that is what a Windows shop deploys — silent
+      # install (`msiexec /i … /quiet`), Add/Remove Programs, group policy.
+      #
+      # WiX is INSTALLED here rather than assumed: the toolset has come and gone
+      # from the hosted images, and a build that depends on what happens to be
+      # on the runner breaks without anyone changing it. `heat` harvests the
+      # staged tree (every asset, example and SDK file), so nothing has to be
+      # listed by hand.
+      - name: Build the installer (.msi)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          choco install wixtoolset --no-progress -y
+          wix="/c/Program Files (x86)/WiX Toolset v3.14/bin"
+          test -d "$wix" || wix=$(ls -d "/c/Program Files (x86)/WiX Toolset v"*/bin | tail -1)
+          test -x "$wix/heat.exe"
+
+          # The product's identity. UpgradeCode is FIXED for the product's whole
+          # life — it is what makes an install an UPGRADE of the last one rather
+          # than a second copy beside it — while ProductId changes per version.
+          cat > product.wxs <<'WXS'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="PowerRustCOBOL" Language="1033" Version="$(var.Ver)"
+                     Manufacturer="Emerson Lopes" UpgradeCode="6F3B1E4A-9C2D-4B77-8E51-2A6D0C9F41B3">
+              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+                       Description="PowerRustCOBOL AI — the RAD IDE for COBOL-85" />
+              <MajorUpgrade DowngradeErrorMessage="A newer version of PowerRustCOBOL is already installed." />
+              <MediaTemplate EmbedCab="yes" />
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFiles64Folder">
+                  <Directory Id="INSTALLFOLDER" Name="PowerRustCOBOL" />
+                </Directory>
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="AppMenuFolder" Name="PowerRustCOBOL" />
+                </Directory>
+              </Directory>
+              <DirectoryRef Id="AppMenuFolder">
+                <Component Id="AppShortcut" Guid="*">
+                  <Shortcut Id="StartMenuShortcut" Name="PowerRustCOBOL"
+                            Description="The RAD IDE for COBOL-85"
+                            Target="[INSTALLFOLDER]PowerRustCOBOL.exe"
+                            WorkingDirectory="INSTALLFOLDER" />
+                  <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
+                  <RegistryValue Root="HKCU" Key="Software\PowerRustCOBOL"
+                                 Name="installed" Type="integer" Value="1" KeyPath="yes" />
+                </Component>
+              </DirectoryRef>
+              <Feature Id="Complete" Level="1">
+                <ComponentGroupRef Id="AppFiles" />
+                <ComponentRef Id="AppShortcut" />
+              </Feature>
+            </Product>
+          </Wix>
+          WXS
+
+          "$wix/heat.exe" dir "dist/$PKG" -cg AppFiles -gg -scom -sreg -sfrag -srd \
+            -dr INSTALLFOLDER -var var.SourceDir -out appfiles.wxs
+          "$wix/candle.exe" -dVer="$VERSION" -dSourceDir="dist/$PKG" product.wxs appfiles.wxs
+          "$wix/light.exe" -sval product.wixobj appfiles.wixobj -o "dist/${PKG}.msi"
+          test -s "dist/${PKG}.msi"
+
+      # macOS: a .dmg with the app and a link to /Applications — the drag-here
+      # window every Mac user already knows. Only the bundle goes in: the
+      # archive's loose `rcrun` is a symlink INTO it, and the IDE finds its own
+      # copy beside its executable.
+      - name: Build the installer (.dmg)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage=$(mktemp -d)/PowerRustCOBOL
+          mkdir -p "$stage"
+          cp -R "dist/$PKG/PowerRustCOBOL.app" "$stage/PowerRustCOBOL.app"
+          ln -s /Applications "$stage/Applications"
+          cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$stage/"
+          hdiutil create -volname "PowerRustCOBOL $VERSION" -srcfolder "$stage" \
+            -ov -format UDZO "dist/${PKG}.dmg"
+          test -s "dist/${PKG}.dmg"
+          # The bundle must survive the round trip intact — a dmg that carries a
+          # broken signature is one Gatekeeper refuses outright, which is worse
+          # than the warning an unsigned one earns.
+          mnt=$(mktemp -d)
+          hdiutil attach "dist/${PKG}.dmg" -nobrowse -readonly -mountpoint "$mnt"
+          codesign --verify --strict "$mnt/PowerRustCOBOL.app"
+          test -d "$mnt/PowerRustCOBOL.app/Contents/Resources/assets/themes"
+          test -f "$mnt/PowerRustCOBOL.app/Contents/Resources/sdk/Cargo.toml"
+          hdiutil detach "$mnt"
+
+      # Linux: a .deb, which is what the largest family of desktops installs
+      # with a double-click and what `apt` can remove again. The tree goes to
+      # /opt (it is a self-contained application directory, not a set of files
+      # belonging in /usr), with the launcher and the menu entry pointing at it.
+      #
+      # An .rpm and an AppImage would follow the same shape from the same staged
+      # directory; the tarball already serves those users, so they are not built
+      # until someone asks.
+      - name: Build the installer (.deb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=$(mktemp -d)
+          install -d "$root/DEBIAN" "$root/opt/powerrustcobol" \
+            "$root/usr/bin" "$root/usr/share/applications" \
+            "$root/usr/share/icons/hicolor/256x256/apps"
+          cp -R "dist/$PKG/." "$root/opt/powerrustcobol/"
+          # Debian's own size field, in KiB, as the archive tools report it.
+          size=$(du -sk "$root/opt" | cut -f1)
+          cat > "$root/DEBIAN/control" <<CONTROL
+          Package: powerrustcobol
+          Version: $VERSION
+          Section: devel
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Emerson Lopes <emersonlopes@gmail.com>
+          Installed-Size: $size
+          Description: PowerRustCOBOL AI - the RAD IDE for COBOL-85
+           Design forms visually, run them on a fast tree-walking COBOL-85
+           runtime, and compile to a single self-contained binary. Ships with
+           rcrun, the command-line runtime.
+          CONTROL
+
+          ln -s /opt/powerrustcobol/PowerRustCOBOL "$root/usr/bin/powerrustcobol"
+          ln -s /opt/powerrustcobol/rcrun "$root/usr/bin/rcrun"
+          cp assets/images/powerrustcobol-icon.png \
+            "$root/usr/share/icons/hicolor/256x256/apps/powerrustcobol.png"
+          cat > "$root/usr/share/applications/powerrustcobol.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=PowerRustCOBOL
+          Comment=The RAD IDE for COBOL-85
+          Exec=/opt/powerrustcobol/PowerRustCOBOL
+          Icon=powerrustcobol
+          Terminal=false
+          Categories=Development;IDE;
+          DESKTOP
+
+          dpkg-deb --root-owner-group --build "$root" "dist/${PKG}.deb"
+          test -s "dist/${PKG}.deb"
+          # Prove the tree the app actually reads survived the packaging, the
+          # same way the archive is checked.
+          dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/assets/themes/"
+          dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/sdk/Cargo.toml"
+          dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/examples/PowerDemo3/"
+
       # Artifact zips drop the Unix executable bit and flatten symlinks; a
       # tarball keeps both, so the app bundle survives the download intact.
       - name: Archive
@@ -408,9 +587,19 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
           packages="$RUNNER_TEMP/packages"
           mkdir -p "$packages"
-          find "$RUNNER_TEMP/incoming" -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+          find "$RUNNER_TEMP/incoming" -type f \
+            \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.msi' -o -name '*.dmg' -o -name '*.deb' \) \
             -exec mv -t "$packages/" {} +
-          ( cd "$packages" && sha256sum *.tar.gz *.zip ) > "$RUNNER_TEMP/SHA256SUMS"
+          # Every platform must have contributed BOTH its archive and its
+          # installer. A release that quietly offers four downloads where it
+          # should offer eight is the failure this catches: the installer steps
+          # are new, and a silently missing one looks exactly like a platform
+          # nobody built for.
+          for want in msi dmg deb; do
+            ls "$packages"/*."$want" >/dev/null 2>&1 \
+              || { echo "::error::no .$want installer reached the release"; exit 1; }
+          done
+          ( cd "$packages" && sha256sum * ) > "$RUNNER_TEMP/SHA256SUMS"
           mv "$RUNNER_TEMP/SHA256SUMS" "$packages/"
           echo "PACKAGES=$packages" >> "$GITHUB_ENV"
           ls -lh "$packages"
@@ -441,6 +630,17 @@ jobs:
             "PowerRustCOBOL $VERSION — the RAD IDE, and rcrun, the RustCOBOL command-line runtime." \
             "" \
             "Download the archive for your machine, unpack it anywhere and run it. Each one carries what its platform needs, so there is nothing to install first." \
+            "" \
+            "**Installers** — double-click, and it is installed." \
+            "" \
+            "| Download | For |" \
+            "| --- | --- |" \
+            "| PowerRustCOBOL-$VERSION-macos-aarch64.dmg | Macs with Apple Silicon |" \
+            "| PowerRustCOBOL-$VERSION-macos-x86_64.dmg | Intel Macs |" \
+            "| PowerRustCOBOL-$VERSION-windows-x86_64.msi | Windows 10 and 11, 64-bit |" \
+            "| PowerRustCOBOL-$VERSION-linux-x86_64.deb | Debian, Ubuntu, Mint and relatives |" \
+            "" \
+            "**Archives** — unpack anywhere and run, nothing installed. Use one of these on a Linux that is not Debian-based, or where you cannot install software." \
             "" \
             "| Download | For |" \
             "| --- | --- |" \
