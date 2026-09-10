@@ -1,5 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.108] — 2026-09-10
+
+### The Linux package was not short of disk — it was the compressor
+
+1.65.106 blamed the disk for
+
+```
+tar: stdout: write error
+dpkg-deb: error: tar subprocess returned error exit status 2
+```
+
+**That diagnosis was wrong**, and the `df -h` added in the same change is what
+disproved it. Run 14's log:
+
+```
+/dev/root  146G  63G  83G  44% /     <- before the build
+/dev/root  146G  64G  83G  44% /     <- when tar gave up
+```
+
+83 GB free throughout. The instinct to instrument was right; the conclusion was
+not.
+
+What the message chain actually says: `dpkg-deb` pipes tar into a COMPRESSOR and
+the compressor into the file. `tar: stdout: write error` is tar being told its
+reader has gone, so what died is the compressor — tar reported the only thing it
+could see. dpkg-deb's default is xz at level 9, which wants roughly 700 MB per
+thread and takes a thread per core; against a ~400 MB payload that is the one
+part of the step big enough to be killed.
+
+Both Linux packages are compressed with **gzip** now — `dpkg-deb -Zgzip` and
+rpm's `%_binary_payload w6.gzdio`. A release package is downloaded once and
+unpacked once; trading a few per cent of size for a compressor that cannot
+exhaust the machine is the right way round, and both tools have understood gzip
+forever.
+
+`free -m` and `nproc` now print beside `df -h`. If this fails again the log will
+say whether the machine was short of memory, instead of leaving the next person
+to guess as it left this one.
+
+The hardlinked payload from 1.65.106 stays. It was introduced for the wrong
+reason but it is worth keeping on its own: dpkg-deb reads through the links
+exactly as through copies, and the tree costs inodes instead of a second 400 MB.
+
+Also confirmed by run 14: the Node 24 action bump worked — no deprecation
+warnings on any job — and both macOS jobs produced their artifacts again, so the
+`.dmg` has now built cleanly on real runners twice.
+
 ## [PowerRustCOBOL 1.65.107] — 2026-09-10
 
 ### One em dash cost the Windows installer

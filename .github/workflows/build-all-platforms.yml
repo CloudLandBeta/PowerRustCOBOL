@@ -522,24 +522,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The runner's disk is the constraint, not the packaging. The staged
-          # tree is ~400 MB, and the first version of this step COPIED it into
-          # the package root and then let dpkg-deb write a third copy — on a
-          # runner whose root filesystem is already carrying `target/` from a
-          # release build of the whole workspace. It ran out, and said so in the
-          # least obvious way available: `tar: stdout: write error`, then
-          # `dpkg-deb: error: tar subprocess returned error exit status 2`.
+          # `tar: stdout: write error` / `dpkg-deb: error: tar subprocess
+          # returned error exit status 2` is what this step failed with twice.
           #
-          # So the payload is HARDLINKED, not copied (`cp -al`): dpkg-deb reads
-          # through the links exactly as it would through copies, and the tree
-          # costs inodes rather than gigabytes. The package root lives inside
-          # the workspace rather than in $(mktemp -d) so it is certainly on the
-          # same filesystem as `dist/` — hardlinks cannot cross one, and
-          # /tmp is not guaranteed to be the same disk.
+          # It is NOT the disk. That was the first theory, and the `df -h` added
+          # to test it disproved it: 83 GB free before the build and 83 GB free
+          # when tar gave up. Recording that here so nobody spends another run
+          # on it.
           #
-          # `df -h` before and after because a disk that runs out mid-archive
-          # blames the archiver. Next time the log will name the real cause.
-          df -h /
+          # dpkg-deb pipes tar into a COMPRESSOR and the compressor into the
+          # file. `tar: stdout: write error` is tar being told its reader is
+          # gone — so what died is the compressor, and tar reported the only
+          # thing it could see. dpkg-deb's default is xz at level 9, which wants
+          # roughly 700 MB per thread and takes one thread per core; on a
+          # ~400 MB payload that is the one part of this step big enough to be
+          # killed.
+          #
+          # So the payload is compressed with gzip instead. A release package is
+          # downloaded once and unpacked once — trading a few per cent of size
+          # for a compressor that cannot exhaust the machine is the right way
+          # round, and apt has understood gzip-compressed debs forever.
+          #
+          # `free -m` and `nproc` print alongside `df -h`: if this still fails,
+          # the log will say whether the machine was short of memory rather
+          # than leaving the next person to guess as this did.
+          #
+          # The payload is also HARDLINKED rather than copied (`cp -al`), which
+          # is worth keeping whatever the cause: dpkg-deb reads through the
+          # links exactly as it would through copies, and the tree costs inodes
+          # instead of a second 400 MB. The package root sits inside the
+          # workspace so it is certainly on the same filesystem as `dist/` —
+          # hardlinks cannot cross one.
+          df -h /; free -m; nproc
           root=dist/debroot
           rm -rf "$root"
           install -d "$root/DEBIAN" "$root/opt/powerrustcobol" \
@@ -569,7 +583,7 @@ jobs:
           cp dist/linux/powerrustcobol.desktop \
             "$root/usr/share/applications/powerrustcobol.desktop"
 
-          dpkg-deb --root-owner-group --build "$root" "dist/${PKG}.deb"
+          dpkg-deb -Zgzip --root-owner-group --build "$root" "dist/${PKG}.deb"
           test -s "dist/${PKG}.deb"
           df -h /
           # Prove the tree the app actually reads survived the packaging, the
@@ -604,6 +618,10 @@ jobs:
           cat > "$top/SPECS/powerrustcobol.spec" <<'SPEC'
           %global __os_install_post %{nil}
           %global debug_package %{nil}
+          # gzip for the same reason the .deb uses it: rpm's default xz payload
+          # is the memory-hungry part of packaging 400 MB, and a download that
+          # is a few per cent larger is the cheaper trade.
+          %global _binary_payload w6.gzdio
           Name:           powerrustcobol
           Version:        %{ver}
           Release:        1
@@ -639,9 +657,9 @@ jobs:
           /usr/share/icons/hicolor/256x256/apps/powerrustcobol.png
           SPEC
 
-          # Same disk rule as the .deb: _topdir inside the workspace, so the
+          # Same rule as the .deb: _topdir inside the workspace, so the
           # buildroot's hardlinks land on the filesystem `dist/` is on.
-          df -h /
+          df -h /; free -m
           rpmbuild -bb "$top/SPECS/powerrustcobol.spec" \
             --define "_topdir $top" \
             --define "ver $VERSION" \
