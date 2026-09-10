@@ -400,6 +400,15 @@ jobs:
       # on the runner breaks without anyone changing it. `heat` harvests the
       # staged tree (every asset, example and SDK file), so nothing has to be
       # listed by hand.
+      #
+      # EVERY STRING IN THE WXS IS ASCII, deliberately. An MSI's summary
+      # information is written in a legacy code page - 1252 unless the Product
+      # declares otherwise - and `light` refuses anything it cannot represent
+      # there. One em dash in the Package description was enough:
+      # `error LGHT0311 : A string was provided with characters that are not
+      # available in the specified database code page '1252'`, exit 55, no
+      # installer. Prose belongs in these comments; the database gets plain
+      # ASCII.
       - name: Build the installer (.msi)
         if: runner.os == 'Windows'
         shell: bash
@@ -419,7 +428,7 @@ jobs:
             <Product Id="*" Name="PowerRustCOBOL" Language="1033" Version="$(var.Ver)"
                      Manufacturer="Emerson Lopes" UpgradeCode="6F3B1E4A-9C2D-4B77-8E51-2A6D0C9F41B3">
               <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
-                       Description="PowerRustCOBOL AI — the RAD IDE for COBOL-85" />
+                       Description="PowerRustCOBOL AI - the RAD IDE for COBOL-85" />
               <MajorUpgrade DowngradeErrorMessage="A newer version of PowerRustCOBOL is already installed." />
               <MediaTemplate EmbedCab="yes" />
               <Directory Id="TARGETDIR" Name="SourceDir">

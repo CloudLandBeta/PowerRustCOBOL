@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.107] — 2026-09-10
+
+### One em dash cost the Windows installer
+
+Run 13's Windows job got all the way through: WiX was present, `heat` harvested
+the staged tree, `candle` compiled both sources, and then `light` refused to
+link:
+
+```
+product.wxs(5) : error LGHT0311 : A string was provided with characters that are
+not available in the specified database code page '1252'.
+```
+
+Line 5 is the Package description, and the character was the em dash in
+"PowerRustCOBOL AI — the RAD IDE for COBOL-85". An MSI's summary information is
+written in a legacy code page — 1252 unless the Product declares otherwise — and
+`light` refuses anything it cannot represent there. Exit 55, no installer.
+
+Every string that becomes `product.wxs` is now plain ASCII, and the step says
+why, so the next person to write a nicer description knows what it costs. Prose
+belongs in the comments; the database gets ASCII. Verified by extracting the
+heredoc from the parsed YAML and checking every byte of it.
+
+The same trap as cobolforo.es, in a different legacy code page: text that reads
+perfectly in a UTF-8 editor and is unrepresentable where it lands.
+
 ## [PowerRustCOBOL 1.65.106] — 2026-09-10
 
 ### The Linux packages ran the runner out of disk, and the actions were a Node version behind
