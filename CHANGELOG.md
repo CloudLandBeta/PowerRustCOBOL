@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.125] — 2026-09-11
+
+### BENCHMARKS now reads in all six languages
+
+The first document through the regeneration cycle. All five translations are
+written from the current English (`1.65.124`), each carrying that stamp and
+ending in `.<<`, so the completion test stops naming them.
+
+What stayed English, deliberately: every workload identifier
+(`dispatch (PERFORM VARYING)`, `indexed redb`, `record batch`), every Rust path
+and type (`counting_alloc.rs`, `CobolValue::String`, `CoboltObject::get_property`,
+`measure(...)`), every CLI line, and the COBOL in the prose (`ADD 1 TO ACC`,
+`PERFORM <paragraph>`, `COMP`). The measurement table's heading row is prose and
+is translated; its workload column is an identifier and is not. That is the
+CRITICAL constraint, not laziness — a reader who translates `PERFORM VARYING`
+cannot find the workload the substring filter selects.
+
+Verified per file: `iconv -f UTF-8 -t UTF-8` clean, zero double-encoded bytes,
+sentinel present, stamp equal to the canonical's.
+
 ## [PowerRustCOBOL 1.65.124] — 2026-09-11
 
 ### A translation can now say whether it finished, and what it was made from
