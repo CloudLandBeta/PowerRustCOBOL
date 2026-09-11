@@ -409,6 +409,20 @@ jobs:
       # available in the specified database code page '1252'`, exit 55, no
       # installer. Prose belongs in these comments; the database gets plain
       # ASCII.
+      # One mascot in, three images out — the two WiX bitmaps and the .dmg
+      # background. Written in Rust and run from the workspace that was just
+      # built, so it costs one small example compile and nothing is checked in
+      # but `assets/images/chibi.png` itself. See the example's own header for
+      # why the mascot sits left on one bitmap and right on the other.
+      - name: Compose the installer artwork
+        if: runner.os == 'Windows' || runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --release -p cobolt-media --example installer_art -- \
+            assets/images/chibi.png dist/art
+          ls -l dist/art
+
       - name: Build the installer (.msi)
         if: runner.os == 'Windows'
         shell: bash
@@ -429,7 +443,7 @@ jobs:
                      Manufacturer="Emerson Lopes" UpgradeCode="6F3B1E4A-9C2D-4B77-8E51-2A6D0C9F41B3">
               <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
                        Platform="x64"
-                       Description="PowerRustCOBOL AI - the RAD IDE for COBOL-85" />
+                       Description="PowerRustCOBOL AI - the next generation COBOL RAD IDE" />
               <MajorUpgrade DowngradeErrorMessage="A newer version of PowerRustCOBOL is already installed." />
               <MediaTemplate EmbedCab="yes" />
               <Directory Id="TARGETDIR" Name="SourceDir">
@@ -443,7 +457,7 @@ jobs:
               <DirectoryRef Id="AppMenuFolder">
                 <Component Id="AppShortcut" Guid="*">
                   <Shortcut Id="StartMenuShortcut" Name="PowerRustCOBOL"
-                            Description="The RAD IDE for COBOL-85"
+                            Description="The next generation COBOL RAD IDE"
                             Target="[INSTALLFOLDER]PowerRustCOBOL.exe"
                             WorkingDirectory="INSTALLFOLDER" />
                   <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
@@ -476,8 +490,18 @@ jobs:
                         Value="https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" />
               <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
                             Impersonate="yes" Return="ignore" />
-              <UIRef Id="WixUI_Minimal" />
+              <!-- WixUI_InstallDir rather than _Minimal, for one reason: the
+                   Minimal set's only screen is the licence, and that dialog
+                   carries no bitmap at all - there is nowhere on it to put the
+                   mascot. InstallDir opens on a WelcomeDlg whose artwork is the
+                   full 493x312 bitmap, keeps the licence on a screen of its
+                   own, and ends on an ExitDialog with the same artwork again.
+                   The two screens between them carry the 493x58 banner. -->
+              <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+              <UIRef Id="WixUI_InstallDir" />
               <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+              <WixVariable Id="WixUIBannerBmp" Value="dist/art/wix-banner.bmp" />
+              <WixVariable Id="WixUIDialogBmp" Value="dist/art/wix-dialog.bmp" />
               <UI>
                 <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction"
                          Value="OpenPrereqPage">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
@@ -486,7 +510,8 @@ jobs:
           </Wix>
           WXS
 
-          # WixUI_Minimal shows the licence, so it needs one as RTF. Generated
+          test -s dist/art/wix-dialog.bmp && test -s dist/art/wix-banner.bmp
+          # The licence screen needs the licence as RTF. Generated
           # from the LICENSE this repository already ships rather than kept as a
           # second copy that could drift from it. Apache-2.0 is pure ASCII, so
           # the only escaping RTF needs is its own three metacharacters.
@@ -519,48 +544,136 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          vol="PowerRustCOBOL $VERSION"
           stage=$(mktemp -d)/PowerRustCOBOL
-          mkdir -p "$stage"
+          mkdir -p "$stage/.background"
           cp -R "dist/$PKG/PowerRustCOBOL.app" "$stage/PowerRustCOBOL.app"
           ln -s /Applications "$stage/Applications"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$stage/"
-          # A .dmg has no installer flow and no finish page — it is a folder the
-          # user drags from. So the thing they need to know sits beside the app
-          # as a document, in macOS terms only.
-          cat > "$stage/Build Prerequisites.txt" <<'READMEMAC'
-          PowerRustCOBOL AI - what you need in order to BUILD
-          ===================================================
+          cp dist/art/dmg-background.png "$stage/.background/background.png"
 
-          Drag PowerRustCOBOL to Applications and it is ready to design forms,
-          edit code and RUN programs. None of that needs anything else.
+          # Built writable first: the window layout below is Finder state that
+          # has to be written INTO the image, and a compressed image is
+          # read-only. It is converted at the end.
+          hdiutil create -volname "$vol" -srcfolder "$stage" -ov \
+            -format UDRW "dist/_rw.dmg"
+          # Mounted WITHOUT -mountpoint, and this matters: Finder can only
+          # address a volume as `disk "Name"` when it is at /Volumes/Name, so
+          # sending it to a temp directory makes the layout below fail with
+          # "Can't get disk" — which is exactly what the first attempt did.
+          # macOS also renames a clashing volume, so the real name is read back
+          # from what attach reports rather than assumed.
+          mnt=$(hdiutil attach "dist/_rw.dmg" -nobrowse | grep -o '/Volumes/.*' | tail -1)
+          volname=$(basename "$mnt")
+          echo "mounted as $mnt"
 
-          BUILD is different: it compiles your project into a native application,
-          and for that macOS needs two things.
+          # The window: 1100x800, the artwork behind it, and the two icons on
+          # the light half where Finder's own dark labels can be read. The
+          # positions match the chevron baked into the background, which is why
+          # they are written here rather than left to Finder's defaults.
+          #
+          # Best-effort on purpose. Finder scripting needs a logged-in session,
+          # and a runner that has not got one must still produce a usable .dmg —
+          # an unstyled disk image installs exactly as well as a styled one.
+          # Run under a watchdog. Finder scripting can block indefinitely
+          # waiting on an automation-permission prompt that a headless runner
+          # will never answer — tried on a developer Mac, this exact script sat
+          # there until it was killed. Without the watchdog that becomes a
+          # two-hour job timeout instead of a warning.
+          scpt=$(mktemp)
+          cat > "$scpt" <<APPLESCRIPT
+          tell application "Finder"
+            tell disk "$volname"
+              open
+              set current view of container window to icon view
+              set toolbar visible of container window to false
+              set statusbar visible of container window to false
+              set the bounds of container window to {120, 100, 1220, 900}
+              set opts to the icon view options of container window
+              set arrangement of opts to not arranged
+              set icon size of opts to 128
+              set text size of opts to 13
+              set background picture of opts to file ".background:background.png"
+              set position of item "PowerRustCOBOL.app" of container window to {250, 400}
+              set position of item "Applications" of container window to {500, 400}
+              set position of item "LICENSE" of container window to {980, 660}
+              set position of item "NOTICE" of container window to {980, 660}
+              set position of item "THIRD_PARTY_NOTICES.md" of container window to {980, 660}
+              set position of item "README.md" of container window to {980, 660}
+              close
+              open
+              update without registering applications
+              delay 3
+            end tell
+          end tell
+          APPLESCRIPT
+          osascript "$scpt" & osa=$!
+          ( sleep 120; kill -9 $osa 2>/dev/null ) & dog=$!
+          if wait $osa; then
+            echo "window layout applied"
+          else
+            echo "::warning::Finder would not lay the window out; shipping an unstyled .dmg"
+          fi
+          kill $dog 2>/dev/null || true
+          rm -f "$scpt"
 
-          1. Apple's command line developer tools, which carry the linker:
-
-                 xcode-select --install
-
-          2. Rust:
-
-                 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-          PowerRustCOBOL checks both on its first run and offers to install Rust
-          for you. It will not install Apple's tools on your behalf - that is a
-          system-level install, and the one-line command above is all it takes.
-          READMEMAC
-          hdiutil create -volname "PowerRustCOBOL $VERSION" -srcfolder "$stage" \
-            -ov -format UDZO "dist/${PKG}.dmg"
+          sync
+          hdiutil detach "$mnt"
+          hdiutil convert "dist/_rw.dmg" -format UDZO -ov -o "dist/${PKG}.dmg"
+          rm -f "dist/_rw.dmg"
           test -s "dist/${PKG}.dmg"
+
+          # ── The licence, and having to agree to it ──────────────────────────
+          #
+          # A .dmg has no wizard to put a licence screen in, so it carries the
+          # agreement as a resource instead and macOS itself refuses to mount
+          # the volume until Agree is clicked. That is the only place on this
+          # platform where acceptance can be REQUIRED rather than merely
+          # offered.
+          #
+          # The three resources are the classic ones, and two of them are fixed
+          # blobs rather than anything this workflow computes:
+          #   LPic  one language, English, pointing at resource 5000
+          #   STR#  the button labels and the prompt, as Pascal strings
+          #   TEXT  the licence, CR-terminated the way the resource expects
+          lpic="AAAAAAABAAATiAAA"
+          strn="AAYHRW5nbGlzaAVBZ3JlZQhEaXNhZ3JlZQVQcmludAdTYXZlLi4ue0lmIHlvdSBhZ3JlZSB3aXRoIHRoZSB0ZXJtcyBvZiB0aGlzIGxpY2Vuc2UsIHByZXNzICJBZ3JlZSIgdG8gaW5zdGFsbCB0aGUgc29mdHdhcmUuICBJZiB5b3UgZG8gbm90IGFncmVlLCBwcmVzcyAiRGlzYWdyZWUiLg=="
+          tr '\n' '\r' < LICENSE | base64 > dist/_lic.b64
+          {
+            echo '<?xml version="1.0" encoding="UTF-8"?>'
+            echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+            echo '<plist version="1.0"><dict>'
+            echo "<key>LPic</key><array><dict><key>Attributes</key><string>0x0000</string>"
+            echo "<key>Data</key><data>$lpic</data><key>ID</key><string>5000</string>"
+            echo "<key>Name</key><string></string></dict></array>"
+            echo "<key>STR#</key><array><dict><key>Attributes</key><string>0x0000</string>"
+            echo "<key>Data</key><data>$strn</data><key>ID</key><string>5000</string>"
+            echo "<key>Name</key><string>English</string></dict></array>"
+            echo "<key>TEXT</key><array><dict><key>Attributes</key><string>0x0000</string>"
+            echo "<key>Data</key><data>"; cat dist/_lic.b64; echo "</data>"
+            echo "<key>ID</key><string>5000</string>"
+            echo "<key>Name</key><string>English</string></dict></array>"
+            echo '</dict></plist>'
+          } > dist/_sla.plist
+          plutil -lint dist/_sla.plist
+          hdiutil udifrez -xml dist/_sla.plist '' "dist/${PKG}.dmg"
+          rm -f dist/_sla.plist dist/_lic.b64
+
           # The bundle must survive the round trip intact — a dmg that carries a
           # broken signature is one Gatekeeper refuses outright, which is worse
           # than the warning an unsigned one earns.
-          mnt=$(mktemp -d)
-          hdiutil attach "dist/${PKG}.dmg" -nobrowse -readonly -mountpoint "$mnt"
-          codesign --verify --strict "$mnt/PowerRustCOBOL.app"
-          test -d "$mnt/PowerRustCOBOL.app/Contents/Resources/assets/themes"
-          test -f "$mnt/PowerRustCOBOL.app/Contents/Resources/sdk/Cargo.toml"
-          hdiutil detach "$mnt"
+          #
+          # Attached WITHOUT piping anything in. An agreement-bearing image
+          # mounts unattended when stdout is not a terminal, and `yes |` here
+          # would hand the step a SIGPIPE under `pipefail` — the same trap that
+          # cost three runs on the .deb.
+          mnt2=$(mktemp -d)
+          hdiutil attach "dist/${PKG}.dmg" -nobrowse -readonly -mountpoint "$mnt2"
+          codesign --verify --strict "$mnt2/PowerRustCOBOL.app"
+          test -d "$mnt2/PowerRustCOBOL.app/Contents/Resources/assets/themes"
+          test -f "$mnt2/PowerRustCOBOL.app/Contents/Resources/sdk/Cargo.toml"
+          test -f "$mnt2/.background/background.png"
+          hdiutil detach "$mnt2"
 
       # The desktop entry and the launcher paths both Linux packages install.
       # Written once here rather than twice below: a menu entry that differs
@@ -576,7 +689,7 @@ jobs:
           [Desktop Entry]
           Type=Application
           Name=PowerRustCOBOL
-          Comment=The RAD IDE for COBOL-85
+          Comment=The next generation COBOL RAD IDE
           Exec=/opt/powerrustcobol/PowerRustCOBOL
           Icon=powerrustcobol
           Terminal=false
@@ -644,7 +757,7 @@ jobs:
           Maintainer: Emerson Lopes <emersonlopes@gmail.com>
           Installed-Size: $size
           Suggests: build-essential
-          Description: PowerRustCOBOL AI - the RAD IDE for COBOL-85
+          Description: PowerRustCOBOL AI - the next generation COBOL RAD IDE
            Design forms visually, run them on a fast tree-walking COBOL-85
            runtime, and compile to a single self-contained binary. Ships with
            rcrun, the command-line runtime.
@@ -685,6 +798,13 @@ jobs:
           exit 0
           POSTINST
           chmod 0755 "$root/DEBIAN/postinst"
+
+          # Debian policy: every package carries its licence at this exact
+          # path. There is no installer window on Linux to show it in, so on
+          # disk is the only place it can be, and this is the place every
+          # Debian user already knows to look.
+          install -d "$root/usr/share/doc/powerrustcobol"
+          cp LICENSE "$root/usr/share/doc/powerrustcobol/copyright"
 
           ln -s /opt/powerrustcobol/PowerRustCOBOL "$root/usr/bin/powerrustcobol"
           ln -s /opt/powerrustcobol/rcrun "$root/usr/bin/rcrun"
@@ -760,7 +880,7 @@ jobs:
           Name:           powerrustcobol
           Version:        %{ver}
           Release:        1
-          Summary:        PowerRustCOBOL AI - the RAD IDE for COBOL-85
+          Summary:        PowerRustCOBOL AI - the next generation COBOL RAD IDE
           License:        Apache-2.0
           URL:            https://github.com/CloudLandBeta/PowerRustCOBOL
           BuildArch:      x86_64
@@ -779,7 +899,12 @@ jobs:
           rm -rf %{buildroot}
           mkdir -p %{buildroot}/opt/powerrustcobol %{buildroot}/usr/bin \
                    %{buildroot}/usr/share/applications \
+                   %{buildroot}/usr/share/licenses/powerrustcobol \
                    %{buildroot}/usr/share/icons/hicolor/256x256/apps
+          # Where an RPM-based distribution looks for a package's licence, and
+          # the only place it can be: Linux has no installer window to show it in.
+          install -m 0644 %{srcdir}/LICENSE \
+            %{buildroot}/usr/share/licenses/powerrustcobol/LICENSE
           cp -al %{srcdir}/. %{buildroot}/opt/powerrustcobol/
           ln -s /opt/powerrustcobol/PowerRustCOBOL %{buildroot}/usr/bin/powerrustcobol
           ln -s /opt/powerrustcobol/rcrun %{buildroot}/usr/bin/rcrun
@@ -810,6 +935,7 @@ jobs:
           exit 0
 
           %files
+          %license /usr/share/licenses/powerrustcobol/LICENSE
           /opt/powerrustcobol
           /usr/bin/powerrustcobol
           /usr/bin/rcrun

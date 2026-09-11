@@ -1,5 +1,65 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.112] — 2026-09-11
+
+### The installers got a face, and a licence you have to agree to
+
+The packages installed correctly and looked like nothing. They now carry the
+mascot, show the Apache licence, and — where the format allows it — refuse to
+proceed until it is accepted.
+
+**One image in, three out.** `crates/cobolt-media/examples/installer_art.rs`
+composes every piece of installer artwork from the single
+`assets/images/chibi.png`: the two WiX bitmaps (493×312 and 493×58) and the
+1100×800 `.dmg` background. Written in Rust and run from the workspace the job
+has already built, so there is no second copy of the mascot to keep in step and
+no image checked in but the source.
+
+**Where the mascot sits is not taste.** Each host draws its own text at
+coordinates nothing can move, and *its text is dark*. So the rule across all
+three surfaces is the same — the mascot takes the dark panel, the host's text
+takes the light one:
+
+| Surface | Host text | Mascot |
+|---|---|---|
+| WiX welcome / finish | x ≥ 180 px | left |
+| WiX banner | x ≈ 20 px | right |
+| `.dmg` window | Finder's icon labels, left | right |
+
+**Windows** moves from `WixUI_Minimal` to `WixUI_InstallDir`. Minimal's only
+screen is the licence, and that dialog carries no bitmap at all — there was
+nowhere to put the mascot. InstallDir opens on full-bleed artwork, keeps the
+licence on a screen of its own, and ends on the same artwork again.
+
+**macOS** gains a laid-out volume window — 1100×800, background image, both
+icons placed on the light half — and a real licence gate: the agreement rides in
+the image as `LPic`/`STR#`/`TEXT` resources and **macOS itself refuses to mount
+the volume until Agree is clicked**. That is the only place on this platform
+where acceptance can be required rather than offered.
+
+Two details there were learned the hard way, on a Mac rather than in CI. Finder
+can only address a volume as `disk "Name"` when it is mounted at `/Volumes/Name`,
+so mounting to a temp directory fails with *Can't get disk*. And Finder
+scripting can block forever on an automation-permission prompt, so the layout
+runs under a watchdog: if it does not answer in two minutes it is killed and the
+job ships an unstyled — but perfectly installable — disk image.
+
+**Linux gets no window, because there is none to get.** `apt`, `dnf` and the
+graphical software centres *are* the installer, and none of them will show
+artwork or a licence gate for a package. What a package can do is put the
+licence where its own standard says: `/usr/share/doc/powerrustcobol/copyright`
+for the `.deb`, `/usr/share/licenses/powerrustcobol/LICENSE` for the `.rpm`.
+
+**A note on the window size.** A Windows Installer dialog is fixed at build time
+and no property reads the display, so a size expressed as a share of the screen
+has nothing in MSI to express it; the operator chose the native 493×360 over a
+larger fixed dialog that a 1366×768 laptop would clip. The `.dmg` has no such
+limit and is set to 1100×800.
+
+The tagline everywhere in the packaging — the MSI description, the Start Menu
+entry, the Linux desktop entry, the `.deb` Description and the `.rpm` Summary —
+becomes **"the next generation COBOL RAD IDE"**.
+
 ## [PowerRustCOBOL 1.65.111] — 2026-09-11
 
 *(1.65.110 is the Linux packaging fix, on the `features` branch.)*
