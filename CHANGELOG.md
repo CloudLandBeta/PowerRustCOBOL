@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.118] — 2026-09-11
+
+### The dependency list named two crates that are not in the project, and a whole section of features that no longer exist
+
+`docs/DEPENDENCIES-en.md` is the most mechanically checkable document in the
+repository — every row is a crate and a version — so it was checked against
+`Cargo.lock` rather than read.
+
+**Five versions were behind.** The egui family moved 0.35 → 0.36 and the table
+never followed: `egui` (now 0.36.1), `eframe`, `egui_extras`, `egui_inspection`
+(0.36.0) and `egui_commonmark` (0.25.0).
+
+**Two crates were listed as linked and exist nowhere** — not in a `Cargo.toml`,
+not in `Cargo.lock`, not in any source file: `embedvec` and `opentelemetry`.
+
+**A whole section was obsolete.** "Declared but not linked by default" listed
+`tantivy`, `sqlite-vec`, `rig-sqlite`, `tokio-rusqlite`, `ort`, `ndarray` and
+`opentelemetry-otlp` behind two features, `local-retrieval` and `otel`. Neither
+feature exists; none of those crates is declared anywhere. They went at
+**1.41.4** (`8f0f8ee`). Retrieval is served by the in-tree store in
+`cobolt-agents/src/knowledge_store.rs`, which keeps embeddings as `Vec<f32>` and
+compares them with a plain dot product. The section now documents the one
+optional feature that is real, `embed-cuda`, and records what was removed.
+
+### Four findings that were not findings
+
+The first pass of this check reported eleven stale versions. Four were the
+check's fault, not the document's: a lockfile holds **several versions of one
+crate**, and the naive scan took the first. `image`, `thiserror` and
+`tokenizers` each appear twice — an old transitive copy and the declared one —
+and in every case the document names the declared one correctly. `serde_yaml`
+differed only by the `+deprecated` build metadata.
+
+Worth recording as method: when a check reports a whole column wrong, suspect
+the check. The corrected scan compares against **every** locked version of a
+name, and the document now passes it.
+
 ## [PowerRustCOBOL 1.65.117] — 2026-09-11
 
 ### The rest of the redb claim, including one inside the guide that was just reviewed

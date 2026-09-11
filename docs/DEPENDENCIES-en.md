@@ -59,11 +59,11 @@ The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
 
 | Crate | Version | Used by | What it does |
 |---|---|---|---|
-| `egui` | 0.35.0 | cli, forms, ide, media | Immediate-mode GUI toolkit — the whole UI |
-| `eframe` | 0.35.0 | cli, ide | Window + event loop host for egui |
-| `egui_extras` | 0.35.0 | cli, ide | Tables, image loaders, extra widgets |
-| `egui_commonmark` | 0.24.0 | ide | Markdown rendering in docs/chat panels |
-| `egui_inspection` | 0.35.0 | ide | Live widget/layout inspector |
+| `egui` | 0.36.1 | cli, forms, ide, media | Immediate-mode GUI toolkit — the whole UI |
+| `eframe` | 0.36.0 | cli, ide | Window + event loop host for egui |
+| `egui_extras` | 0.36.0 | cli, ide | Tables, image loaders, extra widgets |
+| `egui_commonmark` | 0.25.0 | ide | Markdown rendering in docs/chat panels |
+| `egui_inspection` | 0.36.0 | ide | Live widget/layout inspector |
 | `image` | 0.25.10 | cli, forms, ide, media | PNG/JPEG/GIF/WebP/BMP decode |
 | `resvg` | 0.46.0 | forms, ide | SVG rasterisation |
 | `fontdb` | 0.23.0 | forms, ide | System font enumeration |
@@ -115,9 +115,7 @@ The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
 | `candle-nn` | 0.11.0 | agents | Neural-network layers for Candle |
 | `candle-transformers` | 0.11.0 | agents | BERT and friends — runs `all-MiniLM-L6-v2` in-process |
 | `tokenizers` | 0.23.1 | agents | HuggingFace tokenizer (`esaxx_fast` off, `onig` on) |
-| `embedvec` | 0.8.0 | agents | Vector store: E8 quantization, cosine similarity |
 | `schemars` | 1.2.1 | agents, ide | JSON Schema for tool definitions |
-| `opentelemetry` | 0.32.0 | agents | Tracing/metrics API |
 | `tokio` | 1.52.3 | agents, ide | Async runtime for the agent layer |
 | `futures` | 0.3.32 | agents | Async combinators |
 
@@ -136,18 +134,21 @@ The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
 
 ---
 
-## Declared but not linked by default
+## Optional features
 
-These are named in a `Cargo.toml` behind a feature that is **off** in a default
-build, so they contribute nothing to compile time or binary size unless you turn
-the feature on:
+`cobolt-agents` declares exactly one optional feature, and it is **off** in a
+default build:
 
-| Crate | Feature | Why it is optional |
+| Feature | Brings in | Why it is optional |
 |---|---|---|
-| `tantivy` | `local-retrieval` | Lexical index — the default path is `embedvec` + `redb` |
-| `sqlite-vec`, `rig-sqlite`, `tokio-rusqlite` | `local-retrieval` | SQLite-backed vector search; enabling it brings bundled SQLite (and a C toolchain) into `cobolt-agents` |
-| `ort`, `ndarray` | `local-retrieval` | ONNX Runtime inference path |
-| `opentelemetry-otlp` | `otel` | OTLP export |
+| `embed-cuda` | `candle-transformers/cuda` | NVIDIA GPU embedding on Linux and Windows. Building it needs the CUDA toolkit, which is why it is opt-in; without it the embedder runs on the CPU |
+
+> **Removed at 1.41.4.** This section used to list `tantivy`, `sqlite-vec`,
+> `rig-sqlite`, `tokio-rusqlite`, `ort`, `ndarray` and `opentelemetry-otlp`
+> behind `local-retrieval` and `otel`. Neither feature exists any more and none
+> of those crates is declared anywhere in the workspace — retrieval is served by
+> the in-tree store in `cobolt-agents/src/knowledge_store.rs`, which keeps
+> embeddings as `Vec<f32>` and compares them with a plain dot product.
 
 ---
 
