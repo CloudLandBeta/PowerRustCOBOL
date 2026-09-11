@@ -6,15 +6,17 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<!-- powerrustcobol: 1.65.124 -->
+<!-- powerrustcobol: 1.65.128 -->
 
 # Crate inventory
 
 Every crate PowerRustCOBOL depends on **directly**, with the version actually
 linked (not the requirement string — the resolved one from `Cargo.lock`).
 
-Generated from `cargo metadata` on **2026-07-27**, at product version
-**1.37.0**. Note the two numbering schemes: the *product* version is the one in
+First generated from `cargo metadata` on **2026-07-27** at product version
+**1.37.0**; the resolved versions below were last reconciled against
+`Cargo.lock` on **2026-09-11**, at **1.65.128**. Note the two numbering schemes:
+the *product* version is the one in
 `crates/cobolt-ide/src/version.rs` and shown in the IDE; the *crate* version in
 `Cargo.toml` is `0.2.0` and is shared by all workspace crates.
 Regenerate the version column with:
@@ -24,19 +26,21 @@ cargo metadata --format-version 1 | \
   jq -r '.resolve.nodes[] | select(.id | contains("PowerRustCOBOL")) | .deps[].pkg'
 ```
 
-The full dependency graph is **906 packages**. The tables below are the ~56 the
-workspace names itself; everything else arrives transitively through them.
+The full dependency graph is **944 packages**. The tables below are the **59**
+the workspace names itself; everything else arrives transitively through them.
 
 ---
 
 ## Workspace crates
 
-The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
-`0.2.0` (see the note above — the product version is 1.37.0).
+The 17 crates that *are* PowerRustCOBOL — `cargo metadata --no-deps` is the
+authority here, not a grep of `Cargo.toml`, where two members share a line and a
+naive count reports 16. All share the workspace crate version `0.2.0` (see the
+note above — the product version is its own sequence).
 
 | Crate | Crate version | Layer | What it does |
 |---|---|---|---|
-| `cobolt-lexer` | 0.2.0 | front end | Fujitsu COBOL tokenizer — fixed-form and free-form source |
+| `cobolt-lexer` | 0.2.0 | front end | Fujitsu COBOL tokenizer — fixed-form and free-form source — and the `COPY`/`REPLACE` preprocessor |
 | `cobolt-parser` | 0.2.0 | front end | Recursive-descent parser: token stream → AST |
 | `cobolt-ast` | 0.2.0 | front end | AST node types |
 | `cobolt-semantic` | 0.2.0 | front end | Name resolution, type checking, `EXEC RUST` binding |
@@ -44,12 +48,15 @@ The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
 | `cobolt-stdlib` | 0.2.0 | execution | Intrinsic functions, I/O backend, console helpers |
 | `cobolt-indexed` | 0.2.0 | execution | Indexed-file definition model (`.cidx`) |
 | `cobolt-forms` | 0.2.0 | UI engine | Form/control model (`.cfrm`), the unified render engine, themes, animation |
+| `cobolt-form-host` | 0.2.0 | UI engine | The one form host (spec 042) — shared by `rcrun run-form` and compiled applications |
 | `cobolt-media` | 0.2.0 | UI engine | Animated image (GIF/WebP/APNG) decode + playback for the Animator widget |
 | `cobolt-codegen` | 0.2.0 | tooling | Form → COBOL source generator |
 | `cobolt-compiler` | 0.2.0 | tooling | Embed+bundle compiler: project → one native executable |
+| `cobolt-dap` | 0.2.0 | tooling | Wire-compatible Debug Adapter Protocol — framing, types, client and adapter server |
 | `cobolt-agents` | 0.2.0 | AI | Agent mesh, Knowledge Base index, embeddings, retrieval |
 | `cobolt-cli` | 0.2.0 | binary | `rcrun` — run, check, build, run-form |
 | `cobolt-ide` | 0.2.0 | binary | The IDE itself |
+| `cobolt-bench` | 0.2.0 | binary | Performance and allocation baseline harness (see [BENCHMARKS-en.md](BENCHMARKS-en.md)) |
 
 ---
 
@@ -92,7 +99,7 @@ The 14 crates that *are* PowerRustCOBOL. All share the workspace crate version
 | `redb` | 2.6.3 | agents, runtime | Pure-Rust embedded ACID store — INDEXED files and the KB index |
 | `rusqlite` | 0.32.1 | runtime | SQLite for the COBOL database runtime (bundled; compiles C) |
 | `postgres` | 0.19.13 | runtime | PostgreSQL driver (pure Rust, synchronous) |
-| `mysql` | 28.0.0 | runtime | MySQL driver (pure Rust, rustls feature set) |
+| `mysql` | 28.0.0 | runtime | MySQL driver (pure Rust, `minimal-rust` feature set — **no TLS**; see [database-runtime-en.md](database-runtime-en.md)) |
 | `ureq` | 2.12.1 | runtime | Blocking HTTP client for the COBOL REST runtime |
 | `native-tls` | 0.2.18 | runtime | TLS via the OS stack — no bundled crypto to compile |
 | `reqwest` | 0.12.28 / 0.13.4 | ide / agents | HTTP client for model and web calls |

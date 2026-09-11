@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.128] — 2026-09-11
+
+### Four wrong numbers in the crate inventory, then six languages
+
+Translating a document is a close reading of it, and this one did not survive
+the reading. Four assertions were false against the source:
+
+| Claim | Said | Is | Proved by |
+|---|---|---|---|
+| Workspace crates | 14 | **17** | `cargo metadata --no-deps` |
+| Full dependency graph | 906 packages | **944** | `cargo metadata` |
+| Crates the workspace names itself | ~56 | **59** | direct deps, deduplicated |
+| `mysql` feature set | rustls | **`minimal-rust`, no TLS** | `cobolt-runtime/Cargo.toml:82`, and no TLS crate under `mysql` in `Cargo.lock` |
+
+`cobolt-form-host`, `cobolt-dap` and `cobolt-bench` were simply missing from the
+table — the three newest members, which is the usual shape of this drift. The
+`mysql` row is the same false TLS promise corrected in `database-runtime-en.md`
+at 1.65.120; it had a second home here and outlived the first fix by eight
+versions.
+
+The lexer row also now names the `COPY`/`REPLACE` preprocessor, which has always
+lived in that crate.
+
+### DEPENDENCIES in all six languages
+
+Generated from the corrected canonical, so the wrong numbers were never
+translated. Crate names, versions, the `Used by` column and every feature flag
+stay English — only the "what it does" column, the layer names and the prose
+move. Cross-document links repoint to the same-language `BUILDING`, `BENCHMARKS`
+and `database-runtime`.
+
 ## [PowerRustCOBOL 1.65.127] — 2026-09-11
 
 ### BUILDING, in all six languages — with the commands untouched
