@@ -748,6 +748,16 @@ pub struct CoboltApp {
     /// Shown once after opening a project that has no usable AI model or no
     /// configured agent, inviting the user to set them up.
     ai_setup_modal: bool,
+    /// Spec 059 — the IDE Walkthrough.
+    walkthrough: crate::panels::walkthrough::Walkthrough,
+    /// The machine flag, read once at startup like `rust_check_done`. Reading
+    /// `ui.toml` on every frame the Help menu is open would be a per-frame file
+    /// read for a value that changes at most twice in a session.
+    walkthrough_shown: bool,
+    /// Was a project open on the previous frame? The tour starts on the **edge**
+    /// (R7), which covers both places `cobolt_project` is assigned and any
+    /// future third, and fires after the project panel exists.
+    had_project_last_frame: bool,
     /// The first-run Rust question, present only while it is unanswered. A
     /// machine that can already build never raises it — see [`crate::toolchain`].
     toolchain_prompt: Option<crate::toolchain::FirstRunPrompt>,
@@ -1661,6 +1671,9 @@ impl CoboltApp {
             about_open: false,
             sdk_modal_open: false,
             ai_setup_modal: false,
+            walkthrough: Default::default(),
+            walkthrough_shown: crate::ui_prefs::walkthrough_shown(),
+            had_project_last_frame: false,
             toolchain_prompt: None,
             project_upgrades: Vec::new(),
             doc_viewer: Default::default(),
@@ -11025,6 +11038,66 @@ impl CoboltApp {
         }
     }
 
+    /// Spec 059 — start the Walkthrough, draw it, and act on what it asks for.
+    ///
+    /// Called last in the frame so the anchors it reads are the rects this frame
+    /// painted, not last frame's.
+    fn tick_walkthrough(&mut self, ctx: &Context) {
+        use crate::panels::walkthrough::Anchor;
+
+        // R7 — an EDGE, not a state. `cobolt_project` is assigned in two places
+        // (`create_new_project_at`, `open_project_at`); an edge here covers both
+        // and any future third, and it fires after the project panel exists.
+        let has_project = self.cobolt_project.is_some();
+        let just_opened = has_project && !self.had_project_last_frame;
+
+        // Defer rather than cancel: the first-run Rust prompt and the AI-setup
+        // invitation both coincide with a first project open, and two modal
+        // layers fighting is the one way this feature can look broken on day
+        // one. Holding `had_project_last_frame` false keeps the edge pending.
+        let blocked = self.toolchain_prompt.is_some()
+            || self.ai_setup_modal
+            || self.build_modal_visible();
+        if crate::panels::walkthrough::should_auto_start(
+            self.walkthrough_shown,
+            just_opened,
+            blocked,
+        ) {
+            self.walkthrough.start(ctx);
+        }
+        if !blocked {
+            self.had_project_last_frame = has_project;
+        }
+
+        if !self.walkthrough.is_running() {
+            return;
+        }
+
+        // The output pane publishes its own rect through egui; the tree hands us
+        // the rest. Nothing here re-derives a rect the frame did not paint.
+        let mut anchors = self.project.walkthrough_anchors().clone();
+        anchors.output =
+            egui::containers::panel::PanelState::load(ctx, egui::Id::new("output_panel"))
+                .map(|st| st.outer_rect);
+
+        let tr = crate::i18n::current_tr(ctx);
+        let theme = self.current_theme();
+        let out = self.walkthrough.show(ctx, &anchors, &tr, theme);
+
+        if let Some(anchor) = out.reveal {
+            // Only the tree can be scrolled; the output pane is always mounted
+            // when a project is open, so it never needs revealing.
+            if !matches!(anchor, Anchor::OutputPanel) {
+                self.project.reveal_walkthrough(anchor);
+            }
+        }
+        if out.ended {
+            // R8 — every exit counts as shown: finishing, Skip and Esc alike.
+            self.walkthrough_shown = true;
+            crate::ui_prefs::set_walkthrough_shown(true);
+        }
+    }
+
     /// Is the Building dialog on screen? It is modal, so the rest of the IDE
     /// has to keep out of the way while it is up — the keyboard included,
     /// because egui's modal layer blocks the pointer, not key events.
@@ -11361,7 +11434,10 @@ impl CoboltApp {
         // The Building dialog is modal: while it is up the IDE takes no
         // commands. egui's modal layer blocks the pointer, not key events, so
         // the shortcuts have to stand down themselves.
-        if self.build_modal_visible() {
+        // The Walkthrough is modal too, and it has already emptied the event
+        // queue — this is belt and braces, and it documents the intent where
+        // someone looking for "what stops shortcuts" will find it.
+        if self.build_modal_visible() || self.walkthrough.is_running() {
             return;
         }
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, Key::S)))
@@ -12660,6 +12736,14 @@ impl eframe::App for CoboltApp {
         // Context; the root `Ui` itself hosts nothing directly.
         let ctx = root_ui.ctx().clone();
         let ctx = &ctx;
+
+        // Spec 059 R4/R5 — while the tour is up it owns the keyboard. This must
+        // be the FIRST thing the frame does: `doc_shots.poll` reads F12 further
+        // down, `handle_shortcuts` reads the rest, and every key reader in this
+        // crate bottoms out in `InputState::events`, so emptying it here is what
+        // stops all of them at once rather than a list of gates that rots.
+        self.walkthrough.take_keys(ctx);
+
         let frame_start = std::time::Instant::now();
 
         // Every error shown to the developer also lands in the console
@@ -13277,6 +13361,30 @@ impl eframe::App for CoboltApp {
                     if ui.button(tr.sdk_menu_label).clicked() {
                         self.sdk_modal_open = true;
                         ui.close();
+                    }
+                    // Spec 059 R10/R11 — the flag itself, as a checkable item.
+                    // It shows "already seen", so UNchecking it reads as "I have
+                    // not seen it", which is what replays the tour. House style
+                    // for a menu checkbox: bind `&mut` straight to state and do
+                    // not `ui.close()` (the View menu's line numbers do the same).
+                    let has_project = self.cobolt_project.is_some();
+                    let mut seen = self.walkthrough_shown;
+                    let item = ui.checkbox(&mut seen, tr.walkthrough_menu_label);
+                    let item = if has_project {
+                        item
+                    } else {
+                        item.on_hover_text(tr.walkthrough_needs_project)
+                    };
+                    if item.changed() {
+                        self.walkthrough_shown = seen;
+                        crate::ui_prefs::set_walkthrough_shown(seen);
+                        use crate::panels::walkthrough::MenuAction;
+                        match crate::panels::walkthrough::on_menu_toggle(seen, has_project) {
+                            MenuAction::Start => self.walkthrough.start(ctx),
+                            // The hover already said so; clearing the flag arms
+                            // the edge detector, so it starts when one opens.
+                            MenuAction::NeedsProject | MenuAction::Remember => {}
+                        }
                     }
                     ui.separator();
                     if ui
@@ -13993,6 +14101,8 @@ impl eframe::App for CoboltApp {
                 self.perf_window_start = Some(std::time::Instant::now());
             }
         }
+
+        self.tick_walkthrough(ctx);
     }
 }
 
