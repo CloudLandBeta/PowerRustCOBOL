@@ -6,14 +6,16 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # Compiler PowerRustCOBOL
 
 D'une machine vierge à un IDE qui tourne, sous **Windows**, **Linux** et
 **macOS**.
 
-Tout ce qui suit tient dans les mêmes trois étapes sur chaque plateforme —
+Tout ce qui suit tient dans les mêmes trois étapes sur chaque plateforme :
 installer une chaîne d'outils, cloner, `cargo build`. Seule la première étape
-change selon le système d'exploitation.
+diffère selon le système.
 
 ---
 
@@ -21,45 +23,46 @@ change selon le système d'exploitation.
 
 | Prérequis | Pourquoi |
 |---|---|
-| **Rust**, canal stable, **1.92 ou plus récent** | compile tout le workspace |
+| **Rust**, canal stable, **1.92 ou plus récent** | compile tout l'espace de travail |
 | **Git** | clone le dépôt |
-| **Un compilateur C et un éditeur de liens** | l'éditeur de liens dont Rust a besoin pour *n'importe quel* binaire, plus deux dépendances en C |
-| **Bibliothèques GUI natives** (Linux seulement) | la création de fenêtres et les boîtes de dialogue de fichiers natives |
+| **Un compilateur C et un éditeur de liens** | l'éditeur de liens dont Rust a besoin pour *tout* binaire, plus deux dépendances en C |
+| **Bibliothèques GUI natives** (Linux uniquement) | création des fenêtres et boîtes de dialogue de fichiers natives |
 
-> **L'IDE empaqueté vérifie lui-même le prérequis Rust.** Celui qui *utilise*
+> **L'IDE empaqueté vérifie lui-même le prérequis Rust.** Quelqu'un qui *utilise*
 > PowerRustCOBOL au lieu de le compiler ne lit jamais cette page : l'IDE cherche
-> donc Rust à son premier lancement et propose de l'installer quand ce même
-> minimum de **1.92** n'est pas atteint. Il lit le numéro dans le manifeste de ce
-> workspace, si bien que les deux ne peuvent pas diverger. Voir le §3 du Guide du
-> développeur.
+> donc Rust à son premier lancement et propose de l'installer lorsque ce même
+> minimum de **1.92** n'est pas atteint. Il lit le numéro dans le manifeste de cet
+> espace de travail, de sorte que les deux ne peuvent pas diverger. Voir §3 du
+> Guide du développeur.
 
 ### À propos du compilateur C
 
 Deux crates de l'arborescence compilent du code C, un compilateur C est donc
 réellement indispensable :
 
-- **`libsqlite3-sys`** — SQLite, embarqué depuis son amalgame C. C'est le
-  support SQLite du runtime de bases de données COBOL, de sorte qu'aucun SQLite
-  système n'a besoin d'être installé ni accordé en version sur la machine de
+- **`libsqlite3-sys`** — SQLite, intégré depuis son amalgame C. C'est la prise en
+  charge de SQLite par le runtime de bases de données COBOL, de sorte qu'aucun
+  SQLite système n'a à être installé ni accordé en version sur la machine de
   l'utilisateur final.
 - **`onig_sys`** — le moteur d'expressions régulières Oniguruma, qu'utilise le
   tokeniseur derrière la recherche sémantique.
 
 Ce dont la compilation n'a **pas** besoin, et qu'elle n'invoque jamais :
 
-> **pas de compilateur C++ · pas de CMake · pas de NASM · pas de Python · pas de Node · pas de JVM**
+> **aucun compilateur C++ · aucun CMake · aucun NASM · aucun Python · aucun Node ·
+> aucune JVM**
 
-C'est délibéré et cela reste ainsi. TLS passe par la pile du système
-d'exploitation lui-même (schannel sous Windows, Security.framework sous macOS,
-OpenSSL sous Linux) via des liaisons en Rust pur, plutôt que par une
-bibliothèque cryptographique embarquée qui réclamerait C, de l'assembleur et
-CMake sur chaque machine ; le tableau de suffixes C++ du tokeniseur
-(`esaxx_fast`) est désactivé parce que rien ici n'entraîne de modèle ; et
-l'index de la base de connaissances est `redb`, en Rust pur.
+C'est délibéré et c'est maintenu ainsi. TLS passe par la pile propre du système
+d'exploitation (schannel sous Windows, Security.framework sous macOS, OpenSSL sous
+Linux) via des liaisons écrites intégralement en Rust, plutôt que par une
+bibliothèque cryptographique embarquée qui exigerait C, de l'assembleur et CMake
+sur chaque machine ; le tableau de suffixes C++ du tokeniseur (`esaxx_fast`) est
+désactivé parce que rien ici n'entraîne de modèle ; et l'index de la base de
+connaissances est `redb`, en Rust pur.
 
-Sur chaque plateforme, le compilateur C arrive dans le paquet même qui fournit
-l'éditeur de liens que Rust exige déjà : en pratique, cela n'ajoute donc rien à
-installer.
+Sur chaque plateforme le compilateur C arrive dans le même paquet que celui qui
+fournit l'éditeur de liens déjà exigé par Rust : en pratique, cela n'ajoute rien
+à installer.
 
 ---
 
@@ -71,10 +74,10 @@ installer.
    **« Desktop development with C++ »** —
    [téléchargement](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022).
 
-   La charge de travail porte le nom du C++, mais ce qu'elle livre est ce dont
-   toute compilation Rust sous Windows a de toute façon besoin : `link.exe`, le
-   Windows SDK et `cl.exe` pour les deux dépendances en C ci-dessus. Il n'y a
-   rien d'autre à télécharger.
+   La charge de travail porte le nom de C++, mais ce qu'elle livre est ce dont
+   toute compilation Rust sous Windows a besoin de toute façon : `link.exe`, le
+   SDK Windows et `cl.exe` pour les deux dépendances C ci-dessus. Il n'y a rien
+   d'autre à télécharger.
 
 2. Installez Rust depuis [rustup.rs](https://rustup.rs). Il sélectionne
    automatiquement la chaîne d'outils MSVC.
@@ -87,9 +90,8 @@ installer.
    ```
 
 Aucune option d'édition de liens à poser à la main : le `.cargo/config.toml` du
-dépôt place déjà chaque objet sur le CRT dynamique, et c'est ce qui empêche les
-dépendances en C et le runtime de Rust lui-même d'entrer en collision à l'édition
-de liens.
+dépôt place déjà chaque objet sur le CRT dynamique, ce qui empêche les
+dépendances C et le runtime de Rust d'entrer en collision à l'édition de liens.
 
 ### macOS
 
@@ -105,8 +107,8 @@ Puis Rust :
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Apple Silicon et Intel sont tous deux pris en charge ; rustup choisit la bonne
-cible hôte.
+Apple Silicon et Intel sont tous deux pris en charge ; rustup choisit la cible
+hôte qui convient.
 
 ### Linux
 
@@ -140,13 +142,14 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 Deux de ces paquets sont porteurs et méritent d'être nommés :
 
-- **`libssl-dev` / `openssl-devel`** — HTTPS utilise le TLS du système sous
-  Linux, et le voici.
+- **`libssl-dev` / `openssl-devel`** — sous Linux, HTTPS utilise le TLS du
+  système, et c'est celui-ci.
 - **`libgtk-3-dev` / `gtk3-devel`** — les boîtes de dialogue natives
   Ouvrir/Enregistrer.
 
 X11 et Wayland sont tous deux pris en charge ; la couche fenêtrage retient la
-session qui tourne, aucun des deux n'est donc une installation séparée.
+session effectivement en cours, aucun des deux n'est donc une installation
+séparée.
 
 ---
 
@@ -163,12 +166,12 @@ cd PowerRustCOBOL
 cargo build
 ```
 
-> La première compilation récupère chaque crate et compile le workspace :
-> comptez quelques minutes et un cache `target/` d'environ 1,5 Go. Les
-> compilations suivantes sont incrémentales. `cargo clean` récupère l'espace dès
-> que vous le voulez.
+> La première compilation télécharge toutes les crates et compile l'espace de
+> travail : comptez quelques minutes et un cache `target/` d'environ 1,5 Go. Les
+> suivantes sont incrémentales. `cargo clean` récupère la place dès que vous la
+> voulez.
 
-Pour ne compiler que les deux choses que vous exécutez :
+Pour ne compiler que les deux exécutables que vous lancez :
 
 ```sh
 cargo build --release -p cobolt-ide -p cobolt-cli
@@ -180,8 +183,8 @@ cargo build --release -p cobolt-ide -p cobolt-cli
 cargo run -p cobolt-ide
 ```
 
-Au quotidien, préférez une compilation release — plus lente à compiler une fois,
-bien plus fluide à l'usage :
+Au quotidien, préférez une compilation en release : plus lente à compiler une
+fois, bien plus fluide à l'usage :
 
 ```sh
 cargo run --release -p cobolt-ide
@@ -209,43 +212,46 @@ cargo test -p cobolt-forms --features render
 | Artefact | Chemin |
 |---|---|
 | IDE | `target/release/cobolt-ide` (`.exe` sous Windows) |
-| Runtime / constructeur en ligne de commande | `target/release/rcrun` (`.exe` sous Windows) |
-| Une application que **vous** compilez à partir d'un projet | `<project>/bin/` et le dossier de destination du projet |
+| Runtime / compilateur en ligne de commande | `target/release/rcrun` (`.exe` sous Windows) |
+| Une application que **vous** compilez depuis un projet | `<projet>/bin/` et le dossier de destination du projet |
 
 Une application compilée avec `rcrun build` est un exécutable unique et
-autonome : elle embarque son programme compilé, ses formulaires et le thème de
-pack d'assets qu'ils utilisent éventuellement, si bien qu'il n'y a rien à
-installer à côté d'elle sur la machine à laquelle vous la remettez.
+autonome : elle embarque son programme compilé, ses formulaires et tout thème de
+pack d'actifs qu'ils utilisent, si bien qu'il n'y a rien à installer à côté d'elle
+sur la machine à qui vous la remettez.
 
 ---
 
 ## Installer l'IDE ailleurs — emportez le SDK de la plateforme
 
-L'exécutable de l'IDE n'est **pas** autonome comme l'est une application que
-vous compilez. Compiler une application lance un vrai `cargo build` contre les
-sources Rust de la plateforme : ces sources doivent donc exister sur la machine
-qui compile. Copiez `cobolt-ide` tout seul quelque part et Build échoue, en
-nommant chaque dossier où il a regardé — la chaîne d'outils va bien, ce sont les
-sources qui sont simplement absentes.
+L'exécutable de l'IDE n'est **pas** autonome comme l'est une application que vous
+compilez. Compiler une application lance un vrai `cargo build` contre les sources
+Rust de la plateforme : ces sources doivent donc exister sur la machine qui
+compile. Copiez `cobolt-ide` seul quelque part et Build échoue en nommant chaque
+dossier où il a cherché — la chaîne d'outils va bien, les sources sont simplement
+absentes.
 
-Déposez-les à côté de l'exécutable. Depuis l'arborescence source :
+Déposez-les à côté de l'exécutable. Depuis l'arborescence des sources :
 
 ```sh
 cargo run -p cobolt-compiler --example stage_sdk -- <install-dir>
 ```
 
-Cela écrit `Cargo.toml` et `crates/` dans `<install-dir>` — 6,0 Mo, les dix
-crates contre lesquels une application compilée se construit. Passez `--sdk`
-pour les mettre dans `<install-dir>/sdk/` quand le dossier d'installation
-contient autre chose. L'IDE trouve l'une comme l'autre disposition sans aucune
-configuration, et regarde aussi un niveau au-dessus et, sous macOS, dans les
-`Resources` du bundle.
+Cela écrit `Cargo.toml`, `Cargo.lock` et `crates/` dans `<install-dir>`, avec les
+actifs dont une application de formulaires a besoin — l'arborescence des thèmes
+et l'icône de fenêtre. Les dix crates contre lesquelles une application compilée
+se construit pèsent **8,6 Mio** ; avec `assets/themes`, l'arborescence déposée
+avoisine **21 Mio**. L'icône n'est pas facultative : sans elle, aucune application
+de formulaires ne compile. Passez `--sdk` pour les placer dans
+`<install-dir>/sdk/` lorsque le dossier d'installation contient autre chose.
+L'IDE trouve l'une comme l'autre disposition sans configuration, et regarde aussi
+un niveau au-dessus et, sous macOS, dans le `Resources` du bundle.
 
 La machine a toujours besoin de la chaîne d'outils Rust — Build est une vraie
-compilation — et sa première compilation télécharge les crates de dépendances
+compilation — et sa première compilation télécharge les crates de dépendance
 depuis le registre : il lui faut donc un accès réseau une fois.
 
-> **Note.** Pour une copie de travail qui vit entièrement ailleurs, réglez le
+> **Note.** Pour une copie de travail située tout à fait ailleurs, indiquez le
 > dossier à la main sous **Help → Platform SDK Location**. Il est mémorisé par
 > machine et non par projet, il ne voyage donc jamais jusqu'à un collègue dans
 > `cobolt.toml`. Laissez-le vide pour revenir à la recherche automatique.
@@ -270,3 +276,5 @@ cochez-la.
 `libxkbcommon-dev` est installé et que `$DISPLAY` ou `$WAYLAND_DISPLAY` est
 défini ; un TTY nu ou une session SSH sans redirection X n'a aucun affichage sur
 lequel s'ouvrir.
+
+.<<

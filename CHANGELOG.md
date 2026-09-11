@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.127] — 2026-09-11
+
+### BUILDING, in all six languages — with the commands untouched
+
+The build instructions are now readable by someone who does not read English,
+which for an onboarding page is the point of the whole exercise.
+
+Every one of its **15 code blocks is byte-identical to the English**, checked
+mechanically rather than by eye: the `apt`/`dnf`/`pacman` lines with their
+backslash continuations, the `rustup` `curl`, the `cargo` invocations, the
+`powershell` verification pair. A package name is not prose, and a translated
+`libxkbcommon-dev` installs nothing.
+
+Also left in English: the two Visual Studio workload names ("Desktop development
+with C++"), every literal error message in Troubleshooting — those are strings
+the reader will see in their own terminal, in English, and must be able to match
+— and the `Help → Platform SDK Location` menu path.
+
 ## [PowerRustCOBOL 1.65.126] — 2026-09-11
 
 ### The redb engine doc, in all six languages — and the false claim finally gone

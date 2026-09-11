@@ -6,13 +6,14 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# PowerRustCOBOL をビルドする
+<!-- powerrustcobol: 1.65.124 -->
 
-まっさらなマシンから動く IDE まで。**Windows**、**Linux**、**macOS** のいずれでも。
+# PowerRustCOBOL のビルド
 
-ここに書かれていることは、どのプラットフォームでも同じ 3 ステップです —
-ツールチェインを入れ、クローンし、`cargo build`。OS ごとに違うのは最初のステップ
-だけです。
+まっさらなマシンから動く IDE まで — **Windows**、**Linux**、**macOS** で。
+
+ここに書かれていることは、どのプラットフォームでも同じ 3 ステップです。ツールチェ
+ーンを入れ、クローンし、`cargo build`。OS ごとに違うのは最初のステップだけです。
 
 ---
 
@@ -20,49 +21,46 @@ See the LICENSE file in the project root for full license information.
 
 | 要件 | 理由 |
 |---|---|
-| **Rust**、stable チャンネル、**1.92 以降** | ワークスペース全体をビルドする |
+| **Rust** の stable チャンネル、**1.92 以降** | ワークスペース全体をビルドする |
 | **Git** | リポジトリをクローンする |
-| **C コンパイラとリンカ** | *あらゆる*バイナリに Rust が必要とするリンカ、および 2 つの C 依存 |
+| **C コンパイラーとリンカー** | *あらゆる*バイナリに Rust が必要とするリンカー、加えて 2 つの C 依存 |
 | **ネイティブ GUI ライブラリ**（Linux のみ） | ウィンドウの生成とネイティブのファイルダイアログ |
 
-> **パッケージされた IDE は Rust の要件を自分で確認します。** PowerRustCOBOL を
-> ビルドするのではなく*使う*人がこのページを読むことはありません。そこで IDE は
-> 初回起動時に Rust を探し、この同じ **1.92** という下限を満たしていなければ
-> インストールを提案します。その数値はこのワークスペース自身のマニフェストから
-> 読み取るので、両者が食い違うことはありません。開発者ガイドの §3 を参照して
-> ください。
+> **パッケージ版の IDE は Rust の要件を自分で確認します。** PowerRustCOBOL を
+> ビルドするのではなく*使う*人はこのページを読みません。そのため IDE は初回起動時に
+> Rust を探し、この同じ **1.92** の下限を満たしていなければインストールを提案しま
+> す。番号はこのワークスペース自身のマニフェストから読むので、両者が食い違うことは
+> ありません。開発者ガイドの §3 を参照してください。
 
-### C コンパイラについて
+### C コンパイラーについて
 
-ツリー内の 2 つのクレートが C のソースをコンパイルするため、C コンパイラは本当に
-必要です:
+ツリー内の 2 つの crate が C のソースをコンパイルするため、C コンパイラーは本当に
+必要です。
 
-- **`libsqlite3-sys`** — SQLite。その C アマルガメーションから同梱されています。
-  これは COBOL データベースランタイムの SQLite サポートであり、エンドユーザーの
-  マシンにシステムの SQLite をインストールしたりバージョンを合わせたりする必要は
-  ありません。
-- **`onig_sys`** — 正規表現エンジン Oniguruma。セマンティック検索の裏側にある
-  トークナイザが使います。
+- **`libsqlite3-sys`** — C のアマルガメーションから同梱される SQLite。COBOL の
+  データベースランタイムの SQLite サポートであり、エンドユーザーのマシンにシステム
+  の SQLite を入れたりバージョンを合わせたりする必要はありません。
+- **`onig_sys`** — 鬼車（Oniguruma）正規表現エンジン。セマンティック検索の背後にあ
+  るトークナイザーが使います。
 
-ビルドが必要と**しない**もの、そして決して呼び出さないもの:
+ビルドが**必要としない**もの、そして決して呼び出さないもの:
 
-> **C++ コンパイラなし · CMake なし · NASM なし · Python なし · Node なし · JVM なし**
+> **C++ コンパイラー不要 · CMake 不要 · NASM 不要 · Python 不要 · Node 不要 ·
+> JVM 不要**
 
-これは意図的であり、今後もそのまま維持します。TLS はバンドルされた暗号ライブラリ
-ではなく、純 Rust のバインディング経由で OS 自身のスタック（Windows では
-schannel、macOS では Security.framework、Linux では OpenSSL）を通ります。
-バンドル方式なら、どのマシンでも C とアセンブラと CMake が要るからです。また
-トークナイザの C++ 接尾辞配列（`esaxx_fast`）は、ここでモデルを学習させるものが
-何もないため無効にしてあります。ナレッジベースのインデックスは純 Rust の `redb`
-です。
+これは意図的であり、今後もそう保たれます。TLS は OS 自身のスタック（Windows では
+schannel、macOS では Security.framework、Linux では OpenSSL）を純 Rust のバイン
+ディング経由で使います。すべてのマシンに C とアセンブラーと CMake を要求する同梱の
+暗号ライブラリは使いません。トークナイザーの C++ 接尾辞配列（`esaxx_fast`）は、ここ
+ではモデルを学習しないので無効にしてあります。そしてナレッジベースの索引は純 Rust の
+`redb` です。
 
-どのプラットフォームでも、C コンパイラは Rust がすでに要求しているリンカを提供
-するのと同じパッケージに入って届きます。したがって実際には、インストールするもの
-は何も増えません。
+どのプラットフォームでも、C コンパイラーは Rust がもともと必要とするリンカーを提供
+するのと同じパッケージに入っています。つまり実際には、追加で入れるものはありません。
 
 ---
 
-## 1. ツールチェインをインストールする
+## 1. ツールチェーンを入れる
 
 ### Windows
 
@@ -70,28 +68,27 @@ schannel、macOS では Security.framework、Linux では OpenSSL）を通りま
    ワークロード付きでインストールします —
    [ダウンロード](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)。
 
-   ワークロードの名前は C++ ですが、そこで手に入るのは Windows 上のあらゆる Rust
-   ビルドがどのみち必要とするもの、すなわち `link.exe`、Windows SDK、そして
-   上記 2 つの C 依存のための `cl.exe` です。ほかにダウンロードするものは
-   ありません。
+   ワークロードの名前は C++ ですが、届くものは Windows 上のあらゆる Rust ビルドが
+   どのみち必要とするもの、すなわち `link.exe`、Windows SDK、そして上記 2 つの C
+   依存のための `cl.exe` です。ほかにダウンロードするものはありません。
 
-2. [rustup.rs](https://rustup.rs) から Rust をインストールします。MSVC
-   ツールチェインは自動的に選ばれます。
+2. [rustup.rs](https://rustup.rs) から Rust をインストールします。MSVC ツールチェ
+   ーンが自動的に選ばれます。
 
-3. 通常の PowerShell プロンプトから確認します:
+3. 通常の PowerShell プロンプトから確認します。
 
    ```powershell
    rustc --version
    cargo --version
    ```
 
-手作業で設定するリンカフラグはありません。リポジトリの `.cargo/config.toml` が
-すでにすべてのオブジェクトを動的 CRT に載せており、これが C 依存と Rust 自身の
-ランタイムがリンク時に衝突するのを防いでいます。
+手で設定するリンカーフラグはありません。リポジトリの `.cargo/config.toml` が、
+すべてのオブジェクトを動的 CRT 上に置くよう既に指定しており、それが C 依存と Rust
+自身のランタイムがリンク時に衝突するのを防いでいます。
 
 ### macOS
 
-Xcode Command Line Tools をインストールします — これで全部です:
+Xcode Command Line Tools を入れる — それだけです。
 
 ```sh
 xcode-select --install
@@ -103,7 +100,7 @@ xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Apple Silicon と Intel の両方に対応しています。rustup が正しいホストターゲットを
+Apple Silicon と Intel のどちらも対応しています。rustup が正しいホストターゲットを
 選びます。
 
 ### Linux
@@ -136,14 +133,14 @@ sudo pacman -S --needed base-devel pkgconf gtk3 libxcb libxkbcommon openssl
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-このうち 2 つのパッケージは要となるもので、名前を挙げておく価値があります:
+このうち 2 つのパッケージは要となるもので、名前を挙げておく価値があります。
 
-- **`libssl-dev` / `openssl-devel`** — Linux では HTTPS がシステムの TLS を使い
-  ますが、その実体がこれです。
-- **`libgtk-3-dev` / `gtk3-devel`** — ネイティブの「開く / 保存」ダイアログ。
+- **`libssl-dev` / `openssl-devel`** — Linux では HTTPS がシステムの TLS を使い、
+  それがこれです。
+- **`libgtk-3-dev` / `gtk3-devel`** — ネイティブの「開く」「保存」ダイアログ。
 
-X11 と Wayland の両方に対応しています。ウィンドウ層は動いているセッションの方を
-選ぶので、どちらも別途インストールするものではありません。
+X11 と Wayland のどちらにも対応しており、ウィンドウ層が実際に動いているセッション
+を選ぶので、どちらも別途インストールする必要はありません。
 
 ---
 
@@ -160,12 +157,11 @@ cd PowerRustCOBOL
 cargo build
 ```
 
-> 最初のビルドはすべてのクレートを取得してワークスペースをコンパイルするので、
-> 数分と 1.5 GB 程度の `target/` キャッシュを見込んでください。以降のビルドは
-> 差分ビルドです。領域を取り戻したくなったら、いつでも `cargo clean` で回収でき
-> ます。
+> 初回ビルドはすべての crate を取得してワークスペースをコンパイルするので、数分と
+> 約 1.5 GB の `target/` キャッシュを見込んでください。以降のビルドは差分です。
+> 容量を取り戻したくなったら `cargo clean` で回収できます。
 
-実際に実行する 2 つだけをビルドするには:
+実行する 2 つだけをビルドするには:
 
 ```sh
 cargo build --release -p cobolt-ide -p cobolt-cli
@@ -177,8 +173,8 @@ cargo build --release -p cobolt-ide -p cobolt-cli
 cargo run -p cobolt-ide
 ```
 
-日常的に使うなら release ビルドをお勧めします — 一度のコンパイルは遅くなります
-が、使い心地ははるかに滑らかです:
+日常的に使うなら release ビルドをおすすめします。一度のコンパイルは遅いものの、
+使い心地ははるかに滑らかです。
 
 ```sh
 cargo run --release -p cobolt-ide
@@ -186,13 +182,13 @@ cargo run --release -p cobolt-ide
 
 ---
 
-## テストを実行する
+## テストを走らせる
 
 ```sh
 cargo test --workspace
 ```
 
-フォームエンジンで描画経路をテストするには `render` フィーチャが必要です:
+フォームエンジンは描画経路をテストするために `render` フィーチャーを必要とします。
 
 ```sh
 cargo test -p cobolt-forms --features render
@@ -200,67 +196,70 @@ cargo test -p cobolt-forms --features render
 
 ---
 
-## 成果物が置かれる場所
+## 成果物の置き場所
 
 | 成果物 | パス |
 |---|---|
 | IDE | `target/release/cobolt-ide`（Windows では `.exe`） |
 | CLI ランタイム / ビルダー | `target/release/rcrun`（Windows では `.exe`） |
-| **あなた**がプロジェクトからビルドしたアプリケーション | `<project>/bin/` とプロジェクトの出力先フォルダ |
+| **あなた**がプロジェクトからビルドしたアプリケーション | `<project>/bin/` とプロジェクトの出力先フォルダー |
 
-`rcrun build` でビルドしたアプリケーションは、単体で完結する 1 つの実行ファイル
-です。コンパイル済みのプログラム、フォーム、そしてそれらが使うアセットパックの
-テーマまで埋め込むので、渡した先のマシンで一緒にインストールするものは何もあり
-ません。
+`rcrun build` でビルドされたアプリケーションは、単体で完結する 1 つの実行ファイルで
+す。コンパイル済みのプログラム、フォーム、そしてそれらが使うアセットパックのテーマ
+を埋め込んでいるので、渡す相手のマシンに一緒に入れるものは何もありません。
 
 ---
 
-## IDE を別の場所へインストールする — プラットフォーム SDK を同梱する
+## IDE を別の場所にインストールする — プラットフォーム SDK を同梱する
 
-IDE の実行ファイルは、あなたがビルドしたアプリケーションのようには単体で完結して
-**いません**。アプリケーションのビルドは、プラットフォームの Rust ソースに対して
-本物の `cargo build` を走らせるため、ビルドするマシンにそのソースが存在していな
-ければなりません。`cobolt-ide` だけをどこかにコピーすると Build は失敗し、探した
-フォルダをすべて列挙します — ツールチェインは問題なく、単にソースが無いのです。
+IDE の実行ファイルは、あなたがビルドするアプリケーションのようには自己完結して
+**いません**。アプリケーションのビルドはプラットフォームの Rust ソースに対して本物
+の `cargo build` を走らせるため、そのソースがビルドを行うマシンに存在していなければ
+なりません。`cobolt-ide` だけをどこかにコピーすると Build は失敗し、探したフォルダ
+ーをすべて挙げます — ツールチェーンは問題なく、単にソースが無いのです。
 
-ソースは実行ファイルの隣に配置します。ソースツリーから:
+実行ファイルの隣に配置してください。ソースツリーから:
 
 ```sh
 cargo run -p cobolt-compiler --example stage_sdk -- <install-dir>
 ```
 
-これは `Cargo.toml` と `crates/` を `<install-dir>` に書き出します — 6.0 MB、
-ビルドされたアプリケーションがコンパイル対象とする 10 個のクレートです。
-インストール先フォルダに他のものが入っている場合は、`--sdk` を渡して
-`<install-dir>/sdk/` に置いてください。IDE はどちらの配置も設定なしで見つけ、
-さらに 1 階層上と、macOS ではバンドルの `Resources` の中も探します。
+これは `Cargo.toml`、`Cargo.lock`、`crates/` を `<install-dir>` に書き出し、あわせ
+てフォームアプリケーションが必要とするアセット — テーマツリーとウィンドウアイコン
+— も書き出します。ビルドされたアプリケーションがコンパイル対象とする 10 個の crate
+は **8.6 MiB**、`assets/themes` を含めると配置後のツリーは約 **21 MiB** です。アイ
+コンは省略可能ではありません。省くとフォームアプリケーションは一切コンパイルできま
+せん。インストール先フォルダーに他のものが入っている場合は、`--sdk` を渡して
+`<install-dir>/sdk/` に置いてください。IDE はどちらの配置も設定なしで見つけ、さらに
+1 階層上と、macOS ではバンドルの `Resources` の中も探します。
 
-そのマシンにはやはり Rust ツールチェインが必要で（Build は本物のコンパイルです）、
-最初のビルドは依存クレートをレジストリからダウンロードするため、一度だけネット
-ワークアクセスが必要です。
+そのマシンには依然として Rust のツールチェーンが必要で（Build は本物のコンパイルで
+す）、最初のビルドでは依存 crate をレジストリからダウンロードするため、一度はネット
+ワークアクセスが要ります。
 
-> **注記.** まったく別の場所にあるチェックアウトを使う場合は、
-> **Help → Platform SDK Location** でフォルダを手動指定してください。これは
-> プロジェクト単位ではなくマシン単位で記憶されるので、`cobolt.toml` に入って
-> 同僚のところへ渡ることはありません。空欄にすれば自動検索に戻ります。
+> **注意。** まったく別の場所にあるチェックアウトを使う場合は、**Help → Platform
+> SDK Location** でフォルダーを手動で指定してください。プロジェクトごとではなく
+> マシンごとに記憶されるので、`cobolt.toml` に入って同僚に渡ってしまうことはありま
+> せん。空欄にすれば自動探索に戻ります。
 
 ---
 
 ## トラブルシューティング
 
-**`linker 'cc' not found`（Linux）** — `build-essential`（あるいは
-`@development-tools`）がありません。
+**`linker 'cc' not found`（Linux）** — `build-essential`（または
+`@development-tools`）が入っていません。
 
 **`link.exe not found`（Windows）** — Build Tools が "Desktop development with
-C++" ワークロードなしでインストールされています。インストーラを再実行して
-チェックを入れてください。
+C++" ワークロード無しでインストールされています。インストーラーを再実行してチェック
+を入れてください。
 
 **`Could not find directory of OpenSSL installation`（Linux）** —
-`libssl-dev` / `openssl-devel` と `pkg-config` をインストールしてください。
+`libssl-dev` / `openssl-devel` と `pkg-config` を入れてください。
 
 **`error: package requires rustc 1.92 or newer`** — `rustup update stable`。
 
-**IDE はビルドできるがウィンドウが開かない（Linux）** — `libxkbcommon-dev` が
-インストールされているか、`$DISPLAY` または `$WAYLAND_DISPLAY` が設定されているか
-を確認してください。素の TTY や X 転送のない SSH セッションには、開くべきディス
-プレイがありません。
+**IDE はビルドできるがウィンドウが開かない（Linux）** — `libxkbcommon-dev` が入って
+いること、`$DISPLAY` か `$WAYLAND_DISPLAY` が設定されていることを確認してください。
+素の TTY や X 転送なしの SSH セッションには、開くべきディスプレイがありません。
+
+.<<
