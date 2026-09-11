@@ -108,36 +108,102 @@ There is **no Python, Node, JVM, CMake, NASM or C++ compiler** anywhere in the
 build — a C compiler and a linker are the whole of it, and on every platform they
 arrive with the package Rust already needs in order to link.
 
-Per-OS native dependencies:
+> ⚠️ **Rust and the linker are needed *after* the IDE is built, too — on every
+> platform, however you got the IDE.** PowerRustCOBOL designs forms and *runs*
+> programs entirely on its own, but **Build** compiles your project through
+> `cargo`, and so does any **Run** of a program containing an `EXEC RUST` block.
+> Both need the Rust toolchain **and** the platform's linker — so they are
+> prerequisites of a released `.msi`, `.dmg`, `.deb` or `.rpm` just as much as of
+> this repository. The IDE asks on its first run and names whatever is missing;
+> everything else (the Form Designer, the editor, **Run**, the debugger) works
+> without either.
 
-- **macOS** — install the Xcode Command Line Tools: `xcode-select --install`. Nothing else is needed.
-- **Windows** — install the **Visual Studio Build Tools** with the *"Desktop
-  development with C++"* workload ([download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)),
-  then install Rust from [rustup.rs](https://rustup.rs) — it selects the MSVC
-  toolchain automatically. That single workload provides everything: `link.exe`
-  and the Windows SDK (which rustc requires for *any* Rust binary, C code or not)
-  and `cl.exe` for the two C dependencies. Nothing else to download.
+#### macOS
 
-  ```powershell
-  # after both installs, from a normal PowerShell prompt
-  rustc --version
-  cargo build --release -p cobolt-ide -p cobolt-cli
-  ```
-- **Linux (Debian/Ubuntu)** — install the build + GUI/dialog libraries:
+Install the **Xcode Command Line Tools**:
 
-  ```sh
-  sudo apt update && sudo apt install -y \
-      build-essential pkg-config \
-      libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-      libxkbcommon-dev libssl-dev
-  ```
+```bash
+xcode-select --install
+```
 
-  (Fedora: `gtk3-devel`, `libxcb-devel`, `libxkbcommon-devel`, `openssl-devel`, `@development-tools`.)
+Then install Rust from [rustup.rs](https://rustup.rs):
 
-  `libssl-dev` / `openssl-devel` is load-bearing on Linux: HTTPS goes through the
-  operating system's TLS (schannel on Windows, Security.framework on macOS,
-  OpenSSL here) rather than through a bundled crypto library that would have to
-  be compiled from C on every machine.
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Nothing else is needed — the Command Line Tools carry both the linker and the C
+compiler.
+
+#### Windows
+
+**1. Install Visual Studio Build Tools**
+
+Install the **Visual Studio Build Tools** with the **Desktop development with C++**
+workload ([download](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)).
+
+This single workload provides:
+
+- `link.exe`
+- The Windows SDK, which `rustc` requires for every Rust binary — with or without C code
+- `cl.exe`, required by the two C dependencies
+
+**2. Install Rust**
+
+Install Rust from [rustup.rs](https://rustup.rs). It selects the MSVC toolchain
+automatically.
+
+Nothing else needs to be downloaded.
+
+**3. Verify and build**
+
+After both installations, open a normal PowerShell prompt and run:
+
+```powershell
+rustc --version
+cargo build --release -p cobolt-ide -p cobolt-cli
+```
+
+#### Linux
+
+**Debian or Ubuntu** — install the build tools and GUI/dialog libraries:
+
+```bash
+sudo apt update && sudo apt install -y \
+    build-essential pkg-config \
+    libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+    libxkbcommon-dev libssl-dev
+```
+
+**Fedora** — install the equivalent packages:
+
+- `gtk3-devel`
+- `libxcb-devel`
+- `libxkbcommon-devel`
+- `openssl-devel`
+- `@development-tools`
+
+**Then, on either — install Rust** from [rustup.rs](https://rustup.rs):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+`build-essential` / `@development-tools` is what provides `cc`, the linker Rust
+drives. Without it even a pure-Rust program fails at the link step.
+
+> **Important — TLS dependency**
+>
+> `libssl-dev` on Debian/Ubuntu and `openssl-devel` on Fedora are essential.
+>
+> HTTPS uses the operating system's TLS implementation:
+>
+> - **Windows:** Schannel
+> - **macOS:** Security.framework
+> - **Linux:** OpenSSL
+>
+> This avoids bundling a cryptographic library that would need to be compiled
+> from C on every machine.
 
 Verify Rust is ready:
 

@@ -218,6 +218,31 @@ working — nothing in the IDE has to be told.
 > what it finds there. You do not have to launch the IDE from a terminal for
 > **Build** to work.
 
+#### Rust is installed and Build still cannot finish
+
+There is a second prerequisite, and rustup neither installs it nor mentions it:
+the **linker**. Compiling produces machine code; the linker is what gathers that
+code into an executable file, and it belongs to the operating system rather than
+to Rust.
+
+| Platform    | What provides the linker                                            |
+| ----------- | ------------------------------------------------------------------- |
+| **Windows** | The Microsoft C++ build tools — *Build Tools for Visual Studio* (or Visual Studio) with the **Desktop development with C++** workload. Visual Studio Code is a different product and does not provide them. |
+| **macOS**   | Apple's command line developer tools — `xcode-select --install`      |
+| **Linux**   | Your distribution's C toolchain — `build-essential` on Debian and Ubuntu, *Development Tools* on Fedora and RHEL |
+
+The first-run check asks this question too, by having Rust link a program that
+does nothing: the one reliable way to know, since on Windows the linker is found
+through the Visual Studio installation and not through `PATH`. If it cannot, the
+IDE says so on the first run, names the linker, and shows the command that
+installs it. There is nothing to accept or decline — it is not a choice, just
+the one thing still missing.
+
+Should you meet it later instead — at the end of a build, which is where this
+used to surface — **Build** reports the same thing in the same words rather than
+the compiler's own output. Everything else keeps working meanwhile: the Form
+Designer, the editor, **Run**, and the debugger never needed a linker.
+
 ---
 
 ## 4. Your first application: Hello, Form
@@ -7929,6 +7954,14 @@ flowchart LR
 > the Xcode Command Line Tools elsewhere. So the build reads your program first
 > and links the database drivers only when something in it reaches them. A
 > program that never opens a database is built with **Rust alone**.
+>
+> **What this note does *not* excuse you from.** A C *compiler* is needed only
+> when something C is actually built. The **linker** is needed every time,
+> because every executable has to be linked — so a program that never opens a
+> database still needs the platform's build tools installed (§3). On Windows and
+> macOS, and on most Linux distributions, the same single package provides both,
+> which is why the two are easy to confuse: what varies is the C compiler, and
+> what never varies is the linker.
 >
 > The reading errs towards linking, because the cost of guessing wrong is a
 > program that works under *Run Form* and fails only once built. Anything it

@@ -1667,6 +1667,10 @@ pub struct Tr {
     pub rust_check_installed: &'static str,
     pub rust_check_failed: &'static str,
     pub rust_check_close: &'static str,
+    /// `{}` — the Rust version found; `{}` — the linker that was not.
+    pub rust_check_no_linker: &'static str,
+    pub rust_check_no_linker_why: &'static str,
+    pub rust_check_no_linker_cmd: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -2955,6 +2959,9 @@ const EN: Tr = Tr {
     rust_check_installed: "Rust {} is installed. Build is available.",
     rust_check_failed:    "The installation did not finish. You can install Rust from rustup.rs and start PowerRustCOBOL again.",
     rust_check_close:     "Close",
+    rust_check_no_linker: "Rust {} is installed, but this computer still cannot finish a build: the linker `{}` was not found.",
+    rust_check_no_linker_why: "Build turns your program into a native application, and that last step uses the platform's own build tools rather than Rust's. Nothing else is affected: designing forms, editing code and running programs never needed them.",
+    rust_check_no_linker_cmd: "This installs them:",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -4225,6 +4232,9 @@ const ES: Tr = Tr {
     rust_check_installed: "Rust {} está instalado. Compilar ya está disponible.",
     rust_check_failed:    "La instalación no se completó. Puede instalar Rust desde rustup.rs y volver a iniciar PowerRustCOBOL.",
     rust_check_close:     "Cerrar",
+    rust_check_no_linker: "Rust {} está instalado, pero este equipo todavía no puede terminar una compilación: no se encontró el enlazador `{}`.",
+    rust_check_no_linker_why: "Compilar convierte su programa en una aplicación nativa, y ese último paso usa las herramientas de compilación del sistema, no las de Rust. Nada más se ve afectado: diseñar formularios, editar código y ejecutar programas nunca las necesitaron.",
+    rust_check_no_linker_cmd: "Esto las instala:",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -5495,6 +5505,9 @@ const PT: Tr = Tr {
     rust_check_installed: "O Rust {} está instalado. Compilar já está disponível.",
     rust_check_failed:    "A instalação não foi concluída. Você pode instalar o Rust em rustup.rs e iniciar o PowerRustCOBOL novamente.",
     rust_check_close:     "Fechar",
+    rust_check_no_linker: "O Rust {} está instalado, mas este computador ainda não consegue concluir uma compilação: o vinculador `{}` não foi encontrado.",
+    rust_check_no_linker_why: "Compilar transforma seu programa em um aplicativo nativo, e esse último passo usa as ferramentas de compilação do sistema, não as do Rust. Nada mais é afetado: desenhar formulários, editar código e executar programas nunca precisaram delas.",
+    rust_check_no_linker_cmd: "Isto as instala:",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -6764,6 +6777,9 @@ const JA: Tr = Tr {
     rust_check_installed: "Rust {} をインストールしました。ビルドが使用できます。",
     rust_check_failed:    "インストールは完了しませんでした。rustup.rs から Rust をインストールし、PowerRustCOBOL を起動し直してください。",
     rust_check_close:     "閉じる",
+    rust_check_no_linker: "Rust {} はインストールされていますが、このコンピューターではまだビルドを完了できません。リンカー `{}` が見つかりませんでした。",
+    rust_check_no_linker_why: "ビルドはプログラムをネイティブアプリケーションに変換します。その最後の手順だけは Rust ではなくプラットフォーム自身のビルドツールを使います。ほかには影響しません。フォームの設計、コードの編集、プログラムの実行にリンカーは必要ありません。",
+    rust_check_no_linker_cmd: "次のコマンドでインストールできます:",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -8041,6 +8057,9 @@ const ZH: Tr = Tr {
     rust_check_installed: "已安装 Rust {}。现在可以使用构建。",
     rust_check_failed:    "安装未能完成。您可以从 rustup.rs 安装 Rust，然后重新启动 PowerRustCOBOL。",
     rust_check_close:     "关闭",
+    rust_check_no_linker: "已安装 Rust {}，但这台计算机仍无法完成构建：找不到链接器 `{}`。",
+    rust_check_no_linker_why: "构建会把您的程序变成原生应用程序，而最后一步使用的是平台自己的构建工具，不是 Rust 的。其他功能不受影响：设计窗体、编辑代码和运行程序从不需要链接器。",
+    rust_check_no_linker_cmd: "以下命令可以安装它们：",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -9311,6 +9330,9 @@ const FR: Tr = Tr {
     rust_check_installed: "Rust {} est installé. Compiler est disponible.",
     rust_check_failed:    "L'installation ne s'est pas terminée. Vous pouvez installer Rust depuis rustup.rs, puis relancer PowerRustCOBOL.",
     rust_check_close:     "Fermer",
+    rust_check_no_linker: "Rust {} est installé, mais cet ordinateur ne peut toujours pas terminer une compilation : l'éditeur de liens `{}` est introuvable.",
+    rust_check_no_linker_why: "Compiler transforme votre programme en application native, et cette dernière étape utilise les outils de compilation de la plateforme plutôt que ceux de Rust. Rien d'autre n'est affecté : concevoir des formulaires, éditer du code et exécuter des programmes n'en ont jamais eu besoin.",
+    rust_check_no_linker_cmd: "Ceci les installe :",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

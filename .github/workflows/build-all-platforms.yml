@@ -455,9 +455,48 @@ jobs:
                 <ComponentGroupRef Id="AppFiles" />
                 <ComponentRef Id="AppShortcut" />
               </Feature>
+
+              <!-- The finish page. Installing PowerRustCOBOL does not make a
+                   machine able to BUILD with it, and the place to say so is
+                   here rather than at the end of the developer's first build.
+                   Windows wording only: a Mac or a Linux instruction shown to a
+                   Windows user is noise they have to work out is not for them.
+
+                   The checkbox is OFF by default and opens Microsoft's own
+                   download page. It installs nothing by itself: the Build Tools
+                   are a multi-gigabyte privileged install and that is the
+                   user's decision to take, on Microsoft's page, not a box this
+                   installer ticks for them. -->
+              <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
+                        Value="To BUILD applications you also need two things Rust requires: the Visual Studio Build Tools with the 'Desktop development with C++' workload, and Rust itself from https://rustup.rs. Designing forms, editing code and running programs work without either - PowerRustCOBOL will tell you on its first run if anything is missing." />
+              <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"
+                        Value="Open the Visual Studio Build Tools download page" />
+              <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="0" />
+              <Property Id="WixShellExecTarget"
+                        Value="https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" />
+              <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
+                            Impersonate="yes" Return="ignore" />
+              <UIRef Id="WixUI_Minimal" />
+              <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+              <UI>
+                <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction"
+                         Value="OpenPrereqPage">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
+              </UI>
             </Product>
           </Wix>
           WXS
+
+          # WixUI_Minimal shows the licence, so it needs one as RTF. Generated
+          # from the LICENSE this repository already ships rather than kept as a
+          # second copy that could drift from it. Apache-2.0 is pure ASCII, so
+          # the only escaping RTF needs is its own three metacharacters.
+          {
+            printf '{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0\\fnil Segoe UI;}}\\fs18 '
+            sed -e 's/\\/\\\\/g' -e 's/{/\\{/g' -e 's/}/\\}/g' LICENSE \
+              | sed -e 's/$/\\par/'
+            printf '}'
+          } > license.rtf
+          test -s license.rtf
 
           "$wix/heat.exe" dir "dist/$PKG" -cg AppFiles -gg -scom -sreg -sfrag -srd \
             -dr INSTALLFOLDER -var var.SourceDir -out appfiles.wxs
@@ -465,8 +504,10 @@ jobs:
           # and without it Windows redirects ProgramFiles64Folder and a 64-bit
           # application installs itself into "Program Files (x86)" — which is
           # exactly where 1.65.108 put it (operator, 2026-09-10).
-          "$wix/candle.exe" -arch x64 -dVer="$VERSION" -dSourceDir="dist/$PKG" product.wxs appfiles.wxs
-          "$wix/light.exe" -sval product.wixobj appfiles.wixobj -o "dist/${PKG}.msi"
+          "$wix/candle.exe" -arch x64 -ext WixUIExtension -ext WixUtilExtension \
+            -dVer="$VERSION" -dSourceDir="dist/$PKG" product.wxs appfiles.wxs
+          "$wix/light.exe" -sval -ext WixUIExtension -ext WixUtilExtension \
+            product.wixobj appfiles.wixobj -o "dist/${PKG}.msi"
           test -s "dist/${PKG}.msi"
 
       # macOS: a .dmg with the app and a link to /Applications — the drag-here
@@ -483,6 +524,31 @@ jobs:
           cp -R "dist/$PKG/PowerRustCOBOL.app" "$stage/PowerRustCOBOL.app"
           ln -s /Applications "$stage/Applications"
           cp LICENSE NOTICE THIRD_PARTY_NOTICES.md README.md "$stage/"
+          # A .dmg has no installer flow and no finish page — it is a folder the
+          # user drags from. So the thing they need to know sits beside the app
+          # as a document, in macOS terms only.
+          cat > "$stage/Build Prerequisites.txt" <<'READMEMAC'
+          PowerRustCOBOL AI - what you need in order to BUILD
+          ===================================================
+
+          Drag PowerRustCOBOL to Applications and it is ready to design forms,
+          edit code and RUN programs. None of that needs anything else.
+
+          BUILD is different: it compiles your project into a native application,
+          and for that macOS needs two things.
+
+          1. Apple's command line developer tools, which carry the linker:
+
+                 xcode-select --install
+
+          2. Rust:
+
+                 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+          PowerRustCOBOL checks both on its first run and offers to install Rust
+          for you. It will not install Apple's tools on your behalf - that is a
+          system-level install, and the one-line command above is all it takes.
+          READMEMAC
           hdiutil create -volname "PowerRustCOBOL $VERSION" -srcfolder "$stage" \
             -ov -format UDZO "dist/${PKG}.dmg"
           test -s "dist/${PKG}.dmg"
@@ -577,11 +643,48 @@ jobs:
           Architecture: amd64
           Maintainer: Emerson Lopes <emersonlopes@gmail.com>
           Installed-Size: $size
+          Suggests: build-essential
           Description: PowerRustCOBOL AI - the RAD IDE for COBOL-85
            Design forms visually, run them on a fast tree-walking COBOL-85
            runtime, and compile to a single self-contained binary. Ships with
            rcrun, the command-line runtime.
           CONTROL
+
+          # `Suggests` rather than `Depends` or `Recommends`, deliberately.
+          # Designing forms and running programs need nothing beyond this
+          # package; only BUILD does. A Depends would force a compiler on every
+          # user, and a Recommends would install one without being asked —
+          # neither is honest about a prerequisite that half the users never
+          # reach. Suggests says it, installs nothing, and apt shows it.
+          #
+          # What Suggests cannot do is explain itself, so the postinst does.
+          # Debian and Ubuntu wording only: this package is never installed on a
+          # Mac or a Fedora machine, and instructions for those would be noise
+          # the reader has to work out are not for them.
+          cat > "$root/DEBIAN/postinst" <<'POSTINST'
+          #!/bin/sh
+          set -e
+          if [ "$1" = configure ]; then
+            cat <<'MSG'
+
+          PowerRustCOBOL AI is installed. Designing forms, editing code and
+          running programs are ready to use and need nothing else.
+
+          BUILD compiles your project into a native application, and for that it
+          needs two more things:
+
+            sudo apt install build-essential      # the linker Rust drives
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+          PowerRustCOBOL checks both the first time it starts and offers to
+          install Rust for you. Installing build-essential is left to you: it is
+          a system package, and apt is already in your hands.
+
+          MSG
+          fi
+          exit 0
+          POSTINST
+          chmod 0755 "$root/DEBIAN/postinst"
 
           ln -s /opt/powerrustcobol/PowerRustCOBOL "$root/usr/bin/powerrustcobol"
           ln -s /opt/powerrustcobol/rcrun "$root/usr/bin/rcrun"
@@ -662,6 +765,10 @@ jobs:
           URL:            https://github.com/CloudLandBeta/PowerRustCOBOL
           BuildArch:      x86_64
           AutoReqProv:    no
+          # Weak, for the reason the .deb uses Suggests: only BUILD needs a
+          # compiler, and forcing one on every user who wants to design forms
+          # would be wrong. gcc is what carries the linker here.
+          Suggests:       gcc
 
           %description
           Design forms visually, run them on a fast tree-walking COBOL-85
@@ -680,6 +787,27 @@ jobs:
             %{buildroot}/usr/share/applications/powerrustcobol.desktop
           install -m 0644 %{deskdir}/powerrustcobol.png \
             %{buildroot}/usr/share/icons/hicolor/256x256/apps/powerrustcobol.png
+
+          # Fedora and RHEL wording only - an apt line or an xcode-select line
+          # shown here is noise the reader has to work out is not for them.
+          %post
+          cat <<'MSG'
+
+          PowerRustCOBOL AI is installed. Designing forms, editing code and
+          running programs are ready to use and need nothing else.
+
+          BUILD compiles your project into a native application, and for that it
+          needs two more things:
+
+            sudo dnf group install "Development Tools"   # the linker Rust drives
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+          PowerRustCOBOL checks both the first time it starts and offers to
+          install Rust for you. The development tools are left to you: they are
+          system packages, and dnf is already in your hands.
+
+          MSG
+          exit 0
 
           %files
           /opt/powerrustcobol

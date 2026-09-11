@@ -1,5 +1,78 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.111] — 2026-09-11
+
+*(1.65.110 is the Linux packaging fix, on the `features` branch.)*
+
+### "linker `link.exe` not found" is now a sentence, not a build log
+
+A developer installed the Windows `.msi`, opened the example, pressed **Build**,
+and got several hundred lines of cargo output ending in
+
+    error: linker `link.exe` not found
+
+Nothing was wrong with their project. Rust was installed and every crate
+compiled; the machine simply had no **linker**, which is a separate install that
+rustup neither ships nor mentions. The IDE knew none of this and printed the
+compiler's output verbatim, leaving the one sentence that mattered at the bottom
+of a screenful that read like a catastrophe.
+
+**At build time.** A failed build whose output carries rustc's own
+`error: linker \`…\` not found` line now reports what is actually wrong: that the
+program compiled, that this is the last step, what provides a linker on this
+platform, and the single command that installs it. Any other failure is
+untouched — the match is deliberately strict, because replacing a real compiler
+error with advice about a linker would send someone to install something that
+was never the problem.
+
+**On the first run.** The Rust check asked whether Rust was present and stopped
+there, so a machine that could never finish a build was told everything was
+fine. It now also asks whether Rust can *link*, by having it link a program that
+does nothing — the one reliable way to know, since on Windows the linker is
+found through the Visual Studio installation and not through `PATH`. There is
+nothing to accept or decline in that dialog: it names the linker, says what
+provides it, and closes.
+
+The probe runs on the first start only. Every later start is still the single
+`rustc --version` it always was.
+
+The same question is asked after an offered install, too. rustup can succeed on
+a Windows machine with no C++ build tools, and the dialog used to answer that
+with "Rust is installed. Build is available." — true about Rust, false about
+Build.
+
+**And a correction to the Developer's Guide.** §18 said that a program which
+never opens a database "is built with Rust alone". That is true of the C
+*compiler* and false of the linker: every executable has to be linked, on every
+platform. The guide now separates the two, and §3 gains the linker half of the
+first-run check.
+
+### Every installer now says what Build needs — in its own platform's words
+
+The same gap ran through the packaging. `README.md` documented only the
+build-from-source path, and named Rust under Windows while leaving it out of the
+macOS and Linux notes — where macOS went as far as "Nothing else is needed". It
+now follows one structure per platform, each naming both prerequisites, and says
+once and prominently that the two are required *after* installation too: a
+released `.msi`, `.dmg`, `.deb` or `.rpm` needs them exactly as this repository
+does, because **Build** and `EXEC RUST` compile through `cargo` either way.
+
+And each installer now carries that message itself, at the end, in the terms of
+the platform it is installing on — never another platform's:
+
+- **`.msi`** — a real finish page (WixUI_Minimal, with the repository's own
+  `LICENSE` rendered to RTF) naming the Visual Studio Build Tools workload and
+  rustup. Its checkbox is **off** by default and opens Microsoft's download page;
+  it installs nothing on its own, because the Build Tools are a multi-gigabyte
+  privileged install and that is the user's decision to take.
+- **`.dmg`** — a *Build Prerequisites.txt* beside the app, since a disk image has
+  no installer flow and no finish page to put it on.
+- **`.deb`** — `Suggests: build-essential` plus a `postinst` that explains it.
+  Suggests rather than Depends or Recommends: designing forms and running
+  programs need nothing beyond the package, so forcing a compiler on every user
+  would be wrong, and installing one unasked only slightly less so.
+- **`.rpm`** — `Suggests: gcc` and the matching `%post`, in dnf's terms.
+
 ## [PowerRustCOBOL 1.65.109] — 2026-09-10
 
 ### The Windows installer installed a 64-bit application into Program Files (x86)

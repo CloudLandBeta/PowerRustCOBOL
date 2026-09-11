@@ -131,6 +131,91 @@ pub fn write_license_notices(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+// ── The linker ───────────────────────────────────────────────────────────────
+
+/// The linker rustc could not find, read out of a failed build's output.
+///
+/// Rust is only half of what Build needs. The other half is the platform's
+/// linker — `link.exe` from the Microsoft C++ build tools on Windows, `cc` from
+/// Xcode's command line tools or from gcc elsewhere — and it is a separate
+/// install that rustup neither ships nor mentions. A machine with a flawless
+/// Rust toolchain and no linker compiles every crate in the project and then
+/// fails on the very last step, which is the most expensive moment to find out.
+///
+/// rustc has already done the detection, and done it properly: it looks for the
+/// linker exactly as it would to use it, which on Windows means the Visual
+/// Studio installation rather than PATH. So this reads rustc's verdict instead
+/// of forming a second opinion — there is no better one to be had.
+///
+/// The line being matched is rustc's own, and has read the same way for years:
+///
+/// ```text
+/// error: linker `link.exe` not found
+/// ```
+///
+/// Matching is deliberately strict — the whole line, nothing after it — because
+/// a false positive here would replace a real compiler error with advice about
+/// a linker that was never the problem.
+pub fn missing_linker(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let name = line
+            .trim()
+            .strip_prefix("error: linker `")?
+            .strip_suffix("` not found")?;
+        (!name.is_empty()).then(|| name.to_owned())
+    })
+}
+
+/// What has to be installed so this machine can link, named for the platform it
+/// is running on. PowerRustCOBOL builds for the host only (see
+/// [`CompilerError::UnsupportedTarget`]), so the host's own prerequisite is
+/// always the right one to name.
+pub fn linker_prerequisite() -> &'static str {
+    if cfg!(windows) {
+        "Windows needs the Microsoft C++ build tools. Install \"Build Tools for \
+         Visual Studio\" and tick the \"Desktop development with C++\" workload — \
+         Visual Studio itself will do, with the same workload. Visual Studio Code \
+         is a different product and does not provide them."
+    } else if cfg!(target_os = "macos") {
+        "macOS needs Apple's command line developer tools, which carry the linker."
+    } else {
+        "This machine needs a C toolchain — whichever package provides `cc`."
+    }
+}
+
+/// The one command that installs [`linker_prerequisite`], for the developer to
+/// copy. It is never run on their behalf: installing a compiler toolchain is a
+/// large, privileged operation and belongs to whoever owns the machine.
+pub fn linker_install_command() -> &'static str {
+    if cfg!(windows) {
+        "winget install --id Microsoft.VisualStudio.2022.BuildTools \
+         --override \"--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools\""
+    } else if cfg!(target_os = "macos") {
+        "xcode-select --install"
+    } else {
+        "sudo apt install build-essential      # Debian, Ubuntu, Mint\n\
+         sudo dnf group install \"Development Tools\"   # Fedora, RHEL"
+    }
+}
+
+/// What [`CompilerError::LinkerMissing`] says. Written here rather than in the
+/// attribute so the prose stays readable, and so a test can read it too.
+fn linker_message(linker: &str) -> String {
+    format!(
+        "Build cannot finish: the linker `{linker}` was not found.\n\n\
+         Rust is installed and your program compiled. This is the last step — \
+         turning the compiled code into an executable — and it is the one part \
+         of Build that uses the platform's own tools rather than Rust's.\n\n\
+         {}\n\n\
+         {}\n\n\
+         Install them, restart PowerRustCOBOL, and Build again. Nothing else is \
+         held up: designing forms and running programs never needed a linker, and \
+         neither does the application you produce.",
+        linker_prerequisite(),
+        linker_install_command(),
+    )
+}
+
 // ── Errors ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Error)]
@@ -152,6 +237,14 @@ pub enum CompilerError {
 
     #[error("cargo build failed (exit {code}):\n{stderr}")]
     CargoBuild { code: i32, stderr: String },
+
+    /// Rust is installed and the program compiled, but the machine has no
+    /// linker, so the build cannot reach an executable. Separate from
+    /// [`CompilerError::Toolchain`] — that one is "cargo would not run at all",
+    /// and its advice (install Rust) is the wrong advice here. What is missing
+    /// is the platform's C toolchain, which rustup neither ships nor mentions.
+    #[error("{}", linker_message(linker))]
+    LinkerMissing { linker: String },
 
     /// A registered External Crate cannot be used as recorded (spec 044) —
     /// e.g. its vendored source under the project's `crates/` is missing.
@@ -1528,9 +1621,17 @@ fn build_core(
                 message: report.message,
             });
         }
+        let stderr = cargo_failure_output(&json, &captured);
+        // A missing linker is not a fault in anything the developer wrote, and
+        // rustc's own text for it — four notes about Visual Studio, at the foot
+        // of a screenful of build output — is not where they will find it.
+        // Said plainly instead, with the one thing to install.
+        if let Some(linker) = missing_linker(&stderr) {
+            return Err(CompilerError::LinkerMissing { linker });
+        }
         return Err(CompilerError::CargoBuild {
             code: status.code().unwrap_or(-1),
-            stderr: cargo_failure_output(&json, &captured),
+            stderr,
         });
     }
 
@@ -6064,6 +6165,88 @@ fn methods_reference_doc() -> String {
          Do NOT call `::Open()` on an IndexedFile — that method belongs to SqlDatabase.\n",
     );
     d
+}
+
+#[cfg(test)]
+mod linker_tests {
+    use super::*;
+
+    /// rustc's real output on a Windows machine with no C++ build tools —
+    /// the case the operator hit, transcribed from their build log.
+    const MSVC: &str = "\
+   Compiling powerdemo3 v0.1.0 (C:\\Users\\dev\\AppData\\Local\\Temp\\cobolt-build)
+error: linker `link.exe` not found
+  |
+  = note: program not found
+
+note: the msvc targets depend on the msvc linker but `link.exe` was not found
+
+note: please ensure that Visual Studio 2017 or later, or Build Tools for Visual Studio
+      were installed with the Visual C++ option.
+
+note: VS Code is a different product, and is not sufficient.
+
+error: could not compile `powerdemo3` (bin \"powerdemo3\") due to 1 previous error";
+
+    #[test]
+    fn reads_the_linker_name_out_of_rustc_s_own_message() {
+        assert_eq!(missing_linker(MSVC).as_deref(), Some("link.exe"));
+    }
+
+    /// The same failure on a Unix machine with no C toolchain. One matcher has
+    /// to cover both, because the difference is only which name is in the
+    /// backticks.
+    #[test]
+    fn the_unix_spelling_is_the_same_message() {
+        let out =
+            "error: linker `cc` not found\n  |\n  = note: No such file or directory (os error 2)";
+        assert_eq!(missing_linker(out).as_deref(), Some("cc"));
+    }
+
+    /// A build that failed for any other reason must pass through untouched.
+    /// Replacing a real compiler error with advice about a linker would send
+    /// the developer to install something that was never the problem.
+    #[test]
+    fn an_ordinary_compile_error_is_not_a_missing_linker() {
+        let out = "error[E0425]: cannot find value `x` in this scope\n  --> src/main.rs:2:5";
+        assert_eq!(missing_linker(out), None);
+    }
+
+    /// Prose *about* a missing linker is not rustc reporting one. The notes in
+    /// `MSVC` above say "`link.exe` was not found" in exactly that shape, and
+    /// matching them instead would still be right by luck — but a changelog or
+    /// a doc comment quoting the phrase would not be.
+    #[test]
+    fn only_rustc_s_error_line_counts() {
+        let out = "note: the msvc targets depend on the msvc linker but `link.exe` was not found";
+        assert_eq!(missing_linker(out), None);
+    }
+
+    /// The whole point: what the developer reads instead of the build log.
+    /// It has to name the linker, say what to install, and give the command.
+    #[test]
+    fn the_message_names_the_linker_the_fix_and_the_command() {
+        let text = CompilerError::LinkerMissing {
+            linker: "link.exe".into(),
+        }
+        .to_string();
+        assert!(text.contains("link.exe"), "{text}");
+        assert!(text.contains(linker_prerequisite()), "{text}");
+        assert!(text.contains(linker_install_command()), "{text}");
+        // And it must not read as the developer's fault.
+        assert!(
+            text.contains("Rust is installed and your program compiled"),
+            "{text}"
+        );
+    }
+
+    /// Every platform answers, and none of them answers with an empty string —
+    /// a `cfg!` chain that fell through would leave the dialog blank.
+    #[test]
+    fn this_platform_has_advice_and_a_command() {
+        assert!(!linker_prerequisite().trim().is_empty());
+        assert!(!linker_install_command().trim().is_empty());
+    }
 }
 
 #[cfg(test)]

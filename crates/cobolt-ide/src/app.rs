@@ -1723,6 +1723,11 @@ impl CoboltApp {
             crate::toolchain::ensure_on_path(path);
         }
         if !crate::ui_prefs::rust_check_done() {
+            // Only here — never on a later start. Asking whether the machine
+            // can LINK costs a compile, and a Rust that cannot link is still a
+            // Rust the rest of the IDE wants on PATH, which is why the check
+            // above already ran and this one only refines its answer.
+            let toolchain = crate::toolchain::with_link_check(toolchain);
             match crate::toolchain::FirstRunPrompt::for_status(toolchain) {
                 Some(prompt) => app.toolchain_prompt = Some(prompt),
                 None => crate::ui_prefs::mark_rust_check_done(),
@@ -10896,8 +10901,16 @@ impl CoboltApp {
                         ctx.request_repaint_after(std::time::Duration::from_millis(250));
                     }
                     Some(Install::Finished(outcome)) => {
-                        let text = match (outcome.ok, outcome.version) {
-                            (true, Some(v)) => {
+                        // rustup can succeed and still leave a machine that
+                        // cannot build, so "installed" is not the same question
+                        // as "Build is available" and is not answered as if it
+                        // were. `detail` carries the command in that case.
+                        let text = match (&outcome.linker, outcome.ok, outcome.version) {
+                            (Some(linker), _, Some(v)) => tr
+                                .rust_check_no_linker
+                                .replacen("{}", &v.to_string(), 1)
+                                .replacen("{}", linker, 1),
+                            (_, true, Some(v)) => {
                                 tr.rust_check_installed.replacen("{}", &v.to_string(), 1)
                             }
                             _ => tr.rust_check_failed.to_owned(),
@@ -10913,6 +10926,46 @@ impl CoboltApp {
                             );
                         }
                         ui.add_space(12.0);
+                        if ui.button(tr.rust_check_close).clicked() {
+                            settle = true;
+                        }
+                    }
+                    // Rust is fine and the machine still cannot link. There
+                    // is nothing to offer — rustup does not install a platform's
+                    // C toolchain — so this says what is missing and how to get
+                    // it, and the only button is Close. No second ask either:
+                    // the developer is not declining anything.
+                    None if matches!(prompt.status, Status::NoLinker { .. }) => {
+                        let Status::NoLinker {
+                            version, linker, ..
+                        } = &prompt.status
+                        else {
+                            unreachable!("guarded by the match arm")
+                        };
+                        ui.label(
+                            tr.rust_check_no_linker
+                                .replacen("{}", &version.to_string(), 1)
+                                .replacen("{}", linker, 1),
+                        );
+                        ui.add_space(6.0);
+                        ui.label(tr.rust_check_no_linker_why);
+                        ui.add_space(12.0);
+                        ui.label(
+                            egui::RichText::new(tr.rust_check_no_linker_cmd)
+                                .size(11.0)
+                                .color(dim),
+                        );
+                        ui.add_space(2.0);
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(cobolt_compiler::linker_install_command())
+                                    .monospace()
+                                    .size(11.0),
+                            )
+                            .selectable(true)
+                            .wrap(),
+                        );
+                        ui.add_space(14.0);
                         if ui.button(tr.rust_check_close).clicked() {
                             settle = true;
                         }

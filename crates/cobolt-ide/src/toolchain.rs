@@ -148,6 +148,19 @@ pub enum Status {
     /// Present but below [`minimum`] — a different message, and a different
     /// fix (`rustup update stable`), from having nothing at all.
     TooOld { path: PathBuf, version: RustVersion },
+    /// Rust is here and recent enough, and still cannot build: the machine has
+    /// no **linker**, so the last step of a build has nothing to run.
+    ///
+    /// This is the answer rustup cannot give. The linker belongs to the
+    /// platform — the Microsoft C++ build tools, Xcode's command line tools, a
+    /// distribution's C toolchain — and rustup neither ships one nor says a
+    /// word about needing one. So this status is *explained*, never offered:
+    /// there is no button here that would help.
+    NoLinker {
+        path: PathBuf,
+        version: RustVersion,
+        linker: String,
+    },
     /// No `rustc` answered, anywhere we know to look.
     Missing,
 }
@@ -185,7 +198,9 @@ fn ask_version(program: &Path) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Probe this machine.
+/// Probe this machine. One `rustc --version`, which is why it can run on every
+/// start. It does **not** ask whether the machine can link — that costs a
+/// compile, and [`with_link_check`] adds it on the one run that asks questions.
 pub fn detect() -> Status {
     detect_with(&candidates(), ask_version)
 }
@@ -235,6 +250,71 @@ pub fn ensure_on_path(program: &Path) -> bool {
     true
 }
 
+// ── Linking ──────────────────────────────────────────────────────────────────
+
+/// Ask whether a usable Rust can actually produce an executable, turning a
+/// [`Status::Ok`] into a [`Status::NoLinker`] when it cannot. Any other status
+/// is returned untouched — there is no point asking a `rustc` that is missing
+/// or too old to link something.
+///
+/// **Called on the first run only.** The probe compiles a program, which costs
+/// a few hundred milliseconds; [`detect`] stays a single `--version` so that
+/// every later start pays nothing.
+pub fn with_link_check(status: Status) -> Status {
+    with_link_check_by(status, probe_link)
+}
+
+/// The decision, separated from the machine so a test can hand it a world where
+/// linking works, one where it does not, and one where the probe itself failed.
+fn with_link_check_by<F>(status: Status, probe: F) -> Status
+where
+    F: FnOnce(&Path) -> Option<String>,
+{
+    let Status::Ok { path, version } = &status else {
+        return status;
+    };
+    match probe(path) {
+        Some(linker) => Status::NoLinker {
+            path: path.clone(),
+            version: *version,
+            linker,
+        },
+        None => status,
+    }
+}
+
+/// Link a program that does nothing, and report the linker rustc could not find.
+///
+/// Asking rustc to link is the question itself, which is why nothing here looks
+/// for a compiler by name, reads a registry, or consults PATH: on Windows the
+/// linker is found through the Visual Studio installation and none of those
+/// would see it. rustc knows how to look, so rustc is asked.
+///
+/// `None` means "do not raise this" — the program linked, or the probe could
+/// not be carried out at all (no temp directory, rustc would not start). A
+/// probe that fails for its own reasons must never be reported as a missing
+/// linker: the developer would go and install something they already have.
+fn probe_link(rustc: &Path) -> Option<String> {
+    let dir =
+        std::env::temp_dir().join(format!("powerrustcobol-link-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    let src = dir.join("probe.rs");
+    let result = std::fs::write(&src, "fn main() {}\n")
+        .ok()
+        .and_then(|()| {
+            std::process::Command::new(rustc)
+                .arg(&src)
+                .arg("--out-dir")
+                .arg(&dir)
+                .output()
+                .ok()
+        })
+        .filter(|out| !out.status.success())
+        .and_then(|out| cobolt_compiler::missing_linker(&String::from_utf8_lossy(&out.stderr)));
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
 // ── Installing ───────────────────────────────────────────────────────────────
 
 /// The installer command, shown to the developer before they approve it.
@@ -271,6 +351,11 @@ pub struct InstallOutcome {
     pub program: Option<PathBuf>,
     /// The installer's own last words, for when it did not.
     pub detail: String,
+    /// Set when rustup succeeded and the machine still cannot link. Kept apart
+    /// from `ok` because the two say different things to the developer:
+    /// `ok: false` with no linker here means "Rust did not install", and this
+    /// means "Rust installed, and one more thing is missing".
+    pub linker: Option<String>,
 }
 
 /// Run the installer on its own thread; the receiver yields exactly one
@@ -293,6 +378,7 @@ fn run_install() -> InstallOutcome {
                 version: None,
                 program: None,
                 detail: format!("{program}: {e}"),
+                linker: None,
             }
         }
     };
@@ -302,28 +388,52 @@ fn run_install() -> InstallOutcome {
             version: None,
             program: None,
             detail: last_lines(&String::from_utf8_lossy(&output.stderr)),
+            linker: None,
         };
     }
     // rustup writes its shims into `~/.cargo/bin` and edits a shell profile we
     // are not running under, so believe the probe rather than the exit code.
-    match detect() {
+    //
+    // The link check runs here too. Without it this dialog would say "Rust is
+    // installed. Build is available." to a Windows machine with no C++ build
+    // tools — true about Rust, false about Build, and the developer would find
+    // out at the end of their first build instead of at the end of this
+    // sentence.
+    match with_link_check(detect()) {
         Status::Ok { path, version } => InstallOutcome {
             ok: true,
             version: Some(version),
             detail: path.display().to_string(),
             program: Some(path),
+            linker: None,
+        },
+        // Rust arrived; it is the linker that is missing. `program` is still
+        // set — the `cargo` Build spawns has to find this Rust once the build
+        // tools are installed, and PATH is fixed from the outcome either way.
+        Status::NoLinker {
+            path,
+            version,
+            linker,
+        } => InstallOutcome {
+            ok: false,
+            version: Some(version),
+            program: Some(path),
+            detail: cobolt_compiler::linker_install_command().to_owned(),
+            linker: Some(linker),
         },
         Status::TooOld { version, .. } => InstallOutcome {
             ok: false,
             version: Some(version),
             program: None,
             detail: format!("{version}"),
+            linker: None,
         },
         Status::Missing => InstallOutcome {
             ok: false,
             version: None,
             program: None,
             detail: last_lines(&String::from_utf8_lossy(&output.stdout)),
+            linker: None,
         },
     }
 }
@@ -584,6 +694,7 @@ mod tests {
             version: Some(v(1, 92, 0)),
             program: None, // no PATH edit from a test
             detail: String::new(),
+            linker: None,
         })
         .expect("the prompt still holds the receiver");
         prompt.poll_install();
@@ -603,5 +714,83 @@ mod tests {
         let text = (1..=10).map(|i| format!("line {i}\n")).collect::<String>();
         assert_eq!(last_lines(&text), "line 7\nline 8\nline 9\nline 10");
         assert_eq!(last_lines("only one\n\n"), "only one");
+    }
+
+    // ── The linker ───────────────────────────────────────────────────────────
+
+    /// A good Rust on a machine that cannot link is not a good answer, and the
+    /// version survives the change — the dialog says which Rust is installed.
+    #[test]
+    fn a_rust_that_cannot_link_is_not_usable() {
+        let status = Status::Ok {
+            path: PathBuf::from("/usr/bin/rustc"),
+            version: v(1, 92, 0),
+        };
+        let refined = with_link_check_by(status, |_| Some("link.exe".to_owned()));
+        assert_eq!(
+            refined,
+            Status::NoLinker {
+                path: PathBuf::from("/usr/bin/rustc"),
+                version: v(1, 92, 0),
+                linker: "link.exe".to_owned(),
+            }
+        );
+        assert!(!refined.is_usable(), "it cannot build, so it is not usable");
+    }
+
+    /// The ordinary machine: the probe links, and nothing about the answer
+    /// changes.
+    #[test]
+    fn a_rust_that_links_is_left_alone() {
+        let status = Status::Ok {
+            path: PathBuf::from("/usr/bin/rustc"),
+            version: v(1, 92, 0),
+        };
+        let refined = with_link_check_by(status.clone(), |_| None);
+        assert_eq!(refined, status);
+        assert!(refined.is_usable());
+    }
+
+    /// There is nothing to ask a `rustc` that is absent or too old — the probe
+    /// must not even run, or a machine with no Rust would be told its linker is
+    /// the problem.
+    #[test]
+    fn nothing_is_probed_when_rust_itself_is_the_problem() {
+        for status in [
+            Status::Missing,
+            Status::TooOld {
+                path: PathBuf::from("/usr/bin/rustc"),
+                version: v(1, 70, 0),
+            },
+        ] {
+            let refined = with_link_check_by(status.clone(), |_| {
+                panic!("the probe must not run for {status:?}")
+            });
+            assert_eq!(refined, status);
+        }
+    }
+
+    /// The real probe, against the `rustc` running this test. A machine that
+    /// can build the test suite can certainly link, so any answer but `None`
+    /// means the probe itself is broken — and a broken probe would send every
+    /// developer off to install build tools they already have.
+    #[test]
+    fn the_real_probe_finds_no_fault_with_a_working_toolchain() {
+        assert_eq!(probe_link(Path::new(RUSTC)), None);
+    }
+
+    /// A prompt for a missing linker exists — it is the whole point — and it
+    /// opens on the first question, not on the second-ask stage, because there
+    /// is nothing here for the developer to decline.
+    #[test]
+    fn a_missing_linker_raises_a_prompt_with_nothing_to_decline() {
+        let prompt = FirstRunPrompt::for_status(Status::NoLinker {
+            path: PathBuf::from("/usr/bin/rustc"),
+            version: v(1, 92, 0),
+            linker: "cc".to_owned(),
+        })
+        .expect("a machine that cannot build has something to say");
+        assert_eq!(prompt.stage, Stage::Offer);
+        assert!(prompt.install.is_none());
     }
 }
