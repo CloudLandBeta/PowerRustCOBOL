@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.131] — 2026-09-11
+
+### The database runtime in six languages — including the TLS warning
+
+The six SQL `CALL`s, the connection-string routing table, the value-normalisation
+rules and the portable CRUD example now read in all six languages.
+
+The one that mattered most to carry across is §6's warning: **neither SQL driver
+speaks TLS**. A Spanish or Japanese reader deploying against a remote MySQL is
+exactly the person who needs to know that `mysql 28` pulls in no TLS crate and
+the synchronous PostgreSQL driver connects `NoTls` by construction. It is
+translated in full, `stunnel`/`pgbouncer` advice included.
+
+The COBOL example is copied verbatim, `*>` comments and all — the CRITICAL
+constraint: generated and example COBOL is English regardless of UI language, so
+a reader can paste it and have it compile. So are the `PIC` clauses in the
+argument table, the CALL names, the driver crate names and the SQL keywords.
+
 ## [PowerRustCOBOL 1.65.130] — 2026-09-11
 
 ### The indexed file format in six languages, and an anchor checker

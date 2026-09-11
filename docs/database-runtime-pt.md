@@ -6,105 +6,109 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# Runtime de banco de dados do RustCOBOL
+<!-- powerrustcobol: 1.65.124 -->
 
-Programas RustCOBOL conversam com bancos de dados SQL através de um pequeno
-conjunto de `CALL`s embutidos. Os mesmos seis verbos funcionam contra **três
-backends** — o motor é escolhido automaticamente a partir da string de conexão,
-de modo que um programa escrito para SQLite roda sem alteração contra PostgreSQL
-ou MySQL bastando trocar um literal.
+# Ambiente de execução de bases de dados do RustCOBOL
 
-| Backend     | Driver (puro Rust, sem biblioteca do sistema) | String de conexão                                     |
-|-------------|-----------------------------------------------|--------------------------------------------------------|
-| **SQLite**  | `rusqlite` (SQLite embutido)                  | `:memory:`, `sqlite:<path>` ou um caminho de arquivo simples |
-| **PostgreSQL** | `postgres` (rust-postgres, síncrono)       | `postgres://user:pass@host:port/db`                    |
-| **MySQL**   | `mysql` (rustls, síncrono)                    | `mysql://user:pass@host:port/db`                       |
+Os programas RustCOBOL falam com bases de dados SQL através de um pequeno
+conjunto de `CALL` incorporados. Os mesmos seis verbos funcionam contra **três
+backends** — o motor é selecionado automaticamente a partir da cadeia de ligação,
+pelo que um programa escrito para SQLite corre sem alterações contra PostgreSQL
+ou MySQL bastando mudar um literal.
 
-Os três drivers são ligados estaticamente e não exigem **nenhuma biblioteca
-cliente externa** (`libpq`, `libmysqlclient`) **nem OpenSSL** para compilar — em
-linha com o restante do PowerRustCOBOL.
+| Backend     | Controlador (não é preciso biblioteca do sistema)     | Cadeia de ligação                                  |
+|-------------|---------------------------------------|----------------------------------------------------|
+| **SQLite**  | `rusqlite`, `features = ["bundled"]` — compila a amálgama em **C** do SQLite, pelo que este não é Rust puro | `:memory:`, `sqlite:<caminho>`, ou um caminho de ficheiro simples |
+| **PostgreSQL** | `postgres` (rust-postgres, síncrono) | `postgres://user:pass@host:port/db`                |
+| **MySQL**   | `mysql` (`minimal-rust`, síncrono, sem TLS) | `mysql://user:pass@host:port/db`             |
+
+Os três controladores são ligados estaticamente e não exigem **nenhuma biblioteca
+cliente externa** (`libpq`, `libmysqlclient`) nem **OpenSSL** para compilar — em
+consonância com o resto do PowerRustCOBOL.
 
 ---
 
-## 1. Strings de conexão
+## 1. Cadeias de ligação
 
-O backend é escolhido puramente pelo esquema da string de conexão:
+O backend é escolhido puramente a partir do esquema da cadeia de ligação:
 
-| Forma                                      | Backend       | Observações                                |
-|--------------------------------------------|---------------|--------------------------------------------|
-| `:memory:`                                 | SQLite        | Banco em RAM, descartado ao fechar.        |
-| `sqlite:/var/data/app.db`                  | SQLite        | O arquivo é criado se não existir.         |
-| `/var/data/app.db`                         | SQLite        | Um caminho simples é tratado como SQLite.  |
-| `postgres://scott:tiger@localhost:5432/store`    | PostgreSQL | `postgresql://` também é aceito.        |
-| `mysql://scott:tiger@localhost:3306/store` | MySQL         |                                            |
+| Forma                                      | Backend       | Notas                                  |
+|--------------------------------------------|---------------|----------------------------------------|
+| `:memory:`                                 | SQLite        | Base de dados em RAM, descartada ao fechar. |
+| `sqlite:/var/data/app.db`                  | SQLite        | O ficheiro é criado se não existir.    |
+| `/var/data/app.db`                         | SQLite        | Um caminho simples é tratado como SQLite. |
+| `postgres://scott:tiger@localhost:5432/store`    | PostgreSQL | `postgresql://` também é aceite.    |
+| `mysql://scott:tiger@localhost:3306/store` | MySQL         |                                        |
 
-A comparação do esquema ignora maiúsculas e minúsculas e tolera espaços em
-branco ao redor. Tudo o que **não** for uma URL `postgres(ql)://` ou `mysql://` é
-tratado como um destino SQLite.
+A comparação do esquema ignora maiúsculas e tolera espaços em redor. Tudo o que
+**não** for um URL `postgres(ql)://` ou `mysql://` é tratado como um destino
+SQLite.
 
 ---
 
 ## 2. A superfície de CALL
 
-Todo CALL passa seus argumentos `BY REFERENCE`. Os valores de status e de
-descritor ficam em itens de dados COBOL comuns, para que possam ser guardados e
-passados entre parágrafos.
+Todas as CALL passam os seus argumentos `BY REFERENCE`. Os valores de estado e de
+identificador vivem em itens de dados COBOL correntes, para poderem ser guardados
+e passados entre parágrafos.
 
-| Nome do CALL       | Argumentos (`BY REFERENCE`)                              |
-|--------------------|----------------------------------------------------------|
-| `COBOL-OPEN-DB`    | conn-string, handle-var `PIC 9(9)`, status-var           |
-| `COBOL-EXEC-SQL`   | handle, query, row-count-var `PIC 9(9)`, status-var      |
-| `COBOL-FETCH-ROW`  | handle, col-index `PIC 9(n)` (base 1), dest-var, status  |
-| `COBOL-NEXT-ROW`   | handle, more-flag-var `PIC X` (`Y`/`N`)                  |
-| `COBOL-ROW-COUNT`  | handle, count-var `PIC 9(9)`                             |
-| `COBOL-CLOSE-DB`   | handle                                                   |
+| Nome da CALL       | Argumentos (`BY REFERENCE`)                             |
+|--------------------|---------------------------------------------------------|
+| `COBOL-OPEN-DB`    | cadeia de ligação, variável de identificador `PIC 9(9)`, variável de estado |
+| `COBOL-EXEC-SQL`   | identificador, consulta, variável de número de linhas `PIC 9(9)`, variável de estado |
+| `COBOL-FETCH-ROW`  | identificador, índice de coluna `PIC 9(n)` (a partir de 1), variável de destino, estado |
+| `COBOL-NEXT-ROW`   | identificador, variável de indicador de continuação `PIC X` (`Y`/`N`) |
+| `COBOL-ROW-COUNT`  | identificador, variável de contagem `PIC 9(9)`          |
+| `COBOL-CLOSE-DB`   | identificador                                           |
 
 ### Semântica
 
-- **`COBOL-OPEN-DB`** abre uma conexão e escreve um descritor inteiro positivo em
-  *handle-var*. Em caso de sucesso, *status-var* fica com espaços; em caso de
-  falha, *handle-var* é `0` e *status-var* contém a mensagem de erro do driver.
-- **`COBOL-EXEC-SQL`** executa um comando sobre *handle*.
-  - Para comandos que retornam linhas (`SELECT`, CTEs, …) todo o conjunto de
-    resultados é mantido em cache e *row-count-var* recebe o **número de linhas**.
-    O cursor começa na primeira linha.
+- O **`COBOL-OPEN-DB`** abre uma ligação e escreve um identificador inteiro
+  positivo em *handle-var*. Em caso de sucesso, *status-var* fica com espaços; em
+  caso de falha, *handle-var* é `0` e *status-var* contém a mensagem de erro do
+  controlador.
+- O **`COBOL-EXEC-SQL`** executa uma instrução sobre *handle*.
+  - Para instruções que devolvem linhas (`SELECT`, CTE, …) todo o conjunto de
+    resultados é colocado em cache e *row-count-var* recebe o **número de
+    linhas**. O cursor começa na primeira linha.
   - Para `INSERT` / `UPDATE` / `DELETE` / DDL, *row-count-var* recebe o **número
     de linhas afetadas** e o conjunto de resultados fica vazio.
   - Em caso de erro, *status-var* contém a mensagem e *row-count-var* é `0`.
-- **`COBOL-FETCH-ROW`** copia a coluna *col-index* (base 1) da linha **atual**
-  para *dest-var* como texto. Colunas fora do intervalo e um cursor esgotado
-  devolvem espaços.
-- **`COBOL-NEXT-ROW`** avança o cursor e coloca `Y` em *more-flag-var* se já
-  houver uma linha disponível, ou `N` quando o conjunto se esgota.
-- **`COBOL-ROW-COUNT`** devolve a contagem de linhas em cache da última consulta.
-- **`COBOL-CLOSE-DB`** fecha a conexão e libera seu conjunto de resultados.
-  Descritores desconhecidos são ignorados. Todas as conexões abertas são fechadas
-  quando o programa termina.
+- O **`COBOL-FETCH-ROW`** copia a coluna *col-index* (a partir de 1) da linha
+  **atual** para *dest-var* como texto. Colunas fora do intervalo e um cursor
+  esgotado dão espaços.
+- O **`COBOL-NEXT-ROW`** avança o cursor e põe *more-flag-var* a `Y` se já houver
+  uma linha disponível, ou a `N` quando o conjunto se esgota.
+- O **`COBOL-ROW-COUNT`** devolve a contagem de linhas em cache da última
+  consulta.
+- O **`COBOL-CLOSE-DB`** fecha a ligação e liberta o seu conjunto de resultados.
+  Identificadores desconhecidos são ignorados. Todas as ligações abertas são
+  fechadas quando o programa termina.
 
 ### Normalização de valores
 
-Todo valor de coluna — não importa o backend nem o tipo SQL — é entregue ao COBOL
-como **texto**, para que possa ser levado com `MOVE` direto para um campo `PIC X`
-(ou para um campo numérico, que reinterpreta os dígitos). A normalização é
-uniforme:
+Todo o valor de coluna — seja qual for o backend ou o tipo SQL — é entregue ao
+COBOL como **texto**, para poder ser levado com `MOVE` diretamente para um campo
+`PIC X` (ou para um campo numérico, que reinterpreta os dígitos). A normalização
+é uniforme:
 
-| Valor SQL      | Texto entregue ao COBOL                        |
-|----------------|------------------------------------------------|
-| `NULL`         | espaços (string vazia)                         |
-| integer        | dígitos decimais, por exemplo `42`, `-7`       |
-| real / double  | a forma mais curta de ida e volta, por exemplo `3.14` |
-| text / varchar | a string UTF-8                                 |
-| date           | `YYYY-MM-DD`                                   |
-| datetime       | `YYYY-MM-DD HH:MM:SS`                          |
-| time (MySQL)   | `HH:MM:SS`                                     |
-| blob (SQLite)  | marcador `<blob N bytes>`                      |
+| Valor SQL      | Texto entregue ao COBOL                |
+|----------------|----------------------------------------|
+| `NULL`         | espaços (cadeia vazia)                 |
+| inteiro        | dígitos decimais, p. ex. `42`, `-7`    |
+| real / duplo   | a forma de ida e volta mais curta, p. ex. `3.14` |
+| texto / varchar| a cadeia UTF-8                         |
+| data           | `YYYY-MM-DD`                           |
+| data e hora    | `YYYY-MM-DD HH:MM:SS`                  |
+| hora (MySQL)   | `HH:MM:SS`                             |
+| blob (SQLite)  | marcador `<blob N bytes>`              |
 
 ---
 
 ## 3. Exemplo — CRUD portável
 
-Este programa roda contra **qualquer** um dos três backends; só `WS-CONN` muda.
-É exatamente o programa exercitado pela suíte de testes
+Este programa corre contra **qualquer** um dos três backends; só `WS-CONN` muda.
+É exatamente o programa exercitado pelo conjunto de testes
 (`crates/cobolt-runtime/tests/test_sql.rs`).
 
 ```cobol
@@ -168,9 +172,9 @@ NAME BRUNO
 NAME CARLOS
 ```
 
-### Lendo várias colunas
+### Ler várias colunas
 
-`COBOL-FETCH-ROW` lê uma coluna por chamada; mude `WS-COL` para ler outras da
+O `COBOL-FETCH-ROW` lê uma coluna por chamada; mude `WS-COL` para ler outras da
 mesma linha antes de avançar:
 
 ```cobol
@@ -185,8 +189,8 @@ mesma linha antes de avançar:
 
 ## 4. Transações
 
-As transações são conduzidas com SQL comum por meio de `COBOL-EXEC-SQL`, então o
-comportamento é exatamente o do seu servidor:
+As transações são conduzidas com SQL corrente através do `COBOL-EXEC-SQL`, pelo
+que o comportamento é exatamente o do seu servidor:
 
 ```cobol
            MOVE "BEGIN"  TO WS-QUERY
@@ -196,55 +200,59 @@ comportamento é exatamente o do seu servidor:
            CALL "COBOL-EXEC-SQL" USING WS-HANDLE WS-QUERY WS-ROWCNT WS-STATUS
 ```
 
-> Os **verbos** COBOL `COMMIT` / `ROLLBACK` são um recurso separado, que controla
-> as transações de **arquivos INDEXED** do RustCOBOL (veja
-> [`docs/indexed-file-format-pt.md`](indexed-file-format-pt.md)). Eles **não**
-> atuam sobre conexões SQL — para o banco de dados use `COBOL-EXEC-SQL` com
-> `BEGIN`/`COMMIT`/`ROLLBACK`, como mostrado acima.
+> Os **verbos** COBOL `COMMIT` / `ROLLBACK` são uma funcionalidade separada que
+> controla as transações de **ficheiros INDEXED** do RustCOBOL (ver
+> [`docs/indexed-file-format-pt.md`](indexed-file-format-pt.md)). **Não** atuam
+> sobre ligações SQL — para a base de dados use `COBOL-EXEC-SQL` com
+> `BEGIN`/`COMMIT`/`ROLLBACK`, como se mostra acima.
 
-PostgreSQL e MySQL usam autocommit por padrão, então um comando isolado é
-confirmado imediatamente. Envolva uma unidade de trabalho em `BEGIN … COMMIT`
-para torná-la atômica.
+O PostgreSQL e o MySQL usam autocommit por omissão, pelo que uma instrução
+isolada é confirmada imediatamente. Envolva uma unidade de trabalho em
+`BEGIN … COMMIT` para a tornar atómica.
 
 ---
 
-## 5. O controle de dados do IDE
+## 5. O controlo de dados do IDE
 
-No designer de formulários do PowerRustCOBOL, um controle **SqlDatabase** gera
+No desenhador de formulários do PowerRustCOBOL, um controlo **SqlDatabase** gera
 automaticamente os parágrafos repetitivos (`<id>-CONNECT`, `<id>-EXEC`,
 `<id>-FETCH-ALL`, `<id>-CLOSE`). Duas propriedades importam:
 
-- **`ConnectionString`** — qualquer uma das strings de conexão acima. É ela que
-  de fato seleciona o backend em tempo de execução.
-- **`Driver`** — `sqlite` (padrão), `postgres` ou `mysql`. Apenas cosmético: ele
-  rotula os comentários gerados; o roteamento é feito pela string de conexão.
+- **`ConnectionString`** — qualquer uma das cadeias de ligação acima. É isto que
+  realmente seleciona o backend em tempo de execução.
+- **`Driver`** — `sqlite` (por omissão), `postgres` ou `mysql`. Apenas
+  cosmético: rotula os comentários gerados; o encaminhamento é feito pela cadeia
+  de ligação.
 
 ---
 
 ## 6. Notas de segurança e operação
 
-- **TLS.** O driver MySQL é compilado com rustls e negocia TLS quando o servidor
-  pede. O driver síncrono do PostgreSQL conecta **sem TLS** (`NoTls`) — adequado
-  para sockets locais e redes confiáveis. Para um servidor PostgreSQL que exija
-  TLS, termine o TLS em um proxy local (por exemplo `stunnel`/`pgbouncer`) ou
-  trafegue por um túnel SSH.
-- **Injeção de SQL.** Os comandos são enviados como texto. Monte as consultas a
-  partir de entradas confiáveis, ou valide/escape previamente qualquer valor
-  fornecido pelo usuário antes de compor a string SQL.
-- **Tempo de vida da conexão.** Cada descritor é dono de uma conexão viva. Feche
-  com `COBOL-CLOSE-DB` os descritores de que não precisa mais; tudo o que ficar
+- **TLS.** ⚠️ **Hoje nenhum dos controladores SQL fala TLS.** O controlador de
+  MySQL é compilado com
+  `default-features = false, features = ["minimal-rust"]`, e o `mysql 28`
+  resolvido não puxa qualquer crate de TLS — não consegue negociar uma ligação
+  segura, peça o servidor o que pedir. O controlador síncrono de PostgreSQL liga
+  com `NoTls` por construção. Ambos servem para sockets locais e redes de
+  confiança. Para um servidor que exija TLS, termine-o num proxy local (por
+  exemplo `stunnel`/`pgbouncer`) ou passe por um túnel SSH.
+- **Injeção de SQL.** As instruções são enviadas como texto. Construa as
+  consultas a partir de entrada de confiança, ou valide/escape previamente
+  quaisquer valores fornecidos pelo utilizador antes de compor a cadeia SQL.
+- **Tempo de vida da ligação.** Cada identificador possui uma ligação viva. Feche
+  com `COBOL-CLOSE-DB` os identificadores de que já não precisa; tudo o que ficar
   aberto é fechado quando o programa termina.
 
 ---
 
 ## 7. Testes
 
-- **Offline (sempre executados):** roteamento da string de conexão, normalização
-  de valores e um CRUD completo de ida e volta em SQLite na memória —
-  `cargo test -p cobolt-runtime --lib db_runtime` e
+- **Offline (correm sempre):** o encaminhamento por cadeia de ligação, a
+  normalização de valores e um CRUD completo de ida e volta com SQLite em memória
+  — `cargo test -p cobolt-runtime --lib db_runtime` e
   `cargo test -p cobolt-runtime --test test_sql`.
-- **Servidores reais (opcional):** dois testes de ida e volta marcados com
-  `#[ignore]` conectam a servidores de verdade. Forneça uma URL e execute-os
+- **Servidores reais (opcionais):** dois testes de ida e volta marcados
+  `#[ignore]` ligam-se a servidores a sério. Forneça um URL e execute-os
   explicitamente:
 
   ```bash
@@ -259,11 +267,13 @@ automaticamente os parágrafos repetitivos (`<id>-CONNECT`, `<id>-EXEC`,
 
 ## 8. Implementação
 
-`crates/cobolt-runtime/src/db_runtime.rs` contém o motor. Um `DbConn` envolve um
-enum `Backend` (`Sqlite` / `Postgres` / `MySql`); `BackendKind::classify` escolhe
-o backend a partir da string de conexão. Cada backend tem seu próprio caminho
-`exec_*`, que normaliza as linhas para `Vec<Vec<String>>`, depois do que a lógica
-de cursor compartilhada (`fetch_col` / `next_row` / `row_count`) independe do
-backend. O `exec_call` do interpretador
-(`crates/cobolt-runtime/src/interpreter.rs`) mapeia os seis CALLs do COBOL sobre
-o `DbRegistry`, que mantém um pool de conexões indexado por descritor inteiro.
+O `crates/cobolt-runtime/src/db_runtime.rs` contém o motor. Um `DbConn` envolve um
+enum `Backend` (`Sqlite` / `Postgres` / `MySql`); o `BackendKind::classify`
+escolhe o backend a partir da cadeia de ligação. Cada backend tem o seu próprio
+caminho `exec_*` que normaliza as linhas para `Vec<Vec<String>>`, após o que a
+lógica partilhada de cursor (`fetch_col` / `next_row` / `row_count`) é
+independente do backend. O `exec_call` do interpretador
+(`crates/cobolt-runtime/src/interpreter.rs`) mapeia as seis CALL de COBOL sobre o
+`DbRegistry`, que agrupa as ligações por identificador inteiro.
+
+.<<
