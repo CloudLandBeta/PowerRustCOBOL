@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.110] — 2026-09-10
+
+### The Linux package was built correctly every time; the check on it failed
+
+Three runs of the platform-installer workflow were spent on why `dpkg-deb`
+could not build the `.deb`. It always could. What failed was the verification
+underneath it.
+
+The step ended with three lines of the shape
+
+    dpkg-deb -c "$deb" | grep -q "…/assets/themes/"
+
+under `set -o pipefail`. `grep -q` leaves the moment it finds its match, which
+closes the pipe while `dpkg-deb -c` — tar, reading the data member — is still
+writing. tar reports `stdout: write error`, `dpkg-deb` turns that into
+`tar subprocess returned error exit status 2`, and `pipefail` hands the step
+that status. The check had *passed*; the step failed over the passing.
+
+Run 16's log is what settled it. The `df -h /` printed between the build and the
+verification only runs if `dpkg-deb --build` and `test -s` both succeeded, and
+it appeared — showing a gigabyte more used than the `df` at the top of the step.
+The package had been written. So had the packages in runs 13, 14 and 15.
+
+Three theories died against a step that was doing its job: the runner was not
+short of disk (83 GB free), not short of memory (15 GB available, 4 cores), and
+the compressor was innocent (xz, gzip and no compression all behaved
+identically). All three are recorded in the workflow so no fourth run is spent
+on them.
+
+The fix takes each listing once into a file and greps the file, so nothing is
+ever piped into a reader that may leave early. The same shape is corrected in
+the `.rpm` step, which had never run and would have failed the same way, and
+its `find … | head -1` becomes `find … -print -quit` for the same reason.
+
+Compression goes back to the `dpkg-deb` default (xz): the `-Znone` that stood
+there briefly was a probe, and a ~700 MB payload should not ship uncompressed.
+
 ## [PowerRustCOBOL 1.65.109] — 2026-09-10
 
 ### The Windows installer installed a 64-bit application into Program Files (x86)
