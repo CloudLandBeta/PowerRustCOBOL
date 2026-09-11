@@ -219,8 +219,11 @@ Stage them beside the executable. From the source tree:
 cargo run -p cobolt-compiler --example stage_sdk -- <install-dir>
 ```
 
-That writes `Cargo.toml` and `crates/` into `<install-dir>` — 6.0 MB, the ten
-crates a built application compiles against. Pass `--sdk` to put them in
+That writes `Cargo.toml`, `Cargo.lock` and `crates/` into `<install-dir>`,
+along with the assets a form application needs — the theme tree and the window
+icon. The ten crates a built application compiles against are **8.6 MiB**; with
+`assets/themes` the staged tree is around **21 MiB**. The icon is not optional:
+omit it and no form application compiles at all. Pass `--sdk` to put them in
 `<install-dir>/sdk/` instead when the install folder holds other things. The IDE
 finds either layout with no configuration, and also looks one level up and, on
 macOS, inside the bundle's `Resources`.

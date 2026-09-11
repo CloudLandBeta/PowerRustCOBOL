@@ -228,7 +228,14 @@ permutations (clauses/phrases) on top of the type mix.
 - `READ … INTO`, `WRITE … FROM`, `REWRITE … FROM`, `START … KEY IS {= > >= < <=}`
   with reference-modified keys; multiple FDs sharing a record area.
 
-### Planned verbs (spec for when implemented)
+### Verbs specified here before they shipped
+
+> **All of these are implemented.** SORT/MERGE/RELEASE/RETURN landed at
+> 1.62.119 and the RELATIVE engine at 1.62.76
+> (`crates/cobolt-runtime/src/relative.rs`); `docs/cobol85-supported-syntax-en.md`
+> marks them ✅. The permutation axes below are kept as the test plan they
+> always were — they describe what still needs *covering*, not what needs
+> building.
 - `SORT f ON {ASCENDING|DESCENDING} KEY k … {USING f…|INPUT PROCEDURE p}
    {GIVING f…|OUTPUT PROCEDURE p}`; `RELEASE`, `RETURN`.
 - `MERGE f ON … KEY … USING f1 f2 … GIVING f`.

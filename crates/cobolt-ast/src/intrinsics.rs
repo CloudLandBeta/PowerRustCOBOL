@@ -21,9 +21,11 @@
 //!
 //! A list that can drift from the implementation is worse than no list: it
 //! would reject a function that works, or admit one that silently returns
-//! zero. `cobolt-runtime`'s `intrinsic_names_match_the_implementation` test
-//! asserts that every name here is handled by `eval_function`, so the two
-//! cannot disagree without a test going red.
+//! zero. `cobolt-runtime/tests/test_intrinsic_coverage.rs` closes both
+//! directions: `every_listed_intrinsic_is_implemented` runs each name here
+//! through `eval_function`, and `every_implemented_intrinsic_is_listed`
+//! scrapes `eval_function` and asserts nothing it handles is missing here.
+//! The two cannot disagree without a test going red.
 
 /// Every intrinsic function `Interpreter::eval_function` implements.
 ///

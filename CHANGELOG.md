@@ -1,5 +1,58 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.121] — 2026-09-11
+
+### The syntax reference said INVOKE does nothing. It has an executor
+
+`docs/cobol85-supported-syntax-en.md:393` marked `INVOKE` **⚠️ parsed as no-op**.
+`Stmt::Invoke` has a substantial executor at
+`crates/cobolt-runtime/src/interpreter.rs:4890` — it evaluates arguments and
+dispatches window-supervisor calls, form binding and control methods.
+
+The document already knew: line 1080 carries the accurate, qualified version —
+a no-op *for COBOL objects*, because class/method definitions are out of scope.
+Line 393 had dropped the qualifier and inverted the meaning. It now says what
+`INVOKE` does and why the exception exists.
+
+### Two more where the document was behind the code
+
+- **`cobol85-verb-test-matrix-en.md`** listed SORT / MERGE / RELEASE / RETURN and
+  RELATIVE-organization I/O under **"Planned verbs (spec for when implemented)"**.
+  All of them shipped — SORT/MERGE at 1.62.119, the RELATIVE engine at 1.62.76
+  (`crates/cobolt-runtime/src/relative.rs`) — and the syntax reference marks them
+  ✅. The section is retitled and says so; the permutation axes stay, because they
+  were always a *test* plan, describing what still needs covering rather than
+  what needs building.
+- **`crates/cobolt-ast/src/intrinsics.rs:24`** pointed at a guard test called
+  `intrinsic_names_match_the_implementation`. No test by that name exists
+  anywhere. The guarantee is real and stronger than advertised: it is two tests
+  in `test_intrinsic_coverage.rs` closing both directions —
+  `every_listed_intrinsic_is_implemented` and
+  `every_implemented_intrinsic_is_listed`, the second of which scrapes
+  `eval_function` itself.
+
+### Two numbers
+
+- **`BUILDING-en.md`** said the staged SDK is "6.0 MB, the ten crates". Measured:
+  the ten crates are **8.6 MiB**, and `stage_sdk` also writes `Cargo.lock` and
+  the assets — with `assets/themes` the staged tree is around **21 MiB**. The
+  window icon is not optional either: `lib.rs:2109` says omitting it means no
+  form application compiles at all, which the document never mentioned.
+- **`CLAUDE.md`'s testing map** still measured 34 control tests against a
+  "42-type catalogue". It is 43 (plus `Custom`), as the catalogue section two
+  hundred lines above it already said after 1.65.119.
+
+### `BENCHMARKS-en.md`, in the past tense about something present
+
+It described the `open_table_cost` micro-benchmark as having **lived**
+`#[ignore]`d inside `indexed_redb` — reading as though it had been removed. It is
+still there (`indexed_redb.rs:1264`). Corrected to the present, with the line
+number, and with the point that actually matters kept: it runs only on an exact
+`--ignored` invocation, which is why the standing baseline lives in the harness.
+
+**A1 is complete.** Every English document, both root briefs, all five steering
+files and four code comments have been checked against the source.
+
 ## [PowerRustCOBOL 1.65.120] — 2026-09-11
 
 ### A security note that promised TLS the driver cannot speak

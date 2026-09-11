@@ -390,7 +390,7 @@ file. The damage now stops at the newline.
 `READ … WITH [NO] LOCK` (file sharing/locking — advisory in the single run unit)
 ✅ `COMMIT` / `ROLLBACK` (program-controlled INDEXED-file transactions — see
 File verbs) · `CANCEL` (re‑initialises the program's storage) ·
-⚠️ `INVOKE` (parsed as no‑op)
+✅ `INVOKE` — drives GUI/runtime objects (windows, forms, control methods); a no‑op only for **COBOL** objects, since class/method definitions are out of scope
 Project extensions: `EXEC RUST … END-EXEC`, `TRY/CATCH/FINALLY/END-TRY`, `THROW`.
 A block may `use` the always-linked crates (std, egui, eframe and the linked
 runtime set) **plus any crate the project registers under Project's Crates**

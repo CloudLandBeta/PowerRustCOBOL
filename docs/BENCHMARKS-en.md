@@ -103,9 +103,10 @@ appear until well below those.
 | `indexed redb` | The INDEXED file engine: bulk insert, then random-key reads |
 
 The two `indexed redb` rows are a recovered and generalised version of the
-`open_table_cost` micro-benchmark that lived `#[ignore]`d inside
-`cobolt-runtime::indexed_redb`. It only ran when someone remembered an exact
-`--ignored` invocation, so the engine had no standing baseline; it now has one.
+`open_table_cost` micro-benchmark that still sits `#[ignore]`d inside
+`cobolt-runtime::indexed_redb` (`indexed_redb.rs:1264`). It runs only when
+someone remembers an exact `--ignored` invocation, so the engine had no standing
+baseline; it now has one here, and the original is left where it is.
 Its original conclusion is kept — the table handle is opened once for the whole
 write transaction, which measured ~16 % faster than opening it twice per insert.
 
