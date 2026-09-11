@@ -13,6 +13,13 @@ that backs `ORGANIZATION IS INDEXED` files declared with `STORAGE IS DISK`
 (the default). It is a B+tree / slotted-page design that reads records on demand
 so RAM stays bounded regardless of file size.
 
+> ⚠️ **This is no longer the default engine.** `STORAGE IS DISK` is still the
+> default *storage mode*, but since **1.62.73** the engine serving it is **redb**
+> (`crates/cobolt-runtime/src/indexed.rs:126`) — see
+> [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md). Everything below
+> remains accurate for the paged engine, which is still reachable with
+> `--indexed-engine rust`; it is simply not what a program gets by default.
+>
 > **Scope.** This describes the *physical engine* (`DiskIndexedFile`, container
 > magic `PRCIDXD1`). It is a different artifact from the single-blob,
 > self-describing `PRCIDX1` container documented in

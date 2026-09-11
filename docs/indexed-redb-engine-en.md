@@ -11,16 +11,22 @@ See the LICENSE file in the project root for full license information.
 PowerRustCOBOL ships a second `STORAGE IS DISK` engine for `ORGANIZATION IS
 INDEXED` files, built on **redb** — a pure-Rust embedded ACID key-value store
 (copy-on-write B+tree, dual meta pages, per-page checksums). It presents the
-*identical* observable COBOL behavior as the default `PRCIDXD1` engine, but is
+*identical* observable COBOL behavior as the older `PRCIDXD1` engine, but is
 designed around four operational goals the bespoke engine could not meet at
 scale.
 
-It is **opt-in** today (the default disk engine is still `PRCIDXD1`):
+**It is the default engine, and has been since 1.62.73** (operator ruling,
+2026-08-29). `IndexedEngine` derives `Default` with `#[default]` on `Redb`
+(`crates/cobolt-runtime/src/indexed.rs:126`), and a test holds it there
+(`indexed.rs:1643`). Nothing has to be selected to get it.
+
+The older paged engine is still available by name, and so are the two aliases
+that delegate to the built-in Rust container:
 
 ```bash
-rcrun run program.cbl --indexed-engine redb
+rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
 # or
-COBOL_INDEXED_ENGINE=redb rcrun run program.cbl
+COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
 ```
 
 Implementation:
@@ -145,7 +151,7 @@ counts, throughput, write key-ordering quality, and — at `full` level — redb
 index page statistics.
 
 ```bash
-rcrun run app.cbl --indexed-engine redb --indexed-log full --indexed-log-format json
+rcrun run app.cbl --indexed-log full --indexed-log-format json
 ```
 
 The line format is `text` (logfmt) or `json` (NDJSON, Grafana/Loki-ready).

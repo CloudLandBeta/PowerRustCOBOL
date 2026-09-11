@@ -1,5 +1,49 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.115] — 2026-09-11
+
+### The indexed-file docs still called redb optional. It has been the default for a fortnight
+
+`redb` was promoted to the default indexed engine at **1.62.73** (operator
+ruling, 2026-08-29). `IndexedEngine` derives `Default` with `#[default]` on
+`Redb` (`crates/cobolt-runtime/src/indexed.rs:126`) and a test holds it there
+(`indexed.rs:1643`). Three documents never heard:
+
+| Said | Where |
+|---|---|
+| "It is **opt-in** today (the default disk engine is still `PRCIDXD1`)" | `docs/indexed-redb-engine-en.md` |
+| PRCIDXD1 described as the engine behind `STORAGE IS DISK` | `docs/indexed-file-internals-en.md` |
+| every logging example passing `--indexed-engine redb` | `docs/observability-en.md` |
+
+All three corrected against the source, with the line that proves it. The
+internals document keeps its content — the paged engine is still reachable with
+`--indexed-engine rust` — but now opens by saying it is not what a program gets
+by default.
+
+One claim *survived* the audit and is worth recording so nobody "fixes" it
+again: `docs/indexed-file-internals-en.md` calls `STORAGE IS DISK` "the
+default", and that is **correct** — `StorageMode` derives `#[default]` on `Disk`
+(`crates/cobolt-ast/src/program.rs:156`). The engine changed; the storage mode
+did not.
+
+### The agent brief had drifted further than the documents it governs
+
+`CLAUDE.md` is a symlink to the operator's local settings and is not tracked
+here, so these corrections ship outside this commit — but they are the reason
+the documents rotted, and they are now right:
+
+- it claimed the indexed engine default was `rust`, and that "the default disk
+  engine stays PRCIDXD1 until redb has mileage" — both wrong since 1.62.73;
+- it dated itself to 2026-08-24 at version 1.61.185, 39 fix releases behind;
+- it counted **42** control types. There are 43 plus `Custom` — 44 variants.
+  `Snackbar` had never been recorded there at all;
+- its pinned "Current version" line is gone. A number that every change
+  invalidates is the most reliably wrong line in the file, so it now points at
+  `version.rs` and says why.
+
+Two counts it got **right** and which are now backed by the command that proves
+them: 32 IDE themes, 16 workspace members, 6 languages, 34 control test files.
+
 ## [PowerRustCOBOL 1.65.114] — 2026-09-11
 
 ### The .dmg now looks like the .msi, and the look is written down

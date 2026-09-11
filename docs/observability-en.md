@@ -30,8 +30,10 @@ what it did, how fast, and how healthy the underlying stores are. It starts with
 
 The crash-safe **redb** indexed engine can write a per-file log of every
 transaction — useful for diagnostics, capacity planning, and dashboards. It is
-**off by default** and specific to the redb engine
-(`--indexed-engine redb`; see [`indexed-redb-engine-en.md`](indexed-redb-engine-en.md)).
+**off by default** and specific to the redb engine — which since 1.62.73 is the
+engine you get without asking (see
+[`indexed-redb-engine-en.md`](indexed-redb-engine-en.md)), so only the log itself
+has to be switched on.
 
 ### 1.1 Enabling it
 
@@ -42,10 +44,10 @@ transaction — useful for diagnostics, capacity planning, and dashboards. It is
 
 ```bash
 # logfmt, per-transaction metrics
-rcrun run app.cbl --indexed-engine redb --indexed-log basic
+rcrun run app.cbl --indexed-log basic
 
 # NDJSON + index page stats on close (for Grafana/Loki)
-rcrun run app.cbl --indexed-engine redb --indexed-log full --indexed-log-format json
+rcrun run app.cbl --indexed-log full --indexed-log-format json
 ```
 
 - **`basic`** — per-transaction metrics only (cheap, self-tracked).
