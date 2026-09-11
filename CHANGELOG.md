@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.132] — 2026-09-11
+
+### The verb test matrix in six languages
+
+The COBOL‑85 completion test plan — Part A's DATA DIVISION sections, Part B's
+verb-by-verb permutation axes, Part C's cross-form equivalence harness — now
+reads in all six.
+
+This is the densest document in the set for the what-stays-English rule: almost
+every line carries a COBOL syntax skeleton. The rule held without exception —
+every `MOVE CORRESPONDING`, every `DELIMITED BY`, every `PIC` clause, the whole
+type-mix axis `T`, and the notation `[ x ]` / `{ a | b }` / `dn` are untouched;
+what moved is the prose around them and the section headings. A document whose
+job is to tell someone what to type cannot translate what they must type.
+
+The cross-references to `cobol85-supported-syntax` are repointed at the
+same-language file in each translation.
+
 ## [PowerRustCOBOL 1.65.131] — 2026-09-11
 
 ### The database runtime in six languages — including the TLS warning
