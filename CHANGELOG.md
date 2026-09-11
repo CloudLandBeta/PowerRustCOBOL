@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.134] — 2026-09-11
+
+### An unclosed code fence at the end of the internals doc
+
+`indexed-file-internals-en.md` ended with a stray ```` ``` ```` after its final
+table — 19 fence markers in a file with 9 code blocks. It opens a block nothing
+closes, so every Markdown renderer treats the remainder of the file as code.
+There was nothing after it today, which is why nobody noticed; the next line
+anyone appends would have rendered as source. Removed.
+
+Found by the translation tooling, not by reading: the composer copies the
+canonical's fenced blocks into the translated prose and counts them, and the
+count disagreed with the file.
+
+### The paged-engine internals in six languages
+
+The `PRCIDXD1` page taxonomy, the header schema, the access path from key bytes
+to record bytes, the slotted-page and B+tree node diagrams, the positional record
+image, transactions and the OPEN validation table now read in all six languages.
+
+All nine fenced blocks are copied from the canonical — including the four
+box-drawing diagrams, whose alignment is measured against the English labels —
+and the COBOL `01 CUST.` declaration, which stays English under the CRITICAL
+constraint. Page-type tags (`PT_DATA`, `PT_OVERFLOW`), header field names,
+`RecLoc`, `DiskUndo` and the file-status codes are untouched.
+
 ## [PowerRustCOBOL 1.65.133] — 2026-09-11
 
 ### Observability in six languages

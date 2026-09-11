@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<!-- powerrustcobol: 1.65.124 -->
+<!-- powerrustcobol: 1.65.134 -->
 
 # PowerRustCOBOL Indexed File Internals (`PRCIDXD1` paged engine)
 
@@ -304,4 +304,3 @@ the engine's `strict_metadata` flag.)
 | RecordId → physical location  | RecordId directory (`PT_DIR` chain)    | one/record  |
 | Free pages                    | Free list (`free_list_head`)           | —           |
 | Uncommitted change inverses   | In-RAM undo log                        | per-tx      |
-```
