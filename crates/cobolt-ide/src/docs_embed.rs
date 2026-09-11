@@ -215,7 +215,7 @@ mod tests {
     /// the last language of the last document lands. It is the cycle's
     /// completion criterion, not a judgement call.
     #[test]
-    #[ignore = "1.62 translation cycle in progress — 4/12 document families done"]
+    #[ignore = "translation cycle in progress — run with --ignored to see what is left"]
     fn every_document_ships_in_every_language() {
         for lang in Language::ALL {
             let want = lang_code(*lang);
@@ -229,6 +229,71 @@ mod tests {
                 "{lang:?} fell back to English for: {missing:?}"
             );
         }
+    }
+
+    /// A translation counts only when it **finished** and was made from the
+    /// **current** English.
+    ///
+    /// Two marks, because a half-written translation is the failure nothing else
+    /// catches: a truncated Markdown file is still valid Markdown, and the Help
+    /// viewer would render the half that exists without complaint.
+    ///
+    /// * the last line is `.<<` — it finished;
+    /// * `<!-- powerrustcobol: x.y.z -->` matches its English canonical's — it
+    ///   was made from what the canonical says today.
+    ///
+    /// Anything else is redone from the current English rather than patched.
+    /// Run with `--ignored` to list what is outstanding.
+    #[test]
+    #[ignore = "translation cycle in progress — run with --ignored to see what is left"]
+    fn every_translation_is_complete_and_current() {
+        /// The `<!-- powerrustcobol: … -->` stamp, if the file carries one.
+        fn stamp(src: &str) -> Option<&str> {
+            let at = src.find("<!-- powerrustcobol:")?;
+            let rest = &src[at + "<!-- powerrustcobol:".len()..];
+            let end = rest.find("-->")?;
+            Some(rest[..end].trim())
+        }
+
+        let mut behind = Vec::new();
+        let mut unfinished = Vec::new();
+        let mut unstamped = Vec::new();
+
+        for doc in doc_list(Language::English) {
+            let (stem, _) = split_lang(&doc.id);
+            let Some(want) = stamp(&doc.source) else {
+                unstamped.push(format!("{stem}-en (the canonical itself)"));
+                continue;
+            };
+            for lang in Language::ALL {
+                if *lang == Language::English {
+                    continue;
+                }
+                let code = lang_code(*lang);
+                let name = format!("{stem}-{code}.md");
+                let Some(f) = DOCS.get_file(&name) else { continue };
+                let src = f.contents_utf8().unwrap_or_default();
+
+                if !src.trim_end().ends_with(".<<") {
+                    unfinished.push(name.clone());
+                }
+                match stamp(src) {
+                    None => unstamped.push(name),
+                    Some(got) if got != want => {
+                        behind.push(format!("{name} @ {got}, canonical @ {want}"))
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+
+        assert!(
+            behind.is_empty() && unfinished.is_empty() && unstamped.is_empty(),
+            "translations not complete and current:\n  \
+             behind the canonical: {behind:?}\n  \
+             missing the .<< sentinel (truncated?): {unfinished:?}\n  \
+             carrying no version stamp: {unstamped:?}"
+        );
     }
 
     /// Whatever the language, the guide is the first row in the list.

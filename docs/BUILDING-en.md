@@ -6,6 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # Building PowerRustCOBOL
 
 From a clean machine to a running IDE, on **Windows**, **Linux** and **macOS**.

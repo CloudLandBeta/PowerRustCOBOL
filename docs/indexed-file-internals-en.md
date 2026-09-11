@@ -6,6 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # PowerRustCOBOL Indexed File Internals (`PRCIDXD1` paged engine)
 
 This document is a conceptual schema of the **persistent, paged on-disk** engine

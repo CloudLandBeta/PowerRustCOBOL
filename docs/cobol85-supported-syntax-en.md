@@ -6,6 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # RustCOBOL‑85 Supported Syntax Reference
 
 **What this document is for:** to say how much of the COBOL‑85 standard

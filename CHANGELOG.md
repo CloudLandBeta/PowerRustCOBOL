@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.124] — 2026-09-11
+
+### A translation can now say whether it finished, and what it was made from
+
+Sixty translation files exist and not one of them could be shown to be complete
+or current. `docs/indexed-redb-engine-es.md` still tells a Spanish reader the
+redb engine is optional — a claim the English side corrected days ago and the
+code corrected at 1.62.73. Nothing in the repository could detect that.
+
+Two marks fix it, and both are machine-checkable.
+
+**A version stamp.** Every English canonical now carries
+`<!-- powerrustcobol: 1.65.124 -->` after its licence header. On a translation
+the stamp names the version of the English file it was **made from**, so "is this
+behind?" is a comparison rather than a reading of prose.
+
+**A completion sentinel.** Every translated file ends with `.<<` as its last
+line. This is the failure nothing else catches: a truncated Markdown file is
+still *valid* Markdown, so a translation cut off half way renders happily in the
+IDE's Help and looks finished.
+
+A translation counts only when it ends in `.<<` **and** its stamp matches its
+canonical. Anything else is redone from the current English, not patched.
+
+### The completion criterion, made to print the work list
+
+`every_translation_is_complete_and_current` (`docs_embed.rs`) asserts both and
+names every file that fails. Run with `--ignored` it currently reports **58
+files** carrying neither mark, across twelve document families — which is the
+A2 work list, generated rather than guessed. The thirteenth, the Developer's
+Guide, has no translations at all.
+
+Its sibling `every_document_ships_in_every_language` had an `#[ignore]` reason
+claiming "4/12 document families done", which was itself stale. Both now say to
+run with `--ignored` and read what they print.
+
+### The cycle is a skill now
+
+`.claude/skills/doc-translate/SKILL.md`. The *procedure* is not invented there —
+it is written identically in `CLAUDE.md` GOLDEN RULE #8,
+`specs/steering/docs.md` and the `docsync` skill. What the skill adds is how to
+execute it: the two marks, what stays in English (COBOL keywords, every line
+inside a `cobol` block, CLI flags, paths, identifiers, the product names), the
+verification commands, and one rule the written procedure lacks.
+
+That rule: the steering policy says an interrupted run is recovered by deleting
+every `temp-*` and starting over, never by resuming. That is right about *temp*
+files — a half-written split cannot be trusted — but a finished
+`<doc>-<lang>.md` is not a temp file. So each language is finished, written and
+committed before the next begins. On a 507 KB document that is the difference
+between losing an hour and losing a day.
+
+`/doc-localize` is **not** this: it routes bulk work to an external agent and is
+marked superseded.
+
 ## [PowerRustCOBOL 1.65.123] — 2026-09-11
 
 ### The Walkthrough, part two: wired in

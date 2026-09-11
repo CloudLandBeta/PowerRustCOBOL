@@ -6,6 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # RustCOBOL Database Runtime
 
 RustCOBOL programs talk to SQL databases through a small set of built-in

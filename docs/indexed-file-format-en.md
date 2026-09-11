@@ -6,6 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # PowerRustCOBOL Indexed File Format (`PRCIDX1`)
 
 This document describes the on-disk container that backs

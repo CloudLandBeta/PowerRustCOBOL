@@ -6,6 +6,8 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # Benchmarks
 
 The 1.37.0 baseline: how fast the runtime is under load, and how hard it leans
