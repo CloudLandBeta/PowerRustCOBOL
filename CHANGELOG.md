@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.109] — 2026-09-10
+
+### The Windows installer installed a 64-bit application into Program Files (x86)
+
+Run 15's `.msi` built, installed, and launched — the first end-to-end proof that
+the Windows installer works. It also put the application in
+`C:\Program Files (x86)\PowerRustCOBOL`, which the operator's own build log
+showed when it printed its SDK root.
+
+The package was never declared 64-bit. `<Package>` carried no `Platform`, and
+`candle` was not given `-arch x64`, so every harvested component was a 32-bit
+component and Windows redirected `ProgramFiles64Folder` accordingly. Both are
+set now. The application is unaffected in use — the redirection is a path, not
+a compatibility problem — but a 64-bit application belongs in `Program Files`,
+and an installer that says otherwise is telling Windows something untrue.
+
+### The .deb step stops guessing
+
+Two theories about `tar: stdout: write error` have now died: the disk (run 14
+printed 83 GB free at the moment of failure) and memory or the xz compressor
+(run 15 printed 15 GB available, 4 cores, and failed the same way in 33 s with
+gzip already active). Both facts are recorded in the step so nobody re-tests
+them.
+
+Rather than name a third suspect the step now asks the question in three pieces
+— can tar READ the tree, can tar WRITE a compressed archive of it, can dpkg-deb
+build it — with `-Znone` on the last so the compressor is out of the equation
+entirely. Whichever piece fails is the answer. A `.deb` with an uncompressed
+data member is valid and apt has always read them, and the tarball beside it
+already serves anyone who cares about size.
+
 ## [PowerRustCOBOL 1.65.108] — 2026-09-10
 
 ### The Linux package was not short of disk — it was the compressor

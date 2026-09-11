@@ -428,6 +428,7 @@ jobs:
             <Product Id="*" Name="PowerRustCOBOL" Language="1033" Version="$(var.Ver)"
                      Manufacturer="Emerson Lopes" UpgradeCode="6F3B1E4A-9C2D-4B77-8E51-2A6D0C9F41B3">
               <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"
+                       Platform="x64"
                        Description="PowerRustCOBOL AI - the RAD IDE for COBOL-85" />
               <MajorUpgrade DowngradeErrorMessage="A newer version of PowerRustCOBOL is already installed." />
               <MediaTemplate EmbedCab="yes" />
@@ -460,7 +461,11 @@ jobs:
 
           "$wix/heat.exe" dir "dist/$PKG" -cg AppFiles -gg -scom -sreg -sfrag -srd \
             -dr INSTALLFOLDER -var var.SourceDir -out appfiles.wxs
-          "$wix/candle.exe" -dVer="$VERSION" -dSourceDir="dist/$PKG" product.wxs appfiles.wxs
+          # -arch x64 is not cosmetic: it marks every harvested component 64-bit,
+          # and without it Windows redirects ProgramFiles64Folder and a 64-bit
+          # application installs itself into "Program Files (x86)" — which is
+          # exactly where 1.65.108 put it (operator, 2026-09-10).
+          "$wix/candle.exe" -arch x64 -dVer="$VERSION" -dSourceDir="dist/$PKG" product.wxs appfiles.wxs
           "$wix/light.exe" -sval product.wixobj appfiles.wixobj -o "dist/${PKG}.msi"
           test -s "dist/${PKG}.msi"
 
@@ -538,10 +543,12 @@ jobs:
           # ~400 MB payload that is the one part of this step big enough to be
           # killed.
           #
-          # So the payload is compressed with gzip instead. A release package is
-          # downloaded once and unpacked once — trading a few per cent of size
-          # for a compressor that cannot exhaust the machine is the right way
-          # round, and apt has understood gzip-compressed debs forever.
+          # That theory died too. Run 15 printed `free -m` beside `df -h`:
+          # 15 GB of memory available, 4 cores, 82 GB of disk, gzip already the
+          # compressor (the step ran in 33s instead of 1m46s, so the switch
+          # took) — and the very same `tar: stdout: write error`. Neither disk
+          # nor memory nor xz. Both facts are recorded here so the next person
+          # does not re-test them.
           #
           # `free -m` and `nproc` print alongside `df -h`: if this still fails,
           # the log will say whether the machine was short of memory rather
@@ -583,7 +590,32 @@ jobs:
           cp dist/linux/powerrustcobol.desktop \
             "$root/usr/share/applications/powerrustcobol.desktop"
 
-          dpkg-deb -Zgzip --root-owner-group --build "$root" "dist/${PKG}.deb"
+          # Two theories died here, so this stops guessing and isolates.
+          #
+          # `tar: stdout: write error` with 82 GB free and 15 GB of memory says
+          # tar's reader went away. Rather than name a third suspect, the step
+          # now asks the question in three pieces, and whichever one fails is
+          # the answer:
+          #
+          #   1. can tar READ the whole tree at all?   (output to /dev/null,
+          #      stderr visible, so a file it cannot open names itself)
+          #   2. can tar WRITE a compressed archive of it?
+          #   3. can dpkg-deb do its own build?
+          #
+          # Step 3 asks for NO compression (`-Znone`). A .deb with an
+          # uncompressed data member is perfectly valid — apt has always read
+          # them — and the tarball beside it already serves anyone who cares
+          # about download size. If the compressor was the problem this simply
+          # works; if it fails anyway, 1 and 2 have already told us where the
+          # fault really is.
+          dpkg-deb --version | head -1
+          echo "--- 1. tar reads the tree ---"
+          tar -cf /dev/null -C "$root" . && echo "tar read the tree cleanly"
+          echo "--- 2. tar writes a compressed archive ---"
+          tar -czf dist/_probe.tar.gz -C "$root" . && ls -lh dist/_probe.tar.gz
+          rm -f dist/_probe.tar.gz
+          echo "--- 3. dpkg-deb builds it ---"
+          dpkg-deb -Znone --root-owner-group --build "$root" "dist/${PKG}.deb"
           test -s "dist/${PKG}.deb"
           df -h /
           # Prove the tree the app actually reads survived the packaging, the
