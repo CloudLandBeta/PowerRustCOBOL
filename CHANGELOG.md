@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.129] — 2026-09-11
+
+### The collaboration design reads in six languages
+
+Phase B's design document — the `SyncBackend` trait, the pessimistic file-lock
+model and the four backends — now exists in all six. It is still **design only**,
+and every translation says so in its own first line.
+
+The 48-line Rust trait and the `[collaboration]` TOML snippet are **copied from
+the English, never retyped**: the translation tooling substitutes the canonical's
+fenced blocks into the translated prose, so a signature cannot drift into a
+language file. The `SyncEvent` variants, `Capabilities` fields, `LockKind`,
+`Peer`, the `.cobolt/locks.toml` paths and the tree category names
+(Forms / Common Code / Documentation — they are the IDE's own labels) all stay
+English.
+
+### A consistency correction: a shell comment is prose
+
+BENCHMARKS translated the `# everything` / `# one workload` comments in its
+`cargo run` block; the redb engine doc left `# the PRCIDXD1 paged engine` in
+English, and 1.65.127's commit message argued for the latter. The former is
+right: the **command** must be byte-identical, but a comment the shell never
+reads is there for the reader, in their language. The redb doc's two comments are
+translated to match, and the verification now compares fenced blocks with
+comments stripped — so the rule is enforced rather than remembered.
+
 ## [PowerRustCOBOL 1.65.128] — 2026-09-11
 
 ### Four wrong numbers in the crate inventory, then six languages

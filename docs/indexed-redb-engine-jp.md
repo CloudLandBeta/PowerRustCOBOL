@@ -26,8 +26,8 @@ ACID キーバリューストア（コピーオンライトの B+tree、二重�
 委譲する 2 つの別名も同様です。
 
 ```bash
-rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
-# or
+rcrun run program.cbl --indexed-engine rust    # PRCIDXD1 のページ方式エンジン
+# または
 COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
 ```
 

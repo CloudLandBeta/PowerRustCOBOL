@@ -23,8 +23,8 @@ COBOL 行为，但其设计围绕四个运维目标，而这些目标是自研�
 旧的分页引擎仍可按名称使用，委托给内置 Rust 容器的那两个别名同样可用：
 
 ```bash
-rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
-# or
+rcrun run program.cbl --indexed-engine rust    # PRCIDXD1 分页引擎
+# 或者
 COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
 ```
 

@@ -27,8 +27,8 @@ L'ancien moteur paginé reste disponible par son nom, tout comme les deux alias
 qui délèguent au conteneur Rust intégré :
 
 ```bash
-rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
-# or
+rcrun run program.cbl --indexed-engine rust    # le moteur paginé PRCIDXD1
+# ou
 COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
 ```
 

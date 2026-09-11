@@ -6,45 +6,48 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# PowerRustCOBOL IDE — Colaboração (Fase B) — Projeto
+<!-- powerrustcobol: 1.65.124 -->
 
-> **Status: apenas projeto.** Nada aqui foi implementado ainda. A Fase A (a
-> árvore de projeto controlada, o código gerado em azul e somente leitura, os
-> botões de compilar/executar/depurar da barra de ferramentas e o bloqueio das
-> ações até que o projeto compile) já está construída; este documento projeta a
-> camada de *colaboração entre vários desenvolvedores* atrás de um **backend
-> plugável**, para que possamos começar com um backend local trivial e crescer
-> rumo ao Google Drive / GitHub / git sem reescrever a IDE.
+# IDE PowerRustCOBOL — Colaboração (fase B) — Desenho
 
-## 1. Objetivos e não objetivos
+> **Estado: apenas desenho.** Nada do que está aqui está implementado ainda. A
+> fase A (a árvore de projeto controlada, o código gerado a azul e só de leitura,
+> compilar/executar/depurar na barra de ferramentas e o filtro de
+> compilabilidade) já está construída; este documento desenha a camada de
+> *colaboração multi-programador* por trás de um **backend encaixável**, para que
+> possamos começar com um backend local trivial e crescer para Google Drive /
+> GitHub / git sem reescrever o IDE.
+
+## 1. Objetivos e não-objetivos
 
 **Objetivos**
-- Vários desenvolvedores editam o mesmo projeto, cada um na sua própria máquina.
-- Um arquivo que está sendo editado por um desenvolvedor fica **bloqueado** para
-  os demais: o segundo desenvolvedor é **avisado uma única vez** ao abrir e
-  recebe o arquivo em **somente leitura**.
-- Quando o primeiro desenvolvedor **libera** um arquivo (fecha o editor / perde o
-  bloqueio), a IDE **oferece** aos desenvolvedores em espera reabri-lo em
+- Vários programadores editam o mesmo projeto, cada um na sua máquina.
+- Um ficheiro que está a ser editado por um programador fica **bloqueado** para
+  os outros: o segundo programador é **avisado uma vez** ao abrir e recebe o
+  ficheiro **só de leitura**.
+- Quando o primeiro programador **liberta** um ficheiro (fecha o editor / perde o
+  bloqueio), o IDE **oferece** aos programadores em espera uma reabertura em
   leitura/escrita.
-- As alterações que um desenvolvedor confirma são **propagadas** às demais
-  instâncias da IDE com razoável rapidez.
-- O transporte é **plugável** — somente local, git local, GitHub, Google Drive,
-  … escolhido por projeto, com o mesmo comportamento da IDE por cima.
+- As alterações que um programador confirma são **propagadas** às outras
+  instâncias do IDE com razoável prontidão.
+- O transporte é **encaixável** — apenas local, git local, GitHub, Google Drive,
+  … — selecionado por projeto, com o mesmo comportamento do IDE por cima.
 
-**Não objetivos (explicitamente fora de escopo)**
-- **Coedição concorrente no nível do caractere** (estilo Google Docs / CRDT).
-  Usamos **bloqueio pessimista no nível do arquivo** — um único escritor por
-  arquivo de cada vez. Isso atende ao requisito ("avisar e não permitir … somente
-  leitura") e mantém o fonte COBOL como fonte da verdade e amigável a diffs.
+**Não-objetivos (explicitamente fora de âmbito)**
+- **Co-edição concorrente ao nível do caráter** (estilo Google Docs / CRDT).
+  Usamos **bloqueio pessimista ao nível do ficheiro** — um escritor por ficheiro
+  de cada vez. Isto corresponde ao requisito («avisar e não permitir … só de
+  leitura») e mantém a fonte COBOL autoritativa e amiga dos diffs.
 - Um servidor próprio sempre ligado (a menos que um backend futuro decida
   acrescentar um).
 
 ---
 
-## 2. O backend plugável — `SyncBackend`
+## 2. O backend encaixável — `SyncBackend`
 
-Toda a colaboração passa por um único trait. O núcleo da IDE nunca nomeia um
-serviço específico; o backend é escolhido por projeto (guardado em `cobolt.toml`).
+Toda a colaboração passa por um único trait. O núcleo do IDE nunca nomeia um
+serviço concreto; o backend é escolhido por projeto (e guardado no
+`cobolt.toml`).
 
 ```rust
 /// Identity of a developer in a collaboration session.
@@ -95,81 +98,81 @@ pub struct Capabilities {
 }
 ```
 
-- A IDE conversa apenas com `SyncBackend` e despeja `poll()` a cada frame no
+- O IDE fala apenas com o `SyncBackend` e esvazia o `poll()` em cada frame para o
   estado da interface.
-- Os backends que não sabem fazer push (git, Drive) implementam `poll()`
-  consultando o remoto em intervalos (por exemplo, 2–5 s) e emitindo eventos
+- Os backends que não conseguem empurrar alterações (git, Drive) implementam o
+  `poll()` consultando o remoto num intervalo (p. ex. 2–5 s) e emitindo eventos
   sintéticos.
-- `Capabilities` permite que a interface se adapte (por exemplo, exibir emblemas
-  de "bloqueio consultivo" ou "quase em tempo real") e nos deixa **degradar com
-  elegância** quando falta um recurso a um backend.
+- As `Capabilities` permitem que a interface se adapte (p. ex. mostrar emblemas
+  de «bloqueio consultivo» ou «quase tempo real») e que **degrademos com
+  elegância** quando falta uma funcionalidade a um backend.
 
 ---
 
 ## 3. O modelo de bloqueio e propagação (independente do backend)
 
-Este é o comportamento que a IDE impõe sobre qualquer backend.
+Este é o comportamento que o IDE impõe sobre qualquer backend.
 
-### Abrir um arquivo
-1. A IDE chama `try_lock(rel)`.
-2. `Ok(None)` → abre em **leitura/escrita**; a aba é marcada como "bloqueada por
-   mim".
-3. `Ok(Some(lock))` → **avisa uma única vez** ("`{file}` está sendo editado por
-   `{holder}` — abrindo em somente leitura"), abre a aba em **somente leitura** e
-   lembra que estamos *aguardando* por `rel`.
+### Abrir um ficheiro
+1. O IDE chama `try_lock(rel)`.
+2. `Ok(None)` → abrir em **leitura/escrita**; marcar o separador como «bloqueado
+   por mim».
+3. `Ok(Some(lock))` → **avisar uma vez** («`{file}` está a ser editado por
+   `{holder}` — a abrir só de leitura»), abrir o separador **só de leitura** e
+   lembrar que estamos *à espera* de `rel`.
 
-### Editar e salvar
-- Salvar um arquivo com bloqueio de escrita chama `push_change(rel, bytes)`.
-- O backend propaga; as outras IDEs recebem `FileChanged` e, se tiverem o arquivo
-  aberto em somente leitura, atualizam a visualização (e a árvore o marca como
-  atualizado).
+### Editar e guardar
+- Guardar um ficheiro com bloqueio de escrita chama `push_change(rel, bytes)`.
+- O backend propaga; os outros IDE recebem `FileChanged` e, se tiverem o ficheiro
+  aberto só de leitura, atualizam a vista (e a árvore marca-o como atualizado).
 
-### Liberar
-- Ao fechar o editor, ao sair do aplicativo ou ao desbloquear explicitamente, a
+### Libertar
+- Ao fechar o editor, ao sair da aplicação ou ao desbloquear explicitamente, o
   IDE chama `release(rel)`.
-- As outras IDEs recebem `LockReleased`. Para qualquer desenvolvedor
-  *aguardando* por `rel`, a IDE exibe um aviso: **"`{file}` está livre agora —
-  editar?"** → Sim readquire o bloqueio e muda a aba para leitura/escrita.
+- Os outros IDE recebem `LockReleased`. A qualquer programador que estivesse *à
+  espera* de `rel`, o IDE mostra um aviso: **«`{file}` está agora livre —
+  editar?»** → Sim volta a adquirir o bloqueio e passa o separador para
+  leitura/escrita.
 
-### Segurança contra travamentos e desconexões
-- Os bloqueios carregam **detentor e carimbo de tempo** e um **TTL de concessão**.
-  Um backend (ou a própria IDE) expira um bloqueio obsoleto depois do TTL, para
-  que um editor que travou não bloqueie um arquivo para sempre. (O código gerado
-  nunca é bloqueável — ele é somente leitura para todos.)
+### Segurança perante falhas e desligamentos
+- Os bloqueios trazem um **detentor e uma marca temporal** e um **TTL de
+  arrendamento**. O backend (ou o IDE) expira um bloqueio obsoleto findo o TTL,
+  para que um editor que estoirou não possa bloquear um ficheiro para sempre. (O
+  código gerado nunca é bloqueável — é só de leitura para toda a gente.)
 
-> O COBOL gerado e os Assets são somente leitura ou binários; apenas **Common
-> Code**, **Forms** e **Documentation** participam do bloqueio.
+> O COBOL gerado e os recursos são só de leitura ou binários; só participam no
+> bloqueio **Common Code**, **Forms** e **Documentation**.
 
 ---
 
 ## 4. Os quatro backends
 
-Todos os quatro implementam o mesmo trait; eles diferem apenas em *onde vive o
-projeto de referência* e em *como os bloqueios e as mudanças trafegam*.
+Os quatro implementam o mesmo trait; diferem apenas em *onde vive o projeto de
+referência* e em *como viajam os bloqueios e as alterações*.
 
-| Backend | Projeto de referência | Bloqueio | Propagação | Autenticação | Observações |
-|---------|-----------------------|----------|------------|--------------|-------------|
-| **Somente local** | a pasta local | apenas no processo (uma máquina, várias janelas) | direta | nenhuma | O padrão trivial. Valida toda a experiência sem nenhuma infraestrutura; sem sincronização entre máquinas. |
-| **git local** | um repositório git (possivelmente num caminho compartilhado ou num remoto na LAN) | **refs de bloqueio consultivas** (um `refs/locks/<path>` ou um arquivo `.cobolt/locks/` commitado e enviado) | commit + push ao salvar; fetch a cada sondagem | credenciais ssh/https | Histórico familiar e auditável; a "imediatez" é o intervalo de sondagem. |
-| **GitHub** | um repositório do GitHub | um branch ou arquivo de bloqueio via API (ou um registro de bloqueios baseado em **GraphQL/Issues**); webhooks opcionais de um GitHub App para o push | commits via API; webhook → quase tempo real, senão sondagem | **OAuth / PAT** | Hospedado, sem infraestrutura para manter; com limite de requisições; os webhooks precisam de um pequeno relé para push de verdade. |
-| **Google Drive** | uma pasta do Drive | um arquivo de bloqueio (documento `<path>.lock`) ou a API de **restrição de conteúdo / bloqueio de arquivos** do Drive | enviar uma nova revisão ao salvar; **feed de mudanças** do Drive a cada sondagem (ou notificações push) | **OAuth** | Compartilhamento fácil para quem não é desenvolvedor; as notificações de mudança do Drive dão quase tempo real. |
+| Backend | Projeto de referência | Bloqueio | Propagação | Autenticação | Notas |
+|---------|-------------------|---------|-------------|------|-------|
+| **Apenas local** | a pasta local | apenas dentro do processo (uma máquina, várias janelas) | direta | nenhuma | O valor por omissão trivial. Valida toda a experiência sem infraestrutura; sem sincronização entre máquinas. |
+| **git local** | um repositório git (possivelmente num caminho partilhado ou num remoto da LAN) | **refs de bloqueio consultivas** (uma `refs/locks/<path>` ou um ficheiro `.cobolt/locks/` confirmado e enviado) | commit + push ao guardar; fetch ao sondar | credenciais ssh/https | Histórico familiar e auditável; a «imediatez» é o intervalo de sondagem. |
+| **GitHub** | um repositório do GitHub | um ramo ou ficheiro de bloqueio via a API (ou um registo de bloqueios baseado em **GraphQL/Issues**); webhooks opcionais de GitHub App para o empurrão | commits via a API; webhook → quase tempo real, caso contrário sondagem | **OAuth / PAT** | Alojado, sem infraestrutura para manter; com limites de taxa; os webhooks precisam de um pequeno relé para empurrão verdadeiro. |
+| **Google Drive** | uma pasta do Drive | um ficheiro de bloqueio (documento `<path>.lock`) ou a API de **restrição de conteúdo / bloqueio de ficheiros** do Drive | enviar uma nova revisão ao guardar; o **feed de alterações** do Drive ao sondar (ou notificações push) | **OAuth** | Fácil de partilhar com quem não programa; as notificações de alteração do Drive dão quase tempo real. |
 
-Implicações de projeto já embutidas no trait:
-- **O bloqueio é um `LockKind`** porque git, Drive e GitHub oferecem bloqueios
-  *consultivos* (uma convenção que todos respeitam), não impostos pelo sistema
-  operacional. A IDE trata bloqueios consultivos como autoritativos *enquanto
-  todos os clientes forem a IDE do PowerRustCOBOL*.
-- **A propagação é `realtime` ou por sondagem** — git é sondado; Drive e GitHub
-  podem chegar quase ao tempo real com seus feeds de mudança e webhooks; somente
+Implicações de desenho já cozidas no trait:
+- **O bloqueio é `LockKind`** porque git/Drive/GitHub dão bloqueios *consultivos*
+  (uma convenção que todos respeitam), não impostos pelo sistema operativo. O IDE
+  trata os bloqueios consultivos como autoritativos *enquanto todos os clientes
+  forem um IDE PowerRustCOBOL*.
+- **A propagação é `realtime` ou sondada** — o git é sondado; o Drive e o GitHub
+  podem ir quase em tempo real com os seus feeds de alterações e webhooks; apenas
   local é instantâneo.
-- Cada backend serializa a tabela de bloqueios do mesmo jeito (um pequeno
-  documento `locks` em JSON/TOML), de modo que trocar de backend não muda a IDE.
+- Cada backend serializa a tabela de bloqueios da mesma forma (um pequeno
+  documento `locks` em JSON/TOML), pelo que mudar de backend não muda o IDE.
 
 ---
 
-## 5. Onde o estado vive
+## 5. Onde vive o estado
 
-- **`cobolt.toml`** ganha uma seção `[collaboration]`:
+- O **`cobolt.toml`** ganha uma secção `[collaboration]`:
   ```toml
   [collaboration]
   backend = "local" | "git" | "github" | "gdrive"
@@ -178,77 +181,79 @@ Implicações de projeto já embutidas no trait:
   folder  = "0B...drive-folder-id"           # gdrive
   poll_ms = 3000                              # for polled backends
   ```
-- **Registro de bloqueios**: um único documento pequeno que pertence ao backend
-  (`.cobolt/locks.toml` no repositório ou na pasta, ou um registro do lado da
-  API), com este formato:
+- **Registo de bloqueios**: um único documento pequeno de que o backend é dono
+  (`.cobolt/locks.toml` no repositório ou na pasta, ou um registo do lado da
+  API), com esta forma:
   `[{ path, holder_id, holder_name, since, ttl }]`.
-- **Identidade**: um `Peer { id, display_name }` vindo das configurações da IDE
-  (e, nos backends OAuth, da conta autenticada).
+- **Identidade**: um `Peer { id, display_name }` vindo das definições do IDE (e,
+  para os backends OAuth, da conta autenticada).
 
 ---
 
-## 6. Pontos de integração no lado da IDE (a Fase A já preparou)
+## 6. Pontos de integração no IDE (a fase A já os preparou)
 
-- As categorias da **árvore** que participam do bloqueio já estão isoladas
-  (Forms / Common Code / Documentation), e **o código gerado é somente leitura**
-  para todos — nenhum bloqueio é necessário.
-- O **editor** já suporta um sinalizador `read_only` por aba (usado hoje para o
-  código gerado); a camada de colaboração o reaproveita para "bloqueado por outra
-  pessoa", mais um aviso único e um emblema na aba (`🔒 by {name}`).
-- Um novo **`SyncManager`** (que guarda um `Box<dyn SyncBackend>`) pertence ao
-  aplicativo e é despejado a cada frame em: os estados de somente leitura das
-  abas, o conjunto de avisos já emitidos, o conjunto "aguardando" (para o aviso
+- As categorias da **árvore** que participam no bloqueio já estão isoladas
+  (Forms / Common Code / Documentation), e o **código gerado é só de leitura**
+  para toda a gente — não precisa de bloqueio.
+- O **editor** já suporta uma marca `read_only` por separador (usada hoje para o
+  código gerado); a camada de colaboração reaproveita-a para «bloqueado por
+  outra pessoa», mais um aviso único e um emblema no separador (`🔒 by {name}`).
+- Um novo **`SyncManager`** (que contém um `Box<dyn SyncBackend>`) pertence à
+  aplicação e é esvaziado em cada frame para: os estados de só-leitura dos
+  separadores, o conjunto de avisos já dados, o conjunto «à espera» (para o aviso
   de reoferta) e uma lista de presença.
 
 ---
 
-## 7. Implantação em fases
+## 7. Lançamento por fases
 
-1. **B0 — Backend somente local e toda a experiência de uso.** Implementar
-   `SyncBackend`, `SyncManager`, o fluxo de aviso único / somente leitura /
-   reoferta e os emblemas de aba — tudo contra um backend trivial dentro do
-   processo (várias janelas da IDE numa mesma máquina). Isso prova o modelo sem
-   nenhuma infraestrutura.
-2. **B1 — Backend de git local.** Refs de bloqueio consultivas + commit e push ao
-   salvar + fetch por sondagem. A primeira colaboração real entre máquinas.
-3. **B2 — Backend do GitHub.** Repositório e registro de bloqueios via API; relé
+1. **B0 — Backend apenas local e toda a experiência de utilização.** Implementar
+   `SyncBackend`, `SyncManager`, o fluxo de aviso único / só leitura / reoferta e
+   os emblemas de separador — tudo contra um backend trivial dentro do processo
+   (várias janelas do IDE numa máquina). Isto prova o modelo sem infraestrutura
+   nenhuma.
+2. **B1 — Backend de git local.** Refs de bloqueio consultivas, commit e push ao
+   guardar, e fetch ao sondar. A primeira colaboração real entre máquinas.
+3. **B2 — Backend do GitHub.** Repositório e registo de bloqueios via a API; relé
    de webhooks opcional para quase tempo real.
-4. **B3 — Backend do Google Drive.** OAuth + arquivos de bloqueio + feed de
-   mudanças do Drive.
+4. **B3 — Backend do Google Drive.** OAuth, ficheiros de bloqueio e feed de
+   alterações do Drive.
 
-Cada fase é publicável por conta própria; o comportamento da IDE é idêntico em
-todas elas.
+Cada fase pode ser entregue por si só; o comportamento do IDE é idêntico em todas
+elas.
 
 ---
 
-## 8. Questões em aberto (a resolver antes da B1)
+## 8. Perguntas em aberto (a resolver antes de B1)
 
-- **Experiência de identidade e autenticação**: como os desenvolvedores fazem
-  login em cada backend (colar um PAT versus um fluxo OAuth no navegador), e como
-  `Peer.id` se mantém estável?
-- **Granularidade**: apenas bloqueios no nível do arquivo, ou também bloquear
+- **Experiência de identidade e autenticação**: como é que um programador inicia
+  sessão em cada backend (colar um PAT versus um fluxo OAuth no navegador), e
+  como se mantém estável o `Peer.id`?
+- **Granularidade**: apenas bloqueios ao ficheiro, ou também bloquear
   implicitamente a saída gerada de um formulário quando o seu `.cfrm` está
-  bloqueado? (Recomendação: bloquear o `.cfrm`; o seu `.cbl` gerado já é somente
+  bloqueado? (Recomendação: bloquear o `.cfrm`; o seu `.cbl` gerado já é só de
   leitura.)
-- **Política de conflitos** quando os bloqueios consultivos são contornados
-  (alguém edita fora da IDE): vence quem escreve por último, com um banner
-  visível de "alterado em disco ou no remoto".
-- **Edição offline**: enfileirar `push_change` e reconciliar ao reconectar, ou
-  bloquear os salvamentos enquanto estiver desconectado?
+- **Política de conflitos** quando alguém contorna os bloqueios consultivos
+  (edita fora do IDE): ganha quem escreve por último, com um aviso visível de
+  «alterado em disco/no remoto».
+- **Edição offline**: pôr `push_change` numa fila e reconciliar ao reconectar, ou
+  impedir gravações enquanto se está desligado?
 
 ---
 
-## 9. Por que bloqueio pessimista (e não CRDT)
+## 9. Porquê bloqueio pessimista (e não CRDT)
 
-O requisito é explícito: um segundo desenvolvedor precisa ser **avisado e
-bloqueado** (somente leitura), não mesclado ao vivo. O bloqueio pessimista no
-nível do arquivo:
-- atende exatamente a esse requisito,
-- mantém o fonte COBOL como um artefato limpo e revisável (diffs reais, sem
+O requisito é explícito: um segundo programador tem de ser **avisado e
+bloqueado** (só de leitura), não fundido ao vivo. O bloqueio pessimista ao nível
+do ficheiro:
+- corresponde exatamente a esse requisito,
+- mantém a fonte COBOL um artefacto limpo e revisível (diffs a sério, sem
   metadados de CRDT),
 - funciona sobre *qualquer* um dos quatro backends com a mesma semântica, e
 - é dramaticamente menos complexo e arriscado do que a convergência CRDT em tempo
   real.
 
-Se algum dia se quiser coedição concorrente de verdade, ela seria um modo
-separado e aditivo — não bloqueia este projeto.
+Se alguma vez se quiser co-edição concorrente a sério, seria um modo separado e
+aditivo — não bloqueia este desenho.
+
+.<<

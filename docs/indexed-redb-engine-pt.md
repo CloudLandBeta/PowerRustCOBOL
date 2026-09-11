@@ -27,8 +27,8 @@ O motor paginado mais antigo continua disponível pelo nome, tal como os dois
 aliases que delegam no contentor Rust incorporado:
 
 ```bash
-rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
-# or
+rcrun run program.cbl --indexed-engine rust    # o motor paginado PRCIDXD1
+# ou
 COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
 ```
 
