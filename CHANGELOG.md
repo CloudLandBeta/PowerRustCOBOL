@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.133] — 2026-09-11
+
+### Observability in six languages
+
+The INDEXED transaction log, the field tables, the rotation scheme, the
+Grafana/Loki pipeline, `COBOLT_LOG`, the Run-Form inspector and the crash-log /
+autosave story now read in all six languages.
+
+Section 5 is the one worth translating carefully. It is the document that tells
+someone what happened when the IDE vanished — and, more usefully, that autosave
+already ran, that restoring never overwrites, and that the real guarantee is the
+20-second interval rather than the panic hook (which a stack overflow, the OOM
+killer and a double panic all defeat).
+
+All 11 fenced blocks are copied from the canonical: the log-line samples with
+their field names, the NDJSON object, the LogQL queries, the Promtail YAML, the
+COBOL `OPEN … WITH REGISTERED USER` example, and the mermaid sequence diagram —
+whose participant labels stay English because they are diagram syntax, not
+sentences.
+
 ## [PowerRustCOBOL 1.65.132] — 2026-09-11
 
 ### The verb test matrix in six languages
