@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.126] — 2026-09-11
+
+### The redb engine doc, in all six languages — and the false claim finally gone
+
+`indexed-redb-engine-es.md:19` was the file that proved the whole cycle was
+needed: *"Hoy es **opcional** (el motor de disco por defecto sigue siendo
+`PRCIDXD1`)"* — untouched since 2026-08-24, contradicted by the code since
+1.62.73 and by the English canonical since 1.65.115. All five languages are
+rewritten from the current English and now say redb **is** the default.
+
+Cross-document links are repointed at the same-language file, per GOLDEN RULE
+#8: `indexed-file-internals-en.md` → `-es`/`-pt`/`-fr`/`-jp`/`-cn`, and the same
+for `observability-en.md`. A Spanish reader following §6 no longer lands in
+English.
+
+Left in English throughout: the redb table names (`primary`, `alt`, `seq`,
+`meta`), the key-layout byte notation, every file-status code, `IndexedStore`,
+`WriteTransaction`, `commit()`/`abort()`, the COBOL verbs, and the two `rcrun`
+command blocks including their `# the PRCIDXD1 paged engine` comment — a comment
+inside a shell block is part of the command, not prose.
+
 ## [PowerRustCOBOL 1.65.125] — 2026-09-11
 
 ### BENCHMARKS now reads in all six languages

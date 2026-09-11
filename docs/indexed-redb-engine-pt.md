@@ -6,22 +6,30 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
+<!-- powerrustcobol: 1.65.124 -->
+
 # Motor INDEXED à prova de falhas (redb)
 
-O PowerRustCOBOL traz um segundo motor `STORAGE IS DISK` para arquivos
-`ORGANIZATION IS INDEXED`, construído sobre o **redb** — um armazenamento
-chave-valor ACID embutido e puro Rust (árvore B+ com copy-on-write, páginas de
-metadados duplicadas, checksums por página). Ele apresenta o comportamento COBOL
-observável *idêntico* ao do motor padrão `PRCIDXD1`, mas foi desenhado em torno
-de quatro objetivos operacionais que o motor sob medida não conseguia atender em
-escala.
+O PowerRustCOBOL inclui um segundo motor `STORAGE IS DISK` para ficheiros
+`ORGANIZATION IS INDEXED`, construído sobre o **redb** — um armazém chave-valor
+ACID embutido e escrito inteiramente em Rust (B+tree com cópia na escrita,
+páginas meta duplicadas, somas de verificação por página). Apresenta um
+comportamento COBOL observável *idêntico* ao do motor `PRCIDXD1` mais antigo,
+mas foi desenhado em torno de quatro objetivos operacionais que o motor próprio
+não conseguia cumprir em escala.
 
-Hoje ele é **opcional** (o motor de disco padrão continua sendo o `PRCIDXD1`):
+**É o motor padrão, e é-o desde a 1.62.73** (decisão do operador, 2026-08-29).
+`IndexedEngine` deriva `Default` com `#[default]` em `Redb`
+(`crates/cobolt-runtime/src/indexed.rs:126`), e um teste mantém-no lá
+(`indexed.rs:1643`). Nada precisa de ser selecionado para o obter.
+
+O motor paginado mais antigo continua disponível pelo nome, tal como os dois
+aliases que delegam no contentor Rust incorporado:
 
 ```bash
-rcrun run program.cbl --indexed-engine redb
+rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
 # or
-COBOL_INDEXED_ENGINE=redb rcrun run program.cbl
+COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
 ```
 
 Implementação:
@@ -29,139 +37,141 @@ Implementação:
 
 ---
 
-## Por quê — os quatro objetivos
+## Porquê — os quatro objetivos
 
-| Objetivo | Como o motor redb o atende |
+| Objetivo | Como o motor redb o cumpre |
 |------|------------------------------|
-| **O OPEN é instantâneo, sempre** | O redb lê apenas a sua página de metadados na abertura. **Não há diretório de registros em RAM para carregar nem varredura de recuperação**, mesmo depois de uma queda. Medido: cerca de 5 ms para abrir um arquivo de 200 000 registros (independente da quantidade de registros). |
-| **READ RANDOM / NEXT na velocidade da luz** | O RANDOM é uma descida na árvore B+; o NEXT é um iterador sequencial de intervalo. Ambos correm sobre o cache de páginas do redb. Medido: cerca de 21 µs por leitura aleatória com 200 000 registros. |
-| **Até 250 M de registros (dados sem limite)** | A RAM residente é o conjunto de trabalho (o cache do redb), **não** a quantidade de registros. Não há nenhuma estrutura `O(registros)` mantida em memória. |
-| **A segurança é o que mais importa** | O redb é totalmente ACID. O `COMMIT` é um commit de transação durável (fsync); o `ROLLBACK` é um aborto de transação. Uma queda de energia nunca pode expor um índice partido — o redb volta ao último commit bom por meio das suas páginas de metadados duplicadas. Sem perda de dados, sem corrupção de índice. |
+| **O OPEN é instantâneo, sempre** | O redb lê apenas a sua página meta ao abrir. **Não há diretório de registos em RAM para carregar nem varrimento de recuperação**, nem sequer depois de uma falha. Medido: ~5 ms para fazer OPEN de um ficheiro de 200 000 registos (independentemente da contagem de registos). |
+| **READ RANDOM / NEXT à velocidade da luz** | RANDOM é uma descida pelo B+tree; NEXT é um iterador de intervalo sequencial. Ambos correm sobre a cache de páginas do redb. Medido: ~21 µs por leitura aleatória com 200 000 registos. |
+| **Até 250 M de registos (dados sem limite)** | A RAM residente é o conjunto de trabalho (a cache do redb), **não** a contagem de registos. Não existe qualquer estrutura `O(registos)` mantida em memória. |
+| **A segurança está acima de tudo** | O redb é totalmente ACID. `COMMIT` é um commit de transação durável (fsync); `ROLLBACK` é um aborto de transação. Uma falha de energia nunca pode expor um índice partido — o redb recua para o último commit válido através das suas páginas meta duplicadas. Sem perda de dados, sem corrupção do índice. |
 
-Compare com o motor `PRCIDXD1`, cujo diretório de RecordId é carregado inteiro na
-RAM no OPEN (≈16 bytes × cada RecordId já alocado) e cujas transações eram um log
-de desfazer em RAM, persistido apenas no CLOSE — de modo que ele não conseguia
-nem abrir instantaneamente em escala, nem sobreviver a uma queda de energia no
-meio da execução.
+Compare-se com o motor `PRCIDXD1`, cujo diretório de RecordId é carregado por
+inteiro para a RAM no OPEN (≈16 bytes × cada RecordId alguma vez atribuído) e
+cujas transações eram um registo de desfazer em RAM persistido apenas no CLOSE —
+pelo que não conseguia abrir instantaneamente em escala nem sobreviver a uma
+falha de energia a meio da execução.
 
 ---
 
-## Disposição em disco (tabelas do redb)
+## Disposição em disco (tabelas redb)
 
-| Tabela redb | Tipo     | chave → valor                                   |
+| Tabela redb | Tipo     | chave → valor                                 |
 |------------|----------|-----------------------------------------------|
-| `primary`  | table    | bytes da chave primária → registro (opcionalmente comprimido) |
-| `alt`      | multimap | `[u16 idx][alt-key bytes]` → `[u64 seq][primary key]` |
-| `seq`      | table    | bytes da chave primária → sequência de inserção `u64`  |
+| `primary`  | table    | bytes da chave primária → registo (opcionalmente comprimido) |
+| `alt`      | multimap | `[u16 idx][bytes da chave alternativa]` → `[u64 seq][chave primária]` |
+| `seq`      | table    | bytes da chave primária → sequência `u64` de inserção |
 | `meta`     | table    | descritores `schema`, `compress`, `nextseq`   |
 
-- Um **único multimap `alt`** guarda todas as chaves alternadas, separadas por um
-  índice de chave de 2 bytes em big-endian. A ordem de bytes é portanto
-  `(índice da chave, valor alternado, sequência de inserção)` — o que faz as
-  alternadas duplicadas serem iteradas em **ordem de criação**, coincidindo
-  exatamente com a ordenação de RecordId do motor de disco e com a regra COBOL
-  para chaves alternadas duplicadas.
-- A maquinaria `seq` / `meta:nextseq` existe **apenas** para ordenar duplicatas
-  de chave alternada. Arquivos sem chaves alternadas a ignoram por completo e
-  pagam apenas uma inserção na árvore B+ por `WRITE`.
-- Os registros são armazenados como imagens posicionais de largura fixa (veja
-  [`indexed-file-internals-pt.md`](indexed-file-internals-pt.md) §6); o `WITH
+- Um **único multimapa `alt`** guarda todas as chaves alternativas, com espaço de
+  nomes dado por um índice de chave de 2 bytes em big-endian. A ordem de bytes é,
+  portanto, `(índice da chave, valor alternativo, sequência de inserção)` — o que
+  faz com que as alternativas duplicadas sejam percorridas por **ordem de
+  criação**, exatamente como a ordenação de RecordId do motor de disco e como a
+  regra COBOL para chaves alternativas duplicadas.
+- A maquinaria `seq` / `meta:nextseq` existe **apenas** para ordenar duplicados
+  de chaves alternativas. Ficheiros sem chaves alternativas ignoram-na por
+  completo e pagam uma única inserção no B+tree por `WRITE`.
+- Os registos são guardados como imagens posicionais de largura fixa (ver
+  [`indexed-file-internals-pt.md`](indexed-file-internals-pt.md) §6); `WITH
   COMPRESSION` aplica o mesmo RLE PackBits usado pelos outros motores.
 
 ---
 
-## Modelo de transações
+## Modelo transacional
 
-Uma abertura para escrita (`OUTPUT` / `I-O` / `EXTEND`) mantém uma
-`WriteTransaction` do redb aberta desde o OPEN. As leituras através dessa
-transação enxergam as escritas ainda não confirmadas do próprio programa (o "ler
-as próprias escritas" do COBOL). Os verbos COBOL mapeiam diretamente:
+Uma abertura para escrita (`OUTPUT` / `I-O` / `EXTEND`) mantém aberta uma
+`WriteTransaction` do redb desde o OPEN. As leituras através dessa transação veem
+as escritas ainda não confirmadas do próprio programa (o «ler o que escreveste»
+do COBOL). Os verbos COBOL correspondem diretamente:
 
 | COBOL | redb |
 |-------|------|
-| `OPEN`     | inicia uma transação de escrita (modos com escrita) |
-| `COMMIT`   | faz `commit()` da transação (durável) e inicia uma nova |
-| `ROLLBACK` | faz `abort()` da transação (descarta tudo desde o último `COMMIT`/`OPEN`) e inicia uma nova |
-| `CLOSE`    | `commit()` (commit implícito) |
+| `OPEN`     | inicia uma transação de escrita (modos de escrita) |
+| `COMMIT`   | `commit()` da transação (durável) e depois inicia uma nova |
+| `ROLLBACK` | `abort()` da transação (descarta tudo desde o último `COMMIT`/`OPEN`) e depois inicia uma nova |
+| `CLOSE`    | `commit()` (confirmação implícita) |
 
-As aberturas em `INPUT` usam transações de leitura curtas. Como o `ROLLBACK` é um
-aborto de verdade do redb, **nenhum log de desfazer é necessário** — durabilidade
-e reversão são garantias do próprio armazenamento.
+As aberturas `INPUT` usam transações de leitura curtas. Como `ROLLBACK` é um
+aborto verdadeiro do redb, **não é preciso qualquer registo de desfazer** — a
+durabilidade e a reversão são garantias do próprio armazém.
 
-> Os verbos COBOL `COMMIT` / `ROLLBACK` agem sobre **arquivos INDEXED**, não
-> sobre conexões SQL (essas usam `COBOL-EXEC-SQL` com
+> Os verbos COBOL `COMMIT` / `ROLLBACK` atuam sobre **ficheiros INDEXED**, não
+> sobre ligações SQL (essas usam `COBOL-EXEC-SQL` com
 > `BEGIN`/`COMMIT`/`ROLLBACK`).
 
 ---
 
 ## Paridade de comportamento
 
-O motor é cobrado pelo comportamento exato do motor padrão: os mesmos fixtures
-versionados (`tests/cobol/fileio/idx_crud.cbl`, `idx_persist.cbl`,
-`idx_tx.cbl`) rodam sob `--indexed-engine redb` e precisam produzir saída de
-DISPLAY idêntica — CRUD com chave primária mais alternada `WITH DUPLICATES`,
-persistência através de uma reabertura, e `COMMIT`/`ROLLBACK`. Os códigos de
-status de arquivo (`00/02/10/22/23/35/39/46/47/48/49/90/...`), a resolução da
-chave de referência, a semântica do `START` e a regra de que "REWRITE/DELETE
-precisam de um registro corrente" coincidem todos.
+O motor é mantido no comportamento exato do motor padrão: os mesmos testes
+versionados (`tests/cobol/fileio/idx_crud.cbl`, `idx_persist.cbl`, `idx_tx.cbl`)
+correm com `--indexed-engine redb` e têm de produzir saída DISPLAY idêntica —
+CRUD com chave primária e alternativa `WITH DUPLICATES`, persistência entre
+reaberturas, e `COMMIT`/`ROLLBACK`. Os códigos de estado de ficheiro
+(`00/02/10/22/23/35/39/46/47/48/49/90/...`), a resolução da chave de referência,
+a semântica do `START` e a regra de que «REWRITE/DELETE precisam de um registo
+atual» coincidem todos.
 
-Testes: `crates/cobolt-runtime/tests/test_indexed_redb.rs` (os fixtures sob redb
-+ verificações diretas de `IndexedStore` + um teste de fumaça de escala marcado
-com `#[ignore]`).
+Testes: `crates/cobolt-runtime/tests/test_indexed_redb.rs` (os testes sob redb +
+verificações diretas ao `IndexedStore` + um teste de fumo em escala marcado
+`#[ignore]`).
 
 ---
 
 ## Limites
 
-Como o motor pagina sob demanda, os limites práticos são impostos pelo redb e
-pelo sistema de arquivos, não pela RAM residente:
+Como o motor é paginado a pedido, os limites práticos são fixados pelo redb e
+pelo sistema de ficheiros, não pela RAM residente:
 
 | Dimensão | Limite |
 |-----------|-------|
-| Tamanho do arquivo | limite do redb / sistema de arquivos (terabytes) |
-| Registros | limitado pela RAM do conjunto de trabalho, não pela contagem de registros (≥250 M com um cache pequeno) |
-| Tamanho do registro | imagem de largura fixa; registros grandes ficam armazenados como valores do redb |
-| Tamanho da chave | bytes da chave composta (chaves de várias partes são suportadas pela camada COBOL) |
-| Chaves alternadas | até 65 535 (espaço de índice de 2 bytes) |
+| Tamanho do ficheiro | limite do redb / do sistema de ficheiros (terabytes) |
+| Registos | limitado pela RAM do conjunto de trabalho, não pela contagem de registos (≥250 M com uma cache pequena) |
+| Tamanho do registo | imagem de largura fixa; registos grandes são guardados como valores redb |
+| Tamanho da chave | bytes da chave composta (a camada COBOL suporta chaves de várias partes) |
+| Chaves alternativas | até 65 535 (espaço de índice de 2 bytes) |
 
 ---
 
 ## Notas de desempenho
 
 - O **`READ NEXT` sequencial** pela chave primária de referência devolve o
-  registro direto do cursor de intervalo — uma descida na árvore B+ por registro,
-  não duas (cerca de 17 µs por registro com 200 000). As varreduras por chave
-  alternada ainda fazem uma descida na alternada mais uma busca na primária.
+  registo diretamente do cursor de intervalo — uma descida pelo B+tree por
+  registo, não duas (~17 µs/registo com 200 000). Os varrimentos por chave
+  alternativa continuam a fazer uma descida alternativa mais uma procura
+  primária.
 - O **`WRITE`** abre as tabelas `primary`/`alt` uma vez por operação (a
-  verificação de duplicata e a inserção compartilham o handle). Um
-  micro-benchmark mostrou que manter o handle em cache *entre* chamadas acrescenta
-  apenas cerca de 8 % sobre abrir uma vez por operação, então o motor mantém o
-  caminho simples e livre de `unsafe`. O custo de escrita (cerca de 44 µs por
-  registro) é dominado pela inserção ACID na árvore B+ do redb, que é o piso
-  seguro — nenhuma das otimizações de escrita altera os pontos de commit nem a
-  durabilidade.
-- O **`WRITE` em massa** fica portanto em cerca de 20 mil registros/s numa única
-  transação (um custo de carga que se paga uma vez só). OPEN, leituras e
-  segurança contra falhas não são afetados.
+  verificação de duplicados e a inserção partilham o manipulador). Um
+  micro-benchmark mostrou que manter o manipulador em cache *entre* chamadas
+  acrescenta apenas ~8 % face a abri-lo uma vez por operação, pelo que o motor
+  mantém o caminho simples e sem `unsafe`. O custo de escrita (~44 µs/registo) é
+  dominado pela inserção ACID no B+tree do redb, que é o patamar seguro — nenhuma
+  das otimizações de escrita altera os pontos de confirmação nem a durabilidade.
+- Por isso o **`WRITE` em massa** anda pelos 20 k registos/s numa única transação
+  (um custo de carregamento pago uma vez). O OPEN, as leituras e a resistência a
+  falhas não são afetados.
 
 ---
 
-## Log de observabilidade (`--indexed-log`)
+## Registo de observabilidade (`--indexed-log`)
 
-O motor redb pode escrever um log de transações opcional por arquivo (desligado
-por padrão) em **`<assign-path>.log`** (por exemplo, `customers.idx` →
-`customers.idx.log`), com uma linha por `OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE`
-registrando data e hora, contagens de registros e bytes, vazão, qualidade da
-ordenação das chaves na escrita e — no nível `full` — estatísticas de páginas de
-índice do redb.
+O motor redb pode escrever um registo de transações opcional por ficheiro
+(desligado por omissão) em **`<caminho-assign>.log`** (p. ex. `customers.idx` →
+`customers.idx.log`), com uma linha por `OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE` a
+registar data/hora, contagens de registos e bytes, débito, qualidade da ordenação
+das chaves em escrita e — no nível `full` — estatísticas de páginas do índice
+redb.
 
 ```bash
-rcrun run app.cbl --indexed-engine redb --indexed-log full --indexed-log-format json
+rcrun run app.cbl --indexed-log full --indexed-log-format json
 ```
 
-O formato da linha é `text` (logfmt) ou `json` (NDJSON, pronto para
+O formato de linha é `text` (logfmt) ou `json` (NDJSON, pronto para
 Grafana/Loki).
 
-**A referência completa** — flags, a tabela de campos, os formatos, o pipeline
-Grafana/Loki (Promtail + LogQL) e notas de custo e segurança — está em
+**A referência completa** — opções, a tabela de campos, os formatos, a cadeia
+Grafana/Loki (Promtail + LogQL) e as notas de custo e segurança — está em
 [`observability-pt.md`](observability-pt.md) §1.
+
+.<<
