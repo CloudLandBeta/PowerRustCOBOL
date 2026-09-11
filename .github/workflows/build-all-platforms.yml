@@ -481,10 +481,9 @@ jobs:
                    are a multi-gigabyte privileged install and that is the
                    user's decision to take, on Microsoft's page, not a box this
                    installer ticks for them. -->
-              <!-- Off by default, and it opens Microsoft's page rather than
-                   installing anything: the Build Tools are a multi-gigabyte
-                   privileged install and that is the user's call to make. -->
-              <Property Id="PRCOPENPREREQ" Value="0" />
+              <!-- It opens Microsoft's page and installs nothing: the Build
+                   Tools are a multi-gigabyte privileged install and that is the
+                   user's call to make. -->
               <Property Id="WixShellExecTarget"
                         Value="https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" />
               <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
@@ -578,15 +577,23 @@ jobs:
                   <Control Id="Description" Type="Text" X="18" Y="116" Width="152" Height="90"
                            Transparent="yes" NoPrefix="yes"
                            Text="{\PrcBody}To BUILD applications you also need two things Rust requires: the Visual Studio Build Tools with the &quot;Desktop development with C++&quot; workload, and Rust itself from https://rustup.rs.  Designing forms, editing code and running programs work without either." />
-                  <Control Id="Prereq" Type="CheckBox" X="18" Y="208" Width="152" Height="17"
-                           Property="PRCOPENPREREQ" CheckBoxValue="1" Transparent="yes" NoPrefix="yes"
-                           Text="{\PrcBody}Open the Build Tools download page" />
                   <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
                   <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
                            Disabled="yes" Text="!(loc.WixUIBack)" />
+                  <!-- A button, not a checkbox. A CheckBox control cannot carry
+                       `Transparent`/`NoPrefix` - those are Text-only attributes,
+                       and candle rejects them outright (CNDL0004, run 19) - so on
+                       this dark artwork a checkbox would paint an opaque system
+                       box around its own label. A button belongs on the button
+                       strip, below the bitmap, where an opaque control is what
+                       the eye expects; it also acts when it is pressed rather
+                       than only if the user later presses Finish. -->
+                  <Control Id="Prereq" Type="PushButton" X="18" Y="243" Width="120" Height="17"
+                           Text="Build Tools download page">
+                    <Publish Event="DoAction" Value="OpenPrereqPage">NOT Installed</Publish>
+                  </Control>
                   <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                            Default="yes" Cancel="yes" Text="!(loc.WixUIFinish)">
-                    <Publish Event="DoAction" Value="OpenPrereqPage">PRCOPENPREREQ = 1 and NOT Installed</Publish>
                     <Publish Event="EndDialog" Value="Return">1</Publish>
                   </Control>
                   <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
@@ -741,7 +748,23 @@ jobs:
           rm -f "$scpt"
 
           sync
-          hdiutil detach "$mnt"
+          # Finder does not let go the instant the script does. Run 19 detached
+          # cleanly on arm64 and lost the same race on x86_64 with
+          # `couldn't eject "disk2" - Resource busy`, which is a race, not a
+          # fault: retry, and only then force. Forcing first would risk
+          # detaching before the layout has been flushed to the image.
+          for attempt in 1 2 3 4 5 6; do
+            if hdiutil detach "$mnt" >/dev/null 2>&1; then
+              echo "detached on attempt $attempt"
+              mnt=""
+              break
+            fi
+            sleep 3
+          done
+          if [ -n "$mnt" ]; then
+            echo "::warning::volume still busy after 18s; forcing the detach"
+            hdiutil detach "$mnt" -force
+          fi
           hdiutil convert "dist/_rw.dmg" -format UDZO -ov -o "dist/${PKG}.dmg"
           rm -f "dist/_rw.dmg"
           test -s "dist/${PKG}.dmg"

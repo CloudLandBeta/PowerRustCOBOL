@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.116] — 2026-09-11
+
+### Run 19's two failures: a checkbox that cannot be transparent, and Finder not letting go
+
+The first run with everything in one tree got Linux and macOS arm64 through
+cleanly and failed on the other two. Both causes were exact, and neither was the
+design.
+
+**Windows — `CNDL0004`.** `Transparent` and `NoPrefix` are **Text-only**
+attributes; the exit dialog carried them on a `CheckBox`, and candle rejected
+them outright. Everything else in the custom wizard compiled — both dialogs,
+five text styles, 23 publishes, the `InstallUISequence` override.
+
+Deleting the two attributes would have left a checkbox painting an opaque system
+box around its own label on the dark artwork, so the control is a **button**
+instead, on the button strip below the bitmap where an opaque control is what the
+eye expects. It also acts when pressed, rather than only if the user later
+presses Finish — which removes the property and the conditional publish with it.
+
+**macOS — `couldn't eject "disk2" - Resource busy`.** The log's previous line is
+`window layout applied`, so Finder *did* lay the volume window out; it simply had
+not let go by the time `hdiutil detach` ran. arm64 won the same race and passed.
+The detach now retries six times over eighteen seconds and only then forces.
+Forcing first would risk detaching before the layout was flushed into the image —
+which would have cost the very thing the step exists to produce.
+
 ## [PowerRustCOBOL 1.65.115] — 2026-09-11
 
 ### The indexed-file docs still called redb optional. It has been the default for a fortnight
