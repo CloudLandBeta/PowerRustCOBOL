@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<!-- powerrustcobol: 1.65.124 -->
+<!-- powerrustcobol: 1.65.135 -->
 
 # PowerRustCOBOL Support Matrix
 
@@ -206,7 +206,7 @@ column. All of the below are implemented.
 | Group | Functions | 85 | 20xx | PRC | Status |
 |---|---|:--:|:--:|:--:|:--:|
 | Length and character | `LENGTH`, `ORD`, `CHAR` | ● | ○ | — | ✅ |
-| Length and character (later) | `BYTE-LENGTH`, `STORED-CHAR-LENGTH` | — | ● | — | ✅ |
+| Length and character (later) | `BYTE-LENGTH`, `LENGTH-AN`, `STORED-CHAR-LENGTH` | — | ● | — | ✅ |
 | Case and text | `UPPER-CASE`, `LOWER-CASE`, `REVERSE` | ● | ○ | — | ✅ |
 | Text (later) | `TRIM`, `CONCATENATE` | — | ● | — | ✅ |
 | Numeric conversion | `NUMVAL`, `NUMVAL-C` | ● | ○ | — | ✅ |
@@ -305,12 +305,12 @@ walkthrough in the [developer's guide](developers-guide-en.md).
 |---|:--:|---|
 | Visual form designer | ✅ | Design canvas with multiple themes (**Liquid Glass**, **Cobalt Steel**), grid snapping, drag-resize of controls and canvas, multi-select alignment, z-ordering |
 | Unified rendering engine | ✅ | Pixel-parity between designer, previewer, running application and compiled binary |
-| Control catalogue | ✅ | **42 widgets** across Common, Container, Data, Graphics, Menu, Non-visual and Charts |
+| Control catalogue | ✅ | **43 widgets** across Common, Container, Data, Graphics, Menu, Non-visual and Charts, plus a plugin-provided `Custom` type |
 | Universal corner radius and rounded clipping | ✅ | Nested children clip to a parent's rounded border via corner-notch masking |
 | Per-control `Transparency` | ✅ | 0 = opaque … 100 = see-through; fades face, frame and shadow while text, glyphs and border stay legible. Captions below WCAG AA against what is behind them flip to the pole that reads |
 | Animator widget | ✅ | Natively renders **GIF / WebP / APNG** |
 | Knob, Gauge, Switch, FileDropZone, Maps, Web Search | ✅ | Rotary dial with bipolar fill; radial/linear/donut KPI with automatic warning and critical zones; drag-and-drop or native picker |
-| Advanced menu editor | ✅ | Visual tree editor, 122 built-in vector icons, hierarchical nesting, HMAC configuration integrity signatures |
+| Advanced menu editor | ✅ | Visual tree editor, **1112** built-in vector icons in 37 categories, hierarchical nesting, HMAC configuration integrity signatures |
 | Data binding and control arrays | ✅ | Direct binding to SQL/data sources; **Visual Repeating Groups** expand GroupBox/Panel arrays from runtime `DataSource` row counts |
 | Visual validation and form inspector | ✅ | Real-time error badges for malformed handlers, incomplete bindings, layout anomalies; `rcrun` process manager tracks CPU %, RSS, logs and thread counts live |
 | Form Debugger | ✅ | Standalone always-on-top window: breakpoints, step In/Out/Over, variable inspector, animated playback at 1–10 lines/second |

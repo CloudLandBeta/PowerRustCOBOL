@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.135] — 2026-09-11
+
+### Three more wrong counts, in the one document nobody audited
+
+`cobol-support-matrix-en.md` has **no registry row**, so `/docsync` never saw it
+and neither did A1's file list. Translating it was the first close reading it has
+had in a while, and it cost three corrections:
+
+| Claim | Said | Is | Proved by |
+|---|---|---|---|
+| Control catalogue | 42 widgets | **43**, plus the plugin `Custom` type | `ControlType` in `cobolt-forms/src/model.rs` — 44 variants, one of them `Custom` |
+| Menu editor icons | 122 | **1112**, in 37 categories | `MENU_ICON_CATEGORIES` in `cobolt-forms/src/icons.rs` |
+| Intrinsic functions | 54 listed | **55** — `LENGTH-AN` was missing | `INTRINSIC_FUNCTIONS` in `cobolt-ast/src/intrinsics.rs` |
+
+The intrinsic list now matches the implementation in both directions, checked set
+against set rather than counted.
+
+### The support matrix in six languages — and the `-jp` / `-cn` gap closed
+
+This was the one document family with **no Japanese and no Chinese at all**; the
+three that existed were five days stale. All five are regenerated from the
+corrected canonical.
+
+It is 197 table rows across 13 tables, and the origin (`●` `○` `—`) and status
+(`✅` `🚧` `⛔` `🚫`) marks are what the whole document is *for*. They are never
+retyped: the translator substitutes only the first and last cell of each row and
+copies the rest, and a check asserts all **587 marks** are byte-identical to the
+English in every language. They are.
+
+Rows whose capability is pure COBOL or CLI syntax with no note — `USAGE COMP-3`,
+`IF … ELSE … END-IF`, `OPEN INPUT` — are declared untranslatable once in the
+tooling rather than retyped five times.
+
 ## [PowerRustCOBOL 1.65.134] — 2026-09-11
 
 ### An unclosed code fence at the end of the internals doc
