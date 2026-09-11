@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.114] — 2026-09-11
+
+### The .dmg now looks like the .msi, and the look is written down
+
+The macOS volume window was still half light — a legacy of the constraint the
+Windows screens no longer have. It is now the same picture as the installer on
+Windows: **dark edge to edge, mascot on the right**.
+
+One concession remains, and it is the platform's, not a preference. Finder
+paints icon labels dark and nothing a disk image can carry recolours them, so
+the two icons stand on a single light **shelf**, sized to the positions the
+AppleScript sets and to the label Finder draws beneath each one. Dark
+everywhere else.
+
+**And the whole look is now a skill.** `.claude/skills/installer-look/SKILL.md`
+records what was settled and — more usefully — every constraint that shaped it:
+which surface has its text drawn by the host and in what colour, why the Windows
+wizard had to be authored rather than configured, the three macOS traps (a
+volume Finder cannot address, a Finder script that hangs forever, a pipe that
+would SIGPIPE the step), and the fact that `.deb` and `.rpm` have no installer
+UI to decorate at all. It exists so the next change reproduces this picture
+instead of rediscovering the reasons for it.
+
 ## [PowerRustCOBOL 1.65.113] — 2026-09-11
 
 ### The Windows wizard is ours now, so the artwork can face the right way

@@ -42,6 +42,13 @@
 //! look the operator asked for. Take that dialog authoring away and the black
 //! stock text lands on a black panel.
 //!
+//! The **.dmg** follows the same look, and pays for it differently. Finder's
+//! icon labels cannot be recoloured by anything a disk image can carry, so
+//! rather than a light half this one keeps a single light **shelf** just big
+//! enough to hold the two icons and their labels. Dark everywhere else, mascot
+//! on the right — the Windows picture, with the one concession the platform
+//! actually requires.
+//!
 //! Nothing here rasterises text. There is no font in this repository to do it
 //! with, and every one of these surfaces already has its own text drawn over
 //! the top — a second wordmark underneath would only collide with it.
@@ -202,6 +209,31 @@ fn width_for(src: &RgbaImage, height: u32) -> u32 {
     (height as f32 * src.width() as f32 / src.height() as f32).round() as u32
 }
 
+/// A rounded light panel, for the .dmg icons and the labels Finder insists on
+/// drawing dark. Soft-edged rather than hard: a crisp rectangle on this
+/// background reads as a mistake, a feathered one reads as a lit surface.
+fn shelf(img: &mut RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32, radius: f32) {
+    const FEATHER: f32 = 2.5;
+    for y in y0..y1.min(img.height()) {
+        for x in x0..x1.min(img.width()) {
+            // Distance outside the rounded rectangle, 0 anywhere inside it.
+            let dx = ((x0 as f32 + radius) - x as f32).max(x as f32 - (x1 as f32 - radius)).max(0.0);
+            let dy = ((y0 as f32 + radius) - y as f32).max(y as f32 - (y1 as f32 - radius)).max(0.0);
+            let d = (dx * dx + dy * dy).sqrt() - radius;
+            let a = (1.0 - (d + FEATHER) / (FEATHER * 2.0)).clamp(0.0, 1.0) * 0.96;
+            if a <= 0.0 {
+                continue;
+            }
+            let p = img.get_pixel(x, y).0;
+            // Warmer at the top, so it sits in the same light as the ember.
+            let t = (y - y0) as f32 / (y1 - y0) as f32;
+            let face = mix(LIGHT_A, LIGHT_B, t);
+            let c = over([p[0] as f32, p[1] as f32, p[2] as f32], face, a);
+            img.put_pixel(x, y, Rgba([c[0] as u8, c[1] as u8, c[2] as u8, 255]));
+        }
+    }
+}
+
 /// A flat chevron pointing right, for the gap between the two .dmg icons. Drawn
 /// rather than lettered: it says "drag this onto that" without a word in any
 /// language, which suits a window six locales will open.
@@ -288,26 +320,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // ── .dmg volume window — 1100 × 800 ──────────────────────────────────────
-    // Finder paints its icon labels dark, so the half holding the application
-    // and the Applications alias is the light one. The mascot takes the right,
-    // vertically centred, well clear of both icons.
+    // Dark edge to edge, matching the .msi. The only light left is the shelf
+    // the two icons stand on, sized to their positions in the workflow's
+    // AppleScript (250,400) and (500,400) plus the label Finder draws beneath.
     {
         let (w, h) = (1100u32, 800u32);
         let split = Split {
-            at: 640,
+            at: 0,
             dark_left: false,
         };
-        let fig_h = 348;
+        let fig_h = 372;
         let fig_w = width_for(&mascot, fig_h);
-        let x = (w - fig_w) as i64 - 46;
+        let x = (w - fig_w) as i64 - 40;
         let y = ((h - fig_h) / 2) as i64;
-        let mut img = ground(w, h, split, (870.0, h as f32 / 2.0), 360.0);
-        // Between the icon slots the AppleScript sets — 250 and 500 — so the
-        // chevron lands in the gap rather than under a label.
-        chevron(&mut img, 384, 392, 26, 5.0);
+        let mut img = ground(w, h, split, (830.0, h as f32 / 2.0), 380.0);
+        shelf(&mut img, 128, 296, 624, 512, 26.0);
+        // Between the two icon slots, so the chevron lands in the gap rather
+        // than under a label.
+        chevron(&mut img, 375, 398, 26, 5.0);
         place(&mut img, &mascot, x, y, fig_w, fig_h);
         img.save(out.join("dmg-background.png"))?;
-        println!("dmg-background.png {w}×{h}, mascot {fig_w}×{fig_h} at ({x},{y}) — right panel");
+        println!("dmg-background.png {w}×{h}, mascot {fig_w}×{fig_h} at ({x},{y}) — dark, mascot right");
     }
 
     Ok(())
