@@ -829,40 +829,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # `tar: stdout: write error` / `dpkg-deb: error: tar subprocess
-          # returned error exit status 2` is what this step failed with twice.
+          # Three runs were spent blaming this step's BUILD. It was never the build.
+          # `dpkg-deb --build` has succeeded every time; the `tar: stdout: write
+          # error` came from the VERIFICATION at the bottom of this step, where
+          # `dpkg-deb -c | grep -q` ran under `set -o pipefail`. Run 16 proved it:
+          # the `df -h /` below only runs AFTER a successful build, and it printed
+          # 1 GB more used — the package — before the error appeared.
           #
-          # It is NOT the disk. That was the first theory, and the `df -h` added
-          # to test it disproved it: 83 GB free before the build and 83 GB free
-          # when tar gave up. Recording that here so nobody spends another run
-          # on it.
+          # So disk was not the cause (83 GB free), memory was not the cause (15 GB
+          # available, 4 cores), and the compressor was not the cause (xz, gzip and
+          # none all behaved identically). Three theories, all tested against a step
+          # that was already doing its job. Recorded here so nobody spends a fourth
+          # run on them.
           #
-          # dpkg-deb pipes tar into a COMPRESSOR and the compressor into the
-          # file. `tar: stdout: write error` is tar being told its reader is
-          # gone — so what died is the compressor, and tar reported the only
-          # thing it could see. dpkg-deb's default is xz at level 9, which wants
-          # roughly 700 MB per thread and takes one thread per core; on a
-          # ~400 MB payload that is the one part of this step big enough to be
-          # killed.
-          #
-          # That theory died too. Run 15 printed `free -m` beside `df -h`:
-          # 15 GB of memory available, 4 cores, 82 GB of disk, gzip already the
-          # compressor (the step ran in 33s instead of 1m46s, so the switch
-          # took) — and the very same `tar: stdout: write error`. Neither disk
-          # nor memory nor xz. Both facts are recorded here so the next person
-          # does not re-test them.
-          #
-          # `free -m` and `nproc` print alongside `df -h`: if this still fails,
-          # the log will say whether the machine was short of memory rather
-          # than leaving the next person to guess as this did.
-          #
-          # The payload is also HARDLINKED rather than copied (`cp -al`), which
-          # is worth keeping whatever the cause: dpkg-deb reads through the
-          # links exactly as it would through copies, and the tree costs inodes
-          # instead of a second 400 MB. The package root sits inside the
+          # The payload is HARDLINKED rather than copied (`cp -al`): dpkg-deb reads
+          # through the links exactly as it would through copies, and the tree costs
+          # inodes instead of a second 400 MB. The package root sits inside the
           # workspace so it is certainly on the same filesystem as `dist/` —
           # hardlinks cannot cross one.
-          df -h /; free -m; nproc
+          df -h /
           root=dist/debroot
           rm -rf "$root"
           install -d "$root/DEBIAN" "$root/opt/powerrustcobol" \
@@ -936,39 +921,25 @@ jobs:
           cp dist/linux/powerrustcobol.desktop \
             "$root/usr/share/applications/powerrustcobol.desktop"
 
-          # Two theories died here, so this stops guessing and isolates.
-          #
-          # `tar: stdout: write error` with 82 GB free and 15 GB of memory says
-          # tar's reader went away. Rather than name a third suspect, the step
-          # now asks the question in three pieces, and whichever one fails is
-          # the answer:
-          #
-          #   1. can tar READ the whole tree at all?   (output to /dev/null,
-          #      stderr visible, so a file it cannot open names itself)
-          #   2. can tar WRITE a compressed archive of it?
-          #   3. can dpkg-deb do its own build?
-          #
-          # Step 3 asks for NO compression (`-Znone`). A .deb with an
-          # uncompressed data member is perfectly valid — apt has always read
-          # them — and the tarball beside it already serves anyone who cares
-          # about download size. If the compressor was the problem this simply
-          # works; if it fails anyway, 1 and 2 have already told us where the
-          # fault really is.
-          dpkg-deb --version | head -1
-          echo "--- 1. tar reads the tree ---"
-          tar -cf /dev/null -C "$root" . && echo "tar read the tree cleanly"
-          echo "--- 2. tar writes a compressed archive ---"
-          tar -czf dist/_probe.tar.gz -C "$root" . && ls -lh dist/_probe.tar.gz
-          rm -f dist/_probe.tar.gz
-          echo "--- 3. dpkg-deb builds it ---"
-          dpkg-deb -Znone --root-owner-group --build "$root" "dist/${PKG}.deb"
+          # Default compression, which is xz — what a Debian package normally uses,
+          # and this is the download people fetch. The `-Znone` that briefly stood
+          # here was a probe, not a decision.
+          dpkg-deb --root-owner-group --build "$root" "dist/${PKG}.deb"
           test -s "dist/${PKG}.deb"
           df -h /
-          # Prove the tree the app actually reads survived the packaging, the
-          # same way the archive is checked.
-          dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/assets/themes/"
-          dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/sdk/Cargo.toml"
-          dpkg-deb -c "dist/${PKG}.deb" | grep -q "./opt/powerrustcobol/examples/PowerDemo3/"
+          # Prove the tree the app actually reads survived the packaging, the same
+          # way the archive is checked.
+          #
+          # The listing is taken ONCE into a file and grepped there. Piping
+          # `dpkg-deb -c` straight into `grep -q` is what broke this step for three
+          # runs: grep leaves on its first match, dpkg-deb's tar is left writing to a
+          # closed pipe, and `pipefail` fails the step over a check that PASSED.
+          # Never pipe a long listing into an early-exiting reader under pipefail.
+          dpkg-deb -c "dist/${PKG}.deb" > dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/assets/themes/" dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/sdk/Cargo.toml" dist/_deb-contents.txt
+          grep -q "./opt/powerrustcobol/examples/PowerDemo3/" dist/_deb-contents.txt
+          rm -f dist/_deb-contents.txt
           # The links have done their job; the .rpm needs the room next.
           rm -rf "$root"
 
@@ -1074,14 +1045,19 @@ jobs:
             --define "ver $VERSION" \
             --define "srcdir $PWD/dist/$PKG" \
             --define "deskdir $PWD/dist/linux"
-          built=$(find "$top/RPMS" -name '*.rpm' | head -1)
+          # `find | head -1` is the same SIGPIPE trap the .deb verification fell into;
+          # -quit makes find stop by itself, with nothing to close a pipe on it.
+          built=$(find "$top/RPMS" -name '*.rpm' -print -quit)
           test -s "$built"
           cp "$built" "dist/${PKG}.rpm"
-          # The same three checks the .deb makes, against the payload rpm
-          # actually recorded.
-          rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/assets/themes/"
-          rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$"
-          rpm -qlp "dist/${PKG}.rpm" | grep -q "^/opt/powerrustcobol/examples/PowerDemo3/"
+          # The same three checks the .deb makes, against the payload rpm actually
+          # recorded — and, like the .deb, against a listing taken ONCE into a file
+          # rather than piped into `grep -q`.
+          rpm -qlp "dist/${PKG}.rpm" > dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/assets/themes/" dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/sdk/Cargo.toml$" dist/_rpm-contents.txt
+          grep -q "^/opt/powerrustcobol/examples/PowerDemo3/" dist/_rpm-contents.txt
+          rm -f dist/_rpm-contents.txt
           # Nothing below needs the build tree or the staged desktop entry, and
           # the artifact upload takes all of dist/.
           rm -rf "$top" dist/linux
