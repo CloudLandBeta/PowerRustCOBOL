@@ -1671,6 +1671,27 @@ pub struct Tr {
     pub rust_check_no_linker: &'static str,
     pub rust_check_no_linker_why: &'static str,
     pub rust_check_no_linker_cmd: &'static str,
+
+    // ── The IDE Walkthrough (spec 059) ───────────────────────────────────────
+    /// Help-menu item. It shows the *flag* — "already seen" — so unchecking it
+    /// reads as "I have not seen it", which is what replays the tour (R11).
+    pub walkthrough_menu_label: &'static str,
+    /// Hover on that item when no project is open (R12).
+    pub walkthrough_needs_project: &'static str,
+    /// Step 1's component name. Steps 2-6 reuse the names the project tree
+    /// already shows, so a balloon calls each component what the tree calls it.
+    pub walkthrough_title_settings: &'static str,
+    pub walkthrough_step_settings: &'static str,
+    pub walkthrough_step_forms: &'static str,
+    pub walkthrough_step_indexed: &'static str,
+    pub walkthrough_step_assets: &'static str,
+    pub walkthrough_step_knowledge: &'static str,
+    pub walkthrough_step_output: &'static str,
+    pub walkthrough_next: &'static str,
+    pub walkthrough_back: &'static str,
+    pub walkthrough_skip: &'static str,
+    /// `{n}` — the current step; `{total}` — how many there are.
+    pub walkthrough_progress: &'static str,
 }
 
 // ── Helper for toolbox ────────────────────────────────────────────────────────
@@ -2962,6 +2983,19 @@ const EN: Tr = Tr {
     rust_check_no_linker: "Rust {} is installed, but this computer still cannot finish a build: the linker `{}` was not found.",
     rust_check_no_linker_why: "Build turns your program into a native application, and that last step uses the platform's own build tools rather than Rust's. Nothing else is affected: designing forms, editing code and running programs never needed them.",
     rust_check_no_linker_cmd: "This installs them:",
+    walkthrough_menu_label: "🎓 IDE Walkthrough seen",
+    walkthrough_needs_project: "Open a project first — the Walkthrough points at the project tree.",
+    walkthrough_title_settings: "Project settings",
+    walkthrough_step_settings: "Configure IDE and form themes, the AI model and agent setup, form effects and more.",
+    walkthrough_step_forms: "Your application's forms, organised as a tree — this is where forms are created and modified.",
+    walkthrough_step_indexed: "The ISAM indexed-file editor and visualiser.",
+    walkthrough_step_assets: "Images, documents and whatever else your application requires.",
+    walkthrough_step_knowledge: "Your project's knowledge base — specifications, legal information, application-domain knowledge, and anything the agents need in order to generate code well.",
+    walkthrough_step_output: "Where the IDE answers you: build and compile messages, program output, diagnostics and the results of what you run.",
+    walkthrough_next: "Next ▶",
+    walkthrough_back: "◀ Back",
+    walkthrough_skip: "Skip",
+    walkthrough_progress: "Step {n} of {total}",
 };
 
 // ── Spanish ───────────────────────────────────────────────────────────────────
@@ -4235,6 +4269,19 @@ const ES: Tr = Tr {
     rust_check_no_linker: "Rust {} está instalado, pero este equipo todavía no puede terminar una compilación: no se encontró el enlazador `{}`.",
     rust_check_no_linker_why: "Compilar convierte su programa en una aplicación nativa, y ese último paso usa las herramientas de compilación del sistema, no las de Rust. Nada más se ve afectado: diseñar formularios, editar código y ejecutar programas nunca las necesitaron.",
     rust_check_no_linker_cmd: "Esto las instala:",
+    walkthrough_menu_label: "🎓 Recorrido del IDE visto",
+    walkthrough_needs_project: "Abra primero un proyecto — el recorrido señala el árbol del proyecto.",
+    walkthrough_title_settings: "Configuración del proyecto",
+    walkthrough_step_settings: "Configure los temas del IDE y de los formularios, el modelo de IA y los agentes, los efectos de formulario y más.",
+    walkthrough_step_forms: "Los formularios de su aplicación, organizados en árbol: aquí se crean y se modifican.",
+    walkthrough_step_indexed: "El editor y visualizador de ficheros indexados ISAM.",
+    walkthrough_step_assets: "Imágenes, documentos y todo lo demás que necesite su aplicación.",
+    walkthrough_step_knowledge: "La base de conocimiento del proyecto: especificaciones, información legal, conocimiento del dominio y todo lo que los agentes necesitan para generar buen código.",
+    walkthrough_step_output: "Donde el IDE le responde: mensajes de compilación, salida del programa, diagnósticos y los resultados de lo que ejecuta.",
+    walkthrough_next: "Siguiente ▶",
+    walkthrough_back: "◀ Atrás",
+    walkthrough_skip: "Omitir",
+    walkthrough_progress: "Paso {n} de {total}",
 };
 
 // ── Portuguese (Brazilian) ────────────────────────────────────────────────────
@@ -5508,6 +5555,19 @@ const PT: Tr = Tr {
     rust_check_no_linker: "O Rust {} está instalado, mas este computador ainda não consegue concluir uma compilação: o vinculador `{}` não foi encontrado.",
     rust_check_no_linker_why: "Compilar transforma seu programa em um aplicativo nativo, e esse último passo usa as ferramentas de compilação do sistema, não as do Rust. Nada mais é afetado: desenhar formulários, editar código e executar programas nunca precisaram delas.",
     rust_check_no_linker_cmd: "Isto as instala:",
+    walkthrough_menu_label: "🎓 Tour do IDE visto",
+    walkthrough_needs_project: "Abra primeiro um projeto — o tour aponta para a árvore do projeto.",
+    walkthrough_title_settings: "Configurações do projeto",
+    walkthrough_step_settings: "Configure os temas do IDE e dos formulários, o modelo de IA e os agentes, os efeitos de formulário e mais.",
+    walkthrough_step_forms: "Os formulários da sua aplicação, organizados em árvore: é aqui que se criam e modificam.",
+    walkthrough_step_indexed: "O editor e visualizador de arquivos indexados ISAM.",
+    walkthrough_step_assets: "Imagens, documentos e tudo o mais de que a sua aplicação precisa.",
+    walkthrough_step_knowledge: "A base de conhecimento do projeto: especificações, informações legais, conhecimento do domínio e tudo o que os agentes precisam para gerar bom código.",
+    walkthrough_step_output: "Onde o IDE responde: mensagens de compilação, saída do programa, diagnósticos e os resultados do que você executa.",
+    walkthrough_next: "Próximo ▶",
+    walkthrough_back: "◀ Voltar",
+    walkthrough_skip: "Pular",
+    walkthrough_progress: "Passo {n} de {total}",
 };
 
 // ── Japanese ──────────────────────────────────────────────────────────────────
@@ -6780,6 +6840,19 @@ const JA: Tr = Tr {
     rust_check_no_linker: "Rust {} はインストールされていますが、このコンピューターではまだビルドを完了できません。リンカー `{}` が見つかりませんでした。",
     rust_check_no_linker_why: "ビルドはプログラムをネイティブアプリケーションに変換します。その最後の手順だけは Rust ではなくプラットフォーム自身のビルドツールを使います。ほかには影響しません。フォームの設計、コードの編集、プログラムの実行にリンカーは必要ありません。",
     rust_check_no_linker_cmd: "次のコマンドでインストールできます:",
+    walkthrough_menu_label: "🎓 IDE ツアーを表示済み",
+    walkthrough_needs_project: "先にプロジェクトを開いてください。ツアーはプロジェクトツリーを指し示します。",
+    walkthrough_title_settings: "プロジェクト設定",
+    walkthrough_step_settings: "IDE とフォームのテーマ、AI モデルとエージェントの設定、フォーム効果などを設定します。",
+    walkthrough_step_forms: "アプリケーションのフォームをツリーで整理します。フォームの作成と変更はここで行います。",
+    walkthrough_step_indexed: "ISAM 索引ファイルのエディターとビューアーです。",
+    walkthrough_step_assets: "画像、ドキュメント、その他アプリケーションに必要なものすべて。",
+    walkthrough_step_knowledge: "プロジェクトのナレッジベース。仕様、法務情報、業務領域の知識、そしてエージェントが良いコードを生成するために必要なものすべて。",
+    walkthrough_step_output: "IDE からの応答がここに出ます。ビルドとコンパイルのメッセージ、プログラム出力、診断、実行結果。",
+    walkthrough_next: "次へ ▶",
+    walkthrough_back: "◀ 戻る",
+    walkthrough_skip: "スキップ",
+    walkthrough_progress: "ステップ {n} / {total}",
 };
 
 // ── Chinese (Simplified) ──────────────────────────────────────────────────────
@@ -8060,6 +8133,19 @@ const ZH: Tr = Tr {
     rust_check_no_linker: "已安装 Rust {}，但这台计算机仍无法完成构建：找不到链接器 `{}`。",
     rust_check_no_linker_why: "构建会把您的程序变成原生应用程序，而最后一步使用的是平台自己的构建工具，不是 Rust 的。其他功能不受影响：设计窗体、编辑代码和运行程序从不需要链接器。",
     rust_check_no_linker_cmd: "以下命令可以安装它们：",
+    walkthrough_menu_label: "🎓 已查看 IDE 导览",
+    walkthrough_needs_project: "请先打开一个项目——导览指向的是项目树。",
+    walkthrough_title_settings: "项目设置",
+    walkthrough_step_settings: "配置 IDE 与窗体主题、AI 模型与智能体设置、窗体效果等。",
+    walkthrough_step_forms: "以树形组织的应用程序窗体——在这里创建和修改窗体。",
+    walkthrough_step_indexed: "ISAM 索引文件的编辑器与查看器。",
+    walkthrough_step_assets: "图像、文档，以及应用程序需要的其他一切。",
+    walkthrough_step_knowledge: "项目的知识库：规格说明、法律信息、业务领域知识，以及智能体生成优质代码所需的一切。",
+    walkthrough_step_output: "IDE 在这里回应你：构建与编译信息、程序输出、诊断，以及运行结果。",
+    walkthrough_next: "下一步 ▶",
+    walkthrough_back: "◀ 上一步",
+    walkthrough_skip: "跳过",
+    walkthrough_progress: "第 {n} 步，共 {total} 步",
 };
 
 // ── French ────────────────────────────────────────────────────────────────────
@@ -9333,6 +9419,19 @@ const FR: Tr = Tr {
     rust_check_no_linker: "Rust {} est installé, mais cet ordinateur ne peut toujours pas terminer une compilation : l'éditeur de liens `{}` est introuvable.",
     rust_check_no_linker_why: "Compiler transforme votre programme en application native, et cette dernière étape utilise les outils de compilation de la plateforme plutôt que ceux de Rust. Rien d'autre n'est affecté : concevoir des formulaires, éditer du code et exécuter des programmes n'en ont jamais eu besoin.",
     rust_check_no_linker_cmd: "Ceci les installe :",
+    walkthrough_menu_label: "🎓 Visite guidée de l'IDE vue",
+    walkthrough_needs_project: "Ouvrez d'abord un projet — la visite désigne l'arborescence du projet.",
+    walkthrough_title_settings: "Paramètres du projet",
+    walkthrough_step_settings: "Configurez les thèmes de l'IDE et des formulaires, le modèle d'IA et les agents, les effets de formulaire et davantage.",
+    walkthrough_step_forms: "Les formulaires de votre application, organisés en arborescence : c'est ici qu'on les crée et qu'on les modifie.",
+    walkthrough_step_indexed: "L'éditeur et le visualiseur de fichiers indexés ISAM.",
+    walkthrough_step_assets: "Images, documents et tout ce dont votre application a besoin.",
+    walkthrough_step_knowledge: "La base de connaissances du projet : spécifications, informations juridiques, connaissance du domaine et tout ce dont les agents ont besoin pour générer du bon code.",
+    walkthrough_step_output: "Là où l'IDE vous répond : messages de génération et de compilation, sortie du programme, diagnostics et résultats de ce que vous exécutez.",
+    walkthrough_next: "Suivant ▶",
+    walkthrough_back: "◀ Retour",
+    walkthrough_skip: "Passer",
+    walkthrough_progress: "Étape {n} sur {total}",
 };
 
 // ── i18n behavioral tests ──────────────────────────────────────────────────────

@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.122] — 2026-09-11
+
+### The Walkthrough, part one: the tour itself
+
+Spec 059's first half — the machine flag, the six steps in all six languages,
+and the module that draws them. Nothing is wired into the IDE yet; that is the
+next change.
+
+**`panels/walkthrough.rs`** owns the tour and deliberately knows nothing about
+`CoboltApp` or `ProjectPanel`. It is handed the rects the frame actually painted
+and returns whether the tour ended and what it needs revealed. That is what makes
+it testable at all: `CoboltApp` cannot be constructed in a test — it needs an
+`eframe::CreationContext` — so a tour that reached into it could only be checked
+by driving the application, which this project does not do.
+
+**The dim is four rectangles, not one.** `egui::Modal` paints its backdrop as a
+single `rect_filled` over the content rect and offers no way to cut a hole in it.
+A spotlight is the hole, so the bands are painted *around* the target and the
+component simply keeps its own pixels. A test asserts they cover the screen minus
+the target exactly and never overlap it.
+
+**The balloon is sized by its text and nothing else.** Width is a constant; height
+comes from the laid-out galleys. Never `available_width()`, never the window — a
+window may never resize itself, and a balloon measured against the window is how
+that starts. `a_balloon_never_grows_with_the_window` pins it by placing the same
+balloon on a 900×600 and a 2560×1400 screen and asserting the size is identical.
+
+**Where the tail points is arithmetic, not eyeballing.** `place_balloon` tries
+right, left, below, above — right first because five of the six targets live in
+the left-hand tree, so the balloon lands over the central pane pointing back at
+it; the sixth spans the full width, so `Above` wins on its own. The tip is pulled
+six pixels *inside* the target, and the test drives a target against each screen
+edge in turn and asserts the tip lands inside it every time while the body stays
+on screen.
+
+**Legibility is measured on all 32 themes.** The fill and text are a fixed pair
+on purpose: the balloon always sits on the same dim field, so there is nothing
+theme-dependent for it to adapt to, and deriving ink from `ui.visuals()` is what
+renders dark-on-dark under the glass themes. What follows the theme is the
+decoration — the ring around the lit component and the balloon's border. The Next
+button takes the accent **only when white reads on it**, checked with
+`contrast_ratio`, and keeps the charcoal otherwise.
+
+`Step::anchor()` holds the one equivalence nothing else states: **the Knowledge
+Base node is `Category::Documentation`** in the tree. A test asserts it rather
+than trusting the variant name.
+
+`ui_prefs` gains `walkthrough_shown`, beside `rust_check_done` and for the same
+reason — a tour of the IDE is learned once per machine, not once per project.
+Unlike its neighbour it can be *cleared*, because unchecking the Help item is
+what replays the tour.
+
 ## [PowerRustCOBOL 1.65.118] — 2026-09-11
 
 ### The dependency list named two crates that are not in the project, and a whole section of features that no longer exist

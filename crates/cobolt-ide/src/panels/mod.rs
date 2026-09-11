@@ -43,6 +43,7 @@ pub mod toolbar;
 // a toolbar has lives in this modal, not in the properties pane.
 pub mod toolbar_editor;
 pub mod toolbox;
+pub mod walkthrough;
 
 pub(crate) const CHAT_SEND_BUTTON_WIDTH: f32 = 96.0;
 
