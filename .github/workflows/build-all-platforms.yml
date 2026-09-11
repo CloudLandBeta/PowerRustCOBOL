@@ -481,31 +481,154 @@ jobs:
                    are a multi-gigabyte privileged install and that is the
                    user's decision to take, on Microsoft's page, not a box this
                    installer ticks for them. -->
-              <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT"
-                        Value="To BUILD applications you also need two things Rust requires: the Visual Studio Build Tools with the 'Desktop development with C++' workload, and Rust itself from https://rustup.rs. Designing forms, editing code and running programs work without either - PowerRustCOBOL will tell you on its first run if anything is missing." />
-              <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT"
-                        Value="Open the Visual Studio Build Tools download page" />
-              <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="0" />
+              <!-- Off by default, and it opens Microsoft's page rather than
+                   installing anything: the Build Tools are a multi-gigabyte
+                   privileged install and that is the user's call to make. -->
+              <Property Id="PRCOPENPREREQ" Value="0" />
               <Property Id="WixShellExecTarget"
                         Value="https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" />
               <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
                             Impersonate="yes" Return="ignore" />
-              <!-- WixUI_InstallDir rather than _Minimal, for one reason: the
-                   Minimal set's only screen is the licence, and that dialog
-                   carries no bitmap at all - there is nowhere on it to put the
-                   mascot. InstallDir opens on a WelcomeDlg whose artwork is the
-                   full 493x312 bitmap, keeps the licence on a screen of its
-                   own, and ends on an ExitDialog with the same artwork again.
-                   The two screens between them carry the 493x58 banner. -->
               <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
-              <UIRef Id="WixUI_InstallDir" />
               <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
               <WixVariable Id="WixUIBannerBmp" Value="dist/art/wix-banner.bmp" />
               <WixVariable Id="WixUIDialogBmp" Value="dist/art/wix-dialog.bmp" />
-              <UI>
-                <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction"
-                         Value="OpenPrereqPage">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
+
+              <!-- ── The wizard ────────────────────────────────────────────
+                   WixUI's own welcome and finish dialogs draw their text in
+                   BLACK at x >= 180 px, which pins the artwork to a light panel
+                   on the right and the mascot to the left. The look this
+                   product wants is the other way round: dark edge to edge,
+                   wordmark and copy in white on the LEFT, mascot on the right.
+                   No property moves a stock control or recolours it, so the two
+                   screens that carry the big bitmap are authored here. Every
+                   other screen - licence, folder, ready, progress, the error
+                   and maintenance dialogs - is WixUI's, unchanged, and reached
+                   through the same sequence WixUI_InstallDir uses.
+
+                   The text styles are new ids, not redefinitions: overriding
+                   WixUI_Font_Normal would collide with the copy WixUI_Common
+                   already defines. -->
+              <UI Id="PrcUI">
+                <TextStyle Id="PrcMark"  FaceName="Segoe UI" Size="17" Bold="yes" Red="255" Green="255" Blue="255" />
+                <TextStyle Id="PrcSub"   FaceName="Consolas" Size="8"             Red="232" Green="130" Blue="46" />
+                <TextStyle Id="PrcTitle" FaceName="Segoe UI" Size="12" Bold="yes" Red="255" Green="255" Blue="255" />
+                <TextStyle Id="PrcBody"  FaceName="Segoe UI" Size="8"             Red="206" Green="194" Blue="184" />
+                <TextStyle Id="PrcVer"   FaceName="Consolas" Size="8"             Red="132" Green="110" Blue="96" />
+
+                <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+                <Property Id="WixUI_Mode" Value="InstallDir" />
+
+                <DialogRef Id="BrowseDlg" />
+                <DialogRef Id="DiskCostDlg" />
+                <DialogRef Id="ErrorDlg" />
+                <DialogRef Id="FatalError" />
+                <DialogRef Id="FilesInUse" />
+                <DialogRef Id="MsiRMFilesInUse" />
+                <DialogRef Id="PrepareDlg" />
+                <DialogRef Id="ProgressDlg" />
+                <DialogRef Id="ResumeDlg" />
+                <DialogRef Id="UserExit" />
+
+                <!-- Welcome. The bitmap is the whole 370x234 DU area; every
+                     text control below sits on it with Transparent="yes" so the
+                     artwork shows through, and each one names its own white
+                     style inline with {\Style}. -->
+                <Dialog Id="PrcWelcomeDlg" Width="370" Height="270" Title="[ProductName] Setup">
+                  <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                           TabSkip="no" Text="!(loc.WelcomeDlgBitmap)" />
+                  <Control Id="Mark" Type="Text" X="18" Y="24" Width="180" Height="26"
+                           Transparent="yes" NoPrefix="yes" Text="{\PrcMark}PowerRustCOBOL AI" />
+                  <Control Id="Sub" Type="Text" X="18" Y="50" Width="180" Height="12"
+                           Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcSub}THE NEXT GENERATION COBOL RAD IDE" />
+                  <Control Id="Title" Type="Text" X="18" Y="96" Width="150" Height="42"
+                           Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcTitle}Welcome to the [ProductName] Setup Wizard" />
+                  <Control Id="Description" Type="Text" X="18" Y="146" Width="150" Height="50"
+                           Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcBody}The Setup Wizard will install [ProductName] on your computer. Click Next to continue, or Cancel to exit." />
+                  <Control Id="Ver" Type="Text" X="18" Y="208" Width="150" Height="12"
+                           Transparent="yes" NoPrefix="yes" Text="{\PrcVer}[ProductVersion]" />
+                  <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                  <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                           Disabled="yes" Text="!(loc.WixUIBack)" />
+                  <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                           Default="yes" Text="!(loc.WixUINext)" />
+                  <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                           Cancel="yes" Text="!(loc.WixUICancel)">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                  </Control>
+                </Dialog>
+
+                <!-- Finish. Same artwork, and the place the build prerequisites
+                     are named - the one moment a developer is certain to read
+                     something before their first build. -->
+                <Dialog Id="PrcExitDlg" Width="370" Height="270" Title="[ProductName] Setup">
+                  <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234"
+                           TabSkip="no" Text="!(loc.WelcomeDlgBitmap)" />
+                  <Control Id="Mark" Type="Text" X="18" Y="24" Width="180" Height="26"
+                           Transparent="yes" NoPrefix="yes" Text="{\PrcMark}PowerRustCOBOL AI" />
+                  <Control Id="Sub" Type="Text" X="18" Y="50" Width="180" Height="12"
+                           Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcSub}THE NEXT GENERATION COBOL RAD IDE" />
+                  <Control Id="Title" Type="Text" X="18" Y="88" Width="150" Height="26"
+                           Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcTitle}Installation complete" />
+                  <Control Id="Description" Type="Text" X="18" Y="116" Width="152" Height="90"
+                           Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcBody}To BUILD applications you also need two things Rust requires: the Visual Studio Build Tools with the &quot;Desktop development with C++&quot; workload, and Rust itself from https://rustup.rs.  Designing forms, editing code and running programs work without either." />
+                  <Control Id="Prereq" Type="CheckBox" X="18" Y="208" Width="152" Height="17"
+                           Property="PRCOPENPREREQ" CheckBoxValue="1" Transparent="yes" NoPrefix="yes"
+                           Text="{\PrcBody}Open the Build Tools download page" />
+                  <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+                  <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                           Disabled="yes" Text="!(loc.WixUIBack)" />
+                  <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                           Default="yes" Cancel="yes" Text="!(loc.WixUIFinish)">
+                    <Publish Event="DoAction" Value="OpenPrereqPage">PRCOPENPREREQ = 1 and NOT Installed</Publish>
+                    <Publish Event="EndDialog" Value="Return">1</Publish>
+                  </Control>
+                  <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                           Disabled="yes" Text="!(loc.WixUICancel)" />
+                </Dialog>
+
+                <!-- The sequence, as WixUI_InstallDir runs it, with our two
+                     dialogs standing in for WelcomeDlg and ExitDialog. -->
+                <Publish Dialog="BrowseDlg" Control="OK" Event="DoAction" Value="WixUIValidatePath" Order="3">1</Publish>
+                <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4"><![CDATA[WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
+
+                <Publish Dialog="PrcWelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+                <Publish Dialog="PrcWelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+
+                <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="PrcWelcomeDlg">1</Publish>
+                <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg">LicenseAccepted = "1"</Publish>
+
+                <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg">1</Publish>
+                <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
+                <Publish Dialog="InstallDirDlg" Control="Next" Event="DoAction" Value="WixUIValidatePath" Order="2">NOT WIXUI_DONTVALIDATEPATH</Publish>
+                <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
+                <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="4">WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID="1"</Publish>
+                <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
+                <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2">1</Publish>
+
+                <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg" Order="1">NOT Installed</Publish>
+                <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg" Order="2">Installed AND NOT PATCH</Publish>
+                <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="PrcWelcomeDlg" Order="2">Installed AND PATCH</Publish>
+
+                <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+                <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+                <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+                <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+
+                <!-- Ours replaces WixUI_Common's, which declares its own Show
+                     as overridable for exactly this. -->
+                <InstallUISequence>
+                  <Show Dialog="PrcWelcomeDlg" Before="ProgressDlg">NOT Installed</Show>
+                  <Show Dialog="PrcExitDlg" OnExit="success" />
+                </InstallUISequence>
               </UI>
+              <UIRef Id="WixUI_Common" />
             </Product>
           </Wix>
           WXS

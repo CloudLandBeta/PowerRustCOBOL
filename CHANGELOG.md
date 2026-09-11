@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.113] — 2026-09-11
+
+### The Windows wizard is ours now, so the artwork can face the right way
+
+1.65.112 put the mascot on the *left* of the `.msi` welcome and finish screens.
+That was not a design choice — WixUI's own dialogs draw their text in **black at
+x ≥ 180 px**, and no property moves a stock control or recolours it, so the
+right-hand side had to stay light and the mascot had nowhere else to go.
+
+The operator wanted the opposite, and it is the better picture: dark edge to
+edge, wordmark and copy in white on the left, mascot on the right.
+
+So the two screens that carry the big bitmap are now authored here —
+`PrcWelcomeDlg` and `PrcExitDlg` — with their own white text styles and their
+own left-hand layout. **Every other screen is still WixUI's**, unchanged: the
+licence, the install folder, ready-to-install, progress, and the error and
+maintenance dialogs, reached through the same sequence `WixUI_InstallDir` uses.
+The finish page's prerequisite checkbox becomes a real control on that dialog
+rather than the `WIXUI_EXITDIALOGOPTIONAL*` properties, which only exist for
+WixUI's own exit screen.
+
+The dialog bitmap follows: dark edge to edge, mascot 249×262 on the right. The
+banner and the `.dmg` background are unchanged — those two surfaces still have
+their host drawing dark text (WiX's banner heading, Finder's icon labels), so
+they keep a light panel under it.
+
 ## [PowerRustCOBOL 1.65.112] — 2026-09-11
 
 ### The installers got a face, and a licence you have to agree to

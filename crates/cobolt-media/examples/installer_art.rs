@@ -25,20 +25,22 @@
 //!
 //! # Why the mascot sits where it does
 //!
-//! Not taste — the host UI's text is already positioned and this artwork has to
-//! keep out of its way. **WixUI draws its text in black**, at coordinates
-//! compiled into WixUIExtension that no property can move:
+//! Not taste — the host's own text is already positioned, and this artwork has
+//! to keep out of its way. Two of the three surfaces draw that text **dark**,
+//! which forces a light panel under it:
 //!
-//! * the welcome and finish dialogs put their title and body at x ≥ 180 px, so
-//!   that side has to stay **light** or the black text is unreadable — and the
-//!   mascot goes **left**;
-//! * the banner puts its heading at x ≈ 20 px, so **that** side stays light and
-//!   the mascot goes **right**.
+//! * the **banner** puts its heading at x ≈ 20 px, so the left stays light and
+//!   the mascot goes right;
+//! * the **.dmg** window has Finder painting icon labels dark, so the half
+//!   holding the two icons stays light and the mascot takes the other.
 //!
-//! macOS has the same constraint for a different reason: Finder paints icon
-//! labels dark, so the half holding the two icons is light and the mascot takes
-//! the other half. Hence one rule across all three: **the mascot lives on the
-//! dark panel, the host's text lives on the light one.**
+//! The big **.msi dialog** is the exception, and deliberately so. Its welcome
+//! and finish screens are authored by this project rather than taken from
+//! WixUI — see the `PrcWelcomeDlg` / `PrcExitDlg` definitions in the workflow —
+//! precisely so their text can be **white and on the left**. That frees this
+//! bitmap to be dark edge to edge with the mascot on the right, which is the
+//! look the operator asked for. Take that dialog authoring away and the black
+//! stock text lands on a black panel.
 //!
 //! Nothing here rasterises text. There is no font in this repository to do it
 //! with, and every one of these surfaces already has its own text drawn over
@@ -245,23 +247,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("mascot: {}×{}", mascot.width(), mascot.height());
 
     // ── .msi welcome / finish — 493 × 312 ────────────────────────────────────
-    // WixUI's text starts at x = 180, so the light panel starts there and the
-    // mascot fills the dark one with a little air on every side.
+    // Dark edge to edge: the dialogs that use it draw their own white text on
+    // the left. `at: 0` with `dark_left: false` means every pixel is on the
+    // dark side, and the two-pixel rule is skipped with it.
     {
         let (w, h) = (493u32, 312u32);
         let split = Split {
-            at: 180,
-            dark_left: true,
+            at: 0,
+            dark_left: false,
         };
-        let fig_h = 168;
+        let fig_h = 262;
         let fig_w = width_for(&mascot, fig_h);
-        let x = (split.at as i64 - fig_w as i64) / 2;
+        let x = (w - fig_w) as i64 - 12;
         let y = ((h - fig_h) / 2) as i64;
-        let mut img = ground(w, h, split, (90.0, h as f32 / 2.0), 190.0);
+        let mut img = ground(w, h, split, (356.0, h as f32 / 2.0), 250.0);
         place(&mut img, &mascot, x, y, fig_w, fig_h);
         img.save(out.join("wix-dialog.bmp"))?;
         img.save(out.join("wix-dialog.png"))?;
-        println!("wix-dialog.bmp   {w}×{h}, mascot {fig_w}×{fig_h} at ({x},{y}) — left panel");
+        println!("wix-dialog.bmp   {w}×{h}, mascot {fig_w}×{fig_h} at ({x},{y}) — dark, mascot right");
     }
 
     // ── .msi banner — 493 × 58 ───────────────────────────────────────────────
