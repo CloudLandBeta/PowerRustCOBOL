@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.130] — 2026-09-11
+
+### The indexed file format in six languages, and an anchor checker
+
+`PRCIDX1`'s container layout, key schema, open-time FILE STATUS table, storage
+modes and the future Fujitsu import path now read in all six languages. Every
+field name, type, magic number, status code and Rust identifier stays as it is;
+the Notes columns and the prose move.
+
+Two ASCII-art diagrams are copied from the English rather than translated: the
+container box and the import-path flow. Their box-drawing characters are aligned
+to the width of the English labels, and a translated label would break the
+drawing rather than clarify it.
+
+**And the tooling grew a link checker**, because the Japanese file needed it.
+Translating the `Discovery API` heading means the `[inspect_path](#discovery-api)`
+link above it has to be regenerated from the *translated* heading — GOLDEN RULE
+#8 says so — and the Japanese one came out `#発見apiapi`, which resolves to
+nothing. It renders as a link and does nothing when clicked, which is exactly the
+class of error prose review does not catch. Every in-file anchor across all six
+translated families is now checked against that file's own headings, and every
+relative `.md` link against the filesystem.
+
 ## [PowerRustCOBOL 1.65.129] — 2026-09-11
 
 ### The collaboration design reads in six languages

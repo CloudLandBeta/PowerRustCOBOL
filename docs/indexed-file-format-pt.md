@@ -6,47 +6,48 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-# Formato de arquivo indexado do PowerRustCOBOL (`PRCIDX1`)
+<!-- powerrustcobol: 1.65.124 -->
 
-Este documento descreve o contêiner em disco que dá suporte aos arquivos
-`ORGANIZATION IS INDEXED` no PowerRustCOBOL e como ele se relaciona com os
-metadados de que um futuro **importador Fujitsu COBOL-85 → PowerRustCOBOL** vai
-precisar.
+# Formato de ficheiro indexado do PowerRustCOBOL (`PRCIDX1`)
 
-> **Não é compatível em nível binário com a Fujitsu.** O `PRCIDX1` é o contêiner
-> autodescritivo do próprio PowerRustCOBOL. Ele é modelado *semanticamente* nos
-> metadados que as File Access Subroutines da Fujitsu expõem por meio de
-> `cobfa_indexinfo()` (formato de registro, comprimento de registro, quantidade
-> e comprimento total das chaves, chave primária, chaves alternativas), mas
-> **não** interpreta nem reproduz os bytes `cobidx`/`cobi64` da Fujitsu. O
-> importador é trabalho futuro e fica fora do PowerRustCOBOL.
+Este documento descreve o contentor em disco que suporta os ficheiros
+`ORGANIZATION IS INDEXED` no PowerRustCOBOL, e como ele corresponde aos metadados
+de que um futuro **importador Fujitsu COBOL-85 → PowerRustCOBOL** irá precisar.
+
+> **Não é compatível ao nível binário com a Fujitsu.** O `PRCIDX1` é o contentor
+> autodescritivo do próprio PowerRustCOBOL. É modelado *semanticamente* sobre os
+> metadados que as File Access Subroutines da Fujitsu expõem através de
+> `cobfa_indexinfo()` (formato do registo, comprimento do registo, número e
+> comprimento total das chaves, chave primária, chaves alternativas), mas **não**
+> analisa nem reproduz os bytes de `cobidx`/`cobi64` da Fujitsu. O importador é
+> trabalho futuro e vive fora do PowerRustCOBOL.
 
 Implementação: [`crates/cobolt-runtime/src/indexed.rs`](../crates/cobolt-runtime/src/indexed.rs).
 
 ---
 
-## Por que o formato é autodescritivo
+## Porque é que o formato é autodescritivo
 
-O contêiner original (`PRCISAM1`) armazenava apenas um número mágico, o
-comprimento do registro e os bytes do registro — ele **não carregava nenhum
-esquema de chaves**. Um conversor (ou qualquer ferramenta externa) não tinha
-como saber quais eram as chaves sem o `FD` do COBOL.
+O contentor original (`PRCISAM1`) guardava apenas um número mágico, o comprimento
+do registo e os bytes dos registos — **não levava esquema de chaves**. Um
+conversor (ou qualquer ferramenta externa) não conseguia saber quais eram as
+chaves sem o `FD` de COBOL.
 
-O `PRCIDX1` embute o esquema completo no arquivo: o formato de registro e, para
-cada chave, seu layout de bytes, sua ordenação, sua política de duplicatas e
-(opcionalmente) o nome do campo COBOL. Isso torna o arquivo **descobrível** —
-veja [`inspect_path`](#api-de-descoberta) — e permite que um importador da
-Fujitsu escreva um arquivo PowerRustCOBOL fiel a partir dos metadados que lê de
-um arquivo Fujitsu, sem ter um `FD` correspondente à mão.
+O `PRCIDX1` embute o esquema completo no ficheiro: o formato do registo e, de
+cada chave, a sua disposição em bytes, a ordenação, a política de duplicados e
+(opcionalmente) o nome do campo COBOL. Isso torna o ficheiro **descobrível** —
+ver [`inspect_path`](#api-de-descoberta) — e permite que um importador da Fujitsu
+escreva um ficheiro PowerRustCOBOL fiel a partir dos metadados que lê de um
+ficheiro Fujitsu, sem ter um `FD` correspondente à mão.
 
 ---
 
 ## Modelo de metadados
 
-Estes tipos Rust (reexportados de `cobolt_runtime`) são o esquema. Eles espelham
-os conceitos de `cobfa_indexinfo()`; todos os deslocamentos e comprimentos são
-**expressos em bytes** (nunca em contagem de caracteres — conforme a regra da
-Fujitsu para o modo Unicode).
+Estes tipos Rust (reexportados de `cobolt_runtime`) são o esquema. Espelham os
+conceitos de `cobfa_indexinfo()`; todos os deslocamentos e comprimentos são **em
+bytes** (nunca contagens de carateres — tal como a regra da Fujitsu em modo
+Unicode).
 
 ```rust
 pub enum RecordFormat {
@@ -81,189 +82,189 @@ pub struct IndexedFileInfo {
 }
 ```
 
-O runtime atual emite chaves **de uma única parte, codificadas como `Bytes` e
-`Ascending`** (é nisso que um `RECORD KEY` / `ALTERNATE RECORD KEY` de um `FD`
-COBOL se resolve). Chaves compostas, outras codificações e a ordem decrescente
-são **representáveis no formato**, de modo que um importador pode registrá-las
-sem perdas; o suporte completo no runtime é trabalho futuro.
+O runtime atual emite chaves **de uma só parte, codificadas em `Bytes` e
+`Ascending`** (é a isso que um `RECORD KEY` / `ALTERNATE RECORD KEY` de um `FD`
+COBOL se resolve). Chaves compostas, codificações alternativas e ordem
+descendente são **representáveis no formato**, para que um importador as possa
+registar sem perdas; o suporte completo no runtime é trabalho futuro.
 
 ---
 
-## Layout do contêiner
+## Disposição do contentor
 
-Todos os inteiros são **little-endian**. O arquivo é:
+Todos os inteiros são **little-endian**. O ficheiro é:
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
-│ Cabeçalho                                                  │
-│ Esquema de chaves (key_count descritores: primária+alts)   │
-│ Registros                                                  │
-│ Trailer CRC-32 (sobre todos os bytes anteriores)           │
+│ Header                                                      │
+│ Key schema  (key_count descriptors: primary, then alts)     │
+│ Records                                                     │
+│ CRC-32 trailer (over all preceding bytes)                   │
 └────────────────────────────────────────────────────────────┘
 ```
 
 ### Cabeçalho
 
-| Campo            | Tipo      | Observações                             |
+| Campo            | Tipo      | Notas                                   |
 |------------------|-----------|-----------------------------------------|
 | `magic`          | `[u8; 8]` | `b"PRCIDX1\0"`                          |
 | `version`        | `u16`     | `1`                                     |
 | `flags`          | `u16`     | reservado (`0`)                         |
 | `record_format`  | `u8`      | `1` = fixo, `2` = variável              |
 | `reserved`       | `u8`      | `0`                                     |
-| `fixed_length`   | `u32`     | comprimento do registro quando fixo     |
-| `min_length`     | `u32`     | carga útil mínima quando variável       |
-| `max_length`     | `u32`     | carga útil máxima quando variável       |
+| `fixed_length`   | `u32`     | comprimento do registo quando é fixo    |
+| `min_length`     | `u32`     | carga útil mínima quando é variável     |
+| `max_length`     | `u32`     | carga útil máxima quando é variável     |
 | `key_count`      | `u16`     | primária + alternativas                 |
-| `created_unix_ms`| `u64`     | data de criação, preservada entre reescritas|
-| `updated_unix_ms`| `u64`     | data da última escrita                  |
+| `created_unix_ms`| `u64`     | hora de criação, preservada entre reescritas|
+| `updated_unix_ms`| `u64`     | hora da última escrita                  |
 
-### Esquema de chaves — repetido `key_count` vezes (a primária primeiro)
+### Esquema de chaves — repetido `key_count` vezes (primária primeiro)
 
-| Campo          | Tipo      | Observações                             |
+| Campo          | Tipo      | Notas                                   |
 |----------------|-----------|-----------------------------------------|
 | `key_number`   | `u16`     | `1` primária, `2..` alternativas        |
-| `duplicates`   | `u8`      | `0`/`1`                                  |
-| `ordering`     | `u8`      | `0` crescente, `1` decrescente          |
-| `part_count`   | `u16`     | quantidade de `KeyPart`                 |
+| `duplicates`   | `u8`      | `0`/`1`                                 |
+| `ordering`     | `u8`      | `0` ascendente, `1` descendente         |
+| `part_count`   | `u16`     | número de `KeyPart`                     |
 | `name_len`     | `u16`     | comprimento do nome UTF-8 (`0` = nenhum)|
 | `name`         | `[u8]`    | `name_len` bytes                        |
 | `parts`        | repetido  | `part_count` × KeyPart (abaixo)         |
 
 Cada **KeyPart**:
 
-| Campo      | Tipo  | Observações                    |
-|------------|-------|--------------------------------|
-| `offset`   | `u32` | deslocamento em bytes dentro da carga útil|
-| `length`   | `u32` | comprimento em bytes           |
-| `encoding` | `u8`  | discriminante de `KeyEncoding` |
-| `reserved` | `u8`  | `0`                            |
+| Campo      | Tipo  | Notas                                   |
+|------------|-------|-----------------------------------------|
+| `offset`   | `u32` | deslocamento em bytes dentro da carga útil do registo|
+| `length`   | `u32` | comprimento em bytes                    |
+| `encoding` | `u8`  | discriminante de `KeyEncoding`          |
+| `reserved` | `u8`  | `0`                                     |
 
-### Registros
+### Registos
 
-| Campo          | Tipo     | Observações                            |
-|----------------|----------|----------------------------------------|
-| `record_count` | `u64`    | quantidade de registros vivos          |
-| por registro   | repetido | `length: u32` e então `length` bytes   |
+| Campo          | Tipo   | Notas                                   |
+|----------------|--------|-----------------------------------------|
+| `record_count` | `u64`  | número de registos vivos                |
+| por registo    | repetido | `length: u32` e depois `length` bytes  |
 
-Os registros são gravados em ordem crescente de **chave primária**.
+Os registos são escritos por ordem ascendente de **chave primária**.
 
-### Trailer
+### Rodapé
 
-| Campo   | Tipo  | Observações                                      |
+| Campo   | Tipo  | Notas                                            |
 |---------|-------|--------------------------------------------------|
-| `crc32` | `u32` | CRC-32 (IEEE 802.3, refletido) sobre todos os bytes anteriores ao trailer |
+| `crc32` | `u32` | CRC-32 (IEEE 802.3, refletido) sobre todos os bytes anteriores ao rodapé |
 
-O CRC é validado no carregamento; uma divergência resulta em FILE STATUS `90`
-(erro de E/S).
+O CRC é validado ao carregar; uma discrepância dá FILE STATUS `90` (erro de E/S).
 
 ---
 
 ## API de descoberta
 
 ```rust
-use cobolt_runtime::IndexedFile; // (engine type)
+use cobolt_runtime::indexed::IndexedFile; // (engine type — not re-exported at the crate root)
 
 // Read just the schema, without opening the file for I/O:
 let info: Option<IndexedFileInfo> = IndexedFile::inspect_path("customers.idx")?;
 ```
 
-Retorna `Some(IndexedFileInfo)` para um arquivo `PRCIDX1` e `None` para o
-contêiner legado `PRCISAM1` (que não carrega esquema). Esse é o análogo de
+Devolve `Some(IndexedFileInfo)` para um ficheiro `PRCIDX1` e `None` para o
+contentor antigo `PRCISAM1` (que não leva esquema). Este é o análogo de
 `cobfa_indexinfo()` que um conversor ou uma ferramenta de inspeção pode chamar.
 
 ---
 
 ## Validação na abertura (FILE STATUS)
 
-Ao abrir um arquivo indexado **existente** para `INPUT` / `I-O`, o runtime valida
-as chaves declaradas em `SELECT`/`FD` e o formato de registro contra o esquema
-armazenado (modo estrito, ligado por padrão). Status relevantes:
+Ao abrir um ficheiro indexado **existente** para `INPUT` / `I-O`, o runtime valida
+as chaves e o formato de registo declarados no `SELECT`/`FD` contra o esquema
+guardado (modo estrito, ligado por omissão). Estados relevantes:
 
-| Status | Condição                                               |
+| Estado | Condição                                              |
 |-------:|-------------------------------------------------------|
-| `35`   | `OPEN INPUT` de um arquivo inexistente                |
-| `39`   | esquema do arquivo existente ≠ chaves/formato de registro declarados |
-| `90`   | contêiner corrompido (divergência de CRC) ou outro erro de E/S |
+| `35`   | `OPEN INPUT` de um ficheiro inexistente               |
+| `39`   | esquema do ficheiro existente ≠ chaves ou formato de registo declarados |
+| `90`   | contentor corrompido (CRC discrepante) ou outro erro de E/S |
 
-O contêiner legado `PRCISAM1` não tem esquema, então a validação estrita é
-ignorada para ele (ele sempre é carregado de forma tolerante).
+O contentor antigo `PRCISAM1` não tem esquema, pelo que a validação estrita é
+saltada para ele (carrega sempre de forma permissiva).
 
 ---
 
 ## Modos de armazenamento (`STORAGE IS MEMORY | DISK`)
 
-A cláusula `STORAGE MODE` seleciona qual motor — e, portanto, qual contêiner em
-disco — dá suporte a um arquivo INDEXED. **O modo de armazenamento padrão é
-`DISK`** (quando não há cláusula `STORAGE`). `WITH COMPRESSION` vale para
-qualquer um dos modos; `WITH PERSISTENCE` vale somente para `MEMORY`.
+A cláusula `STORAGE MODE` seleciona qual o motor — e portanto qual o contentor em
+disco — que suporta um ficheiro INDEXED. **O modo de armazenamento por omissão é
+`DISK`** (quando não há cláusula `STORAGE`). O `WITH COMPRESSION` aplica-se a
+qualquer um dos modos; o `WITH PERSISTENCE` aplica-se apenas a `MEMORY`.
 
-| Modo | Motor | Contêiner | Observações |
-|------|-------|-----------|-------------|
-| `MEMORY` | `BTreeMap` em RAM (`indexed.rs`) | `PRCIDX1` (este documento) | arquivo inteiro na memória; **efêmero por padrão** — `COMMIT` nunca grava em disco. Com `WITH PERSISTENCE`, é salvo em `PRCIDX1` apenas no `CLOSE`. `OPEN OUTPUT` sempre (re)cria o contêiner. |
-| `DISK` (padrão) | árvore B+ paginada e persistente (`indexed_disk.rs`) | `PRCIDXD1` | registros + índices lidos sob demanda; RAM limitada; sempre persistente (gravações por operação, `fsync` no `COMMIT`/`CLOSE`) |
+| Modo | Motor | Contentor | Notas |
+|------|--------|-----------|-------|
+| `MEMORY` | `BTreeMap` em RAM (`indexed.rs`) | `PRCIDX1` (este documento) | o ficheiro inteiro em memória; **efémero por omissão** — o `COMMIT` nunca escreve em disco. Com `WITH PERSISTENCE`, é guardado como `PRCIDX1` apenas no `CLOSE`. O `OPEN OUTPUT` (re)cria sempre o contentor. |
+| `DISK` (por omissão) | armazém redb à prova de falhas (`indexed_redb.rs`) desde a 1.62.73; o B+tree paginado (`indexed_disk.rs`) com `--indexed-engine rust` | o do próprio redb, ou `PRCIDXD1` para o motor paginado | registos e índices lidos a pedido; RAM limitada; sempre persistente (escritas por operação, `fsync` no `COMMIT`/`CLOSE`) |
 
-O contêiner de disco **`PRCIDXD1`** é um único arquivo paginado (páginas de
+O contentor de disco **`PRCIDXD1`** é um único ficheiro paginado (páginas de
 4 KiB):
 
-* **página 0** — cabeçalho: as raízes (uma árvore B+ por chave), o início da
-  lista de livres, o id da próxima página, o contador de `RecordId`, a
-  quantidade de registros, o esquema de chaves e o sinalizador de compressão.
-* **páginas de árvore B+** — nós internos / folha (empacotados em bytes de
-  tamanho variável, divididos na inserção, com folhas duplamente encadeadas para
-  varreduras ordenadas).
-* **páginas de dados** — células de registro com slots (vários registros por
-  página), mais uma cadeia de páginas de estouro para registros maiores que uma
-  página.
+* **página 0** — cabeçalho: raízes (um B+tree por chave), cabeça da lista livre,
+  próximo identificador de página, contador de `RecordId`, número de registos, o
+  esquema de chaves e a marca de compressão.
+* **páginas de B+tree** — nós internos e folha (empacotados em bytes de tamanho
+  variável, com divisão na inserção e folhas duplamente ligadas para varrimentos
+  ordenados).
+* **páginas de dados** — células de registo com ranhuras (vários registos por
+  página), mais uma cadeia de páginas de transbordo para registos maiores do que
+  uma página.
 * **páginas de diretório** — o mapa `RecordId` → localização física.
-* uma **lista de livres** encadeia as páginas liberadas para reutilização.
+* uma **lista livre** encadeia as páginas libertadas para reutilização.
 
-`WITH COMPRESSION` (`compress.rs`) é um RLE no estilo PackBits, sem
-dependências, aplicado a cada registro armazenado (`PRCIDXD1`) ou a cada
-registro da seção de registros (`PRCIDX1`); um marcador de um byte garante que a
-codificação nunca cresça, e o cabeçalho do contêiner registra que a compressão
-está ativa.
+O `WITH COMPRESSION` (`compress.rs`) é um RLE ao estilo PackBits sem dependências,
+aplicado a cada registo guardado (`PRCIDXD1`) ou a cada registo da secção de
+registos (`PRCIDX1`); uma etiqueta de um byte garante que a codificação nunca
+cresce, e o cabeçalho do contentor regista que a compressão está ligada.
 
-> O `PRCIDXD1` serve ao armazenamento nativo do modo DISK. Os metadados
-> descobríveis e voltados à importação da Fujitsu descritos acima pertencem ao
-> contêiner `PRCIDX1` (modo MEMORY); um importador deve mirar no `PRCIDX1` a
-> menos que precise especificamente do layout paginado em disco.
+> O `PRCIDXD1` destina-se ao armazenamento nativo em modo DISK. Os metadados
+> descobríveis e orientados à importação da Fujitsu descritos acima são os do
+> contentor `PRCIDX1` (modo MEMORY); um importador deve visar o `PRCIDX1`, a menos
+> que precise especificamente da disposição paginada em disco.
 
 ## Compatibilidade retroativa
 
-* `PRCIDX1` (número mágico `PRCIDX1\0`) — formato autodescritivo atual do modo
+* `PRCIDX1` (número mágico `PRCIDX1\0`) — o formato autodescritivo atual de modo
   MEMORY (leitura + escrita).
-* `PRCIDXD1` (número mágico `PRCIDXD1`) — contêiner de árvore B+ paginada do
-  modo DISK.
-* `PRCISAM1` (número mágico `PRCISAM1`) — contêiner legado apenas com registros
-  (somente leitura; regravado como `PRCIDX1` no próximo `CLOSE` de uma abertura
-  com escrita).
-* Qualquer outro conteúdo — tratado como um arquivo vazio.
+* `PRCIDXD1` (número mágico `PRCIDXD1`) — contentor paginado de B+tree em modo
+  DISK.
+* `PRCISAM1` (número mágico `PRCISAM1`) — contentor antigo só com registos
+  (apenas leitura; volta a ser guardado como `PRCIDX1` no `CLOSE` seguinte de uma
+  abertura com escrita).
+* Qualquer outro conteúdo — tratado como um ficheiro vazio.
 
 ---
 
 ## Futuro caminho de importação da Fujitsu
 
-O fluxo de migração pretendido (tudo fora do escopo do PowerRustCOBOL hoje):
+O fluxo de migração previsto (hoje, todo ele fora do âmbito do PowerRustCOBOL):
 
 ```text
-runtime da Fujitsu
-  └─ cobfa_indexinfo()  → formato de registro, comprimento de registro, lista de chaves (primária + alternativas)
-  └─ exportação sequencial → cargas úteis dos registros
+Fujitsu runtime
+  └─ cobfa_indexinfo()  → record format, record length, key list (primary + alternates)
+  └─ sequential export  → record payloads
         │
         ▼
-  conversor (futuro, externo)
-        │  monta IndexedFileInfo + registros
+  converter (future, external)
+        │  builds IndexedFileInfo + records
         ▼
-  arquivo PRCIDX1  → aberto nativamente pelo PowerRustCOBOL
+  PRCIDX1 file  → opened natively by PowerRustCOBOL
 ```
 
 Como o `PRCIDX1` já consegue *representar* chaves compostas, codificações de
-chave, ordenação de chaves, política de duplicatas, limites de registros de
-comprimento variável e nomes de campos-chave, o conversor só precisa traduzir os
-metadados da Fujitsu para `IndexedFileInfo` e transmitir os registros — nenhuma
-mudança de formato no PowerRustCOBOL é necessária.
+chave, ordenação de chave, política de duplicados, limites de registos de
+comprimento variável e nomes dos campos-chave, ao conversor resta apenas traduzir
+os metadados da Fujitsu para `IndexedFileInfo` e debitar os registos — nenhuma
+alteração de formato do PowerRustCOBOL é necessária.
 
-**Não** tente interpretar os bytes `cobidx`/`cobi64` brutos da Fujitsu. A
-documentação pública da Fujitsu expõe os metadados por meio das File Access
-Subroutines, mas não publica o layout físico dos bytes.
+**Não** tente analisar os bytes em bruto de `cobidx`/`cobi64` da Fujitsu. A
+documentação pública da Fujitsu expõe os metadados através das File Access
+Subroutines, mas não publica a disposição física dos bytes.
+
+.<<
