@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.119] — 2026-09-11
+
+### The files that tell an agent how to work were the most wrong of all
+
+`CONVENTIONS.md` and `AGENTS.md` are read before anything is touched, which makes
+their drift the most expensive kind.
+
+**`CONVENTIONS.md`** named **egui 0.29** twice, in two different behavioural
+notes, while `specs/steering/tech.md` already said 0.36 — the two steering files
+disagreeing with each other. The version is now simply gone from both: the
+behaviour described (axis-aligned clipping only; nested resizable panels
+renegotiating every frame) is not a property of one release, and a pinned number
+inside a behavioural note rots exactly this way. It also still required the
+commit trailer `Claude Opus 4.8`; every one of the last eleven commits says
+**Opus 5**, and `CLAUDE.md` had already recorded that as settled.
+
+**`AGENTS.md`** embedded a verbatim copy of an old root `Cargo.toml`, wrong six
+ways at once: eleven members (there are seventeen), `version 0.1.0` (0.2.0),
+`license MIT OR Apache-2.0` (Apache-2.0), a `keywords` entry for `"fujitsu"` the
+real manifest does not carry, and **`rust-version 1.75` repeated five times**
+across the file when the MSRV is **1.92**. An agent reading it would have refused
+language features available since 2024.
+
+### A count I got wrong while checking a count
+
+`CLAUDE.md` said **16 workspace members** and I confirmed it, twice, from a
+`grep -c` of `Cargo.toml`. It is **17**: two members share a line in that file,
+so the naive count is one short — and the missing crate, `cobolt-dap`, was absent
+from the crate table entirely.
+
+`cargo metadata --no-deps` is the authority and now says so in the table's own
+header, because this is the third time in one audit that a mechanical check
+accused a correct claim or excused a wrong one. The others: `Cargo.lock` holding
+two versions of `image`/`thiserror`/`tokenizers`, and a theme list whose last
+entry has no trailing comma.
+
 ## [PowerRustCOBOL 1.65.118] — 2026-09-11
 
 ### The dependency list named two crates that are not in the project, and a whole section of features that no longer exist

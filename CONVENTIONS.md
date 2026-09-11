@@ -105,7 +105,7 @@ still is not — that is using a tool, not authoring code.
 
 - **Do nothing irreversible/outward-facing unless explicitly asked.** "commit", "merge", "push", and "publish" are distinct — perform only what was requested.
 - Commit messages **must end with**:
-  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
+  `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`
 - Stage only the files your change touches. Do **not** stage unrelated untracked files (e.g. `.agents/`, `AGENTS.md`).
 - If making a PR, end the body with the Claude Code "Generated with" line.
 
@@ -178,7 +178,7 @@ still is not — that is using a tool, not authoring code.
   - `render::render_faces` — the designer canvas (static faces + editor overlay on top).
   - Both wrap the single source-of-truth `paint::draw_control`.
 - Keep **parity** between surfaces — see the test `engine_reference_form_parity_static_vs_faces`.
-- egui (0.29) only clips **axis-aligned** rects: no rounded clip, no stencil, no mid-frame
+- egui only clips **axis-aligned** rects: no rounded clip, no stencil, no mid-frame
   render-to-texture. Plan rounded-corner work around that limitation.
 
 ## UI conventions
@@ -224,7 +224,7 @@ still is not — that is using a tool, not authoring code.
 
 - **egui resizable panes:** never use `egui::TopBottomPanel::show_inside(...)`
   (or the equivalent `SidePanel::show_inside(...)`) for panes the user must resize.
-  In egui 0.29, nested resizable panels renegotiate their parent rectangle every
+  In egui, nested resizable panels renegotiate their parent rectangle every
   frame and can snap the pane back to its minimum size. Use a top-level panel,
   a manual splitter, or persisted explicit pane dimensions instead.
 

@@ -40,9 +40,15 @@ members = [
     "crates/cobolt-stdlib",
     "crates/cobolt-cli",
     "crates/cobolt-forms",
+    "crates/cobolt-indexed",
+    "crates/cobolt-media",
     "crates/cobolt-codegen",
     "crates/cobolt-compiler",
+    "crates/cobolt-form-host",
+    "crates/cobolt-dap",
     "crates/cobolt-ide",
+    "crates/cobolt-agents",
+    "crates/cobolt-bench",
 ]
 resolver = "2"
 ```
@@ -60,23 +66,23 @@ Shared workspace package metadata:
 
 ```toml
 [workspace.package]
-version      = "0.1.0"
+version      = "0.2.0"
 edition      = "2021"
-rust-version = "1.75"
-license      = "MIT OR Apache-2.0"
+rust-version = "1.92"
+license      = "Apache-2.0"
 repository   = "https://github.com/yourusername/cobolt"
 homepage     = "https://github.com/yourusername/cobolt"
-keywords     = ["cobol", "ide", "interpreter", "fujitsu", "powercobol"]
+keywords     = ["cobol", "ide", "interpreter", "powercobol"]
 categories   = ["development-tools", "compilers"]
 ```
 
 The project must remain compatible with:
 
 - Rust edition `2021`
-- Minimum Rust version `1.75`
+- Minimum Rust version `1.92`
 - Cargo workspace resolver `2`
 
-Do not introduce language features, dependencies, or build behavior that require a Rust version newer than `1.75` unless explicitly requested.
+Do not introduce language features, dependencies, or build behavior that require a Rust version newer than `1.92` unless explicitly requested.
 
 Shared workspace dependencies are pinned in the root `Cargo.toml`:
 
@@ -403,7 +409,7 @@ When modifying crate dependencies:
 
 - Check the root `[workspace.dependencies]` first.
 - Prefer `dependency.workspace = true` in member crates.
-- Keep the workspace compatible with Rust `1.75`.
+- Keep the workspace compatible with Rust `1.92`.
 - Keep resolver `2`.
 - Avoid dependency drift.
 - Avoid adding unused dependencies.
@@ -644,7 +650,7 @@ Summarize:
 
 16. Style expectations.
 
-Use idiomatic Rust compatible with Rust `1.75`.
+Use idiomatic Rust compatible with Rust `1.92`.
 
 Prefer:
 
