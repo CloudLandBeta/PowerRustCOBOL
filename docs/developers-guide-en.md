@@ -9271,7 +9271,8 @@ A rough mental map to speed you up. These are *analogies*, not exact equivalents
 - **Data Binding Guardian** — the validator that checks bindings before a save,
   run, debug, Check, Build or package, reporting Blockers, Warnings and Info.
 - **Engine** — the storage backend for indexed files, chosen with
-  `rcrun --indexed-engine` (`rust` is the default; `redb` is the crash-safe one).
+  `rcrun --indexed-engine`. The default is the crash-safe **`redb`** engine; the
+  older paged `rust` engine is still there by name.
 - **Event** — something the user or the system does; named `onSomething`.
 - **`EXEC RUST` block** — a block of host-language code embedded in a handler,
   compiled into the application at Build (§13). It reaches the form through

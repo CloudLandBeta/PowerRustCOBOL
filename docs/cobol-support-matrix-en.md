@@ -251,12 +251,12 @@ Everything in this section is a platform extension around the standard
 
 | Capability | 85 | 20xx | PRC | Status | Notes |
 |---|:--:|:--:|:--:|:--:|---|
-| `STORAGE [MODE] IS DISK` | — | — | ● | ✅ | **The default.** Persistent paged B+tree; records and indexes live in the `ASSIGN` file and are read on demand, so RAM stays bounded on very large files |
+| `STORAGE [MODE] IS DISK` | — | — | ● | ✅ | **The default storage mode.** Records and indexes live in the `ASSIGN` file and are read on demand, so RAM stays bounded on very large files. Served by the crash-safe redb engine since 1.62.73; the older paged B+tree is still reachable with `--indexed-engine rust` |
 | `STORAGE [MODE] IS MEMORY` | — | — | ● | ✅ | Whole file in RAM, persisted to the `ASSIGN` path on close |
 | `WITH [DATA] COMPRESSION` | — | — | ● | ✅ | Dependency-free RLE; crushes the padded runs in typical COBOL records well past 50 % |
 | Program-controlled `COMMIT` / `ROLLBACK` | — | — | ● | ✅ | Real undo log, memory and disk engines |
 | Record locking within a run unit | — | ○ | ● | ✅ | See the cross-process caveat above |
-| Selectable engine (`--indexed-engine rust\|rm-cobol85\|fujitsu\|redb`) | — | — | ● | ✅ | Also `COBOL_INDEXED_ENGINE`; all behaviour-compatible, `rust` is the default |
+| Selectable engine (`--indexed-engine rust\|rm-cobol85\|fujitsu\|redb`) | — | — | ● | ✅ | Also `COBOL_INDEXED_ENGINE`; all behaviour-compatible. **`redb` is the default** since 1.62.73 (`cobolt-runtime/src/indexed.rs:126`) |
 | `redb` crash-safe ACID engine | — | — | ● | ✅ | O(1) OPEN (~5 ms at 200 k records), working-set RAM (≥250 M records), survives power loss with no index corruption |
 | Self-describing `PRCIDX1` container | — | — | ● | ✅ | Embeds record format + key descriptors; strict open-time validation maps schema mismatch → `39`, missing file → `35`. Not byte-compatible with Fujitsu |
 | Per-file transaction log (`--indexed-log basic\|full`) | — | — | ● | ✅ | logfmt or Grafana/Loki-ready NDJSON — see [`observability-en.md`](observability-en.md) |

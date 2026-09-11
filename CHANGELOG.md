@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.117] — 2026-09-11
+
+### The rest of the redb claim, including one inside the guide that was just reviewed
+
+Three more documents said the old engine was the default. Two were expected; the
+third was not:
+
+- `docs/cobol-support-matrix-en.md` in two rows — "`rust` is the default", and a
+  `STORAGE IS DISK` row describing the paged B+tree as what serves it. The
+  *storage mode* half of that row was right and is kept; only the engine
+  sentence changed.
+- **`docs/developers-guide-en.md`** — the glossary's **Engine** entry:
+  "`rust` is the default; `redb` is the crash-safe one". The Guide had a review
+  pass recently and still carried it, which is the argument for checking claims
+  against the source rather than re-reading prose.
+
+A whole-repository sweep for the three phrasings this class takes now comes back
+empty across every English document.
+
+### Two mechanical sweeps that came back clean
+
+Worth recording, because a clean result is evidence too and stops the next
+person re-running them:
+
+- **Every `cobolt-*` crate named in any English document exists.** The two
+  apparent exceptions in `AGENTS.md` are it quoting `Cargo.toml`'s own
+  commented-out members, which really are commented out (`Cargo.toml:22`).
+- **Every `docs/…md` path referenced resolves**, with one exception that is
+  correct: `specs/steering/docs.md` lists `docs/compiler-manual-en.md` and marks
+  it **planned** in both places it appears.
+
 ## [PowerRustCOBOL 1.65.116] — 2026-09-11
 
 ### Run 19's two failures: a checkbox that cannot be transparent, and Finder not letting go
