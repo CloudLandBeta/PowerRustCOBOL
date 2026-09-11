@@ -1,5 +1,114 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.123] — 2026-09-11
+
+### The Walkthrough, part two: wired in
+
+Spec 059 is complete. Open a project on a machine that has not seen the tour and
+it runs: the IDE dims, one component stays lit, and a balloon points at it.
+
+**The tree publishes the rects it was already computing.** `show_category` and
+the root node both build a header `Response` and drop it; they now put it in a
+typed `Anchors` beside `hovered_dir`, cleared in the same place and on the same
+frame. Keyed on `Category` — a `Copy` enum — and never on a label, because the
+tree's own header id is `make_persistent_id(("project_cat", label))` with the
+**localized** label inside it. That is exactly why `app.rs` cannot look these up
+itself, and why a string key would break the moment the UI language changed.
+
+The rect taken is `header_inner.response.rect`, the full-width row — **not**
+`.inner.rect`, which is that row's `max_rect` *after* the icon and would light a
+spotlight starting mid-row. A test asserts the published rect is wider than
+40 px for exactly that reason.
+
+**The tour owns the keyboard, in one line.** `take_keys` is the first statement
+of `ui()` — before `doc_shots.poll` reads F12, before `handle_shortcuts` reads
+the rest. Every key reader in this crate bottoms out in `InputState::events`, so
+emptying it once stops all of them, `TextEdit` included. `Esc` is taken first, or
+it would be discarded with everything else. The pointer is handled separately by
+`set_modal_layer`, because egui's modal layer blocks the pointer and **not** keys
+— a distinction this codebase already learned once, at `app.rs:11027`.
+
+**Starting is an edge, not a state.** `cobolt_project` is assigned in two places,
+so a hook in either would miss the other; an edge in `ui()` covers both and any
+future third, and fires after the project panel exists. It **defers** while the
+first-run Rust prompt, the AI-setup invitation or a build modal is up — two modal
+layers fighting on a developer's first run is the one way this could look broken
+on day one — and holds the edge pending rather than losing it.
+
+**Help → IDE Walkthrough seen** is the replay switch. It shows the flag, so
+*unchecking* it means "I have not seen this", which starts the tour on the same
+frame. With no project open the entry explains on hover that one is needed, and
+clearing the flag arms the edge so it runs when a project arrives.
+
+### What the tests actually check
+
+13 in all. The two that would catch a real regression:
+
+- **`every_tree_step_finds_the_row_the_tree_painted`** renders the real panel and
+  asserts every tree step's anchor resolves to a rect **the frame published** —
+  not to an expected coordinate, which could agree with neither the tree nor the
+  spotlight.
+- **`anchors_are_cleared_when_the_tree_stops_drawing_them`** renders with a
+  project, then without, and asserts nothing survived. A stale rect is a
+  spotlight on empty space.
+
+Full sweeps green: cobolt-ide **1157 passed / 0 failed**, cobolt-forms
+**768 + 12 passed / 0 failed** with the parity guard intact.
+
+The Developer's Guide gains a Walkthrough section under §5 (GOLDEN RULE #3),
+including the screenshot placeholder for step 2.
+
+## [PowerRustCOBOL 1.65.122] — 2026-09-11
+
+### The Walkthrough, part one: the tour itself
+
+Spec 059's first half — the machine flag, the six steps in all six languages,
+and the module that draws them. Nothing is wired into the IDE yet; that is the
+next change.
+
+**`panels/walkthrough.rs`** owns the tour and deliberately knows nothing about
+`CoboltApp` or `ProjectPanel`. It is handed the rects the frame actually painted
+and returns whether the tour ended and what it needs revealed. That is what makes
+it testable at all: `CoboltApp` cannot be constructed in a test — it needs an
+`eframe::CreationContext` — so a tour that reached into it could only be checked
+by driving the application, which this project does not do.
+
+**The dim is four rectangles, not one.** `egui::Modal` paints its backdrop as a
+single `rect_filled` over the content rect and offers no way to cut a hole in it.
+A spotlight is the hole, so the bands are painted *around* the target and the
+component simply keeps its own pixels. A test asserts they cover the screen minus
+the target exactly and never overlap it.
+
+**The balloon is sized by its text and nothing else.** Width is a constant; height
+comes from the laid-out galleys. Never `available_width()`, never the window — a
+window may never resize itself, and a balloon measured against the window is how
+that starts. `a_balloon_never_grows_with_the_window` pins it by placing the same
+balloon on a 900×600 and a 2560×1400 screen and asserting the size is identical.
+
+**Where the tail points is arithmetic, not eyeballing.** `place_balloon` tries
+right, left, below, above — right first because five of the six targets live in
+the left-hand tree, so the balloon lands over the central pane pointing back at
+it; the sixth spans the full width, so `Above` wins on its own. The tip is pulled
+six pixels *inside* the target, and the test drives a target against each screen
+edge in turn and asserts the tip lands inside it every time while the body stays
+on screen.
+
+**Legibility is measured on all 32 themes.** The fill and text are a fixed pair
+on purpose: the balloon always sits on the same dim field, so there is nothing
+theme-dependent for it to adapt to, and deriving ink from `ui.visuals()` is what
+renders dark-on-dark under the glass themes. What follows the theme is the
+decoration — the ring around the lit component and the balloon's border. The Next
+button takes the accent **only when white reads on it**, checked with
+`contrast_ratio`, and keeps the charcoal otherwise.
+
+`Step::anchor()` holds the one equivalence nothing else states: **the Knowledge
+Base node is `Category::Documentation`** in the tree. A test asserts it rather
+than trusting the variant name.
+
+`ui_prefs` gains `walkthrough_shown`, beside `rust_check_done` and for the same
+reason — a tour of the IDE is learned once per machine, not once per project.
+Unlike its neighbour it can be *cleared*, because unchecking the Help item is
+what replays the tour.
 ## [PowerRustCOBOL 1.65.121] — 2026-09-11
 
 ### The syntax reference said INVOKE does nothing. It has an executor

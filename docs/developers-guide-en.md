@@ -1215,6 +1215,37 @@ a translation has not been written yet, that row falls back to the English text
 rather than vanishing, so the list is the same length whichever language you
 read in.
 
+### The Walkthrough
+
+The first time you open a project on a new machine, the IDE dims itself and
+introduces its six main parts, one at a time: **Project settings**, **Forms**,
+**Indexed Files**, **Assets**, the **Knowledge Base**, and the **Output pane**.
+Each step lights the component it is describing and points a speech balloon at
+it, so there is never any doubt which part of the window is meant.
+
+Use **Next** and **Back** to move through it, **Skip** or `Esc` to leave at any
+point. Nothing else in the IDE responds while it is up — that is deliberate, so
+a stray click cannot half-dismiss it.
+
+It runs **once per machine**, not once per project: it describes the IDE, and
+you only need to learn the IDE once. However you leave it — finishing, Skip or
+`Esc` — it does not come back on its own.
+
+> **Replaying it.** **Help → IDE Walkthrough seen** is a tick box showing
+> whether you have been through it. Clear the tick and the tour starts again
+> immediately. With no project open the entry explains that one is needed
+> first — five of the six parts it points at are nodes in the project tree, and
+> they do not exist until a project is loaded.
+
+The tour never rearranges anything. It will scroll the project tree so the part
+it is describing is visible, but it does not expand categories, open forms, or
+change what you had on screen. When it ends you are exactly where you left off.
+
+📷 Screenshot needed — `walkthrough-step.png`. Open a project on a machine
+where the tour has not run (or clear **Help → IDE Walkthrough seen**), and
+capture step 2 — the one pointing at **Forms** — so the dimmed IDE, the lit
+tree row and the balloon's tail are all visible in one frame.
+
 ---
 
 ## 6. Projects and the project model

@@ -35,6 +35,17 @@ pub struct UiPrefs {
     /// default, and what an older `ui.toml` reads as) means "not asked yet",
     /// which is what makes the *first* run the first run.
     pub rust_check_done: bool,
+    /// The IDE Walkthrough has been shown on this machine (spec 059 R9).
+    ///
+    /// Machine-level, beside `rust_check_done` and for the same reason: a tour
+    /// of the IDE is learned once, not once per project, and a colleague
+    /// opening the same project must not inherit someone else's answer. False
+    /// — the default, and what an older `ui.toml` reads as — means "not shown
+    /// yet", which is what makes the first project open the first one.
+    ///
+    /// Unlike `rust_check_done` this one can be **cleared**: unchecking the
+    /// Help-menu item is how a developer replays the tour (R11).
+    pub walkthrough_shown: bool,
     /// Where the platform SDK — the Rust sources a built application compiles
     /// against — lives on this machine. Empty (the default) means "look for it
     /// yourself", which is what an install that ships the SDK beside the
@@ -126,6 +137,21 @@ pub fn mark_rust_check_done() {
     prefs.save();
 }
 
+/// Has the IDE Walkthrough already been shown on this machine? (Spec 059 R7.)
+pub fn walkthrough_shown() -> bool {
+    UiPrefs::load().walkthrough_shown
+}
+
+/// Record whether the Walkthrough has been shown (load-then-save).
+///
+/// Takes a value rather than only setting it: R11 requires the Help-menu item
+/// to *clear* the flag, which is what replays the tour.
+pub fn set_walkthrough_shown(shown: bool) {
+    let mut prefs = UiPrefs::load();
+    prefs.walkthrough_shown = shown;
+    prefs.save();
+}
+
 /// The configured platform SDK folder, or `None` to let the compiler search.
 ///
 /// A blank entry is `None` rather than an empty path: an empty string would
@@ -180,6 +206,7 @@ mod tests {
             beautify_verbs: "capitalize".into(),
             beautify_align_comments: true,
             rust_check_done: true,
+            walkthrough_shown: true,
             workspace_root: "/opt/powerrustcobol-sdk".into(),
         };
         let back: UiPrefs = toml::from_str(&toml::to_string_pretty(&p).unwrap()).unwrap();
@@ -206,6 +233,12 @@ mod tests {
     fn an_older_prefs_file_has_not_been_asked_yet() {
         let older: UiPrefs = toml::from_str("language = \"fr\"\n").unwrap();
         assert!(!older.rust_check_done);
+        assert!(
+            !older.walkthrough_shown,
+            "a ui.toml written before the Walkthrough existed must read as \
+             'not shown yet', or upgrading the IDE would silently skip the one \
+             showing it gets"
+        );
         assert_eq!(older.language, "fr");
     }
 }

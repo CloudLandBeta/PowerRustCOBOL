@@ -157,6 +157,14 @@ pub struct ProjectPanel {
     /// Project-relative folder currently under the pointer (updated each frame),
     /// used as the destination for an OS file-manager drop (spec 033, R10).
     hovered_dir: Option<String>,
+    /// Screen rects of the Walkthrough's tree anchors (spec 059 R2/R16),
+    /// recomputed every frame exactly like `hovered_dir` and `nav_rows`.
+    ///
+    /// Published rather than looked up by the caller because the tree's own
+    /// header id is `make_persistent_id(("project_cat", label))` with the
+    /// **localized** label in it — `app.rs` cannot reconstruct it, and a key
+    /// built from the label would break the moment the UI language changed.
+    anchors: crate::panels::walkthrough::Anchors,
     /// Ordered list of navigable rows for the current frame, in visible order,
     /// driving arrow-key navigation (spec 033, R15–R18).
     nav_rows: Vec<NavRow>,
@@ -191,6 +199,7 @@ impl Default for ProjectPanel {
             hovered_dir: None,
             nav_rows: Vec::new(),
             scroll_to_key: None,
+            anchors: Default::default(),
         }
     }
 }
@@ -263,6 +272,21 @@ fn full_width_select(
     resp
 }
 
+/// A scroll key for a Walkthrough anchor (spec 059 R16).
+///
+/// Built from `Category::root_subdir()` — stable and **not** localized, unlike
+/// the tree's own header ids. The `wt:` prefix keeps these out of the selection
+/// namespace, where `project:root` already lives, so a reveal request can never
+/// be mistaken for a selection.
+fn walkthrough_scroll_key(anchor: crate::panels::walkthrough::Anchor) -> String {
+    use crate::panels::walkthrough::Anchor;
+    match anchor {
+        Anchor::ProjectRoot => "wt:root".to_owned(),
+        Anchor::Category(c) => format!("wt:cat:{}", c.root_subdir()),
+        Anchor::OutputPanel => "wt:output".to_owned(),
+    }
+}
+
 impl ProjectPanel {
     pub fn new() -> Self {
         Self::default()
@@ -325,6 +349,21 @@ impl ProjectPanel {
         self.hovered_dir.as_deref()
     }
 
+    /// Where the Walkthrough's tree anchors were painted this frame (spec 059).
+    pub fn walkthrough_anchors(&self) -> &crate::panels::walkthrough::Anchors {
+        &self.anchors
+    }
+
+    /// Ask the tree to bring a Walkthrough anchor into view next frame (R16).
+    ///
+    /// Sets the same `scroll_to_key` keyboard navigation uses. The two cannot
+    /// collide: keys are taken by the overlay while the tour is running, so no
+    /// navigation can be in flight. The `wt:` prefix keeps these out of the
+    /// selection namespace, where `project:root` already lives.
+    pub fn reveal_walkthrough(&mut self, anchor: crate::panels::walkthrough::Anchor) {
+        self.scroll_to_key = Some(walkthrough_scroll_key(anchor));
+    }
+
     /// The relative path of the currently selected *file* element, if any
     /// (used by the toolbar to gate Debug on a Generated Code selection).
     pub fn selected_file(&self) -> Option<&str> {
@@ -350,6 +389,7 @@ impl ProjectPanel {
         // Recomputed every frame from the folder headers under the pointer.
         self.hovered_dir = None;
         self.nav_rows.clear();
+        self.anchors.clear();
 
         let frame = crate::theme::glass_panel_frame(
             ctx.global_style().visuals.panel_fill,
@@ -539,12 +579,13 @@ impl ProjectPanel {
         ui.spacing_mut().icon_width = 21.0;
         ui.spacing_mut().icon_width_inner = 12.0;
 
-        ScrollArea::vertical()
+        let scroll_out = ScrollArea::vertical()
             .id_salt("project_panel_scroll")
             .show(ui, |ui| {
                 // L1 — the project itself is the root node; categories live under it.
                 let root_id = ui.make_persistent_id("project_root");
                 let mut root_clicked = false;
+                let (_wt_toggle, root_header, _wt_body) =
                 egui::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),
                     root_id,
@@ -573,12 +614,20 @@ impl ProjectPanel {
                         self.show_category(ui, cat, proj, &cur, events, tr);
                     }
                 });
+                // Spec 059 — the rect this header actually painted. Taken from
+                // `response`, the whole horizontal row, not `inner`: `inner` is
+                // this row's `max_rect` *after* the icon, so a spotlight built
+                // from it would start mid-row.
+                self.anchors.root = Some(root_header.response.rect);
+                let key = walkthrough_scroll_key(crate::panels::walkthrough::Anchor::ProjectRoot);
+                self.maybe_scroll_to(ui, &key, root_header.response.rect);
                 if root_clicked {
                     events.push(ProjectPanelEvent::ShowProjectSettings);
                     // Highlight the root as selected (the Select will be consumed after show()).
                     events.push(ProjectPanelEvent::Select("project:root".to_owned()));
                 }
             });
+        self.anchors.viewport = Some(scroll_out.inner_rect);
     }
 
     // ── Tree mode ─────────────────────────────────────────────────────────────
@@ -1066,6 +1115,11 @@ impl ProjectPanel {
         {
             self.hovered_dir = Some(cat.root_subdir().to_string());
         }
+
+        // Spec 059 — same rule as the root node: `response`, the full-width row.
+        self.anchors.categories.push((cat, header_inner.response.rect));
+        let wt_key = walkthrough_scroll_key(crate::panels::walkthrough::Anchor::Category(cat));
+        self.maybe_scroll_to(ui, &wt_key, header_inner.response.rect);
         // Spec 046 R3 — Paste Form lives on the Forms category itself, not
         // a per-file `[+]` (there's no source file to import from — the
         // form comes from the OS clipboard).
@@ -2893,5 +2947,103 @@ mod external_crates_category_rows {
             )),
             "a crate row must never route to file events"
         );
+    }
+}
+
+#[cfg(test)]
+mod walkthrough_anchor_tests {
+    use super::*;
+    use crate::panels::walkthrough::{Anchor, Step};
+
+    fn demo() -> CoboltProject {
+        CoboltProject::new("Demo", "src/main.cbl")
+    }
+
+    /// Render the real panel for one frame and return what it published.
+    fn frame(ctx: &egui::Context, panel: &mut ProjectPanel, proj: Option<&CoboltProject>) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::pos2(0.0, 0.0),
+                egui::vec2(1200.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        ctx.run_ui(input, |root_ui| {
+            let tr = crate::i18n::Language::English.tr();
+            let _ = panel.show(root_ui, proj, &tr);
+        })
+        .textures_delta
+        .clear();
+    }
+
+    /// Every tree step of the tour must find a rect the frame actually painted.
+    ///
+    /// Asserted against the panel's own published anchors rather than against
+    /// expected coordinates: the point is that the rect the spotlight will light
+    /// is the rect the tree drew, and a hard-coded number could agree with
+    /// neither.
+    #[test]
+    fn every_tree_step_finds_the_row_the_tree_painted() {
+        let ctx = egui::Context::default();
+        let mut panel = ProjectPanel::default();
+        let proj = demo();
+        // Two passes: egui needs one to lay out before the rects settle.
+        frame(&ctx, &mut panel, Some(&proj));
+        frame(&ctx, &mut panel, Some(&proj));
+
+        let a = panel.walkthrough_anchors();
+        assert!(a.root.is_some(), "the root node published no rect");
+        assert!(a.viewport.is_some(), "the tree published no viewport");
+
+        for step in Step::ORDER {
+            match step.anchor() {
+                Anchor::OutputPanel => {} // not this panel's to publish
+                Anchor::ProjectRoot => assert!(a.root.is_some()),
+                Anchor::Category(c) => {
+                    let hit = a.categories.iter().find(|(k, _)| *k == c);
+                    let (_, r) = hit.unwrap_or_else(|| {
+                        panic!("{step:?} points at {c:?}, which the tree never published")
+                    });
+                    assert!(
+                        r.width() > 0.0 && r.height() > 0.0,
+                        "{c:?} published an empty rect"
+                    );
+                    assert!(
+                        r.width() > 40.0,
+                        "{c:?} published {r:?} — too narrow to be the full header row, \
+                         which is what `inner` rather than `response` would give"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The rects must not outlive the frame that drew them.
+    #[test]
+    fn anchors_are_cleared_when_the_tree_stops_drawing_them() {
+        let ctx = egui::Context::default();
+        let mut panel = ProjectPanel::default();
+        let proj = demo();
+        frame(&ctx, &mut panel, Some(&proj));
+        frame(&ctx, &mut panel, Some(&proj));
+        assert!(!panel.walkthrough_anchors().categories.is_empty());
+
+        // No project — tree mode draws no categories at all.
+        frame(&ctx, &mut panel, None);
+        let a = panel.walkthrough_anchors();
+        assert!(
+            a.root.is_none() && a.categories.is_empty(),
+            "a rect survived the frame that painted it: {a:?}"
+        );
+    }
+
+    /// The scroll keys are stable and never built from a localized label.
+    #[test]
+    fn reveal_keys_do_not_depend_on_the_ui_language() {
+        let a = walkthrough_scroll_key(Anchor::Category(Category::Documentation));
+        assert_eq!(a, "wt:cat:Knowledge Base");
+        assert_eq!(walkthrough_scroll_key(Anchor::ProjectRoot), "wt:root");
+        // And they cannot collide with the selection namespace.
+        assert!(!a.starts_with("project:"));
     }
 }
