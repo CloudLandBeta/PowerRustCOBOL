@@ -22,7 +22,7 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | `CHANGELOG.md` | current (English only — release notes are not translated) | release notes |
 | `docs/compiler-manual-en.md` | **planned** | CLI / build deep-dive |
 
-> **Every English document carries `-en`** since 1.62.0. The other eight English
+> **Every English document carries `-en`** since 1.62.0. The other nine English
 > docs — `BENCHMARKS`, `BUILDING`, `DEPENDENCIES`, `database-runtime`,
 > `ide-collaboration-design`, `indexed-file-format`, `indexed-file-internals`,
 > `indexed-redb-engine`, `observability` — follow the same `-en` naming and the
@@ -39,7 +39,7 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#indexed-file-editor--grid-browser` | `crates/cobolt-indexed/**`, `crates/cobolt-ide/src/panels/indexed_*.rs`, `crates/cobolt-codegen/src/indexed.rs` | indexed-editor |
 | `…#7-the-form-designer-rad` | `crates/cobolt-ide/src/panels/designer.rs`, `crates/cobolt-forms/**` | designer |
 | `…#8-the-control-catalogue` | `crates/cobolt-forms/**` | controls |
-| `…#per-control-examples` + `examples/README.md` | `examples/**`, `crates/cobolt-codegen/examples/build_examples.rs` | control-examples |
+| `…#per-control-examples` | `examples/**`, `crates/cobolt-codegen/examples/build_examples.rs` | control-examples |
 | `…#11-talking-to-the-ui-from-cobol` | `crates/cobolt-runtime/**` (dispatch), `crates/cobolt-codegen/**` | ui-calls |
 | `…#12-generated-code` | `crates/cobolt-codegen/**` | codegen |
 | `…#13-the-rustcobol-language` | `crates/cobolt-{lexer,parser,semantic,runtime,stdlib}/**` | language |

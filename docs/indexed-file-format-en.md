@@ -156,7 +156,7 @@ The CRC is validated on load; a mismatch yields FILE STATUS `90` (I/O error).
 ## Discovery API
 
 ```rust
-use cobolt_runtime::IndexedFile; // (engine type)
+use cobolt_runtime::indexed::IndexedFile; // (engine type — not re-exported at the crate root)
 
 // Read just the schema, without opening the file for I/O:
 let info: Option<IndexedFileInfo> = IndexedFile::inspect_path("customers.idx")?;
@@ -195,7 +195,7 @@ no `STORAGE` clause is present). `WITH COMPRESSION` applies to either mode;
 | Mode | Engine | Container | Notes |
 |------|--------|-----------|-------|
 | `MEMORY` | in-RAM `BTreeMap` (`indexed.rs`) | `PRCIDX1` (this document) | whole file in memory; **ephemeral by default** — `COMMIT` never writes to disk. With `WITH PERSISTENCE`, saved to `PRCIDX1` on `CLOSE` only. `OPEN OUTPUT` always (re)creates the container. |
-| `DISK` (default) | persistent paged B+tree (`indexed_disk.rs`) | `PRCIDXD1` | records + indexes read on demand; bounded RAM; always persistent (per-op writes, `fsync` on `COMMIT`/`CLOSE`) |
+| `DISK` (default) | crash-safe redb store (`indexed_redb.rs`) since 1.62.73; the paged B+tree (`indexed_disk.rs`) with `--indexed-engine rust` | redb's own, or `PRCIDXD1` for the paged engine | records + indexes read on demand; bounded RAM; always persistent (per-op writes, `fsync` on `COMMIT`/`CLOSE`) |
 
 The **`PRCIDXD1`** disk container is a single paged file (4 KiB pages):
 

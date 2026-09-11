@@ -22,7 +22,7 @@ Three pieces:
 - **RustCOBOL** — the COBOL-85 runtime/interpreter and language subset.
 - **PowerRustCOBOL IDE** — the egui/eframe desktop app (form designer, editor,
   debugger, project model, AI assistant, documentation viewer).
-- **rcrun** — the CLI: run · check · build · package.
+- **rcrun** — the CLI: run · check · build · package · run-form · run-form-ipc.
 
 ## Who it's for
 

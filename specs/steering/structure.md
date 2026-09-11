@@ -14,7 +14,8 @@ crates/                  Rust workspace members (see tech.md table)
   cobolt-ide/src/
     app.rs               IDE app: menus, actions, modals, project glue
     i18n.rs              Tr table + Language enum (6 languages)
-    fonts.rs             font loading (base_font_definitions: Latin + CJK)
+    fonts.rs             one-line re-export of cobolt-forms::fonts
+                         (base_font_definitions lives in cobolt-forms)
     main.rs              eframe entry, window icon
     panels/              editor, designer, properties, project, doc_viewer,
                          settings_form, toolbar, output, debugger, md_render
@@ -23,7 +24,8 @@ docs/
   developers-guide-*.md  Translations — USER-MAINTAINED, do not edit
 assets/images/           Mascot, icon, banners, backgrounds
 specs/                   Spec-driven development (this tree)
-  steering/              product.md · tech.md · structure.md
+  steering/              product.md · tech.md · structure.md · docs.md ·
+                         doc-style.md
   templates/             spec.md · plan.md · tasks.md
   NNN-<slug>/            One folder per feature: spec.md → plan.md → tasks.md
 CHANGELOG.md             Per-release notes (bump with features)

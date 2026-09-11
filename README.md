@@ -258,13 +258,15 @@ isolation.
 Its handlers are written in the extended dialect rather than the long form —
 inline calls on a control, direct writes to a property, `::` chaining, block
 literals — and 30 of the forms explain every line that uses an extension in all
-six interface languages: 484 annotations apiece in English, Portuguese,
+six interface languages: 465 annotations apiece in English, Portuguese,
 Spanish, French, Japanese and Chinese.
 
 ## Running applications
 
-A PowerRustCOBOL AI **project** is a directory with a `<project name>.toml` manifest plus its
-`.cbl` sources and `.cfrm` forms:
+A PowerRustCOBOL AI **project** is a directory with a manifest plus its `.cbl`
+sources and `.cfrm` forms. The IDE names the manifest after the project —
+`PowerDemo3.project.toml` — while `rcrun` defaults to `cobolt.toml` when no path
+is given; either name works, and the examples below use the `rcrun` default:
 
 ```toml
 [project]
@@ -416,6 +418,11 @@ the CLI **rcrun**):
 | `cobolt-codegen`  | Form → RustCOBOL source generator.                                |
 | `cobolt-compiler` | Embed-and-bundle single-binary compiler.                           |
 | `cobolt-cli`      | The`rcrun` command-line tool.                                      |
+| `cobolt-indexed`  | Indexed-file *definition* model — the `.cidx` XML the IDE edits.   |
+| `cobolt-form-host`| The one form host, shared by `rcrun run-form` and built apps.      |
+| `cobolt-dap`      | Wire-compatible Debug Adapter Protocol (client + adapter).         |
+| `cobolt-agents`   | The agentic AI mesh: Grace, specialists, chunked KB / RAG.         |
+| `cobolt-bench`    | Performance + allocation baseline harness.                         |
 | `cobolt-ide`      | The PowerRustCOBOL AI desktop app (egui/eframe).                   |
 
 ```sh

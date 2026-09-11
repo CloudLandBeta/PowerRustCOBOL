@@ -1,5 +1,52 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.120] — 2026-09-11
+
+### A security note that promised TLS the driver cannot speak
+
+`docs/database-runtime-en.md` told anyone reading its **Security & operational
+notes** that "the MySQL driver is built with rustls and negotiates TLS when the
+server requests it". It is built
+`default-features = false, features = ["minimal-rust"]`, and the resolved
+`mysql 28` pulls in **no TLS crate at all** — checked against `Cargo.lock`'s
+dependency list for that exact package. It cannot negotiate a secure connection,
+whatever the server asks for.
+
+That is the worst kind of stale documentation: it does not merely mislead, it
+tells someone a connection is protected when it is not. The note now says so
+plainly for both drivers — PostgreSQL has always been `NoTls` by construction —
+and keeps the proxy/tunnel advice, which is now the only answer rather than a
+PostgreSQL footnote.
+
+### `rcrun help` was the source the doc copied from
+
+`crates/cobolt-cli/src/main.rs:360` printed
+`ISAM engine: rust (default) | …`. The default has been **redb** since 1.62.73.
+`docs/indexed-file-format-en.md:198` carried the same error in the same words,
+which is almost certainly where it came from — so the help text is fixed here
+too, not just the document it fathered.
+
+Also in that file: its example `use cobolt_runtime::IndexedFile;` **does not
+compile**. `IndexedFile` is not in the crate-root `pub use`
+(`cobolt-runtime/src/lib.rs:86`); the path is `cobolt_runtime::indexed::IndexedFile`.
+
+### The rest of the audit's paperwork
+
+- **`README.md`** — "484 annotations apiece" is **465** (counted per language,
+  identical across all six); the crate table listed 12 of 17; and the project
+  manifest was described with a name nothing uses. The IDE writes
+  `<project>.project.toml`, `rcrun` defaults to `cobolt.toml`, and the README
+  used a third spelling while its own examples used the second. It now names
+  both real ones.
+- **`specs/steering/`** — `structure.md` placed `base_font_definitions` in the
+  IDE's `fonts.rs`, which is a one-line re-export; it lives in `cobolt-forms`.
+  It also listed three steering files where there are five. `docs.md` said "the
+  other **eight** English docs" and then listed nine, and its registry pointed at
+  `examples/README.md`, which does not exist. `tech.md` was missing the same five
+  crates as the README and presented `write_header` as callable when it is
+  private (`codegen/src/lib.rs:239`). `product.md`'s `rcrun` line omitted
+  `run-form` and `run-form-ipc`.
+
 ## [PowerRustCOBOL 1.65.119] — 2026-09-11
 
 ### The files that tell an agent how to work were the most wrong of all

@@ -357,7 +357,7 @@ fn cmd_help() {
         "                                         fixed = classic COBOL-85 reference format:\n",
         "                                         cols 1-6 sequence, 7 indicator, 8-72 source,\n",
         "                                         73-80 discarded, continuation lines joined\n",
-        "         [--indexed-engine <name>]       ISAM engine: rust (default) | rm-cobol85 | fujitsu | redb\n",
+        "         [--indexed-engine <name>]       ISAM engine: redb (default) | rust | rm-cobol85 | fujitsu\n",
         "         [--indexed-log <basic|full>]    Per-file INDEXED txn log → <assign-path>.log (redb)\n",
         "         [--indexed-log-format <text|json>]  Log line format (json = NDJSON for Grafana/Loki)\n",
         "  rcrun run-form <form.cfrm> <file.cbl> Run the project's MAIN form in its own GUI window\n",

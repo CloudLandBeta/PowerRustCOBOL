@@ -17,7 +17,7 @@ SQLite runs unchanged against PostgreSQL or MySQL by changing one literal.
 |-------------|---------------------------------------|----------------------------------------------------|
 | **SQLite**  | `rusqlite`, `features = ["bundled"]` — compiles the SQLite **C** amalgamation, so this one is not pure Rust | `:memory:`, `sqlite:<path>`, or a bare file path   |
 | **PostgreSQL** | `postgres` (rust-postgres, sync)   | `postgres://user:pass@host:port/db`                |
-| **MySQL**   | `mysql` (rustls, sync)                | `mysql://user:pass@host:port/db`                   |
+| **MySQL**   | `mysql` (`minimal-rust`, sync, no TLS) | `mysql://user:pass@host:port/db`                  |
 
 All three drivers are statically linked and require **no external client
 library** (`libpq`, `libmysqlclient`) and **no OpenSSL** to build — consistent
@@ -218,10 +218,12 @@ boilerplate paragraphs (`<id>-CONNECT`, `<id>-EXEC`, `<id>-FETCH-ALL`,
 
 ## 6. Security & operational notes
 
-- **TLS.** The MySQL driver is built with rustls and negotiates TLS when the
-  server requests it. The synchronous PostgreSQL driver connects **without
-  TLS** (`NoTls`) — suitable for local sockets and trusted networks. For a
-  PostgreSQL server that requires TLS, terminate TLS at a local proxy
+- **TLS.** ⚠️ **Neither SQL driver speaks TLS today.** The MySQL driver is built
+  with `default-features = false, features = ["minimal-rust"]`, and the resolved
+  `mysql 28` pulls in no TLS crate at all — it cannot negotiate a secure
+  connection, whatever the server asks for. The synchronous PostgreSQL driver
+  connects with `NoTls` by construction. Both are suitable for local sockets and
+  trusted networks. For a server that requires TLS, terminate it at a local proxy
   (e.g. `stunnel`/`pgbouncer`) or run over an SSH tunnel.
 - **SQL injection.** Statements are sent as text. Build queries from trusted
   input, or pre-validate/escape any user-supplied values before composing the

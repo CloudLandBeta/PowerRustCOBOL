@@ -28,9 +28,14 @@ Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
 | `cobolt-runtime` | Tree-walking interpreter, indexed-file engines (in-mem, redb). |
 | `cobolt-stdlib` | Intrinsics / built-ins. |
 | `cobolt-forms` | Form model (`.cfrm`), controls, load/save. |
-| `cobolt-codegen` | Form → COBOL generator (`generate`, `write_header`). |
+| `cobolt-codegen` | Form → COBOL generator (`generate`). |
 | `cobolt-compiler` | Single-binary build (`build_project`). |
 | `cobolt-media` | Media helpers. |
+| `cobolt-indexed` | Indexed-file definition model — the `.cidx` XML. |
+| `cobolt-form-host` | The one form host (spec 042). |
+| `cobolt-dap` | Wire-compatible Debug Adapter Protocol. |
+| `cobolt-agents` | The agentic AI mesh: Grace, specialists, chunked KB / RAG. |
+| `cobolt-bench` | Performance + allocation baseline harness. |
 | `cobolt-ide` | The egui IDE app. |
 | `cobolt-cli` | `rcrun` CLI. |
 
@@ -50,7 +55,7 @@ Always build **and** test the touched crates before declaring a task done.
   languages (EN/ES/PT/JA/ZH/FR) in `crates/cobolt-ide/src/i18n.rs`. No hard-coded
   UI literals.
 - **Generated COBOL:** every RAD-generated `.cbl` starts with the developer
-  banner (`cobolt-codegen::write_header`) and is **regenerated on Build / Run /
+  banner (written by `cobolt-codegen`, internally) and is **regenerated on Build / Run /
   Debug / Check** (`App::regenerate_all_forms`). Never hand-edit generated code.
 - **COBOL identifiers/source stay English**; UI text never says "cobolt".
 - **Docs:** the **English** `docs/developers-guide-en.md` is canonical and kept
