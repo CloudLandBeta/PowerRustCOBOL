@@ -272,7 +272,7 @@ mistura de tipos.
 > **Todos estes estão implementados.** SORT/MERGE/RELEASE/RETURN chegaram na
 > 1.62.119 e o motor RELATIVE na 1.62.76
 > (`crates/cobolt-runtime/src/relative.rs`); o
-> `docs/cobol85-supported-syntax-pt.md` marca-os com ✅. Os eixos de permutação
+> `docs/cobol85-supported-syntax-en.md` marca-os com ✅. Os eixos de permutação
 > abaixo mantêm-se como o plano de testes que sempre foram: descrevem o que falta
 > *cobrir*, não o que falta construir.
 - `SORT f ON {ASCENDING|DESCENDING} KEY k … {USING f…|INPUT PROCEDURE p}

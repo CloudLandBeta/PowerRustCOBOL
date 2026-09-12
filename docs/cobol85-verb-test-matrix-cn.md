@@ -232,7 +232,7 @@ See the LICENSE file in the project root for full license information.
 
 > **这些全部已经实现。** SORT/MERGE/RELEASE/RETURN 在 1.62.119 落地，RELATIVE 引擎
 > 在 1.62.76（`crates/cobolt-runtime/src/relative.rs`）；
-> `docs/cobol85-supported-syntax-cn.md` 已将它们标为 ✅。下面这些排列轴仍按它们本来
+> `docs/cobol85-supported-syntax-en.md` 已将它们标为 ✅。下面这些排列轴仍按它们本来
 > 的身份保留为测试计划：它们说的是还有什么需要*覆盖*，而不是还有什么需要*建造*。
 - `SORT f ON {ASCENDING|DESCENDING} KEY k … {USING f…|INPUT PROCEDURE p}
    {GIVING f…|OUTPUT PROCEDURE p}`；`RELEASE`、`RETURN`。

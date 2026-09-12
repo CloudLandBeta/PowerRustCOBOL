@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.65.136] — 2026-09-11
+
+### The syntax reference goes back to English-only, as the rule says
+
+`docs/cobol85-supported-syntax-{es,pt,fr,jp,cn}.md` are deleted.
+
+They were not half-written. They were complete, structurally identical prose —
+9 H2 sections and 25 H3s, the same as the English — last regenerated at 1.64.1.
+They were *wrong*. The canonical moved twice underneath them and nothing
+followed:
+
+| Version | What changed in the English canonical |
+|---|---|
+| 1.65.6 | the NIST scoreboard was rewritten to derive from `NIST/progress.json` instead of a retyped table |
+| 1.65.121 | `INVOKE` was corrected — the document claimed it does nothing; it has an executor |
+
+That is 136 insertions and 238 deletions of drift, carried by none of the five.
+A reader in any of those languages was being given superseded conformance
+figures and a false statement about `INVOKE`. The missing sentinel and version
+stamp that `every_translation_is_complete_and_current` flagged were the symptom;
+the rot was the content.
+
+The localization policy prescribes this exact outcome, in two places that say it
+identically — `CLAUDE.md` GOLDEN RULE #8 and `specs/steering/docs.md`: a change
+that touches a document updates the **English canonical only** and then
+**physically deletes that document's five translations**, because *a stale
+translation is worse than a missing one*. The regeneration cycle runs on a minor
+or a major, never on a `z`. This is that rule, applied five days late.
+
+**No English file is deleted**, and none ever is.
+
+### Fifteen links repointed rather than orphaned
+
+Removing five files left 15 references dangling across ten translated documents:
+two per language in `cobol-support-matrix-<lang>.md`, one per language in
+`cobol85-verb-test-matrix-<lang>.md`. All fifteen now resolve to
+`cobol85-supported-syntax-en.md`.
+
+That is not a downgrade — it is the fallback the IDE Help already performs.
+`doc_list` keeps "the wanted language and the English fallback", so a reader who
+selects Japanese and opens the syntax reference is shown the English file either
+way. The link now says so instead of pointing at nothing.
+
+The substitution touched only the ASCII filename: 15 lines, one in and one out
+apiece, every CJK and accented byte around them identical, all ten files still
+clean under `iconv -f UTF-8 -t UTF-8` with zero double-encoded sequences.
+
+`every_translation_is_complete_and_current` now passes with an empty outstanding
+list. Absence is the other test's job, and
+`every_document_ships_in_every_language` correctly reports the syntax reference
+as English-only again, beside the Developer's Guide.
+
 ## [PowerRustCOBOL 1.65.135] — 2026-09-11
 
 ### Three more wrong counts, in the one document nobody audited

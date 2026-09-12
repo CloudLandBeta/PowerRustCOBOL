@@ -19,7 +19,7 @@ See the LICENSE file in the project root for full license information.
 
 | 文書 | 何に答えるか |
 |---|---|
-| [`cobol85-supported-syntax-jp.md`](cobol85-supported-syntax-jp.md) | 各文の**どの書き方**を字句解析器・構文解析器・ランタイムが実際に受け付けるか、および NIST CCVS85 適合度のスコアボード |
+| [`cobol85-supported-syntax-en.md`](cobol85-supported-syntax-en.md) | 各文の**どの書き方**を字句解析器・構文解析器・ランタイムが実際に受け付けるか、および NIST CCVS85 適合度のスコアボード |
 | [`cobol85-verb-test-matrix-jp.md`](cobol85-verb-test-matrix-jp.md) | 各動詞について**何を試験するか** |
 | [`developers-guide-en.md`](developers-guide-en.md) | それらすべてを使ってアプリケーションを作る方法 |
 
@@ -48,7 +48,7 @@ See the LICENSE file in the project root for full license information.
 > 部分集合に、ビジュアルな RAD 拡張を足したものです。認証を受けた COBOL-85 実装では
 > **ありません**。適合性は主張するのではなく、公式の NIST CCVS85 一式に対して
 > *測定*しています —
-> [スコアボード](cobol85-supported-syntax-jp.md)を参照してください。
+> [スコアボード](cobol85-supported-syntax-en.md)を参照してください。
 
 ---
 
