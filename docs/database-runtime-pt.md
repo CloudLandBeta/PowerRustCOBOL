@@ -8,17 +8,17 @@ See the LICENSE file in the project root for full license information.
 
 <!-- powerrustcobol: 1.65.124 -->
 
-# Ambiente de execução de bases de dados do RustCOBOL
+# Ambiente de execução de bancos de dados do RustCOBOL
 
-Os programas RustCOBOL falam com bases de dados SQL através de um pequeno
+Os programas RustCOBOL falam com bancos de dados SQL através de um pequeno
 conjunto de `CALL` incorporados. Os mesmos seis verbos funcionam contra **três
 backends** — o motor é selecionado automaticamente a partir da cadeia de ligação,
-pelo que um programa escrito para SQLite corre sem alterações contra PostgreSQL
+de modo que um programa escrito para SQLite corre sem alterações contra PostgreSQL
 ou MySQL bastando mudar um literal.
 
 | Backend     | Controlador (não é preciso biblioteca do sistema)     | Cadeia de ligação                                  |
 |-------------|---------------------------------------|----------------------------------------------------|
-| **SQLite**  | `rusqlite`, `features = ["bundled"]` — compila a amálgama em **C** do SQLite, pelo que este não é Rust puro | `:memory:`, `sqlite:<caminho>`, ou um caminho de ficheiro simples |
+| **SQLite**  | `rusqlite`, `features = ["bundled"]` — compila a amálgama em **C** do SQLite, de modo que este não é Rust puro | `:memory:`, `sqlite:<caminho>`, ou um caminho de arquivo simples |
 | **PostgreSQL** | `postgres` (rust-postgres, síncrono) | `postgres://user:pass@host:port/db`                |
 | **MySQL**   | `mysql` (`minimal-rust`, síncrono, sem TLS) | `mysql://user:pass@host:port/db`             |
 
@@ -34,8 +34,8 @@ O backend é escolhido puramente a partir do esquema da cadeia de ligação:
 
 | Forma                                      | Backend       | Notas                                  |
 |--------------------------------------------|---------------|----------------------------------------|
-| `:memory:`                                 | SQLite        | Base de dados em RAM, descartada ao fechar. |
-| `sqlite:/var/data/app.db`                  | SQLite        | O ficheiro é criado se não existir.    |
+| `:memory:`                                 | SQLite        | Banco de dados em RAM, descartada ao fechar. |
+| `sqlite:/var/data/app.db`                  | SQLite        | O arquivo é criado se não existir.    |
 | `/var/data/app.db`                         | SQLite        | Um caminho simples é tratado como SQLite. |
 | `postgres://scott:tiger@localhost:5432/store`    | PostgreSQL | `postgresql://` também é aceite.    |
 | `mysql://scott:tiger@localhost:3306/store` | MySQL         |                                        |
@@ -189,8 +189,7 @@ mesma linha antes de avançar:
 
 ## 4. Transações
 
-As transações são conduzidas com SQL corrente através do `COBOL-EXEC-SQL`, pelo
-que o comportamento é exatamente o do seu servidor:
+As transações são conduzidas com SQL corrente através do `COBOL-EXEC-SQL`, de modo que o comportamento é exatamente o do seu servidor:
 
 ```cobol
            MOVE "BEGIN"  TO WS-QUERY
@@ -201,26 +200,26 @@ que o comportamento é exatamente o do seu servidor:
 ```
 
 > Os **verbos** COBOL `COMMIT` / `ROLLBACK` são uma funcionalidade separada que
-> controla as transações de **ficheiros INDEXED** do RustCOBOL (ver
+> controla as transações de **arquivos INDEXED** do RustCOBOL (ver
 > [`docs/indexed-file-format-pt.md`](indexed-file-format-pt.md)). **Não** atuam
-> sobre ligações SQL — para a base de dados use `COBOL-EXEC-SQL` com
+> sobre ligações SQL — para a banco de dados use `COBOL-EXEC-SQL` com
 > `BEGIN`/`COMMIT`/`ROLLBACK`, como se mostra acima.
 
-O PostgreSQL e o MySQL usam autocommit por omissão, pelo que uma instrução
+O PostgreSQL e o MySQL usam autocommit por padrão, de modo que uma instrução
 isolada é confirmada imediatamente. Envolva uma unidade de trabalho em
-`BEGIN … COMMIT` para a tornar atómica.
+`BEGIN … COMMIT` para torná-la atômica.
 
 ---
 
-## 5. O controlo de dados do IDE
+## 5. O controle de dados do IDE
 
-No desenhador de formulários do PowerRustCOBOL, um controlo **SqlDatabase** gera
+No desenhador de formulários do PowerRustCOBOL, um controle **SqlDatabase** gera
 automaticamente os parágrafos repetitivos (`<id>-CONNECT`, `<id>-EXEC`,
 `<id>-FETCH-ALL`, `<id>-CLOSE`). Duas propriedades importam:
 
 - **`ConnectionString`** — qualquer uma das cadeias de ligação acima. É isto que
   realmente seleciona o backend em tempo de execução.
-- **`Driver`** — `sqlite` (por omissão), `postgres` ou `mysql`. Apenas
+- **`Driver`** — `sqlite` (por padrão), `postgres` ou `mysql`. Apenas
   cosmético: rotula os comentários gerados; o encaminhamento é feito pela cadeia
   de ligação.
 
@@ -238,7 +237,7 @@ automaticamente os parágrafos repetitivos (`<id>-CONNECT`, `<id>-EXEC`,
   exemplo `stunnel`/`pgbouncer`) ou passe por um túnel SSH.
 - **Injeção de SQL.** As instruções são enviadas como texto. Construa as
   consultas a partir de entrada de confiança, ou valide/escape previamente
-  quaisquer valores fornecidos pelo utilizador antes de compor a cadeia SQL.
+  quaisquer valores fornecidos pelo usuário antes de compor a cadeia SQL.
 - **Tempo de vida da ligação.** Cada identificador possui uma ligação viva. Feche
   com `COBOL-CLOSE-DB` os identificadores de que já não precisa; tudo o que ficar
   aberto é fechado quando o programa termina.

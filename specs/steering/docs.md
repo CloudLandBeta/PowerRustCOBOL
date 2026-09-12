@@ -52,9 +52,18 @@ are candidates for update. Sections use the doc's GitHub anchor.
 | `…#20-appearance-and-internationalisation` | `crates/cobolt-ide/src/i18n.rs`, `crates/cobolt-ide/src/fonts.rs`, `crates/cobolt-forms/src/fonts.rs` | i18n, theming, font-pipeline |
 | `…#21-cobol-structure-and-shared-data` | `crates/cobolt-ide/src/panels/cobol_structure.rs`, `crates/cobolt-forms/**`, `crates/cobolt-codegen/**`, `crates/cobolt-runtime/src/{environment,interpreter}.rs` | cobol-structure, shared-data |
 | `…#22-the-application-shell-and-the-super-receiver` | `crates/cobolt-form-host/src/shell.rs`, `crates/cobolt-form-host/src/host.rs`, `crates/cobolt-runtime/src/{interpreter,form_host}.rs`, `crates/cobolt-semantic/src/resolver.rs`, `crates/cobolt-forms/src/{model,menu}.rs` | application-shell, super-receiver |
+| `BENCHMARKS-en.md` | `crates/cobolt-bench/**` (`src/main.rs` workloads, `src/counting_alloc.rs`), `crates/cobolt-runtime/src/{interpreter,value,objects}.rs` (what the numbers measure), `crates/cobolt-runtime/src/indexed_redb.rs` | benchmarks, allocation-baseline |
 | `BUILDING-en.md#installing-the-ide-elsewhere--ship-the-platform-sdk` | `crates/cobolt-compiler/src/lib.rs` (`SDK_CRATES`, `stage_sdk`, `resolve_workspace_root`), `crates/cobolt-compiler/examples/stage_sdk.rs` | platform-sdk |
+| `DEPENDENCIES-en.md` | `Cargo.toml` (workspace members), `Cargo.lock` (the resolved versions it tabulates), `crates/*/Cargo.toml` | crate-inventory, dependencies |
+| `cobol-support-matrix-en.md` | *(capability overview — broad)* `crates/cobolt-{lexer,parser,ast,semantic,runtime,stdlib}/**`, `crates/cobolt-forms/**`, `crates/cobolt-ide/**`, `crates/cobolt-compiler/**`, `crates/cobolt-cli/**` | capability-overview |
 | `cobol85-supported-syntax-en.md` | `crates/cobolt-{lexer,parser,semantic,runtime}/**`, `crates/cobolt-semantic/examples/nist_conformance.rs`, `specs/nist/**` | language-support, nist-conformance |
 | `cobol85-verb-test-matrix-en.md` | `tests/cobol/**`, `crates/cobolt-runtime/**` | verb-tests |
+| `database-runtime-en.md` | `crates/cobolt-runtime/src/db_runtime.rs`, `crates/cobolt-runtime/src/interpreter.rs` (`exec_call` — the six DB `CALL`s), `crates/cobolt-runtime/tests/test_sql.rs`, `crates/cobolt-codegen/src/lib.rs` (SqlDatabase paragraphs), `crates/cobolt-forms/src/model.rs` (SqlDatabase control) | sql, db-runtime |
+| `ide-collaboration-design-en.md` *(design only)* | `crates/cobolt-ide/src/project_model.rs` (`cobolt.toml` — where `[collaboration]` would live), `crates/cobolt-ide/src/project_fs.rs` (category roots), `crates/cobolt-ide/src/app.rs`, `crates/cobolt-ide/src/panels/{project,editor}.rs` (tree categories, per-tab `read_only`) | collaboration, sync-backend |
+| `indexed-file-format-en.md` | `crates/cobolt-runtime/src/indexed.rs` (`PRCIDX1` container, key schema, `inspect_path`, open-time validation, `IndexedEngine`), `crates/cobolt-runtime/src/compress.rs` | indexed-format, prcidx1 |
+| `indexed-file-internals-en.md` | `crates/cobolt-runtime/src/indexed_disk.rs`, `crates/cobolt-runtime/src/compress.rs`, `crates/cobolt-runtime/src/files.rs` | indexed-internals, prcidxd1 |
+| `indexed-redb-engine-en.md` | `crates/cobolt-runtime/src/indexed_redb.rs`, `crates/cobolt-runtime/src/indexed.rs` (`IndexedEngine` default), `crates/cobolt-runtime/tests/test_indexed_redb.rs`, `tests/cobol/fileio/idx_*.cbl` | indexed-redb, crash-safety |
+| `observability-en.md` | `crates/cobolt-runtime/src/indexed_log.rs`, `crates/cobolt-runtime/src/indexed_redb.rs` (txn accumulators), `crates/cobolt-runtime/src/interpreter.rs` (`set_indexed_log_*`), `crates/cobolt-{ast,parser}/src/stmt.rs` (`OPEN … WITH REGISTERED USER`), `crates/cobolt-cli/src/main.rs` (flags, `COBOLT_LOG`), `crates/cobolt-ide/src/{debug_settings,inspector,crash}.rs` | indexed-log, tracing, debug-settings, run-form-inspector, crash-recovery |
 | `compiler-manual-en.md` *(planned)* | `crates/cobolt-cli/**`, `crates/cobolt-compiler/**` | cli-flags, build |
 | `README.md` | *(project overview — broad)* | overview |
 
@@ -114,9 +123,15 @@ suffix-less name and `-en` alike, so the resolver itself needs no change.
 **Never split mid-context** — a paragraph, a markdown table, a fenced code block
 and a mermaid block each stay whole in one temp file. Cut only at headings.
 
-**Temp files** live in `docs/`, are **never committed**, and are **never
-reused**. Recover an interrupted run by deleting every `temp-*` and starting
-over — never by resuming.
+**⚠️ Temp files live OUTSIDE the repository — never in `docs/`.** Use the
+session scratchpad. `crates/cobolt-ide/src/docs_embed.rs` embeds the whole
+`docs/` directory with `include_dir!`, and `doc_list()` enumerates every `.md`
+in it — so a `temp-*.md` left there is served to the Documentation viewer as a
+**real document** and fails `every_language_lists_each_document_exactly_once`.
+This said `docs/` from 1.62.1 until the **2026-09-12** correction; its letter
+broke that test. Still **never committed** and **never reused**: recover an
+interrupted run by deleting every `temp-*` and starting over — never by
+resuming.
 
 **Links.** Translate section headings, regenerate the ToC anchors from the
 *translated* headings, and repoint cross-document links at the same-language
@@ -130,6 +145,8 @@ file. One English file in → exactly one file per language out, six total.
 - **Glossary — keep untranslated:** `PowerRustCOBOL`, product/menu names, all
   COBOL keywords/identifiers and code samples. Never introduce "cobolt" in any
   language.
-- **Measured expansion** (this repo's own complete translations, 2026-08-24):
-  es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %, **jp +17–40 %** in bytes. Size
-  splits against the Japanese worst case.
+- **Measured expansion** (this repo's own complete translations, 2026-09-12):
+  es +5–13 %, pt +5–12 %, fr +9–18 %, cn −1 to +5 %,
+  **jp +17–40 %** in bytes. Size splits against the Japanese worst case.
+  The Chinese floor is measured, not a typo: the Developer's Guide came out
+  **0.3 % smaller** than its English canonical, prose included.

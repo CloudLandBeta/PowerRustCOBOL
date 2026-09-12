@@ -1155,9 +1155,15 @@ pub struct Tr {
     pub pkg_warn_external_path: &'static str,
 
     // ── Forms list panel ─────────────────────────────────────────────────────
-    pub forms_list_title: &'static str,
     pub forms_no_project: &'static str,
     pub forms_no_cfrm: &'static str,
+
+    // ── Designer sidebar sections (toolbox / objects / other forms) ──────────
+    pub sidebar_sec_toolbox: &'static str,
+    pub sidebar_sec_objects: &'static str,
+    pub sidebar_sec_other_forms: &'static str,
+    /// Shown in the Objects section when the form has no controls yet.
+    pub objects_empty: &'static str,
 
     // ── Toolbox category names ────────────────────────────────────────────────
     pub cat_common: &'static str,
@@ -2560,9 +2566,12 @@ const EN: Tr = Tr {
     alert_indexed_finalized: "Indexed file {} finalized",
     pkg_warn_external_path: "Packaging: data path is outside the project — file not included",
 
-    forms_list_title: "Forms",
     forms_no_project: "No project open.",
     forms_no_cfrm:    "No .cfrm files found.\nUse File → New Form.",
+    sidebar_sec_toolbox:     "Toolbox",
+    sidebar_sec_objects:     "Objects",
+    sidebar_sec_other_forms: "Other forms",
+    objects_empty:           "No controls on this form yet.",
 
     cat_common:    "Common",
     cat_container: "Containers",
@@ -3846,9 +3855,12 @@ const ES: Tr = Tr {
     alert_indexed_finalized: "Archivo indexado {} finalizado",
     pkg_warn_external_path: "Empaquetado: la ruta de datos está fuera del proyecto — archivo no incluido",
 
-    forms_list_title: "Formularios",
     forms_no_project: "Sin proyecto abierto.",
     forms_no_cfrm:    "No se encontraron archivos .cfrm.\nUse Archivo → Nuevo formulario.",
+    sidebar_sec_toolbox:     "Caja de herramientas",
+    sidebar_sec_objects:     "Objetos",
+    sidebar_sec_other_forms: "Otros formularios",
+    objects_empty:           "Este formulario aún no tiene controles.",
 
     cat_common:    "Comunes",
     cat_container: "Contenedores",
@@ -5132,9 +5144,12 @@ const PT: Tr = Tr {
     alert_indexed_finalized: "Arquivo indexado {} finalizado",
     pkg_warn_external_path: "Empacotamento: caminho de dados fora do projeto — arquivo não incluído",
 
-    forms_list_title: "Formulários",
     forms_no_project: "Nenhum projeto aberto.",
     forms_no_cfrm:    "Nenhum arquivo .cfrm encontrado.\nUse Arquivo → Novo formulário.",
+    sidebar_sec_toolbox:     "Caixa de ferramentas",
+    sidebar_sec_objects:     "Objetos",
+    sidebar_sec_other_forms: "Outros formulários",
+    objects_empty:           "Este formulário ainda não tem controles.",
 
     cat_common:    "Comuns",
     cat_container: "Contêineres",
@@ -6417,9 +6432,12 @@ const JA: Tr = Tr {
     alert_indexed_finalized: "インデックスファイル {} を確定しました",
     pkg_warn_external_path: "パッケージ: データパスがプロジェクト外 — ファイルは含まれません",
 
-    forms_list_title: "フォーム",
     forms_no_project: "プロジェクトが開かれていません。",
     forms_no_cfrm:    ".cfrm ファイルが見つかりません。\nファイル → 新規フォームを使用してください。",
+    sidebar_sec_toolbox:     "ツールボックス",
+    sidebar_sec_objects:     "オブジェクト",
+    sidebar_sec_other_forms: "ほかのフォーム",
+    objects_empty:           "このフォームにはまだコントロールがありません。",
 
     cat_common:    "一般",
     cat_container: "コンテナ",
@@ -7709,9 +7727,12 @@ const ZH: Tr = Tr {
     alert_indexed_finalized: "索引文件 {} 已定稿",
     pkg_warn_external_path: "打包：数据路径在项目外 — 文件未包含",
 
-    forms_list_title: "窗体",
     forms_no_project: "没有打开的项目。",
     forms_no_cfrm: "未找到 .cfrm 文件。\n使用 文件 → 新建窗体。",
+    sidebar_sec_toolbox:     "工具箱",
+    sidebar_sec_objects:     "对象",
+    sidebar_sec_other_forms: "其他窗体",
+    objects_empty:           "这个窗体上还没有控件。",
 
     cat_common: "通用",
     cat_container: "容器",
@@ -8996,9 +9017,12 @@ const FR: Tr = Tr {
     alert_indexed_finalized: "Fichier indexé {} finalisé",
     pkg_warn_external_path: "Empaquetage : chemin de données hors projet — fichier non inclus",
 
-    forms_list_title: "Formulaires",
     forms_no_project: "Aucun projet ouvert.",
     forms_no_cfrm:    "Aucun fichier .cfrm trouvé.\nUtilisez Fichier → Nouveau formulaire.",
+    sidebar_sec_toolbox:     "Boîte à outils",
+    sidebar_sec_objects:     "Objets",
+    sidebar_sec_other_forms: "Autres formulaires",
+    objects_empty:           "Ce formulaire n'a encore aucun contrôle.",
 
     cat_common:    "Communs",
     cat_container: "Conteneurs",

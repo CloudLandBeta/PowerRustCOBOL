@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="SIDEBAR-DEMO-FORM" title="SideBar - the navigation rail" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
+<Form name="SIDEBAR-DEMO-FORM" title="SideBar - the navigation rail" width="1000" height="660" background="161842FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -430,13 +430,7 @@
       *> FR: EXTENSION - la propriete se lit comme valeur partout ou un operande est admis.
       *> JP: EXTENSION - プロパティは、オペランドを書ける場所ならどこでも値として読める。
       *> CN: EXTENSION - 凡是允许操作数的位置，属性都可当作值读取。
-           IF SideMenu-Demo::Collapsed = 1
-      *> EN: EXTENSION - TRUE and FALSE are usable as operands; they are sugar for 1 and 0.
-      *> PT: EXTENSAO - TRUE e FALSE servem como operandos; sao acucar sintatico para 1 e 0.
-      *> ES: EXTENSION - TRUE y FALSE sirven como operandos; son azucar sintactico para 1 y 0.
-      *> FR: EXTENSION - TRUE et FALSE s'emploient comme operandes; sucre syntaxique pour 1 et 0.
-      *> JP: EXTENSION - TRUE と FALSE はオペランドとして使える。1 と 0 の糖衣構文である。
-      *> CN: EXTENSION - TRUE 与 FALSE 可作为操作数使用；它们是 1 和 0 的语法糖。
+           IF SideMenu-Demo::Collapsed = TRUE
                SET SideMenu-Demo::Collapsed TO FALSE
            ELSE
                SET SideMenu-Demo::Collapsed TO TRUE
@@ -447,7 +441,8 @@
       *> FR: EXTENSION - STRING sans DELIMITED BY: les litteraux prennent SIZE, les PIC X SPACES.
       *> JP: EXTENSION - DELIMITED BY を書かない STRING。定数は SIZE、PIC X 項目は SPACES が既定。
       *> CN: EXTENSION - STRING 省略 DELIMITED BY：字面量按 SIZE，PIC X 数据项按 SPACES。
-           STRING "collapsed = " SideMenu-Demo::Collapsed INTO WS-LINE.
+           STRING " collapsed = " SideMenu-Demo::Collapsed INTO WS-LINE.
+
       *> EN: EXTENSION - inline method call on a control; no INVOKE ... USING needed.
       *> PT: EXTENSAO - chamada de metodo inline no controle; sem INVOKE ... USING.
       *> ES: EXTENSION - llamada a metodo en linea sobre el control; sin INVOKE ... USING.
@@ -578,7 +573,6 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Tooltip"></Property>
     <Property name="Cursor">Default</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
@@ -593,15 +587,12 @@
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
-    <Property name="DataItem"></Property>
-    <Property name="DataFormat"></Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
     <Property name="HScroll">false</Property>
     <Property name="VScroll">false</Property>
     <Property name="HideBackground">false</Property>
-    <Property name="mcp_tool"></Property>
     <Property name="CornerRadius">0</Property>
     <Property name="IsSideMenuFooter">true</Property>
   </Control>

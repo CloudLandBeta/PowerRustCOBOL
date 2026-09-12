@@ -2477,6 +2477,60 @@ Fortran
     <Property name="ShowFrame">false</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
+  <Control id="Timer-1" type="Timer" x="1008" y="64" w="48" h="48" tab-order="0" z-order="390" visible="true" enabled="true">
+    <Property name="BackgroundColor">#E1E6F8FF</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
+    <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ForegroundColor">#000000</Property>
+    <Property name="FontName">Helvetica</Property>
+    <Property name="FontSize">14</Property>
+    <Property name="Bold">false</Property>
+    <Property name="Italic">false</Property>
+    <Property name="Underline">false</Property>
+    <Property name="Strikethrough">false</Property>
+    <Property name="Tooltip"></Property>
+    <Property name="Cursor">Default</Property>
+    <Property name="HoverDelayMs">200</Property>
+    <Property name="Anchor">false</Property>
+    <Property name="Padding">0</Property>
+    <Property name="Transparency">0</Property>
+    <Property name="ShadowEnabled">true</Property>
+    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowColor">#000000</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="ShadowDirection">SouthEast</Property>
+    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowBlur">true</Property>
+    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ZOrder">0</Property>
+    <Property name="DataItem"></Property>
+    <Property name="DataFormat"></Property>
+    <Property name="Interval">100</Property>
+    <Property name="Enabled">true</Property>
+    <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">None</Property>
+    <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+       DATA DIVISION.
+       WORKING-STORAGE SECTION.
+       LINKAGE SECTION.
+
+       PROCEDURE DIVISION.
+           if Knob-2::Value < 100
+              COMPUTE  Knob-2::Value = Knob-2::Value + 1
+              COMPUTE  ProgressBar-1::Value = Knob-2::Value
+              COMPUTE  Gauge-1::Value = Knob-2::Value
+              COMPUTE  Gauge-2::Value = Knob-2::Value
+              COMPUTE  Gauge-3::Value = Knob-2::Value
+
+              IF Knob-2::Value = 100
+                 SET Knob-2::Value to 0
+              END-iF
+
+           CONTINUE.
+]]></Event>
+  </Control>
   <deleted-controls>
     <DeletedControl id="Timer-1" deleted-at="designer-delete-1788638031-47">
       <Event name="onTick" paragraph="TIMER-1--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.

@@ -64,31 +64,41 @@ impl FormsListPanel {
 
     // ── Rendering ─────────────────────────────────────────────────────────────
 
+    /// The ⟳ button, drawn by the sidebar in this section's header row.
+    ///
+    /// It lives here rather than in the header's caller because only the panel
+    /// knows how to ask for a rescan.
+    pub fn refresh_button(&mut self, ui: &mut Ui) {
+        if ui
+            .small_button("⟳")
+            .on_hover_text("Refresh form list")
+            .clicked()
+        {
+            self.needs_rescan = true;
+        }
+    }
+
     /// Draw the forms list.
     ///
     /// * `open_paths` — paths of forms currently open in designer tabs.
+    /// * `max_height` — the body height this sidebar section was granted.
+    ///
+    /// The title row is the sidebar's section header, not ours — see
+    /// [`Self::refresh_button`].
     ///
     /// Returns the requested form-list action, if any.
-    pub fn show(&mut self, ui: &mut Ui, open_paths: &[&Path], tr: &Tr) -> Option<FormsListAction> {
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        open_paths: &[&Path],
+        max_height: f32,
+        tr: &Tr,
+    ) -> Option<FormsListAction> {
         if self.needs_rescan {
             self.rescan();
         }
 
         let mut action: Option<FormsListAction> = None;
-
-        ui.horizontal(|ui| {
-            ui.strong(tr.forms_list_title);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .small_button("⟳")
-                    .on_hover_text("Refresh form list")
-                    .clicked()
-                {
-                    self.needs_rescan = true;
-                }
-            });
-        });
-        ui.separator();
 
         if self.found.is_empty() {
             if self.root.is_none() {
@@ -105,7 +115,7 @@ impl FormsListPanel {
 
         ScrollArea::vertical()
             .id_salt("forms_list_scroll")
-            .max_height(200.0)
+            .max_height(max_height)
             .show(ui, |ui| {
                 for path in &self.found {
                     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("?");

@@ -10,7 +10,7 @@ See the LICENSE file in the project root for full license information.
 
 # Matriz de testes de verbos e secções de dados do RustCOBOL‑85
 
-Uma especificação de testes para terminar o COBOL‑85 dentro do âmbito do
+Uma especificação de testes para terminar o COBOL‑85 dentro do escopo do
 projeto. Enumera, **em profundidade**, o que *ainda não está coberto* pelos
 conjuntos de testes existentes, sob a forma de esqueletos de sintaxe + eixos de
 permutação + a mistura de tipos de dados com que cada verbo tem de ser
@@ -21,11 +21,11 @@ criar ou remover.
 > Já verificado — NÃO voltar a especificar aqui: a aritmética numérica exata
 > (valores de resultado de ADD/SUB/MUL/DIV/COMPUTE, ROUNDED, ON SIZE ERROR), as
 > PICTURE numéricas editadas + `DECIMAL-POINT IS COMMA`, COPY/REPLACE, toda a
-> E/S de ficheiros (SEQUENTIAL/LINE SEQUENTIAL/INDEXED, chaves,
+> E/S de arquivos (SEQUENTIAL/LINE SEQUENTIAL/INDEXED, chaves,
 > START/REWRITE/DELETE/INVALID KEY, STORAGE MODE MEMORY/DISK, compressão,
 > persistência em MEMORY), programas aninhados e CALL básica, comparação
 > alfanumérica, lexer fixo/livre. (As permutações de *sintaxe* aritmética abaixo
-> continuam dentro do âmbito — o que está «feito» é apenas a matemática dos
+> continuam dentro do escopo — o que está «feito» é apenas a matemática dos
 > valores.)
 
 ## Notação
@@ -39,7 +39,7 @@ criar ou remover.
   espaços, tudo zeros, sinal em LEADING/TRAILING [SEPARATE], escalado com P,
   ponto implícito com V.
 - De cada verbo deve captar-se: o valor ou valores resultantes, **FILE STATUS e
-  os registos especiais** (`RETURN-CODE`, `TALLY`), o ramo de
+  os registros especiais** (`RETURN-CODE`, `TALLY`), o ramo de
   transbordo/exceção tomado, e que nada muda em caso de erro.
 
 ---
@@ -63,9 +63,9 @@ criar ou remover.
   RIGHT, BLANK WHEN ZERO, `SIGN IS {LEADING|TRAILING} [SEPARATE]`, SYNCHRONIZED,
   FILLER.
 - **Nomes de condição 88:** valor único, lista de valores, `VALUE a THRU b`,
-  vários intervalos, sobre anfitrião numérico / alfanumérico / editado; avaliação
+  vários intervalos, sobre host numérico / alfanumérico / editado; avaliação
   e `SET … TO TRUE`.
-- **Inicialização:** por omissão (espaços/zeros conforme a classe) versus VALUE;
+- **Inicialização:** por padrão (espaços/zeros conforme a classe) versus VALUE;
   **persistência através de PERFORM e através de CALL** (a WS guarda o último
   valor).
 
@@ -80,7 +80,7 @@ criar ou remover.
 
 ### LINKAGE SECTION
 - Os itens **não têm armazenamento enquanto não forem ligados** pelo chamador;
-  aceder a uma ligação não ligada.
+  acessar a uma ligação não ligada.
 - Ligados via `CALL … USING` ↔ `PROCEDURE DIVISION USING`.
 - **BY REFERENCE** (o chamador vê as alterações) versus **BY CONTENT** (o
   chamado edita uma cópia) versus **BY VALUE** (escalar).
@@ -95,7 +95,7 @@ criar ou remover.
 - `BY REFERENCE | BY VALUE` por parâmetro na lista USING.
 - `RETURNING dn` — valor devolvido a `CALL … RETURNING`; versus `GIVING`; versus
   `RETURN-CODE`.
-- O `USING` do programa principal ligado a partir da linha de comandos (se
+- O `USING` do programa principal ligado a partir da linha de comando (se
   suportado).
 - Mistura de tipos em cada posição de parâmetro (aplicar **T**).
 
@@ -120,22 +120,22 @@ mistura de tipos.
 ### DISPLAY
 - `DISPLAY {dn|literal} …` (operandos concatenados).
 - `[WITH NO ADVANCING]`; `UPON {CONSOLE|SYSOUT|mnemonic}`.
-- Forma de ecrã (observar e decidir): `DISPLAY dn AT {nnnn|LINE n COLUMN n}
+- Forma de tela (observar e decidir): `DISPLAY dn AT {nnnn|LINE n COLUMN n}
   [WITH {FOREGROUND-COLOR n|BACKGROUND-COLOR n|HIGHLIGHT|REVERSE-VIDEO|BLINK|…}]`.
 - Mistura de tipos: numérico (largura completa da PIC), editado, com sinal,
   grupo, figurativo.
 
-### ACCEPT  *(especificar todas as formas; muitas são de ecrã ou terminal — assinalar para decisão de âmbito)*
+### ACCEPT  *(especificar todas as formas; muitas são de tela ou terminal — assinalar para decisão de escopo)*
 - `ACCEPT dn` (da consola para alfanum / numérico / editado / grupo).
 - `ACCEPT dn FROM {DATE|DATE YYYYMMDD|DAY|DAY YYYYDDD|DAY-OF-WEEK|TIME}`.
 - `ACCEPT dn FROM {ENVIRONMENT "NAME"|ENVIRONMENT-NAME|ENVIRONMENT-VALUE}`.
 - `ACCEPT dn FROM {COMMAND-LINE|ARGUMENT-NUMBER|ARGUMENT-VALUE}`.
 - `ACCEPT dn FROM {mnemonic|CONSOLE|SYSIN}`.
-- Formas de ecrã: `ACCEPT dn AT {nnnn|LINE n COL n}`,
+- Formas de tela: `ACCEPT dn AT {nnnn|LINE n COL n}`,
   `ACCEPT dn AT 0101 WITH CONTROL screen-attrs`,
   `… WITH {AUTO|SECURE|REQUIRED|FULL|UPDATE|PROMPT|NO-ECHO|…}`,
   `ACCEPT dn FROM ESCAPE KEY` / `FROM CRT STATUS`.
-- Receção em numérico versus numérico editado versus alfanumérico (des-edição e
+- Recepção em numérico versus numérico editado versus alfanumérico (des-edição e
   validação).
 
 ### ADD / SUBTRACT
@@ -194,7 +194,7 @@ mistura de tipos.
 - `SET d1 TO {TRUE|FALSE}` (onde for suportado).
 
 ### INITIALIZE
-- `INITIALIZE dn …` (grupo ou elementar; por omissão conforme a categoria).
+- `INITIALIZE dn …` (grupo ou elementar; por padrão conforme a categoria).
 - `INITIALIZE dn REPLACING {ALPHANUMERIC|NUMERIC|ALPHABETIC|NUMERIC-EDITED|
   ALPHANUMERIC-EDITED} DATA BY {lit|dn} …`.
 - `[WITH FILLER]`, `[THEN TO DEFAULT]`; tabelas (todas as ocorrências).
@@ -206,7 +206,7 @@ mistura de tipos.
 - Encontrado e não encontrado; vários WHEN; mistura de tipos de chave;
   comportamento com a tabela por ordenar.
 
-### STRING  *(exercitar o estilo de permutação do utilizador)*
+### STRING  *(exercitar o estilo de permutação do usuário)*
 - `STRING {dn|lit} … DELIMITED BY {SIZE|lit|dn} [ {dn|lit}… DELIMITED BY … ]…
    INTO target [WITH POINTER p] [ON OVERFLOW …][NOT…][END-STRING]`.
 - Permutações a cobrir:
@@ -217,7 +217,7 @@ mistura de tipos.
     DELIMITED BY SIZE d1 d2 d3 DELIMITED BY SPACES INTO d3`.
   - `WITH POINTER` para começar e avançar; ponteiro fora do intervalo →
     transbordo.
-  - destino demasiado pequeno → `ON OVERFLOW`; `NOT ON OVERFLOW`.
+  - destino pequeno demais → `ON OVERFLOW`; `NOT ON OVERFLOW`.
   - **origens com mistura de tipos:** numérico, numérico editado, com sinal,
     grupo, figurativo, com modificação de referência — observar como cada um é
     convertido em cadeia.
@@ -238,8 +238,8 @@ mistura de tipos.
    [{BEFORE|AFTER} INITIAL …] …`.
 - `INSPECT dn TALLYING … REPLACING …` (combinado).
 - `INSPECT dn CONVERTING "abc" TO "xyz" [{BEFORE|AFTER} INITIAL …]`.
-- Âmbito de BEFORE/AFTER; correspondências sobrepostas; padrões de vários
-  carateres; anfitrião com mistura de tipos.
+- Escopo de BEFORE/AFTER; correspondências sobrepostas; padrões de vários
+  carateres; host com mistura de tipos.
 
 ### CALL / CANCEL
 - `CALL {lit|dn} [USING {[BY REFERENCE|BY CONTENT|BY VALUE] {dn|lit|OMITTED}}…]
@@ -252,20 +252,20 @@ mistura de tipos.
   (✅ `CANCEL prog` implementado — reinicializa o armazenamento do programa; o
   `NOT ON EXCEPTION` corre numa CALL resolvida.)
 
-### Registos especiais de aritmética e verbos diversos
+### Registros especiais de aritmética e verbos diversos
 - `ADD/SUBTRACT … GIVING` (supressão a zero) versus a acumulação do `TO`.
 - `MOVE` e aritmética de e para `RETURN-CODE`, `TALLY`.
 - ✅ `ALTER` (o GO TO herdado) — implementado (redireciona o `GO TO` do
   parágrafo).
 - Ida e volta de `ACCEPT/DISPLAY` através de campos editados.
 
-### Verbos de ficheiro — *(apenas as lacunas que o conjunto de E/S de ficheiros não cobre)*
+### Verbos de arquivo — *(apenas as lacunas que o conjunto de E/S de arquivos não cobre)*
 - ✅ **Implementado e testado** (`test_file_locking`): `OPEN … SHARING WITH …
   [WITH LOCK]`, `READ … WITH [NO] LOCK`, `UNLOCK` (consultivo dentro da unidade
   de execução — ver a referência de sintaxe suportada).
 - `READ … INTO`, `WRITE … FROM`, `REWRITE … FROM`, `START … KEY IS {= > >= < <=}`
   com chaves modificadas por referência; vários FD a partilhar uma área de
-  registo.
+  registro.
 
 ### Verbos especificados aqui antes de existirem
 
@@ -286,7 +286,7 @@ mistura de tipos.
 
 Para um conjunto escolhido dos programas acima, verificar que a saída observável
 é **idêntica** (texto de DISPLAY, FILE STATUS, RETURN-CODE, conteúdo dos
-ficheiros) nas três formas de execução do mesmo fonte:
+arquivos) nas três formas de execução do mesmo fonte:
 
 1. **Interpretador** (`Interpreter::run`).
 2. **Ida e volta da AST** — serializar (`bincode`+`flate2`) → desserializar →
@@ -294,7 +294,7 @@ ficheiros) nas três formas de execução do mesmo fonte:
 3. **Binário empacotado/compilado** — `cobolt_compiler::build_project` →
    executar o binário produzido; verificar que a saída é idêntica.
 
-Qualquer divergência entre formas é um defeito a registar (o invariante «um
+Qualquer divergência entre formas é um defeito a registrar (o invariante «um
 compilador, um comportamento»).
 
 .<<

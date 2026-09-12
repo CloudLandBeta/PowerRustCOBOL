@@ -149,7 +149,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Log-Cap" type="Label" x="32" y="434" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Log-Cap" type="Label" x="32" y="432" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Event log</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -425,7 +425,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Btn-Hide" type="Button" x="32" y="390" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Hide" type="Button" x="32" y="368" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Hide the bar</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -478,7 +478,7 @@
            MenuBar-Demo::Hide().
 ]]></Event>
   </Control>
-  <Control id="Btn-Show" type="Button" x="204" y="390" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Show" type="Button" x="204" y="368" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Show the bar</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -531,7 +531,7 @@
            MenuBar-Demo::Show().
 ]]></Event>
   </Control>
-  <Control id="Btn-Accent" type="Button" x="376" y="390" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Accent" type="Button" x="376" y="368" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Recolour highlight</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -585,7 +585,7 @@
            MOVE "#0B3D2C" TO MenuBar-Demo::SelectedBgColor.
 ]]></Event>
   </Control>
-  <Control id="Btn-Clear" type="Button" x="548" y="390" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Clear" type="Button" x="548" y="368" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Clear log</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>

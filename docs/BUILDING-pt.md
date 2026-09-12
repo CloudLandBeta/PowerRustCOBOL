@@ -10,12 +10,12 @@ See the LICENSE file in the project root for full license information.
 
 # Compilar o PowerRustCOBOL
 
-De uma máquina limpa até um IDE a correr, no **Windows**, no **Linux** e no
+De uma máquina limpa até um IDE rodando, no **Windows**, no **Linux** e no
 **macOS**.
 
 Tudo o que está aqui são os mesmos três passos em qualquer plataforma: instalar
 uma cadeia de ferramentas, clonar e `cargo build`. Só o primeiro passo difere
-conforme o sistema operativo.
+conforme o sistema operacional.
 
 ---
 
@@ -26,13 +26,13 @@ conforme o sistema operativo.
 | **Rust**, canal estável, **1.92 ou mais recente** | compila todo o espaço de trabalho |
 | **Git** | clona o repositório |
 | **Um compilador de C e um linker** | o linker de que o Rust precisa para *qualquer* binário, mais duas dependências em C |
-| **Bibliotecas GUI nativas** (só Linux) | criação de janelas e os diálogos de ficheiro nativos |
+| **Bibliotecas GUI nativas** (só Linux) | criação de janelas e os diálogos de arquivo nativos |
 
 > **O IDE empacotado verifica ele próprio o requisito do Rust.** Quem *usa* o
-> PowerRustCOBOL em vez de o compilar nunca lê esta página, por isso o IDE procura
-> o Rust no primeiro arranque e oferece-se para o instalar quando este mesmo
+> PowerRustCOBOL em vez de compilá-lo nunca lê esta página, por isso o IDE procura
+> o Rust na primeira inicialização e se oferece para instalá-lo quando este mesmo
 > mínimo de **1.92** não é cumprido. Lê o número do manifesto do próprio espaço de
-> trabalho, pelo que os dois não podem discordar. Ver §3 do Guia do programador.
+> trabalho, de modo que os dois não podem discordar. Ver §3 do Guia do programador.
 
 ### Sobre o compilador de C
 
@@ -40,9 +40,9 @@ Duas crates da árvore compilam código C, por isso um compilador de C é mesmo
 indispensável:
 
 - **`libsqlite3-sys`** — SQLite, incorporado a partir da sua amálgama em C. É o
-  suporte de SQLite do ambiente de execução de bases de dados COBOL, para que não
+  suporte de SQLite do ambiente de execução de bancos de dados COBOL, para que não
   seja preciso instalar nem fazer coincidir versões de um SQLite do sistema na
-  máquina do utilizador final.
+  máquina do usuário final.
 - **`onig_sys`** — o motor de expressões regulares Oniguruma, usado pelo
   tokenizador que está por trás da pesquisa semântica.
 
@@ -52,7 +52,7 @@ O que a compilação **não** precisa, e nunca invoca:
 > nenhum Node · nenhuma JVM**
 
 Isso é deliberado e assim se mantém. O TLS passa pela pilha do próprio sistema
-operativo (schannel no Windows, Security.framework no macOS, OpenSSL no Linux)
+operacional (schannel no Windows, Security.framework no macOS, OpenSSL no Linux)
 através de ligações escritas inteiramente em Rust, em vez de uma biblioteca
 criptográfica incorporada que exigiria C, assembly e CMake em cada máquina; o
 array de sufixos em C++ do tokenizador (`esaxx_fast`) está desligado porque aqui
@@ -60,7 +60,7 @@ não se treina modelo nenhum; e o índice da base de conhecimento é `redb`, Rus
 puro.
 
 Em todas as plataformas o compilador de C vem dentro do mesmo pacote que fornece
-o linker que o Rust já exige, pelo que na prática isto não acrescenta nada para
+o linker que o Rust já exige, de modo que na prática isto não acrescenta nada para
 instalar.
 
 ---
@@ -71,17 +71,17 @@ instalar.
 
 1. Instale as **Visual Studio Build Tools** com a carga de trabalho **"Desktop
    development with C++"** —
-   [descarregar](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022).
+   [baixar](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022).
 
    A carga de trabalho tem o nome de C++, mas o que entrega é aquilo de que
    qualquer compilação de Rust no Windows precisa de qualquer forma: `link.exe`, o
    SDK do Windows e `cl.exe` para as duas dependências em C acima. Não há mais
-   nada para descarregar.
+   nada para baixar.
 
 2. Instale o Rust a partir de [rustup.rs](https://rustup.rs). Seleciona
    automaticamente a cadeia de ferramentas MSVC.
 
-3. Verifique, a partir de uma linha de comandos normal do PowerShell:
+3. Verifique, a partir de uma linha de comando normal do PowerShell:
 
    ```powershell
    rustc --version
@@ -106,7 +106,7 @@ Depois o Rust:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Apple Silicon e Intel são ambos suportados; o rustup escolhe o alvo de anfitrião
+Apple Silicon e Intel são ambos suportados; o rustup escolhe o alvo de host
 correto.
 
 ### Linux
@@ -143,10 +143,10 @@ Dois desses pacotes são estruturais e merecem ser nomeados:
 
 - **`libssl-dev` / `openssl-devel`** — no Linux o HTTPS usa o TLS do sistema, e é
   este.
-- **`libgtk-3-dev` / `gtk3-devel`** — os diálogos nativos de Abrir/Guardar.
+- **`libgtk-3-dev` / `gtk3-devel`** — os diálogos nativos de Abrir/Salvar.
 
 X11 e Wayland são ambos suportados; a camada de janelas escolhe a sessão que
-estiver a correr, pelo que nenhum é uma instalação à parte.
+estiver rodando, de modo que nenhum é uma instalação à parte.
 
 ---
 
@@ -163,7 +163,7 @@ cd PowerRustCOBOL
 cargo build
 ```
 
-> A primeira compilação descarrega todas as crates e compila o espaço de
+> A primeira compilação baixa todas as crates e compila o espaço de
 > trabalho, por isso conte com alguns minutos e uma cache `target/` à volta de
 > 1,5 GB. As seguintes são incrementais. O `cargo clean` recupera o espaço sempre
 > que o quiser de volta.
@@ -174,7 +174,7 @@ Para compilar apenas as duas coisas que se executam:
 cargo build --release -p cobolt-ide -p cobolt-cli
 ```
 
-## 4. Arrancar o IDE
+## 4. Iniciar o IDE
 
 ```sh
 cargo run -p cobolt-ide
@@ -204,9 +204,9 @@ cargo test -p cobolt-forms --features render
 
 ---
 
-## Onde ficam os artefactos
+## Onde ficam os artefatos
 
-| Artefacto | Caminho |
+| Artefato | Caminho |
 |---|---|
 | IDE | `target/release/cobolt-ide` (`.exe` no Windows) |
 | Runtime / compilador da CLI | `target/release/rcrun` (`.exe` no Windows) |
@@ -214,7 +214,7 @@ cargo test -p cobolt-forms --features render
 
 Uma aplicação compilada com `rcrun build` é um único executável autossuficiente:
 incorpora o seu programa compilado, os seus formulários e qualquer tema de pacote
-de recursos que usem, pelo que não há nada para instalar ao lado dele na máquina
+de recursos que usem, de modo que não há nada para instalar ao lado dele na máquina
 a quem o entregar.
 
 ---
@@ -239,18 +239,18 @@ com os recursos de que uma aplicação de formulários precisa — a árvore de 
 o ícone de janela. As dez crates contra as quais uma aplicação compilada é
 construída ocupam **8,6 MiB**; com `assets/themes` a árvore preparada ronda os
 **21 MiB**. O ícone não é opcional: omita-o e nenhuma aplicação de formulários
-compila sequer. Passe `--sdk` para os colocar em `<install-dir>/sdk/` quando a
+compila sequer. Passe `--sdk` para colocá-los em `<install-dir>/sdk/` quando a
 pasta de instalação contiver outras coisas. O IDE encontra qualquer uma das
 disposições sem configuração nenhuma, e olha também um nível acima e, no macOS,
 dentro de `Resources` do pacote.
 
 A máquina continua a precisar da cadeia de ferramentas Rust — o Build é uma
-compilação a sério — e a sua primeira compilação descarrega as crates de
-dependência do registo, pelo que precisa de acesso à rede uma vez.
+compilação a sério — e a sua primeira compilação baixa as crates de
+dependência do registro, de modo que precisa de acesso à rede uma vez.
 
 > **Nota.** Para um checkout que viva noutro sítio completamente diferente,
 > indique a pasta à mão em **Help → Platform SDK Location**. É lembrada por
-> máquina e não por projeto, pelo que nunca viaja para um colega dentro do
+> máquina e não por projeto, de modo que nunca viaja para um colega dentro do
 > `cobolt.toml`. Deixe em branco para voltar à procura automática.
 
 ---
@@ -261,7 +261,7 @@ dependência do registo, pelo que precisa de acesso à rede uma vez.
 `@development-tools`).
 
 **`link.exe not found` (Windows)** — as Build Tools foram instaladas sem a carga
-de trabalho "Desktop development with C++". Volte a correr o instalador e
+de trabalho "Desktop development with C++". Execute novamente o instalador e
 assinale-a.
 
 **`Could not find directory of OpenSSL installation` (Linux)** — instale
@@ -271,7 +271,7 @@ assinale-a.
 
 **O IDE compila mas não abre nenhuma janela (Linux)** — verifique se o
 `libxkbcommon-dev` está instalado e se `$DISPLAY` ou `$WAYLAND_DISPLAY` tem valor;
-uma TTY nua ou uma sessão SSH sem reencaminhamento de X não tem ecrã onde
+uma TTY nua ou uma sessão SSH sem reencaminhamento de X não tem tela onde
 abrir.
 
 .<<

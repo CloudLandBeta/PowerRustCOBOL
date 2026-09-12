@@ -148,6 +148,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="FontSize">11</Property>
   </Control>
   <Control id="LineChart-1" type="LineChart" x="440" y="64" w="392" h="240" tab-order="0" z-order="2" visible="true" enabled="true">
     <Property name="Title">Orders per month</Property>
@@ -177,6 +178,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="FontSize">11</Property>
   </Control>
   <Control id="PieChart-1" type="PieChart" x="856" y="64" w="392" h="240" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="Title">Share by region</Property>
@@ -203,6 +205,8 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="TitleFontSize">19</Property>
+    <Property name="FontSize">11</Property>
   </Control>
   <Control id="AreaChart-1" type="AreaChart" x="24" y="320" w="392" h="240" tab-order="0" z-order="4" visible="true" enabled="true">
     <Property name="Title">Cumulative volume</Property>
@@ -234,6 +238,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="FontSize">11</Property>
   </Control>
   <Control id="ScatterChart-1" type="ScatterChart" x="440" y="320" w="392" h="240" tab-order="0" z-order="5" visible="true" enabled="true">
     <Property name="Title">Price against weight</Property>
@@ -261,6 +266,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="FontSize">11</Property>
   </Control>
   <Control id="DonutChart-1" type="DonutChart" x="856" y="320" w="392" h="240" tab-order="0" z-order="6" visible="true" enabled="true">
     <Property name="Title">Storage in use</Property>
@@ -288,6 +294,7 @@
     <Property name="CornerRadius">10</Property>
     <Property name="BorderStyle">None</Property>
     <Property name="ShadowEnabled">true</Property>
+    <Property name="FontSize">11</Property>
   </Control>
   <Control id="Button-CHART-LOAD" type="Button" x="24" y="584" w="236" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
     <Property name="Caption">Load the first data set</Property>

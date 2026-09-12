@@ -1,5 +1,374 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.6] — 2026-09-12
+
+### Nine documents were invisible to `/docsync`
+
+The code↔document registry in `specs/steering/docs.md` is what `/docsync` reads
+to decide which documents a code change invalidates. Its own maintenance rule
+says it plainly — "a doc with no registry row is invisible to `/docsync`" — and
+nine of the thirteen document families in `docs/` had no row. `BENCHMARKS`,
+`DEPENDENCIES`, `cobol-support-matrix`, `database-runtime`,
+`ide-collaboration-design`, `indexed-file-format`, `indexed-file-internals`,
+`indexed-redb-engine` and `observability` were never checked for currency by
+anything, which is the mechanism behind the reference-doc drift already fixed by
+hand this cycle. Each ships in six languages, so one silent English document is
+six stale files.
+
+Each of the nine now names the crates and modules whose behaviour it actually
+describes, read out of the document rather than guessed from its filename — and
+every path was checked to exist before it was written down. Some of them are not
+where the name suggests: `observability-en.md` documents the INDEXED transaction
+log, but also `COBOLT_LOG` tracing, the IDE's Debug Settings, the Run-Form
+inspector and the crash-log/autosave pair, so its row reaches into
+`cobolt-ide/src/{debug_settings,inspector,crash}.rs` and into the `ast`/`parser`
+spelling of `OPEN … WITH REGISTERED USER`. `indexed-file-format-en.md` describes
+the `PRCIDX1` container in `indexed.rs` and deliberately does **not** claim the
+`cobolt-indexed` crate, which models the IDE's `.cidx` definitions and is a
+different thing wearing a similar name.
+
+`ide-collaboration-design-en.md` is marked *(design only)* and carries the Phase A
+touchpoints it builds on, following the precedent already set by the
+*(planned)* `compiler-manual-en.md` row: a document that describes work not yet
+done still needs to be told when its foundations move.
+
+No existing row was removed or reordered, and no row was invented for a document
+that does not exist.
+
+## [PowerRustCOBOL 1.70.5] — 2026-09-12
+
+### The translation skill stops sending temp files somewhere that breaks a test
+
+1.70.2 corrected the rule that splits a large document into `temp-*` files in
+`docs/` — a directory `docs_embed.rs::doc_list()` enumerates, so a temp file left
+there is served to the Documentation viewer as a real document and fails
+`every_language_lists_each_document_exactly_once`. It corrected `CLAUDE.md` and
+`specs/steering/docs.md`, and **missed the third copy**:
+`.claude/skills/doc-translate/SKILL.md` still read "Temp files live in `docs/`".
+
+The skill is the copy an agent actually follows when it starts a translation, so
+the fix was incomplete in the one place it mattered most. It now says the
+scratchpad, and says why — the failing test is named, so the next reader does not
+have to rediscover it. The guards un-ignored in 1.70.4 would have caught the
+breakage on the next cycle; nothing should have to.
+
+Two more lines in the same file went stale the moment those attributes came off.
+It told the reader to run the guard with `--ignored` and called the cycle finished
+"when its `#[ignore]` comes off" — advice that now selects nothing and invites
+putting the attribute back. Both say what is true instead: the guards are part of
+`cargo test -p cobolt-ide --bin cobolt-ide`, and an `#[ignore]` is never the way
+to a green sweep. The completion checklist runs `docs_embed` and expects all five.
+
+### The recorded Chinese expansion range admits it can be negative
+
+`es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %, jp +17–40 %` are the figures all
+three files quote for sizing a split. The Developer's Guide measured **−0.3 %**
+in Chinese, outside the range — verified whole, not truncated (1.70.4). The range
+is now **cn −1 to +5 %** in the skill and the steering document, with the
+measurement dated and the Chinese floor called out as deliberate, so the next
+agent does not read a negative figure as a defect and go looking for lost text.
+
+## [PowerRustCOBOL 1.70.4] — 2026-09-12
+
+### The Developer's Guide in Portuguese, French, Japanese and Chinese
+
+The four languages 1.70.1 left outstanding. The Guide is the last family in
+`docs/` to finish the regeneration cycle, and by a wide margin the largest:
+86 units per language, **344 translated bodies**, assembled into four files.
+
+Measured against the 520 KB English canonical:
+
+- **Portuguese** — 553 KB, **+6.3 %** (recorded range +5–12 %)
+- **French** — 586 KB, **+12.7 %** (recorded +9–18 %)
+- **Japanese** — 662 KB, **+27.2 %** (recorded +17–40 %)
+- **Chinese** — 519 KB, **−0.3 %** (recorded +1–5 %)
+
+### Chinese came out smaller than the English, and that is the real number
+
+It falls below the range `CLAUDE.md` records, which is the shape of a truncated
+file, so it was checked rather than accepted. Three measurements say the document
+is whole. Strip every fenced block — the third of the file that is identical in
+all six languages — and the **prose alone is also −0.3 %**, so this is not code
+diluting an expansion. Heading parity is exact: **H2=26, H3=99, H4=33** in every
+one of the six. And all **196 fenced blocks** are byte-identical to the English.
+Chinese simply says these 26 parts in the same space English needs. The recorded
+range in `CLAUDE.md` was widened to match the measurement.
+
+### What the checks caught that reading would not
+
+**Three merged blockquotes** (`045-jp`, `070-cn`, and one earlier) — a blank line
+left where the English continues with a bare `>`, which silently fuses two quotes
+into one. Found by counting quote blocks against the English, not by eye.
+
+**Eleven English words stranded in CJK prose** across six bodies — *engine*,
+*setter*, *move*, *compute*, *figurative constant*, *territory* (four times),
+*produce*, *literal*. Each sat next to Han or Kana where it reads as deliberate
+terminology, and none is on the keep-in-English list: COBOL keywords and
+identifiers stay, ordinary nouns do not.
+
+**Two stray scripts in one Japanese body** — Cyrillic `протокол`, and `キaca`,
+a Latin `a` swallowed mid-word. GOLDEN RULE #8 requires no characters from
+another script, so this now has its own scanner instead of a reviewer's luck.
+
+**A Spanish calque in Portuguese** (`067-pt`): "Se necessita captura" →
+"Captura de tela necessária". Portuguese here is pt-BR, and Spanish is the
+nearest wrong answer.
+
+**Two typos** — `074-pt` "finger" for *fingir*, `082-fr` "s'effface".
+
+**Five links still in English**, in units 019 and 045: three in-body anchors
+pointing at English slugs, and two link *texts* left untranslated in Portuguese
+and French by the previous session. The anchor file had predicted the three.
+
+**And the backticked heading again.** The English H3 "Long and awkward text: the
+``` block literal" put its backticks at the end of the line in all four
+languages, where the fence scanner reads them as opening a block: 197 against
+the English 196. Fixed the way Spanish already had been — the heading carries no
+backticks — with the ToC anchors realigned to match.
+
+### The cycle is over, so both guards run for real
+
+`every_document_ships_in_every_language` and
+`every_translation_is_complete_and_current` have been `#[ignore]`d since 1.62.0
+while the deleted translations were rebuilt document by document. **Both
+attributes are gone.** Thirteen families, six languages, **65 translations**, all
+present, all finished, all stamped at the canonical's version. The tests are now
+what they were written to be: a failure the moment a reader could be handed an
+English page.
+
+## [PowerRustCOBOL 1.70.3] — 2026-09-12
+
+### The designer sidebar becomes three sections, and one of them lists the form
+
+The Form Designer's left sidebar held the toolbox with the project's other forms
+stacked above it, unlabelled and in a 200 px box whatever the window's height.
+It is now an accordion of three named sections — **Toolbox**, **Objects**,
+**Other forms**, in that order, all three open — and the middle one is new.
+
+**Objects lists the controls already on the form.** The canvas can only select
+what the pointer can reach, so a control sitting underneath another one, or
+behind an opaque container, was unreachable there: the developer had to move the
+thing on top of it first. Every control now has a name in the list, and clicking
+that name selects it exactly as clicking it on the canvas would — same single
+selection, same properties pane. Containment shows as indentation, derived from
+`Control::parent` in the form's own control order, so the list does not reshuffle
+while the developer works. A control whose container is gone is still listed
+rather than dropped: an unlistable control cannot be repaired.
+
+**The sections divide the height instead of overflowing it.** `Toolbox` was
+taking every pixel below its header and the forms list had a hard-coded 200 px
+cap; `designer::sidebar_section_heights` now splits the sidebar 50 / 28 / 22
+across whichever sections are open, caps the two lists so a tall window hands
+the slack to the icon grid, and makes the toolbox the elastic one. No section
+carries a minimum, deliberately: a floor the sidebar cannot pay for would push
+the bottom section past the panel's edge, where a `Panel` clips rather than
+grows, leaving it unreachable. Thirteen tests pin the behaviour — eight on the
+split (the three never claim more height than there is, a degenerate first-frame
+value included; the order never inverts; the last section open gets the whole
+body rather than its nominal share) and five on the Objects list itself, covering
+a missing container and a parent cycle in a hand-edited `.cfrm`.
+
+The section states are session-only: not in `cobolt.toml`, not in egui's memory.
+Every designer opens with all three expanded.
+
+The sidebar-collapse chevron stays where it has always been, now in the Toolbox
+section's header, so collapsing to the icon rail looks and works unchanged — and
+the rail itself is untouched, still the sidebar's only occupant when collapsed.
+
+Four new `Tr` keys in all six languages, and `forms_list_title` removed — the
+section header supplies the title now, so nothing read it any more. Nothing
+COBOL-visible changed, so the System KB is unaffected.
+
+## [PowerRustCOBOL 1.70.2] — 2026-09-12
+
+### The translation cycle stops prescribing a directory that breaks a test
+
+GOLDEN RULE #8 has told every agent since 1.62.1 to split an oversized English
+document into `temp-<doc>-*.md` files **in `docs/`**. That directory is embedded
+into the IDE wholesale — `crates/cobolt-ide/src/docs_embed.rs` pulls it in with
+`include_dir!`, and `doc_list()` enumerates every `.md` inside it — so a temp
+file left there is not scratch work. It is shipped in the binary, listed in the
+Documentation viewer as a real document, and it fails
+`every_language_lists_each_document_exactly_once`.
+
+The rule now says what the last two translation runs actually did: **temp files
+live outside the repository, in the session scratchpad.** Everything else about
+them is unchanged — never committed, never reused, an interrupted run recovered
+by deleting every `temp-*` and restarting from the English canonical.
+
+Corrected in both copies: `CLAUDE.md` GOLDEN RULE #8 and
+`specs/steering/docs.md`, which mirrored the same instruction.
+
+## [PowerRustCOBOL 1.70.1] — 2026-09-12
+
+### The Developer's Guide in Spanish
+
+520 KB of English, 588 KB of Spanish — **+13.1 %**, inside the es range
+`CLAUDE.md` records (+5–13 %). It is the flagship document and the larger of the
+two the 1.70.0 cycle found missing; this ships the first of its five languages.
+
+**Split by ToC entry, then further.** The Guide is 27 top-level parts and five of
+them exceed the 32 KB ceiling — the control catalogue alone is 128 KB — so those
+were subdivided at their own H3 (and, where an H3 was still too large, H4)
+boundaries. That gave **86 units, none over 32 KB**, cut only at headings so no
+paragraph, table, fenced block or mermaid diagram was split across two.
+
+**196 fenced blocks, copied not retyped.** Every one was tokenised as
+`@@CODEn@@` before translation and substituted back afterwards, and the assembly
+refused to publish until all 196 were present exactly once. A check then
+confirmed the published file's blocks are byte-identical to the English.
+
+### The ToC could not be generated, and that mattered
+
+The syntax reference's ToC came from a generator, because its entries *are* its
+headings. The Guide's are not: entry 2 reads "The three pieces: RustCOBOL,
+PowerRustCOBOL, rcrun" while the heading is "2. The three pieces". The entry text
+is editorial.
+
+So it was translated by hand — but with every **anchor** computed from the
+translated headings rather than derived by eye, all 25 top-level entries and the
+8 H3 sub-entries the ToC cites. `links.py` then verified that each of the 33
+resolves to a heading in the file. It does.
+
+### Two things the checks caught that review would not
+
+**A heading ending in three backticks opens a fence.** The English H3 reads
+"Long and awkward text: the ``` block literal" — backticks mid-phrase. The
+Spanish put them at the end of the line, where the fence scanner reads
+```` ```\n ```` as the start of a code block: 197 blocks against the English 196.
+The heading now carries no backticks at all, which also drops the trailing-hyphen
+anchor it would otherwise have had.
+
+**Temp files do not belong in `docs/`.** GOLDEN RULE #8 says to split into
+`temp-*` files there, but `docs_embed.rs::doc_list()` **scans that directory** —
+a temp file would have been picked up as a real document and broken
+`every_language_lists_each_document_exactly_once`. The split lived in the session
+scratchpad instead.
+
+### Where the cycle stands
+
+`every_translation_is_complete_and_current` **passes** — 65 translations across
+thirteen families, nothing outstanding.
+`every_document_ships_in_every_language` reports the Guide for **pt, fr, jp and
+cn**; Spanish is done. Both keep their `#[ignore]`.
+
+Full `cobolt-ide` suite: 1157 passed, 0 failed.
+
+## [PowerRustCOBOL 1.70.0] — 2026-09-11
+
+### The regeneration cycle runs, because the operator raised the minor
+
+GOLDEN RULE #8 gates the translation cycle on a **minor or major** bump and never
+on a `z` — which is every agent-made change, so an agent does not translate on its
+own. The operator raised `y` to 1.70.0. That is the authorization the cycle needs.
+
+Scope was settled on evidence before a word was written: eleven document families
+are **current**, every translation's version stamp equal to its canonical's. Two
+documents were missing all five languages — `cobol85-supported-syntax` (deleted at
+1.65.136 for being stale) and `developers-guide` (never translated). This ships the
+first.
+
+### `cobol85-supported-syntax`, five languages
+
+The document is 70.5 KB and **98 % prose and tables** — only 1 % of it sits inside
+fenced blocks — and it had **no table of contents**, which the sizing rule requires
+before a document over 32 KB can be split. So the canonical gained one first: nine
+entries, with every anchor **generated from the heading** rather than typed, and its
+stamp moved to 1.70.0. Nothing else in the English changed.
+
+| Language | Bytes | vs English |
+|---|---:|---:|
+| es | 79 736 | +13.1 % |
+| pt | 78 951 | +12.0 % |
+| fr | 82 270 | +16.7 % |
+| jp | 88 189 | +25.1 % |
+| cn | 73 683 | +4.5 % |
+
+Every figure lands inside the expansion ranges `CLAUDE.md` records from this repo's
+own earlier translations — es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %,
+jp +17–40 %.
+
+**The 11 fenced blocks are copied, never retyped.** Each translated body carries
+`@@CODEn@@` placeholders and the tooling substitutes the English blocks back in, so
+a check can assert the code is byte-identical in all five languages. It is — along
+with the sentinel, the stamp, valid UTF-8, zero double-encoded sequences, and no
+bare `cobolt` in prose.
+
+Generating anchors instead of writing them removes a whole failure class by
+construction. It is the trap that once produced a Japanese anchor reading
+`#発見apiapi` — a link that renders correctly and goes nowhere, which prose review
+does not catch.
+
+### Fifteen links came home
+
+1.65.136 had pointed `cobol-support-matrix-<lang>.md` (two each) and
+`cobol85-verb-test-matrix-<lang>.md` (one each) at `cobol85-supported-syntax-en.md`,
+because the same-language files did not exist. They exist again, so those 15
+references are same-language again and those ten files are now **byte-identical to
+their 1.65.135 state**.
+
+### Where the cycle stands
+
+`every_translation_is_complete_and_current` **passes** — 60 translations across
+twelve families, nothing outstanding. `every_document_ships_in_every_language` now
+names exactly one document, `developers-guide-en.md`, down from two. Both keep
+their `#[ignore]`: the cycle is not finished while the Guide is English-only, and
+that attribute is what says so.
+
+Full `cobolt-ide` suite: 1157 passed, 0 failed.
+
+## [PowerRustCOBOL 1.65.136] — 2026-09-11
+
+### The syntax reference goes back to English-only, as the rule says
+
+`docs/cobol85-supported-syntax-{es,pt,fr,jp,cn}.md` are deleted.
+
+They were not half-written. They were complete, structurally identical prose —
+9 H2 sections and 25 H3s, the same as the English — last regenerated at 1.64.1.
+They were *wrong*. The canonical moved twice underneath them and nothing
+followed:
+
+| Version | What changed in the English canonical |
+|---|---|
+| 1.65.6 | the NIST scoreboard was rewritten to derive from `NIST/progress.json` instead of a retyped table |
+| 1.65.121 | `INVOKE` was corrected — the document claimed it does nothing; it has an executor |
+
+That is 136 insertions and 238 deletions of drift, carried by none of the five.
+A reader in any of those languages was being given superseded conformance
+figures and a false statement about `INVOKE`. The missing sentinel and version
+stamp that `every_translation_is_complete_and_current` flagged were the symptom;
+the rot was the content.
+
+The localization policy prescribes this exact outcome, in two places that say it
+identically — `CLAUDE.md` GOLDEN RULE #8 and `specs/steering/docs.md`: a change
+that touches a document updates the **English canonical only** and then
+**physically deletes that document's five translations**, because *a stale
+translation is worse than a missing one*. The regeneration cycle runs on a minor
+or a major, never on a `z`. This is that rule, applied five days late.
+
+**No English file is deleted**, and none ever is.
+
+### Fifteen links repointed rather than orphaned
+
+Removing five files left 15 references dangling across ten translated documents:
+two per language in `cobol-support-matrix-<lang>.md`, one per language in
+`cobol85-verb-test-matrix-<lang>.md`. All fifteen now resolve to
+`cobol85-supported-syntax-en.md`.
+
+That is not a downgrade — it is the fallback the IDE Help already performs.
+`doc_list` keeps "the wanted language and the English fallback", so a reader who
+selects Japanese and opens the syntax reference is shown the English file either
+way. The link now says so instead of pointing at nothing.
+
+The substitution touched only the ASCII filename: 15 lines, one in and one out
+apiece, every CJK and accented byte around them identical, all ten files still
+clean under `iconv -f UTF-8 -t UTF-8` with zero double-encoded sequences.
+
+`every_translation_is_complete_and_current` now passes with an empty outstanding
+list. Absence is the other test's job, and
+`every_document_ships_in_every_language` correctly reports the syntax reference
+as English-only again, beside the Developer's Guide.
+
 ## [PowerRustCOBOL 1.65.135] — 2026-09-11
 
 ### Three more wrong counts, in the one document nobody audited

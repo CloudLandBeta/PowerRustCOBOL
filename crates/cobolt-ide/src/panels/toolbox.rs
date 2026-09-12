@@ -332,12 +332,20 @@ impl ToolboxPanel {
         }
     }
 
+    /// Draw the toolbox.
+    ///
+    /// `max_height` bounds the expanded icon grid's scroll area. The toolbox is
+    /// the first of the sidebar's three sections (Objects and Other forms
+    /// follow), so it can no longer take every pixel below its header — see
+    /// [`super::designer::sidebar_section_heights`]. Ignored while `collapsed`:
+    /// the rail is the sidebar's only occupant.
     pub fn show(
         &mut self,
         ui: &mut Ui,
         tr: &Tr,
         user_controls: &[UserControlDef],
         collapsed: bool,
+        max_height: f32,
     ) -> ToolboxAction {
         let mut action = ToolboxAction {
             dragged_type: None,
@@ -364,27 +372,9 @@ impl ToolboxPanel {
             theme.accent
         };
 
+        // No heading row here any more: the title and the sidebar-collapse
+        // chevron are drawn by the section header above us.
         ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Toolbox");
-                // Right-aligned collapse chevron: shrinks the sidebar to the
-                // icon rail. Points left (◀) — the pane collapses toward its
-                // fixed left edge.
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button(
-                            RichText::new("◀")
-                                .size(super::designer::COLLAPSE_CHEVRON_SIZE),
-                        )
-                        .on_hover_text(tr.toolbox_collapse)
-                        .clicked()
-                    {
-                        action.toggle_collapse = true;
-                    }
-                });
-            });
-            ui.separator();
-
             ui.horizontal(|ui| {
                 ui.label("🔍");
                 ui.text_edit_singleline(&mut self.filter);
@@ -398,6 +388,7 @@ impl ToolboxPanel {
 
             egui::ScrollArea::vertical()
                 .id_salt("toolbox_scroll")
+                .max_height(max_height)
                 .show(ui, |ui| {
                     if filter_lo.is_empty() {
                         for &(cat_id, _) in CATEGORIES {
@@ -773,9 +764,18 @@ fn draw_database_glyph(
 }
 
 /// Draw a miniature vector icon centred inside `rect`.
+///
 /// `r` is the icon scaling unit = 25 % of the button's logical size, giving ~3.25 px
 /// for a 26 px button — ensures all icons stay comfortably inside the frame.
-fn paint_control_icon(painter: &egui::Painter, rect: egui::Rect, ct: ControlType, color: Color32) {
+///
+/// Shared with the Objects list in the designer sidebar, so a row there carries
+/// the same mark as the toolbox button the control came from.
+pub(crate) fn paint_control_icon(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ct: ControlType,
+    color: Color32,
+) {
     let c = rect.center();
     let r = rect.size().min_elem() * 0.25; // ≈ 6.5 px for a 26 px button → max span ~18 px
     let s = Stroke::new(1.2, color);
