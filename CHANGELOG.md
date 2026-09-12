@@ -1,5 +1,73 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.4] — 2026-09-12
+
+### The Developer's Guide in Portuguese, French, Japanese and Chinese
+
+The four languages 1.70.1 left outstanding. The Guide is the last family in
+`docs/` to finish the regeneration cycle, and by a wide margin the largest:
+86 units per language, **344 translated bodies**, assembled into four files.
+
+Measured against the 520 KB English canonical:
+
+- **Portuguese** — 553 KB, **+6.3 %** (recorded range +5–12 %)
+- **French** — 586 KB, **+12.7 %** (recorded +9–18 %)
+- **Japanese** — 662 KB, **+27.2 %** (recorded +17–40 %)
+- **Chinese** — 519 KB, **−0.3 %** (recorded +1–5 %)
+
+### Chinese came out smaller than the English, and that is the real number
+
+It falls below the range `CLAUDE.md` records, which is the shape of a truncated
+file, so it was checked rather than accepted. Three measurements say the document
+is whole. Strip every fenced block — the third of the file that is identical in
+all six languages — and the **prose alone is also −0.3 %**, so this is not code
+diluting an expansion. Heading parity is exact: **H2=26, H3=99, H4=33** in every
+one of the six. And all **196 fenced blocks** are byte-identical to the English.
+Chinese simply says these 26 parts in the same space English needs. The recorded
+range in `CLAUDE.md` was widened to match the measurement.
+
+### What the checks caught that reading would not
+
+**Three merged blockquotes** (`045-jp`, `070-cn`, and one earlier) — a blank line
+left where the English continues with a bare `>`, which silently fuses two quotes
+into one. Found by counting quote blocks against the English, not by eye.
+
+**Eleven English words stranded in CJK prose** across six bodies — *engine*,
+*setter*, *move*, *compute*, *figurative constant*, *territory* (four times),
+*produce*, *literal*. Each sat next to Han or Kana where it reads as deliberate
+terminology, and none is on the keep-in-English list: COBOL keywords and
+identifiers stay, ordinary nouns do not.
+
+**Two stray scripts in one Japanese body** — Cyrillic `протокол`, and `キaca`,
+a Latin `a` swallowed mid-word. GOLDEN RULE #8 requires no characters from
+another script, so this now has its own scanner instead of a reviewer's luck.
+
+**A Spanish calque in Portuguese** (`067-pt`): "Se necessita captura" →
+"Captura de tela necessária". Portuguese here is pt-BR, and Spanish is the
+nearest wrong answer.
+
+**Two typos** — `074-pt` "finger" for *fingir*, `082-fr` "s'effface".
+
+**Five links still in English**, in units 019 and 045: three in-body anchors
+pointing at English slugs, and two link *texts* left untranslated in Portuguese
+and French by the previous session. The anchor file had predicted the three.
+
+**And the backticked heading again.** The English H3 "Long and awkward text: the
+``` block literal" put its backticks at the end of the line in all four
+languages, where the fence scanner reads them as opening a block: 197 against
+the English 196. Fixed the way Spanish already had been — the heading carries no
+backticks — with the ToC anchors realigned to match.
+
+### The cycle is over, so both guards run for real
+
+`every_document_ships_in_every_language` and
+`every_translation_is_complete_and_current` have been `#[ignore]`d since 1.62.0
+while the deleted translations were rebuilt document by document. **Both
+attributes are gone.** Thirteen families, six languages, **65 translations**, all
+present, all finished, all stamped at the canonical's version. The tests are now
+what they were written to be: a failure the moment a reader could be handed an
+English page.
+
 ## [PowerRustCOBOL 1.70.3] — 2026-09-12
 
 ### The designer sidebar becomes three sections, and one of them lists the form

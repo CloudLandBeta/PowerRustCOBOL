@@ -208,14 +208,14 @@ mod tests {
     /// guide — invisible for months behind a silent English fallback — that this
     /// test would have caught on the first run.
     ///
-    /// **Ignored while the 1.62 cycle runs.** The stale translations were deleted
-    /// wholesale and are being regenerated document by document; 4 of the 12
-    /// families are done. Run it with `--ignored` to see exactly which documents
-    /// are still English-only — it prints them — and delete this attribute when
-    /// the last language of the last document lands. It is the cycle's
-    /// completion criterion, not a judgement call.
+    /// **The cycle is finished.** It ran ignored from 1.62.0 while the deleted
+    /// translations were regenerated document by document, and the attribute came
+    /// off at 1.70.4, when the Developer's Guide — the last family, and by far the
+    /// largest — landed in Portuguese, French, Japanese and Chinese. All thirteen
+    /// families now ship all six languages. Restoring the `#[ignore]` to get a
+    /// green sweep would give back exactly the silent English fallback this test
+    /// exists to catch: delete a translation instead, and it fails honestly.
     #[test]
-    #[ignore = "translation cycle in progress — run with --ignored to see what is left"]
     fn every_document_ships_in_every_language() {
         for lang in Language::ALL {
             let want = lang_code(*lang);
@@ -243,9 +243,10 @@ mod tests {
     ///   was made from what the canonical says today.
     ///
     /// Anything else is redone from the current English rather than patched.
-    /// Run with `--ignored` to list what is outstanding.
+    ///
+    /// Ignored alongside its sibling until 1.70.4; it runs for real now that
+    /// every document has a translation in every language to check.
     #[test]
-    #[ignore = "translation cycle in progress — run with --ignored to see what is left"]
     fn every_translation_is_complete_and_current() {
         /// The `<!-- powerrustcobol: … -->` stamp, if the file carries one.
         fn stamp(src: &str) -> Option<&str> {
