@@ -58,6 +58,7 @@ use crate::panels::{
     output::OutputPanel,
     project::{ProjectPanel, ProjectPanelEvent},
     toolbar::{self, ToolbarAction},
+    toolbox::ToolboxAction,
 };
 use crate::project_model::{
     load_project, package_project, relative_to, save_project, CoboltProject, ElementStatus,
@@ -16167,7 +16168,7 @@ impl CoboltApp {
             self.do_generate_cobol(idx);
         }
 
-        // ── Left sidebar: Forms list + Toolbox (full height — reaches top) ────
+        // ── Left sidebar: Toolbox · Objects · Other forms (full height) ───────
         // Rendered BEFORE the toolbar so it occupies the full window height on the
         // left; the toolbar below then fills only the area to its right.
         // Collect open paths as owned so no borrow lingers on self.designers.
@@ -16179,16 +16180,23 @@ impl CoboltApp {
             .map(|project| project.user_controls.clone())
             .unwrap_or_default();
 
-        // Collapsible left sidebar (spec 033): forms list + toolbox share one
-        // panel. We use egui 0.35's NATIVE drawer, `Panel::show_switched`, which
-        // animates between a thin collapsed panel (`dl_rail_*`, a FIXED-width icon
-        // rail) and the resizable expanded panel (`dl_*`). egui owns the collapse
+        // Collapsible left sidebar (spec 033): three sections — Toolbox, Objects,
+        // Other forms — share one panel. We use egui 0.35's NATIVE drawer,
+        // `Panel::show_switched`, which animates between a thin collapsed panel
+        // (`dl_rail_*`, a FIXED-width icon rail) and the resizable expanded
+        // panel (`dl_*`). egui owns the collapse
         // state via `&mut is_expanded` and persists each panel's size per id, so
         // there is no hand-rolled id-swap fighting egui's own `PanelState`.
         // Neither width comes from available/max space, so the sidebar cannot
         // self-inflate; the expanded width is remembered by egui and seeded from
-        // `toolbox_width`.
-        use crate::panels::designer::{clamp_toolbox_width, TOOLBOX_MIN_W, TOOLBOX_RAIL_W};
+        // `toolbox_width`. The section split below DOES read the panel's
+        // available HEIGHT — safe, and not the rule's subject: a left panel's
+        // height is the window's, the only dimension it can resize is its width,
+        // and nothing in the split touches that.
+        use crate::panels::designer::{
+            clamp_toolbox_width, sidebar_section, sidebar_section_heights, TOOLBOX_MIN_W,
+            TOOLBOX_RAIL_W,
+        };
         let mut tb_expanded = !self.designers[idx].1.toolbox_collapsed;
         let tb_width = self.designers[idx].1.toolbox_width;
         let tb_max_w = (ctx.content_rect().width() * 0.5).max(320.0);
@@ -16208,25 +16216,103 @@ impl CoboltApp {
             tb_collapsed_panel,
             tb_expanded_panel,
             |ui, expanded| {
-                // The forms list needs real width; at the icon-rail size it's
-                // hidden and returns on expand.
-                let forms_action = if expanded {
-                    let a = self.forms_list.show(ui, &open_path_refs, tr);
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(2.0);
-                    a
+                // Collapsed: the icon rail is the sidebar's only occupant — no
+                // section headers, no Objects, no forms list (they need width).
+                if !expanded {
+                    let tb = self.designers[idx]
+                        .1
+                        .toolbox
+                        .show(ui, tr, &user_controls, true, 0.0);
+                    return (None, tb, None);
+                }
+
+                // `live` starts as last frame's state and is updated by each
+                // header as it is drawn, and the height split is recomputed
+                // after each one. A section therefore always sizes itself from
+                // its OWN up-to-date flag — open one and it gets a real body on
+                // that very frame instead of rendering empty and popping open on
+                // the next. Only sections drawn EARLIER can be a frame behind
+                // about a later one, and that shifts a height by a proportion,
+                // never to zero.
+                let avail_h = ui.available_height();
+                let mut live = self.designers[idx].1.sidebar_open;
+
+                // ── 1. Toolbox ────────────────────────────────────────────────
+                // Its header carries the sidebar-collapse chevron: that is where
+                // the chevron has always been, so collapsing still looks the
+                // same. Points left (◀) — the pane collapses toward its fixed
+                // left edge.
+                let mut collapse_clicked = false;
+                let show_toolbox =
+                    sidebar_section(ui, tr.sidebar_sec_toolbox, &mut live.toolbox, |ui| {
+                        collapse_clicked = ui
+                            .button(
+                                egui::RichText::new("◀")
+                                    .size(crate::panels::designer::COLLAPSE_CHEVRON_SIZE),
+                            )
+                            .on_hover_text(tr.toolbox_collapse)
+                            .clicked();
+                    });
+                let mut tb = if show_toolbox {
+                    let h = sidebar_section_heights(avail_h, live);
+                    self.designers[idx]
+                        .1
+                        .toolbox
+                        .show(ui, tr, &user_controls, false, h.toolbox)
+                } else {
+                    ToolboxAction {
+                        dragged_type: None,
+                        dragged_user_control: None,
+                        toggle_collapse: false,
+                    }
+                };
+                tb.toggle_collapse |= collapse_clicked;
+
+                // ── 2. Objects — the controls already on this form ─────────────
+                ui.add_space(4.0);
+                let picked =
+                    if sidebar_section(ui, tr.sidebar_sec_objects, &mut live.objects, |_| {}) {
+                        let h = sidebar_section_heights(avail_h, live);
+                        let d = &self.designers[idx].1;
+                        crate::panels::objects_list::show(
+                            ui,
+                            &d.form,
+                            &d.selected_ids,
+                            h.objects,
+                            tr,
+                        )
+                    } else {
+                        None
+                    };
+
+                // ── 3. Other forms ────────────────────────────────────────────
+                ui.add_space(4.0);
+                let forms_list = &mut self.forms_list;
+                let forms_action = if sidebar_section(
+                    ui,
+                    tr.sidebar_sec_other_forms,
+                    &mut live.other_forms,
+                    |ui| forms_list.refresh_button(ui),
+                ) {
+                    let h = sidebar_section_heights(avail_h, live);
+                    forms_list.show(ui, &open_path_refs, h.other_forms, tr)
                 } else {
                     None
                 };
-                let tb = self.designers[idx]
-                    .1
-                    .toolbox
-                    .show(ui, tr, &user_controls, !expanded);
-                (forms_action, tb)
+
+                self.designers[idx].1.sidebar_open = live;
+                (forms_action, tb, picked)
             },
         );
-        let (forms_list_action, toolbox_action) = left_resp.inner;
+        let (forms_list_action, toolbox_action, picked_object) = left_resp.inner;
+
+        // Clicking a name in the Objects list selects that control, exactly as
+        // clicking it on the canvas would. The sidebar is drawn before both the
+        // properties pane and the canvas, so the selection is already in place
+        // when they render this same frame — no one-frame lag.
+        if let Some(id) = picked_object {
+            self.designers[idx].1.select_only(&id);
+        }
 
         // Seed `toolbox_width` from the panel's OWN width when expanded (never
         // from available space). egui's per-id `PanelState` is the authoritative

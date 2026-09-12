@@ -30,6 +30,7 @@ pub mod indexed_properties;
 pub mod leaderboard_modal;
 pub mod md_render;
 pub mod models_modal;
+pub mod objects_list;
 pub mod output;
 pub mod project;
 pub mod prompt_review;

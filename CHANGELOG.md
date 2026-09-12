@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.3] — 2026-09-12
+
+### The designer sidebar becomes three sections, and one of them lists the form
+
+The Form Designer's left sidebar held the toolbox with the project's other forms
+stacked above it, unlabelled and in a 200 px box whatever the window's height.
+It is now an accordion of three named sections — **Toolbox**, **Objects**,
+**Other forms**, in that order, all three open — and the middle one is new.
+
+**Objects lists the controls already on the form.** The canvas can only select
+what the pointer can reach, so a control sitting underneath another one, or
+behind an opaque container, was unreachable there: the developer had to move the
+thing on top of it first. Every control now has a name in the list, and clicking
+that name selects it exactly as clicking it on the canvas would — same single
+selection, same properties pane. Containment shows as indentation, derived from
+`Control::parent` in the form's own control order, so the list does not reshuffle
+while the developer works. A control whose container is gone is still listed
+rather than dropped: an unlistable control cannot be repaired.
+
+**The sections divide the height instead of overflowing it.** `Toolbox` was
+taking every pixel below its header and the forms list had a hard-coded 200 px
+cap; `designer::sidebar_section_heights` now splits the sidebar 50 / 28 / 22
+across whichever sections are open, caps the two lists so a tall window hands
+the slack to the icon grid, and makes the toolbox the elastic one. No section
+carries a minimum, deliberately: a floor the sidebar cannot pay for would push
+the bottom section past the panel's edge, where a `Panel` clips rather than
+grows, leaving it unreachable. Thirteen tests pin the behaviour — eight on the
+split (the three never claim more height than there is, a degenerate first-frame
+value included; the order never inverts; the last section open gets the whole
+body rather than its nominal share) and five on the Objects list itself, covering
+a missing container and a parent cycle in a hand-edited `.cfrm`.
+
+The section states are session-only: not in `cobolt.toml`, not in egui's memory.
+Every designer opens with all three expanded.
+
+The sidebar-collapse chevron stays where it has always been, now in the Toolbox
+section's header, so collapsing to the icon rail looks and works unchanged — and
+the rail itself is untouched, still the sidebar's only occupant when collapsed.
+
+Four new `Tr` keys in all six languages, and `forms_list_title` removed — the
+section header supplies the title now, so nothing read it any more. Nothing
+COBOL-visible changed, so the System KB is unaffected.
+
 ## [PowerRustCOBOL 1.70.2] — 2026-09-12
 
 ### The translation cycle stops prescribing a directory that breaks a test

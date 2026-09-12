@@ -114,6 +114,142 @@ pub const PROPS_TAB_W: f32 = 30.0;
 /// ◀/▶) so they are all the SAME size — ~2× the old `small_button` glyph.
 pub const COLLAPSE_CHEVRON_SIZE: f32 = 20.0;
 
+// ── Left-sidebar sections (Toolbox · Objects · Other forms) ───────────────────
+
+/// Which of the sidebar's three sections are expanded.
+///
+/// Deliberately **not** persisted — not in `cobolt.toml`, not in egui's memory.
+/// Every designer opens with all three expanded (operator, 2026-09-12), so the
+/// developer always finds the sidebar in the same shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SidebarSections {
+    pub toolbox: bool,
+    pub objects: bool,
+    pub other_forms: bool,
+}
+
+impl Default for SidebarSections {
+    fn default() -> Self {
+        Self {
+            toolbox: true,
+            objects: true,
+            other_forms: true,
+        }
+    }
+}
+
+/// Body height granted to each open section. A closed section gets `0.0`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SidebarHeights {
+    pub toolbox: f32,
+    pub objects: f32,
+    pub other_forms: f32,
+}
+
+/// Per-section chrome: the header row plus its separator.
+const SEC_CHROME: f32 = 26.0;
+/// The toolbox's search row, which the other two sections do not have.
+const SEC_TOOLBOX_SEARCH: f32 = 32.0;
+/// Above these the two lists stop growing and hand the slack to the toolbox —
+/// a very tall window should give the extra room to the icon grid, not leave a
+/// short list floating in whitespace.
+const SEC_OBJECTS_MAX: f32 = 320.0;
+const SEC_FORMS_MAX: f32 = 260.0;
+
+/// Split the sidebar's vertical space between its three sections.
+///
+/// Weighted 50 / 28 / 22 across the **open** sections only, so a section that
+/// is the last one open gets the whole body rather than its nominal share. The
+/// toolbox absorbs whatever the two capped lists leave over.
+///
+/// `available` is the sidebar panel's own height. Reading it is safe: the panel
+/// is an `egui::Panel::left`, whose height is the window's and whose *width* —
+/// the only dimension it can resize — comes from egui's `PanelState` and the
+/// user's drag. Nothing here feeds back into that width, so the GOLDEN RULE on
+/// self-resizing windows is not in play.
+pub fn sidebar_section_heights(available: f32, open: SidebarSections) -> SidebarHeights {
+    let zero = SidebarHeights {
+        toolbox: 0.0,
+        objects: 0.0,
+        other_forms: 0.0,
+    };
+    let w_tb = if open.toolbox { 50.0 } else { 0.0 };
+    let w_ob = if open.objects { 28.0 } else { 0.0 };
+    let w_of = if open.other_forms { 22.0 } else { 0.0 };
+    let total = w_tb + w_ob + w_of;
+    if total <= 0.0 {
+        return zero;
+    }
+
+    let mut chrome = 3.0 * SEC_CHROME;
+    if open.toolbox {
+        chrome += SEC_TOOLBOX_SEARCH;
+    }
+    // A non-finite or absurd `available` (a first-frame zero rect) must not
+    // reach a `ScrollArea::max_height`, so it degrades to no body at all.
+    let body = if available.is_finite() {
+        (available - chrome).max(0.0)
+    } else {
+        0.0
+    };
+    let share = |w: f32| body * w / total;
+
+    let objects = if open.objects {
+        share(w_ob).min(SEC_OBJECTS_MAX)
+    } else {
+        0.0
+    };
+    let other_forms = if open.other_forms {
+        share(w_of).min(SEC_FORMS_MAX)
+    } else {
+        0.0
+    };
+    // The toolbox is the ELASTIC section: it takes exactly what the two capped
+    // lists leave over. No section carries a minimum, deliberately — a floor
+    // that the body cannot pay for would push the bottom section past the
+    // panel's edge, where a `Panel` clips rather than grows, leaving it
+    // unreachable. Shrinking the icon grid instead keeps all three on screen at
+    // any window height, each scrolling within whatever it was given.
+    let toolbox = if open.toolbox {
+        (body - objects - other_forms).max(0.0)
+    } else {
+        0.0
+    };
+    SidebarHeights {
+        toolbox,
+        objects,
+        other_forms,
+    }
+}
+
+/// Draw one sidebar section header — `▾ Title` on the left, `right` at the far
+/// right — and return whether the section is now open.
+///
+/// Clicking the title toggles `open`. The right slot carries the section's own
+/// control: the toolbox's sidebar-collapse chevron, the forms list's refresh.
+pub fn sidebar_section(
+    ui: &mut egui::Ui,
+    title: &str,
+    open: &mut bool,
+    right: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    ui.horizontal(|ui| {
+        let arrow = if *open { "▾" } else { "▸" };
+        let hdr = ui.add(
+            egui::Button::new(egui::RichText::new(format!("{arrow} {title}")).strong())
+                .frame(false),
+        );
+        if hdr.clicked() {
+            *open = !*open;
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            right(ui)
+        });
+    });
+    ui.separator();
+    *open
+}
+
 /// What [`show_props_drawer`] gives back: the content closure's value (absent
 /// while the drawer is collapsed) and whether the chevron was clicked.
 pub struct PropsDrawer<R> {
@@ -601,6 +737,163 @@ mod collapsible_chrome_tests {
             stored = clamp_toolbox_width(stored, TOOLBOX_MIN_W, 600.0);
         }
         assert_eq!(stored, 265.0, "re-expand restores the user's width");
+    }
+}
+
+#[cfg(test)]
+mod sidebar_section_tests {
+    use super::*;
+
+    const TALL: f32 = 900.0;
+
+    /// The default: every section open, so the developer sees the toolbox, the
+    /// form's objects and the other forms at once without touching anything.
+    #[test]
+    fn all_three_sections_start_open() {
+        let d = SidebarSections::default();
+        assert!(d.toolbox && d.objects && d.other_forms);
+    }
+
+    /// With all three open each gets a real body, and together they never claim
+    /// more than the sidebar has — the alternative is a section pushed off the
+    /// bottom edge, which is exactly what the flat layout used to do.
+    #[test]
+    fn three_open_sections_share_the_height_without_overflowing() {
+        let h = sidebar_section_heights(TALL, SidebarSections::default());
+
+        assert!(h.toolbox > 0.0 && h.objects > 0.0 && h.other_forms > 0.0);
+        assert!(
+            h.toolbox + h.objects + h.other_forms <= TALL,
+            "sections claim {} of {TALL}px",
+            h.toolbox + h.objects + h.other_forms
+        );
+        // The toolbox is the tallest: it holds an icon grid, not a short list.
+        assert!(h.toolbox > h.objects && h.objects > h.other_forms);
+    }
+
+    /// A closed section costs nothing, and its space goes to the ones still
+    /// open rather than being left blank.
+    #[test]
+    fn a_closed_section_gives_its_space_to_the_others() {
+        let all = sidebar_section_heights(TALL, SidebarSections::default());
+        let no_forms = sidebar_section_heights(
+            TALL,
+            SidebarSections {
+                other_forms: false,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(no_forms.other_forms, 0.0);
+        assert!(
+            no_forms.toolbox > all.toolbox,
+            "toolbox {} should grow past {}",
+            no_forms.toolbox,
+            all.toolbox
+        );
+    }
+
+    /// The last section standing takes the whole body — a lone Objects list
+    /// should not sit in its nominal 28 % with the rest of the sidebar empty.
+    #[test]
+    fn the_only_open_section_is_not_limited_to_its_nominal_share() {
+        let only_objects = sidebar_section_heights(
+            TALL,
+            SidebarSections {
+                toolbox: false,
+                objects: true,
+                other_forms: false,
+            },
+        );
+
+        assert_eq!(only_objects.toolbox, 0.0);
+        assert_eq!(only_objects.other_forms, 0.0);
+        assert_eq!(
+            only_objects.objects, SEC_OBJECTS_MAX,
+            "a lone list grows to its cap"
+        );
+    }
+
+    /// Every section closed asks for no space at all.
+    #[test]
+    fn all_closed_asks_for_nothing() {
+        let h = sidebar_section_heights(
+            TALL,
+            SidebarSections {
+                toolbox: false,
+                objects: false,
+                other_forms: false,
+            },
+        );
+        assert_eq!((h.toolbox, h.objects, h.other_forms), (0.0, 0.0, 0.0));
+    }
+
+    /// The invariant that keeps every section reachable: whatever the sidebar's
+    /// height — including a degenerate first-frame value — the three bodies are
+    /// finite, non-negative, and together never claim more than there is. A
+    /// `Panel` clips instead of growing, so an overflowing sum would hide the
+    /// bottom section outright.
+    #[test]
+    fn the_sections_never_claim_more_height_than_the_sidebar_has() {
+        let layouts = [
+            SidebarSections::default(),
+            SidebarSections {
+                toolbox: true,
+                objects: false,
+                other_forms: true,
+            },
+            SidebarSections {
+                toolbox: false,
+                objects: true,
+                other_forms: true,
+            },
+        ];
+        for available in [0.0_f32, 40.0, 120.0, 300.0, 900.0, 4000.0, f32::NAN] {
+            for open in layouts {
+                let h = sidebar_section_heights(available, open);
+                let sum = h.toolbox + h.objects + h.other_forms;
+                assert!(
+                    h.toolbox >= 0.0 && h.objects >= 0.0 && h.other_forms >= 0.0,
+                    "negative body at available={available}: {h:?}"
+                );
+                assert!(sum.is_finite(), "non-finite sum at available={available}");
+                assert!(
+                    sum <= available.max(0.0) || !available.is_finite(),
+                    "sections claim {sum} of {available}px"
+                );
+            }
+        }
+    }
+
+    /// The sidebar keeps the same SHAPE at every height: all three sections
+    /// present, ordered toolbox ≥ objects ≥ other forms. A future weight or cap
+    /// edit that inverted two of them — starving the Objects list to feed the
+    /// icon grid, say — would show up here rather than on the operator's screen.
+    #[test]
+    fn the_sections_keep_their_order_at_every_sidebar_height() {
+        for available in [200.0_f32, 240.0, 400.0, 700.0, 900.0, 1600.0, 4000.0] {
+            let h = sidebar_section_heights(available, SidebarSections::default());
+
+            assert!(
+                h.toolbox > 0.0 && h.objects > 0.0 && h.other_forms > 0.0,
+                "a section vanished at available={available}: {h:?}"
+            );
+            assert!(
+                h.toolbox >= h.objects && h.objects >= h.other_forms,
+                "order inverted at available={available}: {h:?}"
+            );
+        }
+    }
+
+    /// A very tall sidebar caps the two lists so the slack lands on the icon
+    /// grid, not on whitespace under a six-row list.
+    #[test]
+    fn a_very_tall_sidebar_caps_the_lists_and_gives_the_slack_to_the_toolbox() {
+        let h = sidebar_section_heights(4000.0, SidebarSections::default());
+
+        assert_eq!(h.objects, SEC_OBJECTS_MAX);
+        assert_eq!(h.other_forms, SEC_FORMS_MAX);
+        assert!(h.toolbox > SEC_OBJECTS_MAX + SEC_FORMS_MAX);
     }
 }
 
@@ -2230,6 +2523,9 @@ pub struct DesignerPanel {
     /// and is refreshed only from the panel's own resized rect (user drag), never
     /// from available space — so re-expanding restores exactly what the user set.
     pub toolbox_width: f32,
+    /// Which of the sidebar's three sections (Toolbox · Objects · Other forms)
+    /// are expanded. Session-only and never persisted — see [`SidebarSections`].
+    pub sidebar_open: SidebarSections,
     /// When true the right properties pane is slid away, leaving only a thin
     /// reopen tab (fixed width — no self-inflation).
     pub props_hidden: bool,
@@ -2500,6 +2796,7 @@ impl DesignerPanel {
             properties: PropertiesPanel::new(),
             toolbox_collapsed: false,
             toolbox_width: TOOLBOX_DEFAULT_W,
+            sidebar_open: SidebarSections::default(),
             props_hidden: false,
             show_grid: true,
             glass_mode: true,
@@ -2653,6 +2950,15 @@ impl DesignerPanel {
 
     pub fn is_selected(&self, id: &str) -> bool {
         self.selected_ids.iter().any(|s| s == id)
+    }
+
+    /// Make `id` the whole selection, as a canvas click on it would.
+    ///
+    /// The Objects list in the sidebar calls this; going through the same
+    /// single-selection path the canvas uses is what makes a row click and a
+    /// canvas click indistinguishable to the properties pane.
+    pub fn select_only(&mut self, id: &str) {
+        self.set_selected_one(Some(id.to_owned()));
     }
 
     fn set_selected_one(&mut self, id: Option<String>) {
