@@ -49,9 +49,9 @@ segue a sua própria sequência).
 | `cobolt-semantic` | 0.2.0 | front end | Resolução de nomes, verificação de tipos, ligação de `EXEC RUST` |
 | `cobolt-runtime` | 0.2.0 | execução | Interpretador que percorre a árvore, sistema de valores, executor de `EXEC RUST`, ambientes de BD/HTTP |
 | `cobolt-stdlib` | 0.2.0 | execução | Funções intrínsecas, backend de E/S, utilitários de consola |
-| `cobolt-indexed` | 0.2.0 | execução | Modelo de definição de ficheiros indexados (`.cidx`) |
-| `cobolt-forms` | 0.2.0 | motor de UI | Modelo de formulários/controlos (`.cfrm`), o motor de renderização unificado, temas, animação |
-| `cobolt-form-host` | 0.2.0 | motor de UI | O único anfitrião de formulários (spec 042) — partilhado pelo `rcrun run-form` e pelas aplicações compiladas |
+| `cobolt-indexed` | 0.2.0 | execução | Modelo de definição de arquivos indexados (`.cidx`) |
+| `cobolt-forms` | 0.2.0 | motor de UI | Modelo de formulários/controles (`.cfrm`), o motor de renderização unificado, temas, animação |
+| `cobolt-form-host` | 0.2.0 | motor de UI | O único host de formulários (spec 042) — partilhado pelo `rcrun run-form` e pelas aplicações compiladas |
 | `cobolt-media` | 0.2.0 | motor de UI | Descodificação e reprodução de imagens animadas (GIF/WebP/APNG) para o widget Animator |
 | `cobolt-codegen` | 0.2.0 | ferramentas | Gerador de fonte COBOL a partir de formulários |
 | `cobolt-compiler` | 0.2.0 | ferramentas | Compilador de incorporação e empacotamento: projeto → um executável nativo |
@@ -72,7 +72,7 @@ segue a sua própria sequência).
 | Crate | Version | Used by | What it does |
 |---|---|---|---|
 | `egui` | 0.36.1 | cli, forms, ide, media | Kit de interface em modo imediato — toda a UI |
-| `eframe` | 0.36.0 | cli, ide | Anfitrião de janela e ciclo de eventos para o egui |
+| `eframe` | 0.36.0 | cli, ide | Host de janela e ciclo de eventos para o egui |
 | `egui_extras` | 0.36.0 | cli, ide | Tabelas, carregadores de imagens, widgets adicionais |
 | `egui_commonmark` | 0.25.0 | ide | Renderização de Markdown nos painéis de documentação e de chat |
 | `egui_inspection` | 0.36.0 | ide | Inspetor de widgets e disposição em tempo real |
@@ -80,7 +80,7 @@ segue a sua própria sequência).
 | `resvg` | 0.46.0 | forms, ide | Rasterização de SVG |
 | `fontdb` | 0.23.0 | forms, ide | Enumeração dos tipos de letra do sistema |
 | `skrifa` | 0.42.1 | forms | Validação de tipos de letra com o mesmo analisador que o epaint usa |
-| `rfd` | 0.14.1 | ide | Diálogos nativos de Abrir/Guardar |
+| `rfd` | 0.14.1 | ide | Diálogos nativos de Abrir/Salvar |
 | `syntect` | 5.3.0 | ide | Realce de sintaxe no editor |
 | `pulldown-cmark` | 0.12.2 | ide | Análise de Markdown |
 | `mermaid-rs-renderer` | 0.2.2 | ide | Renderização de diagramas mermaid |
@@ -99,12 +99,12 @@ segue a sua própria sequência).
 
 | Crate | Version | Used by | What it does |
 |---|---|---|---|
-| `redb` | 2.6.3 | agents, runtime | Armazém ACID embutido em Rust puro — ficheiros INDEXED e o índice da base de conhecimento |
-| `rusqlite` | 0.32.1 | runtime | SQLite para o ambiente de bases de dados COBOL (incorporado; compila C) |
+| `redb` | 2.6.3 | agents, runtime | Armazém ACID embutido em Rust puro — arquivos INDEXED e o índice da base de conhecimento |
+| `rusqlite` | 0.32.1 | runtime | SQLite para o ambiente de bancos de dados COBOL (incorporado; compila C) |
 | `postgres` | 0.19.13 | runtime | Controlador de PostgreSQL (Rust puro, síncrono) |
 | `mysql` | 28.0.0 | runtime | Controlador de MySQL (Rust puro, conjunto de funcionalidades `minimal-rust` — **sem TLS**; ver [database-runtime-pt.md](database-runtime-pt.md)) |
 | `ureq` | 2.12.1 | runtime | Cliente HTTP bloqueante para o ambiente REST do COBOL |
-| `native-tls` | 0.2.18 | runtime | TLS através da pilha do sistema operativo — sem criptografia incorporada para compilar |
+| `native-tls` | 0.2.18 | runtime | TLS através da pilha do sistema operacional — sem criptografia incorporada para compilar |
 | `reqwest` | 0.12.28 / 0.13.4 | ide / agents | Cliente HTTP para as chamadas a modelos e à web |
 | `quick-xml` | 0.36.2 | forms, indexed | Serialização de `.cfrm` / `.cidx` |
 | `serde` | 1.0.228 | agents, ast, cli, compiler, forms, ide, lexer, runtime | Infraestrutura de serialização |
@@ -115,7 +115,7 @@ segue a sua própria sequência).
 | `flate2` | 1.1.9 | compiler | Deflate — comprime a AST incorporada |
 | `zip` | 2.4.2 | cli, ide | Importação/exportação de arquivos de projeto |
 | `include_dir` | 0.7.4 | ide | Cozinha a documentação incluída dentro do binário |
-| `tempfile` | 3.27.0 | agents, forms, indexed, runtime | Ficheiros temporários (também dependência de desenvolvimento) |
+| `tempfile` | 3.27.0 | agents, forms, indexed, runtime | Arquivos temporários (também dependência de desenvolvimento) |
 | `dirs` | 5.0.1 | ide | Diretórios de configuração e dados por plataforma |
 
 ### IA e recuperação
@@ -135,8 +135,8 @@ segue a sua própria sequência).
 
 | Crate | Version | Used by | What it does |
 |---|---|---|---|
-| `tracing` | 0.1.44 | agents, cli, compiler, ide, runtime, stdlib | Registo estruturado |
-| `tracing-subscriber` | 0.3.23 | cli, ide | Filtragem e formatação de registos |
+| `tracing` | 0.1.44 | agents, cli, compiler, ide, runtime, stdlib | Registro estruturado |
+| `tracing-subscriber` | 0.3.23 | cli, ide | Filtragem e formatação de registros |
 | `sysinfo` | 0.31.4 | ide | Estatísticas de processo e memória |
 | `num_cpus` | 1.17.0 | agents | Dimensionamento do paralelismo |
 | `rand` | 0.8.6 | ide | Valores aleatórios |
@@ -149,7 +149,7 @@ segue a sua própria sequência).
 ## Funcionalidades opcionais
 
 A `cobolt-agents` declara exatamente uma funcionalidade opcional, e ela está
-**desligada** numa compilação por omissão:
+**desligada** numa compilação por padrão:
 
 | Funcionalidade | O que traz | Porque é opcional |
 |---|---|---|

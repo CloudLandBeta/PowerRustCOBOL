@@ -22,10 +22,10 @@ See the LICENSE file in the project root for full license information.
 
 **Objetivos**
 - Vários programadores editam o mesmo projeto, cada um na sua máquina.
-- Um ficheiro que está a ser editado por um programador fica **bloqueado** para
+- Um arquivo que está sendo editado por um programador fica **bloqueado** para
   os outros: o segundo programador é **avisado uma vez** ao abrir e recebe o
-  ficheiro **só de leitura**.
-- Quando o primeiro programador **liberta** um ficheiro (fecha o editor / perde o
+  arquivo **só de leitura**.
+- Quando o primeiro programador **liberta** um arquivo (fecha o editor / perde o
   bloqueio), o IDE **oferece** aos programadores em espera uma reabertura em
   leitura/escrita.
 - As alterações que um programador confirma são **propagadas** às outras
@@ -33,9 +33,9 @@ See the LICENSE file in the project root for full license information.
 - O transporte é **encaixável** — apenas local, git local, GitHub, Google Drive,
   … — selecionado por projeto, com o mesmo comportamento do IDE por cima.
 
-**Não-objetivos (explicitamente fora de âmbito)**
+**Não-objetivos (explicitamente fora de escopo)**
 - **Co-edição concorrente ao nível do caráter** (estilo Google Docs / CRDT).
-  Usamos **bloqueio pessimista ao nível do ficheiro** — um escritor por ficheiro
+  Usamos **bloqueio pessimista ao nível do arquivo** — um escritor por arquivo
   de cada vez. Isto corresponde ao requisito («avisar e não permitir … só de
   leitura») e mantém a fonte COBOL autoritativa e amiga dos diffs.
 - Um servidor próprio sempre ligado (a menos que um backend futuro decida
@@ -113,17 +113,17 @@ pub struct Capabilities {
 
 Este é o comportamento que o IDE impõe sobre qualquer backend.
 
-### Abrir um ficheiro
+### Abrir um arquivo
 1. O IDE chama `try_lock(rel)`.
-2. `Ok(None)` → abrir em **leitura/escrita**; marcar o separador como «bloqueado
+2. `Ok(None)` → abrir em **leitura/escrita**; marcar a aba como «bloqueado
    por mim».
-3. `Ok(Some(lock))` → **avisar uma vez** («`{file}` está a ser editado por
-   `{holder}` — a abrir só de leitura»), abrir o separador **só de leitura** e
+3. `Ok(Some(lock))` → **avisar uma vez** («`{file}` está sendo editado por
+   `{holder}` — abrindo só de leitura»), abrir a aba **só de leitura** e
    lembrar que estamos *à espera* de `rel`.
 
-### Editar e guardar
-- Guardar um ficheiro com bloqueio de escrita chama `push_change(rel, bytes)`.
-- O backend propaga; os outros IDE recebem `FileChanged` e, se tiverem o ficheiro
+### Editar e salvar
+- Salvar um arquivo com bloqueio de escrita chama `push_change(rel, bytes)`.
+- O backend propaga; os outros IDE recebem `FileChanged` e, se tiverem o arquivo
   aberto só de leitura, atualizam a vista (e a árvore marca-o como atualizado).
 
 ### Libertar
@@ -131,13 +131,13 @@ Este é o comportamento que o IDE impõe sobre qualquer backend.
   IDE chama `release(rel)`.
 - Os outros IDE recebem `LockReleased`. A qualquer programador que estivesse *à
   espera* de `rel`, o IDE mostra um aviso: **«`{file}` está agora livre —
-  editar?»** → Sim volta a adquirir o bloqueio e passa o separador para
+  editar?»** → Sim volta a adquirir o bloqueio e passa a aba para
   leitura/escrita.
 
 ### Segurança perante falhas e desligamentos
 - Os bloqueios trazem um **detentor e uma marca temporal** e um **TTL de
   arrendamento**. O backend (ou o IDE) expira um bloqueio obsoleto findo o TTL,
-  para que um editor que estoirou não possa bloquear um ficheiro para sempre. (O
+  para que um editor que travamentou não possa bloquear um arquivo para sempre. (O
   código gerado nunca é bloqueável — é só de leitura para toda a gente.)
 
 > O COBOL gerado e os recursos são só de leitura ou binários; só participam no
@@ -152,21 +152,21 @@ referência* e em *como viajam os bloqueios e as alterações*.
 
 | Backend | Projeto de referência | Bloqueio | Propagação | Autenticação | Notas |
 |---------|-------------------|---------|-------------|------|-------|
-| **Apenas local** | a pasta local | apenas dentro do processo (uma máquina, várias janelas) | direta | nenhuma | O valor por omissão trivial. Valida toda a experiência sem infraestrutura; sem sincronização entre máquinas. |
-| **git local** | um repositório git (possivelmente num caminho partilhado ou num remoto da LAN) | **refs de bloqueio consultivas** (uma `refs/locks/<path>` ou um ficheiro `.cobolt/locks/` confirmado e enviado) | commit + push ao guardar; fetch ao sondar | credenciais ssh/https | Histórico familiar e auditável; a «imediatez» é o intervalo de sondagem. |
-| **GitHub** | um repositório do GitHub | um ramo ou ficheiro de bloqueio via a API (ou um registo de bloqueios baseado em **GraphQL/Issues**); webhooks opcionais de GitHub App para o empurrão | commits via a API; webhook → quase tempo real, caso contrário sondagem | **OAuth / PAT** | Alojado, sem infraestrutura para manter; com limites de taxa; os webhooks precisam de um pequeno relé para empurrão verdadeiro. |
-| **Google Drive** | uma pasta do Drive | um ficheiro de bloqueio (documento `<path>.lock`) ou a API de **restrição de conteúdo / bloqueio de ficheiros** do Drive | enviar uma nova revisão ao guardar; o **feed de alterações** do Drive ao sondar (ou notificações push) | **OAuth** | Fácil de partilhar com quem não programa; as notificações de alteração do Drive dão quase tempo real. |
+| **Apenas local** | a pasta local | apenas dentro do processo (uma máquina, várias janelas) | direta | nenhuma | O valor por padrão trivial. Valida toda a experiência sem infraestrutura; sem sincronização entre máquinas. |
+| **git local** | um repositório git (possivelmente num caminho partilhado ou num remoto da LAN) | **refs de bloqueio consultivas** (uma `refs/locks/<path>` ou um arquivo `.cobolt/locks/` confirmado e enviado) | commit + push ao salvar; fetch ao sondar | credenciais ssh/https | Histórico familiar e auditável; a «imediatez» é o intervalo de sondagem. |
+| **GitHub** | um repositório do GitHub | um ramo ou arquivo de bloqueio via a API (ou um registro de bloqueios baseado em **GraphQL/Issues**); webhooks opcionais de GitHub App para o empurrão | commits via a API; webhook → quase tempo real, caso contrário sondagem | **OAuth / PAT** | Alojado, sem infraestrutura para manter; com limites de taxa; os webhooks precisam de um pequeno relé para empurrão verdadeiro. |
+| **Google Drive** | uma pasta do Drive | um arquivo de bloqueio (documento `<path>.lock`) ou a API de **restrição de conteúdo / bloqueio de arquivos** do Drive | enviar uma nova revisão ao salvar; o **feed de alterações** do Drive ao sondar (ou notificações push) | **OAuth** | Fácil de partilhar com quem não programa; as notificações de alteração do Drive dão quase tempo real. |
 
 Implicações de desenho já cozidas no trait:
 - **O bloqueio é `LockKind`** porque git/Drive/GitHub dão bloqueios *consultivos*
-  (uma convenção que todos respeitam), não impostos pelo sistema operativo. O IDE
+  (uma convenção que todos respeitam), não impostos pelo sistema operacional. O IDE
   trata os bloqueios consultivos como autoritativos *enquanto todos os clientes
   forem um IDE PowerRustCOBOL*.
 - **A propagação é `realtime` ou sondada** — o git é sondado; o Drive e o GitHub
   podem ir quase em tempo real com os seus feeds de alterações e webhooks; apenas
   local é instantâneo.
 - Cada backend serializa a tabela de bloqueios da mesma forma (um pequeno
-  documento `locks` em JSON/TOML), pelo que mudar de backend não muda o IDE.
+  documento `locks` em JSON/TOML), de modo que mudar de backend não muda o IDE.
 
 ---
 
@@ -181,8 +181,8 @@ Implicações de desenho já cozidas no trait:
   folder  = "0B...drive-folder-id"           # gdrive
   poll_ms = 3000                              # for polled backends
   ```
-- **Registo de bloqueios**: um único documento pequeno de que o backend é dono
-  (`.cobolt/locks.toml` no repositório ou na pasta, ou um registo do lado da
+- **Registro de bloqueios**: um único documento pequeno de que o backend é dono
+  (`.cobolt/locks.toml` no repositório ou na pasta, ou um registro do lado da
   API), com esta forma:
   `[{ path, holder_id, holder_name, since, ttl }]`.
 - **Identidade**: um `Peer { id, display_name }` vindo das definições do IDE (e,
@@ -195,12 +195,12 @@ Implicações de desenho já cozidas no trait:
 - As categorias da **árvore** que participam no bloqueio já estão isoladas
   (Forms / Common Code / Documentation), e o **código gerado é só de leitura**
   para toda a gente — não precisa de bloqueio.
-- O **editor** já suporta uma marca `read_only` por separador (usada hoje para o
+- O **editor** já suporta uma marca `read_only` por aba (usada hoje para o
   código gerado); a camada de colaboração reaproveita-a para «bloqueado por
-  outra pessoa», mais um aviso único e um emblema no separador (`🔒 by {name}`).
+  outra pessoa», mais um aviso único e um emblema na aba (`🔒 by {name}`).
 - Um novo **`SyncManager`** (que contém um `Box<dyn SyncBackend>`) pertence à
   aplicação e é esvaziado em cada frame para: os estados de só-leitura dos
-  separadores, o conjunto de avisos já dados, o conjunto «à espera» (para o aviso
+  abas, o conjunto de avisos já dados, o conjunto «à espera» (para o aviso
   de reoferta) e uma lista de presença.
 
 ---
@@ -209,14 +209,14 @@ Implicações de desenho já cozidas no trait:
 
 1. **B0 — Backend apenas local e toda a experiência de utilização.** Implementar
    `SyncBackend`, `SyncManager`, o fluxo de aviso único / só leitura / reoferta e
-   os emblemas de separador — tudo contra um backend trivial dentro do processo
+   os emblemas de aba — tudo contra um backend trivial dentro do processo
    (várias janelas do IDE numa máquina). Isto prova o modelo sem infraestrutura
    nenhuma.
 2. **B1 — Backend de git local.** Refs de bloqueio consultivas, commit e push ao
-   guardar, e fetch ao sondar. A primeira colaboração real entre máquinas.
-3. **B2 — Backend do GitHub.** Repositório e registo de bloqueios via a API; relé
+   salvar, e fetch ao sondar. A primeira colaboração real entre máquinas.
+3. **B2 — Backend do GitHub.** Repositório e registro de bloqueios via a API; relé
    de webhooks opcional para quase tempo real.
-4. **B3 — Backend do Google Drive.** OAuth, ficheiros de bloqueio e feed de
+4. **B3 — Backend do Google Drive.** OAuth, arquivos de bloqueio e feed de
    alterações do Drive.
 
 Cada fase pode ser entregue por si só; o comportamento do IDE é idêntico em todas
@@ -229,7 +229,7 @@ elas.
 - **Experiência de identidade e autenticação**: como é que um programador inicia
   sessão em cada backend (colar um PAT versus um fluxo OAuth no navegador), e
   como se mantém estável o `Peer.id`?
-- **Granularidade**: apenas bloqueios ao ficheiro, ou também bloquear
+- **Granularidade**: apenas bloqueios ao arquivo, ou também bloquear
   implicitamente a saída gerada de um formulário quando o seu `.cfrm` está
   bloqueado? (Recomendação: bloquear o `.cfrm`; o seu `.cbl` gerado já é só de
   leitura.)
@@ -245,9 +245,9 @@ elas.
 
 O requisito é explícito: um segundo programador tem de ser **avisado e
 bloqueado** (só de leitura), não fundido ao vivo. O bloqueio pessimista ao nível
-do ficheiro:
+do arquivo:
 - corresponde exatamente a esse requisito,
-- mantém a fonte COBOL um artefacto limpo e revisível (diffs a sério, sem
+- mantém a fonte COBOL um artefato limpo e revisível (diffs a sério, sem
   metadados de CRDT),
 - funciona sobre *qualquer* um dos quatro backends com a mesma semântica, e
 - é dramaticamente menos complexo e arriscado do que a convergência CRDT em tempo

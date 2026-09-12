@@ -12,39 +12,39 @@ See the LICENSE file in the project root for full license information.
 
 Esta é a casa de tudo o que diz respeito a **observar** um programa RustCOBOL em
 execução — o que fez, a que velocidade, e com que saúde estão os armazéns
-subjacentes. Começa pelos **registos de transações de ficheiros indexados** e
+subjacentes. Começa pelos **registros de transações de arquivos indexados** e
 crescerá para cobrir outras superfícies do ambiente de execução.
 
 | Superfície | Estado | Onde |
 |---------|--------|-------|
-| **Registo de transações de ficheiros INDEXED** | ✅ disponível | este documento, §1 |
+| **Registro de transações de arquivos INDEXED** | ✅ disponível | este documento, §1 |
 | Rastreio do ambiente de execução (`COBOLT_LOG`) | ✅ disponível | §2 |
-| **Registos de falha e recuperação do trabalho** | ✅ disponível | §5 |
-| Ambiente de execução de bases de dados SQL | 🔭 previsto | — |
+| **Registros de falha e recuperação do trabalho** | ✅ disponível | §5 |
+| Ambiente de execução de bancos de dados SQL | 🔭 previsto | — |
 | Cliente HTTP / REST | 🔭 previsto | — |
 
 > **Princípio orientador.** A observabilidade é *passiva*: ligar qualquer parte
 > dela nunca deve alterar o comportamento nem os resultados do programa. Os erros
-> de registo e de rastreio são engolidos, e os caminhos quentes continuam quentes
+> de registro e de rastreio são engolidos, e os caminhos quentes continuam quentes
 > (tudo o que é caro é opcional e chamado com parcimónia).
 
 ---
 
-## 1. Registo de transações de ficheiros INDEXED
+## 1. Registro de transações de arquivos INDEXED
 
-O motor indexado **redb**, à prova de falhas, pode escrever um registo por
-ficheiro de cada transação — útil para diagnóstico, planeamento de capacidade e
-painéis. Está **desligado por omissão** e é específico do motor redb, que desde a
+O motor indexado **redb**, à prova de falhas, pode escrever um registro por
+arquivo de cada transação — útil para diagnóstico, planeamento de capacidade e
+painéis. Está **desligado por padrão** e é específico do motor redb, que desde a
 1.62.73 é o que se obtém sem pedir (ver
 [`indexed-redb-engine-pt.md`](indexed-redb-engine-pt.md)); só é preciso ligar o
-registo em si.
+registro em si.
 
 ### 1.1 Como o ligar
 
 | Opção / variável | Valores | Significado |
 |------------|--------|---------|
-| `--indexed-log` / `COBOL_INDEXED_LOG` | `off` (por omissão), `basic`/`true`, `full` | Nível de registo |
-| `--indexed-log-format` / `COBOL_INDEXED_LOG_FORMAT` | `text` (por omissão), `json` | Formato da linha |
+| `--indexed-log` / `COBOL_INDEXED_LOG` | `off` (por padrão), `basic`/`true`, `full` | Nível de registro |
+| `--indexed-log-format` / `COBOL_INDEXED_LOG_FORMAT` | `text` (por padrão), `json` | Formato da linha |
 
 ```bash
 # logfmt, per-transaction metrics
@@ -57,13 +57,13 @@ rcrun run app.cbl --indexed-log full --indexed-log-format json
 - **`basic`** — apenas métricas por transação (barato, contabilizado pelo próprio
   motor).
 - **`full`** — o de `basic` mais as estatísticas do índice do redb em cada
-  `CLOSE`. Essas estatísticas **percorrem o índice**, pelo que o seu custo cresce
-  com o tamanho do ficheiro; é por isso que `full` é opcional e as estatísticas
+  `CLOSE`. Essas estatísticas **percorrem o índice**, de modo que o seu custo cresce
+  com o tamanho do arquivo; é por isso que `full` é opcional e as estatísticas
   são emitidas apenas no CLOSE (nunca a cada confirmação).
 
 ### 1.2 Localização
 
-Cada ficheiro indexado ganha um **registo acompanhante ao lado do seu ficheiro de
+Cada arquivo indexado ganha um **registro acompanhante ao lado do seu arquivo de
 dados**, nomeado acrescentando `.log` ao caminho do `ASSIGN`:
 
 ```
@@ -71,21 +71,21 @@ customers.idx        →  customers.idx.log
 /var/data/orders.dat →  /var/data/orders.dat.log
 ```
 
-As linhas são **acrescentadas** (o ficheiro nunca é truncado), pelo que um
-registo se acumula ao longo das execuções.
+As linhas são **acrescentadas** (o arquivo nunca é truncado), de modo que um
+registro se acumula ao longo das execuções.
 
 #### Rotação (mantido abaixo de 100 KiB)
 
-Para que nenhum ficheiro isolado cresça, o registo ativo é **rodado** assim que se
+Para que nenhum arquivo isolado cresça, o registro ativo é **rodado** assim que se
 aproxima dos **100 KiB** (`MAX_LOG_BYTES`), ao estilo do logrotate ou do Grafana:
 
 1. o `<datafile>.log` ativo é renomeado para
    **`<user|no-user>.<datafile>.log.<timestamp>`**, e
-2. é iniciado um registo ativo novo e vazio.
+2. é iniciado um registro ativo novo e vazio.
 
 A marca temporal é uma marca UTC compacta, por exemplo `20260610T120230461Z`. O
 `<user>` é o valor de `OPEN … WITH REGISTERED USER` (higienizado para o sistema
-de ficheiros), ou **`no-user`** quando nenhum foi fornecido. Exemplo depois de uma
+de arquivos), ou **`no-user`** quando nenhum foi fornecido. Exemplo depois de uma
 rotação:
 
 ```
@@ -94,28 +94,28 @@ alice.customers.idx.log.20260610T120230461Z       # rotated archive (~100 KiB)
 no-user.orders.dat.log.20260610T120051301Z        # rotated, no user supplied
 ```
 
-O ambiente de execução nunca apaga os ficheiros rodados — limpe-os ou envie-os
-com a sua cadeia de registos (por exemplo Promtail e depois apagar). Cada arquivo
-é, por si só, um registo completo e analisável.
+O ambiente de execução nunca apaga os arquivos rodados — limpe-os ou envie-os
+com a sua cadeia de registros (por exemplo Promtail e depois apagar). Cada arquivo
+é, por si só, um registro completo e analisável.
 
-### 1.3 O que é registado
+### 1.3 O que é registrado
 
 Uma linha por **evento de transação**: `OPEN`, `COMMIT`, `ROLLBACK`, `CLOSE`.
 
 | Campo | Tipo | Significado |
 |-------|------|---------|
 | `ts` | cadeia | marca temporal ISO-8601 UTC com precisão de ms (`2026-06-10T07:30:00.123Z`) |
-| `file` | cadeia | o nome do ficheiro indexado |
-| `user` | cadeia | o utilizador registado (presente apenas quando fornecido — ver §1.3.1) |
+| `file` | cadeia | o nome do arquivo indexado |
+| `user` | cadeia | o usuário registrado (presente apenas quando fornecido — ver §1.3.1) |
 | `tx` | número | contador de transações (**por sessão de OPEN**) |
 | `kind` | cadeia | `OPEN` / `COMMIT` / `ROLLBACK` / `CLOSE` |
 | `writes` | número | `WRITE` nesta transação |
 | `rewrites` | número | `REWRITE` nesta transação |
 | `deletes` | número | `DELETE` nesta transação |
 | `records` | número | mutações totais (`writes+rewrites+deletes`) |
-| `bytes` | número | bytes de registo escritos ou reescritos |
+| `bytes` | número | bytes de registro escritos ou reescritos |
 | `dur_ms` | número | duração de relógio da transação |
-| `rec_per_s` | número | registos por segundo |
+| `rec_per_s` | número | registros por segundo |
 | `bytes_per_s` | número | bytes por segundo |
 | `order` | cadeia | `ordered` se as chaves escritas subiram, caso contrário `unordered` (`n/a` se não houve escritas) |
 | `in_order` | número | número de escritas cuja chave avançou |
@@ -128,9 +128,9 @@ redb:
 |-------|---------|
 | `tree_height` | altura do B+tree primário |
 | `leaf_pages` / `branch_pages` | contagens de páginas |
-| `allocated_pages` | páginas atribuídas no ficheiro |
-| `stored_bytes` | bytes de registo vivos |
-| `fragmented_bytes` | espaço livre ou fragmentado (inclui a folga pré-atribuída do ficheiro) |
+| `allocated_pages` | páginas atribuídas no arquivo |
+| `stored_bytes` | bytes de registro vivos |
+| `fragmented_bytes` | espaço livre ou fragmentado (inclui a folga pré-atribuída do arquivo) |
 | `page_size` | tamanho de página do redb (4096) |
 
 > **Porque é que `order` importa.** As escritas com chave ascendente caem numa
@@ -139,13 +139,13 @@ redb:
 > imediato da localidade de escrita — um bom indicador de se uma carga foi
 > sequencial ou aleatória.
 
-> **O `tx` é por sessão.** O motor é recriado em cada `OPEN`, pelo que o contador
+> **O `tx` é por sessão.** O motor é recriado em cada `OPEN`, de modo que o contador
 > reinicia em 1 por cada sessão OPEN…CLOSE; o campo `ts` desfaz a ambiguidade.
 
-#### 1.3.1 Registar o utilizador autenticado — `OPEN … WITH REGISTERED USER`
+#### 1.3.1 Registrar o usuário autenticado — `OPEN … WITH REGISTERED USER`
 
 Os programas COBOL raramente vivem atrás de OAuth ou de qualquer motor de
-autenticação, pelo que o operador ou utilizador é fornecido **explicitamente** no
+autenticação, de modo que o operador ou usuário é fornecido **explicitamente** no
 `OPEN`, como extensão do PowerRustCOBOL:
 
 ```cobol
@@ -156,11 +156,11 @@ autenticação, pelo que o operador ou utilizador é fornecido **explicitamente*
 - O valor é um **literal de cadeia** ou um **item de dados** (o `USER` é
   opcional; `WITH REGISTERED "ALICE"` também é analisado).
 - Aplica-se a toda a sessão `OPEN…CLOSE`: **todas** as linhas de evento desse
-  ficheiro (`OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE`) levam um campo `user=`.
+  arquivo (`OPEN`/`COMMIT`/`ROLLBACK`/`CLOSE`) levam um campo `user=`.
 - É puramente observacional — não autentica nem autoriza nada, e não tem qualquer
-  efeito se o registo estiver desligado.
+  efeito se o registro estiver desligado.
 
-Exemplo de linhas de registo (uma sessão por utilizador):
+Exemplo de linhas de registro (uma sessão por usuário):
 
 ```
 ts=…Z file=customers.idx user=ALICE        tx=1 kind=OPEN   …
@@ -170,7 +170,7 @@ ts=…Z file=customers.idx user=BOB-FROM-WS  tx=1 kind=OPEN   …
 
 ### 1.4 Formatos
 
-#### logfmt (`text`, por omissão)
+#### logfmt (`text`, por padrão)
 
 ```
 ts=2026-06-10T07:30:00.123Z file=customers.idx tx=2 kind=COMMIT writes=1 rewrites=0 \
@@ -193,7 +193,7 @@ aspas. O Loki analisa isto com `| json`.
 
 ### 1.5 Grafana / Loki
 
-O Grafana não lê ficheiros diretamente — envie os registos para o **Loki** com um
+O Grafana não lê arquivos diretamente — envie os registros para o **Loki** com um
 agente e depois consulte. Recomendado: o formato `json`.
 
 1. **Recolha** os `*.idx.log` com Promtail / Grafana Agent / Alloy → Loki.
@@ -229,12 +229,12 @@ scrape_configs:
 
 ### 1.6 Custo e segurança
 
-- O registo `basic` acrescenta alguns contadores por operação e uma linha por
+- O registro `basic` acrescenta alguns contadores por operação e uma linha por
   evento de transação — desprezável.
 - O `full` acrescenta um percurso do índice **apenas no CLOSE**; evite-o em
-  ficheiros muito grandes a não ser que queira esse instantâneo.
-- O registo nunca afeta o comportamento do programa: todos os erros de E/S do
-  registo são ignorados em silêncio, e o caminho dos dados não muda.
+  arquivos muito grandes a não ser que queira esse instantâneo.
+- O registro nunca afeta o comportamento do programa: todos os erros de E/S do
+  registro são ignorados em silêncio, e o caminho dos dados não muda.
 
 ### 1.7 Implementação
 
@@ -251,7 +251,7 @@ as opções são resolvidas em `crates/cobolt-cli/src/main.rs` e aplicadas via
 
 O `rcrun` usa a infraestrutura `tracing` com um filtro por ambiente. Defina
 `COBOLT_LOG` para aumentar a verbosidade das mensagens internas de execução e
-diagnóstico (por omissão, avisos):
+diagnóstico (por padrão, avisos):
 
 ```bash
 COBOLT_LOG=debug rcrun run app.cbl
@@ -259,22 +259,22 @@ COBOLT_LOG=cobolt-runtime=trace rcrun run app.cbl
 ```
 
 Esta é saída de diagnóstico virada para quem desenvolve (para o stderr), distinta
-do registo estruturado por ficheiro da §1.
+do registro estruturado por arquivo da §1.
 
 ---
 
 ## 3. Interruptores de depuração no IDE
 
 Todos os interruptores de depuração que o IDE conhece — o filtro de rastreio
-acima, o registo de transações INDEXED da §1, as sobreposições de renderização, o
+acima, o registro de transações INDEXED da §1, as sobreposições de renderização, o
 rastreio de ligação de dados e o rastreio de disposição do painel de IA — são
-editáveis em **Help → Debug Settings**, agrupados num separador por área. As
+editáveis em **Help → Debug Settings**, agrupados numa aba por área. As
 definições são de todo o IDE (guardadas na máquina, não no `cobolt.toml`) e são
 reencaminhadas para cada processo filho `rcrun run-form` como as variáveis de
-ambiente aqui documentadas, pelo que não é preciso exportar nada à mão.
+ambiente aqui documentadas, de modo que não é preciso exportar nada à mão.
 
 Exportar uma variável continua a funcionar para uma execução isolada do `rcrun` a
-partir de uma linha de comandos.
+partir de uma linha de comando.
 
 ---
 
@@ -285,13 +285,13 @@ Quando o **Run Form** está ativo, o IDE pode abrir um **inspetor do Run Form**
 
 - Percentagem de CPU por amostra, bytes de RSS, número de processos filhos,
   memória do sistema usada.
-- Deteção de anomalias (crescimento súbito, demasiados filhos, etc.).
+- Deteção de anomalias (crescimento súbito, filhos demais, etc.).
 - Mini-gráficos ao vivo e árvore de processos.
 - Usa o canal IPC do `rcrun` isolado (ver o guia do programador para os detalhes
   do isolamento de processos).
 
 É opcional dentro do IDE e não afeta o formulário em execução. A amostragem é
-travada quando não há atividade. Os registos e as métricas servem apenas para
+travada quando não há atividade. Os registros e as métricas servem apenas para
 diagnóstico.
 
 Vista geral em mermaid:
@@ -315,26 +315,26 @@ sequenceDiagram
 
 ---
 
-## 5. Registos de falha e recuperação do trabalho
+## 5. Registros de falha e recuperação do trabalho
 
 Uma aplicação de janela não tem qualquer terminal associado, por isso quando o
 IDE morre, a sua mensagem de pânico, o seu `file:line` e o seu rasto de pilha vão
-todos para um stderr que ninguém está a ler — a janela simplesmente desaparece e
+todos para um stderr que ninguém está lendo — a janela simplesmente desaparece e
 não deixa nada. Dois mecanismos distintos substituem isso, porque resolvem dois
 problemas diferentes.
 
-**Registos de falha — para haver algo que diagnosticar.** Um gancho de pânico
+**Registros de falha — para haver algo que diagnosticar.** Um gancho de pânico
 escreve `<data>/cobolt/crash/crash-<seconds>.log` com a mensagem do pânico, o seu
 `file:line:column`, um rasto de pilha forçado, a versão do IDE, o sistema
-operativo, a linha de execução e os ficheiros que estavam abertos nesse momento.
+operacional, a linha de execução e os arquivos que estavam abertos nesse momento.
 Anexe-o a um relatório de erro.
 
 **Gravação automática — para o trabalho sobreviver.** A cada **20 segundos**,
 cada buffer do editor por gravar e cada formulário modificado são copiados para
 `<data>/cobolt/recovery/`, ao lado de um `manifest.toml` que faz corresponder cada
-cópia ao seu original. Um ficheiro marcador regista que há uma sessão a correr e
-é apagado numa saída limpa; encontrar um no arranque seguinte é exatamente o que
-significa «a última sessão acabou mal», e o IDE oferece-se então para restaurar.
+cópia ao seu original. Um arquivo marcador registra que há uma sessão rodando e
+é apagado numa saída limpa; encontrar um na inicialização seguinte é exatamente o que
+significa «a última sessão acabou mal», e o IDE então se oferece para restaurar.
 
 **Restaurar nunca sobrescreve.** Aceitar a oferta escreve cada cópia ao lado do
 seu original como `<name>.recovered.<ext>` e lista os caminhos no painel de saída.
@@ -344,12 +344,12 @@ ganha é decisão sua, não do IDE.
 > ⚠️ **Um gancho de pânico não consegue apanhar tudo.** Um transbordo de pilha
 > falha na página de guarda e é entregue como `SIGSEGV`; o matador por falta de
 > memória envia `SIGKILL`; um segundo pânico durante o desenrolamento aborta. Nos
-> três casos o gancho nunca chega a correr e **nenhum registo de falha é
+> três casos o gancho nunca chega rodando e **nenhum registro de falha é
 > escrito**. A gravação automática é o que cobre esses casos, porque já aconteceu
 > antes de algo correr mal — que é também a razão pela qual o intervalo é a
 > verdadeira garantia: no máximo, 20 segundos de trabalho.
 
-`<data>` é o diretório de dados do sistema operativo —
+`<data>` é o diretório de dados do sistema operacional —
 `~/Library/Application Support` no macOS, `%APPDATA%` no Windows,
 `~/.local/share` no Linux.
 
@@ -363,9 +363,9 @@ observabilidade:
 - **Ambiente SQL** — tempos e contagens de linhas por ligação e por instrução
   para os motores SQLite/PostgreSQL/MySQL (ver
   [`database-runtime-pt.md`](database-runtime-pt.md)).
-- **Cliente HTTP** — registo de pedido, latência e estado para as funções REST
+- **Cliente HTTP** — registro de pedido, latência e estado para as funções REST
   incorporadas.
 - **Resumo agregado da execução** — um relatório opcional de fim de execução
-  abrangendo todos os ficheiros.
+  abrangendo todos os arquivos.
 
 .<<
