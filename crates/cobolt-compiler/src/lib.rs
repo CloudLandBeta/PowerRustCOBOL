@@ -198,11 +198,79 @@ pub fn linker_install_command() -> &'static str {
     }
 }
 
+/// Where to send a developer who has to install [`linker_prerequisite`], and the
+/// name of the thing they are being sent for.
+///
+/// A command they can copy is not the same as a place they can go. Both belong
+/// in the answer: the command is faster for whoever recognises it, and the page
+/// is the only route for whoever does not — the Build Tools in particular are a
+/// multi-gigabyte privileged install that the developer must drive themselves on
+/// Microsoft's own page.
+pub struct LinkerDownload {
+    /// What is being downloaded, in the vendor's own words. **Never translated**
+    /// — it is a product name, like the product names in `CLAUDE.md`'s CRITICAL
+    /// constraint, and a developer searching for it needs the name the vendor
+    /// uses.
+    pub name: &'static str,
+    /// The vendor's page. A stable landing page is chosen over a deep link with
+    /// a fragment every time: the fragment is the half that rots, and a link
+    /// that lands on the right site with the wrong anchor still works, while one
+    /// that 404s does not.
+    pub url: &'static str,
+}
+
+/// The download for this platform, or `None` where no single page is right.
+///
+/// `None` is Linux, and it is a deliberate answer rather than a gap. The C
+/// toolchain there comes from the distribution's own package manager, and no one
+/// page serves Debian and Fedora and Arch at once — sending a Fedora user to
+/// Debian's documentation is worse than sending them nowhere.
+/// [`linker_install_command`] already names the command for the common
+/// distributions, and on that platform it *is* the proper route.
+///
+/// PowerRustCOBOL builds for the host only, so the host's own download is always
+/// the right one to offer (same reasoning as [`linker_prerequisite`]).
+pub fn linker_download() -> Option<LinkerDownload> {
+    if cfg!(windows) {
+        Some(LinkerDownload {
+            name: "Visual Studio Build Tools",
+            url: "https://visualstudio.microsoft.com/visual-cpp-build-tools/",
+        })
+    } else if cfg!(target_os = "macos") {
+        Some(LinkerDownload {
+            name: "Command Line Tools for Xcode",
+            url: "https://developer.apple.com/download/all/",
+        })
+    } else {
+        None
+    }
+}
+
+/// The opening words of [`linker_message`], and the whole of how a caller
+/// recognises one.
+///
+/// The IDE shows build failures as text — one `Result<String, String>` for every
+/// kind of failure — and a missing linker is the one kind that deserves a button
+/// rather than a paragraph. This constant is what lets it tell: it is used to
+/// *build* the message as well as to match it, so the two cannot drift apart.
+const LINKER_MESSAGE_OPENING: &str = "Build cannot finish: the linker `";
+
+/// Was this build-failure text produced by [`CompilerError::LinkerMissing`]?
+///
+/// For a caller that has only the rendered string — see [`LINKER_MESSAGE_OPENING`]
+/// for why that is the situation — and wants to offer [`linker_download`]
+/// alongside it. A compiler error about the developer's own code must never get
+/// that button, which is why this matches the opening of the message rather than
+/// hunting for the word "linker" somewhere in it.
+pub fn is_missing_linker_message(text: &str) -> bool {
+    text.starts_with(LINKER_MESSAGE_OPENING)
+}
+
 /// What [`CompilerError::LinkerMissing`] says. Written here rather than in the
 /// attribute so the prose stays readable, and so a test can read it too.
 fn linker_message(linker: &str) -> String {
     format!(
-        "Build cannot finish: the linker `{linker}` was not found.\n\n\
+        "{LINKER_MESSAGE_OPENING}{linker}` was not found.\n\n\
          Rust is installed and your program compiled. This is the last step — \
          turning the compiled code into an executable — and it is the one part \
          of Build that uses the platform's own tools rather than Rust's.\n\n\
@@ -6246,6 +6314,62 @@ error: could not compile `powerdemo3` (bin \"powerdemo3\") due to 1 previous err
     fn this_platform_has_advice_and_a_command() {
         assert!(!linker_prerequisite().trim().is_empty());
         assert!(!linker_install_command().trim().is_empty());
+    }
+
+    /// The button's own text and destination. Whichever platform this runs on,
+    /// an offered download is fully formed — a blank label or a bare scheme
+    /// would ship a button that says nothing and goes nowhere.
+    #[test]
+    fn an_offered_download_has_both_a_name_and_a_real_page() {
+        let Some(d) = linker_download() else {
+            // Linux: no single page serves every distribution, and the commands
+            // are the answer there. That the platform declines is the contract.
+            assert!(
+                !cfg!(windows) && !cfg!(target_os = "macos"),
+                "Windows and macOS both have a vendor page and must offer it"
+            );
+            return;
+        };
+        assert!(!d.name.trim().is_empty(), "the button would have no label");
+        assert!(
+            d.url.starts_with("https://"),
+            "a download page must be https, got {:?}",
+            d.url
+        );
+        // A fragment is the half of a URL that rots; the page is chosen without
+        // one on purpose, and this is what keeps the next edit honest.
+        assert!(
+            !d.url.contains('#'),
+            "prefer a stable landing page over a deep link: {:?}",
+            d.url
+        );
+    }
+
+    /// The predicate decides whether a failed build gets a download button, so
+    /// it has to fire on the real message and stay silent on an ordinary
+    /// compiler error — a button offering build tools to someone with a typo in
+    /// their COBOL is worse than no button.
+    #[test]
+    fn only_a_missing_linker_failure_is_recognised_as_one() {
+        let real = CompilerError::LinkerMissing {
+            linker: "link.exe".into(),
+        }
+        .to_string();
+        assert!(is_missing_linker_message(&real), "{real}");
+
+        let ordinary = CompilerError::CargoBuild {
+            code: 101,
+            stderr: "error[E0308]: mismatched types".to_owned(),
+        }
+        .to_string();
+        assert!(!is_missing_linker_message(&ordinary), "{ordinary}");
+
+        // Not by keyword, either: prose that merely mentions a linker is not a
+        // missing-linker failure.
+        assert!(!is_missing_linker_message(
+            "error: the linker `cc` returned a duplicate symbol"
+        ));
+        assert!(!is_missing_linker_message(""));
     }
 }
 

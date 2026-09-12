@@ -476,16 +476,20 @@ jobs:
                    Windows wording only: a Mac or a Linux instruction shown to a
                    Windows user is noise they have to work out is not for them.
 
-                   The checkbox is OFF by default and opens Microsoft's own
-                   download page. It installs nothing by itself: the Build Tools
-                   are a multi-gigabyte privileged install and that is the
-                   user's decision to take, on Microsoft's page, not a box this
-                   installer ticks for them. -->
-              <!-- It opens Microsoft's page and installs nothing: the Build
-                   Tools are a multi-gigabyte privileged install and that is the
-                   user's call to make. -->
+                   The button opens Microsoft's page and installs nothing: the
+                   Build Tools are a multi-gigabyte privileged install and that
+                   is the user's call to make, on Microsoft's page, not
+                   something this installer does for them.
+
+                   The target is the Build Tools LANDING page, deliberately
+                   without a fragment. It used to be
+                   downloads/#build-tools-for-visual-studio-2022; an anchor is
+                   the half of a URL that rots when a vendor reorganises a page,
+                   and it takes the whole link with it. The IDE offers the same
+                   page from `cobolt_compiler::linker_download`, and the two are
+                   meant to agree. -->
               <Property Id="WixShellExecTarget"
-                        Value="https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022" />
+                        Value="https://visualstudio.microsoft.com/visual-cpp-build-tools/" />
               <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
                             Impersonate="yes" Return="ignore" />
               <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
@@ -588,9 +592,21 @@ jobs:
                        strip, below the bitmap, where an opaque control is what
                        the eye expects; it also acts when it is pressed rather
                        than only if the user later presses Finish. -->
-                  <Control Id="Prereq" Type="PushButton" X="18" Y="243" Width="120" Height="17"
+                  <!-- The publish is UNCONDITIONAL, and that is the fix. It
+                       carried `NOT Installed`, copied from WixUI's exit-dialog
+                       checkbox idiom, where the condition exists to stop a
+                       repair run relaunching an application. Opening a web page
+                       has no such hazard, and on any maintenance run - install
+                       once, then start setup again, which is exactly how a
+                       developer goes back to read this screen - `Installed` is
+                       set, the condition is false, and the button does nothing
+                       at all when pressed. 1.65.113 said it had removed this
+                       along with the checkbox; it removed the checkbox.
+                       Width is 150, not 120: the label is 25 characters and a
+                       fixed-size MSI button cannot grow to fit its own text. -->
+                  <Control Id="Prereq" Type="PushButton" X="18" Y="243" Width="150" Height="17"
                            Text="Build Tools download page">
-                    <Publish Event="DoAction" Value="OpenPrereqPage">NOT Installed</Publish>
+                    <Publish Event="DoAction" Value="OpenPrereqPage">1</Publish>
                   </Control>
                   <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                            Default="yes" Cancel="yes" Text="!(loc.WixUIFinish)">
