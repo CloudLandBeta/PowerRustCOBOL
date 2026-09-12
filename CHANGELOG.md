@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.5] — 2026-09-12
+
+### The translation skill stops sending temp files somewhere that breaks a test
+
+1.70.2 corrected the rule that splits a large document into `temp-*` files in
+`docs/` — a directory `docs_embed.rs::doc_list()` enumerates, so a temp file left
+there is served to the Documentation viewer as a real document and fails
+`every_language_lists_each_document_exactly_once`. It corrected `CLAUDE.md` and
+`specs/steering/docs.md`, and **missed the third copy**:
+`.claude/skills/doc-translate/SKILL.md` still read "Temp files live in `docs/`".
+
+The skill is the copy an agent actually follows when it starts a translation, so
+the fix was incomplete in the one place it mattered most. It now says the
+scratchpad, and says why — the failing test is named, so the next reader does not
+have to rediscover it. The guards un-ignored in 1.70.4 would have caught the
+breakage on the next cycle; nothing should have to.
+
+Two more lines in the same file went stale the moment those attributes came off.
+It told the reader to run the guard with `--ignored` and called the cycle finished
+"when its `#[ignore]` comes off" — advice that now selects nothing and invites
+putting the attribute back. Both say what is true instead: the guards are part of
+`cargo test -p cobolt-ide --bin cobolt-ide`, and an `#[ignore]` is never the way
+to a green sweep. The completion checklist runs `docs_embed` and expects all five.
+
+### The recorded Chinese expansion range admits it can be negative
+
+`es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %, jp +17–40 %` are the figures all
+three files quote for sizing a split. The Developer's Guide measured **−0.3 %**
+in Chinese, outside the range — verified whole, not truncated (1.70.4). The range
+is now **cn −1 to +5 %** in the skill and the steering document, with the
+measurement dated and the Chinese floor called out as deliberate, so the next
+agent does not read a negative figure as a defect and go looking for lost text.
+
 ## [PowerRustCOBOL 1.70.4] — 2026-09-12
 
 ### The Developer's Guide in Portuguese, French, Japanese and Chinese

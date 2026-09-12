@@ -38,8 +38,16 @@ the current English** — not patched.
 
 `crates/cobolt-ide/src/docs_embed.rs` →
 `every_translation_is_complete_and_current` asserts both and **prints what is
-outstanding**. Run it with `--ignored`; it is the work list, not a judgement
-call. The cycle is finished when its `#[ignore]` comes off and it passes.
+outstanding**, and its sibling `every_document_ships_in_every_language` names any
+language still falling back to English. Between them they are the work list, not
+a judgement call.
+
+Both ran `#[ignore]`d from 1.62.0 while the deleted translations were rebuilt, and
+**the attributes came off at 1.70.4** when the last family landed. They are part of
+the ordinary sweep now: `cargo test -p cobolt-ide --bin cobolt-ide`. **Never put an
+`#[ignore]` back to get a green sweep** — that hands the reader a silent English
+page, which is the whole failure these two exist to catch. A deliberately deleted
+translation is supposed to fail them; finish the cycle instead.
 
 ## Sizing
 
@@ -51,12 +59,16 @@ call. The cycle is finished when its `#[ignore]` comes off and it passes.
 | > 32 KB with no ToC | add a ToC to the **English canonical** first |
 
 Size against **Japanese**, the worst case: es +5–13 %, pt +5–12 %, fr +9–18 %,
-cn +1–5 %, **jp +17–40 %**.
+cn −1 to +5 %, **jp +17–40 %**.
 
 **Never split mid-context.** A paragraph, a table, a fenced code block and a
 mermaid block each stay whole in one temp file. Cut only at a heading.
 
-**Temp files** live in `docs/`, are **never committed**, and are **never reused**.
+**Temp files live OUTSIDE the repository** — the session scratchpad, never
+`docs/`. `docs_embed.rs::doc_list()` enumerates every `.md` in that directory, so a
+`temp-*.md` left there is served to the Documentation viewer as a real document and
+fails `every_language_lists_each_document_exactly_once`. They are also **never
+committed** and **never reused**.
 
 ### Commit one language at a time
 
@@ -103,8 +115,8 @@ file per language out — six in total, no fragments left.
 - [ ] `grep -c $'\xc3\xa2\xc2\x80' <file>` → **0** (no double-encoded bytes).
 - [ ] No leftover English prose, and no characters from another script.
 - [ ] Every ToC anchor resolves to a heading *in that file*.
-- [ ] `cargo test -p cobolt-ide --bin cobolt-ide every_translation_is_complete_and_current -- --ignored`
-      no longer names it.
+- [ ] `cargo test -p cobolt-ide --bin cobolt-ide docs_embed` — all five green, the
+      two translation guards included. No `--ignored` any more; see above.
 
 ## When the cycle runs
 

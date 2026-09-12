@@ -136,6 +136,8 @@ file. One English file in → exactly one file per language out, six total.
 - **Glossary — keep untranslated:** `PowerRustCOBOL`, product/menu names, all
   COBOL keywords/identifiers and code samples. Never introduce "cobolt" in any
   language.
-- **Measured expansion** (this repo's own complete translations, 2026-08-24):
-  es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %, **jp +17–40 %** in bytes. Size
-  splits against the Japanese worst case.
+- **Measured expansion** (this repo's own complete translations, 2026-09-12):
+  es +5–13 %, pt +5–12 %, fr +9–18 %, cn −1 to +5 %,
+  **jp +17–40 %** in bytes. Size splits against the Japanese worst case.
+  The Chinese floor is measured, not a typo: the Developer's Guide came out
+  **0.3 % smaller** than its English canonical, prose included.
