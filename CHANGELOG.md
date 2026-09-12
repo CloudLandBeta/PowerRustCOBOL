@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.6] — 2026-09-12
+
+### Nine documents were invisible to `/docsync`
+
+The code↔document registry in `specs/steering/docs.md` is what `/docsync` reads
+to decide which documents a code change invalidates. Its own maintenance rule
+says it plainly — "a doc with no registry row is invisible to `/docsync`" — and
+nine of the thirteen document families in `docs/` had no row. `BENCHMARKS`,
+`DEPENDENCIES`, `cobol-support-matrix`, `database-runtime`,
+`ide-collaboration-design`, `indexed-file-format`, `indexed-file-internals`,
+`indexed-redb-engine` and `observability` were never checked for currency by
+anything, which is the mechanism behind the reference-doc drift already fixed by
+hand this cycle. Each ships in six languages, so one silent English document is
+six stale files.
+
+Each of the nine now names the crates and modules whose behaviour it actually
+describes, read out of the document rather than guessed from its filename — and
+every path was checked to exist before it was written down. Some of them are not
+where the name suggests: `observability-en.md` documents the INDEXED transaction
+log, but also `COBOLT_LOG` tracing, the IDE's Debug Settings, the Run-Form
+inspector and the crash-log/autosave pair, so its row reaches into
+`cobolt-ide/src/{debug_settings,inspector,crash}.rs` and into the `ast`/`parser`
+spelling of `OPEN … WITH REGISTERED USER`. `indexed-file-format-en.md` describes
+the `PRCIDX1` container in `indexed.rs` and deliberately does **not** claim the
+`cobolt-indexed` crate, which models the IDE's `.cidx` definitions and is a
+different thing wearing a similar name.
+
+`ide-collaboration-design-en.md` is marked *(design only)* and carries the Phase A
+touchpoints it builds on, following the precedent already set by the
+*(planned)* `compiler-manual-en.md` row: a document that describes work not yet
+done still needs to be told when its foundations move.
+
+No existing row was removed or reordered, and no row was invented for a document
+that does not exist.
+
 ## [PowerRustCOBOL 1.70.5] — 2026-09-12
 
 ### The translation skill stops sending temp files somewhere that breaks a test
