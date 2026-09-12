@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.1] — 2026-09-12
+
+### The Developer's Guide in Spanish
+
+520 KB of English, 588 KB of Spanish — **+13.1 %**, inside the es range
+`CLAUDE.md` records (+5–13 %). It is the flagship document and the larger of the
+two the 1.70.0 cycle found missing; this ships the first of its five languages.
+
+**Split by ToC entry, then further.** The Guide is 27 top-level parts and five of
+them exceed the 32 KB ceiling — the control catalogue alone is 128 KB — so those
+were subdivided at their own H3 (and, where an H3 was still too large, H4)
+boundaries. That gave **86 units, none over 32 KB**, cut only at headings so no
+paragraph, table, fenced block or mermaid diagram was split across two.
+
+**196 fenced blocks, copied not retyped.** Every one was tokenised as
+`@@CODEn@@` before translation and substituted back afterwards, and the assembly
+refused to publish until all 196 were present exactly once. A check then
+confirmed the published file's blocks are byte-identical to the English.
+
+### The ToC could not be generated, and that mattered
+
+The syntax reference's ToC came from a generator, because its entries *are* its
+headings. The Guide's are not: entry 2 reads "The three pieces: RustCOBOL,
+PowerRustCOBOL, rcrun" while the heading is "2. The three pieces". The entry text
+is editorial.
+
+So it was translated by hand — but with every **anchor** computed from the
+translated headings rather than derived by eye, all 25 top-level entries and the
+8 H3 sub-entries the ToC cites. `links.py` then verified that each of the 33
+resolves to a heading in the file. It does.
+
+### Two things the checks caught that review would not
+
+**A heading ending in three backticks opens a fence.** The English H3 reads
+"Long and awkward text: the ``` block literal" — backticks mid-phrase. The
+Spanish put them at the end of the line, where the fence scanner reads
+```` ```\n ```` as the start of a code block: 197 blocks against the English 196.
+The heading now carries no backticks at all, which also drops the trailing-hyphen
+anchor it would otherwise have had.
+
+**Temp files do not belong in `docs/`.** GOLDEN RULE #8 says to split into
+`temp-*` files there, but `docs_embed.rs::doc_list()` **scans that directory** —
+a temp file would have been picked up as a real document and broken
+`every_language_lists_each_document_exactly_once`. The split lived in the session
+scratchpad instead.
+
+### Where the cycle stands
+
+`every_translation_is_complete_and_current` **passes** — 65 translations across
+thirteen families, nothing outstanding.
+`every_document_ships_in_every_language` reports the Guide for **pt, fr, jp and
+cn**; Spanish is done. Both keep their `#[ignore]`.
+
+Full `cobolt-ide` suite: 1157 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.70.0] — 2026-09-11
 
 ### The regeneration cycle runs, because the operator raised the minor
