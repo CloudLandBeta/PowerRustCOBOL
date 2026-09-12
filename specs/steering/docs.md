@@ -114,9 +114,15 @@ suffix-less name and `-en` alike, so the resolver itself needs no change.
 **Never split mid-context** — a paragraph, a markdown table, a fenced code block
 and a mermaid block each stay whole in one temp file. Cut only at headings.
 
-**Temp files** live in `docs/`, are **never committed**, and are **never
-reused**. Recover an interrupted run by deleting every `temp-*` and starting
-over — never by resuming.
+**⚠️ Temp files live OUTSIDE the repository — never in `docs/`.** Use the
+session scratchpad. `crates/cobolt-ide/src/docs_embed.rs` embeds the whole
+`docs/` directory with `include_dir!`, and `doc_list()` enumerates every `.md`
+in it — so a `temp-*.md` left there is served to the Documentation viewer as a
+**real document** and fails `every_language_lists_each_document_exactly_once`.
+This said `docs/` from 1.62.1 until the **2026-09-12** correction; its letter
+broke that test. Still **never committed** and **never reused**: recover an
+interrupted run by deleting every `temp-*` and starting over — never by
+resuming.
 
 **Links.** Translate section headings, regenerate the ToC anchors from the
 *translated* headings, and repoint cross-document links at the same-language

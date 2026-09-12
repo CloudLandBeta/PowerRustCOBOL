@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.2] — 2026-09-12
+
+### The translation cycle stops prescribing a directory that breaks a test
+
+GOLDEN RULE #8 has told every agent since 1.62.1 to split an oversized English
+document into `temp-<doc>-*.md` files **in `docs/`**. That directory is embedded
+into the IDE wholesale — `crates/cobolt-ide/src/docs_embed.rs` pulls it in with
+`include_dir!`, and `doc_list()` enumerates every `.md` inside it — so a temp
+file left there is not scratch work. It is shipped in the binary, listed in the
+Documentation viewer as a real document, and it fails
+`every_language_lists_each_document_exactly_once`.
+
+The rule now says what the last two translation runs actually did: **temp files
+live outside the repository, in the session scratchpad.** Everything else about
+them is unchanged — never committed, never reused, an interrupted run recovered
+by deleting every `temp-*` and restarting from the English canonical.
+
+Corrected in both copies: `CLAUDE.md` GOLDEN RULE #8 and
+`specs/steering/docs.md`, which mirrored the same instruction.
+
 ## [PowerRustCOBOL 1.70.1] — 2026-09-12
 
 ### The Developer's Guide in Spanish

@@ -514,7 +514,7 @@
     <Property name="PreviewItemCount">1</Property>
     <Property name="CornerRadius">14</Property>
   </Control>
-  <Control id="Rad-Slow" type="RadioButton" x="524" y="172" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
+  <Control id="Rad-Slow" type="RadioButton" x="520" y="160" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Economy</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -555,7 +555,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Rad-Fast" type="RadioButton" x="524" y="206" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
+  <Control id="Rad-Fast" type="RadioButton" x="520" y="194" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Express</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -596,7 +596,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Rad-Same" type="RadioButton" x="524" y="240" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
+  <Control id="Rad-Same" type="RadioButton" x="520" y="228" w="300" h="24" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Same day</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -637,7 +637,7 @@
     <Property name="CheckBoxBorderWidth">1</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Note" type="Label" x="524" y="282" w="410" h="44" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
+  <Control id="Lbl-Note" type="Label" x="520" y="270" w="410" h="44" tab-order="0" z-order="0" visible="true" enabled="true" parent="Grp-Speed">
     <Property name="Caption">Hiding the group hides all of this at once.</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>

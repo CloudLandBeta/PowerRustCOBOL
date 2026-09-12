@@ -149,7 +149,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Lbl-Log-Cap" type="Label" x="32" y="384" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Lbl-Log-Cap" type="Label" x="40" y="384" w="300" h="20" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Event log</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -184,7 +184,7 @@
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Txt-Log" type="TextBox" x="32" y="408" w="936" h="224" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Txt-Log" type="TextBox" x="32" y="408" w="936" h="200" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -254,7 +254,8 @@
 rows: 0
 user: operator
 00:00</Property>
-    <Property name="CornerRadius">10</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
   <Control id="Lbl-Doc" type="Label" x="48" y="140" w="900" h="90" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Each line of Items is one panel, laid out left to right. There is no per-panel property: the bar IS its Items, so a handler rewrites the whole line at once.</Property>
@@ -291,7 +292,7 @@ user: operator
     <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Tmr-Clock" type="Timer" x="900" y="140" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Tmr-Clock" type="Timer" x="904" y="176" w="48" h="48" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
@@ -432,8 +433,9 @@ user: operator
     <Property name="ReadOnly">true</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="CornerRadius">10</Property>
+    <Property name="BorderStyle">Single</Property>
   </Control>
-  <Control id="Btn-Stop" type="Button" x="32" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Stop" type="Button" x="32" y="344" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Stop the clock</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -493,7 +495,7 @@ user: operator
            MOVE "Stopped" TO StatusBar-Demo::Items.
 ]]></Event>
   </Control>
-  <Control id="Btn-Start" type="Button" x="204" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Start" type="Button" x="204" y="344" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Start it</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -543,10 +545,10 @@ user: operator
       *> FR: EXTENSION - appel de methode en ligne sur le controle; sans INVOKE ... USING.
       *> JP: EXTENSION - コントロールのインライン メソッド呼び出し。INVOKE ... USING は不要。
       *> CN: EXTENSION - 控件的内联方法调用；无需 INVOKE ... USING。
-           Tmr-Clock::Start().
+           Tmr-Clock::Start()
 ]]></Event>
   </Control>
-  <Control id="Btn-Read" type="Button" x="376" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Read" type="Button" x="376" y="344" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Read the bar</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
@@ -611,7 +613,7 @@ user: operator
 
 ]]></Event>
   </Control>
-  <Control id="Btn-Clear" type="Button" x="548" y="380" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Clear" type="Button" x="548" y="344" w="156" h="32" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Clear log</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
