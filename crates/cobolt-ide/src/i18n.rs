@@ -1677,6 +1677,10 @@ pub struct Tr {
     pub rust_check_no_linker: &'static str,
     pub rust_check_no_linker_why: &'static str,
     pub rust_check_no_linker_cmd: &'static str,
+    /// The download button on every missing-linker surface. `{}` is the
+    /// vendor's own product name (`LinkerDownload::name`) and stays English in
+    /// every language — it is what the developer will search for.
+    pub rust_check_no_linker_page: &'static str,
 
     // ── The IDE Walkthrough (spec 059) ───────────────────────────────────────
     /// Help-menu item. It shows the *flag* — "already seen" — so unchecking it
@@ -2992,6 +2996,7 @@ const EN: Tr = Tr {
     rust_check_no_linker: "Rust {} is installed, but this computer still cannot finish a build: the linker `{}` was not found.",
     rust_check_no_linker_why: "Build turns your program into a native application, and that last step uses the platform's own build tools rather than Rust's. Nothing else is affected: designing forms, editing code and running programs never needed them.",
     rust_check_no_linker_cmd: "This installs them:",
+    rust_check_no_linker_page: "Open the {} download page",
     walkthrough_menu_label: "🎓 IDE Walkthrough seen",
     walkthrough_needs_project: "Open a project first — the Walkthrough points at the project tree.",
     walkthrough_title_settings: "Project settings",
@@ -4281,6 +4286,7 @@ const ES: Tr = Tr {
     rust_check_no_linker: "Rust {} está instalado, pero este equipo todavía no puede terminar una compilación: no se encontró el enlazador `{}`.",
     rust_check_no_linker_why: "Compilar convierte su programa en una aplicación nativa, y ese último paso usa las herramientas de compilación del sistema, no las de Rust. Nada más se ve afectado: diseñar formularios, editar código y ejecutar programas nunca las necesitaron.",
     rust_check_no_linker_cmd: "Esto las instala:",
+    rust_check_no_linker_page: "Abrir la página de descarga de {}",
     walkthrough_menu_label: "🎓 Recorrido del IDE visto",
     walkthrough_needs_project: "Abra primero un proyecto — el recorrido señala el árbol del proyecto.",
     walkthrough_title_settings: "Configuración del proyecto",
@@ -5570,6 +5576,7 @@ const PT: Tr = Tr {
     rust_check_no_linker: "O Rust {} está instalado, mas este computador ainda não consegue concluir uma compilação: o vinculador `{}` não foi encontrado.",
     rust_check_no_linker_why: "Compilar transforma seu programa em um aplicativo nativo, e esse último passo usa as ferramentas de compilação do sistema, não as do Rust. Nada mais é afetado: desenhar formulários, editar código e executar programas nunca precisaram delas.",
     rust_check_no_linker_cmd: "Isto as instala:",
+    rust_check_no_linker_page: "Abrir a página de download do {}",
     walkthrough_menu_label: "🎓 Tour do IDE visto",
     walkthrough_needs_project: "Abra primeiro um projeto — o tour aponta para a árvore do projeto.",
     walkthrough_title_settings: "Configurações do projeto",
@@ -6858,6 +6865,7 @@ const JA: Tr = Tr {
     rust_check_no_linker: "Rust {} はインストールされていますが、このコンピューターではまだビルドを完了できません。リンカー `{}` が見つかりませんでした。",
     rust_check_no_linker_why: "ビルドはプログラムをネイティブアプリケーションに変換します。その最後の手順だけは Rust ではなくプラットフォーム自身のビルドツールを使います。ほかには影響しません。フォームの設計、コードの編集、プログラムの実行にリンカーは必要ありません。",
     rust_check_no_linker_cmd: "次のコマンドでインストールできます:",
+    rust_check_no_linker_page: "{} のダウンロードページを開く",
     walkthrough_menu_label: "🎓 IDE ツアーを表示済み",
     walkthrough_needs_project: "先にプロジェクトを開いてください。ツアーはプロジェクトツリーを指し示します。",
     walkthrough_title_settings: "プロジェクト設定",
@@ -8154,6 +8162,7 @@ const ZH: Tr = Tr {
     rust_check_no_linker: "已安装 Rust {}，但这台计算机仍无法完成构建：找不到链接器 `{}`。",
     rust_check_no_linker_why: "构建会把您的程序变成原生应用程序，而最后一步使用的是平台自己的构建工具，不是 Rust 的。其他功能不受影响：设计窗体、编辑代码和运行程序从不需要链接器。",
     rust_check_no_linker_cmd: "以下命令可以安装它们：",
+    rust_check_no_linker_page: "打开 {} 的下载页面",
     walkthrough_menu_label: "🎓 已查看 IDE 导览",
     walkthrough_needs_project: "请先打开一个项目——导览指向的是项目树。",
     walkthrough_title_settings: "项目设置",
@@ -9443,6 +9452,7 @@ const FR: Tr = Tr {
     rust_check_no_linker: "Rust {} est installé, mais cet ordinateur ne peut toujours pas terminer une compilation : l'éditeur de liens `{}` est introuvable.",
     rust_check_no_linker_why: "Compiler transforme votre programme en application native, et cette dernière étape utilise les outils de compilation de la plateforme plutôt que ceux de Rust. Rien d'autre n'est affecté : concevoir des formulaires, éditer du code et exécuter des programmes n'en ont jamais eu besoin.",
     rust_check_no_linker_cmd: "Ceci les installe :",
+    rust_check_no_linker_page: "Ouvrir la page de téléchargement de {}",
     walkthrough_menu_label: "🎓 Visite guidée de l'IDE vue",
     walkthrough_needs_project: "Ouvrez d'abord un projet — la visite désigne l'arborescence du projet.",
     walkthrough_title_settings: "Paramètres du projet",
@@ -9646,6 +9656,28 @@ mod i18n_tests {
                 "{lang:?}: only {diff}/{} sampled UI strings differ from English — looks untranslated",
                 en.len()
             );
+        }
+    }
+
+    /// The download button's label carries the vendor's product name through a
+    /// `{}`, and a translation that loses the placeholder loses the name with it
+    /// — the button would read "Open the download page" and never say *what*.
+    /// Nothing else catches that: the string is still present, still translated,
+    /// still non-empty.
+    #[test]
+    fn the_linker_download_label_keeps_its_placeholder_in_every_language() {
+        for &lang in Language::ALL {
+            let label = lang.tr().rust_check_no_linker_page;
+            assert_eq!(
+                label.matches("{}").count(),
+                1,
+                "{lang:?}: expected exactly one {{}} in {label:?}"
+            );
+            // And substituting it actually yields the product name, with no
+            // placeholder left behind for the developer to read.
+            let filled = label.replacen("{}", "Visual Studio Build Tools", 1);
+            assert!(filled.contains("Visual Studio Build Tools"), "{filled}");
+            assert!(!filled.contains("{}"), "{filled}");
         }
     }
 }

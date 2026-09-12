@@ -1,5 +1,75 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.7] — 2026-09-12
+
+### The installer's Build Tools button was disabled by a leftover condition
+
+The finish page of the Windows `.msi` carries a **Build Tools download page**
+button, and pressing it did nothing. The publish behind it read:
+
+```xml
+<Publish Event="DoAction" Value="OpenPrereqPage">NOT Installed</Publish>
+```
+
+`NOT Installed` was copied from WixUI's exit-dialog checkbox idiom, where the
+condition exists to stop a *repair* run relaunching the application. Opening a
+web page has no such hazard, and the condition is false on every maintenance
+run — which is exactly how a developer gets back to this screen: install once,
+then start setup again to read it. `Installed` is set, the condition fails, and
+the button is inert. With `Return="ignore"` on the custom action, it fails
+silently too.
+
+1.65.113 replaced that checkbox with a button and its changelog said the
+conditional publish went with it. It removed the checkbox. **The publish is now
+unconditional**, and the button is 150 dialog units wide rather than 120 — a
+fixed-size MSI button cannot grow to fit its own 25-character label, which is the
+other half of what was reported.
+
+The target also lost its fragment: `downloads/#build-tools-for-visual-studio-2022`
+became the Build Tools landing page. An anchor is the half of a URL that rots
+when a vendor reorganises a page, and it takes the whole link down with it.
+
+### A failed build now offers the download, on whichever OS you are on
+
+Before this, a build that got all the way to linking and stopped told you what to
+install and gave you a command to copy. That is the fast route for whoever
+recognises the command and a dead end for whoever does not — and on Windows the
+Build Tools are a multi-gigabyte privileged install that only the developer can
+drive, on Microsoft's own page.
+
+So both surfaces that report a missing linker — the first-run check and the
+**Build** modal — now carry the same button, from one helper, because it is the
+same problem:
+
+- **Windows** → *Visual Studio Build Tools*
+- **macOS** → *Command Line Tools for Xcode*
+- **Linux** → no button
+
+**Linux is a deliberate answer, not a gap.** The C toolchain there comes from the
+distribution's package manager and no single page serves Debian and Fedora and
+Arch at once; sending a Fedora user to Debian's documentation is worse than
+sending them nowhere. Both surfaces already print the `apt` and `dnf` commands,
+and on that platform those *are* the proper route.
+
+The label adapts with the platform because it names the vendor's own product —
+"Open the Visual Studio Build Tools download page" — and the product name stays
+English in all six languages, since it is what the developer will search for. The
+URL sits in the tooltip rather than the label: they are about to be sent to the
+open internet and get to see where first.
+
+**The button is offered for one failure only.** A missing linker is not the
+developer's mistake; a typo in their COBOL is, and answering that with an offer to
+download build tools would be insulting and useless. `is_missing_linker_message`
+matches the opening of the message the compiler actually produces — and that
+opening is now a constant used to *build* the message as well as to match it, so
+the two cannot drift apart.
+
+Tests: the offered download always has a name and an `https` page with no
+fragment; the predicate fires on a real `LinkerMissing` and stays silent on a
+`CargoBuild` error and on prose that merely mentions a linker; and the label keeps
+its `{}` placeholder in all six languages — a translation that dropped it would
+render "Open the download page" and never say what.
+
 ## [PowerRustCOBOL 1.70.6] — 2026-09-12
 
 ### Nine documents were invisible to `/docsync`

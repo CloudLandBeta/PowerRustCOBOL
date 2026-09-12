@@ -10868,6 +10868,45 @@ impl CoboltApp {
         }
     }
 
+    /// The one download button every missing-linker surface offers.
+    ///
+    /// Two surfaces report the same fault and a developer can meet either first:
+    /// the startup probe's dialog ([`Self::show_toolchain_prompt`]) and a Build
+    /// that got all the way to linking and stopped
+    /// ([`Self::show_building_modal`]). They offer the identical button because
+    /// it is the identical problem — one place to change the label, the URL and
+    /// the behaviour.
+    ///
+    /// **Nothing is drawn where the platform has no page.**
+    /// `linker_download` returns `None` on Linux, where the C toolchain comes
+    /// from the distribution's package manager and no single page is right; both
+    /// surfaces already show the commands, which is the honest answer there. A
+    /// button is not added for symmetry's sake.
+    ///
+    /// The label carries the vendor's own product name, so it reads
+    /// "…Visual Studio Build Tools…" on Windows and
+    /// "…Command Line Tools for Xcode…" on macOS, in whichever of the six
+    /// languages the IDE is set to.
+    fn linker_download_button(ui: &mut egui::Ui, tr: &Tr) {
+        let Some(download) = cobolt_compiler::linker_download() else {
+            return;
+        };
+        // The URL goes in the tooltip rather than the label: the developer is
+        // about to be sent to the open internet and gets to see where before
+        // they click, while the button itself stays short enough to read.
+        if ui
+            .button(
+                tr.rust_check_no_linker_page
+                    .replacen("{}", download.name, 1),
+            )
+            .on_hover_text(download.url)
+            .clicked()
+        {
+            ui.ctx()
+                .open_url(egui::OpenUrl::new_tab(download.url.to_owned()));
+        }
+    }
+
     /// The first-run Rust question (see [`crate::toolchain`]).
     ///
     /// There is no ✕: the only ways out are Install and a refusal, because a
@@ -10980,9 +11019,16 @@ impl CoboltApp {
                             .wrap(),
                         );
                         ui.add_space(14.0);
-                        if ui.button(tr.rust_check_close).clicked() {
-                            settle = true;
-                        }
+                        // The page comes before Close: on Windows the Build
+                        // Tools are a multi-gigabyte privileged install that
+                        // only the developer can drive, so the route to it is
+                        // the dialog's real action and Close is the way out.
+                        ui.horizontal(|ui| {
+                            Self::linker_download_button(ui, tr);
+                            if ui.button(tr.rust_check_close).clicked() {
+                                settle = true;
+                            }
+                        });
                     }
                     None => {
                         match prompt.stage {
@@ -11209,6 +11255,19 @@ impl CoboltApp {
                 }
                 ui.add_space(10.0);
                 ui.horizontal(|ui| {
+                    // A build that reached linking and stopped is not the
+                    // developer's mistake, and the fix is an install they have
+                    // to go and fetch. Offered here so they do not have to find
+                    // the startup dialog again — but only for that one failure:
+                    // a typo in their COBOL must never be answered with an
+                    // offer to download build tools.
+                    if outcome.as_ref().is_some_and(|o| {
+                        o.as_ref()
+                            .err()
+                            .is_some_and(|e| cobolt_compiler::is_missing_linker_message(e))
+                    }) {
+                        Self::linker_download_button(ui, &tr);
+                    }
                     if ui.button(tr.build_details_btn).clicked() {
                         details = true;
                     }
