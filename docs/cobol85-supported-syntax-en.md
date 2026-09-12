@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<!-- powerrustcobol: 1.65.124 -->
+<!-- powerrustcobol: 1.70.0 -->
 
 # RustCOBOL‑85 Supported Syntax Reference
 
@@ -26,6 +26,20 @@ and ⚠️ forms parse but behave partially. This is the companion to
 
 Legend: ✅ supported · ⚠️ parses but partial/simplified · ❌ not recognized
 (avoid, or test only to confirm the gap).
+
+---
+
+## Table of contents
+
+1. [★ Conformance is measured, not asserted — NIST CCVS85](#-conformance-is-measured-not-asserted--nist-ccvs85)
+2. [IDENTIFICATION DIVISION paragraphs](#identification-division-paragraphs)
+3. [Source formats](#source-formats)
+4. [Recognized statements (verbs)](#recognized-statements-verbs)
+5. [Per‑verb supported forms](#perverb-supported-forms)
+6. [Conditions (IF / EVALUATE / PERFORM UNTIL)](#conditions-if--evaluate--perform-until)
+7. [Expressions, literals, USAGE](#expressions-literals-usage)
+8. [DATA DIVISION clauses (declaration syntax accepted)](#data-division-clauses-declaration-syntax-accepted)
+9. [Still NOT supported — current avoid‑list](#still-not-supported--current-avoidlist)
 
 ---
 

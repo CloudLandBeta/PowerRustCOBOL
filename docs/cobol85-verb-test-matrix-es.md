@@ -272,7 +272,7 @@ suman a la mezcla de tipos.
 
 > **Todos ellos están implementados.** SORT/MERGE/RELEASE/RETURN llegaron en
 > 1.62.119 y el motor RELATIVE en 1.62.76
-> (`crates/cobolt-runtime/src/relative.rs`); `docs/cobol85-supported-syntax-en.md`
+> (`crates/cobolt-runtime/src/relative.rs`); `docs/cobol85-supported-syntax-es.md`
 > los marca con ✅. Los ejes de permutación de abajo se conservan como el plan de
 > pruebas que siempre fueron: describen lo que falta *cubrir*, no lo que falta
 > construir.

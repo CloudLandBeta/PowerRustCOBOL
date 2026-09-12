@@ -1,5 +1,68 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.0] — 2026-09-11
+
+### The regeneration cycle runs, because the operator raised the minor
+
+GOLDEN RULE #8 gates the translation cycle on a **minor or major** bump and never
+on a `z` — which is every agent-made change, so an agent does not translate on its
+own. The operator raised `y` to 1.70.0. That is the authorization the cycle needs.
+
+Scope was settled on evidence before a word was written: eleven document families
+are **current**, every translation's version stamp equal to its canonical's. Two
+documents were missing all five languages — `cobol85-supported-syntax` (deleted at
+1.65.136 for being stale) and `developers-guide` (never translated). This ships the
+first.
+
+### `cobol85-supported-syntax`, five languages
+
+The document is 70.5 KB and **98 % prose and tables** — only 1 % of it sits inside
+fenced blocks — and it had **no table of contents**, which the sizing rule requires
+before a document over 32 KB can be split. So the canonical gained one first: nine
+entries, with every anchor **generated from the heading** rather than typed, and its
+stamp moved to 1.70.0. Nothing else in the English changed.
+
+| Language | Bytes | vs English |
+|---|---:|---:|
+| es | 79 736 | +13.1 % |
+| pt | 78 951 | +12.0 % |
+| fr | 82 270 | +16.7 % |
+| jp | 88 189 | +25.1 % |
+| cn | 73 683 | +4.5 % |
+
+Every figure lands inside the expansion ranges `CLAUDE.md` records from this repo's
+own earlier translations — es +5–13 %, pt +5–12 %, fr +9–18 %, cn +1–5 %,
+jp +17–40 %.
+
+**The 11 fenced blocks are copied, never retyped.** Each translated body carries
+`@@CODEn@@` placeholders and the tooling substitutes the English blocks back in, so
+a check can assert the code is byte-identical in all five languages. It is — along
+with the sentinel, the stamp, valid UTF-8, zero double-encoded sequences, and no
+bare `cobolt` in prose.
+
+Generating anchors instead of writing them removes a whole failure class by
+construction. It is the trap that once produced a Japanese anchor reading
+`#発見apiapi` — a link that renders correctly and goes nowhere, which prose review
+does not catch.
+
+### Fifteen links came home
+
+1.65.136 had pointed `cobol-support-matrix-<lang>.md` (two each) and
+`cobol85-verb-test-matrix-<lang>.md` (one each) at `cobol85-supported-syntax-en.md`,
+because the same-language files did not exist. They exist again, so those 15
+references are same-language again and those ten files are now **byte-identical to
+their 1.65.135 state**.
+
+### Where the cycle stands
+
+`every_translation_is_complete_and_current` **passes** — 60 translations across
+twelve families, nothing outstanding. `every_document_ships_in_every_language` now
+names exactly one document, `developers-guide-en.md`, down from two. Both keep
+their `#[ignore]`: the cycle is not finished while the Guide is English-only, and
+that attribute is what says so.
+
+Full `cobolt-ide` suite: 1157 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.65.136] — 2026-09-11
 
 ### The syntax reference goes back to English-only, as the rule says

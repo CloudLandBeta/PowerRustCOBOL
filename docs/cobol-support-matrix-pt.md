@@ -19,7 +19,7 @@ Esta é a **visão geral**. O detalhe é levado por dois documentos acompanhante
 
 | Documento | O que responde |
 |---|---|
-| [`cobol85-supported-syntax-en.md`](cobol85-supported-syntax-en.md) | **Que grafia** de cada instrução é realmente aceite pelo lexer, pelo analisador e pelo ambiente de execução, e o marcador de conformidade NIST CCVS85 |
+| [`cobol85-supported-syntax-pt.md`](cobol85-supported-syntax-pt.md) | **Que grafia** de cada instrução é realmente aceite pelo lexer, pelo analisador e pelo ambiente de execução, e o marcador de conformidade NIST CCVS85 |
 | [`cobol85-verb-test-matrix-pt.md`](cobol85-verb-test-matrix-pt.md) | **O que testar** em cada verbo |
 | [`developers-guide-en.md`](developers-guide-en.md) | Como construir aplicações com tudo isto |
 
@@ -51,7 +51,7 @@ implementado.
 > orientado a aplicações, mais extensões visuais de RAD. **Não** é uma
 > implementação certificada do COBOL-85. A conformidade é *medida* contra a suite
 > oficial NIST CCVS85 em vez de afirmada — ver o
-> [marcador](cobol85-supported-syntax-en.md).
+> [marcador](cobol85-supported-syntax-pt.md).
 
 ---
 

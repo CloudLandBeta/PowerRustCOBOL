@@ -18,7 +18,7 @@ See the LICENSE file in the project root for full license information.
 
 | 文档 | 它回答什么 |
 |---|---|
-| [`cobol85-supported-syntax-en.md`](cobol85-supported-syntax-en.md) | 每条语句的**哪种写法**真正被词法分析器、语法分析器和运行时接受，以及 NIST CCVS85 一致性记分板 |
+| [`cobol85-supported-syntax-cn.md`](cobol85-supported-syntax-cn.md) | 每条语句的**哪种写法**真正被词法分析器、语法分析器和运行时接受，以及 NIST CCVS85 一致性记分板 |
 | [`cobol85-verb-test-matrix-cn.md`](cobol85-verb-test-matrix-cn.md) | 每个动词**要测什么** |
 | [`developers-guide-en.md`](developers-guide-en.md) | 如何用这一切来构建应用程序 |
 
@@ -46,7 +46,7 @@ See the LICENSE file in the project root for full license information.
 > **老实话。** PowerRustCOBOL 瞄准的是一个务实的、面向应用的子集，外加可视化的
 > RAD 扩展。它**不是**经过认证的 COBOL-85 实现。一致性是对照官方 NIST CCVS85 套件
 > *测量*出来的，而不是自行宣称的——参见
-> [记分板](cobol85-supported-syntax-en.md)。
+> [记分板](cobol85-supported-syntax-cn.md)。
 
 ---
 

@@ -241,7 +241,7 @@ See the LICENSE file in the project root for full license information.
 
 > **これらはすべて実装済みです。** SORT/MERGE/RELEASE/RETURN は 1.62.119 で、
 > RELATIVE エンジンは 1.62.76（`crates/cobolt-runtime/src/relative.rs`）で入りまし
-> た。`docs/cobol85-supported-syntax-en.md` はこれらを ✅ と記しています。以下の
+> た。`docs/cobol85-supported-syntax-jp.md` はこれらを ✅ と記しています。以下の
 > 順列の軸は、もともとそうであったとおりテスト計画として残してあります。まだ*覆う*
 > べきものを述べているのであって、まだ*作る*べきものではありません。
 - `SORT f ON {ASCENDING|DESCENDING} KEY k … {USING f…|INPUT PROCEDURE p}
