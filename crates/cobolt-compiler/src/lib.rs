@@ -75,6 +75,119 @@ pub const RUNTIME_NOTICE_TEXT: &str = include_str!(
     "../../../docs/licensing/PACKAGE_NOTICE_TEMPLATE/POWER_RUST_COBOL_RUNTIME_NOTICE.txt"
 );
 
+/// Give `path`'s owner write permission, if it has none. Best effort: a path
+/// that does not exist, or whose permissions cannot be changed, is left alone.
+///
+/// On Windows this clears the read-only *attribute*, which is the thing that
+/// makes a file refuse to be overwritten or deleted there.
+fn make_writable(path: &Path) {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    let mut perms = meta.permissions();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = perms.mode();
+        if mode & 0o200 != 0 {
+            return;
+        }
+        // Owner only — a build artefact has no business being world-writable.
+        perms.set_mode(mode | 0o200);
+    }
+    #[cfg(not(unix))]
+    {
+        if !perms.readonly() {
+            return;
+        }
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+    }
+    let _ = std::fs::set_permissions(path, perms);
+}
+
+/// `create_dir_all`, reported with the folder it could not create.
+fn create_dir(path: &Path) -> Result<(), CompilerError> {
+    std::fs::create_dir_all(path).ctx(|| format!("create the folder '{}'", path.display()))
+}
+
+/// Copy `src` over `dst`, and leave `dst` writable.
+///
+/// **Why not plain `std::fs::copy`.** It carries the source file's permissions
+/// to the destination, so copying one read-only file leaves a read-only file
+/// behind — and the *next* build cannot overwrite it. The second build then
+/// fails with the operating system's flattest sentence: `Acesso negado.
+/// (os error 5)` on Windows, `Permission denied (os error 13)` on Unix. Nothing
+/// about the project changed between the build that worked and the build that
+/// did not, which is what makes it so hard to place.
+///
+/// A read-only source is ordinary: art or data copied out of an installation
+/// folder, unpacked from an archive that carried the attribute, or fetched from
+/// a network share. Clearing the flag on both ends makes the copy repeatable.
+fn copy_overwrite(src: &Path, dst: &Path) -> std::io::Result<()> {
+    make_writable(dst);
+    std::fs::copy(src, dst)?;
+    make_writable(dst);
+    Ok(())
+}
+
+/// The prefix every aside-renamed previous executable carries.
+fn parked_prefix(file_name: &str) -> String {
+    format!(".{file_name}.old-")
+}
+
+/// A name for parking a running executable aside — **unique per attempt**.
+///
+/// It used to be the IDE's own process id, which is the same number all session
+/// long. A developer who leaves the built application open and rebuilds twice
+/// therefore met their own leftover: the first rebuild parks `…old-<pid>` and
+/// the still-running application holds it, so the second rebuild can neither
+/// delete that name nor rename onto it, and the install fails with the exact
+/// access error the parking exists to avoid. A fresh name every time cannot
+/// collide with a file anything is holding.
+fn parked_name(file_name: &str) -> String {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{}{stamp}", parked_prefix(file_name))
+}
+
+/// Whether `name` is one of *ours*: the exact prefix, and a stamp that is
+/// nothing but digits. The folder a build installs into belongs to the
+/// developer, and nothing of theirs is going to be mistaken for one of these.
+fn is_parked_name(name: &str, prefix: &str) -> bool {
+    match name.strip_prefix(prefix) {
+        Some(stamp) => !stamp.is_empty() && stamp.chars().all(|c| c.is_ascii_digit()),
+        None => false,
+    }
+}
+
+/// Delete the executables earlier installs parked beside `dst`.
+///
+/// Best effort by definition: one still held by a running application stays,
+/// and goes on the next install after that application closes.
+fn sweep_parked(dst: &Path, file_name: &str) {
+    let Some(dir) = dst.parent() else {
+        return;
+    };
+    let prefix = parked_prefix(file_name);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|n| is_parked_name(n, &prefix))
+        {
+            let path = entry.path();
+            make_writable(&path);
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 /// Install an executable at `dst` **by rename, never by overwrite**.
 ///
 /// `std::fs::copy` onto an existing executable rewrites the file in place, and
@@ -92,7 +205,10 @@ fn install_executable(src: &Path, dst: &Path) -> std::io::Result<()> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "binary".to_owned());
     let tmp = dst.with_file_name(format!(".{file_name}.new-{}", std::process::id()));
-    std::fs::copy(src, &tmp)?;
+    // `copy_overwrite`, not `std::fs::copy`: a leftover `.new-<pid>` from a
+    // build that died mid-install must not be able to block this one, and the
+    // installed program has to stay writable so the next build can replace it.
+    copy_overwrite(src, &tmp)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -100,19 +216,27 @@ fn install_executable(src: &Path, dst: &Path) -> std::io::Result<()> {
         perms.set_mode(0o755);
         std::fs::set_permissions(&tmp, perms)?;
     }
+    // Retire whatever earlier installs parked here, now that those instances
+    // have had time to exit. Not gated on Windows: a folder that never collects
+    // one simply has nothing to sweep, and code compiled everywhere cannot rot.
+    sweep_parked(dst, &file_name);
     // Unix rename replaces an existing dst atomically. Windows refuses to
     // rename over an existing file — and also refuses to DELETE a running
     // .exe, while it does allow RENAMING one. So: try the delete (works when
     // nothing runs), and when a live instance holds the file, do the standard
     // updater dance instead — rename the running exe aside, then move the new
-    // one into place; the parked file is cleaned up best-effort (a locked one
-    // disappears on the next successful install after the process ends).
+    // one into place; the parked file is retired by the sweep above, on the
+    // first install after the instance holding it ends.
     #[cfg(windows)]
-    if dst.exists() && std::fs::remove_file(dst).is_err() {
-        let parked = dst.with_file_name(format!(".{file_name}.old-{}", std::process::id()));
-        let _ = std::fs::remove_file(&parked);
-        if std::fs::rename(dst, &parked).is_err() {
-            // Locked beyond even a rename — surface the real rename error below.
+    if dst.exists() {
+        // Windows refuses to delete *or* replace a file carrying the read-only
+        // attribute, whoever owns it — clear it before either attempt.
+        make_writable(dst);
+        if std::fs::remove_file(dst).is_err() {
+            let parked = dst.with_file_name(parked_name(&file_name));
+            if std::fs::rename(dst, &parked).is_err() {
+                // Locked beyond even a rename — surface the real rename error below.
+            }
         }
     }
     let renamed = std::fs::rename(&tmp, dst);
@@ -286,10 +410,52 @@ fn linker_message(linker: &str) -> String {
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
+/// Appended to an I/O failure the operating system refused on permission
+/// grounds, which is the one `io::ErrorKind` whose cause is almost never the
+/// build and almost always the machine.
+///
+/// Windows renders it `Acesso negado. (os error 5)` in Portuguese, `Access is
+/// denied. (os error 5)` in English; Unix says `Permission denied (os error
+/// 13)`. All three name the refusal and none of them name a remedy.
+const PERMISSION_DENIED_HINT: &str = "\n\nThe operating system refused access to that exact path. \
+     What usually causes it: the file is marked read-only, a copy of the application is still \
+     running and holding its own executable open, or the folder is one your account may not write \
+     to (a system or installation folder, or a folder guarded by antivirus / Windows Controlled \
+     Folder Access). Close the running application, clear the read-only flag on that file, or keep \
+     the project in a folder of your own.";
+
+/// Render [`CompilerError::IoAt`]: the step that failed, the path it failed on,
+/// the operating system's own words, and — when access was denied — what
+/// actually causes that.
+fn io_failure_message(what: &str, e: &std::io::Error) -> String {
+    let mut msg = format!("could not {what}: {e}");
+    if e.kind() == std::io::ErrorKind::PermissionDenied {
+        msg.push_str(PERMISSION_DENIED_HINT);
+    }
+    msg
+}
+
 #[derive(Debug, Error)]
 pub enum CompilerError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// An I/O failure that says **what** was being done and **to which file**.
+    ///
+    /// A `std::io::Error` carries the operating system's sentence and nothing
+    /// else, so a build refused on one file reported `I/O error: Acesso negado.
+    /// (os error 5)` — accurate, and unusable: it named neither the file, nor
+    /// the step, nor which of the half-dozen places a build writes to was the
+    /// one refused. Every I/O step of a build goes through this variant
+    /// instead, via [`IoContext::ctx`].
+    #[error("{}", io_failure_message(what, source))]
+    IoAt {
+        /// What was attempted, phrased to read after "could not" —
+        /// `"create the folder '…'"`, `"copy '…' to '…'"`.
+        what: String,
+        #[source]
+        source: std::io::Error,
+    },
 
     #[error("TOML error: {0}")]
     Toml(String),
@@ -360,6 +526,24 @@ pub enum CompilerError {
 
     #[error("could not locate the PowerRustCOBOL workspace crates: {0}")]
     Workspace(String),
+}
+
+/// Attach the step being performed to an I/O result.
+///
+/// `std::fs` never tells the caller which path an error came from, so the
+/// caller — which knows — has to say. `what` is built only on failure.
+trait IoContext<T> {
+    /// Turn an I/O failure into a [`CompilerError::IoAt`] naming the step.
+    fn ctx(self, what: impl FnOnce() -> String) -> Result<T, CompilerError>;
+}
+
+impl<T> IoContext<T> for std::io::Result<T> {
+    fn ctx(self, what: impl FnOnce() -> String) -> Result<T, CompilerError> {
+        self.map_err(|source| CompilerError::IoAt {
+            what: what(),
+            source,
+        })
+    }
 }
 
 // ── Project manifest (subset we need) ────────────────────────────────────────
@@ -867,13 +1051,17 @@ fn sanitize_package_name(project_name: &str) -> String {
 /// cargo's fingerprint is mtime-based — so an unchanged program recompiled its
 /// own crate on every single build, for nothing. Comparing first is what makes
 /// "build twice, compile nothing the second time" true rather than aspirational.
-fn write_if_changed(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), CompilerError> {
     if let Ok(existing) = std::fs::read(path) {
         if existing == bytes {
             return Ok(());
         }
     }
-    std::fs::write(path, bytes)
+    // An existing staged file that lost its write permission would otherwise
+    // fail the build with the operating system's bare refusal — see
+    // `copy_overwrite` for how one gets there.
+    make_writable(path);
+    std::fs::write(path, bytes).ctx(|| format!("write '{}'", path.display()))
 }
 
 // ── Toolchain (spec 041 R14, R18) ────────────────────────────────────────────
@@ -998,7 +1186,11 @@ fn build_core(
     // generated form program so the project still builds and runs.
     let main_rel = resolve_main(&proj, &project_dir).ok_or(CompilerError::NoMain)?;
     let main_path = project_dir.join(&main_rel);
-    sources.push((main_rel.clone(), std::fs::read_to_string(&main_path)?));
+    sources.push((
+        main_rel.clone(),
+        std::fs::read_to_string(&main_path)
+            .ctx(|| format!("read the main program '{}'", main_path.display()))?,
+    ));
 
     // Then the rest of the declared sources (skip main if listed again).
     for rel in &proj.files.sources {
@@ -1007,7 +1199,11 @@ fn build_core(
         }
         let abs = project_dir.join(rel);
         if abs.exists() {
-            sources.push((rel.clone(), std::fs::read_to_string(&abs)?));
+            sources.push((
+                rel.clone(),
+                std::fs::read_to_string(&abs)
+                    .ctx(|| format!("read the source '{}'", abs.display()))?,
+            ));
         }
     }
 
@@ -1184,7 +1380,7 @@ fn build_core(
             .and_then(|s| s.to_str())
             .unwrap_or(rel.as_str())
             .to_ascii_uppercase();
-        let raw = std::fs::read(&abs)?;
+        let raw = std::fs::read(&abs).ctx(|| format!("read the form '{}'", abs.display()))?;
         // `menu_yaml_path` names the sidecar `<control id>.menu.yaml`, so the
         // file stem IS the control id and the directory can be read without
         // parsing the form again.
@@ -1352,9 +1548,9 @@ fn build_core(
     let assets_dir = build_dir.join("assets");
     let forms_dir = assets_dir.join("forms");
     let src_dir = build_dir.join("src");
-    std::fs::create_dir_all(&assets_dir)?;
-    std::fs::create_dir_all(&forms_dir)?;
-    std::fs::create_dir_all(&src_dir)?;
+    create_dir(&assets_dir)?;
+    create_dir(&forms_dir)?;
+    create_dir(&src_dir)?;
 
     // Write compressed AST
     write_if_changed(&assets_dir.join("program.bin"), &compressed_ast)?;
@@ -1367,7 +1563,7 @@ fn build_core(
     // 049 — the menu sidecars, beside the forms they belong to.
     if !menus.is_empty() {
         let menus_dir = assets_dir.join("menus");
-        std::fs::create_dir_all(&menus_dir)?;
+        create_dir(&menus_dir)?;
         for (ctrl_id, yaml) in &menus {
             write_if_changed(&menus_dir.join(format!("{ctrl_id}.menu.yaml")), yaml)?;
         }
@@ -1376,7 +1572,7 @@ fn build_core(
     // 051 R1 — each openable form's program, beside the main `program.bin`.
     if !form_programs.is_empty() {
         let programs_dir = assets_dir.join("programs");
-        std::fs::create_dir_all(&programs_dir)?;
+        create_dir(&programs_dir)?;
         for (id, bin) in &form_programs {
             write_if_changed(&programs_dir.join(format!("{id}.bin")), bin)?;
         }
@@ -1706,7 +1902,7 @@ fn build_core(
     // ── 11. Copy binary to bin/ ───────────────────────────────────────────────
     report(0.97, "Copying binary…");
     let bin_dir = project_dir.join("bin");
-    std::fs::create_dir_all(&bin_dir)?;
+    create_dir(&bin_dir)?;
 
     let exe_name = if cfg!(windows) {
         format!("{bin_name}.exe")
@@ -1724,7 +1920,13 @@ fn build_core(
     // Rename-into-place, never copy-over: overwriting the previous binary in
     // place got the very next launch SIGKILLed by macOS (see
     // `install_executable`). Also sets 0o755 on Unix.
-    install_executable(&src_bin, &dst_bin)?;
+    install_executable(&src_bin, &dst_bin).ctx(|| {
+        format!(
+            "install the program at '{}' (built at '{}')",
+            dst_bin.display(),
+            src_bin.display()
+        )
+    })?;
 
     log(&format!("✅ Binary → {}", dst_bin.display()));
 
@@ -1747,9 +1949,10 @@ fn build_core(
         }
         let dst = bin_dir.join(rel);
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)?;
+            create_dir(parent)?;
         }
-        std::fs::copy(&src, &dst)?;
+        copy_overwrite(&src, &dst)
+            .ctx(|| format!("copy '{}' to '{}'", src.display(), dst.display()))?;
         asset_count += 1;
     }
     if asset_count > 0 {
@@ -1945,7 +2148,9 @@ fn stage_theme_packs(
             ));
             continue;
         };
-        let manifest_src = std::fs::read_to_string(pack_dir.join("theme.toml"))?;
+        let manifest_path = pack_dir.join("theme.toml");
+        let manifest_src = std::fs::read_to_string(&manifest_path)
+            .ctx(|| format!("read the theme manifest '{}'", manifest_path.display()))?;
         let manifest = match cobolt_forms::theme_pack::parse_manifest(&manifest_src) {
             Ok(m) => m,
             Err(e) => {
@@ -1955,8 +2160,8 @@ fn stage_theme_packs(
         };
 
         let out_dir = themes_out.join(id);
-        std::fs::create_dir_all(&out_dir)?;
-        std::fs::write(out_dir.join("theme.toml"), manifest_src.as_bytes())?;
+        create_dir(&out_dir)?;
+        write_if_changed(&out_dir.join("theme.toml"), manifest_src.as_bytes())?;
 
         let mut assets = Vec::new();
         for rel in manifest.referenced_assets() {
@@ -1967,9 +2172,13 @@ fn stage_theme_packs(
             }
             let dst = out_dir.join(&rel);
             if let Some(parent) = dst.parent() {
-                std::fs::create_dir_all(parent)?;
+                create_dir(parent)?;
             }
-            std::fs::copy(&src, &dst)?;
+            // Theme art lives wherever the pack was installed — often a folder
+            // whose files are read-only. `copy_overwrite`, or the second build
+            // cannot restage it.
+            copy_overwrite(&src, &dst)
+                .ctx(|| format!("copy '{}' to '{}'", src.display(), dst.display()))?;
             assets.push(rel);
         }
         staged.push(StagedTheme {
@@ -6370,6 +6579,191 @@ error: could not compile `powerdemo3` (bin \"powerdemo3\") due to 1 previous err
             "error: the linker `cc` returned a duplicate symbol"
         ));
         assert!(!is_missing_linker_message(""));
+    }
+}
+
+/// The build's own I/O failures: what they say, and the one they used to be.
+#[cfg(test)]
+mod io_failure_tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("prc-io-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Take away every write permission, the way a file that arrived from an
+    /// installation folder, an archive or a network share carries it.
+    fn make_read_only(path: &Path) {
+        let mut perms = fs::metadata(path).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o444);
+        }
+        #[cfg(not(unix))]
+        perms.set_readonly(true);
+        fs::set_permissions(path, perms).unwrap();
+    }
+
+    fn is_read_only(path: &Path) -> bool {
+        fs::metadata(path).unwrap().permissions().readonly()
+    }
+
+    /// The defect, stated as the operating system states it.
+    ///
+    /// `std::fs::copy` hands the source's permissions to the destination, so
+    /// copying one read-only file leaves a read-only file behind — and the
+    /// *second* build, with nothing changed, is refused: `Acesso negado.
+    /// (os error 5)` on Windows, `Permission denied (os error 13)` on Unix.
+    #[test]
+    fn a_plain_copy_of_a_read_only_file_cannot_be_repeated() {
+        let dir = temp_dir("plain-copy");
+        let src = dir.join("logo.png");
+        let dst = dir.join("staged.png");
+        fs::write(&src, b"art").unwrap();
+        make_read_only(&src);
+
+        fs::copy(&src, &dst).expect("the first copy is fine — that is the trap");
+        assert!(is_read_only(&dst), "the copy inherited the source's flag");
+
+        let second = fs::copy(&src, &dst);
+        if second.is_ok() {
+            // A process that bypasses file permissions outright — root, in a
+            // container — never meets this trap, and proves nothing about it.
+            eprintln!("skipped: this process can write a read-only file");
+        } else {
+            assert_eq!(
+                second.as_ref().err().map(|e| e.kind()),
+                Some(std::io::ErrorKind::PermissionDenied),
+                "expected the refusal this fix exists for, got {second:?}"
+            );
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// …and `copy_overwrite` repeats, because it clears the flag on both ends.
+    #[test]
+    fn copy_overwrite_restages_a_read_only_file_every_time() {
+        let dir = temp_dir("overwrite");
+        let src = dir.join("logo.png");
+        let dst = dir.join("staged.png");
+        fs::write(&src, b"art").unwrap();
+        make_read_only(&src);
+
+        copy_overwrite(&src, &dst).expect("first copy");
+        assert!(!is_read_only(&dst), "the staged copy stays writable");
+        copy_overwrite(&src, &dst).expect("second copy — the one that used to fail");
+
+        // A destination that was read-only for any other reason is replaced too.
+        make_read_only(&dst);
+        copy_overwrite(&src, &dst).expect("a read-only destination is not a wall");
+        assert_eq!(fs::read(&dst).unwrap(), b"art");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `write_if_changed` writes over a staged file that lost its write bit,
+    /// and still skips the write when the bytes are identical.
+    #[test]
+    fn a_staged_file_that_turned_read_only_is_still_rewritten() {
+        let dir = temp_dir("write");
+        let path = dir.join("theme.toml");
+        write_if_changed(&path, b"first").unwrap();
+        make_read_only(&path);
+
+        write_if_changed(&path, b"second").expect("the read-only flag is not a wall");
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+
+        // Unchanged bytes are still not written — the read-only file is left
+        // exactly as it is, which is what keeps cargo from rebuilding.
+        make_read_only(&path);
+        write_if_changed(&path, b"second").unwrap();
+        assert!(is_read_only(&path), "an identical write touches nothing");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Two rebuilds in one session must not collide.
+    ///
+    /// The parked name used to be the IDE's process id — the same number for
+    /// the whole session — so a developer rebuilding twice with the built
+    /// application still open met their own leftover, which the running
+    /// application still held, and the install failed with the access error the
+    /// parking is there to avoid.
+    #[test]
+    fn every_parked_name_is_a_new_one() {
+        let a = parked_name("app.exe");
+        let b = parked_name("app.exe");
+        assert_ne!(a, b, "two installs would fight over one name");
+        assert!(a.starts_with(".app.exe.old-"), "{a}");
+    }
+
+    /// The sweep takes back what earlier installs parked, and nothing else.
+    #[test]
+    fn the_sweep_removes_parked_binaries_and_leaves_everything_else() {
+        let dir = temp_dir("sweep");
+        let dst = dir.join("app.exe");
+        let parked = dir.join(parked_name("app.exe"));
+        let mine = dir.join(".app.exe.old-notes");
+        let theirs = dir.join("app.exe.backup");
+        for f in [&dst, &parked, &mine, &theirs] {
+            fs::write(f, b"x").unwrap();
+        }
+        make_read_only(&parked);
+
+        sweep_parked(&dst, "app.exe");
+
+        assert!(!parked.exists(), "a parked binary is retired, read-only or not");
+        assert!(dst.exists(), "the installed program is not a parked one");
+        assert!(mine.exists(), "only a digits-only stamp is one of ours");
+        assert!(theirs.exists(), "a developer's own file is never swept");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// What the developer is shown. The old message was
+    /// `I/O error: Acesso negado. (os error 5)` — every word of it true, and
+    /// none of it naming the file, the step, or a way out.
+    #[test]
+    fn a_denied_build_step_names_the_step_the_path_and_the_way_out() {
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Access is denied.");
+        let msg = CompilerError::IoAt {
+            what: "copy 'C:\\proj\\assets\\logo.png' to 'C:\\proj\\bin\\assets\\logo.png'"
+                .to_owned(),
+            source: denied,
+        }
+        .to_string();
+
+        assert!(msg.starts_with("could not copy "), "{msg}");
+        assert!(msg.contains("C:\\proj\\bin\\assets\\logo.png"), "{msg}");
+        assert!(msg.contains("Access is denied."), "{msg}");
+        assert!(msg.contains("read-only"), "{msg}");
+        assert!(msg.contains("still running"), "{msg}");
+    }
+
+    /// The advice is for the refusal it explains, and for nothing else: a
+    /// missing file gets the operating system's sentence and no lecture.
+    #[test]
+    fn an_ordinary_io_failure_gets_no_permission_advice() {
+        let msg = CompilerError::IoAt {
+            what: "read the form 'forms/main.cfrm'".to_owned(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory"),
+        }
+        .to_string();
+
+        assert_eq!(
+            msg,
+            "could not read the form 'forms/main.cfrm': No such file or directory"
+        );
     }
 }
 

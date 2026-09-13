@@ -1,0 +1,287 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Emerson Lopes and PowerRustCOBOL contributors
+#
+# Licensed under the Apache License, Version 2.0.
+# See the LICENSE file in the project root for full license information.
+
+# A SPIKE, not a build. It ships nothing and changes nothing.
+#   Actions -> "Spike: can Windows build without the MSVC build tools?" -> Run workflow
+#
+# THE QUESTION
+#
+# Every application PowerRustCOBOL builds on Windows needs the Microsoft C++
+# build tools, and that is the single largest thing standing between a developer
+# and their first build. Three separate dependencies hide behind that one name:
+#
+#   1. the LINKER            `link.exe`
+#   2. the IMPORT LIBRARIES  the Windows SDK's kernel32.lib, ucrt.lib, and the
+#                            MSVC CRT's msvcrt.lib / vcruntime.lib
+#   3. a C COMPILER          `cl.exe`, needed only because `libsqlite3-sys` is
+#                            pinned with `bundled` and compiles the SQLite C
+#                            amalgamation
+#
+# (3) is answered off this runner: ship a prebuilt SQLite and drop `bundled`.
+# (1) is already answered and the answer is free -- `rust-lld` ships with every
+# Rust toolchain, and `rust-lld -flavor link` is a drop-in for `link.exe`.
+#
+# (2) is the one that decides everything, because Microsoft's import libraries
+# are NOT redistributable and no linker substitution gets past them. The escape
+# is to stop targeting MSVC at all: `x86_64-pc-windows-gnu` links against
+# MinGW-w64's import libraries, which ARE redistributable and which
+# PowerRustCOBOL could therefore carry in its own installer.
+#
+# So: CAN `x86_64-pc-windows-gnu` be linked by `rust-lld` alone, with MinGW-w64
+# LIBRARIES on disk but no gcc, no binutils and no MSVC involved?
+#
+# WHY IT CANNOT BE ANSWERED ANYWHERE ELSE
+#
+# Rust ships only `crt2.o` and `dllcrt2.o` for that target -- measured, two
+# files. It does NOT ship libkernel32.a, libmsvcrt.a, libmingwex.a or libgcc.a,
+# so the answer depends on what a real linker asks for on a real Windows box.
+# Nothing on a Mac or a Linux runner can tell us.
+#
+# WHAT THIS JOB MUST REPORT (the log IS the deliverable)
+#
+#   A. Whether rust-lld links the gnu target at all, and with which flags.
+#      The incantation is deliberately not assumed: the job tries a matrix of
+#      linker/flavour combinations and reports which one worked. A spike that
+#      only proves the author's guess is worthless.
+#   B. The exact list of native archives the link requires.
+#   C. Whether `libgcc.a` / `libgcc_eh.a` are in that list. This is a LICENCE
+#      question, not a technical one: MinGW-w64's headers and import libraries
+#      are permissive, but libgcc is GPL with the runtime exception. The
+#      exception permits linking it into a proprietary program; shipping the
+#      archive file itself is still redistributing GPL'd code and carries a
+#      source-offer obligation. If libgcc is required, that obligation is real
+#      and has to be planned for before anything is bundled.
+#   D. The MSVC contrast, to confirm the import libraries really are the wall.
+#
+# Nothing in the repository changes on the strength of a guess about any of
+# this. Switching the installed toolchain to the gnu host before this comes back
+# green would break every Windows user's Build the day it shipped.
+
+name: "Spike: can Windows build without the MSVC build tools?"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-without-msvc:
+    name: Link the gnu target with rust-lld alone
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: What this runner starts with
+        run: |
+          echo "── rustup ──────────────────────────────────────────────"
+          rustup --version
+          rustc --version --verbose
+          echo
+          echo "── toolchains and targets already present ──────────────"
+          rustup toolchain list
+          rustup target list --installed
+          echo
+          echo "── where MinGW-w64 might live on this image ────────────"
+          # Probed, not assumed: the hosted image layout changes, and a spike
+          # that hard-codes a path reports the path being wrong rather than the
+          # answer we came for.
+          for d in /c/msys64/mingw64 /c/mingw64 /c/ProgramData/mingw64 \
+                   /c/Strawberry/c; do
+            [ -d "$d" ] && echo "  present: $d" || echo "  absent:  $d"
+          done
+          echo
+          command -v gcc      && gcc --version      | head -1 || echo "  no gcc on PATH"
+          command -v ld       && ld --version       | head -1 || echo "  no ld on PATH"
+          command -v dlltool  || echo "  no dlltool on PATH"
+
+      - name: Install the GNU host toolchain
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          echo
+          rustup run stable-x86_64-pc-windows-gnu rustc --version --verbose
+          echo
+          SY=$(rustup run stable-x86_64-pc-windows-gnu rustc --print sysroot)
+          echo "sysroot: $SY"
+          echo "SY=$SY" >> "$GITHUB_ENV"
+          echo
+          echo "── what Rust ships for this target ─────────────────────"
+          echo "self-contained:"
+          ls -la "$SY/lib/rustlib/x86_64-pc-windows-gnu/lib/self-contained" || true
+          echo
+          echo "rust-lld present?"
+          ls -la "$SY/lib/rustlib/x86_64-pc-windows-gnu/bin/" || true
+          echo
+          echo "Windows API import libs shipped by Rust (expected: NONE):"
+          find "$SY/lib/rustlib/x86_64-pc-windows-gnu" \
+               \( -name 'libkernel32.a' -o -name 'libmsvcrt.a' \
+               -o -name 'libmingwex.a'  -o -name 'libgcc*.a' \) 2>/dev/null \
+            | sed 's/^/  /' || true
+          echo "  (no lines above confirms Rust ships none of them)"
+
+      - name: A program to link
+        run: |
+          set -euo pipefail
+          mkdir -p spike/src
+          cat > spike/Cargo.toml <<'TOML'
+          [package]
+          name = "spike"
+          version = "0.0.0"
+          edition = "2021"
+
+          [dependencies]
+          TOML
+          cat > spike/src/main.rs <<'RS'
+          // Deliberately touches the Windows API through std rather than being a
+          // bare `fn main() {}`: a program that allocates, opens a file and
+          // writes to stdout pulls in the CRT and the Win32 imports, which is
+          // what the link has to satisfy. An empty main can link when a real
+          // program cannot.
+          use std::io::Write as _;
+
+          fn main() {
+              let mut v: Vec<String> = (0..8).map(|i| format!("row {i}")).collect();
+              v.sort();
+              let tmp = std::env::temp_dir().join("prc-spike.txt");
+              std::fs::write(&tmp, v.join("\n")).expect("write");
+              let back = std::fs::read_to_string(&tmp).expect("read");
+              let mut out = std::io::stdout().lock();
+              writeln!(out, "linked and ran; {} bytes round-tripped", back.len()).unwrap();
+          }
+          RS
+
+      - name: "A. Baseline — the target's own default linker"
+        continue-on-error: true
+        run: |
+          cd spike
+          echo "Expected to FAIL on a box with no gcc: the gnu target's default"
+          echo "linker driver is gcc, which is exactly the dependency we are"
+          echo "trying not to trade link.exe for."
+          echo
+          cargo +stable-x86_64-pc-windows-gnu build --release 2>&1 | tail -30
+
+      - name: "B. The matrix — which rust-lld invocation actually links?"
+        continue-on-error: true
+        run: |
+          cd spike
+          LLD="$SY/lib/rustlib/x86_64-pc-windows-gnu/bin/rust-lld.exe"
+          echo "rust-lld: $LLD"
+          ls -la "$LLD" || { echo "rust-lld MISSING -- that alone is the answer"; exit 1; }
+          echo
+          # Every combination is tried and every result printed. The flag names
+          # have moved between releases and some have been nightly-only, so the
+          # job reports what this toolchain accepts rather than asserting it.
+          : > ../worked.txt
+          try () {
+            local label="$1"; shift
+            echo "──────────────────────────────────────────────────────────"
+            echo "TRY: $label"
+            echo "     RUSTFLAGS=$*"
+            rm -rf target
+            # A pipeline's exit status is `tail`'s, so cargo's own status is
+            # useless here. The produced binary is the verdict, and running it
+            # is what proves the link was real rather than merely quiet.
+            RUSTFLAGS="$*" cargo +stable-x86_64-pc-windows-gnu build --release 2>&1 | tail -22
+            if [ -f target/release/spike.exe ]; then
+              if ./target/release/spike.exe; then
+                echo "RESULT: LINKED AND RAN  <<< $label"
+                echo "$label" >> ../worked.txt
+              else
+                echo "RESULT: linked but the binary did not run"
+              fi
+            else
+              echo "RESULT: no binary produced"
+            fi
+            echo
+          }
+
+          try "ld.lld flavour"          "-Clinker-flavor=ld.lld -Clinker=$LLD"
+          try "raw ld flavour"          "-Clinker-flavor=ld -Clinker=$LLD"
+          try "ld.lld + self-contained" "-Clinker-flavor=ld.lld -Clinker=$LLD -Clink-self-contained=yes"
+          try "gnu-lld-cc via shim"     "-Clinker=$SY/lib/rustlib/x86_64-pc-windows-gnu/bin/gcc-ld/ld.lld.exe -Clinker-flavor=ld"
+
+          echo "══════════════════════════════════════════════════════════"
+          if [ -s ../worked.txt ]; then
+            echo "ANSWER A: rust-lld CAN link the gnu target. Working combinations:"
+            sed 's/^/  - /' ../worked.txt
+          else
+            echo "ANSWER A: NO combination linked with rust-lld alone on this image."
+            echo "Read the failures above: 'cannot find -lkernel32' means the"
+            echo "import libraries are missing and MinGW-w64 must be on -L."
+            echo "'cannot find gcc' means the flavour flag did not take effect."
+          fi
+
+      - name: "C. Which native archives does the link require?"
+        continue-on-error: true
+        run: |
+          cd spike
+          echo "rustc's own declared list of native libraries for this target:"
+          echo
+          rustc +stable-x86_64-pc-windows-gnu \
+                --print native-static-libs \
+                --crate-type bin src/main.rs -o native-libs-probe.exe 2>&1 \
+            | sed 's/^/  /' || true
+          echo
+          echo "══════════════════════════════════════════════════════════"
+          echo "ANSWER C: the -l names above are what MUST be shipped as"
+          echo "MinGW-w64 import libraries for a bundled toolchain to work."
+
+      - name: "D. The libgcc licence question"
+        continue-on-error: true
+        run: |
+          echo "MinGW-w64's headers and import libraries are permissively"
+          echo "licensed. libgcc is GPL with the runtime exception: linking it"
+          echo "into a proprietary program is fine, but SHIPPING THE ARCHIVE is"
+          echo "redistributing GPL'd code and carries a source-offer obligation."
+          echo
+          for d in /c/msys64/mingw64/lib /c/mingw64/lib \
+                   /c/msys64/mingw64/x86_64-w64-mingw32/lib; do
+            if [ -d "$d" ]; then
+              echo "── $d ───────────────────────────────────────"
+              ls "$d" | grep -iE '^lib(gcc|mingwex|mingw32|msvcrt|kernel32|user32|advapi32|ws2_32|ucrt)' \
+                | sed 's/^/  /' || echo "  (none matched)"
+              echo
+            fi
+          done
+          echo "══════════════════════════════════════════════════════════"
+          echo "ANSWER D: cross-reference the libgcc* lines above against"
+          echo "ANSWER C. If libgcc appears in C, the obligation is real."
+
+      - name: "E. The MSVC contrast — is the import library really the wall?"
+        continue-on-error: true
+        run: |
+          cd spike
+          MSVC_LLD="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/rust-lld.exe"
+          echo "Confirming rust-lld can act as link.exe at all:"
+          "$MSVC_LLD" -flavor link --version 2>&1 | head -2 | sed 's/^/  /' || true
+          echo
+          echo "It can. What it still cannot do is invent kernel32.lib. That is"
+          echo "why swapping the linker alone does not remove the prerequisite,"
+          echo "and why the gnu target is the route rather than lld-link."
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "════════════════════════════════════════════════════════════"
+          echo " READ ANSWERS A, C and D above."
+          echo
+          echo " If A linked and D shows no libgcc requirement:"
+          echo "   the plan is clean. Ship MinGW-w64 import libs + a prebuilt"
+          echo "   SQLite, switch rustup to --default-host x86_64-pc-windows-gnu"
+          echo "   (crates/cobolt-ide/src/toolchain.rs), write a .cargo/config"
+          echo "   into the staged build naming rust-lld, and Windows needs"
+          echo "   nothing installed."
+          echo
+          echo " If A linked but D requires libgcc:"
+          echo "   same plan, plus a written source-offer for libgcc."
+          echo
+          echo " If A did not link:"
+          echo "   the gnu route needs binutils as well as libraries, which"
+          echo "   means shipping GPL'd ld. Reconsider before committing."
+          echo "════════════════════════════════════════════════════════════"
