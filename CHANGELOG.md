@@ -1,5 +1,87 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.10] — 2026-09-13
+
+### The example project opens somewhere you can actually build it
+
+`Build failed: I/O error: Acesso negado. (os error 5)` on Windows, opening the
+shipped example. 1.70.8 made that message name the file and explain permission
+refusals, which is what found the cause; this removes it.
+
+**A build writes into the project folder.** `create_dir(project_dir.join("bin"))`
+is the first thing it does after compiling, and generated COBOL, staged theme art
+and the Knowledge Base all land there too. Every platform installs the
+application somewhere the user cannot write — `C:\Program Files` from the `.msi`,
+`/Applications` from the `.dmg`, `/opt/powerrustcobol` from the `.deb` and
+`.rpm` — so Help → Examples was opening a project that could never be built. The
+demo writes **270 MB** of output into its own folder when it works (`bin`, `dist`,
+`generated`), against 27 MB of source; none of it had anywhere to go.
+
+**Help → Examples now gives you your own copy.** If the project it resolves to
+sits somewhere unwritable, the IDE copies it to
+**`Documents/PowerRustCOBOL Examples/PowerDemo3`** and opens *that*. One rule
+covers every platform: `dirs::document_dir()` falling back to the home folder,
+which is already per-platform correct including XDG on Linux, where there may be
+no Documents folder at all.
+
+Three details that decide whether this is safe:
+
+**Writability is probed, not inspected.** A folder's read-only attribute and its
+ACL are different things on Windows, and it is the ACL that refuses the build
+under `Program Files`. `metadata()` cannot answer the question, so the IDE creates
+a file and deletes it again.
+
+**The copy is made writable.** `std::fs::copy` carries the *source's* permissions
+to the destination, and the source here is an installation folder — so without
+clearing the flag every file in your own copy would arrive read-only and be just
+as unbuildable. That is the same trap 1.70.8 fixed inside the compiler's staging,
+so `make_writable` is now `pub` and there is one implementation with two callers
+rather than two copies of the platform rules.
+
+**An existing copy is never overwritten.** Once it is yours it holds your work —
+GOLDEN RULE *user code is sacred* — so seeding again returns the copy you already
+have. A test edits the seeded file and seeds again to prove it survives.
+
+Build output is not copied: `target`, `bin`, `dist`, `generated`, `temp` and
+`debug` are skipped, so the seed is the 27 MB of project and not the 280 MB of
+artefacts. An installed copy has none of them anyway — the installer stages
+examples with `git archive` — but `PRC_EXAMPLES_ROOT` can point at a working tree
+that does.
+
+**Resolution order** is override, then your copy, then the shipped one. Your copy
+wins over the pristine one because a menu that silently switched back would look
+like your work had been thrown away. The resolver runs every frame to decide
+whether the menu entry is enabled, so it only ever *looks* — the copying happens
+once, on the click.
+
+### Why the installer does not do this
+
+The request was for the installer to place the example. It cannot, correctly, on
+three of the four platforms: the `.dmg` is a drag-install and runs no script at
+all; `.deb` and `.rpm` postinst scripts run as root, and copying into every
+existing `/home/*` is both wrong and useless for a user created later; and an
+`.msi` per-machine install runs elevated, where `%USERPROFILE%` is the elevating
+administrator rather than the person who will open the IDE. On a shared machine
+only one user would ever get a copy.
+
+Seeding on first use is correct for every platform and every user of a machine,
+needs no installer scripting, and puts the copy under the account that actually
+asked for it. The installers are unchanged and still ship the pristine template,
+which is what the copy is made from.
+
+A project opened from a read-only folder by any *other* route — File → Open
+Project pointed into the installation — still fails, and still gets 1.70.8's
+message naming the file and the cause. That is the right division: the one path
+the IDE offers is made to work, and the paths a developer chooses themselves are
+explained when they cannot.
+
+Tests: eight in `examples_menu_tests`, including the read-only-folder probe, the
+build-output exclusion, the permission-clearing copy, and the no-clobber rule.
+The build-tree assertion now reads `installed_example_manifest` rather than the
+menu's resolver, because that resolver's answer depends on whether the machine
+running the tests has a seeded copy — and a test that turns on that is worthless.
+`cobolt-ide`: 1179 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.70.9] — 2026-09-12
 
 ### A spike to find out whether Windows can build without the MSVC build tools
