@@ -1,5 +1,56 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.8] — 2026-09-12
+
+### A build that fails on a file now says which file, and why it was refused
+
+A Windows build reported, in full:
+
+```
+Build failed: I/O error: Acesso negado. (os error 5)
+```
+
+Every word true, and nothing to act on. A build reads sources and forms, writes
+a staging crate, stages theme art, installs the executable and copies the
+project's assets beside it — a dozen places, none of them named. `std::io::Error`
+carries the operating system's sentence and no path, so whichever step was
+refused, the developer was told the same eight words.
+
+Every I/O step of a build now reports what it was doing and to which file:
+
+```
+Build failed: could not copy 'C:\proj\assets\logo.png' to 'C:\proj\bin\assets\logo.png':
+Acesso negado. (os error 5)
+
+The operating system refused access to that exact path. What usually causes it:
+the file is marked read-only, a copy of the application is still running and
+holding its own executable open, or the folder is one your account may not write
+to …
+```
+
+The advice is attached only to a permission refusal, which is the one failure
+whose cause is almost never the build and almost always the machine. A missing
+file still gets the operating system's sentence and no lecture.
+
+### …and one build that was refused for a reason inside the build itself
+
+`std::fs::copy` hands the source file's permissions to the destination. Copying
+one read-only file — theme art from an installation folder, an asset unpacked
+from an archive that carried the read-only attribute, anything off a network
+share — therefore left a read-only file behind, and the **next** build could not
+overwrite it. The first build worked, the second was refused, and nothing about
+the project had changed in between. On Windows the refusal is `Acesso negado.
+(os error 5)`; on Unix, `Permission denied (os error 13)`.
+
+Staging copies now clear the flag on both ends, so restaging is repeatable:
+project assets copied into `bin/`, theme-pack art, the generated staging files
+and the installed executable. Windows also refuses to delete or replace a file
+carrying the read-only attribute, whoever owns it, so the installer clears it
+before it tries either.
+
+Tests: `io_failure_tests` — five, one of which reproduces the old plain-`copy`
+refusal so the trap cannot come back unnoticed.
+
 ## [PowerRustCOBOL 1.70.7] — 2026-09-12
 
 ### The installer's Build Tools button was disabled by a leftover condition
