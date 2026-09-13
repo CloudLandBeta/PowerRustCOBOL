@@ -1,5 +1,72 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.9] — 2026-09-12
+
+### A spike to find out whether Windows can build without the MSVC build tools
+
+`.github/workflows/spike-windows-without-msvc.yml`, manual only. It ships
+nothing and changes nothing; its **log is the deliverable**.
+
+Three separate dependencies hide behind "the build tools", and only one of them
+is actually hard:
+
+- **The linker** — already solved and free. `rust-lld` ships with every Rust
+  toolchain and `rust-lld -flavor link` is a drop-in for `link.exe`. Verified
+  locally: LLD 22.1.2, Apache-2.0 with the LLVM exception.
+- **A C compiler** — needed only because `libsqlite3-sys` is pinned with
+  `bundled` and compiles the SQLite C amalgamation. Answered off the runner: ship
+  a prebuilt SQLite, which is public domain, and drop the feature. A census of
+  every `cc`-using crate in `Cargo.lock` confirms it is the **only** C compile
+  that reaches a Windows application — `onig_sys` is `cobolt-agents` and not in
+  `SDK_CRATES`, `openssl-sys` is Linux, and `ring` arrives only through `rustls`,
+  which `mysql`'s `minimal-rust` pinning keeps out.
+- **The import libraries** — the wall. Microsoft's Windows SDK and MSVC CRT
+  libraries are not redistributable, and no linker substitution gets past them.
+  The only licence-clean escape is to stop targeting MSVC: `windows-gnu` links
+  against MinGW-w64's libraries, which *are* redistributable.
+
+So the spike asks one question: **can `rust-lld` link `x86_64-pc-windows-gnu`
+with MinGW-w64 libraries on disk but no gcc, no binutils and no MSVC?** It cannot
+be answered anywhere else — Rust ships only `crt2.o` and `dllcrt2.o` for that
+target (measured: two files, no `libkernel32.a`, no `libgcc.a`), so the answer
+depends on what a real linker asks for on a real Windows box.
+
+It reports four things rather than passing or failing: which linker invocation
+worked (a **matrix** is tried, because the flag names have moved between releases
+and a spike that only proves the author's guess is worthless), the exact native
+archives the link requires, whether `libgcc` is among them, and the MSVC contrast.
+
+The `libgcc` question is a licence question, not a technical one. MinGW-w64's
+headers and import libraries are permissive; `libgcc` is GPL with the runtime
+exception, which permits linking it into a proprietary program but still makes
+**shipping the archive** a redistribution of GPL'd code with a source-offer
+obligation. That has to be known before anything is bundled.
+
+**Nothing in the repository changed on the strength of a guess.** Switching the
+installed toolchain to the gnu host before this comes back green would break
+every Windows developer's Build on the day it shipped.
+
+### `sqlite-rs` cannot replace `rusqlite`, and the reason is worth recording
+
+Investigated as a pure-Rust way to drop the C compile. It is not a candidate, so
+that nobody spends the afternoon again: `SqliteConnection` has exactly three
+public methods — `open`, `runtime`, `runtime_mut`. No `execute`, no `prepare`, no
+`query`, no write path. Its own description is "SQLite **reader** in pure Rust":
+it parses the file format (`header`, `io`, `pager`), it does not run SQL. Last
+published 17 January 2024 at 0.3.7 with several yanked releases, and its
+repository now 404s.
+
+`COBOL-EXEC-SQL` passes arbitrary SQL through, and `COBOL-FETCH-ROW`,
+`COBOL-NEXT-ROW` and `COBOL-ROW-COUNT` all need a real engine. Adopting a file
+reader would take every database program from working to impossible.
+
+The viable routes remain a **prebuilt SQLite** (public domain, bit-identical
+semantics, no engine risk) or Turso's rewrite, formerly `limbo`, which does
+implement an engine and targets real file compatibility — young, but not a
+reader. The bridge itself is a small target either way: `db_runtime.rs` uses only
+`Connection`, `open`, `open_in_memory`, `prepare`, `query_map`, `execute` and the
+five `ValueRef` variants, and normalises every value to text.
+
 ## [PowerRustCOBOL 1.70.8] — 2026-09-12
 
 ### A build that fails on a file now says which file, and why it was refused
