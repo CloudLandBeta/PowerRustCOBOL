@@ -1493,6 +1493,11 @@ pub struct Tr {
     pub sdk_menu_label: &'static str,
     /// Help → opens the bundled PowerDemo3 example project.
     pub examples_menu_label: &'static str,
+    /// Status line after the shipped example was copied somewhere the
+    /// developer can build it. `{}` is the destination folder.
+    pub examples_copied_to: &'static str,
+    /// Status line when that copy could not be made. `{}` is the reason.
+    pub examples_copy_failed: &'static str,
     /// What the SDK is and why a build needs it.
     pub sdk_explain: &'static str,
     /// Label for the folder currently in force.
@@ -2856,6 +2861,8 @@ const EN: Tr = Tr {
     debug_menu_label:   "🐞 Debug Settings…",
     sdk_menu_label:     "🧰 Platform SDK Location…",
     examples_menu_label: "📦 Examples",
+    examples_copied_to: "The example ships read-only inside the installation, so your own copy was made in {} — that is the one now open, and the one Build will use.",
+    examples_copy_failed: "Could not make your own copy of the example: {}. It is open read-only, so Build will fail until you copy it somewhere you can write.",
     sdk_explain:        "Building an application compiles it against the platform's Rust sources, so they must be present on this machine. An installation that ships them beside the IDE is found on its own — set a folder here only when they live somewhere else.",
     sdk_in_use:         "In use",
     sdk_none:           "not found — Build is unavailable",
@@ -4146,6 +4153,8 @@ const ES: Tr = Tr {
     debug_menu_label:   "🐞 Ajustes de depuración…",
     sdk_menu_label:     "🧰 Ubicación del SDK de la plataforma…",
     examples_menu_label: "📦 Ejemplos",
+    examples_copied_to: "El ejemplo se instala como solo lectura, por lo que se creó su propia copia en {}: es la que está abierta y la que usará Compilar.",
+    examples_copy_failed: "No se pudo crear su propia copia del ejemplo: {}. Está abierto como solo lectura, así que Compilar fallará hasta que lo copie a un lugar donde pueda escribir.",
     sdk_explain:        "Compilar una aplicación la construye contra las fuentes Rust de la plataforma, por lo que deben estar presentes en esta máquina. Una instalación que las entrega junto al IDE se detecta sola: indique una carpeta aquí solo si están en otro lugar.",
     sdk_in_use:         "En uso",
     sdk_none:           "no encontrado — Compilar no está disponible",
@@ -5436,6 +5445,8 @@ const PT: Tr = Tr {
     debug_menu_label:   "🐞 Configurações de depuração…",
     sdk_menu_label:     "🧰 Local do SDK da plataforma…",
     examples_menu_label: "📦 Exemplos",
+    examples_copied_to: "O exemplo é instalado somente para leitura, então sua própria cópia foi criada em {} — é ela que está aberta e a que o Compilar vai usar.",
+    examples_copy_failed: "Não foi possível criar sua própria cópia do exemplo: {}. Ele está aberto somente para leitura, portanto o Compilar vai falhar até que você o copie para um lugar onde possa gravar.",
     sdk_explain:        "Compilar uma aplicação a constrói contra os fontes Rust da plataforma, portanto eles precisam existir nesta máquina. Uma instalação que os entrega ao lado do IDE é encontrada sozinha — indique uma pasta aqui apenas se eles estiverem em outro lugar.",
     sdk_in_use:         "Em uso",
     sdk_none:           "não encontrado — Compilar está indisponível",
@@ -6725,6 +6736,8 @@ const JA: Tr = Tr {
     debug_menu_label:   "🐞 デバッグ設定…",
     sdk_menu_label:     "🧰 プラットフォーム SDK の場所…",
     examples_menu_label: "📦 サンプル",
+    examples_copied_to: "サンプルはインストール先に読み取り専用で置かれるため、{} にご自身のコピーを作成しました。現在開いているのはそちらで、ビルドもそちらを使います。",
+    examples_copy_failed: "サンプルのコピーを作成できませんでした: {}。読み取り専用で開いているため、書き込める場所にコピーするまでビルドは失敗します。",
     sdk_explain:        "アプリケーションのビルドはプラットフォームの Rust ソースに対して行われるため、それらがこのマシン上に存在している必要があります。IDE と一緒に配置された環境では自動的に見つかります。別の場所にある場合にのみ、ここでフォルダーを指定してください。",
     sdk_in_use:         "使用中",
     sdk_none:           "見つかりません — ビルドは利用できません",
@@ -8022,6 +8035,8 @@ const ZH: Tr = Tr {
     debug_menu_label:   "🐞 调试设置…",
     sdk_menu_label:     "🧰 平台 SDK 位置…",
     examples_menu_label: "📦 示例",
+    examples_copied_to: "示例在安装目录中是只读的，因此已在 {} 创建了您自己的副本 — 现在打开的就是它，构建也会使用它。",
+    examples_copy_failed: "无法创建您自己的示例副本：{}。它以只读方式打开，因此在您将它复制到可写位置之前，构建都会失败。",
     sdk_explain:        "构建应用程序时会针对平台的 Rust 源码进行编译，因此这些源码必须存在于本机。与 IDE 一同安装的环境会自动找到它们——只有当它们位于别处时，才需要在此指定文件夹。",
     sdk_in_use:         "正在使用",
     sdk_none:           "未找到 — 无法构建",
@@ -9312,6 +9327,8 @@ const FR: Tr = Tr {
     debug_menu_label:   "🐞 Paramètres de débogage…",
     sdk_menu_label:     "🧰 Emplacement du SDK de la plateforme…",
     examples_menu_label: "📦 Exemples",
+    examples_copied_to: "L'exemple est installé en lecture seule ; votre propre copie a donc été créée dans {} — c'est elle qui est ouverte, et celle que Compiler utilisera.",
+    examples_copy_failed: "Impossible de créer votre propre copie de l'exemple : {}. Il est ouvert en lecture seule, donc Compiler échouera jusqu'à ce que vous le copiiez dans un emplacement inscriptible.",
     sdk_explain:        "Compiler une application la construit à partir des sources Rust de la plateforme, qui doivent donc être présentes sur cette machine. Une installation qui les place à côté de l'IDE est détectée d'elle-même : n'indiquez un dossier ici que si elles se trouvent ailleurs.",
     sdk_in_use:         "Utilisé",
     sdk_none:           "introuvable — la compilation est indisponible",

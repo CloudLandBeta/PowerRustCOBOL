@@ -1486,23 +1486,47 @@ fn data_binding_action_label<'a>(tr: &'a Tr, action: BindingActionGate) -> &'a s
 ///
 /// `None` when no copy is installed; the menu entry is disabled then, rather
 /// than offering to open something that is not there.
-pub fn example_project_manifest() -> Option<PathBuf> {
-    const REL: &str = "examples/PowerDemo3/PowerDemo3.project.toml";
+/// The example project's folder name, and its manifest inside that folder.
+const EXAMPLE_PROJECT: &str = "PowerDemo3";
+const EXAMPLE_MANIFEST: &str = "PowerDemo3.project.toml";
+/// Where the examples sit inside an installation, relative to its root.
+const EXAMPLE_REL: &str = "examples/PowerDemo3/PowerDemo3.project.toml";
+
+/// The folder the developer's own copies of the shipped examples live in.
+///
+/// **Not the installation folder, and that is the whole point.** Building a
+/// project *writes into it*: `create_dir(project_dir.join("bin"))` in the
+/// compiler is the first thing to fail, and generated COBOL, staged theme art
+/// and the Knowledge Base all land there too. Every platform puts the
+/// application somewhere the user cannot write — `C:\Program Files` from the
+/// `.msi`, `/Applications` from the `.dmg`, `/opt/powerrustcobol` from the
+/// `.deb` and `.rpm` — so opening the shipped copy and pressing Build fails with
+/// the operating system's flattest sentence and nothing to act on
+/// (`Acesso negado. (os error 5)`, operator, 2026-09-12).
+///
+/// `Documents` where the platform has one, the home directory otherwise. That is
+/// exactly what `dirs::document_dir` answers per platform, including XDG on
+/// Linux, where a Documents folder may not exist at all — so the rule is one
+/// line rather than a `cfg` ladder.
+pub fn examples_user_root() -> Option<PathBuf> {
+    let base = dirs::document_dir().or_else(dirs::home_dir)?;
+    Some(base.join("PowerRustCOBOL Examples"))
+}
+
+/// The developer's own copy of the example, if they have one.
+fn user_example_manifest() -> Option<PathBuf> {
+    let candidate = examples_user_root()?
+        .join(EXAMPLE_PROJECT)
+        .join(EXAMPLE_MANIFEST);
+    candidate.is_file().then_some(candidate)
+}
+
+/// The copy that shipped with this build — read-only on a real installation.
+fn installed_example_manifest() -> Option<PathBuf> {
     let has = |root: &Path| -> Option<PathBuf> {
-        let candidate = root.join(REL);
+        let candidate = root.join(EXAMPLE_REL);
         candidate.is_file().then_some(candidate)
     };
-
-    if let Ok(over) = std::env::var("PRC_EXAMPLES_ROOT") {
-        let root = PathBuf::from(over);
-        if let Some(found) = has(&root) {
-            return Some(found);
-        }
-        let direct = root.join("PowerDemo3.project.toml");
-        if direct.is_file() {
-            return Some(direct);
-        }
-    }
 
     if let Ok(exe) = std::env::current_exe() {
         for dir in exe.ancestors() {
@@ -1515,6 +1539,135 @@ pub fn example_project_manifest() -> Option<PathBuf> {
     // <root>/crates/cobolt-ide → <root>
     let built_from = Path::new(env!("CARGO_MANIFEST_DIR")).parent()?.parent()?;
     has(built_from)
+}
+
+/// The manifest Help → Examples opens.
+///
+/// **A copy the developer already has wins.** Their edits live in it, and a menu
+/// that silently switched back to the pristine shipped copy would look like
+/// their work had been thrown away. An explicit `PRC_EXAMPLES_ROOT` still beats
+/// both, because someone who names a path means it.
+///
+/// This runs every frame — it decides whether the menu entry is enabled — so it
+/// only ever *looks*. The copying is [`CoboltApp::do_open_examples`]'s job, once,
+/// when the entry is actually clicked.
+pub fn example_project_manifest() -> Option<PathBuf> {
+    override_example_manifest()
+        .or_else(user_example_manifest)
+        .or_else(installed_example_manifest)
+}
+
+/// `PRC_EXAMPLES_ROOT`, which may name either the examples root or the project
+/// folder itself — both are things a person would reasonably point it at.
+fn override_example_manifest() -> Option<PathBuf> {
+    let root = PathBuf::from(std::env::var_os("PRC_EXAMPLES_ROOT")?);
+    let nested = root.join(EXAMPLE_REL);
+    if nested.is_file() {
+        return Some(nested);
+    }
+    let direct = root.join(EXAMPLE_MANIFEST);
+    direct.is_file().then_some(direct)
+}
+
+/// Can we create a file in this folder? Asked by trying, not by inspecting.
+///
+/// On Windows a directory's read-only attribute and its ACL are different
+/// things, and it is the ACL that refuses the build under `Program Files`.
+/// `metadata()` cannot answer this question; only an attempt can.
+fn dir_is_writable(dir: &Path) -> bool {
+    let probe = dir.join(".powerrustcobol-write-probe");
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        // A probe left behind by an earlier run is itself proof we could write.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => true,
+        Err(_) => false,
+    }
+}
+
+/// Directory names that are a project's build output, never its source.
+///
+/// Copying them would move ~280 MB of nothing: `bin` and `dist` are the built
+/// application, `generated` is regenerated from the forms on demand, `target` is
+/// cargo's, and `temp`/`debug` are scratch. The installer already omits them —
+/// it stages examples with `git archive`, so an installed copy holds only
+/// tracked files — but `PRC_EXAMPLES_ROOT` can point at a working tree that has
+/// them, and 280 MB is not a surprise to hand someone.
+const NOT_PROJECT_SOURCE: [&str; 6] = ["target", "bin", "dist", "generated", "temp", "debug"];
+
+/// Copy an example project, leaving every file writable. Returns bytes copied.
+fn copy_example_tree(from: &Path, to: &Path) -> std::io::Result<u64> {
+    std::fs::create_dir_all(to)?;
+    let mut bytes = 0;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let shown = name.to_string_lossy();
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            if NOT_PROJECT_SOURCE
+                .iter()
+                .any(|skip| shown.eq_ignore_ascii_case(skip))
+            {
+                continue;
+            }
+            bytes += copy_example_tree(&entry.path(), &to.join(&name))?;
+        } else if kind.is_file() {
+            if shown == ".DS_Store" {
+                continue;
+            }
+            let dest = to.join(&name);
+            std::fs::copy(entry.path(), &dest)?;
+            // `fs::copy` carries the SOURCE's permissions across, and the source
+            // here is an installation folder — so without this every file in the
+            // developer's own copy arrives read-only and cannot be edited or
+            // rebuilt over. The same trap 1.70.8 fixed inside the compiler's
+            // staging; one implementation, reused.
+            cobolt_compiler::make_writable(&dest);
+            bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+        }
+        // Symlinks are deliberately not followed: the macOS bundle links
+        // `MacOS/examples` at `Resources/examples`, and following that would
+        // copy the same tree twice.
+    }
+    Ok(bytes)
+}
+
+/// Make the developer a writable copy of a shipped example, and return its
+/// manifest.
+///
+/// **An existing copy is never overwritten** — it is the developer's project
+/// now, GOLDEN RULE *user code is sacred*, and a silent re-seed would discard
+/// whatever they had built in it.
+fn seed_user_example(installed_project_dir: &Path) -> Result<PathBuf, String> {
+    let root = examples_user_root()
+        .ok_or_else(|| "this system reports no Documents or home folder".to_owned())?;
+    seed_user_example_into(&root, installed_project_dir)
+}
+
+/// [`seed_user_example`] with the destination named, so a test can point it at a
+/// temporary folder instead of the developer's real Documents.
+fn seed_user_example_into(root: &Path, installed_project_dir: &Path) -> Result<PathBuf, String> {
+    let dest = root.join(EXAMPLE_PROJECT);
+    let manifest = dest.join(EXAMPLE_MANIFEST);
+    if manifest.is_file() {
+        return Ok(manifest);
+    }
+    copy_example_tree(installed_project_dir, &dest).map_err(|e| e.to_string())?;
+    if manifest.is_file() {
+        Ok(manifest)
+    } else {
+        Err(format!(
+            "copied to '{}' but {EXAMPLE_MANIFEST} is not there",
+            dest.display()
+        ))
+    }
 }
 
 impl CoboltApp {
@@ -3376,14 +3529,50 @@ impl CoboltApp {
     /// Users lost track of the examples when the project folder was renamed,
     /// and a path in a release note is no help to someone already inside the
     /// IDE (operator, 2026-09-06) — so the IDE finds them itself.
+    /// Help → Examples.
+    ///
+    /// The shipped example lives inside the installation, and a project cannot
+    /// be built where it cannot be written — so if the copy this resolves to is
+    /// read-only, the developer gets their own writable copy first and that is
+    /// what opens. Done here rather than in the resolver because the resolver
+    /// runs every frame to decide whether the entry is enabled, and this copies
+    /// 27 MB.
     fn do_open_examples(&mut self) {
-        match example_project_manifest() {
-            Some(path) => self.open_project_at(path),
+        let tr = self.lang.tr();
+        let Some(manifest) = example_project_manifest() else {
             // The entry is disabled without one, so this is only the race where
             // the copy went away between opening the menu and clicking.
-            None => self
-                .output
-                .push_status("The example project is not installed with this build.".to_owned()),
+            self.output
+                .push_status("The example project is not installed with this build.".to_owned());
+            return;
+        };
+        let Some(dir) = manifest.parent().map(|p| p.to_owned()) else {
+            self.open_project_at(manifest);
+            return;
+        };
+        // Already somewhere it can be built — the developer's own copy, or a
+        // source checkout. Nothing to do.
+        if dir_is_writable(&dir) {
+            self.open_project_at(manifest);
+            return;
+        }
+        match seed_user_example(&dir) {
+            Ok(copied) => {
+                let where_ = copied
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| copied.display().to_string());
+                self.output
+                    .push_status(tr.examples_copied_to.replacen("{}", &where_, 1));
+                self.open_project_at(copied);
+            }
+            // Opened anyway: reading the example is still worth something, and
+            // saying Build will fail is more use than refusing to show it.
+            Err(why) => {
+                self.output
+                    .push_status(tr.examples_copy_failed.replacen("{}", &why, 1));
+                self.open_project_at(manifest);
+            }
         }
     }
 
@@ -19752,21 +19941,200 @@ mod benchmark_progress_tests {
 
 #[cfg(test)]
 mod examples_menu_tests {
-    use super::example_project_manifest;
+    use super::{
+        copy_example_tree, dir_is_writable, example_project_manifest, examples_user_root,
+        installed_example_manifest, seed_user_example_into, EXAMPLE_MANIFEST,
+    };
+    use std::path::{Path, PathBuf};
+
+    /// A scratch folder that cleans itself up. Deliberately NOT the developer's
+    /// real Documents: every test here that seeds a copy points at one of these,
+    /// because a test that writes into `~/Documents` has changed the machine.
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!("prc-examples-{tag}-{nanos}"));
+            std::fs::create_dir_all(&dir).expect("scratch");
+            Self(dir)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     /// **The Help menu can find the example project.**
     ///
     /// The whole point of the entry: a developer should not have to know where
     /// the examples folder moved to (operator, 2026-09-06).
+    ///
+    /// Asserted against `installed_example_manifest` rather than the menu's own
+    /// resolver, because that resolver now prefers a copy in the developer's
+    /// Documents when one exists — and whether one exists depends on the machine
+    /// the tests run on. A test that passes or fails on that is worthless.
     #[test]
     fn the_example_project_is_found_from_the_build_tree() {
-        let found = example_project_manifest()
+        let found = installed_example_manifest()
             .expect("this binary is built from the repo, so the examples are reachable");
         assert!(found.is_file());
         assert!(
             found.ends_with("examples/PowerDemo3/PowerDemo3.project.toml"),
             "found the wrong manifest: {}",
             found.display()
+        );
+    }
+
+    /// The resolver still answers on this machine, whichever copy it picks.
+    #[test]
+    fn the_menu_resolves_to_a_real_manifest() {
+        let found = example_project_manifest().expect("a manifest is reachable from the repo");
+        assert!(found.is_file(), "{}", found.display());
+        assert!(found.ends_with(EXAMPLE_MANIFEST), "{}", found.display());
+    }
+
+    /// The developer's copy goes somewhere they own, named for the product, and
+    /// never inside the installation.
+    #[test]
+    fn the_user_copy_lives_under_documents_or_home() {
+        let root = examples_user_root().expect("this machine has a home folder");
+        assert!(
+            root.ends_with("PowerRustCOBOL Examples"),
+            "{}",
+            root.display()
+        );
+        assert!(root.is_absolute(), "{}", root.display());
+        let home = dirs::home_dir().expect("home");
+        assert!(
+            root.starts_with(&home),
+            "the copy must live under the user's own folder: {} is not inside {}",
+            root.display(),
+            home.display()
+        );
+    }
+
+    /// Writability is decided by trying, and a folder that exists is not
+    /// automatically one we can write to.
+    #[test]
+    fn writability_is_probed_not_assumed() {
+        let scratch = Scratch::new("probe");
+        assert!(
+            dir_is_writable(scratch.path()),
+            "a folder we just made must be writable"
+        );
+        assert!(
+            !dir_is_writable(&scratch.path().join("does-not-exist")),
+            "a folder that is not there cannot be written to"
+        );
+
+        // The real case: permissions say no. Unix only — on Windows this needs
+        // an ACL, which is what makes `metadata()` useless there and is exactly
+        // why the probe exists.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let locked = scratch.path().join("locked");
+            std::fs::create_dir(&locked).unwrap();
+            let mut p = std::fs::metadata(&locked).unwrap().permissions();
+            p.set_mode(0o500); // r-x, no write
+            std::fs::set_permissions(&locked, p).unwrap();
+            assert!(
+                !dir_is_writable(&locked),
+                "a read-only folder must be reported as such"
+            );
+            // Put it back so the scratch drop can remove it.
+            let mut p = std::fs::metadata(&locked).unwrap().permissions();
+            p.set_mode(0o700);
+            std::fs::set_permissions(&locked, p).unwrap();
+        }
+    }
+
+    /// The copy carries the project and leaves the build output behind.
+    #[test]
+    fn copying_takes_the_source_and_skips_the_build_output() {
+        let scratch = Scratch::new("copy");
+        let from = scratch.path().join("installed");
+        let to = scratch.path().join("mine");
+        std::fs::create_dir_all(from.join("forms")).unwrap();
+        std::fs::create_dir_all(from.join("bin")).unwrap();
+        std::fs::create_dir_all(from.join("target/debug")).unwrap();
+        std::fs::create_dir_all(from.join("generated")).unwrap();
+        std::fs::write(from.join(EXAMPLE_MANIFEST), "[project]\n").unwrap();
+        std::fs::write(from.join("forms/main.cfrm"), "<Form/>").unwrap();
+        std::fs::write(from.join("bin/app.exe"), "MZ").unwrap();
+        std::fs::write(from.join("target/debug/app"), "junk").unwrap();
+        std::fs::write(from.join("generated/main.cbl"), "junk").unwrap();
+
+        copy_example_tree(&from, &to).expect("copy");
+
+        assert!(to.join(EXAMPLE_MANIFEST).is_file(), "the manifest travels");
+        assert!(to.join("forms/main.cfrm").is_file(), "the forms travel");
+        for skipped in ["bin", "target", "generated"] {
+            assert!(
+                !to.join(skipped).exists(),
+                "{skipped} is build output and must not be copied"
+            );
+        }
+    }
+
+    /// Copying out of a read-only installation must not hand the developer
+    /// read-only files — `fs::copy` carries the source's permissions across, so
+    /// without clearing them their own copy is as unbuildable as the original.
+    #[cfg(unix)]
+    #[test]
+    fn the_copy_is_writable_even_when_the_original_was_not() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let scratch = Scratch::new("perms");
+        let from = scratch.path().join("installed");
+        let to = scratch.path().join("mine");
+        std::fs::create_dir_all(&from).unwrap();
+        let src = from.join(EXAMPLE_MANIFEST);
+        std::fs::write(&src, "[project]\n").unwrap();
+        let mut p = std::fs::metadata(&src).unwrap().permissions();
+        p.set_mode(0o444); // read-only, as an installation ships it
+        std::fs::set_permissions(&src, p).unwrap();
+
+        copy_example_tree(&from, &to).expect("copy");
+
+        let mode = std::fs::metadata(to.join(EXAMPLE_MANIFEST))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert!(
+            mode & 0o200 != 0,
+            "the copy must be writable, got mode {mode:o}"
+        );
+    }
+
+    /// **An existing copy is never overwritten.** It is the developer's project
+    /// once it is theirs, and a silent re-seed would throw away their work.
+    #[test]
+    fn seeding_twice_leaves_the_developers_own_work_alone() {
+        let scratch = Scratch::new("noclobber");
+        let from = scratch.path().join("installed");
+        let root = scratch.path().join("documents");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join(EXAMPLE_MANIFEST), "shipped\n").unwrap();
+
+        let first = seed_user_example_into(&root, &from).expect("first seed");
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "shipped\n");
+
+        // The developer edits it.
+        std::fs::write(&first, "mine, edited\n").unwrap();
+
+        let second = seed_user_example_into(&root, &from).expect("second seed");
+        assert_eq!(second, first, "the same copy is reused");
+        assert_eq!(
+            std::fs::read_to_string(&second).unwrap(),
+            "mine, edited\n",
+            "seeding again must not overwrite the developer's copy"
         );
     }
 

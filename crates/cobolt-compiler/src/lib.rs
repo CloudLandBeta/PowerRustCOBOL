@@ -80,7 +80,14 @@ pub const RUNTIME_NOTICE_TEXT: &str = include_str!(
 ///
 /// On Windows this clears the read-only *attribute*, which is the thing that
 /// makes a file refuse to be overwritten or deleted there.
-fn make_writable(path: &Path) {
+///
+/// Public because the IDE needs it for the same reason the compiler does. When
+/// Help -> Examples copies the shipped example project out of the installation
+/// folder, every file it copies arrives read-only — `std::fs::copy` carries the
+/// source's permissions across — and a developer's own copy that cannot be
+/// edited is no copy at all. One implementation of the platform rules, two
+/// callers; see `app::copy_example_tree`.
+pub fn make_writable(path: &Path) {
     let Ok(meta) = std::fs::metadata(path) else {
         return;
     };
