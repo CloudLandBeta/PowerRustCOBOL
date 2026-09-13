@@ -1,5 +1,62 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.11] — 2026-09-13
+
+### The Windows installer places the example project too
+
+1.70.10 made Help → Examples seed a writable copy on first use, which covers
+every platform. The operator asked for the Windows installer to do it as well, so
+the `.msi` now does — the example is in
+`Documents\PowerRustCOBOL Examples\PowerDemo3` from the moment setup finishes,
+rather than on the first click.
+
+**The installer runs the IDE, not an `xcopy`.** A new `--seed-examples` switch
+does exactly what the menu does and exits without opening a window. The
+destination, the build-output exclusions and the read-only clearing stay in Rust
+where they are tested; restated in WiX they could not be, and would drift from the
+menu the first time either changed.
+
+Three MSI details this depends on, none of them optional:
+
+- **Deferred, not immediate.** An immediate action scheduled `After="InstallFiles"`
+  runs while the install *script is still being built* — before any file it would
+  copy from exists on disk. It would have silently copied nothing.
+- **`Impersonate="yes"`.** A per-machine `.msi` executes elevated. Without this
+  the action runs as `SYSTEM` and seeds `SYSTEM`'s profile, which no human ever
+  opens.
+- **An immediate companion to carry the command line.** A deferred action cannot
+  read properties, only its `CustomActionData`, so `SetSeedExamples` sets a
+  property whose name *matches* the deferred action's id — which is how WiX hands
+  the value across.
+
+`Return="ignore"`, and the condition is `NOT REMOVE`. A machine where seeding
+fails still has the menu, which seeds on first use; an install is never failed
+over a sample. And on uninstall the copy is left exactly where it is — it is the
+developer's project by then, whatever they have built in it.
+
+**Verified end to end on a read-only source**, since that is the case that
+matters: a staged install folder with the attribute set, `HOME` redirected so the
+real Documents was untouched, and `PRC_EXAMPLES_ROOT` pointing at it. The copy
+came out **writable** from a read-only original, `bin/` and `generated/` were
+**skipped**, and running it a second time over an edited file **left the edit
+alone**. The switch is not unit-tested, deliberately: a test calling it would copy
+27 MB into whichever Documents folder the test runner happens to own.
+
+The MSI itself still needs a Windows runner to confirm — custom WiX dialogs and
+sequences cannot be verified anywhere else. What is checked here is what can be:
+the YAML parses, the generated `product.wxs` parses as XML, the new comment text
+is pure ASCII, `InstallExecuteSequence` is a direct `Product` child, and no XML
+comment contains `--`. That last one was a real defect caught by the check rather
+than by review — `--seed-examples` inside a comment is illegal XML, and it broke
+the parse until the wording changed.
+
+The other three installers are unchanged and still cannot do this: the `.dmg` is
+a drag-install that runs no script, and `.deb`/`.rpm` postinst scripts run as root
+where copying into every `/home/*` is both wrong and useless for a user created
+later. They rely on the menu, which is why the menu keeps doing it.
+
+`cobolt-ide`: 1179 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.70.10] — 2026-09-13
 
 ### The example project opens somewhere you can actually build it
