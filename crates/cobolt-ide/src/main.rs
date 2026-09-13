@@ -79,6 +79,38 @@ pub fn mr8(v: f32) -> i8 {
 }
 
 fn main() -> eframe::Result<()> {
+    // `--seed-examples`: copy the shipped example project into the developer's
+    // own folder and exit, without opening a window.
+    //
+    // The Windows installer runs this as a **deferred, impersonated** custom
+    // action (`SeedExamples` in the build workflow), which is the only context in
+    // which the copy can land in the right place: a per-machine `.msi` executes
+    // elevated, so an un-impersonated action would seed `SYSTEM`'s profile, and
+    // an *immediate* action scheduled after `InstallFiles` would run while the
+    // install script is still being built — before the files it copies from are
+    // on disk.
+    //
+    // Handled before logging and before eframe so nothing is initialised and no
+    // window appears. The IDE's own Help → Examples runs the same function; the
+    // installer is a second caller, not a second implementation.
+    if std::env::args().skip(1).any(|a| a == "--seed-examples") {
+        match app::seed_examples_headless() {
+            Ok(where_) => {
+                println!("PowerRustCOBOL: example project copied to {where_}");
+                std::process::exit(0);
+            }
+            Err(why) => {
+                eprintln!("PowerRustCOBOL: could not copy the example project: {why}");
+                // The custom action carries `Return="ignore"`, so this never
+                // fails an installation. A machine that lands here simply has an
+                // example that seeds on first use from the menu instead — which
+                // is the behaviour on every platform whose installer cannot do
+                // this at all.
+                std::process::exit(1);
+            }
+        }
+    }
+
     // Initialise logging.
     tracing_subscriber::fmt()
         .with_env_filter(

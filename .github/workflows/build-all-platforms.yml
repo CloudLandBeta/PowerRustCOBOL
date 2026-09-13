@@ -492,6 +492,42 @@ jobs:
                         Value="https://visualstudio.microsoft.com/visual-cpp-build-tools/" />
               <CustomAction Id="OpenPrereqPage" BinaryKey="WixCA" DllEntry="WixShellExec"
                             Impersonate="yes" Return="ignore" />
+
+              <!-- Put the example project somewhere the developer can build it.
+                   A build WRITES INTO the project folder - the compiler's first
+                   step after compiling is create_dir(project_dir/bin), and
+                   generated COBOL, staged theme art and the Knowledge Base land
+                   there too - so the copy under Program Files can never be
+                   built. That is the "Acesso negado. (os error 5)" an operator
+                   hit on 2026-09-12.
+
+                   It runs the IDE's own seed-examples switch (see the Value
+                   below) rather than an xcopy written here, so the destination,
+                   the build-output exclusions and
+                   the read-only clearing are decided in Rust, where they are
+                   tested; restated in WiX they could not be, and would rot.
+
+                   DEFERRED, because an *immediate* action scheduled after
+                   InstallFiles runs while the install script is still being
+                   BUILT - before any file it copies from exists on disk. That is
+                   MSI's oldest trap and it would silently copy nothing.
+
+                   IMPERSONATE="yes", because a per-machine .msi executes
+                   elevated: without it the action runs as SYSTEM and seeds
+                   SYSTEM's profile, which no human will ever open.
+
+                   A deferred action cannot read properties, only its
+                   CustomActionData - hence the immediate SetSeedExamples, whose
+                   property name MATCHES this action's id, which is how WiX
+                   hands the value over.
+
+                   Return="ignore": a machine where this fails still has Help ->
+                   Examples, which seeds on first use. Never fail an install
+                   over a sample. -->
+              <CustomAction Id="SetSeedExamples" Property="SeedExamples"
+                            Value="&quot;[INSTALLFOLDER]PowerRustCOBOL.exe&quot; --seed-examples" />
+              <CustomAction Id="SeedExamples" BinaryKey="WixCA" DllEntry="WixQuietExec"
+                            Execute="deferred" Impersonate="yes" Return="ignore" />
               <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
               <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
               <WixVariable Id="WixUIBannerBmp" Value="dist/art/wix-banner.bmp" />
@@ -652,6 +688,15 @@ jobs:
                 </InstallUISequence>
               </UI>
               <UIRef Id="WixUI_Common" />
+
+              <!-- NOT REMOVE: on uninstall the developer's copy is left exactly
+                   where it is. It is their project by then, whatever they have
+                   built in it, and an uninstaller that deleted it would be
+                   deleting their work. -->
+              <InstallExecuteSequence>
+                <Custom Action="SetSeedExamples" Before="SeedExamples">NOT REMOVE</Custom>
+                <Custom Action="SeedExamples" After="InstallFiles">NOT REMOVE</Custom>
+              </InstallExecuteSequence>
             </Product>
           </Wix>
           WXS

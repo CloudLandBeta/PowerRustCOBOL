@@ -1651,6 +1651,36 @@ fn seed_user_example(installed_project_dir: &Path) -> Result<PathBuf, String> {
     seed_user_example_into(&root, installed_project_dir)
 }
 
+/// Copy the shipped example into the developer's own folder **without starting
+/// the IDE**, and return the folder it ended up in.
+///
+/// This is what `--seed-examples` runs, and the Windows installer calls it as a
+/// deferred impersonated custom action so the copy lands in the Documents of the
+/// person installing rather than in `SYSTEM`'s profile. It is deliberately the
+/// same code Help → Examples runs: the destination, the build-output exclusions
+/// and the permission clearing are decided in one place, not restated in WiX
+/// where they could not be tested and would rot.
+///
+/// The source is the shipped copy — `PRC_EXAMPLES_ROOT` if it is set, otherwise
+/// whatever sits beside this executable. **Never the menu's resolver**, because
+/// that prefers a copy the developer already has, and seeding *from* their own
+/// copy would make it its own template. An existing copy is still never
+/// overwritten: [`seed_user_example`] returns it untouched, which is what makes
+/// re-running the installer harmless.
+pub fn seed_examples_headless() -> Result<String, String> {
+    let installed = override_example_manifest()
+        .or_else(installed_example_manifest)
+        .ok_or_else(|| "no example project is installed beside this executable".to_owned())?;
+    let dir = installed
+        .parent()
+        .ok_or_else(|| format!("'{}' has no parent folder", installed.display()))?;
+    let manifest = seed_user_example(dir)?;
+    Ok(manifest
+        .parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| manifest.display().to_string()))
+}
+
 /// [`seed_user_example`] with the destination named, so a test can point it at a
 /// temporary folder instead of the developer's real Documents.
 fn seed_user_example_into(root: &Path, installed_project_dir: &Path) -> Result<PathBuf, String> {
