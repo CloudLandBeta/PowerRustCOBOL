@@ -1,5 +1,40 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.12] — 2026-09-13
+
+### The Developer's Guide is stamped 1.70, not RC4
+
+Its H1 read "PowerRustCOBOL AI Developer's Guide RC4" in all six languages — a
+release-candidate marker on the guide that ships with the first official release.
+It now carries the major/minor, so a printed or shared copy says which version of
+the product it describes.
+
+**A search and replace across the six files, not a regeneration** (operator,
+2026-09-13). GOLDEN RULE #8 would normally have the English change delete its five
+translations; the operator directed a patch in place instead, because the change is
+four characters in a title and the prose behind it is unaffected. One line per
+file, six files.
+
+**What was deliberately left alone**, because it looks like the guide's version and
+is not:
+
+- **~30 `1.6x.y` numbers** are historical references in prose — "since 1.61.159 the
+  engine does X". They record when something landed and are still true.
+- **`1.92`** is the Rust MSRV.
+- **`1.000.000`** in Spanish and Portuguese is *one million* with a thousands
+  separator.
+- **`<!-- powerrustcobol: 1.65.124 -->`** on line 9 is machinery, not a title:
+  `every_translation_is_complete_and_current` compares that stamp across the six
+  languages and it must be `x.y.z`. Writing `1.70` there would fail the test and
+  break the format.
+
+Three `RC4` outside `docs/` also stay: `CONVENTIONS.md` cites a forum post,
+`WS-SRC4` is a COBOL variable name in a STRING test, and the two CHANGELOG entries
+are history — rewriting them would make the record false.
+
+No link targets the H1's slug, so no anchor moved. The five `docs_embed` guards
+pass, translation-currency included.
+
 ## [PowerRustCOBOL 1.70.11] — 2026-09-13
 
 ### The Windows installer places the example project too

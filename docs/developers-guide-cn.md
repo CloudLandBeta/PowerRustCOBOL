@@ -8,7 +8,7 @@ See the LICENSE file in the project root for full license information.
 
 <!-- powerrustcobol: 1.65.124 -->
 
-# PowerRustCOBOL AI 开发者指南 RC4
+# PowerRustCOBOL AI 开发者指南 1.70
 
 <p align="center">
   <img src="../assets/images/powerrustcobol-mascot.png" alt="PowerRustCOBOL 吉祥物" width="300">
