@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.25] — 2026-09-14
+
+### A container names its own engine — the COBOL never has to
+
+Operator design, 2026-09-14, and a better answer than the one shipped an hour
+ago: **the file's format outranks the configured engine.** At `OPEN` the runtime
+reads the container's magic and dispatches to whichever engine wrote it —
+`redb`, `PRCIDXD1`, `PRCIDX1` or the legacy `PRCISAM1`. A file with no magic is
+a file being created, and there the configured engine still decides, so the
+default continues to govern new files.
+
+**This cancels the migration warning in 1.70.24.** That entry said every redb
+container written since 1.62.73 would need an explicit `--indexed-engine redb`.
+It no longer does — they open on their own, with no flag and no source change.
+The same file that answered **status 39** an hour ago answers **00** now.
+
+**Per-`SELECT`, not per-run.** Different files with different formats open in the
+same program, each `SELECT` getting the engine that wrote the file it points at.
+Demonstrated end to end:
+
+```
+open redb-file fs=00   open prcidxd1-file fs=00
+  redb     K=0001 V=[hello     ] fs=00
+  prcidxd1 K=0001 V=[hello     ] fs=00
+```
+
+`each_select_gets_the_engine_that_wrote_its_file` pins it, and asserts the two
+containers really do carry different magics first — otherwise it would prove
+nothing.
+
+**A container keeps its format for life, `OPEN OUTPUT` included.** Deliberate:
+silently rewriting an ACID redb file as a non-transactional PRCIDXD1 one because
+a default moved is a worse surprise than keeping it. To change a file's format,
+delete it and let it be created afresh.
+
+**Verification.** NIST byte-identical on both axes — compile 420/420 FAIL 0;
+execution 383 clean, PASS 8418 / FAIL 50 / DELETED 96. Full `cobolt-runtime`
+suite **876 passed, 0 failed**.
+
 ## [PowerRustCOBOL 1.70.24] — 2026-09-14
 
 ### PRCIDXD1 is the default indexed engine again

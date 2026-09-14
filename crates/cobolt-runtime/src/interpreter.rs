@@ -1095,6 +1095,42 @@ fn share_lock_is_exclusive(sharing: Option<cobolt_ast::stmt::ShareMode>, lock: b
     lock || matches!(sharing, Some(ShareMode::NoOther))
 }
 
+/// Which engine wrote this container, read from its own magic.
+///
+/// `None` when the file is absent, too short, or carries no magic we know — a
+/// file being created, in other words, where the configured engine decides.
+///
+/// **The file's format outranks the configured engine, always.** A program must
+/// not have to name the engine that happens to match its data: the same COBOL
+/// opens a redb container and a PRCIDXD1 one, each `SELECT` getting whichever
+/// engine wrote the file it points at. Before this, flipping the default left
+/// every container written by the previous one unreadable (status 39), which
+/// made the default a migration rather than a preference.
+///
+/// This also means a container keeps its format for life, `OPEN OUTPUT`
+/// included. That is deliberate: silently rewriting an ACID redb file as a
+/// non-transactional PRCIDXD1 one because a default moved is a worse surprise
+/// than keeping it. To change a file's format, delete it and let it be created
+/// afresh.
+fn detect_container_engine(path: &str) -> Option<crate::indexed::IndexedEngine> {
+    use crate::indexed::IndexedEngine;
+    use std::io::Read as _;
+
+    let mut head = [0u8; 8];
+    let n = std::fs::File::open(path).ok()?.read(&mut head).ok()?;
+    if n >= 4 && &head[0..4] == b"redb" {
+        return Some(IndexedEngine::Redb);
+    }
+    if n >= 8
+        && (&head == b"PRCIDXD1"      // the paged B+tree container
+            || &head == b"PRCIDX1\0"  // an in-memory file persisted on CLOSE
+            || &head == b"PRCISAM1")  // the legacy records-only container
+    {
+        return Some(IndexedEngine::Rust);
+    }
+    None
+}
+
 fn make_indexed_engine(
     spec: &FileSpec,
     path: &str,
@@ -1131,6 +1167,11 @@ fn make_indexed_engine(
         }
     }
     let compressing = spec.data_compressing;
+    // An existing container names its own engine, and that wins over the
+    // configured one — see `detect_container_engine`. A file being created has
+    // no magic to read, so the configured engine decides, which is how the
+    // default still governs new files.
+    let engine = detect_container_engine(path).unwrap_or(engine);
     // The redb engine is a disk substrate; selecting it routes DISK storage to
     // the crash-safe ACID engine. MEMORY storage always uses the in-RAM engine.
     if engine == IndexedEngine::Redb && spec.storage_mode == StorageMode::Disk {

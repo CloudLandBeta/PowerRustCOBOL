@@ -1729,3 +1729,119 @@ fn a_rewrite_into_a_duplicate_set_keeps_write_order_on_prcidxd1() {
         "and the later-written record follows:\n{joined}"
     );
 }
+
+/// A container names its own engine, so one program opens two formats at once.
+///
+/// The file's magic outranks the configured engine. Without that, moving the
+/// default left every container written by the previous one unreadable — status
+/// 39 — which made a default change a data migration rather than a preference.
+///
+/// Here one file is written by redb and another by PRCIDXD1, then a single
+/// program opens both under whatever the default happens to be, each `SELECT`
+/// getting the engine that wrote the file it points at.
+#[test]
+fn each_select_gets_the_engine_that_wrote_its_file() {
+    use cobolt_runtime::indexed::IndexedEngine;
+
+    let redb_path = temp_idx("mixed_redb");
+    let prc_path = temp_idx("mixed_prc");
+    let _ = std::fs::remove_file(&redb_path);
+    let _ = std::fs::remove_file(&prc_path);
+
+    let writer = |path: &std::path::Path| {
+        format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. W.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      INPUT-OUTPUT SECTION.\n\
+             \x20      FILE-CONTROL.\n\
+             \x20          SELECT F ASSIGN TO \"{path}\"\n\
+             \x20              ORGANIZATION IS INDEXED\n\
+             \x20              ACCESS MODE IS DYNAMIC\n\
+             \x20              RECORD KEY IS R-ID\n\
+             \x20              FILE STATUS IS FS.\n\
+             \x20      DATA DIVISION.\n\
+             \x20      FILE SECTION.\n\
+             \x20      FD F.\n\
+             \x20      01 R.\n\
+             \x20         05 R-ID   PIC 9(4).\n\
+             \x20         05 R-NAME PIC X(8).\n\
+             \x20      WORKING-STORAGE SECTION.\n\
+             \x20      01 FS PIC XX.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20      MAIN.\n\
+             \x20          OPEN OUTPUT F\n\
+             \x20          MOVE 0007 TO R-ID MOVE \"SEVEN\" TO R-NAME\n\
+             \x20          WRITE R END-WRITE\n\
+             \x20          CLOSE F\n\
+             \x20          STOP RUN.\n",
+            path = path.display()
+        )
+    };
+
+    // Two files, deliberately written by different engines.
+    run_capture_on(&writer(&redb_path), IndexedEngine::Redb);
+    run_capture_on(&writer(&prc_path), IndexedEngine::Rust);
+
+    // Their magics really do differ — otherwise this test proves nothing.
+    let head = |p: &std::path::Path| {
+        use std::io::Read as _;
+        let mut b = [0u8; 8];
+        let n = std::fs::File::open(p).unwrap().read(&mut b).unwrap();
+        b[..n].to_vec()
+    };
+    assert_eq!(&head(&redb_path)[0..4], b"redb", "first file is not a redb container");
+    assert_eq!(&head(&prc_path)[..], b"PRCIDXD1", "second file is not a PRCIDXD1 container");
+
+    // One program, two SELECTs, two formats, no engine named anywhere.
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. M.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT FA ASSIGN TO \"{a}\"\n\
+         \x20              ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS A-ID FILE STATUS IS FSA.\n\
+         \x20          SELECT FB ASSIGN TO \"{b}\"\n\
+         \x20              ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS B-ID FILE STATUS IS FSB.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD FA.\n\
+         \x20      01 RA.\n\
+         \x20         05 A-ID   PIC 9(4).\n\
+         \x20         05 A-NAME PIC X(8).\n\
+         \x20      FD FB.\n\
+         \x20      01 RB.\n\
+         \x20         05 B-ID   PIC 9(4).\n\
+         \x20         05 B-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FSA PIC XX.\n\
+         \x20      01 FSB PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN INPUT FA\n\
+         \x20          OPEN INPUT FB\n\
+         \x20          DISPLAY \"OPENA \" FSA\n\
+         \x20          DISPLAY \"OPENB \" FSB\n\
+         \x20          MOVE 0007 TO A-ID\n\
+         \x20          READ FA END-READ\n\
+         \x20          DISPLAY \"A \" A-NAME \" \" FSA\n\
+         \x20          MOVE 0007 TO B-ID\n\
+         \x20          READ FB END-READ\n\
+         \x20          DISPLAY \"B \" B-NAME \" \" FSB\n\
+         \x20          CLOSE FA CLOSE FB\n\
+         \x20          STOP RUN.\n",
+        a = redb_path.display(),
+        b = prc_path.display()
+    );
+    let joined = run_capture(&src).join("\n");
+    let _ = std::fs::remove_file(&redb_path);
+    let _ = std::fs::remove_file(&prc_path);
+
+    assert!(joined.contains("OPENA 00"), "the redb container did not open:\n{joined}");
+    assert!(joined.contains("OPENB 00"), "the PRCIDXD1 container did not open:\n{joined}");
+    assert!(joined.contains("A SEVEN"), "the redb container did not read:\n{joined}");
+    assert!(joined.contains("B SEVEN"), "the PRCIDXD1 container did not read:\n{joined}");
+}
