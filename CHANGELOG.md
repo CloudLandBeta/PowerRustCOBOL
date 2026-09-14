@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.14] — 2026-09-14
+
+### The deferred DB104A doc sentence is parked, not forgotten
+
+1.70.13 recorded DB104A's 20-second timeout on `modules.DB.note` but left
+`docs/cobol85-supported-syntax-en.md` alone, because GOLDEN RULE #8 makes an edit
+to that English canonical delete its five translations and turn both
+`docs_embed.rs` guards red until a minor regenerates them — too much for one
+sentence on a `z` bump.
+
+The operator deferred it to the next **minor**, so it now sits in the ledger's
+`parked` array (`db104a-timeout-note-in-public-syntax-doc`) with the measurement
+that produced it and the explicit condition attached: **no documentation is
+removed to land it.** It is an addition of one sentence; the translations go when
+the minor regenerates them, and not before.
+
+Ledger-only, purely additive — 7 lines, nothing removed, every baseline and both
+measurement stamps untouched.
+
 ## [PowerRustCOBOL 1.70.13] — 2026-09-14
 
 ### The NIST ledger says when it was last measured, and it was measured today

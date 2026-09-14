@@ -688,6 +688,13 @@
       "question": "DB205A is DB by name but COMMUNICATION by content: USE FOR DEBUGGING over DISABLE/ENABLE with CD-name — the CM module machinery, which the 2026-08-29 scope ruling excludes (CM, RW, OB*, EXEC85). Under FIPS, an installation without the optional communication facility does not run DB205A at all. PROPOSED: extend the CM exclusion to DB205A (moves it to N-A; census denominator 421 -> 420, and the suite stands at 420/420 = 100% of in-scope). Alternative: implement parse-only CM grammar, which invariant 5 (never invent grammar to make a test pass) argues against. OPERATOR TO RATIFY — the denominator is not the grind’s to change.",
       "evidence": "strictB census: DB205A parse=18, first error L311 DISABLE INPUT CM-INQUE WITH KEY. DB101A/102A/103M/201A/202A/203A/204A and the rest of DB compile clean at 1.62.128.",
       "ratified": "2026-08-31, option 1 — see rules.db205a_joins_the_cm_exclusion. Applied at 1.62.129."
+    },
+    {
+      "id": "db104a-timeout-note-in-public-syntax-doc",
+      "module": "DB",
+      "question": "docs/cobol85-supported-syntax-en.md's DB paragraph ends \"It is listed here rather than hidden, so the gap stays visible\" — but it does not say that DB104A TIMES OUT after 20s, which is the only timeout anywhere in the suite. That sentence belongs there, on the same reasoning the paragraph already gives for itself. DEFERRED BY THE OPERATOR TO THE NEXT MINOR (2026-09-14): under GOLDEN RULE #8, editing that English canonical DELETES its five translations and turns both docs_embed.rs guards red until a minor regenerates them — too much cost for one sentence on a z bump. Nothing is lost while it waits: the fact is already recorded on modules.DB.note. DO NOT remove any documentation to land this; it is an addition of one sentence, and the translations go when the minor regenerates them, not before.",
+      "evidence": "Measured at 1.70.12 (2026-09-14) by `nist_conformance run`: DB104A timed out after 20s. DB overall PASS 56 / FAIL 50 / DELETED 72 across its 14, only 3 clean. Unscored — DB's execution axis is out of scope by operator ruling — so no published figure moves either way.",
+      "ratified": "2026-09-14 — operator deferred to the next MINOR, and directed that no documentation be removed in the meantime. Stay on `fixes`; do not touch docs/ on a z bump."
     }
   ],
   "protected_baselines": {
