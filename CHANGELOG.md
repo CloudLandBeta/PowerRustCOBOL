@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.16] — 2026-09-14
+
+### The fix path finally has a skill
+
+Seven of the fifteen Claude Code skills served the spec-driven feature path
+(`specify → clarify → plan → tasks → analyze → implement → docsync`). **Zero
+served fixes** — and `CLAUDE.md` said so outright: "New features go through it; a
+direct 'fix this' request does not." The entire fix procedure lived as prose in a
+**77,728-byte, 1,293-line** document, to be reassembled from memory each time.
+
+`.claude/skills/fix/SKILL.md` is the counterpart to `/implement`: classify →
+branch → change → gate → verify → version → sweep → commit. Nine steps, each one
+of which has bitten this project at least once — the three interpreter hosts, the
+shared working tree, the KB freshness test, the `--features render` requirement,
+the quarantine sweep's two hard limits, the push window's call-time evaluation.
+
+**Why a skill and not more prose.** There are two skill systems here and only one
+is expensive. `load_agent_references` (`agent.rs:1765`) concatenates every `.md`
+under the *IDE's* agent skills into every agent request — that is the system the
+2026-08-21 "skills stay few" ruling governs, and it still holds. Claude Code's
+`.claude/skills/` load their body **only when invoked**; the standing cost is a
+one-line description. The constraint that shaped the current layout does not
+apply to this directory.
+
+**It also corrects a rule its siblings still get wrong.** `implement/SKILL.md`
+says "update the English guide only; never touch the translations" — the
+pre-2026-08-24 rule. The current ruling deletes the five translations, and the
+new skill says so, with the cost stated and the option to park a change rather
+than pay it silently. That is the "one rule lives in three files" drift in
+miniature: the copy an agent actually follows was the stale one.
+
+No code changed.
+
 ## [PowerRustCOBOL 1.70.15] — 2026-09-14
 
 ### Spec 060 — incremental, section-granular documentation translation
