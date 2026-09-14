@@ -95,9 +95,24 @@ still is not — that is using a tool, not authoring code.
   - `fixes` — bug corrections.
 
   Classify every new request *before* touching a file, `git checkout` the
-  matching branch, and **merge from `main` immediately after the switch** so the
-  work starts from the latest code — that merge comes before the first edit, not
-  after it. Nothing is implemented on `main`. Finish whatever change is in
+  matching branch, and **sync from `main` immediately after the switch with
+  `git rebase main`** so the work starts from the latest code — that sync comes
+  before the first edit, not after it.
+
+  **Rebase, not merge** (operator ruling 2026-09-14). The remote refuses merge
+  commits on a working branch; a rebase cannot create one. Two conditions bind
+  it:
+  - **`git rebase` refuses a dirty tree, and this tree is shared** with other
+    sessions. When another session's edits are sitting unstaged, use
+    **`git merge --ff-only main`**: equivalent whenever `main` is an ancestor,
+    tolerant of the dirty tree, and `--ff-only` can never produce a merge
+    commit. Never plain `git merge main` — that is the form that makes one.
+  - **Rebase only before the first commit**, which is where this rule already
+    puts the sync. After the branch is pushed, a rebase rewrites published
+    history and needs a force-push, which on a shared branch can destroy another
+    session's work. Mid-change, use `--ff-only`.
+
+  Merging the finished work *back into* `main` is unaffected and stays a merge. Nothing is implemented on `main`. Finish whatever change is in
   flight before switching branches again. **Merge back into `main` only when
   explicitly asked**; committing and pushing the working branch needs no such
   request. A feature or fix is published only from `main`, and only after the

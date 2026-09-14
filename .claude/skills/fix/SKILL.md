@@ -25,14 +25,29 @@ Read **Classification precedents** in `CLAUDE.md` first — several arguments ar
 already settled and should not be had twice. Ambiguous? **Ask.** The answer
 decides the branch, and mixing the two in one commit breaks GOLDEN RULE #5.
 
-## 2. Branch, and merge `main` *before* the first edit
+## 2. Branch, and sync from `main` *before* the first edit
 
 ```bash
-git checkout fixes && git merge main
+git checkout fixes && git rebase main
 ```
 
+**Rebase, never plain `git merge main`** (operator ruling 2026-09-14): the remote
+refuses merge commits on a working branch, and a rebase cannot create one.
+
+⚠️ **`git rebase` refuses a dirty tree, and this tree is shared.** When another
+session's edits are sitting unstaged, use this instead — equivalent whenever
+`main` is an ancestor, and `--ff-only` can never make a merge commit:
+
+```bash
+git merge --ff-only main
+```
+
+Rebase only **before the first commit**, which is where this step sits. Once the
+branch is pushed, a rebase rewrites published history and needs a force-push,
+which on a shared branch can destroy another session's work.
+
 `main` is never a workbench — a `PreToolUse` hook in `.claude/settings.local.json`
-refuses `git commit` there. The merge comes **before** editing, not after.
+refuses `git commit` there. The sync comes **before** editing, not after.
 
 ⚠️ **The working tree is shared with other sessions.** Expect files you did not
 touch to be modified. Never `git commit -a`; never stage a path you did not edit.

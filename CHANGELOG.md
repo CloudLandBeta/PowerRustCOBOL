@@ -1,5 +1,56 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.22] — 2026-09-14
+
+### GOLDEN RULE #5 syncs a working branch by rebase, not merge
+
+Operator ruling, 2026-09-14, after the remote flagged a merge commit on `fixes`:
+
+> `remote: - This branch must not contain merge commits.`
+
+The rule now reads **`git rebase main`** where it read `git merge main`. A rebase
+cannot create a merge commit; plain `git merge` can, whenever the histories have
+diverged.
+
+Two conditions ride with it, because both have already bitten:
+
+- **`git rebase` refuses a dirty tree, and this tree is shared.** It refused
+  today over another session's two unstaged `examples/PowerDemo3/` files. When
+  that happens use **`git merge --ff-only main`** — equivalent whenever `main` is
+  an ancestor, tolerant of the dirty tree, and `--ff-only` can never produce a
+  merge commit. Never plain `git merge main`; that is the form that makes one.
+- **Rebase only before the first commit**, which is where the rule already puts
+  the sync. After the branch is pushed a rebase rewrites published history and
+  needs a force-push, which on a shared branch can destroy another session's
+  work. Mid-change, use `--ff-only`.
+
+Merging finished work *back into* `main` is unaffected and stays a merge.
+
+**Changed in all three places the rule lives** — `CLAUDE.md` GOLDEN RULE #5,
+`CONVENTIONS.md` §GOLDEN RULE #5, and `.claude/skills/fix/SKILL.md` step 2.
+Leaving one behind is the drift this project already tracks: the copy an agent
+actually follows is the one that matters, and it was `implement/SKILL.md`'s stale
+translation rule that made the point last time.
+
+### No rebase was performed, because there was nothing to rebase
+
+Checked before touching anything: `main..fixes` held **9 commits and 0 merge
+commits** — already the exact shape the new rule asks for. Every merge commit the
+remote can see on `fixes` is **`main`'s own**, inherited by descent, and no
+rebase can remove those without detaching the branch from `main`.
+
+Rebasing regardless would have rewritten nine pushed commits and required a
+force-push over clean, already-published history — pure risk for no gain. The
+tree hash, the commit count and every version from 1.70.13 to 1.70.21 were
+verified identical to `origin/fixes` and to a safety ref taken beforehand.
+
+⚠️ **So the remote warning will recur, and the rule change does not stop it.**
+It fires on `main`'s merge commits, not on anything a working branch does. If it
+is ever tightened from warning to rejection, GOLDEN RULE #5 becomes
+unfollowable — every sync from `main` would carry them. Settling that needs
+either an exemption for `fixes`/`features` or a linear-history policy on `main`,
+and both are operator calls.
+
 ## [PowerRustCOBOL 1.70.21] — 2026-09-14
 
 ### Cross-run-unit file locking is enforced — `OPEN … WITH LOCK` finally means it
