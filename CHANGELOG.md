@@ -1,5 +1,53 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.17] — 2026-09-14
+
+### Translating a document does not make it true — /doc-audit
+
+Operator, 2026-09-14: *"just to translate the docs is not enough. the
+documentation needs to mirror what has been implemented, specially what is
+pending."*
+
+`/docsync` is **change-driven** — code changed, find the documents that describe
+it, update them. It structurally cannot catch a claim that **no code change would
+ever trigger**, and three of those surfaced today:
+
+- **A claim that was never true.** `COMP-3` is lexed, parsed into `Usage::Comp3`,
+  acknowledged by the semantic analyser — and appears **zero times** in
+  `cobolt-runtime/src`. `compute_layout`'s `walk()` sizes every field as
+  `pic.digits + pic.decimals` and never reads `usage`, so `PIC 9(7)V99 COMP-3`
+  occupies 9 ASCII bytes where every other COBOL takes 5 packed. No commit broke
+  it; it never worked.
+- **A gap that closed while the doc slept.** The syntax reference said `INVOKE`
+  does nothing long after it had an executor (corrected at 1.65.121).
+- **A rule that rotted in place.** `tech.md` still says translations are
+  "user-maintained — never edit them" and names four suffixes; the 2026-08-24
+  ruling replaced that and there are five.
+
+`.claude/skills/doc-audit/SKILL.md` is the claim-driven counterpart. Its centre is
+one heuristic: **parsed ≠ implemented.** A construct clears lexer, parser, AST and
+semantic analyser and is dropped by the runtime — four of five stages, and every
+one short of the last still produces a clean compile that reads like support. So
+a ✅ is verified against a **runtime** path, never a parser arm.
+
+It also weights the audit deliberately. The English docs carry **343 ✅ against 4
+❌**; a system this size has more than four gaps, so under-recorded gaps are the
+default failure and the audit leans toward what is missing or overstated rather
+than re-confirming what reads fine. Silence counts as a claim: a page listing
+USAGE clauses without mentioning that `COMP-3` is ignored asserts that it works.
+
+**Made imperative, not merely available.** Three skills now gate on it:
+`doc-translate` opens with it (five accurate translations of a wrong page are
+five wrong pages, and it is the most expensive moment to find out),
+`docsync` runs it over what it touched before reporting, and `fix` checks
+neighbouring claims while it is already in the document — a fix that closes a gap
+leaves the page still apologising for it.
+
+All three say the same thing about findings: **report them, do not silently
+rewrite them.** An audit that edits the page destroys the evidence it was wrong.
+
+No code changed.
+
 ## [PowerRustCOBOL 1.70.16] — 2026-09-14
 
 ### The fix path finally has a skill

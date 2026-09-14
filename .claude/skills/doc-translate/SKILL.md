@@ -10,6 +10,18 @@ The **procedure is not invented here.** It is written in three places that agree
 `.claude/skills/docsync/SKILL.md`. Read the steering copy before a first run.
 This skill is how to *execute* it, plus the two marks that make "done" checkable.
 
+## ⚠️ Before translating: is the English true?
+
+**Five accurate translations of a wrong page are five wrong pages.** Translation
+multiplies whatever the canonical claims, and it is the most expensive moment to
+discover the canonical was wrong — the cost is paid five times and again at every
+regeneration.
+
+**Run `/doc-audit` on the document first**, or confirm someone has. Verify the
+✅/❌ claims against the **runtime** (parsed is not implemented), run the samples,
+re-measure the numbers. Report anything wrong to the operator and get the English
+corrected **before** translating it, not after.
+
 ## What counts as done
 
 A translation counts only when **both** are true. Anything else is **redone from

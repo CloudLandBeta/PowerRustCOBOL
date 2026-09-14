@@ -75,6 +75,13 @@ wrong file — the KB's source is Rust constants, not `docs/*.md`.
 **Documentation.** Did you change anything a developer would observe? Update
 `docs/developers-guide-en.md` in the same change.
 
+While you are in that document, **check that what it already says is still
+true** — a fix frequently invalidates a neighbouring claim, and a fix that closes
+a gap leaves the page still apologising for it. `/doc-audit` is the procedure:
+trace each ✅ to a **runtime** path (parsed is not implemented), re-check each ❌
+against what has since landed. **Report what you find; do not quietly rewrite
+it.**
+
 ⚠️ **GOLDEN RULE #8 — and it is NOT "never touch the translations".** That was
 the pre-2026-08-24 rule and it still appears in older skills. The current ruling:
 update the **English canonical only**, then **physically delete that document's

@@ -35,7 +35,13 @@ to `/doc-localize`.
    touched.** Do **not** carry the delta into them, and do **not** regenerate
    them: the full regeneration cycle runs **only on a major/minor bump**, which
    only the operator raises. **Never delete an English file.**
-7. **Report** a concise summary: which docs/sections changed in which languages,
+7. **Audit what you touched.** `/docsync` only updates documents some code
+   change pointed at. It cannot see a claim that was **never** true, or a gap
+   that closed without a doc trigger. Before reporting, run **`/doc-audit`** over
+   the sections you changed and their immediate neighbours: trace each ✅ to a
+   **runtime** path, re-check each ❌ against what has since landed, and run the
+   samples. Report findings; do not silently rewrite them.
+8. **Report** a concise summary: which docs/sections changed in which languages,
    registry rows added, and screenshots flagged.
 
 ## Rules
