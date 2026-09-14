@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.21] — 2026-09-14
+
+### Cross-run-unit file locking is enforced — `OPEN … WITH LOCK` finally means it
+
+A **fix**, per the operator's ruling the same day: `OPEN … SHARING/WITH LOCK`,
+`READ … WITH [NO] LOCK` and `UNLOCK` all parsed, and the verbs did half of what
+they said. `exec_open`'s parameter was literally named **`_lock`** — accepted and
+discarded — and `sharing` never reached the function at all.
+
+**What two processes actually did before**, measured rather than assumed:
+
+| Engine | Two writers, both `I-O WITH LOCK` | Two readers, `OPEN INPUT` |
+|---|---|---|
+| PRCIDXD1 (`rust`) | **00 / 00** — no locking whatsoever | 00 / 00 ✓ |
+| redb (default) | 00 / **90** — right outcome, wrong status | 00 / **90** ❌ over-locked |
+
+Two processes could open the same PRCIDXD1 file `I-O WITH LOCK` and both
+succeed. The docs said cross-process sharing was "not enforced"; under redb it
+was over-enforced, and under PRCIDXD1 not enforced at all.
+
+**Now:** an OS advisory lock on a sidecar `<path>.lck`, taken **before** the
+engine is built so a refused open never touches the container. `WITH LOCK` and
+`SHARING WITH NO OTHER` take it exclusively; everything else takes it shared.
+A conflict reports **file status 93** — the standard's "file unavailable" — and
+leaves the file unregistered, so a later `CLOSE` correctly answers 42 instead of
+the bogus 92 it used to give. Both writer cases are now **00 / 93**, and
+PRCIDXD1 readers still coexist at **00 / 00**.
+
+**No new dependency.** `fs2` was added and then removed again: `std::fs::File`
+has carried advisory locking since Rust 1.89 and the MSRV here is 1.92, so the
+whole thing is std. `Cargo.toml` ends unchanged.
+
+**The sidecar, not the data file.** redb holds its own `flock` on the container,
+and two locks from one process on the same file conflict with each other — so
+locking the data file would have had this run unit fighting itself.
+
+**Two gaps stay open, and are parked rather than papered over.**
+`SHARING WITH READ ONLY` is treated as `ALL OTHER`, because one advisory lock
+cannot admit readers while refusing writers; expressing it needs a second lock
+for the writer set. And under the default redb engine two concurrent readers
+still collide with 90 — redb takes an exclusive lock on the container, which is
+an engine limitation, not a locking one. PRCIDXD1 admits them correctly.
+
+**Verification.** NIST gate byte-identical, including every file-I/O module:
+compile **420/420**; execution **383 clean**, PASS **8418** / FAIL 50 /
+DELETED 96; SQ 85/85, IX 41/41, RL 34/34. Full `cobolt-runtime` suite **874
+passed, 0 failed** (up from 872 — two new lock tests, one of which exercises the
+real OS primitive rather than a model of it).
+
 ## [PowerRustCOBOL 1.70.20] — 2026-09-14
 
 ### BUG-002 fixed — `FUNCTION LENGTH` now measures the declaration

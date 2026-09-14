@@ -1078,6 +1078,23 @@ fn map_open_mode(m: OpenMode) -> crate::indexed::OpenMode {
 /// Build an indexed engine for `spec` from its layout + key fields. The concrete
 /// backend follows `STORAGE MODE`: MEMORY → the in-RAM engine; DISK → the
 /// persistent paged B+tree engine. `WITH COMPRESSION` applies to both.
+/// Does this `OPEN` demand the file to itself across run units?
+///
+/// `WITH LOCK` and `SHARING WITH NO OTHER` both mean "this run unit alone", so
+/// both take an exclusive lock; everything else takes a shared one and coexists.
+///
+/// ⚠️ `SHARING WITH READ ONLY` is deliberately **shared**, not exclusive. It
+/// means *others may read but not write*, and a single advisory lock cannot say
+/// that — one `flock` is either exclusive (which would lock readers out too,
+/// stricter than the standard asks) or shared (which admits writers). Treating
+/// it as `ALL OTHER` is the honest half: it is no weaker than the behaviour
+/// before this existed, and it never refuses an open the standard permits.
+/// Expressing it properly needs a second lock for the writer set.
+fn share_lock_is_exclusive(sharing: Option<cobolt_ast::stmt::ShareMode>, lock: bool) -> bool {
+    use cobolt_ast::stmt::ShareMode;
+    lock || matches!(sharing, Some(ShareMode::NoOther))
+}
+
 fn make_indexed_engine(
     spec: &FileSpec,
     path: &str,
@@ -1581,6 +1598,14 @@ pub struct Interpreter {
     /// Files closed `WITH LOCK`. COBOL-85 forbids reopening them in the same
     /// run unit, so a later OPEN reports file status 38 rather than succeeding.
     locked_files: std::collections::HashSet<String>,
+    /// Logical file name → the OS advisory lock this run unit holds on it.
+    ///
+    /// Cross-**run-unit** enforcement for `OPEN … WITH LOCK` and
+    /// `SHARING WITH NO OTHER`: the handle holds a `flock`/`LockFileEx` for the
+    /// life of the open and releases it on `CLOSE` when it is dropped.
+    /// [`locked_files`](Self::locked_files) is the unrelated *intra*-run-unit
+    /// rule about reopening a file closed `WITH LOCK`.
+    share_locks: HashMap<String, std::fs::File>,
     /// `LINAGE-COUNTER` per LINAGE file: lines written into the current page
     /// body, counting from 1. Reset when a new page begins.
     linage_counters: HashMap<String, u32>,
@@ -1893,6 +1918,7 @@ impl Interpreter {
             active_file_status: HashMap::new(),
             record_to_file,
             open_files: HashMap::new(),
+            share_locks: HashMap::new(),
             locked_files: std::collections::HashSet::new(),
             linage_counters: HashMap::new(),
             indexed_engine: crate::indexed::IndexedEngine::default(),
@@ -4703,17 +4729,18 @@ impl Interpreter {
                 mode,
                 files,
                 lock,
+                sharing,
                 registered_user,
                 span,
                 extra_modes,
                 ..
             } => {
-                self.exec_open(*mode, files, *lock, registered_user.as_ref(), *span)?;
+                self.exec_open(*mode, files, *lock, *sharing, registered_user.as_ref(), *span)?;
                 // `OPEN INPUT f1 OUTPUT f2` — each later group opens in its own
                 // mode; the SHARING/LOCK/REGISTERED phrases apply to the whole
                 // statement.
                 for (m, fs) in extra_modes {
-                    self.exec_open(*m, fs, *lock, registered_user.as_ref(), *span)?;
+                    self.exec_open(*m, fs, *lock, *sharing, registered_user.as_ref(), *span)?;
                 }
                 Ok(())
             }
@@ -7828,14 +7855,76 @@ impl Interpreter {
         };
     }
 
-    /// `OPEN`. `_lock` is `WITH LOCK` (exclusive); advisory in the single-run-unit
-    /// model — recorded for fidelity but does not change single-process behaviour.
-    /// `SHARING` is likewise advisory.
+    /// `OPEN`.
+    ///
+    /// `lock` is `WITH LOCK` and `sharing` is the `SHARING WITH …` phrase. For
+    /// an INDEXED file both are now **enforced across run units** by an OS
+    /// advisory lock — see [`share_lock_is_exclusive`] and
+    /// [`Self::acquire_share_lock`]. They were accepted and discarded before
+    /// (the parameter was literally named `_lock` and `sharing` never reached
+    /// this function at all), so two processes could open the same PRCIDXD1
+    /// file `I-O WITH LOCK` and both succeed.
+    /// Take the cross-run-unit advisory lock for `file`, or report the conflict.
+    ///
+    /// Returns `true` when the lock is held (or was not needed). `false` means
+    /// another run unit holds a conflicting one, and the caller must report
+    /// **file status 93** — the standard's "file unavailable" — without
+    /// registering the file as open, so the program's `CLOSE` then correctly
+    /// answers 42 rather than pretending it had been open.
+    ///
+    /// The lock lives on a **sidecar** `<path>.lck`, never on the data file.
+    /// The redb engine takes its own `flock` on the container, and on Linux two
+    /// locks from one process on the same file conflict with each other — so
+    /// locking the data file here would have this run unit fighting itself.
+    fn acquire_share_lock(&mut self, file: &str, path: &str, exclusive: bool) -> bool {
+        // `std::fs::File` has carried advisory locking since Rust 1.89 and the
+        // MSRV here is 1.92, so this needs no dependency at all — which is also
+        // why `fs2` was added and then removed again while writing this.
+        //
+        // Already held from an earlier OPEN in this run unit: nothing to do.
+        if self.share_locks.contains_key(file) {
+            return true;
+        }
+        let lck = format!("{path}.lck");
+        let handle = match std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(false)
+            .open(&lck)
+        {
+            Ok(f) => f,
+            // The lock file cannot be made — a read-only directory, say. Do not
+            // refuse the open over it: locking is advisory, and failing here
+            // would make an unwritable directory stop programs that used to run.
+            Err(_) => return true,
+        };
+        let got = if exclusive {
+            handle.try_lock()
+        } else {
+            handle.try_lock_shared()
+        };
+        match got {
+            Ok(()) => {
+                self.share_locks.insert(file.to_owned(), handle);
+                true
+            }
+            // Another run unit holds a conflicting lock. This is the one case
+            // that refuses the open, and the only one the caller turns into 93.
+            Err(std::fs::TryLockError::WouldBlock) => false,
+            // The platform could not lock at all — a filesystem without it, a
+            // network mount. Advisory means advisory: carry on rather than stop
+            // a program that ran perfectly well before this existed.
+            Err(std::fs::TryLockError::Error(_)) => true,
+        }
+    }
+
     fn exec_open(
         &mut self,
         mode: OpenMode,
         files: &[String],
-        _lock: bool,
+        lock: bool,
+        sharing: Option<cobolt_ast::stmt::ShareMode>,
         registered_user: Option<&cobolt_ast::expr::Expr>,
         span: Span,
     ) -> Result<(), RuntimeError> {
@@ -7895,6 +7984,17 @@ impl Interpreter {
 
             // ── INDEXED: dispatch to the keyed engine ──────────────────────
             if org == FileOrganization::Indexed {
+                // Cross-run-unit sharing is decided BEFORE the engine is built:
+                // a refused open must not create or touch the container.
+                if !self.acquire_share_lock(&file, &path, share_lock_is_exclusive(sharing, lock)) {
+                    // Another run unit holds a conflicting lock. 93 is the
+                    // standard's "file unavailable", and the file is left
+                    // unregistered so a later CLOSE answers 42 rather than
+                    // reporting a close of something that never opened.
+                    self.set_file_status(&file, crate::indexed::status::UNAVAILABLE);
+                    self.fire_declarative(&file, crate::indexed::status::UNAVAILABLE, false)?;
+                    continue;
+                }
                 let mut engine = make_indexed_engine(
                     &spec,
                     &path,
@@ -8118,6 +8218,9 @@ impl Interpreter {
             // A closed file has no established record; the next OPEN starts over.
             self.read_established.remove(&file);
             self.last_write_key.remove(&file);
+            // Dropping the handle releases the OS advisory lock, which is
+            // what lets another run unit open the file after this one closes.
+            self.share_locks.remove(&file);
             if let Some(mut handle) = self.open_files.remove(&file) {
                 let code = match &mut handle {
                     OpenFile::Writer { w, .. } => {
@@ -8348,6 +8451,9 @@ impl Interpreter {
             OpenMode::Input,
             &[file.to_string()],
             false,
+            // SORT/MERGE's own GIVING/USING open, not the program's — it holds
+            // no SHARING phrase of its own.
+            None,
             None,
             Span::dummy(),
         );
@@ -8424,6 +8530,9 @@ impl Interpreter {
             OpenMode::Output,
             &[file.to_string()],
             false,
+            // SORT/MERGE's own GIVING/USING open, not the program's — it holds
+            // no SHARING phrase of its own.
+            None,
             None,
             Span::dummy(),
         )?;
@@ -18059,5 +18168,97 @@ mod queued_event_spelling_tests {
             i.async_dispatch_queue.back().map(|(c, _)| c.as_str()),
             Some("AGENT-HELPER")
         );
+    }
+}
+
+#[cfg(test)]
+mod cross_run_unit_lock_tests {
+    use super::*;
+    use cobolt_ast::stmt::ShareMode;
+
+    /// `WITH LOCK` and `SHARING WITH NO OTHER` both mean "this run unit alone".
+    /// Everything else coexists — including `READ ONLY`, whose asymmetry a
+    /// single advisory lock cannot express (see `share_lock_is_exclusive`).
+    #[test]
+    fn only_with_lock_and_no_other_demand_exclusivity() {
+        assert!(share_lock_is_exclusive(None, true), "WITH LOCK");
+        assert!(
+            share_lock_is_exclusive(Some(ShareMode::NoOther), false),
+            "SHARING WITH NO OTHER"
+        );
+        assert!(
+            share_lock_is_exclusive(Some(ShareMode::NoOther), true),
+            "both phrases together"
+        );
+
+        assert!(!share_lock_is_exclusive(None, false), "no phrase at all");
+        assert!(
+            !share_lock_is_exclusive(Some(ShareMode::AllOther), false),
+            "SHARING WITH ALL OTHER"
+        );
+        assert!(
+            !share_lock_is_exclusive(Some(ShareMode::ReadOnly), false),
+            "SHARING WITH READ ONLY is deliberately shared — one flock cannot \
+             admit readers while refusing writers"
+        );
+    }
+
+    /// The property the whole change rests on: an exclusive lock refuses a
+    /// second holder, a shared one admits another shared holder, and releasing
+    /// lets the next in.
+    ///
+    /// Exercised against the real OS primitive on a sidecar in a temp dir —
+    /// the same file the interpreter locks — because the behaviour under test
+    /// *is* the platform's, not ours.
+    #[test]
+    fn the_os_lock_refuses_a_second_exclusive_holder_and_admits_a_second_reader() {
+        use std::fs::{File, TryLockError};
+
+        let dir = std::env::temp_dir().join(format!(
+            "prc-locktest-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("DATA.IDX.lck");
+
+        let open = || {
+            File::options()
+                .create(true)
+                .read(true)
+                .write(true)
+                .truncate(false)
+                .open(&path)
+                .expect("lock file")
+        };
+
+        // Exclusive excludes.
+        let first = open();
+        first.try_lock().expect("first exclusive lock");
+        let second = open();
+        assert!(
+            matches!(second.try_lock(), Err(TryLockError::WouldBlock)),
+            "a second exclusive holder must be refused — this is the 93"
+        );
+        drop(second);
+        drop(first);
+
+        // Shared coexists: two readers under default/ALL OTHER sharing.
+        let r1 = open();
+        r1.try_lock_shared().expect("first shared lock");
+        let r2 = open();
+        assert!(
+            r2.try_lock_shared().is_ok(),
+            "two readers must coexist — SHARING WITH ALL OTHER permits it"
+        );
+        drop(r2);
+        drop(r1);
+
+        // Released on drop, so the next run unit gets in.
+        let again = open();
+        again.try_lock().expect("lock must be free once dropped");
+        drop(again);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
