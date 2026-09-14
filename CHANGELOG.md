@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.23] — 2026-09-14
+
+### The two disk engines' trade-offs, written down for the developer to choose
+
+Operator instruction: *"just state it clear in the documentation pro/cons of each
+engine. Let the developer decide what is the best approach."* The section is
+**drafted in full** and parked — it edits an English canonical that ships in all
+six languages, and the operator chose parking over deleting five translations.
+
+Two facts in it were measured rather than assumed, and are why it is worth
+writing at all:
+
+- **redb permits exactly one process per container.** Its own file backend calls
+  `libc::flock(fd, LOCK_EX | LOCK_NB)` with no shared or read-only variant, so a
+  second opener — reader or writer alike — is refused at `OPEN`, before it
+  reaches a record. No `SHARING` phrase can relax it.
+- **PRCIDXD1 lets two plain `OPEN I-O` writers both succeed**, 00/00, with no
+  concurrency control between them. That is the *same* permissiveness that gives
+  it concurrent readers. A developer choosing it for read concurrency must write
+  `WITH LOCK` on every updater — which is enforced across processes as of
+  1.70.21, and reports **93**.
+
+### Copying a container for each reader: it works, and it does not scale
+
+A byte copy of a **live** redb container, taken while another process held
+`LOCK_EX`, opened cleanly and read the record intact. redb's crash safety makes
+a live copy equivalent to a crash snapshot, recovered to the last commit.
+
+But the copy happens at `OPEN`, covers the **whole container**, and cannot serve
+a writer — so it is no answer at scale. A 200 GB file means 200 GB copied before
+the first `READ`, and redb preallocates: a **one-record container already
+occupies 3,686,400 bytes**. Recorded in the parked entry so the idea is not
+re-proposed without its ceiling attached.
+
+No code changed; no documentation was edited or removed.
+
 ## [PowerRustCOBOL 1.70.22] — 2026-09-14
 
 ### GOLDEN RULE #5 syncs a working branch by rebase, not merge
