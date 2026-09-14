@@ -52,6 +52,30 @@ fn run_capture_fmt(src: &str, fmt: SourceFormat) -> Vec<String> {
     display_rx.try_iter().collect()
 }
 
+/// Run against a **named** engine rather than whatever the default happens to
+/// be. Needed by any test whose expectation is engine-specific: until 1.70.24
+/// redb *was* the default, so a test of a redb-only capability passed through
+/// `run_capture` by coincidence, and stopped the moment the default moved.
+fn run_capture_on(src: &str, engine: cobolt_runtime::indexed::IndexedEngine) -> Vec<String> {
+    let result = parse(tokenize(src, SourceFormat::Free));
+    assert!(
+        result
+            .diagnostics
+            .iter()
+            .all(|d| d.severity != Severity::Error),
+        "parse errors: {:?}",
+        result.diagnostics
+    );
+    let program = result.program.expect("no program");
+    let (_event_tx, event_rx) = mpsc::channel();
+    let (state_tx, _state_rx) = mpsc::channel();
+    let (display_tx, display_rx) = mpsc::channel();
+    let mut interp = Interpreter::new_with_channels(program, event_rx, state_tx, display_tx);
+    interp.set_indexed_engine(engine);
+    interp.run().expect("run failed");
+    display_rx.try_iter().collect()
+}
+
 // ── Focused behaviours ─────────────────────────────────────────────────────────
 
 /// A minimal indexed program template with one numeric key + a name field.
@@ -1579,21 +1603,10 @@ fn at_end_makes_a_read_sequential_under_dynamic_access() {
     );
 }
 
-/// A `REWRITE` that changes an alternate key joins the end of its new
-/// duplicate set.
-///
-/// A record whose alternate value changes leaves one duplicate set and enters
-/// another; it cannot hold a position in a set it has only just joined.
-/// IX215A turns on exactly this — one record is rewritten into a duplicate
-/// value, then a second is rewritten into the same one, and a `START` on that
-/// value must deliver the record whose entry joined **first**. Reusing the
-/// record's original insertion sequence delivered the other, whose file
-/// insertion was earlier but whose membership of this set was not.
-#[test]
-fn a_rewrite_into_a_duplicate_set_joins_at_the_end() {
-    let path = temp_idx("dupsetjoin");
-    let _ = std::fs::remove_file(&path);
-    let src = format!(
+/// The duplicate-set-join program, shared by the two engine tests below so
+/// neither can drift from the other.
+fn dup_set_join_program(path: &std::path::Path) -> String {
+    format!(
         "       IDENTIFICATION DIVISION.\n\
          \x20      PROGRAM-ID. T.\n\
          \x20      ENVIRONMENT DIVISION.\n\
@@ -1642,8 +1655,32 @@ fn a_rewrite_into_a_duplicate_set_joins_at_the_end() {
          \x20          CLOSE F\n\
          \x20          STOP RUN.\n",
         path = path.display()
-    );
-    let out = run_capture(&src);
+    )
+}
+
+/// A `REWRITE` that changes an alternate key joins the end of its new
+/// duplicate set — **on redb, which is the only engine that can do it.**
+///
+/// A record whose alternate value changes leaves one duplicate set and enters
+/// another; it cannot hold a position in a set it has only just joined.
+/// IX215A turns on exactly this — one record is rewritten into a duplicate
+/// value, then a second is rewritten into the same one, and a `START` on that
+/// value must deliver the record whose entry joined **first**. Reusing the
+/// record's original insertion sequence delivered the other, whose file
+/// insertion was earlier but whose membership of this set was not.
+///
+/// ⚠️ **Pinned to redb since 1.70.24.** This asserts an engine capability, not a
+/// COBOL rule the runtime owns: redb keeps a `seq` table recording join order,
+/// and PRCIDXD1 orders duplicates by RecordId — permanently the original write
+/// order — which it cannot change without a container format change. While redb
+/// was the default the distinction was invisible and this test passed through
+/// `run_capture` by coincidence. Its PRCIDXD1 counterpart is the test below.
+#[test]
+fn a_rewrite_into_a_duplicate_set_joins_at_the_end_on_redb() {
+    let path = temp_idx("dupsetjoin");
+    let _ = std::fs::remove_file(&path);
+    let src = dup_set_join_program(&path);
+    let out = run_capture_on(&src, cobolt_runtime::indexed::IndexedEngine::Redb);
     let _ = std::fs::remove_file(&path);
     let joined = out.join("\n");
     // 176 joined the set first, though 4 was written to the file first.
@@ -1655,5 +1692,40 @@ fn a_rewrite_into_a_duplicate_set_joins_at_the_end() {
     assert!(
         joined.contains("SECOND 0004"),
         "and the one that joined later follows it:\n{joined}"
+    );
+}
+
+/// The same program on **PRCIDXD1**, which answers the other way — and that is
+/// the engine trade-off made visible rather than left in a comment.
+///
+/// PRCIDXD1 orders a duplicate set by RecordId, which is permanently the order
+/// the records were *written to the file*, so the record written first leads the
+/// set however late it joined. redb keeps a `seq` table and answers by join
+/// order (the test above).
+///
+/// Neither is a defect. COBOL-85 does not settle the order of an alternate
+/// duplicate set after a `REWRITE` moves a record between sets, and vendors
+/// differ. What matters is that a developer choosing an engine knows which
+/// answer they are choosing — the Indexed File editor says so at the point of
+/// choice, and this test is the proof the two really do differ.
+///
+/// NIST is unaffected either way: IX215A, which exercises this area, runs clean
+/// under both (IX 41/41 measured on both engines at 1.70.24).
+#[test]
+fn a_rewrite_into_a_duplicate_set_keeps_write_order_on_prcidxd1() {
+    let path = temp_idx("dupsetjoin_prc");
+    let _ = std::fs::remove_file(&path);
+    let src = dup_set_join_program(&path);
+    let out = run_capture_on(&src, cobolt_runtime::indexed::IndexedEngine::Rust);
+    let _ = std::fs::remove_file(&path);
+    let joined = out.join("\n");
+    // 4 was written first, so it leads the set — even though 176 joined first.
+    assert!(
+        joined.contains("FIRST 0004"),
+        "PRCIDXD1 orders duplicates by RecordId, i.e. original write order:\n{joined}"
+    );
+    assert!(
+        joined.contains("SECOND 0176"),
+        "and the later-written record follows:\n{joined}"
     );
 }

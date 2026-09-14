@@ -109,7 +109,22 @@ pub enum ReadDir {
 /// until their native formats land.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum IndexedEngine {
-    /// The built-in, dependency-free Rust ISAM engine (KSDS-style, journaled).
+    /// The built-in, dependency-free Rust ISAM engine (KSDS-style, journaled) —
+    /// the PRCIDXD1 container.
+    ///
+    /// **The default again since 1.70.24** (operator ruling, 2026-09-14),
+    /// reversing the 2026-08-29 ruling that promoted [`Self::Redb`]. The reason
+    /// is concurrency: redb's own file backend takes `flock(LOCK_EX)` on its
+    /// container with no shared variant, so **exactly one process may have a
+    /// redb file open** — a second opener, reader or writer alike, is refused
+    /// before it reaches a record. PRCIDXD1 admits concurrent readers.
+    ///
+    /// ⚠️ It admits concurrent *writers* too, with no coordination between
+    /// them, so an updating program must open `WITH LOCK` (or `SHARING WITH NO
+    /// OTHER`); that is enforced across run units since 1.70.21 and reports
+    /// file status 93. The trade is crash safety for concurrency, and it is the
+    /// developer's to make per file — see the Indexed File editor.
+    #[default]
     Rust,
     /// RM/COBOL-85 indexed files (delegates to the Rust engine for now).
     RmCobol85,
@@ -118,12 +133,16 @@ pub enum IndexedEngine {
     /// Crash-safe redb substrate (`STORAGE IS DISK`): O(1) OPEN, working-set RAM,
     /// ACID COMMIT/ROLLBACK. See [`crate::indexed_redb`].
     ///
-    /// **The default since 1.62.73** (operator ruling, 2026-08-29). It keeps a
-    /// `seq` table, so duplicate alternates are retrieved in the order their
-    /// entries joined the set — which PRCIDXD1 cannot do without a container
-    /// format change, since it orders duplicates by RecordId and that is
-    /// permanently the original write order.
-    #[default]
+    /// Was the default from 1.62.73 until 1.70.24, when the operator reversed
+    /// that ruling for concurrency (see [`Self::Rust`]). Still the right choice
+    /// per file wherever durability outranks concurrent access: it is the only
+    /// engine with real ACID `COMMIT`/`ROLLBACK` that survives power loss, and
+    /// its `OPEN` is O(1) where PRCIDXD1's grows with the file.
+    ///
+    /// It keeps a `seq` table, so duplicate alternates are retrieved in the
+    /// order their entries joined the set — which PRCIDXD1 cannot do without a
+    /// container format change, since it orders duplicates by RecordId and that
+    /// is permanently the original write order.
     Redb,
 }
 
@@ -1640,7 +1659,9 @@ mod tests {
         // The default moved to redb at 1.62.73 (operator ruling): it keeps a
         // `seq` table, so duplicate alternates are retrieved in the order
         // their entries joined the set.
-        assert_eq!(IndexedEngine::default(), E::Redb);
+        // Reversed at 1.70.24 (operator ruling 2026-09-14): PRCIDXD1 admits
+        // concurrent readers, redb permits exactly one process per container.
+        assert_eq!(IndexedEngine::default(), E::Rust);
         assert_eq!(E::parse("rust"), Some(E::Rust));
         assert_eq!(E::parse("RUST"), Some(E::Rust));
         assert_eq!(E::parse("default"), Some(IndexedEngine::default()));

@@ -1,5 +1,62 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.24] — 2026-09-14
+
+### PRCIDXD1 is the default indexed engine again
+
+Operator ruling 2026-09-14, reversing the 2026-08-29 promotion of redb. The
+reason is concurrency: redb's own file backend takes `flock(LOCK_EX)` with no
+shared variant, so **exactly one process may have a redb container open** — a
+second opener, reader or writer alike, is refused before it reaches a record.
+PRCIDXD1 admits concurrent readers.
+
+**The NIST gate is byte-identical on both axes.** Compile 420/420, FAIL 0;
+execution 383 clean, PASS 8418 / FAIL 50 / DELETED 96; every module on its
+baseline, including the file-I/O ones the change runs through — IX 41/41,
+SQ 85/85, RL 34/34. Full `cobolt-runtime` suite 875 passed, 0 failed.
+
+### ⚠️ Existing redb containers become unreadable under the default
+
+This is the migration consequence and it is not silent — the engines detect each
+other's formats and refuse cleanly rather than corrupting anything:
+
+| Container | Opened by | Result |
+|---|---|---|
+| redb (`redb` magic) | PRCIDXD1 | **file status 39** — attribute mismatch |
+| PRCIDXD1 (`PRCIDXD1` magic) | redb | file status 90 |
+
+Any indexed file created since 1.62.73 is in redb format and now needs an
+explicit `--indexed-engine redb` (or `COBOL_INDEXED_ENGINE=redb`) to open. No
+data is lost or damaged; it is simply not reachable through the new default.
+
+### The engine difference in duplicate ordering is now tested, not described
+
+`a_rewrite_into_a_duplicate_set_joins_at_the_end` was asserting a **redb-only
+capability through "whatever the default is"** — correct only by coincidence
+while redb *was* the default, and it failed the moment the default moved. It is
+now pinned to redb explicitly and renamed `…_on_redb`, and it has a counterpart:
+
+- **redb** keeps a `seq` table → a rewritten record joins the **end** of its new
+  duplicate set (join order).
+- **PRCIDXD1** orders duplicates by RecordId → **original write order**, which it
+  cannot change without a container format change.
+
+Neither is a defect: COBOL-85 does not settle the order of an alternate
+duplicate set after a `REWRITE` moves a record between sets, and vendors differ.
+Both behaviours are now asserted, sharing one program so they cannot drift.
+NIST is unaffected either way — IX215A, which exercises this area, runs clean on
+both engines, verified at 41/41.
+
+### Still to come: the per-file choice in the Indexed File editor
+
+The operator also asked for the engine to be selectable per file, with the
+trade-offs shown at the point of choice. Not in this change — it needs a new
+`SELECT` clause to carry the choice from the `.cidx` to the runtime, following
+the path `STORAGE MODE IS MEMORY|DISK` already takes
+(`cobolt-codegen/src/indexed.rs:68` → parser → `FileControl` →
+`make_indexed_engine`), plus the selector beside the existing storage radios at
+`indexed_new_dialog.rs:485` and its warning text in all six languages.
+
 ## [PowerRustCOBOL 1.70.23] — 2026-09-14
 
 ### The two disk engines' trade-offs, written down for the developer to choose
