@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.15] — 2026-09-14
+
+### Spec 060 — incremental, section-granular documentation translation
+
+GOLDEN RULE #8 rebuilds all five translations of a document whenever its English
+changes, and only on a minor. The unit of work is the whole corpus, which is why
+a one-sentence correction was parked yesterday rather than landed. Measured at
+1.70.12: **13 English canonicals, 726 KB**, of which `developers-guide-en.md` is
+**520 KB — 71.6% on its own**; five of its 26 `##` sections each exceed the 32 KB
+split threshold, the largest at 130 KB.
+
+The machinery to do better already exists and is under-used. Every document
+carries a `<!-- powerrustcobol: x.y.z -->` stamp, every translation ends with a
+`.<<` sentinel, and `every_translation_is_complete_and_current` already compares
+them. Staleness is **already detectable** — the policy uses that detection only
+to decide what to delete.
+
+`specs/060-incremental-doc-translation/spec.md` proposes four phases: split the
+Guide, stamp per section rather than per file, keep behind translations on disk
+behind a visible banner, and decide staleness by content hash rather than version
+number. Operator decisions already taken and recorded so `/plan` does not reopen
+them: one spec with the Guide split as phase 1, and a behind translation **ships
+with a banner** while the guard warns rather than fails.
+
+It also flags a steering constraint that is **already stale**: `tech.md` still
+says the translations are "user-maintained — never edit them" and names only four
+language suffixes. That contradicts the 2026-08-24 regeneration ruling and omits
+`-fr`. It has to be corrected before the spec is approved.
+
+### Cross-process file locking is classified a FIX
+
+Operator ruling, 2026-09-14. `OPEN … SHARING/WITH LOCK`, `READ … WITH [NO] LOCK`
+and `UNLOCK` already parse and already drive the INDEXED engine's locks — but
+only within one run unit. A verb doing half of what it says is technical debt,
+not a capability being offered. Recorded under Classification precedents.
+
+`docs/cobol85-supported-syntax-en.md` still files it under "out of scope by
+intent", which the ruling overturns. That wording is now parked with the DB104A
+timeout sentence: both edit the same English canonical, so landing them together
+at the minor pays the five-translation cost once instead of twice.
+
+No code changed.
+
 ## [PowerRustCOBOL 1.70.14] — 2026-09-14
 
 ### The deferred DB104A doc sentence is parked, not forgotten
