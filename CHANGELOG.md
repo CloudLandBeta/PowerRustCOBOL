@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.13] — 2026-09-14
+
+### The NIST ledger says when it was last measured, and it was measured today
+
+`NIST/progress.json` still carried `measured_at_version: 1.62.132` /
+`measured_at: 2026-08-31`. The code was at 1.70.12 — roughly eighty fix versions
+had shipped against figures nobody had re-run, and
+`docs/cobol85-supported-syntax-en.md` was republishing them on trust. The ledger's
+own `full_regression_after_every_change` rule had lapsed; that is what this entry
+repairs.
+
+**Both axes re-run at 1.70.12, and everything held.** Compile: 420/420, FAIL 0,
+N-A 39/459. Execution: 383 of 394 ran clean, PASS 8418 / FAIL 50 / DELETED 96 raw.
+Every one of the 50 failures is DB's, so excluding DB — scored on the compile axis
+only — the in-scope figures are exactly the published ones: **380/380 clean, 8362
+PASS, 24 DELETED, 0 FAIL**. All eight protected modules sit on their exact
+baselines: NC 95/95, SQ 85/85, IX 41/41, IF 45/45, IC 25/25, ST 39/39, SM 16/16,
+RL 34/34.
+
+**One fact the ledger did not carry: DB104A times out after 20 s** — the only
+timeout anywhere in the suite. It is unscored, because DB's execution axis is out
+of scope by operator ruling, but an unscored program that hangs is worth naming
+rather than leaving for the next reader to rediscover. It now sits on the DB
+entry alongside what DB actually does when run (PASS 56 / FAIL 50 / DELETED 72
+across its 14, only 3 clean).
+
+No behaviour changed — this is measurement and provenance. The numbers were
+right; what was missing was anyone having checked.
+
 ## [PowerRustCOBOL 1.70.12] — 2026-09-13
 
 ### The Developer's Guide is stamped 1.70, not RC4
