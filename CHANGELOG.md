@@ -1,5 +1,54 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.18] — 2026-09-14
+
+### BUG-001 — `USAGE` is accepted and discarded
+
+The first run of `/doc-audit`, against `docs/cobol85-supported-syntax-en.md`,
+found the skill's own worked example living in the wild.
+
+Line 980 of that page claims a plain ✅ for the whole `USAGE` list. Five of the
+eight — `COMP-3`, `PACKED-DECIMAL`, `BINARY`, `COMP`, `COMP-5` — are lexed,
+parsed into the AST and acknowledged by the semantic analyser, then **never
+consulted by the runtime**. Measured differentially against `cobc` (GnuCOBOL) 3.2
+on one record of `05 R-COMP3 PIC 9(7)V99 COMP-3.` + `05 R-BIN PIC S9(4) COMP.`:
+
+| | Bytes written |
+|---|---|
+| GnuCOBOL 3.2 | **7** — 5 packed + 2 binary |
+| rcrun | **13** — 9 + 4 DISPLAY characters |
+
+`compute_layout`'s `walk()` sizes every field as `pic.digits + pic.decimals +
+sep` and never reads `usage`. The consequence is interop, not conformance: a data
+file from another COBOL shop is unreadable, and one written here is unreadable by
+them.
+
+**Nothing was ever going to catch this.** It is not a compiler error, so
+`check_bugs.sh` cannot see it — BUG-001 is the file's first manual entry. NIST
+cannot see it either: COBOL-85 leaves `PACKED-DECIMAL`'s representation
+implementor-defined, so CCVS85 asserts arithmetic rather than bytes, and treating
+COMP-3 as DISPLAY gives correct arithmetic. NC stands at 95/95 legitimately. And
+`/docsync` could never have found it, because no code change ever broke it — it
+never worked.
+
+The same audit found `FUNCTION LENGTH` value-derived rather than
+declaration-derived on numeric items: `PIC 9(7)V99` returns **10** with a `VALUE`
+and **4** without, against **9** and **9** from GnuCOBOL. `PIC X(10)` is correct
+in both. The NIST **IF** module is 45/45 on both axes, so the suite does not
+exercise that path.
+
+Six other claims audited in the same pass came back **confirmed**, byte-identical
+to GnuCOBOL: `VALUE ALL` in two forms, the live `REDEFINES` read-back, and `P`
+decimal scaling storing 12300 exactly and truncating 12345 to it.
+
+### Both doc corrections parked, not silently fixed
+
+`NIST/progress.json` → `parked` gains `syntax-doc-audit-findings-1.70.17`. Four
+pending edits now share `docs/cobol85-supported-syntax-en.md` — DB104A's timeout,
+the cross-process reclassification, and these two. Landing them in **one** change
+at the minor pays GOLDEN RULE #8's five-translation cost once instead of four
+times. No documentation was removed or edited.
+
 ## [PowerRustCOBOL 1.70.17] — 2026-09-14
 
 ### Translating a document does not make it true — /doc-audit
