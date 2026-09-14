@@ -13640,6 +13640,22 @@ impl Interpreter {
     ) -> Result<CobolValue, RuntimeError> {
         match name.to_ascii_uppercase().as_str() {
             "LENGTH" => {
+                // COBOL-85: LENGTH is the number of character positions **in the
+                // argument** — a property of its DECLARATION, constant at run
+                // time for a fixed-size item. Measuring the value instead is how
+                // `PIC 9(7)V99` answered 10 holding 1234567.89 and 4 holding
+                // nothing, where both are 9 (BUG-002).
+                //
+                // Alphanumerics were right only by coincidence: a
+                // `CobolValue::String` keeps its bytes padded to the declared
+                // width, so `PIC X(10)` measured 10 whatever it held. Numerics
+                // have no such padding once evaluated, so they measured whatever
+                // the item happened to render as.
+                if let Some(w) = self.declared_length(&args[0]) {
+                    return Ok(CobolValue::from_i64(w as i64));
+                }
+                // Not a data item — a literal, an expression or a function
+                // result. Its value IS its length.
                 let v = self.eval_expr(&args[0], span)?;
                 let len = match &v {
                     CobolValue::String { bytes, .. } => bytes.len(),
@@ -14849,6 +14865,36 @@ impl Interpreter {
                 .trim()
                 .to_owned();
             self.set_member(&ctrl, &path, v);
+        }
+    }
+
+    /// The declared character-position count of a data-item reference, or
+    /// `None` when the argument is not one — a literal, an expression or a
+    /// function result, whose value *is* its length.
+    ///
+    /// Deliberately narrow (BUG-002). Only a bare or qualified name is
+    /// answered from the declaration:
+    ///
+    /// * a **subscripted** reference is not, because `expr_to_name` yields the
+    ///   table's base name and `stored_width` reports a bare table's whole
+    ///   extent — `LENGTH(TBL(3))` would become the size of all five
+    ///   occurrences rather than one;
+    /// * a **reference-modified** one is not, because `X(1:3)` is three
+    ///   positions by construction and the evaluated value already says so.
+    ///
+    /// Both fall through to the value path, which is what they did before, so
+    /// neither can regress here.
+    fn declared_length(&self, expr: &Expr) -> Option<usize> {
+        match expr {
+            Expr::Identifier(..) | Expr::Qualified { .. } => {
+                let key = self.expr_to_name(expr);
+                let w = self.env.stored_width(&key);
+                // 0 means the environment does not know the name — an index
+                // item, a bridge handle, something declared elsewhere. Fall
+                // through rather than claim a length of zero.
+                (w > 0).then_some(w)
+            }
+            _ => None,
         }
     }
 

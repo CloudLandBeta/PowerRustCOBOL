@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.20] — 2026-09-14
+
+### BUG-002 fixed — `FUNCTION LENGTH` now measures the declaration
+
+COBOL-85 defines `LENGTH` as the character positions **in the argument**, fixed
+by its PICTURE and constant at run time. The interpreter evaluated the argument
+first and measured what came back, so `PIC 9(7)V99` answered **10** holding
+1234567.89 and **4** holding nothing, where both are 9.
+
+The `LENGTH` arm now calls a new `declared_length()` first: a bare or qualified
+name is answered from the environment's declared width, and everything else —
+literals, expressions, function results — falls through to the value, which *is*
+its own length. Subscripted and reference-modified arguments deliberately fall
+through as well, because a bare table name reports its **whole extent**, so
+`LENGTH(TBL(3))` would otherwise have become the size of all five occurrences.
+Both were value-derived before, so neither regresses.
+
+All ten cases now match `cobc (GnuCOBOL) 3.2` exactly, including the two that
+worried the fix: a signed non-separate item holding `-123` stays **4**, and
+`SIGN IS LEADING SEPARATE` is correctly one wider at **5**.
+
+**Why the existing tests never caught it.** Alphanumerics were right by
+coincidence — a `CobolValue::String` keeps its bytes padded to the declared
+width, so `PIC X(10)` measured 10 whatever it held. Any test written with `PIC X`
+alone passes before and after and proves nothing. The new
+`crates/cobolt-runtime/tests/test_function_length.rs` therefore covers numeric
+items specifically, and asserts a numeric item's length does not move when its
+value does.
+
+**Verification.** NIST gate byte-identical to baseline: compile **420/420**,
+FAIL 0; execution **383 clean**, PASS **8418** / FAIL 50 / DELETED 96; every
+module on its exact baseline (NC 95/95, SQ 85/85, IX 41/41, IF 45/45, IC 25/25,
+ST 39/39, SM 16/16, RL 34/34). Full `cobolt-runtime` suite: **872 passed, 0
+failed**, 8 ignored.
+
+BUG-001 (`USAGE` ignored) remains **open** — see the report below; it is a
+storage-model change, not a one-arm fix.
+
 ## [PowerRustCOBOL 1.70.19] — 2026-09-14
 
 ### BUG-002 — `FUNCTION LENGTH` measures the value, not the declaration

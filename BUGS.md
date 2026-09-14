@@ -25,7 +25,6 @@ See the LICENSE file in the project root for full license information.
 | ID | Detected | Crate | Error | Summary |
 |----|----------|-------|-------|---------|
 | BUG-001 | 2026-09-14 | cobolt-runtime | runtime | `USAGE` is parsed and then ignored: `COMP-3`, `PACKED-DECIMAL`, `BINARY`, `COMP` and `COMP-5` items get DISPLAY storage, so every record holding one is byte-incompatible with other COBOL implementations. |
-| BUG-002 | 2026-09-14 | cobolt-runtime | runtime | `FUNCTION LENGTH` is value-derived, not declaration-derived, on numeric items: `PIC 9(7)V99` returns 10 with a `VALUE` and 4 without, where the standard requires 9 in both cases. |
 
 ### BUG-001 — `USAGE` is accepted and discarded
 
@@ -71,7 +70,7 @@ and nothing in that document warns the reader. Parked in `NIST/progress.json`
 rather than fixed on a `z` bump, because GOLDEN RULE #8 charges five translations
 per edit to that canonical.
 
-### BUG-002 — `FUNCTION LENGTH` measures the value, not the declaration
+### BUG-002 — `FUNCTION LENGTH` measures the value, not the declaration ✅ FIXED 1.70.20
 
 **Not a compiler error either**, and found the same way — by `/doc-audit` on
 `docs/cobol85-supported-syntax-en.md`, whose line 842 claims "The **complete
@@ -121,11 +120,29 @@ item. That is a statement about coverage, not a defect in the suite.
 **Doc consequence, parked** alongside BUG-001's, in
 `NIST/progress.json` → `syntax-doc-audit-findings-1.70.17`.
 
+**FIXED at 1.70.20.** The `LENGTH` arm now calls `declared_length()` before
+evaluating: a bare or qualified name is answered from the environment's declared
+width, and everything else — literals, expressions, function results — falls
+through to the value, which *is* its own length. Subscripted and
+reference-modified arguments deliberately fall through too (a bare table name
+reports its whole extent, so `LENGTH(TBL(3))` would have become the size of all
+five occurrences).
+
+All ten cases now match `cobc (GnuCOBOL) 3.2` exactly, including the two that
+worried the fix: a signed non-separate item holding `-123` stays 4, and
+`SIGN IS LEADING SEPARATE` is correctly one wider at 5. Regression test:
+`crates/cobolt-runtime/tests/test_function_length.rs`, which deliberately covers
+numeric items — a test written with `PIC X` alone would have passed before the
+fix and proved nothing.
+
+**NIST gate: green, byte-identical.** Compile 420/420 FAIL 0; execution 383 clean,
+PASS 8418 / FAIL 50 / DELETED 96; every module on its baseline. Full
+`cobolt-runtime` suite: 872 passed, 0 failed.
+
 ---
 
 ## Resolved Bugs
 
 | ID | Detected | Fixed | Crate | Error | Summary | Fix |
 |----|----------|-------|-------|-------|---------|-----|
-
-_None yet._
+| BUG-002 | 2026-09-14 | 2026-09-14 (1.70.20) | cobolt-runtime | runtime | `FUNCTION LENGTH` measured the value instead of the declaration on numeric items. | `interpreter.rs` — the `LENGTH` arm now asks `declared_length()` first, which reads the item's declared width from the environment; literals and expressions still fall through to the value. Regression test: `tests/test_function_length.rs`. |
