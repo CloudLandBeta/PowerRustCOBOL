@@ -25,6 +25,7 @@ See the LICENSE file in the project root for full license information.
 | ID | Detected | Crate | Error | Summary |
 |----|----------|-------|-------|---------|
 | BUG-001 | 2026-09-14 | cobolt-runtime | runtime | `USAGE` is parsed and then ignored: `COMP-3`, `PACKED-DECIMAL`, `BINARY`, `COMP` and `COMP-5` items get DISPLAY storage, so every record holding one is byte-incompatible with other COBOL implementations. |
+| BUG-002 | 2026-09-14 | cobolt-runtime | runtime | `FUNCTION LENGTH` is value-derived, not declaration-derived, on numeric items: `PIC 9(7)V99` returns 10 with a `VALUE` and 4 without, where the standard requires 9 in both cases. |
 
 ### BUG-001 — `USAGE` is accepted and discarded
 
@@ -60,14 +61,65 @@ and treating COMP-3 as DISPLAY gives correct arithmetic. NC therefore stands at
 file from another COBOL shop is unreadable, and one written here is unreadable by
 them. No runtime test covers it.
 
-**Related.** The same audit found `FUNCTION LENGTH` value-derived rather than
-declaration-derived on numeric items (`PIC 9(7)V99` returns 10 with a value and 4
-without; both should be 9). Not filed separately pending a decision on scope.
+**Related — BUG-002**, from the same audit, and they share a fix surface: once
+`FUNCTION LENGTH` consults the declaration instead of the value, it must also
+honour `USAGE` to return 5 for a `COMP-3` item. Fixing either alone leaves the
+other half wrong.
 
 **Doc consequence, parked.** `docs/cobol85-supported-syntax-en.md:980` is wrong
 and nothing in that document warns the reader. Parked in `NIST/progress.json`
 rather than fixed on a `z` bump, because GOLDEN RULE #8 charges five translations
 per edit to that canonical.
+
+### BUG-002 — `FUNCTION LENGTH` measures the value, not the declaration
+
+**Not a compiler error either**, and found the same way — by `/doc-audit` on
+`docs/cobol85-supported-syntax-en.md`, whose line 842 claims "The **complete
+COBOL-85 standard intrinsic set** is implemented".
+
+**Measured, differentially, at 1.70.17:**
+
+| Declaration | rcrun | GnuCOBOL 3.2 | Standard |
+|---|---|---|---|
+| `PIC X(10)` | 10 | 10 | 10 ✅ |
+| `PIC X(10) VALUE "AB"` | 10 | 10 | 10 ✅ |
+| `PIC 9(7)V99 VALUE 1234567.89` | **10** | 9 | 9 ❌ |
+| `PIC 9(7)V99` (no `VALUE`) | **4** | 9 | 9 ❌ |
+
+**Root cause** — `cobolt-runtime/src/interpreter.rs:13642`:
+
+```rust
+"LENGTH" => {
+    let v = self.eval_expr(&args[0], span)?;          // collapses the item to a VALUE
+    let len = match &v {
+        CobolValue::String { bytes, .. } => bytes.len(),   // alphanumeric: correct by luck
+        _ => v.as_display_string().len(),                  // numeric: length of the RENDERED value
+    };
+```
+
+`eval_expr` reduces the identifier to a value before anything can look at its
+PICTURE. For a `CobolValue::String` the stored byte count happens to equal the
+declared width, which is why `PIC X(10)` is right — it is correct by coincidence,
+not by construction. A numeric falls to `as_display_string().len()`, so it
+measures whatever the item currently holds: `"1234567.89"` is 10 characters, and
+an uninitialised item renders 4.
+
+COBOL-85 defines `FUNCTION LENGTH` as the number of character positions **in the
+argument** — a property of the declaration, constant at run time for a
+fixed-size item. It must be read from the PICTURE (and, per BUG-001, the
+`USAGE`), never from the current value.
+
+⚠️ **Do not "fix" the other two `LENGTH` sites.** `interpreter.rs:11969` and
+`:12179` implement the member-call extension `x::Length()` / `x::Len()`, which
+operates on a **value** and returns its character count. That is its intended
+contract and it is correct. Only the `FUNCTION LENGTH` arm at `:13642` is wrong.
+
+**Why nothing caught it.** The NIST **IF (Intrinsic functions)** module stands at
+**45/45 on both axes** — the suite does not exercise `LENGTH` against a numeric
+item. That is a statement about coverage, not a defect in the suite.
+
+**Doc consequence, parked** alongside BUG-001's, in
+`NIST/progress.json` → `syntax-doc-audit-findings-1.70.17`.
 
 ---
 

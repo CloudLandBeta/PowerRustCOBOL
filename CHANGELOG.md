@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.19] — 2026-09-14
+
+### BUG-002 — `FUNCTION LENGTH` measures the value, not the declaration
+
+The second finding from the `/doc-audit` pass, now filed in its own right.
+`docs/cobol85-supported-syntax-en.md:842` claims "The **complete COBOL-85
+standard intrinsic set** is implemented"; `LENGTH` is not, on numeric items.
+
+| Declaration | rcrun | GnuCOBOL 3.2 | Standard |
+|---|---|---|---|
+| `PIC X(10)` | 10 | 10 | 10 ✅ |
+| `PIC 9(7)V99 VALUE 1234567.89` | **10** | 9 | 9 ❌ |
+| `PIC 9(7)V99` (no `VALUE`) | **4** | 9 | 9 ❌ |
+
+`interpreter.rs:13642` calls `eval_expr` first, which collapses the item to a
+value before anything can read its PICTURE. `CobolValue::String` then returns its
+stored byte count — which equals the declared width, so alphanumeric items are
+**correct by coincidence, not by construction**. Numerics fall to
+`as_display_string().len()` and measure whatever is currently held: `1234567.89`
+renders as 10 characters, and an uninitialised item as 4.
+
+COBOL-85 defines `LENGTH` as the character positions **in the argument** — a
+property of the declaration, constant at run time for a fixed-size item.
+
+**BUG-001 and BUG-002 share a fix surface.** Once `LENGTH` reads the declaration
+instead of the value, it must also honour `USAGE` to return 5 for a `COMP-3`
+item. Fixing either alone leaves the other half wrong, and both entries now say
+so.
+
+**A trap recorded with it:** `interpreter.rs:11969` and `:12179` also implement
+`LENGTH`, but as the member-call extension `x::Length()` / `x::Len()`, which
+operates on a value and returns its character count. That is the intended
+contract and it is correct — only the `FUNCTION LENGTH` arm at `:13642` is wrong.
+
+Neither is visible to `check_bugs.sh` (not compiler errors) or to NIST: the **IF**
+module is 45/45 on both axes and does not exercise `LENGTH` against a numeric
+item — coverage, not a defect in the suite.
+
 ## [PowerRustCOBOL 1.70.18] — 2026-09-14
 
 ### BUG-001 — `USAGE` is accepted and discarded
