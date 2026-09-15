@@ -75,6 +75,21 @@ const DIR_ENTRY: usize = 16; // kind(1) pad(1) slot(2) len(4) page(8)
 const DIR_LEAF_FAN: u64 = 255; // 16 + 255 × 16 = 4096
 const DIR_IDX_FAN: u64 = 510; // 16 + 510 ×  8 = 4096
 
+/// How many changed pages may accumulate before a commit point is forced.
+///
+/// This is the whole durability/throughput dial, and it is set by measurement.
+/// A commit costs two `fsync`s, and an `fsync` on the machine this was tuned on
+/// costs about 3.4 ms — so committing after every `WRITE` turned 2000 records
+/// from 0.53 s into 20.63 s. Committing every 256 changed pages (1 MiB) puts it
+/// back, bounds what an abend can cost, and bounds the write set with it.
+///
+/// A program that wants a tighter guarantee already has the verb for it:
+/// `COMMIT` is a commit point, and so is `CLOSE`.
+const CHECKPOINT_PAGES: usize = 256;
+
+/// Magic of the sidecar undo journal, `<container>.jrn`.
+const JRN_MAGIC: &[u8; 8] = b"PRCJRN01";
+
 /// The container version this engine writes. See [`DiskIndexedFile::migrate`]
 /// for what separates it from 2.
 const VERSION: u16 = 3;
@@ -129,6 +144,22 @@ impl Node {
     fn fits(&self) -> bool {
         self.serialized_len() <= PAGE_SIZE
     }
+}
+
+/// Every header field an operation can move, captured so a failed operation
+/// can be undone in memory as completely as the journal undoes it on disk.
+#[derive(Clone)]
+struct HeaderState {
+    next_page_id: u64,
+    free_list_head: u64,
+    record_count: u64,
+    data_tail: u64,
+    primary_root: u64,
+    alt_roots: Vec<u64>,
+    dir_root: u64,
+    dir_height: u8,
+    dir_count: u64,
+    next_alt_seq: u64,
 }
 
 /// The persistent disk-backed indexed file.
@@ -196,6 +227,32 @@ pub struct DiskIndexedFile {
     undo: Vec<DiskUndo>,
     tx_replay: bool,
 
+    /// Pages changed since the last commit point, by page id.
+    ///
+    /// **A write set, not a page cache.** It exists for one reason: these pages
+    /// must not reach the container until the journal that can undo them is
+    /// durable, and that ordering is impossible if every page write goes
+    /// straight through. It is emptied at every commit point, and a commit
+    /// point is forced once it reaches [`CHECKPOINT_PAGES`], so it is bounded
+    /// by that number and never by the size of the container.
+    dirty: std::collections::BTreeMap<u64, Vec<u8>>,
+    /// The image each page in `dirty` had on disk before it was first touched,
+    /// in that order. This is the undo journal's payload.
+    undo_pages: Vec<(u64, Vec<u8>)>,
+    /// Pages changed by the **operation in flight**, layered over `dirty` so a
+    /// verb that fails part-way through leaves nothing behind.
+    op_dirty: std::collections::BTreeMap<u64, Vec<u8>>,
+    /// Undo images first recorded by the operation in flight.
+    op_undo: Vec<(u64, Vec<u8>)>,
+    /// True between the first change since a commit point and the next one.
+    in_tx: bool,
+    /// True while a single `WRITE`/`REWRITE`/`DELETE` is running.
+    in_op: bool,
+    /// The header fields as they stood when the operation started, so an
+    /// operation that fails part-way can put memory back the way the rest of
+    /// the transaction still has it.
+    op_snapshot: Option<HeaderState>,
+
     /// A durability step — `fsync`, or the header/directory write that precedes
     /// it — has failed since this file was opened.
     ///
@@ -253,6 +310,13 @@ impl DiskIndexedFile {
             alt_roots: vec![0; n],
             dir_head: 0,
             undo: Vec::new(),
+            dirty: std::collections::BTreeMap::new(),
+            undo_pages: Vec::new(),
+            op_dirty: std::collections::BTreeMap::new(),
+            op_undo: Vec::new(),
+            in_tx: false,
+            in_op: false,
+            op_snapshot: None,
             dir_root: 0,
             dir_height: 0,
             dir_count: 0,
@@ -284,7 +348,21 @@ impl DiskIndexedFile {
         self.file.as_mut().expect("file open")
     }
 
+    /// Read a page as the caller must see it: this operation's own
+    /// uncommitted write, else the transaction's, else what is on disk.
     fn read_page(&mut self, id: u64) -> R<Vec<u8>> {
+        if let Some(p) = self.op_dirty.get(&id) {
+            return Ok(p.clone());
+        }
+        if let Some(p) = self.dirty.get(&id) {
+            return Ok(p.clone());
+        }
+        self.read_page_raw(id)
+    }
+
+    /// Read a page straight from the container, ignoring the write set. Used
+    /// by journalling and recovery, which must see what is actually on disk.
+    fn read_page_raw(&mut self, id: u64) -> R<Vec<u8>> {
         let f = self.file_mut();
         f.seek(SeekFrom::Start(id * PAGE_SIZE as u64))?;
         let mut buf = vec![0u8; PAGE_SIZE];
@@ -300,13 +378,49 @@ impl DiskIndexedFile {
         Ok(buf)
     }
 
+    /// Write a page.
+    ///
+    /// Inside an operation the page is held in the write set and its previous
+    /// image recorded, so nothing reaches the container before the journal
+    /// that can undo it. Outside one — `OPEN OUTPUT`, conversion — the write
+    /// goes straight through, as it always did.
     fn write_page(&mut self, id: u64, buf: &[u8]) -> R<()> {
         debug_assert!(buf.len() <= PAGE_SIZE);
         let mut page = vec![0u8; PAGE_SIZE];
         page[..buf.len()].copy_from_slice(buf);
+        if self.in_op {
+            // The undo image is what the *container* holds, so it is taken
+            // once, the first time a page is touched after a commit point —
+            // not again by a later operation in the same transaction.
+            if !self.op_dirty.contains_key(&id) && !self.dirty.contains_key(&id) {
+                let old = self.read_page_raw(id)?;
+                self.op_undo.push((id, old));
+            }
+            self.op_dirty.insert(id, page);
+            return Ok(());
+        }
+        if self.in_tx {
+            if !self.dirty.contains_key(&id) {
+                let old = self.read_page_raw(id)?;
+                self.undo_pages.push((id, old));
+            }
+            self.dirty.insert(id, page);
+            return Ok(());
+        }
+        self.write_page_raw(id, &page)
+    }
+
+    fn write_page_raw(&mut self, id: u64, page: &[u8]) -> R<()> {
         let f = self.file_mut();
         f.seek(SeekFrom::Start(id * PAGE_SIZE as u64))?;
-        f.write_all(&page)
+        f.write_all(page)
+    }
+
+    fn sync(&mut self) -> R<()> {
+        match self.file.as_mut() {
+            Some(f) => f.sync_all(),
+            None => Ok(()),
+        }
     }
 
     fn alloc_page(&mut self) -> R<u64> {
@@ -331,6 +445,219 @@ impl DiskIndexedFile {
         self.write_page(id, &p)?;
         self.free_list_head = id;
         Ok(())
+    }
+
+    // ── The per-operation undo journal ───────────────────────────────────────
+    //
+    // One `WRITE`, `REWRITE` or `DELETE` touches several pages — a data page,
+    // one B+tree leaf per key, sometimes a split, a directory leaf, the header.
+    // Interrupted between any two of those writes the container was left
+    // structurally wrong, with no way to tell: pages restructured on disk while
+    // the roots, the free list and the record count still described the file as
+    // it had been.
+    //
+    // So the operation's pages are held back until the **previous** image of
+    // every one of them is on disk in `<container>.jrn`, and only then written.
+    // The sequence is: journal + fsync, pages + fsync, header + fsync, remove
+    // the journal. Three fsyncs, whatever the operation touched.
+    //
+    // **Removing the journal is the commit point**, not the header write. A
+    // crash anywhere before that removal is undone in full — header included —
+    // which is the only placement that never leaves the container in a state
+    // no header describes. The cost is a window of microseconds in which an
+    // operation already answered `00` can still be undone; the alternative is
+    // an old header pointing at pages an operation has already rewritten in
+    // place, which is corruption rather than a lost record.
+
+    fn journal_path(&self) -> PathBuf {
+        let mut s = self.path.clone().into_os_string();
+        s.push(".jrn");
+        PathBuf::from(s)
+    }
+
+    /// Write the undo journal and make it durable.
+    fn journal_write(&mut self, undo: &[(u64, Vec<u8>)]) -> R<()> {
+        let mut b = Vec::with_capacity(16 + undo.len() * (12 + PAGE_SIZE));
+        b.extend_from_slice(JRN_MAGIC);
+        b.extend_from_slice(&(undo.len() as u64).to_le_bytes());
+        for (id, img) in undo {
+            b.extend_from_slice(&id.to_le_bytes());
+            b.extend_from_slice(&crate::indexed::crc32(img).to_le_bytes());
+            b.extend_from_slice(img);
+        }
+        let mut f = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(self.journal_path())?;
+        f.write_all(&b)?;
+        f.sync_all()
+    }
+
+    /// Remove the journal — the commit point of the operation it describes.
+    fn journal_clear(&mut self) -> R<()> {
+        match std::fs::remove_file(self.journal_path()) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Undo an operation a crash interrupted, if there is one.
+    ///
+    /// Runs before the header is read, because the header is one of the pages
+    /// it may have to put back.
+    ///
+    /// A journal that is short, or any of whose records fails its checksum, is
+    /// **discarded without undoing anything** — and that is not a compromise
+    /// but the correct answer. The container is not touched until the whole
+    /// journal is on disk, so an incomplete journal proves the operation never
+    /// began writing. A complete one is replayed whole; restoring a page that
+    /// was never modified writes back the bytes already there.
+    fn journal_recover(&mut self) -> R<()> {
+        let jp = self.journal_path();
+        let Ok(b) = std::fs::read(&jp) else {
+            return Ok(());
+        };
+        const REC: usize = 8 + 4 + PAGE_SIZE;
+        let complete = b.len() >= 16
+            && &b[0..8] == JRN_MAGIC
+            && b.len() >= 16 + u64::from_le_bytes(b[8..16].try_into().unwrap()) as usize * REC;
+        if !complete {
+            let _ = std::fs::remove_file(&jp);
+            return Ok(());
+        }
+        let count = u64::from_le_bytes(b[8..16].try_into().unwrap()) as usize;
+        let mut images = Vec::with_capacity(count);
+        for n in 0..count {
+            let o = 16 + n * REC;
+            let id = u64::from_le_bytes(b[o..o + 8].try_into().unwrap());
+            let sum = u32::from_le_bytes(b[o + 8..o + 12].try_into().unwrap());
+            let img = &b[o + 12..o + 12 + PAGE_SIZE];
+            if crate::indexed::crc32(img) != sum {
+                // A torn record means the journal was still being written, so
+                // the container was never touched. Nothing to put back.
+                let _ = std::fs::remove_file(&jp);
+                return Ok(());
+            }
+            images.push((id, img.to_vec()));
+        }
+        for (id, img) in images.iter().rev() {
+            self.write_page_raw(*id, img)?;
+        }
+        self.sync()?;
+        std::fs::remove_file(&jp)?;
+        Ok(())
+    }
+
+    // ── Operation boundaries ─────────────────────────────────────────────────
+
+    fn header_state(&self) -> HeaderState {
+        HeaderState {
+            next_page_id: self.next_page_id,
+            free_list_head: self.free_list_head,
+            record_count: self.record_count,
+            data_tail: self.data_tail,
+            primary_root: self.primary_root,
+            alt_roots: self.alt_roots.clone(),
+            dir_root: self.dir_root,
+            dir_height: self.dir_height,
+            dir_count: self.dir_count,
+            next_alt_seq: self.next_alt_seq,
+        }
+    }
+
+    fn restore_header_state(&mut self, s: HeaderState) {
+        self.next_page_id = s.next_page_id;
+        self.free_list_head = s.free_list_head;
+        self.record_count = s.record_count;
+        self.data_tail = s.data_tail;
+        self.primary_root = s.primary_root;
+        self.alt_roots = s.alt_roots;
+        self.dir_root = s.dir_root;
+        self.dir_height = s.dir_height;
+        self.dir_count = s.dir_count;
+        self.next_alt_seq = s.next_alt_seq;
+    }
+
+    fn op_begin(&mut self) {
+        self.op_dirty.clear();
+        self.op_undo.clear();
+        self.op_snapshot = Some(self.header_state());
+        self.in_op = true;
+        self.in_tx = true;
+    }
+
+    /// Discard the operation in flight. Nothing it wrote ever left memory, and
+    /// it is layered over the transaction's own write set, so the rest of the
+    /// transaction is untouched — only the header fields need putting back.
+    fn op_abort(&mut self) {
+        self.in_op = false;
+        self.op_dirty.clear();
+        self.op_undo.clear();
+        if let Some(s) = self.op_snapshot.take() {
+            self.restore_header_state(s);
+        }
+    }
+
+    /// End an operation according to the status it produced.
+    ///
+    /// A successful operation folds into the transaction; a failed one is
+    /// dropped. The transaction reaches the disk at the next commit point,
+    /// which this forces once the write set has grown to
+    /// [`CHECKPOINT_PAGES`].
+    fn op_finish(&mut self, st: &'static str) -> &'static str {
+        self.in_op = false;
+        if st != status::OK && st != status::DUP_ALT_OK {
+            self.op_abort();
+            return st;
+        }
+        self.op_snapshot = None;
+        for (id, img) in std::mem::take(&mut self.op_undo) {
+            self.undo_pages.push((id, img));
+        }
+        for (id, page) in std::mem::take(&mut self.op_dirty) {
+            self.dirty.insert(id, page);
+        }
+        if self.dirty.len() >= CHECKPOINT_PAGES {
+            if self.tx_commit().is_err() {
+                self.io_failed = true;
+                return status::IO_ERROR;
+            }
+        }
+        st
+    }
+
+    /// A commit point: journal, pages, header, remove the journal.
+    ///
+    /// Removing the journal is what makes the transaction durable. Up to that
+    /// moment a crash undoes every page of it, header included, so the
+    /// container is never left in a state no header describes.
+    fn tx_commit(&mut self) -> R<()> {
+        if !self.in_tx {
+            return Ok(());
+        }
+        debug_assert!(!self.in_op, "a commit point cannot fall inside an operation");
+        // Written while the transaction is still collecting, so page 0's
+        // previous image joins the journal like any other page.
+        self.write_header()?;
+        self.in_tx = false;
+        let dirty = std::mem::take(&mut self.dirty);
+        let undo = std::mem::take(&mut self.undo_pages);
+        if dirty.is_empty() {
+            return Ok(());
+        }
+        self.journal_write(&undo)?;
+        for (id, page) in dirty.iter() {
+            if *id != 0 {
+                self.write_page_raw(*id, page)?;
+            }
+        }
+        if let Some(page) = dirty.get(&0) {
+            self.write_page_raw(0, page)?;
+        }
+        self.sync()?;
+        self.journal_clear()
     }
 
     // ── The RecordId directory ───────────────────────────────────────────────
@@ -1109,6 +1436,11 @@ impl DiskIndexedFile {
                     Err(_) => return status::IO_ERROR,
                 };
                 self.file = Some(f);
+                // A journal left by the container this one replaces describes
+                // pages that no longer exist. Drop it with the data it refers
+                // to, or the next open would undo this file back into the old
+                // one's shape.
+                let _ = self.journal_clear();
                 if self.init_empty().is_err() {
                     return status::IO_ERROR;
                 }
@@ -1130,6 +1462,11 @@ impl DiskIndexedFile {
                         Err(_) => return status::IO_ERROR,
                     };
                     self.file = Some(f);
+                    // A journal left by the container this one replaces describes
+                    // pages that no longer exist. Drop it with the data it refers
+                    // to, or the next open would undo this file back into the old
+                    // one's shape.
+                    let _ = self.journal_clear();
                     if self.init_empty().is_err() {
                         return status::IO_ERROR;
                     }
@@ -1139,6 +1476,13 @@ impl DiskIndexedFile {
                         Err(_) => return status::IO_ERROR,
                     };
                     self.file = Some(f);
+                    // Undo an operation a crash interrupted, before anything
+                    // reads the header — the header is one of the pages the
+                    // journal may have to put back.
+                    if self.journal_recover().is_err() {
+                        self.file = None;
+                        return status::IO_ERROR;
+                    }
                     match self.load_header() {
                         Ok(Some(stored)) => {
                             if self.strict_metadata && !self.schema_matches(&stored) {
@@ -1213,7 +1557,7 @@ impl DiskIndexedFile {
         );
         let mut code = status::OK;
         if writable {
-            if self.write_header().is_err() {
+            if self.tx_commit().is_err() || self.write_header().is_err() {
                 code = status::IO_ERROR;
             }
             if let Some(f) = self.file.as_mut() {
@@ -1238,6 +1582,12 @@ impl DiskIndexedFile {
     // ── WRITE ────────────────────────────────────────────────────────────────
 
     pub fn write(&mut self, rec: &[u8]) -> &'static str {
+        self.op_begin();
+        let st = self.write_inner(rec);
+        self.op_finish(st)
+    }
+
+    fn write_inner(&mut self, rec: &[u8]) -> &'static str {
         if !matches!(
             self.open,
             Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)
@@ -1621,6 +1971,12 @@ impl DiskIndexedFile {
     // ── REWRITE / DELETE ─────────────────────────────────────────────────────
 
     pub fn rewrite(&mut self, rec: &[u8], random_key: Option<&[u8]>) -> &'static str {
+        self.op_begin();
+        let st = self.rewrite_inner(rec, random_key);
+        self.op_finish(st)
+    }
+
+    fn rewrite_inner(&mut self, rec: &[u8], random_key: Option<&[u8]>) -> &'static str {
         if self.open != Some(OpenMode::Io) {
             return status::NOT_OPEN_IO;
         }
@@ -1743,6 +2099,12 @@ impl DiskIndexedFile {
     }
 
     pub fn delete(&mut self, random_key: Option<&[u8]>) -> &'static str {
+        self.op_begin();
+        let st = self.delete_inner(random_key);
+        self.op_finish(st)
+    }
+
+    fn delete_inner(&mut self, random_key: Option<&[u8]>) -> &'static str {
         if self.open != Some(OpenMode::Io) {
             return status::NOT_OPEN_IO;
         }
@@ -1854,9 +2216,11 @@ impl DiskIndexedFile {
     /// Write the directory and header, then `fsync`, recording any failure in
     /// [`Self::io_failed`] so a verb that carries a FILE STATUS can report it.
     fn persist_and_sync(&mut self) {
-        let mut failed = self.write_header().is_err();
-        if let Some(f) = self.file.as_mut() {
-            failed |= f.sync_all().is_err();
+        let mut failed = self.tx_commit().is_err();
+        if !self.in_tx {
+            // Nothing was pending, so the header still has to be published.
+            failed |= self.write_header().is_err();
+            failed |= self.sync().is_err();
         }
         self.io_failed |= failed;
     }
@@ -2205,6 +2569,30 @@ impl DiskIndexedFile {
         Ok(())
     }
 
+    /// Crash in the middle of a commit: write the journal, write only the
+    /// first `pages` of the transaction's changed pages, and stop — no header,
+    /// no journal removal.
+    ///
+    /// Test-only. It reproduces the exact state a power loss leaves, which is
+    /// otherwise reachable only by killing a process at the right microsecond.
+    #[cfg(test)]
+    fn crash_mid_commit(&mut self, pages: usize) -> R<()> {
+        assert!(self.in_tx, "there must be a transaction to interrupt");
+        self.in_tx = false;
+        let dirty = std::mem::take(&mut self.dirty);
+        let undo = std::mem::take(&mut self.undo_pages);
+        self.journal_write(&undo)?;
+        for (id, page) in dirty.iter().take(pages) {
+            self.write_page_raw(*id, page)?;
+        }
+        self.sync()?;
+        // … and here the process dies. The journal stays, the header is the
+        // one from before the transaction, and the container is part-written.
+        self.open = None;
+        self.file = None;
+        Ok(())
+    }
+
     /// Rewrite this container in the **version 2** form — the directory as a
     /// linked chain, and a header with neither radix fields nor a checksum.
     ///
@@ -2467,6 +2855,134 @@ mod tests {
             },
             Vec::new(),
         )
+    }
+
+    /// A commit interrupted part-way is undone whole, header included.
+    #[test]
+    fn a_crash_mid_commit_is_undone_completely() {
+        let p = tmp("crash-mid-commit");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile(p.clone(), true, false);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=50u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "BEFORE")), status::OK);
+        }
+        f.close();
+        let settled = read_all(&p, true);
+        assert_eq!(settled.len(), 50);
+
+        // Start a transaction and interrupt it after only a few of its pages
+        // have reached the container.
+        let mut g = newfile(p.clone(), true, false);
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        for i in 51..=70u32 {
+            assert_eq!(g.write(&rec(&i.to_string(), "AFTER")), status::OK);
+        }
+        assert_eq!(g.delete(Some(b"00010")), status::OK);
+        g.crash_mid_commit(4).unwrap();
+        assert!(
+            std::fs::metadata(journal_of(&p)).is_ok(),
+            "the journal survives the crash — it is what recovery needs"
+        );
+
+        // Reopening undoes it.
+        let mut h = newfile(p.clone(), true, false);
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        h.close();
+        assert!(
+            std::fs::metadata(journal_of(&p)).is_err(),
+            "recovery removes the journal it replayed"
+        );
+        assert_eq!(
+            read_all(&p, true),
+            settled,
+            "the container is exactly what it was before the interrupted transaction"
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A commit that completed survives the crash that follows it.
+    #[test]
+    fn a_completed_commit_survives() {
+        let p = tmp("commit-survives");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=10u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+
+        let mut g = newfile_pk(p.clone());
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        for i in 11..=25u32 {
+            assert_eq!(g.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        g.commit(); // the program said so — this is a commit point
+        // … and now the process dies, without closing.
+        g.open = None;
+        g.file = None;
+        assert!(
+            std::fs::metadata(journal_of(&p)).is_err(),
+            "a completed commit leaves no journal behind"
+        );
+
+        assert_eq!(read_all(&p, false).len(), 25, "every committed record is there");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A journal that was still being written is discarded, not replayed.
+    ///
+    /// It proves the operation never began writing to the container, so there
+    /// is nothing to put back — and replaying a half-written journal would put
+    /// back images that were never taken.
+    #[test]
+    fn an_incomplete_journal_is_discarded() {
+        let p = tmp("torn-journal");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=12u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+        let good = std::fs::read(&p).unwrap();
+
+        // A journal cut off mid-record.
+        let mut j = vec![0u8; 16 + 8 + 4 + PAGE_SIZE / 2];
+        j[0..8].copy_from_slice(JRN_MAGIC);
+        j[8..16].copy_from_slice(&3u64.to_le_bytes()); // claims three records
+        std::fs::write(journal_of(&p), &j).unwrap();
+
+        let mut g = newfile_pk(p.clone());
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        g.close();
+        assert!(std::fs::metadata(journal_of(&p)).is_err(), "it is thrown away");
+        assert_eq!(std::fs::read(&p).unwrap(), good, "and nothing was written back");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A failed verb leaves nothing behind — not even in memory.
+    #[test]
+    fn a_rejected_write_changes_nothing() {
+        let p = tmp("rejected-write");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=5u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+        let before = std::fs::read(&p).unwrap();
+
+        let mut g = newfile_pk(p.clone());
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        assert_eq!(g.write(&rec("3", "DUP")), status::DUP_KEY);
+        assert!(g.dirty.is_empty(), "a rejected verb leaves no page pending");
+        assert_eq!(g.dir_count, 5, "and does not consume a RecordId");
+        g.close();
+        assert_eq!(std::fs::read(&p).unwrap(), before, "the container is untouched");
+        let _ = std::fs::remove_file(&p);
     }
 
     /// Read the container version straight out of page 0.
@@ -2798,6 +3314,12 @@ mod tests {
         assert!(b.is_none());
         f.close();
         let _ = std::fs::remove_file(&p);
+    }
+
+    fn journal_of(path: &PathBuf) -> PathBuf {
+        let mut s = path.clone().into_os_string();
+        s.push(".jrn");
+        PathBuf::from(s)
     }
 
     /// Every record in a container, in primary order.

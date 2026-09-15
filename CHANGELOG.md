@@ -1,5 +1,51 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.32] — 2026-09-15
+
+### An abend can no longer leave a PRCIDXD1 container structurally wrong
+
+One `WRITE`, `REWRITE` or `DELETE` touches several pages — a data page, one
+B+tree leaf per key, sometimes a split, a directory leaf, the header. Interrupted
+between any two of those writes, the container was left describing itself
+incorrectly, with nothing to say so: pages restructured on disk while the roots,
+the free list and the record count still described the file as it had been.
+
+Changed pages are now held back until the **previous** image of every one of
+them is on disk in a sidecar journal, `<container>.jrn`, and only then written.
+The order is: journal, fsync, pages, header, fsync, remove the journal.
+
+**Removing the journal is the commit point**, not the header write — the only
+placement that never leaves the container in a state no header describes. A
+crash anywhere before it is undone in full, header included. An incomplete or
+failed-checksum journal is discarded without replaying anything, and correctly
+so: the container is not touched until the whole journal is durable, so an
+incomplete journal proves the operation never began writing.
+
+A verb that fails now changes nothing at all. Its pages are layered over the
+transaction's own write set and simply dropped, so a rejected `WRITE` does not
+consume a RecordId or leave a page pending.
+
+### What an abend costs, and what that cost buys
+
+Committing after **every** operation was measured and rejected: an `fsync` costs
+about 3.4 ms on the machine this was tuned on, and three per `WRITE` turned 2000
+records from 0.53 s into **20.63 s**. A commit point is therefore taken at
+`COMMIT`, at `CLOSE`, and automatically once 256 pages (1 MiB) have changed —
+which bounds both what an abend can cost and the memory the write set holds. The
+same 2000 records now take **0.55 s**: 4 % for never being corrupted.
+
+A program that wants a tighter guarantee already has the verb for it. `COMMIT`
+is a commit point.
+
+Four tests: a commit interrupted after four of its pages reached the container
+is undone whole and the file reads exactly as it did before; a completed
+`COMMIT` survives a crash that follows it; a journal cut off mid-record is
+thrown away and nothing is written back; a rejected `WRITE` leaves the container
+byte-identical.
+
+NIST CCVS85 unchanged on both axes: compile 420 / 420, execution 383 clean,
+8418 PASS / 50 FAIL, every module on baseline.
+
 ## [PowerRustCOBOL 1.70.31] — 2026-09-15
 
 ### The RecordId directory becomes a radix page table — container version 3
