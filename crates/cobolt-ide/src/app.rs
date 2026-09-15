@@ -645,6 +645,12 @@ pub struct CoboltApp {
     /// (spec 016 Q2).
     theme_defaults_modal: Option<crate::panels::theme_defaults_modal::ThemeDefaultsModal>,
     indexed_engine_modal: Option<crate::panels::indexed_engine_modal::IndexedEngineModal>,
+    /// The start-up release check, in flight. Yields exactly one message.
+    update_rx: Option<std::sync::mpsc::Receiver<Option<crate::update_check::ReleaseInfo>>>,
+    /// A newer release to offer. Cleared by either button — and NOT persisted,
+    /// so declining lasts for this run only and the question returns at the
+    /// next start-up (operator, 2026-09-14).
+    update_offer: Option<crate::update_check::ReleaseInfo>,
 
     /// A KB document add found the semantic model absent — the confirmation
     /// dialog is showing.
@@ -1804,6 +1810,8 @@ impl CoboltApp {
             settings_form: None,
             theme_defaults_modal: None,
             indexed_engine_modal: None,
+            update_rx: None,
+            update_offer: None,
 
             show_project_settings: false,
             show_grace_chat: false,
@@ -1921,6 +1929,12 @@ impl CoboltApp {
         if let crate::toolchain::Status::Ok { path, .. } = &toolchain {
             crate::toolchain::ensure_on_path(path);
         }
+        // Ask GitHub whether there is a newer build, on a background thread so
+        // a slow or absent network is never something the developer waits for.
+        // Once per run: there is no rechecking loop, and no persisted answer —
+        // declining is good for this run and the question comes back next start.
+        app.update_rx = Some(crate::update_check::spawn_check(crate::version::VERSION));
+
         if !crate::ui_prefs::rust_check_done() {
             // Only here — never on a later start. Asking whether the machine
             // can LINK costs a compile, and a Rust that cannot link is still a
@@ -4770,6 +4784,85 @@ impl CoboltApp {
         self.indexed_engine_modal = Some(
             crate::panels::indexed_engine_modal::IndexedEngineModal::new(&current),
         );
+    }
+
+    /// Collect the release check's one reply, then offer whatever it found.
+    ///
+    /// The reply arrives once; the receiver is dropped with it. `None` covers
+    /// "already current" and every failure alike, and neither says anything to
+    /// the developer — see `update_check`.
+    fn show_update_offer(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.update_rx {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.update_offer = found;
+                    self.update_rx = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.update_rx = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        let Some(rel) = self.update_offer.clone() else {
+            return;
+        };
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        let mut dismiss = false;
+
+        egui::Window::new(egui::RichText::new(tr.upd_title).size(16.0).strong())
+            .id(egui::Id::new("update_offer"))
+            .collapsible(false)
+            // Fixed, like every other window here: nothing negotiates its own
+            // rectangle against its contents.
+            .resizable(false)
+            .fixed_size(egui::vec2(430.0, 190.0))
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-24.0, -24.0])
+            .show(ctx, |ui| {
+                ui.label(tr.upd_available.replacen("{}", &rel.version, 1));
+                ui.label(
+                    egui::RichText::new(
+                        tr.upd_running.replacen("{}", crate::version::VERSION, 1),
+                    )
+                    .color(theme.text_dim),
+                );
+                if let Some(asset) = &rel.asset_name {
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(tr.upd_asset_for_platform.replacen("{}", asset, 1))
+                            .color(theme.text_dim)
+                            .small(),
+                    );
+                }
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    // The URL goes in the tooltip, not the label: the developer
+                    // is about to be sent to the open internet and gets to see
+                    // where first — the same rule the linker download follows.
+                    if ui
+                        .button(tr.upd_download)
+                        .on_hover_text(&rel.page_url)
+                        .clicked()
+                    {
+                        ui.ctx()
+                            .open_url(egui::OpenUrl::new_tab(rel.page_url.clone()));
+                        dismiss = true;
+                    }
+                    if ui.button(tr.upd_later).clicked() {
+                        dismiss = true;
+                    }
+                });
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new(tr.upd_recheck_note)
+                        .color(theme.text_dim)
+                        .small(),
+                );
+            });
+
+        if dismiss {
+            // Forgotten, not remembered. The next start-up asks again.
+            self.update_offer = None;
+        }
     }
 
     fn show_indexed_engine_modal(&mut self, ctx: &egui::Context) {
@@ -9264,6 +9357,7 @@ impl CoboltApp {
         // Default Theme Settings (spec 016 Q2).
         self.show_theme_defaults_modal(ctx);
         self.show_indexed_engine_modal(ctx);
+        self.show_update_offer(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
 

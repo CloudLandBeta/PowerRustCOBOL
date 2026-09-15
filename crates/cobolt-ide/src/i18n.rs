@@ -1067,6 +1067,14 @@ pub struct Tr {
     pub idx_engine_redb_pros: &'static str,
     pub idx_engine_redb_cons: &'static str,
     pub idx_engine_note_lock: &'static str,
+    /// Start-up release check (operator, 2026-09-14).
+    pub upd_title: &'static str,
+    pub upd_available: &'static str,
+    pub upd_running: &'static str,
+    pub upd_asset_for_platform: &'static str,
+    pub upd_download: &'static str,
+    pub upd_later: &'static str,
+    pub upd_recheck_note: &'static str,
     pub dlg_storage_mode: &'static str,
     pub dlg_storage_disk: &'static str,
     pub dlg_storage_memory: &'static str,
@@ -2501,6 +2509,13 @@ const EN: Tr = Tr {
     idx_engine_redb_pros: "Crash-safe: COMMIT and ROLLBACK survive a power loss. OPEN takes the same time however large the file grows.",
     idx_engine_redb_cons: "Only one process may have a file open at a time — a second program is refused even when it only wants to read. Preallocates generously, so a small file still occupies several megabytes.",
     idx_engine_note_lock: "With PRCIDXD1 two programs can open the same file for update and overwrite each other. Every program that updates a shared file must OPEN it WITH LOCK.",
+    upd_title: "A new version is available",
+    upd_available: "PowerRustCOBOL AI {} is available.",
+    upd_running: "This copy is {}.",
+    upd_asset_for_platform: "For this computer: {}",
+    upd_download: "Download…",
+    upd_later: "Not now",
+    upd_recheck_note: "PowerRustCOBOL checks again the next time it starts.",
     dlg_storage_mode: "Storage:",
     dlg_storage_disk: "DISK",
     dlg_storage_memory: "MEMORY",
@@ -3805,6 +3820,13 @@ const ES: Tr = Tr {
     idx_engine_redb_pros: "A prueba de caídas: COMMIT y ROLLBACK sobreviven a un corte de corriente. OPEN tarda lo mismo sin importar cuánto crezca el archivo.",
     idx_engine_redb_cons: "Solo un proceso puede tener abierto un archivo a la vez: un segundo programa es rechazado aunque solo quiera leer. Preasigna espacio con holgura, de modo que hasta un archivo pequeño ocupa varios megabytes.",
     idx_engine_note_lock: "Con PRCIDXD1, dos programas pueden abrir el mismo archivo para actualizarlo y sobrescribirse mutuamente. Todo programa que actualice un archivo compartido debe abrirlo con OPEN WITH LOCK.",
+    upd_title: "Hay una nueva versión disponible",
+    upd_available: "PowerRustCOBOL AI {} está disponible.",
+    upd_running: "Esta copia es la {}.",
+    upd_asset_for_platform: "Para este equipo: {}",
+    upd_download: "Descargar…",
+    upd_later: "Ahora no",
+    upd_recheck_note: "PowerRustCOBOL vuelve a comprobarlo la próxima vez que se inicie.",
     dlg_storage_mode: "Almacenamiento:",
     dlg_storage_disk: "DISK",
     dlg_storage_memory: "MEMORY",
@@ -5109,6 +5131,13 @@ const PT: Tr = Tr {
     idx_engine_redb_pros: "Seguro contra falhas: COMMIT e ROLLBACK sobrevivem a uma queda de energia. O OPEN leva o mesmo tempo, não importa o quanto o arquivo cresça.",
     idx_engine_redb_cons: "Apenas um processo pode manter um arquivo aberto por vez — um segundo programa é recusado mesmo que queira apenas ler. Pré-aloca espaço com folga, portanto um arquivo pequeno ainda ocupa vários megabytes.",
     idx_engine_note_lock: "Com o PRCIDXD1, dois programas podem abrir o mesmo arquivo para atualização e sobrescrever um ao outro. Todo programa que atualiza um arquivo compartilhado deve usar OPEN WITH LOCK.",
+    upd_title: "Há uma nova versão disponível",
+    upd_available: "O PowerRustCOBOL AI {} está disponível.",
+    upd_running: "Esta cópia é a versão {}.",
+    upd_asset_for_platform: "Para este computador: {}",
+    upd_download: "Baixar…",
+    upd_later: "Agora não",
+    upd_recheck_note: "O PowerRustCOBOL verifica novamente na próxima vez que for iniciado.",
     dlg_storage_mode: "Armazenamento:",
     dlg_storage_disk: "DISK",
     dlg_storage_memory: "MEMORY",
@@ -6412,6 +6441,13 @@ const JA: Tr = Tr {
     idx_engine_redb_pros: "クラッシュ安全性があります。COMMIT と ROLLBACK は電源断でも保たれます。OPEN の所要時間は、ファイルがどれだけ大きくなっても変わりません。",
     idx_engine_redb_cons: "1 つのファイルを同時に開けるプロセスは 1 つだけです。2 つ目のプログラムは、読み取るだけの場合でも拒否されます。領域を多めに事前確保するため、小さなファイルでも数メガバイトを占有します。",
     idx_engine_note_lock: "PRCIDXD1 では、2 つのプログラムが同じファイルを更新用に開き、互いの更新を上書きすることがあります。共有ファイルを更新するプログラムは、必ず WITH LOCK を付けて OPEN してください。",
+    upd_title: "新しいバージョンが利用できます",
+    upd_available: "PowerRustCOBOL AI {} が利用できます。",
+    upd_running: "現在使用中のバージョンは {} です。",
+    upd_asset_for_platform: "このコンピューター用: {}",
+    upd_download: "ダウンロード…",
+    upd_later: "今はしない",
+    upd_recheck_note: "PowerRustCOBOL は次回の起動時に再度確認します。",
     dlg_storage_mode: "ストレージ:",
     dlg_storage_disk: "DISK",
     dlg_storage_memory: "MEMORY",
@@ -7722,6 +7758,13 @@ const ZH: Tr = Tr {
     idx_engine_redb_pros: "具备崩溃安全性：COMMIT 与 ROLLBACK 的结果可在断电后保留。无论文件增长到多大，OPEN 的耗时都相同。",
     idx_engine_redb_cons: "同一时刻只能有一个进程打开某个文件——第二个程序即使只想读取也会被拒绝。会预先分配大量空间，因此很小的文件也会占用数兆字节。",
     idx_engine_note_lock: "使用 PRCIDXD1 时，两个程序可以同时以更新方式打开同一个文件并互相覆盖。每个更新共享文件的程序都必须以 WITH LOCK 方式 OPEN 该文件。",
+    upd_title: "有新版本可用",
+    upd_available: "PowerRustCOBOL AI {} 已发布。",
+    upd_running: "当前运行的是 {}。",
+    upd_asset_for_platform: "适用于这台计算机：{}",
+    upd_download: "下载…",
+    upd_later: "暂不",
+    upd_recheck_note: "PowerRustCOBOL 会在下次启动时再次检查。",
     dlg_storage_mode: "存储:",
     dlg_storage_disk: "DISK",
     dlg_storage_memory: "MEMORY",
@@ -9027,6 +9070,13 @@ const FR: Tr = Tr {
     idx_engine_redb_pros: "Résistant aux pannes : COMMIT et ROLLBACK survivent à une coupure de courant. L'OPEN prend toujours le même temps, quelle que soit la taille atteinte par le fichier.",
     idx_engine_redb_cons: "Un seul processus peut avoir un fichier ouvert à la fois — un deuxième programme est refusé, même s'il veut seulement lire. Préalloue largement : un petit fichier occupe malgré tout plusieurs mégaoctets.",
     idx_engine_note_lock: "Avec PRCIDXD1, deux programmes peuvent ouvrir le même fichier en mise à jour et s'écraser mutuellement. Tout programme qui met à jour un fichier partagé doit effectuer un OPEN WITH LOCK sur ce fichier.",
+    upd_title: "Une nouvelle version est disponible",
+    upd_available: "PowerRustCOBOL AI {} est disponible.",
+    upd_running: "Cette copie est la version {}.",
+    upd_asset_for_platform: "Pour cet ordinateur : {}",
+    upd_download: "Télécharger…",
+    upd_later: "Pas maintenant",
+    upd_recheck_note: "PowerRustCOBOL vérifiera à nouveau au prochain démarrage.",
     dlg_storage_mode: "Stockage :",
     dlg_storage_disk: "DISK",
     dlg_storage_memory: "MEMORY",
@@ -9780,6 +9830,50 @@ mod i18n_tests {
             let filled = label.replacen("{}", "Visual Studio Build Tools", 1);
             assert!(filled.contains("Visual Studio Build Tools"), "{filled}");
             assert!(!filled.contains("{}"), "{filled}");
+        }
+    }
+
+    /// The release-check strings carry placeholders too, and a translation that
+    /// loses one shows the developer a sentence with a hole in it — or, worse,
+    /// a version number that never appears.
+    ///
+    /// Checked per language rather than once: five of the six are translated,
+    /// and the failure this guards against is precisely one language dropping
+    /// the braces while the others keep them.
+    #[test]
+    fn the_release_check_labels_keep_their_placeholders_in_every_language() {
+        for &lang in Language::ALL {
+            let tr = lang.tr();
+            for (name, label, fill) in [
+                ("upd_available", tr.upd_available, "1.70.29"),
+                ("upd_running", tr.upd_running, "1.70.28"),
+                (
+                    "upd_asset_for_platform",
+                    tr.upd_asset_for_platform,
+                    "PowerRustCOBOL-1.70.29-macos-aarch64.dmg",
+                ),
+            ] {
+                assert_eq!(
+                    label.matches("{}").count(),
+                    1,
+                    "{lang:?}/{name}: expected exactly one {{}} in {label:?}"
+                );
+                let filled = label.replacen("{}", fill, 1);
+                assert!(filled.contains(fill), "{lang:?}/{name}: {filled}");
+                assert!(!filled.contains("{}"), "{lang:?}/{name}: {filled}");
+            }
+            // The strings with no placeholder must not have acquired one.
+            for (name, label) in [
+                ("upd_title", tr.upd_title),
+                ("upd_download", tr.upd_download),
+                ("upd_later", tr.upd_later),
+                ("upd_recheck_note", tr.upd_recheck_note),
+            ] {
+                assert!(
+                    !label.contains("{}"),
+                    "{lang:?}/{name}: unexpected placeholder in {label:?}"
+                );
+            }
         }
     }
 }

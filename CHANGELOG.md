@@ -1,5 +1,48 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.29] — 2026-09-15
+
+### The IDE notices a newer release, once per start-up
+
+`update_check.rs` asks GitHub for the repository's latest release on a
+background thread while the IDE starts, and offers it when it is newer than the
+running build. **All three levels count** — major, minor and fix (operator,
+2026-09-15, revising an earlier major/minor-only instruction): a fix release is
+a new binary and is offered like any other.
+
+**Declining is not remembered.** There is no persisted dismissal and no
+"skip this version" — the offer is cleared for this run and the question comes
+back at the next start-up, which is what the operator asked for and what the
+notice itself says.
+
+Nothing is downloaded or installed automatically. The button opens the release
+page, with the **URL in the tooltip rather than the label** — the same rule the
+linker download already follows, so a developer being sent to the open internet
+sees where before they click. On macOS and Windows the exact installer for the
+machine is named, because the release ships nine files; on Linux it is not,
+since `.deb` / `.rpm` / `.tar.gz` is a choice this cannot make for them.
+
+**Every failure is silent.** Offline, rate-limited, behind a proxy, or a GitHub
+response shaped differently than expected — all of them mean "nothing to offer",
+never a dialog and never a log line to dismiss. Drafts and prereleases are
+skipped. The request carries a 10-second timeout and the thread is detached.
+
+### Versions compare numerically, and that is the point of the tests
+
+A string comparison puts `1.70.9` above `1.70.28`, which would offer a developer
+on 28 an "update" to 9. Seven unit tests pin the behaviour, including the case
+that happens on the operator's own machine every day — **a build newer than any
+release is never offered an update** — plus `v` prefixes, `-rc1` suffixes, and
+an unreadable tag offering nothing rather than guessing.
+
+`the_release_check_labels_keep_their_placeholders_in_every_language` extends the
+existing linker-label guard to the three new `{}` strings, per language, and
+also asserts the four without placeholders have not acquired one. All five
+translations came back clean on adversarial review with every placeholder
+intact.
+
+7 new `Tr` keys in all six languages. `cobolt-ide` **1190 passed, 0 failed**.
+
 ## [PowerRustCOBOL 1.70.28] — 2026-09-14
 
 ### The project chooses its indexed engine, and sees the trade-off while choosing

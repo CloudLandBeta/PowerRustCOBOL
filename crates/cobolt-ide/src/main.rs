@@ -61,6 +61,7 @@ pub mod theme_ui;
 pub mod tool_exec;
 pub mod toolchain;
 pub mod ui_prefs;
+mod update_check;
 pub mod version;
 pub mod welcome;
 
