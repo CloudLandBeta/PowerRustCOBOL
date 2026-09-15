@@ -1377,6 +1377,32 @@ impl DiskIndexedFile {
         if Self::extract(&self.primary, &old) != pkey {
             return status::SEQUENCE_ERROR;
         }
+        // Pin the sequential cursor to a KEY — but only when the entry it is
+        // sitting on is about to MOVE.
+        //
+        // `resume_key` means "my entry is gone, so the first key at or after it
+        // is my successor". That is true of a `DELETE`, and true of a `REWRITE`
+        // that changes the value of the key of reference, because the entry
+        // leaves its slot and is reinserted elsewhere. It is NOT true of a
+        // rewrite that leaves the key of reference alone: the entry is still
+        // there, `find_ge` finds the entry itself rather than its successor,
+        // and the next `READ NEXT` re-delivers the record just rewritten.
+        //
+        // Setting it unconditionally is exactly that mistake, and it cost IX
+        // ten assertions (40/41 -> 38/41) before this condition was added. The
+        // primary key cannot change — a rewrite that tries is SEQUENCE_ERROR
+        // above — so only an alternate key of reference can move.
+        let kor_entry_moves = self.kor != 0 && {
+            let ks = self.alternates[self.kor - 1].clone();
+            Self::extract(&ks, &old) != Self::extract(&ks, &rec)
+        };
+        if kor_entry_moves && self.current == Some(recid) && self.resume_key.is_none() {
+            if let Some((leaf, idx)) = self.cursor {
+                if let Ok(Some((k, _))) = self.entry_at(leaf, idx) {
+                    self.resume_key = Some(k);
+                }
+            }
+        }
         // Update alternate indexes whose value changed.
         let alts = self.alternates.clone();
         for (i, ks) in alts.iter().enumerate() {

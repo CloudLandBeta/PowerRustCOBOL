@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.27] — 2026-09-14
+
+### IX211A fixed — the gate is green, and PRCIDXD1 as the default is finished
+
+A `REWRITE` that changes the value of the **key of reference** moves the
+record's index entry out of the slot a sequential cursor is holding, so the next
+`READ NEXT` steps through whatever moved up into it. IX211A — whose subject is
+"the sequential position is affected by execution of the REWRITE statement" —
+read record **184 where 183 was due**, then 182 where 184 was due.
+
+`delete` already guarded this by pinning the cursor to a **key** before mutating
+the index; `rewrite` did not.
+
+**The condition is the whole fix, and getting it wrong is worse than not having
+it.** `resume_key` means *"my entry is gone, so the first key at or after it is
+my successor"*. That holds for a rewrite that moves the entry. It does **not**
+hold for one that leaves the key of reference alone: the entry is still there,
+`find_ge` finds it rather than its successor, and the next read re-delivers the
+record just rewritten. Pinning unconditionally took IX from **40/41 to 38/41**
+(FAIL 2 → 12). That attempt is recorded in the code comment so the next reader
+does not repeat it. The primary key cannot move — a rewrite that tries is
+`SEQUENCE_ERROR` — so only an alternate key of reference qualifies.
+
+### The gate, measured against the real default for the first time
+
+| | clean | PASS | FAIL |
+|---|---:|---:|---:|
+| redb baseline | 383 | 8418 | 50 |
+| PRCIDXD1 at 1.70.24 (masked by the CLI) | — | — | — |
+| PRCIDXD1 at 1.70.26 | 382 | 8416 | 52 |
+| **PRCIDXD1 now** | **383** | **8418** | **50** |
+
+Compile 420/420, FAIL 0. Every module on its exact baseline: NC 95/95, SQ 85/85,
+**IX 41/41**, IF 45/45, IC 25/25, ST 39/39, SM 16/16, RL 34/34. Suites:
+runtime 878, parser 172, forms 886 — all 0 failed.
+
+So the engine change asked for on 2026-09-14 is complete: **PRCIDXD1 is the
+default, with no conformance cost**, existing redb containers still open on their
+own magic, and `ENGINE IS …` chooses per file.
+
 ## [PowerRustCOBOL 1.70.26] — 2026-09-14
 
 ### PRCIDXD1 orders a duplicate set by JOIN order — container version 2

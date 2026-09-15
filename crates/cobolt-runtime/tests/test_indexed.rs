@@ -1964,3 +1964,76 @@ fn engine_clause_governs_creation_and_magic_governs_every_open_after() {
         let _ = std::fs::remove_file(f);
     }
 }
+
+/// A `REWRITE` that moves the record out of the key of reference must not make
+/// the next `READ NEXT` skip a record.
+///
+/// The entry leaves its slot and is reinserted elsewhere, so a cursor holding a
+/// slot index steps through whatever moved up into it. IX211A — "the sequential
+/// position is affected by execution of the REWRITE statement" — read record
+/// 184 where 183 was due.
+///
+/// ⚠️ The cursor may be pinned ONLY when the entry actually moves. Pinning it on
+/// every rewrite means `find_ge` finds the entry itself rather than its
+/// successor, and the next read re-delivers the record just rewritten; that
+/// mistake took IX from 40/41 to 38/41 before the condition was added.
+#[test]
+fn a_rewrite_that_moves_the_key_of_reference_does_not_skip_the_next_record() {
+    let path = temp_idx("rewrite_kor_cursor");
+    let _ = std::fs::remove_file(&path);
+    let src = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. T.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED\n\
+         \x20              ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-KEY\n\
+         \x20              ALTERNATE RECORD KEY IS R-ALT\n\
+         \x20              FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-KEY  PIC 9(4).\n\
+         \x20         05 R-ALT  PIC X(4).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN OUTPUT F\n\
+         \x20          MOVE 0001 TO R-KEY MOVE \"AAAA\" TO R-ALT WRITE R END-WRITE\n\
+         \x20          MOVE 0002 TO R-KEY MOVE \"BBBB\" TO R-ALT WRITE R END-WRITE\n\
+         \x20          MOVE 0003 TO R-KEY MOVE \"CCCC\" TO R-ALT WRITE R END-WRITE\n\
+         \x20          CLOSE F\n\
+         \x20          OPEN I-O F\n\
+         \x20          MOVE \"AAAA\" TO R-ALT\n\
+         \x20          START F KEY IS EQUAL TO R-ALT END-START\n\
+         \x20          READ F NEXT END-READ\n\
+         \x20          DISPLAY \"FIRST \" R-KEY\n\
+      *> move this record to the END of the alternate order, so its entry\n\
+      *> leaves the slot the cursor is sitting on.\n\
+         \x20          MOVE \"ZZZZ\" TO R-ALT\n\
+         \x20          REWRITE R END-REWRITE\n\
+         \x20          READ F NEXT END-READ\n\
+         \x20          DISPLAY \"AFTER \" R-KEY\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = path.display()
+    );
+    let joined = run_capture(&src).join("\n");
+    let _ = std::fs::remove_file(&path);
+
+    assert!(
+        joined.contains("FIRST 0001"),
+        "START on the alternate must deliver record 1:\n{joined}"
+    );
+    // 1 moved to the end of the alternate order, so its successor is 2 — not 3,
+    // which is what a cursor stepping from a stale slot index delivers.
+    assert!(
+        joined.contains("AFTER 0002"),
+        "the read after the rewrite must not skip a record:\n{joined}"
+    );
+}
