@@ -1695,38 +1695,43 @@ fn a_rewrite_into_a_duplicate_set_joins_at_the_end_on_redb() {
     );
 }
 
-/// The same program on **PRCIDXD1**, which answers the other way — and that is
-/// the engine trade-off made visible rather than left in a comment.
+/// The same program on **PRCIDXD1**, which now answers the same way.
 ///
-/// PRCIDXD1 orders a duplicate set by RecordId, which is permanently the order
-/// the records were *written to the file*, so the record written first leads the
-/// set however late it joined. redb keeps a `seq` table and answers by join
-/// order (the test above).
+/// It did not before 1.70.26. PRCIDXD1 appended the RecordId to a duplicates
+/// alternate key, so a set iterated in the order its records were *written to
+/// the file*, and a record moved into the set by `REWRITE` took a position it
+/// had never earned. Container version 2 appends a **join sequence** allocated
+/// when the entry joins, so the two engines agree — and IX215A, which turns on
+/// exactly this, went from failing to clean.
 ///
-/// Neither is a defect. COBOL-85 does not settle the order of an alternate
-/// duplicate set after a `REWRITE` moves a record between sets, and vendors
-/// differ. What matters is that a developer choosing an engine knows which
-/// answer they are choosing — the Indexed File editor says so at the point of
-/// choice, and this test is the proof the two really do differ.
+/// Kept as its own test rather than merged with the redb one: they exercise
+/// different code (a `seq` table versus a key suffix), and the point is that
+/// two independent implementations now produce the same answer.
 ///
-/// NIST is unaffected either way: IX215A, which exercises this area, runs clean
-/// under both (IX 41/41 measured on both engines at 1.70.24).
+/// ⚠️ **NIST is NOT unaffected, and an earlier version of this comment said it
+/// was.** Measured at 1.70.25 with the census actually running each engine:
+/// redb gives IX 41/41 (574 assertions, 0 failures); PRCIDXD1 gives **IX 39/41**
+/// — IX211A and IX215A each report 2 failures, 4 in total. The earlier "clean
+/// under both" reading came from a census that was still running redb, because
+/// `resolve_indexed_engine` in the CLI hardcoded `IndexedEngine::Redb` and so
+/// ignored the enum default entirely. The harness shells out to `rcrun`, so it
+/// measured the engine the CLI chose, not the one the enum named.
 #[test]
-fn a_rewrite_into_a_duplicate_set_keeps_write_order_on_prcidxd1() {
+fn a_rewrite_into_a_duplicate_set_joins_at_the_end_on_prcidxd1_too() {
     let path = temp_idx("dupsetjoin_prc");
     let _ = std::fs::remove_file(&path);
     let src = dup_set_join_program(&path);
     let out = run_capture_on(&src, cobolt_runtime::indexed::IndexedEngine::Rust);
     let _ = std::fs::remove_file(&path);
     let joined = out.join("\n");
-    // 4 was written first, so it leads the set — even though 176 joined first.
+    // 176 joined the set first, so it leads — exactly as on redb.
     assert!(
-        joined.contains("FIRST 0004"),
-        "PRCIDXD1 orders duplicates by RecordId, i.e. original write order:\n{joined}"
+        joined.contains("FIRST 0176"),
+        "PRCIDXD1 must order a duplicate set by JOIN order since container v2:\n{joined}"
     );
     assert!(
-        joined.contains("SECOND 0176"),
-        "and the later-written record follows:\n{joined}"
+        joined.contains("SECOND 0004"),
+        "and the one that joined later follows it:\n{joined}"
     );
 }
 
@@ -1844,4 +1849,118 @@ fn each_select_gets_the_engine_that_wrote_its_file() {
     assert!(joined.contains("OPENB 00"), "the PRCIDXD1 container did not open:\n{joined}");
     assert!(joined.contains("A SEVEN"), "the redb container did not read:\n{joined}");
     assert!(joined.contains("B SEVEN"), "the PRCIDXD1 container did not read:\n{joined}");
+}
+
+/// Three sources decide which engine writes a file, in this order:
+/// the container's own magic, then `ENGINE IS …` on the `SELECT`, then the run
+/// default. This pins all three.
+///
+/// The middle one is what the Indexed File editor writes: a per-file choice
+/// that governs **creation** and is then irrelevant, because from the second
+/// open onwards the file speaks for itself.
+#[test]
+fn engine_clause_governs_creation_and_magic_governs_every_open_after() {
+    use std::io::Read as _;
+
+    let magic = |p: &std::path::Path| {
+        let mut b = [0u8; 8];
+        let n = std::fs::File::open(p).unwrap().read(&mut b).unwrap();
+        b[..n].to_vec()
+    };
+    let create = |path: &std::path::Path, clause: &str| {
+        format!(
+            "       IDENTIFICATION DIVISION.\n\
+             \x20      PROGRAM-ID. C.\n\
+             \x20      ENVIRONMENT DIVISION.\n\
+             \x20      INPUT-OUTPUT SECTION.\n\
+             \x20      FILE-CONTROL.\n\
+             \x20          SELECT F ASSIGN TO \"{path}\"\n\
+             \x20              ORGANIZATION IS INDEXED\n\
+             \x20              ACCESS MODE IS DYNAMIC\n\
+             \x20              RECORD KEY IS R-ID{clause}\n\
+             \x20              FILE STATUS IS FS.\n\
+             \x20      DATA DIVISION.\n\
+             \x20      FILE SECTION.\n\
+             \x20      FD F.\n\
+             \x20      01 R.\n\
+             \x20         05 R-ID   PIC 9(4).\n\
+             \x20         05 R-NAME PIC X(8).\n\
+             \x20      WORKING-STORAGE SECTION.\n\
+             \x20      01 FS PIC XX.\n\
+             \x20      PROCEDURE DIVISION.\n\
+             \x20      MAIN.\n\
+             \x20          OPEN OUTPUT F\n\
+             \x20          MOVE 0009 TO R-ID MOVE \"NINE\" TO R-NAME\n\
+             \x20          WRITE R END-WRITE\n\
+             \x20          CLOSE F\n\
+             \x20          DISPLAY \"MADE \" FS\n\
+             \x20          STOP RUN.\n",
+            path = path.display(),
+            clause = clause
+        )
+    };
+
+    // 1. No clause → the run default, whatever it is.
+    let plain = temp_idx("eng_default");
+    let _ = std::fs::remove_file(&plain);
+    assert!(run_capture(&create(&plain, "")).join("").contains("MADE 00"));
+    let want_default: &[u8] = match cobolt_runtime::indexed::IndexedEngine::default() {
+        cobolt_runtime::indexed::IndexedEngine::Redb => b"redb",
+        _ => b"PRCIDXD1",
+    };
+    assert!(
+        magic(&plain).starts_with(want_default),
+        "a file with no ENGINE clause must use the run default"
+    );
+
+    // 2. `ENGINE IS REDB` → a redb container, whatever the default is.
+    let redb = temp_idx("eng_redb");
+    let _ = std::fs::remove_file(&redb);
+    assert!(run_capture(&create(&redb, "\n\x20              ENGINE IS REDB")).join("").contains("MADE 00"));
+    assert_eq!(&magic(&redb)[0..4], b"redb", "ENGINE IS REDB did not create a redb container");
+
+    // 3. `ENGINE IS PRCIDXD1` → the paged container, whatever the default is.
+    let prc = temp_idx("eng_prc");
+    let _ = std::fs::remove_file(&prc);
+    assert!(run_capture(&create(&prc, "\n\x20              ENGINE IS PRCIDXD1")).join("").contains("MADE 00"));
+    assert_eq!(&magic(&prc)[..], b"PRCIDXD1", "ENGINE IS PRCIDXD1 did not create a paged container");
+
+    // 4. And from here the magic decides: the redb file reads back with NO
+    //    clause at all, under a default that is not redb.
+    let read_back = format!(
+        "       IDENTIFICATION DIVISION.\n\
+         \x20      PROGRAM-ID. RB.\n\
+         \x20      ENVIRONMENT DIVISION.\n\
+         \x20      INPUT-OUTPUT SECTION.\n\
+         \x20      FILE-CONTROL.\n\
+         \x20          SELECT F ASSIGN TO \"{path}\"\n\
+         \x20              ORGANIZATION IS INDEXED ACCESS MODE IS DYNAMIC\n\
+         \x20              RECORD KEY IS R-ID FILE STATUS IS FS.\n\
+         \x20      DATA DIVISION.\n\
+         \x20      FILE SECTION.\n\
+         \x20      FD F.\n\
+         \x20      01 R.\n\
+         \x20         05 R-ID   PIC 9(4).\n\
+         \x20         05 R-NAME PIC X(8).\n\
+         \x20      WORKING-STORAGE SECTION.\n\
+         \x20      01 FS PIC XX.\n\
+         \x20      PROCEDURE DIVISION.\n\
+         \x20      MAIN.\n\
+         \x20          OPEN INPUT F\n\
+         \x20          MOVE 0009 TO R-ID\n\
+         \x20          READ F END-READ\n\
+         \x20          DISPLAY \"GOT \" R-NAME \" \" FS\n\
+         \x20          CLOSE F\n\
+         \x20          STOP RUN.\n",
+        path = redb.display()
+    );
+    let out = run_capture(&read_back).join("\n");
+    assert!(
+        out.contains("GOT NINE") && out.contains("00"),
+        "the redb container must read back with no clause and a non-redb default:\n{out}"
+    );
+
+    for f in [&plain, &redb, &prc] {
+        let _ = std::fs::remove_file(f);
+    }
 }

@@ -233,6 +233,9 @@ struct FileSpec {
     alternate_keys: Vec<AlternateKey>,
     /// STORAGE IS MEMORY | DISK (INDEXED files).
     storage_mode: cobolt_ast::program::StorageMode,
+    /// `ENGINE IS …` — which engine CREATES this file. Ignored once the file
+    /// exists, because the container names its own engine.
+    engine: Option<cobolt_ast::program::EngineChoice>,
     /// WITH COMPRESSION — compress stored record data.
     data_compressing: bool,
     /// WITH PERSISTENCE — for STORAGE IS MEMORY, save to disk on CLOSE.
@@ -1046,6 +1049,7 @@ fn collect_file_specs(
                             .collect(),
                         alternate_keys: fc.alternate_keys.clone(),
                         storage_mode: fc.storage_mode,
+                        engine: fc.engine,
                         data_compressing: fc.data_compressing,
                         persist: fc.persist,
                         layout: fd_layout.get(&key).cloned().unwrap_or_default(),
@@ -1167,11 +1171,19 @@ fn make_indexed_engine(
         }
     }
     let compressing = spec.data_compressing;
-    // An existing container names its own engine, and that wins over the
-    // configured one — see `detect_container_engine`. A file being created has
-    // no magic to read, so the configured engine decides, which is how the
-    // default still governs new files.
-    let engine = detect_container_engine(path).unwrap_or(engine);
+    // Three sources, in this order of authority:
+    //
+    //   1. the container's own magic — an existing file names its engine, and
+    //      nothing overrides that, or the same COBOL could not read data
+    //      written by a different default;
+    //   2. `ENGINE IS …` on the SELECT — what the developer chose in the
+    //      Indexed File editor, which governs the file being CREATED;
+    //   3. the run's configured engine, for a new file with no clause.
+    let engine = detect_container_engine(path).unwrap_or_else(|| match spec.engine {
+        Some(cobolt_ast::program::EngineChoice::Redb) => IndexedEngine::Redb,
+        Some(cobolt_ast::program::EngineChoice::Prcidxd1) => IndexedEngine::Rust,
+        None => engine,
+    });
     // The redb engine is a disk substrate; selecting it routes DISK storage to
     // the crash-safe ACID engine. MEMORY storage always uses the in-RAM engine.
     if engine == IndexedEngine::Redb && spec.storage_mode == StorageMode::Disk {

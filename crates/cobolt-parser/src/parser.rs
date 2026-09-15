@@ -10,7 +10,7 @@ use cobolt_ast::data::{ConditionValue, DataDecl, PicClause, PicKind, Usage};
 use cobolt_ast::expr::Literal;
 use cobolt_ast::program::{
     AccessMode, AlternateKey, DataDivision, DataSection, EnvironmentDivision, FileControl,
-    FileOrganization, InputOutputSection, RustItemBlock, StorageMode,
+    EngineChoice, FileOrganization, InputOutputSection, RustItemBlock, StorageMode,
 };
 use cobolt_ast::stmt::Stmt;
 use cobolt_lexer::{Span, SpannedToken, Token};
@@ -1405,6 +1405,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
     let mut storage_mode = StorageMode::Disk;
     let mut data_compressing = false;
     let mut persist = false;
+    let mut engine: Option<EngineChoice> = None;
 
     while !p.at(&Token::Period) && !p.at(&Token::Eof) {
         // Clauses introduced by a non-keyword word (STORAGE, ALTERNATE).
@@ -1434,6 +1435,27 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
                             persist = true;
                         }
                         p.advance(); // COMPRESSION | PERSISTENCE
+                    }
+                    continue;
+                }
+                // ENGINE [IS] PRCIDXD1 | REDB  — which engine CREATES this
+                // file. An existing container names its own engine from its
+                // magic and that wins, so this never has to be changed to read
+                // data someone else wrote.
+                "ENGINE" => {
+                    p.advance(); // ENGINE
+                    p.eat(&Token::Is);
+                    if let Some((w, _)) = p.eat_identifier() {
+                        let w = w.to_ascii_uppercase().replace('-', "");
+                        engine = match w.as_str() {
+                            "REDB" => Some(EngineChoice::Redb),
+                            "PRCIDXD1" | "PRCIDX1" | "RUST" | "NATIVE" => {
+                                Some(EngineChoice::Prcidxd1)
+                            }
+                            // An unknown name leaves the default in force rather
+                            // than guessing; the semantic pass reports it.
+                            _ => None,
+                        };
                     }
                     continue;
                 }
@@ -1605,6 +1627,7 @@ fn parse_file_control_entry(p: &mut Parser) -> Option<FileControl> {
         alternate_keys,
         file_status,
         storage_mode,
+        engine,
         data_compressing,
         persist,
         span,

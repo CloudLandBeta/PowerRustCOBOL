@@ -1,5 +1,65 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.26] — 2026-09-14
+
+### PRCIDXD1 orders a duplicate set by JOIN order — container version 2
+
+A duplicates-alternate key was `altvalue || RecordId`. The RecordId is
+permanently the order records were *written to the file*, so a record moved into
+a duplicate set by `REWRITE` took a position it had never earned — ahead of
+entries that joined before it. The suffix is now a **join sequence** allocated
+when the entry joins.
+
+It costs nothing on disk: the suffix width is unchanged, and the RecordId was
+never read back out of the key, because the B+tree stores it as the entry's
+*value*. What changes is that the key can no longer be rebuilt from the record,
+so `DELETE` and `REWRITE` locate the entry by walking its duplicate group and
+matching that value — `find_alt_key`.
+
+**Version 1 containers upgrade in place.** The counter never drops below the
+RecordId high-water mark, so existing entries keep their relative order and
+everything joining from now on sorts after them — which is what join order
+means. The counter itself is persisted (header version 2, after the schema, so a
+v1 reader stops before it): a `REWRITE` allocates a sequence without adding a
+record, so a reopen that restarted from the high-water mark would hand out
+sequences already on disk.
+
+**IX215A went from failing to clean** — the program whose subject is exactly
+this. The two engines now agree, and both behaviours are asserted from one
+shared program so neither can drift.
+
+### ⚠️ IX is 40/41 under PRCIDXD1 — the gate is still red, and this needs a ruling
+
+| | IX clean | assertions |
+|---|---|---|
+| redb | 41 / 41 | PASS 574, FAIL 0 |
+| PRCIDXD1 **before** this change | 39 / 41 | PASS 570, FAIL 4 |
+| PRCIDXD1 **after** | **40 / 41** | PASS 572, FAIL 2 |
+
+`IX211A` still fails. It is **not** duplicate ordering — it failed identically
+before this fix. Its subject is "the sequential position is affected by
+execution of the REWRITE statement", and `rewrite` never touches the cursor
+while `delete` pins it to a key before mutating the index.
+
+**I tried that fix and it made things worse** — IX 40/41 → 38/41, FAIL 2 → 12,
+because the guard fires even when the entry does not move. Reverted immediately
+rather than chased, per the ledger's own rule. The hypothesis is recorded so the
+next attempt starts from a known-wrong answer rather than repeating it.
+
+So the whole-suite figures stand at **382 clean / PASS 8416 / FAIL 52** against a
+redb baseline of 383 / 8418 / 50. IX is a `finished` module and the gate is
+absolute there, so shipping PRCIDXD1 as the default is the operator's call, not
+mine. The alternative is to leave redb as the default and let
+`ENGINE IS PRCIDXD1` opt individual files in.
+
+### `ENGINE IS {PRCIDXD1 | REDB}` on `SELECT`
+
+Carries the per-file choice from the Indexed File editor to the runtime, the way
+`STORAGE MODE IS MEMORY|DISK` already does. Contextual, so `ENGINE` remains
+usable as a data name. Three sources decide, in order: the container's own magic
+(an existing file always wins), then this clause (for a file being created),
+then the run default.
+
 ## [PowerRustCOBOL 1.70.25] — 2026-09-14
 
 ### A container names its own engine — the COBOL never has to

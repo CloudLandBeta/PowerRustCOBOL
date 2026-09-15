@@ -872,14 +872,18 @@ fn resolve_indexed_engine(args: &[String]) -> IndexedEngine {
         Some(name) => match IndexedEngine::parse(&name) {
             Some(e) => e,
             None => {
+                // One source of truth for the default: `IndexedEngine::default()`.
+                // Naming an engine here instead is how the CLI went on creating
+                // redb containers after the default moved to PRCIDXD1 at
+                // 1.70.24 — the enum said one thing and this said another.
                 eprintln!(
-                    "cobolt: unknown indexed engine '{name}' \
-                     (expected: rust | rm-cobol85 | fujitsu | redb); using redb"
+                    "cobolt: unknown indexed engine '{name}' (expected: \
+                     rust | rm-cobol85 | fujitsu | redb); using the default"
                 );
-                IndexedEngine::Redb
+                IndexedEngine::default()
             }
         },
-        None => IndexedEngine::Redb,
+        None => IndexedEngine::default(),
     }
 }
 

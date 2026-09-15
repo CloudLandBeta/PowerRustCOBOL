@@ -124,6 +124,13 @@ pub struct FileControl {
     /// field-by-field in declaration order.
     #[serde(default)]
     pub optional: bool,
+    /// `ENGINE IS {PRCIDXD1 | REDB}` — which engine writes this file when it is
+    /// **created** (PowerRustCOBOL extension). Ignored for a file that already
+    /// exists, which names its own engine. `None` = the run's default.
+    ///
+    /// 🔴 A new field goes at the END — see `optional` above.
+    #[serde(default)]
+    pub engine: Option<EngineChoice>,
 }
 
 /// File organisation.
@@ -155,6 +162,22 @@ pub enum StorageMode {
     Memory,
     #[default]
     Disk,
+}
+
+/// Which indexed engine writes a file this program **creates**
+/// (PowerRustCOBOL extension, `ENGINE IS …` on `SELECT`).
+///
+/// It governs creation only. An existing container names its own engine from
+/// its magic and that always wins, so the same COBOL opens a `redb` file and a
+/// `PRCIDXD1` one without naming either. `None` — no clause — leaves the run's
+/// configured default to decide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EngineChoice {
+    /// The dependency-free paged B+tree container. Concurrent readers; an
+    /// updater must open `WITH LOCK`; no crash safety.
+    Prcidxd1,
+    /// The crash-safe ACID substrate. One process at a time, by construction.
+    Redb,
 }
 
 /// An ALTERNATE RECORD KEY clause.

@@ -136,6 +136,15 @@ pub struct DiskIndexedFile {
     primary_root: u64,
     alt_roots: Vec<u64>,
     dir_head: u64, // first RecordId-directory page (0 = none yet)
+    /// Next **join sequence** for a duplicates-alternate index entry.
+    ///
+    /// A duplicates alt key is `altvalue || suffix`. The suffix used to be the
+    /// RecordId, which made a duplicate set iterate in the order its records
+    /// were *written to the file* — so a record REWRITTEN into a set took a
+    /// position it had never earned, ahead of entries that joined before it.
+    /// The suffix is now this counter, allocated when the entry **joins**, so a
+    /// set iterates in join order (container version 2).
+    next_alt_seq: u64,
 
     // RecordId directory, held in memory while open, persisted on close.
     directory: Vec<RecLoc>,
@@ -183,6 +192,7 @@ impl DiskIndexedFile {
             next_page_id: 1,
             free_list_head: 0,
             record_count: 0,
+            next_alt_seq: 0,
             data_tail: 0,
             primary_root: 0,
             alt_roots: vec![0; n],
@@ -815,14 +825,70 @@ impl DiskIndexedFile {
         k
     }
 
-    /// The B+tree key for an alternate index: the raw alt key, with the
-    /// RecordId appended when duplicates are allowed (to keep entries unique).
-    fn alt_tree_key(spec: &KeySpec, rec: &[u8], recid: u64) -> Bytes {
+    /// The B+tree key for an alternate index: the raw alt key, with a **join
+    /// sequence** appended when duplicates are allowed.
+    ///
+    /// The suffix exists to keep entries unique, and its ORDER is the order the
+    /// duplicate set iterates in. It used to be the RecordId, which is
+    /// permanently the order records were written to the file; a record moved
+    /// into a set by `REWRITE` then landed wherever its original write put it
+    /// rather than at the end. Allocating the suffix when the entry joins fixes
+    /// that, and costs nothing on disk — the width is unchanged, and the
+    /// RecordId was never read back out of the key, because the tree stores it
+    /// as the entry's *value*.
+    fn alt_tree_key(spec: &KeySpec, rec: &[u8], seq: u64) -> Bytes {
         let mut k = Self::extract(spec, rec);
         if spec.duplicates {
-            k.extend_from_slice(&recid.to_be_bytes());
+            k.extend_from_slice(&seq.to_be_bytes());
         }
         k
+    }
+
+    /// Allocate the next join sequence.
+    ///
+    /// Never below the RecordId high-water mark: a **version 1** container
+    /// carries RecordIds in the suffix, and an entry joining now must sort
+    /// after every one of them. That makes an old file upgrade in place — its
+    /// existing entries keep write order among themselves, and everything added
+    /// from now on joins at the end, which is what join order means.
+    fn next_seq(&mut self) -> u64 {
+        let s = self.next_alt_seq.max(self.directory.len() as u64);
+        self.next_alt_seq = s + 1;
+        s
+    }
+
+    /// The full B+tree key of the alternate entry that points at `recid` inside
+    /// the duplicate group `altval`, or `None` when there is none.
+    ///
+    /// Needed because the key can no longer be reconstructed from the record:
+    /// its suffix is a join sequence the record does not carry. The group is
+    /// walked instead and the entry matched on its *value*, which is the
+    /// RecordId. Works on a version 1 container too, where the suffix happens
+    /// to be that RecordId — the match is on the value either way.
+    fn find_alt_key(&mut self, root: u64, altval: &[u8], recid: u64) -> R<Option<Bytes>> {
+        let klen = altval.len();
+        let Some((mut leaf, mut idx)) = self.find_ge(root, altval)? else {
+            return Ok(None);
+        };
+        loop {
+            let Some((k, v)) = self.entry_at(leaf, idx)? else {
+                return Ok(None);
+            };
+            // Past the end of this duplicate group.
+            if k.len() < klen || k[..klen] != *altval {
+                return Ok(None);
+            }
+            if v == recid {
+                return Ok(Some(k));
+            }
+            match self.step_forward(leaf, idx)? {
+                Some((l, i)) => {
+                    leaf = l;
+                    idx = i;
+                }
+                None => return Ok(None),
+            }
+        }
     }
 
     // ── OPEN / CLOSE ─────────────────────────────────────────────────────────
@@ -1000,7 +1066,9 @@ impl DiskIndexedFile {
         self.primary_root = self.bt_insert(self.primary_root, &pkey, recid)?;
         let alts = self.alternates.clone();
         for (i, ks) in alts.iter().enumerate() {
-            let k = Self::alt_tree_key(ks, rec, recid);
+            // A fresh sequence: this entry is joining its duplicate set now.
+            let seq = if ks.duplicates { self.next_seq() } else { 0 };
+            let k = Self::alt_tree_key(ks, rec, seq);
             self.alt_roots[i] = self.bt_insert(self.alt_roots[i], &k, recid)?;
         }
         Ok(())
@@ -1011,8 +1079,18 @@ impl DiskIndexedFile {
         self.bt_delete(self.primary_root, &pkey)?;
         let alts = self.alternates.clone();
         for (i, ks) in alts.iter().enumerate() {
-            let k = Self::alt_tree_key(ks, rec, recid);
-            self.bt_delete(self.alt_roots[i], &k)?;
+            // The key carries a join sequence the record does not know, so the
+            // entry is found by its value (the RecordId) rather than rebuilt.
+            let altval = Self::extract(ks, rec);
+            let root = self.alt_roots[i];
+            let k = if ks.duplicates {
+                self.find_alt_key(root, &altval, recid)?
+            } else {
+                Some(altval)
+            };
+            if let Some(k) = k {
+                self.bt_delete(root, &k)?;
+            }
         }
         Ok(())
     }
@@ -1302,21 +1380,41 @@ impl DiskIndexedFile {
         // Update alternate indexes whose value changed.
         let alts = self.alternates.clone();
         for (i, ks) in alts.iter().enumerate() {
-            let ko = Self::alt_tree_key(ks, &old, recid);
-            let kn = Self::alt_tree_key(ks, &rec, recid);
-            if ko != kn {
-                if !ks.duplicates {
-                    if let Ok(Some(_)) = self.bt_search(self.alt_roots[i], &kn) {
-                        return status::DUP_KEY;
-                    }
+            // Compare the alternate VALUES, not the tree keys: a duplicates key
+            // now carries a join sequence, so two keys for the same record
+            // differ even when its alternate value did not change.
+            let vo = Self::extract(ks, &old);
+            let vn = Self::extract(ks, &rec);
+            if vo == vn {
+                continue;
+            }
+            if !ks.duplicates {
+                if let Ok(Some(_)) = self.bt_search(self.alt_roots[i], &vn) {
+                    return status::DUP_KEY;
                 }
-                if self.bt_delete(self.alt_roots[i], &ko).is_err() {
-                    return status::IO_ERROR;
-                }
-                match self.bt_insert(self.alt_roots[i], &kn, recid) {
-                    Ok(r) => self.alt_roots[i] = r,
+            }
+            let root = self.alt_roots[i];
+            let ko = if ks.duplicates {
+                match self.find_alt_key(root, &vo, recid) {
+                    Ok(k) => k,
                     Err(_) => return status::IO_ERROR,
                 }
+            } else {
+                Some(vo)
+            };
+            if let Some(ko) = ko {
+                if self.bt_delete(root, &ko).is_err() {
+                    return status::IO_ERROR;
+                }
+            }
+            // The record is LEAVING one duplicate set and JOINING another, so
+            // it takes a new sequence and lands at the end of the new set —
+            // which is the whole point of this change.
+            let seq = if ks.duplicates { self.next_seq() } else { 0 };
+            let kn = Self::alt_tree_key(ks, &rec, seq);
+            match self.bt_insert(root, &kn, recid) {
+                Ok(r) => self.alt_roots[i] = r,
+                Err(_) => return status::IO_ERROR,
             }
         }
         // Replace the record bytes; the RecordId (and thus all index entries)
@@ -1534,7 +1632,7 @@ impl DiskIndexedFile {
     fn write_header(&mut self) -> R<()> {
         let mut b = Vec::with_capacity(PAGE_SIZE);
         b.extend_from_slice(MAGIC);
-        b.extend_from_slice(&1u16.to_le_bytes()); // version
+        b.extend_from_slice(&2u16.to_le_bytes()); // version (2: alt join sequences)
         b.extend_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
         b.push(1u8); // record format: fixed
         b.push(if self.compressing { 1 } else { 0 });
@@ -1563,6 +1661,12 @@ impl DiskIndexedFile {
                 b.extend_from_slice(&p.length.to_le_bytes());
             }
         }
+        // Version 2, after the variable-length schema so a version 1 reader
+        // stops before it. This MUST persist: a `REWRITE` allocates a sequence
+        // without adding a record, so the counter outruns the RecordId
+        // high-water mark, and a reopen that restarted from it would hand out
+        // sequences already on disk — two identical keys in one B+tree.
+        b.extend_from_slice(&self.next_alt_seq.to_le_bytes());
         self.write_page(0, &b)
     }
 
@@ -1631,6 +1735,17 @@ impl DiskIndexedFile {
                 ordering: KeyOrdering::Ascending,
             });
         }
+        // Version 2 appends the alternate join-sequence counter here. A
+        // version 1 container has nothing at `i`, and `next_seq` then lifts
+        // itself to the RecordId high-water mark instead, which is correct for
+        // a file whose suffixes *are* RecordIds.
+        let version = u16::from_le_bytes([p[8], p[9]]);
+        self.next_alt_seq = if version >= 2 && i + 8 <= p.len() {
+            read_u64(&p, i)
+        } else {
+            0
+        };
+
         // Load the RecordId directory chain.
         self.load_directory(dir_len)?;
 
