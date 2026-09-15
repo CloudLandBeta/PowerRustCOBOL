@@ -644,6 +644,7 @@ pub struct CoboltApp {
     /// Default Theme Settings — the project's per-theme appearance table
     /// (spec 016 Q2).
     theme_defaults_modal: Option<crate::panels::theme_defaults_modal::ThemeDefaultsModal>,
+    indexed_engine_modal: Option<crate::panels::indexed_engine_modal::IndexedEngineModal>,
 
     /// A KB document add found the semantic model absent — the confirmation
     /// dialog is showing.
@@ -1802,6 +1803,7 @@ impl CoboltApp {
 
             settings_form: None,
             theme_defaults_modal: None,
+            indexed_engine_modal: None,
 
             show_project_settings: false,
             show_grace_chat: false,
@@ -2840,6 +2842,9 @@ impl CoboltApp {
             &diagnostics,
             fx.as_ref(),
             &secrets,
+            self.cobolt_project
+                .as_ref()
+                .map(|p| p.ide.indexed_engine.as_str()),
         ) {
             Ok(run) => {
                 if debug {
@@ -3466,6 +3471,16 @@ impl CoboltApp {
             Ok(()) => {
                 let dir = path.parent().map(|p| p.to_owned());
                 self.cobolt_project = Some(proj);
+                // The run threads read the project's engine choice from here;
+                // publishing it on load is what makes it take effect without
+                // threading it through every `start` call.
+                crate::runner::set_project_indexed_engine(
+                    &self
+                        .cobolt_project
+                        .as_ref()
+                        .map(|p| p.ide.indexed_engine.clone())
+                        .unwrap_or_default(),
+                );
                 self.project_path = Some(path);
                 if let Some(dir) = dir {
                     // Create the standard project sub-folders: one per category
@@ -3614,6 +3629,16 @@ impl CoboltApp {
                 self.output
                     .push_status(format!("Opened project '{}'", proj.project.name));
                 self.cobolt_project = Some(proj);
+                // The run threads read the project's engine choice from here;
+                // publishing it on load is what makes it take effect without
+                // threading it through every `start` call.
+                crate::runner::set_project_indexed_engine(
+                    &self
+                        .cobolt_project
+                        .as_ref()
+                        .map(|p| p.ide.indexed_engine.clone())
+                        .unwrap_or_default(),
+                );
                 self.project_path = Some(path);
                 self.agents_modal = None;
                 self.models_modal = None;
@@ -3743,6 +3768,14 @@ impl CoboltApp {
     }
 
     fn do_save_project(&mut self) {
+        // Settings may have just changed the engine; republish before writing.
+        crate::runner::set_project_indexed_engine(
+            &self
+                .cobolt_project
+                .as_ref()
+                .map(|p| p.ide.indexed_engine.clone())
+                .unwrap_or_default(),
+        );
         if self.cobolt_project.is_none() {
             return;
         }
@@ -4726,6 +4759,37 @@ impl CoboltApp {
     }
 
     /// One frame of the modal, and whatever it asks for.
+    /// Open the Default Indexed File Engine modal on the project's current
+    /// choice (empty = the runtime's own default).
+    fn open_indexed_engine_modal(&mut self) {
+        let current = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.ide.indexed_engine.clone())
+            .unwrap_or_default();
+        self.indexed_engine_modal = Some(
+            crate::panels::indexed_engine_modal::IndexedEngineModal::new(&current),
+        );
+    }
+
+    fn show_indexed_engine_modal(&mut self, ctx: &egui::Context) {
+        let Some(mut m) = self.indexed_engine_modal.take() else {
+            return;
+        };
+        let theme = self.current_theme().clone();
+        let tr = self.lang.tr();
+        let act = m.show(ctx, &theme, &tr);
+        if let Some(engine) = act.save {
+            if let Some(p) = &mut self.cobolt_project {
+                p.ide.indexed_engine = engine;
+            }
+            self.do_save_project();
+        }
+        if m.open {
+            self.indexed_engine_modal = Some(m);
+        }
+    }
+
     fn show_theme_defaults_modal(&mut self, ctx: &egui::Context) {
         let Some(mut m) = self.theme_defaults_modal.take() else {
             return;
@@ -9199,6 +9263,7 @@ impl CoboltApp {
         }
         // Default Theme Settings (spec 016 Q2).
         self.show_theme_defaults_modal(ctx);
+        self.show_indexed_engine_modal(ctx);
         // Models Manager modal (spec 031) — taken out of self to split borrows.
         if let Some(mut m) = self.models_modal.take() {
 
@@ -9382,6 +9447,9 @@ impl CoboltApp {
         }
         if action.open_theme_defaults {
             self.open_theme_defaults_modal();
+        }
+        if action.open_indexed_engine {
+            self.open_indexed_engine_modal();
         }
 
         if action.fetch_reviewer_models {

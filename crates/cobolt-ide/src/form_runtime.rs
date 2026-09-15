@@ -370,6 +370,9 @@ impl ExternalFormRun {
         diagnostics: &RunDiagnostics,
         fx: Option<&FormFxArgs>,
         secrets: &[(String, String)],
+        // The project's default indexed engine ("" = the runtime's own). Only
+        // governs files the form CREATES; an existing container names its own.
+        indexed_engine: Option<&str>,
     ) -> Result<Self, String> {
         let exe = std::env::current_exe().map_err(|e| format!("failed to get current exe: {e}"))?;
         let rcrun_path = sibling_rcrun(&exe);
@@ -388,6 +391,14 @@ impl ExternalFormRun {
             }
             if let Some(icon) = project_icon {
                 cmd.arg("--icon").arg(icon);
+            }
+            // The project's default indexed engine. Only governs files the form
+            // CREATES — an existing container names its own engine — so passing
+            // it can never make a form fail to open data it opened yesterday.
+            if let Some(engine) = indexed_engine {
+                if !engine.trim().is_empty() {
+                    cmd.arg("--indexed-engine").arg(engine);
+                }
             }
             // 038 — window effects, already resolved by the IDE.
             if let Some(fx) = fx {

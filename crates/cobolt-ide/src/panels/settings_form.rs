@@ -357,6 +357,8 @@ pub struct SettingsFormAction {
     pub manage_models: bool,
     /// Open the Default Theme Settings modal (spec 016 Q2).
     pub open_theme_defaults: bool,
+    /// Open the Default Indexed File Engine modal (operator, 2026-09-14).
+    pub open_indexed_engine: bool,
 
     /// Open the Model Leaderboard (spec 040).
     pub open_leaderboard: bool,
@@ -1564,6 +1566,18 @@ impl SettingsForm {
                                     .clicked()
                                 {
                                     action.open_theme_defaults = true;
+                                }
+                                ui.add_space(6.0);
+                                // The engine choice is a BUTTON rather than a
+                                // picker: the trade-off it carries cannot be
+                                // read off a combo box, and choosing blind is
+                                // exactly what the modal exists to prevent.
+                                if ui
+                                    .button(tr.idx_engine_title)
+                                    .on_hover_text(tr.idx_engine_intro)
+                                    .clicked()
+                                {
+                                    action.open_indexed_engine = true;
                                 }
 
                             });

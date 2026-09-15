@@ -47,6 +47,42 @@ use crate::external_crates_service::analyze_project as analyze;
 /// Append a timestamped line to `cobolt-debug.log` in the platform's
 /// diagnostics directory (`/tmp` on Linux/macOS, `%TEMP%` on Windows).
 /// Safe to call from any thread.  Silently no-ops if the file can't be opened.
+/// The project's default indexed engine, as a process-wide setting the run
+/// threads read when they build an interpreter.
+///
+/// A field on `Runner` would have to be threaded through `start` and every
+/// caller of it, and the debug runner too, to carry a value that is a property
+/// of the OPEN PROJECT rather than of any one run. It is set once when a
+/// project loads or its settings are saved, and read where the interpreter is
+/// constructed.
+///
+/// Empty means the runtime's own default decides, which is also what an
+/// unrecognised name does — the runtime is the authority on which engines
+/// exist, not the IDE.
+static PROJECT_INDEXED_ENGINE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+/// Record the open project's engine choice. Called when a project loads and
+/// whenever its settings are saved.
+pub fn set_project_indexed_engine(id: &str) {
+    if let Ok(mut g) = PROJECT_INDEXED_ENGINE.lock() {
+        *g = id.trim().to_ascii_lowercase();
+    }
+}
+
+/// Apply the project's engine choice to an interpreter about to run.
+fn apply_project_indexed_engine(interp: &mut Interpreter) {
+    let id = PROJECT_INDEXED_ENGINE
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    if id.is_empty() {
+        return;
+    }
+    if let Some(e) = cobolt_runtime::indexed::IndexedEngine::parse(&id) {
+        interp.set_indexed_engine(e);
+    }
+}
+
 pub fn dbg_log(msg: &str) {
     use std::io::Write;
     let path = cobolt_runtime::diag_path::diagnostics_file("cobolt-debug.log");
@@ -342,6 +378,7 @@ fn run_pipeline(file_name: String, source: String, tx: Sender<RunMsg>, stop_flag
     let stop = Arc::clone(&stop_flag);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new(program);
+        apply_project_indexed_engine(&mut interp);
 
         // Run — the interpreter's DISPLAY calls println!() for now.
         // Future: swap in a channel-backed IoBackend.
@@ -634,6 +671,7 @@ fn run_debug_pipeline(
     let _ = run_tx.send(RunMsg::Output("[DBG] creating interpreter…".to_owned()));
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut interp = Interpreter::new_with_debug_channels(program, cmd_rx, ev_tx, breakpoints);
+        apply_project_indexed_engine(&mut interp);
         interp.set_debug_user_scope(user_scope);
         dbg_log("pipeline: interpreter created, calling run()");
         let r = interp.run();

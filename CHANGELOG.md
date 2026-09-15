@@ -1,5 +1,59 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.28] — 2026-09-14
+
+### The project chooses its indexed engine, and sees the trade-off while choosing
+
+`IdeSettings.indexed_engine` is a new per-project setting in `cobolt.toml`
+(`""` = the runtime's default), reached from a **button** in project settings
+rather than a picker — the trade-off it carries cannot be read off a combo box,
+and choosing blind is what the modal exists to prevent.
+
+`panels/indexed_engine_modal.rs` shows the selected engine's advantages and
+trade-offs side by side, and the PRCIDXD1 obligation as a warning: two programs
+can open the same file for update and overwrite each other, so every updater
+must `OPEN … WITH LOCK`. That line appears only for PRCIDXD1 — for redb it is
+untrue, because the engine refuses the second opener itself.
+
+**It governs creation only.** An existing file names its engine in its own
+container magic and always opens with that one, so nothing chosen here can put
+existing data out of reach. That is what makes this safe as a setting rather
+than a migration, and the modal says so first.
+
+Reaches the runtime by two paths: a process-wide value the run threads read when
+they build an interpreter (a field on `Runner` would have to be threaded through
+every `start` call to carry a property of the open *project*), and
+`--indexed-engine` on the `rcrun run-form` child.
+
+The window follows the resize rule exactly — `resizable(false)`, `fixed_size`,
+children laid out from the stored size, one grip as the field's only writer.
+
+### ⚠️ A translation brief of mine was wrong, and four languages obeyed it
+
+I listed `CREATES` as a reserved term that must stay English. It is not one:
+there is no such token in the lexer, parser or AST — it was an ordinary English
+verb I capitalised for emphasis, and the clause the modal configures is spelled
+`ENGINE`. Four of five translations dutifully stranded it inside their prose —
+*"los archivos indexados que este proyecto CREATES"*.
+
+The Portuguese agent caught it, by checking the codebase before departing from
+the brief rather than trusting it. The English no longer capitalises the verb —
+the emphasis now comes from the contrast with the next sentence, which reads
+better anyway — and the four affected strings were re-translated against the
+corrected source.
+
+The same pass corrected Spanish to the project's own glossary, with file
+evidence: **"a prueba de caídas"** (9 uses in `docs/*-es.md`, "ante fallos" 0),
+**"corte de corriente"** (3, vs 0 for "corte de energía"), and **"coste"** (11,
+vs 0 for "costo").
+
+12 new `Tr` keys in all six languages. Tests: `cobolt-ide` **1182 passed**,
+`cobolt-runtime` **878 passed**, 0 failed — including
+`non_english_is_actually_translated`, which is what makes "translated" a claim
+rather than an assertion, and a round-trip test proving a manifest written
+before the setting loads as empty rather than adopting whichever engine happened
+to be current.
+
 ## [PowerRustCOBOL 1.70.27] — 2026-09-14
 
 ### IX211A fixed — the gate is green, and PRCIDXD1 as the default is finished

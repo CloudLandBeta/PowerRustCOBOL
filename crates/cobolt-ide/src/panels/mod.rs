@@ -23,6 +23,7 @@ pub mod forms_list;
 pub mod icon_picker;
 pub mod grace_chat;
 pub mod indexed_editor;
+pub mod indexed_engine_modal;
 pub mod indexed_field_control;
 pub mod indexed_grid;
 pub mod indexed_new_dialog;

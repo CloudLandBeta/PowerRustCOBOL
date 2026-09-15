@@ -473,6 +473,17 @@ pub struct IdeSettings {
     /// nothing needs upgrading and the shipped look is unchanged.
     #[serde(default)]
     pub theme_defaults: std::collections::BTreeMap<String, cobolt_forms::model::ThemeDefaults>,
+    /// Which indexed-file engine this project's programs **create** files with:
+    /// `"prcidxd1"`, `"redb"`, or empty for the runtime's own default.
+    ///
+    /// It governs creation only. A file that already exists names its engine in
+    /// its own container magic and always opens with that one, so changing this
+    /// can never put existing data out of reach — which is why it is safe to
+    /// expose as a project setting at all.
+    ///
+    /// Empty for every project that predates the setting, so nothing upgrades.
+    #[serde(default)]
+    pub indexed_engine: String,
 }
 
 /// The `theme_defaults` key for a theme id and glass style.
@@ -520,6 +531,7 @@ impl Default for IdeSettings {
             hide_ai_setup_prompt: false,
             debug_watches: Vec::new(),
             theme_defaults: std::collections::BTreeMap::new(),
+            indexed_engine: String::new(),
         }
     }
 }
@@ -1647,6 +1659,33 @@ mod tests {
     }
 
     /// Spec 044 R8/R10 — pins round-trip through the IDE's own serialization,
+    /// The engine choice survives a save/load, and a manifest written before the
+    /// setting existed loads as empty rather than failing or inventing a value.
+    ///
+    /// Empty matters: it means "whatever the runtime's default is", so an old
+    /// project keeps following the product's default instead of being pinned to
+    /// whichever engine happened to be current the day it was last saved.
+    #[test]
+    fn the_indexed_engine_choice_round_trips_and_old_projects_load_empty() {
+        let mut p = proj();
+        p.ide.indexed_engine = "redb".into();
+        let text = toml::to_string_pretty(&p).unwrap();
+        let back: CoboltProject = toml::from_str(&text).unwrap();
+        assert_eq!(back.ide.indexed_engine, "redb");
+
+        // A manifest that predates the setting: the key is simply absent.
+        let older = toml::to_string_pretty(&proj()).unwrap();
+        assert!(
+            !older.contains("indexed_engine = \"redb\""),
+            "a default project must not pin an engine"
+        );
+        let old: CoboltProject = toml::from_str(&older).unwrap();
+        assert_eq!(
+            old.ide.indexed_engine, "",
+            "an old project must defer to the runtime default, not adopt one"
+        );
+    }
+
     /// and a pre-044 manifest (no `[[crates]]`) loads as empty.
     #[test]
     fn crate_pins_round_trip_through_project_save() {
