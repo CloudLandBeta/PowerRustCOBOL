@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.33] — 2026-09-15
+
+### Two defects in the new journal code, and most of the read cost back
+
+Measuring PRCIDXD1's read speed turned up a regression the previous two
+versions had introduced and two defects in the journal that landed with them.
+
+**A scan re-read the same directory pages once per record.** Moving the
+RecordId directory to disk made every delivered record pay a root-to-leaf
+descent — a real `lseek`+`read` and a fresh 4 KiB allocation per level — where
+it had been an array index. But 255 consecutive RecordIds share a leaf, and
+every RecordId in the container shares the root, so a scan was reading the same
+few pages a million times. The pages of the current descent are now kept, at
+most one per level: 8 pages, 32 KiB, directory pages only. A 1,000,000-record
+sequential scan went **27 s before this work, 32 s after it, and 28.7 s now**.
+
+**Every write empties that memo**, through either write path, so the engine can
+never read a directory page it has itself changed. A test walks the sequence
+that would otherwise corrupt — read a record, `REWRITE` it so it moves, read it
+again — and it fails if either invalidation is removed.
+
+**A reopened handle could serve the previous session's pages.** `OPEN` and
+`CLOSE` reset the cursor and the undo log but never the write set, so a `CLOSE`
+whose commit failed left pages pending and `in_tx` set; reopening that handle
+would hand those pages to a reader as changes the container does not have.
+Both ends now clear it.
+
+**A corrupt journal could panic instead of being rejected.** The record count
+was read from a file a crash may have left in any state and multiplied by the
+record size before anything checked it. That multiplication overflows, and the
+wrapped result can pass for a plausible length and then index past the end of
+the buffer. The arithmetic is checked now, and a count that cannot be right
+makes the journal "not complete" — which was already the correct answer for it.
+
+Measured on a 69-byte record with an 8-digit primary key and a 30-character
+alternate, ascending load, warm page cache. Reads are end-to-end COBOL `READ`
+throughput, not engine throughput: the interpreter scatters each record into
+its FD fields twice per 01, which is a large share of every figure above.
+
+NIST CCVS85 unchanged on both axes: compile 420 / 420, execution 383 clean,
+8418 PASS / 50 FAIL, every module on baseline.
+
 ## [PowerRustCOBOL 1.70.32] — 2026-09-15
 
 ### An abend can no longer leave a PRCIDXD1 container structurally wrong

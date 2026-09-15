@@ -74,6 +74,9 @@ const DIR_HDR: usize = 16; // tag(1) level(1) pad(2) first_recid(8) pad(4)
 const DIR_ENTRY: usize = 16; // kind(1) pad(1) slot(2) len(4) page(8)
 const DIR_LEAF_FAN: u64 = 255; // 16 + 255 × 16 = 4096
 const DIR_IDX_FAN: u64 = 510; // 16 + 510 ×  8 = 4096
+/// Directory pages kept from the most recent descent — at most the height of
+/// the table, so 8 pages / 32 KiB at the very top of the `u64` RecordId space.
+const DIR_CACHE_MAX: usize = 8;
 
 /// How many changed pages may accumulate before a commit point is forced.
 ///
@@ -208,6 +211,23 @@ pub struct DiskIndexedFile {
     /// RecordIds allocated so far — the directory's length, and the next
     /// RecordId to hand out. Never decreases: a `DELETE` tombstones its slot.
     dir_count: u64,
+    /// The directory pages on the most recent descent, each with its page id.
+    ///
+    /// Bounded by the directory's height — 8 pages, 32 KiB, at the very top of
+    /// the RecordId space — and holding **only** directory pages, never data or
+    /// index pages. It is not a page cache: it exists because consecutive
+    /// RecordIds share a descent path, so a scan would otherwise re-read the
+    /// same root, the same index page and the same leaf once per record.
+    ///
+    /// **Every write empties it**, through either `write_page` or
+    /// `write_page_raw`, so this engine can never read a directory page it has
+    /// itself changed. What it does assume is that no *other* process changes
+    /// the container underneath an open handle — which the shared-lock protocol
+    /// will guarantee, and until then is assumed by the rest of the read path
+    /// anyway. [`Self::dir_cache_clear`] is the single place to call when that
+    /// lock is acquired or released.
+    dir_cache: Vec<(u64, Vec<u8>)>,
+
     /// `Some(len)` when the container opened is **version ≤ 2** and still
     /// carries the old directory chain, which [`Self::migrate`] must convert.
     pending_migration: Option<usize>,
@@ -314,6 +334,7 @@ impl DiskIndexedFile {
             undo_pages: Vec::new(),
             op_dirty: std::collections::BTreeMap::new(),
             op_undo: Vec::new(),
+            dir_cache: Vec::new(),
             in_tx: false,
             in_op: false,
             op_snapshot: None,
@@ -388,6 +409,8 @@ impl DiskIndexedFile {
         debug_assert!(buf.len() <= PAGE_SIZE);
         let mut page = vec![0u8; PAGE_SIZE];
         page[..buf.len()].copy_from_slice(buf);
+        // No directory page this engine changes may survive in the memo.
+        self.dir_cache_clear();
         if self.in_op {
             // The undo image is what the *container* holds, so it is taken
             // once, the first time a page is touched after a commit point —
@@ -411,6 +434,7 @@ impl DiskIndexedFile {
     }
 
     fn write_page_raw(&mut self, id: u64, page: &[u8]) -> R<()> {
+        self.dir_cache_clear();
         let f = self.file_mut();
         f.seek(SeekFrom::Start(id * PAGE_SIZE as u64))?;
         f.write_all(page)
@@ -520,14 +544,28 @@ impl DiskIndexedFile {
             return Ok(());
         };
         const REC: usize = 8 + 4 + PAGE_SIZE;
-        let complete = b.len() >= 16
-            && &b[0..8] == JRN_MAGIC
-            && b.len() >= 16 + u64::from_le_bytes(b[8..16].try_into().unwrap()) as usize * REC;
+        // The record count comes from a file a crash may have left in any
+        // state, so it is not trusted before it is checked: computing the
+        // expected length from a corrupt count overflows, and the wrapped
+        // result can pass for a plausible length and then index past the end
+        // of the buffer. Checked arithmetic in `u64` turns every such file into
+        // "not complete", which is already the right answer for it.
+        let count = if b.len() >= 16 && &b[0..8] == JRN_MAGIC {
+            u64::from_le_bytes(b[8..16].try_into().unwrap())
+        } else {
+            let _ = std::fs::remove_file(&jp);
+            return Ok(());
+        };
+        let complete = count
+            .checked_mul(REC as u64)
+            .and_then(|n| n.checked_add(16))
+            .is_some_and(|need| b.len() as u64 >= need);
         if !complete {
             let _ = std::fs::remove_file(&jp);
             return Ok(());
         }
-        let count = u64::from_le_bytes(b[8..16].try_into().unwrap()) as usize;
+        // Proven in range by `complete`: count * REC + 16 <= b.len().
+        let count = count as usize;
         let mut images = Vec::with_capacity(count);
         for n in 0..count {
             let o = 16 + n * REC;
@@ -727,6 +765,30 @@ impl DiskIndexedFile {
     /// A RecordId that was never allocated, and one whose record has been
     /// deleted, both answer `FREE` — the caller cannot tell them apart and has
     /// no reason to.
+    /// Empty the descent memo. Called by every write, by `OPEN` and by `CLOSE`,
+    /// and the place for the shared-lock protocol to call when a reader's view
+    /// of the container may have moved underneath it.
+    fn dir_cache_clear(&mut self) {
+        self.dir_cache.clear();
+    }
+
+    /// The position of a directory page in the memo, reading it in if absent.
+    ///
+    /// Returns an index rather than the page so the caller can borrow the bytes
+    /// without copying them — a 4 KiB clone per level per record is most of what
+    /// this memo exists to remove.
+    fn dir_page(&mut self, id: u64) -> R<usize> {
+        if let Some(i) = self.dir_cache.iter().position(|(p, _)| *p == id) {
+            return Ok(i);
+        }
+        let page = self.read_page(id)?;
+        if self.dir_cache.len() >= DIR_CACHE_MAX {
+            self.dir_cache.remove(0);
+        }
+        self.dir_cache.push((id, page));
+        Ok(self.dir_cache.len() - 1)
+    }
+
     fn dir_get(&mut self, recid: u64) -> R<RecLoc> {
         if self.dir_root == 0 || self.dir_height == 0 || recid >= self.dir_count {
             return Ok(RecLoc::FREE);
@@ -735,11 +797,12 @@ impl DiskIndexedFile {
         let mut level = self.dir_height - 1;
         let mut first = 0u64;
         while level > 0 {
-            let p = self.read_page(pid)?;
-            Self::dir_check(&p, PT_DIRIDX, level, first)?;
             let child_span = Self::dir_span(level - 1);
             let i = ((recid - first) / child_span) as usize;
             let off = DIR_HDR + i * 8;
+            let slot = self.dir_page(pid)?;
+            let p = &self.dir_cache[slot].1;
+            Self::dir_check(p, PT_DIRIDX, level, first)?;
             let child = u64::from_le_bytes(p[off..off + 8].try_into().unwrap());
             if child == 0 {
                 // A hole: every RecordId under this subtree is unallocated.
@@ -749,9 +812,10 @@ impl DiskIndexedFile {
             pid = child;
             level -= 1;
         }
-        let p = self.read_page(pid)?;
-        Self::dir_check(&p, PT_DIR, 0, first)?;
-        Ok(Self::dir_decode(&p, DIR_HDR + (recid - first) as usize * DIR_ENTRY))
+        let slot = self.dir_page(pid)?;
+        let p = &self.dir_cache[slot].1;
+        Self::dir_check(p, PT_DIR, 0, first)?;
+        Ok(Self::dir_decode(p, DIR_HDR + (recid - first) as usize * DIR_ENTRY))
     }
 
     /// Record where `recid` lives, creating whatever pages the path needs.
@@ -1524,6 +1588,12 @@ impl DiskIndexedFile {
         self.resume_key = None;
         self.current = None;
         self.undo.clear(); // a fresh transaction starts at OPEN
+        // …and so does a fresh write set. A `CLOSE` whose commit failed leaves
+        // pages pending and `in_tx` set; without this, reopening the same
+        // handle would serve those pages to a reader from `read_page`'s write-
+        // set probe, as changes that the container does not have and that no
+        // verb in this run unit made.
+        self.reset_pending_writes();
         status::OK
     }
 
@@ -1576,7 +1646,23 @@ impl DiskIndexedFile {
         self.cursor = None;
         self.resume_key = None;
         self.current = None;
+        // Whether or not the commit above succeeded, nothing may outlive the
+        // close: a retained write set is both a megabyte held for no reason and
+        // a set of pages a later open could mistake for its own.
+        self.reset_pending_writes();
         code
+    }
+
+    /// Drop every page and flag belonging to a transaction that is over.
+    fn reset_pending_writes(&mut self) {
+        self.dirty.clear();
+        self.op_dirty.clear();
+        self.undo_pages.clear();
+        self.op_undo.clear();
+        self.in_tx = false;
+        self.in_op = false;
+        self.op_snapshot = None;
+        self.dir_cache_clear();
     }
 
     // ── WRITE ────────────────────────────────────────────────────────────────
@@ -2982,6 +3068,157 @@ mod tests {
         assert_eq!(g.dir_count, 5, "and does not consume a RecordId");
         g.close();
         assert_eq!(std::fs::read(&p).unwrap(), before, "the container is untouched");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// The descent memo must never outlive a change to the page it holds.
+    ///
+    /// A REWRITE moves a record and rewrites its directory leaf. If the memo
+    /// survived that, the very next READ of the same record would follow the
+    /// old location — and on a slot the engine has since reused, return another
+    /// record's bytes under the right key. This walks that exact sequence.
+    #[test]
+    fn a_rewrite_invalidates_the_directory_memo() {
+        let p = tmp("memo-rewrite");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=300u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "BEFORE")), status::OK);
+        }
+        f.close();
+
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        // Read, so the memo holds the leaf covering this RecordId.
+        let (b, st) = f.read_key(b"00100");
+        assert_eq!(st, status::OK);
+        assert_eq!(&b.unwrap()[5..11], b"BEFORE");
+        assert!(!f.dir_cache.is_empty(), "the read populated the memo");
+
+        // Change it. The record is longer, so it must move, which rewrites the
+        // directory leaf the memo is holding.
+        assert_eq!(
+            f.rewrite(&rec("100", "AFTERXX"), Some(b"00100")),
+            status::OK
+        );
+        assert!(f.dir_cache.is_empty(), "the write emptied the memo");
+
+        let (b, st) = f.read_key(b"00100");
+        assert_eq!(st, status::OK);
+        assert_eq!(
+            &b.unwrap()[5..12],
+            b"AFTERXX",
+            "the read after the rewrite must see the new record, not the memo"
+        );
+        f.close();
+
+        // And it survives the round trip to disk.
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        let (b, st) = f.read_key(b"00100");
+        assert_eq!(st, status::OK);
+        assert_eq!(&b.unwrap()[5..12], b"AFTERXX");
+        f.close();
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A scan reads every record correctly with the memo in play — the case
+    /// the memo exists to speed up is also the case it could silently corrupt,
+    /// since one stale leaf would serve 255 records the wrong locations.
+    #[test]
+    fn a_scan_through_the_memo_returns_every_record_intact() {
+        let p = tmp("memo-scan");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        // More than one directory leaf (255 per leaf) and more than one B+tree
+        // leaf, so the scan crosses both kinds of boundary.
+        for i in 1..=900u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+
+        let all = read_all(&p, false);
+        assert_eq!(all.len(), 900);
+        for (n, r) in all.iter().enumerate() {
+            let want = format!("{:0>5}", n + 1);
+            assert_eq!(
+                &r[..5],
+                want.as_bytes(),
+                "record {} of the scan is the wrong record",
+                n + 1
+            );
+        }
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Reopening a handle whose close could not commit must not hand the new
+    /// session the old session's pages.
+    #[test]
+    fn a_reopened_handle_carries_nothing_from_the_last_one() {
+        let p = tmp("handle-reuse");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=20u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+
+        // Leave a transaction pending, exactly as a failed commit would.
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        assert_eq!(f.write(&rec("21", "N")), status::OK);
+        assert!(!f.dirty.is_empty() && f.in_tx, "a transaction is pending");
+        f.close();
+        assert!(f.dirty.is_empty() && !f.in_tx, "CLOSE leaves nothing pending");
+
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        assert!(
+            f.dirty.is_empty() && f.op_dirty.is_empty() && !f.in_tx && !f.in_op,
+            "OPEN starts with an empty write set"
+        );
+        f.close();
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A journal whose record count is nonsense is discarded, not acted on.
+    ///
+    /// The count is read from a file a crash may have left in any state. Before
+    /// this was checked, computing the expected length from a corrupt count
+    /// overflowed, and the wrapped result could pass for plausible and then
+    /// index past the end of the buffer.
+    #[test]
+    fn a_journal_with_an_impossible_record_count_is_discarded() {
+        let p = tmp("journal-absurd-count");
+        for count in [u64::MAX, u64::MAX / 2, 1 << 60, 1_000_000] {
+            let _ = std::fs::remove_file(&p);
+            let mut f = newfile_pk(p.clone());
+            assert_eq!(f.open(OpenMode::Output), status::OK);
+            for i in 1..=6u32 {
+                assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+            }
+            f.close();
+            let good = std::fs::read(&p).unwrap();
+
+            let mut j = Vec::new();
+            j.extend_from_slice(JRN_MAGIC);
+            j.extend_from_slice(&count.to_le_bytes());
+            j.extend_from_slice(&[0u8; 64]); // far less than one record
+            std::fs::write(journal_of(&p), &j).unwrap();
+
+            let mut g = newfile_pk(p.clone());
+            assert_eq!(
+                g.open(OpenMode::Io),
+                status::OK,
+                "count {count} must be rejected, not acted on"
+            );
+            g.close();
+            assert!(std::fs::metadata(journal_of(&p)).is_err());
+            assert_eq!(
+                std::fs::read(&p).unwrap()[..good.len()],
+                good[..],
+                "count {count}: nothing was written back"
+            );
+        }
         let _ = std::fs::remove_file(&p);
     }
 
