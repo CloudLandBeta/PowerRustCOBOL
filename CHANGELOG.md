@@ -1,5 +1,57 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.31] — 2026-09-15
+
+### The RecordId directory becomes a radix page table — container version 3
+
+The directory that maps a RecordId to where its record physically lives was a
+singly-linked chain of pages, held whole in memory and **rewritten from end to
+end** at `CLOSE` and at every `COMMIT` — freeing and relocating every page in
+it, roughly 180,000 page I/Os at 10M records. That is why nothing in this engine
+could be made durable per operation: the cheapest possible commit rewrote the
+entire directory.
+
+It is now a **radix page table**. RecordIds are dense from 0, allocated
+monotonically and never reused, so a RecordId addresses itself: a leaf holds 255
+locations, an index page 510 children, both filling a 4 KiB page exactly. Three
+seeks reach any of 66 million RecordIds; eight levels cover the whole `u64`
+space. Growth is **strictly additive** — a page, once written, is never freed,
+never relocated and never changes meaning, which is what will let one process
+append while another descends. An append touches one leaf.
+
+Every directory page records its own level and the first RecordId it covers, and
+both are verified on the way down. A wrong child pointer or a page recycled
+underneath a reader is reported, not followed.
+
+**The header now carries a CRC-32** — the container's first checksum. A header
+torn by a crash mid-write used to be indistinguishable from a good one; it is
+now refused with file status 90.
+
+### Conversion, built so it cannot loop
+
+A version ≤ 2 container is converted the moment it is opened, before a verb runs
+against it, so there is never more than one directory format in play.
+
+The header's `version` field is the only source of truth, and **the version flip
+is the last durable act** — everything the conversion builds is written and
+fsynced first, and publishing it is a single page-0 write. Up to that point the
+container is untouched: the old chain is read and never written, and the pages
+the new directory occupies were allocated only in memory, so an interrupted
+attempt hands the same page ids back to the next one. Nothing leaks, so repeated
+interruption converges instead of accumulating. One bounded, idempotent step
+remains after the flip — reclaiming the old chain's pages — and it cannot send
+the container back to version 2.
+
+Five tests cover it: a 600-record version 2 container with holes converts and
+reads back identically; converting twice changes not one byte; a conversion
+interrupted three times before the flip leaves the file exactly as it was and
+then converts cleanly; a torn header is refused; and the radix addresses
+RecordId 0, 254, 255, 130 049 and 130 050 correctly across all three levels.
+
+NIST CCVS85 unchanged on both axes: compile 420 / 420, execution 383 clean,
+8418 PASS / 50 FAIL, every module on baseline — including IX 41 / 41, which is
+41 real COBOL indexed-file programs running on the new directory.
+
 ## [PowerRustCOBOL 1.70.30] — 2026-09-15
 
 ### A scan no longer stops at a hole, and a failed fsync no longer passes for success

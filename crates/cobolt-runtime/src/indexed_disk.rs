@@ -45,7 +45,39 @@ const PT_INTERNAL: u8 = 1;
 const PT_LEAF: u8 = 2;
 const PT_DATA: u8 = 3;
 const PT_OVERFLOW: u8 = 4;
-const PT_DIR: u8 = 5;
+const PT_DIR: u8 = 5; // RecordId directory — a radix leaf from version 3
+const PT_DIRIDX: u8 = 6; // RecordId directory — a radix index page (version 3)
+
+// ── The RecordId directory, as a radix page table (container version 3) ──────
+//
+// RecordIds are dense from 0, allocated monotonically and never reused, so the
+// directory is a *page table*, not a search tree: a RecordId addresses itself.
+//
+// Until version 2 it was a singly-linked chain of pages rewritten in full at
+// `CLOSE`/`COMMIT`, which is why nothing could be committed per operation —
+// persisting it freed and relocated every page in the chain, about 180,000 page
+// I/Os at 10M records. A radix table is **strictly additive**: a page, once
+// written, is never freed, never relocated, and never changes its meaning. That
+// is what lets one process append while another descends, and what makes a
+// commit after every operation affordable — an append touches one leaf.
+//
+// Both fanouts divide the 4080 bytes after the page header exactly:
+//
+// * leaf  — 255 entries × 16 bytes, so 3 seeks reach any of 66M RecordIds;
+// * index — 510 child ids × 8 bytes, so height 8 covers the whole `u64` space.
+//
+// Every page records its own `level` and the first RecordId it covers, and both
+// are checked on the way down. That is the cheapest possible detection of a
+// wrong child pointer or a page that has been recycled underneath a reader —
+// and "never break an indexed file" is the constraint this engine is held to.
+const DIR_HDR: usize = 16; // tag(1) level(1) pad(2) first_recid(8) pad(4)
+const DIR_ENTRY: usize = 16; // kind(1) pad(1) slot(2) len(4) page(8)
+const DIR_LEAF_FAN: u64 = 255; // 16 + 255 × 16 = 4096
+const DIR_IDX_FAN: u64 = 510; // 16 + 510 ×  8 = 4096
+
+/// The container version this engine writes. See [`DiskIndexedFile::migrate`]
+/// for what separates it from 2.
+const VERSION: u16 = 3;
 
 /// A physical record location recorded in the RecordId directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,7 +167,19 @@ pub struct DiskIndexedFile {
     data_tail: u64, // current slotted page accepting inline records (0 = none)
     primary_root: u64,
     alt_roots: Vec<u64>,
-    dir_head: u64, // first RecordId-directory page (0 = none yet)
+    /// First page of the **version ≤ 2** directory chain (0 = none). Read only
+    /// to migrate such a container; a version 3 container leaves it 0.
+    dir_head: u64,
+    /// Root page of the radix directory (0 = no RecordId has been allocated).
+    dir_root: u64,
+    /// Number of levels in the radix directory; 1 means the root is a leaf.
+    dir_height: u8,
+    /// RecordIds allocated so far — the directory's length, and the next
+    /// RecordId to hand out. Never decreases: a `DELETE` tombstones its slot.
+    dir_count: u64,
+    /// `Some(len)` when the container opened is **version ≤ 2** and still
+    /// carries the old directory chain, which [`Self::migrate`] must convert.
+    pending_migration: Option<usize>,
     /// Next **join sequence** for a duplicates-alternate index entry.
     ///
     /// A duplicates alt key is `altvalue || suffix`. The suffix used to be the
@@ -146,8 +190,6 @@ pub struct DiskIndexedFile {
     /// set iterates in join order (container version 2).
     next_alt_seq: u64,
 
-    // RecordId directory, held in memory while open, persisted on close.
-    directory: Vec<RecLoc>,
 
     // Transaction undo log (since the last COMMIT/OPEN) for ROLLBACK, plus a
     // guard so the inverse operations applied during a rollback don't re-log.
@@ -210,8 +252,11 @@ impl DiskIndexedFile {
             primary_root: 0,
             alt_roots: vec![0; n],
             dir_head: 0,
-            directory: Vec::new(),
             undo: Vec::new(),
+            dir_root: 0,
+            dir_height: 0,
+            dir_count: 0,
+            pending_migration: None,
             tx_replay: false,
             io_failed: false,
         }
@@ -286,6 +331,145 @@ impl DiskIndexedFile {
         self.write_page(id, &p)?;
         self.free_list_head = id;
         Ok(())
+    }
+
+    // ── The RecordId directory ───────────────────────────────────────────────
+
+    /// How many RecordIds a directory page at `level` covers.
+    ///
+    /// Saturating: past level 7 a page already covers more than a `u64` holds,
+    /// and "covers everything" is the answer the callers want there.
+    fn dir_span(level: u8) -> u64 {
+        let mut s = DIR_LEAF_FAN;
+        for _ in 0..level {
+            s = s.saturating_mul(DIR_IDX_FAN);
+        }
+        s
+    }
+
+    /// Verify a directory page is the one the descent expected.
+    ///
+    /// A wrong child pointer, a page recycled underneath a reader, or a file
+    /// truncated mid-write all show up here rather than as a plausible-looking
+    /// record location. Reading page 0 as a directory page also lands here,
+    /// since its first byte is `P` of `PRCIDXD1`, never a page tag.
+    fn dir_check(p: &[u8], tag: u8, level: u8, first: u64) -> R<()> {
+        if p.len() < DIR_HDR {
+            return Err(corrupt("directory page shorter than its header"));
+        }
+        let got_first = u64::from_le_bytes(p[4..12].try_into().unwrap());
+        if p[0] != tag || p[1] != level || got_first != first {
+            return Err(corrupt(&format!(
+                "directory page is tag {} level {} first {}, expected tag {tag} level {level} first {first}",
+                p[0], p[1], got_first
+            )));
+        }
+        Ok(())
+    }
+
+    /// Allocate an empty directory page covering `[first, first + span(level))`.
+    fn dir_new_page(&mut self, level: u8, first: u64) -> R<u64> {
+        let id = self.alloc_page()?;
+        let mut b = vec![0u8; PAGE_SIZE];
+        b[0] = if level == 0 { PT_DIR } else { PT_DIRIDX };
+        b[1] = level;
+        b[4..12].copy_from_slice(&first.to_le_bytes());
+        self.write_page(id, &b)?;
+        Ok(id)
+    }
+
+    fn dir_decode(p: &[u8], off: usize) -> RecLoc {
+        RecLoc {
+            kind: p[off],
+            slot: u16::from_le_bytes([p[off + 2], p[off + 3]]),
+            len: u32::from_le_bytes(p[off + 4..off + 8].try_into().unwrap()),
+            page: u64::from_le_bytes(p[off + 8..off + 16].try_into().unwrap()),
+        }
+    }
+
+    fn dir_encode(p: &mut [u8], off: usize, loc: RecLoc) {
+        p[off] = loc.kind;
+        p[off + 1] = 0;
+        p[off + 2..off + 4].copy_from_slice(&loc.slot.to_le_bytes());
+        p[off + 4..off + 8].copy_from_slice(&loc.len.to_le_bytes());
+        p[off + 8..off + 16].copy_from_slice(&loc.page.to_le_bytes());
+    }
+
+    /// Where a live record with this RecordId is, or [`RecLoc::FREE`].
+    ///
+    /// A RecordId that was never allocated, and one whose record has been
+    /// deleted, both answer `FREE` — the caller cannot tell them apart and has
+    /// no reason to.
+    fn dir_get(&mut self, recid: u64) -> R<RecLoc> {
+        if self.dir_root == 0 || self.dir_height == 0 || recid >= self.dir_count {
+            return Ok(RecLoc::FREE);
+        }
+        let mut pid = self.dir_root;
+        let mut level = self.dir_height - 1;
+        let mut first = 0u64;
+        while level > 0 {
+            let p = self.read_page(pid)?;
+            Self::dir_check(&p, PT_DIRIDX, level, first)?;
+            let child_span = Self::dir_span(level - 1);
+            let i = ((recid - first) / child_span) as usize;
+            let off = DIR_HDR + i * 8;
+            let child = u64::from_le_bytes(p[off..off + 8].try_into().unwrap());
+            if child == 0 {
+                // A hole: every RecordId under this subtree is unallocated.
+                return Ok(RecLoc::FREE);
+            }
+            first += i as u64 * child_span;
+            pid = child;
+            level -= 1;
+        }
+        let p = self.read_page(pid)?;
+        Self::dir_check(&p, PT_DIR, 0, first)?;
+        Ok(Self::dir_decode(&p, DIR_HDR + (recid - first) as usize * DIR_ENTRY))
+    }
+
+    /// Record where `recid` lives, creating whatever pages the path needs.
+    ///
+    /// Growth is additive only. A root that no longer covers `recid` gains a
+    /// new level **above** it, so every existing page keeps its contents, its
+    /// page id and the range it covers — nothing a concurrent reader may be
+    /// looking at moves or changes meaning.
+    fn dir_set(&mut self, recid: u64, loc: RecLoc) -> R<()> {
+        if self.dir_root == 0 {
+            self.dir_root = self.dir_new_page(0, 0)?;
+            self.dir_height = 1;
+        }
+        while Self::dir_span(self.dir_height - 1) <= recid {
+            let level = self.dir_height;
+            let root = self.dir_new_page(level, 0)?;
+            let mut p = self.read_page(root)?;
+            p[DIR_HDR..DIR_HDR + 8].copy_from_slice(&self.dir_root.to_le_bytes());
+            self.write_page(root, &p)?;
+            self.dir_root = root;
+            self.dir_height = level + 1;
+        }
+        let mut pid = self.dir_root;
+        let mut level = self.dir_height - 1;
+        let mut first = 0u64;
+        while level > 0 {
+            let mut p = self.read_page(pid)?;
+            Self::dir_check(&p, PT_DIRIDX, level, first)?;
+            let child_span = Self::dir_span(level - 1);
+            let i = ((recid - first) / child_span) as usize;
+            let off = DIR_HDR + i * 8;
+            let mut child = u64::from_le_bytes(p[off..off + 8].try_into().unwrap());
+            first += i as u64 * child_span;
+            if child == 0 {
+                child = self.dir_new_page(level - 1, first)?;
+                p[off..off + 8].copy_from_slice(&child.to_le_bytes());
+                self.write_page(pid, &p)?;
+            }
+            pid = child;
+            level -= 1;
+        }
+        let mut p = self.read_page(pid)?;
+        Self::dir_check(&p, PT_DIR, 0, first)?;
+        Self::dir_encode(&mut p, DIR_HDR + (recid - first) as usize * DIR_ENTRY, loc);
+        self.write_page(pid, &p)
     }
 
     // ── B+tree node (de)serialization ────────────────────────────────────────
@@ -866,7 +1050,7 @@ impl DiskIndexedFile {
     /// existing entries keep write order among themselves, and everything added
     /// from now on joins at the end, which is what join order means.
     fn next_seq(&mut self) -> u64 {
-        let s = self.next_alt_seq.max(self.directory.len() as u64);
+        let s = self.next_alt_seq.max(self.dir_count);
         self.next_alt_seq = s + 1;
         s
     }
@@ -961,6 +1145,22 @@ impl DiskIndexedFile {
                                 self.file = None;
                                 return status::ATTR_MISMATCH; // 39
                             }
+                            // A container older than version 3 is converted
+                            // here, before a single verb runs against it, so
+                            // there is never more than one directory format
+                            // in play. An unconverted container left readable
+                            // is a second format to maintain and a second set
+                            // of bugs to find.
+                            if self.migrate().is_err() {
+                                self.file = None;
+                                return status::IO_ERROR;
+                            }
+                            // Finish a reclaim that a crash interrupted after
+                            // an earlier conversion had already been published.
+                            if self.reclaim_legacy_chain().is_err() {
+                                self.file = None;
+                                return status::IO_ERROR;
+                            }
                         }
                         Ok(None) => {
                             self.file = None;
@@ -989,7 +1189,9 @@ impl DiskIndexedFile {
         self.record_count = 0;
         self.data_tail = 0;
         self.dir_head = 0;
-        self.directory.clear();
+        self.dir_root = 0;
+        self.dir_height = 0;
+        self.dir_count = 0;
         // Root leaf for the primary + each alternate index.
         self.primary_root = self.new_leaf(0, 0)?;
         let n = self.alternates.len();
@@ -1011,7 +1213,7 @@ impl DiskIndexedFile {
         );
         let mut code = status::OK;
         if writable {
-            if self.persist_directory().is_err() || self.write_header().is_err() {
+            if self.write_header().is_err() {
                 code = status::IO_ERROR;
             }
             if let Some(f) = self.file.as_mut() {
@@ -1068,13 +1270,17 @@ impl DiskIndexedFile {
                 Err(_) => return status::IO_ERROR,
             }
         }
-        // Allocate RecordId + store record bytes.
-        let recid = self.directory.len() as u64;
+        // Allocate RecordId + store record bytes. RecordIds are dense and
+        // monotonic, so the next one is simply the directory's length.
+        let recid = self.dir_count;
         let loc = match self.store_record_bytes(&rec) {
             Ok(l) => l,
             Err(_) => return status::IO_ERROR,
         };
-        self.directory.push(loc);
+        if self.dir_set(recid, loc).is_err() {
+            return status::IO_ERROR;
+        }
+        self.dir_count += 1;
         // Index it.
         if self.index_insert(&rec, recid).is_err() {
             return status::IO_ERROR;
@@ -1161,12 +1367,13 @@ impl DiskIndexedFile {
                 // resume a DELETE had left pending.
                 self.resume_key = None;
                 self.current = Some(recid);
-                match self.directory.get(recid as usize).copied() {
-                    Some(loc) if loc.is_live() => match self.load_record_bytes(loc) {
+                match self.dir_get(recid) {
+                    Ok(loc) if loc.is_live() => match self.load_record_bytes(loc) {
                         Ok(b) => (Some(b), status::OK),
                         Err(_) => (None, status::IO_ERROR),
                     },
-                    _ => (None, status::NOT_FOUND),
+                    Ok(_) => (None, status::NOT_FOUND),
+                    Err(_) => (None, status::IO_ERROR),
                 }
             }
             None => (None, status::NOT_FOUND),
@@ -1249,8 +1456,12 @@ impl DiskIndexedFile {
             let Ok(Some((_, recid))) = self.entry_at(leaf, idx) else {
                 return (None, status::EOF);
             };
-            match self.directory.get(recid as usize).copied() {
-                Some(loc) if loc.is_live() => {
+            let slot = match self.dir_get(recid) {
+                Ok(loc) => loc,
+                Err(_) => return (None, status::IO_ERROR),
+            };
+            match slot {
+                loc if loc.is_live() => {
                     // Only a delivered record becomes the current one. Leaving
                     // the cursor on a dead entry would make the next sequential
                     // read step from a position no record occupies.
@@ -1432,9 +1643,10 @@ impl DiskIndexedFile {
             },
         };
         // Old record (for alt-key diffing + primary-key invariance check).
-        let old_loc = match self.directory.get(recid as usize).copied() {
-            Some(l) if l.is_live() => l,
-            _ => return status::NOT_FOUND,
+        let old_loc = match self.dir_get(recid) {
+            Ok(l) if l.is_live() => l,
+            Ok(_) => return status::NOT_FOUND,
+            Err(_) => return status::IO_ERROR,
         };
         let old = match self.load_record_bytes(old_loc) {
             Ok(b) => b,
@@ -1517,7 +1729,11 @@ impl DiskIndexedFile {
             return status::IO_ERROR;
         }
         match self.store_record_bytes(&rec) {
-            Ok(loc) => self.directory[recid as usize] = loc,
+            Ok(loc) => {
+                if self.dir_set(recid, loc).is_err() {
+                    return status::IO_ERROR;
+                }
+            }
             Err(_) => return status::IO_ERROR,
         }
         if !self.tx_replay {
@@ -1549,9 +1765,10 @@ impl DiskIndexedFile {
                 None => return status::NO_NEXT,
             },
         };
-        let loc = match self.directory.get(recid as usize).copied() {
-            Some(l) if l.is_live() => l,
-            _ => return status::NOT_FOUND,
+        let loc = match self.dir_get(recid) {
+            Ok(l) if l.is_live() => l,
+            Ok(_) => return status::NOT_FOUND,
+            Err(_) => return status::IO_ERROR,
         };
         let rec = match self.load_record_bytes(loc) {
             Ok(b) => b,
@@ -1588,7 +1805,9 @@ impl DiskIndexedFile {
         if self.free_record_storage(loc).is_err() {
             return status::IO_ERROR;
         }
-        self.directory[recid as usize] = RecLoc::FREE;
+        if self.dir_set(recid, RecLoc::FREE).is_err() {
+            return status::IO_ERROR;
+        }
         self.record_count = self.record_count.saturating_sub(1);
         self.current = None;
         if !self.tx_replay {
@@ -1635,7 +1854,7 @@ impl DiskIndexedFile {
     /// Write the directory and header, then `fsync`, recording any failure in
     /// [`Self::io_failed`] so a verb that carries a FILE STATUS can report it.
     fn persist_and_sync(&mut self) {
-        let mut failed = self.persist_directory().is_err() || self.write_header().is_err();
+        let mut failed = self.write_header().is_err();
         if let Some(f) = self.file.as_mut() {
             failed |= f.sync_all().is_err();
         }
@@ -1733,7 +1952,7 @@ impl DiskIndexedFile {
     fn write_header(&mut self) -> R<()> {
         let mut b = Vec::with_capacity(PAGE_SIZE);
         b.extend_from_slice(MAGIC);
-        b.extend_from_slice(&2u16.to_le_bytes()); // version (2: alt join sequences)
+        b.extend_from_slice(&VERSION.to_le_bytes());
         b.extend_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
         b.push(1u8); // record format: fixed
         b.push(if self.compressing { 1 } else { 0 });
@@ -1744,7 +1963,7 @@ impl DiskIndexedFile {
         b.extend_from_slice(&self.data_tail.to_le_bytes());
         b.extend_from_slice(&self.primary_root.to_le_bytes());
         b.extend_from_slice(&self.dir_head.to_le_bytes());
-        b.extend_from_slice(&(self.directory.len() as u64).to_le_bytes());
+        b.extend_from_slice(&self.dir_count.to_le_bytes());
         b.extend_from_slice(&(self.alt_roots.len() as u16).to_le_bytes());
         for r in &self.alt_roots {
             b.extend_from_slice(&r.to_le_bytes());
@@ -1768,6 +1987,15 @@ impl DiskIndexedFile {
         // high-water mark, and a reopen that restarted from it would hand out
         // sequences already on disk — two identical keys in one B+tree.
         b.extend_from_slice(&self.next_alt_seq.to_le_bytes());
+        // Version 3: the radix directory's root and height. `dir_head` above is
+        // 0 in a converted container, and non-zero only in the window between
+        // the version flip and the old chain's pages being reclaimed.
+        b.extend_from_slice(&self.dir_root.to_le_bytes());
+        b.push(self.dir_height);
+        // The container's only checksum, and the reason a torn header is
+        // detectable at all. It covers every byte before it.
+        let sum = crate::indexed::crc32(&b);
+        b.extend_from_slice(&sum.to_le_bytes());
         self.write_page(0, &b)
     }
 
@@ -1846,9 +2074,32 @@ impl DiskIndexedFile {
         } else {
             0
         };
+        i += 8;
 
-        // Load the RecordId directory chain.
-        self.load_directory(dir_len)?;
+        // Version 3 replaced the directory chain with a radix page table, and
+        // gave the header the container's first checksum.
+        if version >= 3 {
+            self.dir_root = read_u64(&p, i);
+            i += 8;
+            self.dir_height = p[i];
+            i += 1;
+            let stored = read_u32(&p, i);
+            if stored != crate::indexed::crc32(&p[..i]) {
+                return Err(corrupt(
+                    "the container header does not match its checksum — it was \
+                     torn by a crash during the write that published it",
+                ));
+            }
+            self.dir_count = dir_len as u64;
+            self.pending_migration = None;
+        } else {
+            // Unconverted. `dir_head` and `dir_len` describe the old chain;
+            // `migrate()` reads it and publishes a radix directory in its place.
+            self.dir_root = 0;
+            self.dir_height = 0;
+            self.dir_count = 0;
+            self.pending_migration = Some(dir_len);
+        }
 
         let primary = descs.first().cloned().unwrap_or(KeyDescriptor {
             key_number: 1,
@@ -1875,27 +2126,101 @@ impl DiskIndexedFile {
         }))
     }
 
-    fn persist_directory(&mut self) -> R<()> {
-        // Free the previous directory chain.
-        let mut pid = self.dir_head;
-        while pid != 0 {
-            let p = self.read_page(pid)?;
-            let next = u64::from_le_bytes(p[1..9].try_into().unwrap());
-            self.free_page(pid)?;
-            pid = next;
+    /// Convert a **version ≤ 2** container to version 3 — once, and provably
+    /// only once.
+    ///
+    /// The whole design of this function is the answer to one constraint: *it
+    /// must be incapable of looping*. So:
+    ///
+    /// * **The header's `version` field is the only source of truth.** Nothing
+    ///   else is consulted, and nothing else can disagree with it.
+    /// * **The version flip is the last durable act.** Everything the
+    ///   conversion builds is written and fsynced first; publishing it is a
+    ///   single page-0 write, and that write is the conversion's only commit
+    ///   point.
+    /// * **A retry starts clean.** Up to the flip the container is untouched:
+    ///   the old chain is read, never written, and the pages the new directory
+    ///   occupies were allocated only in memory — `next_page_id` and the free
+    ///   list reach the disk with the header, so an interrupted attempt hands
+    ///   the same page ids back to the next one. There is nothing to leak and
+    ///   nothing to clean up, so repeated interruption converges rather than
+    ///   accumulating.
+    /// * **After the flip, one bounded step remains** — reclaiming the old
+    ///   chain's pages. It is idempotent, it is driven by `dir_head` being
+    ///   non-zero in a version 3 header, and it cannot send the container back
+    ///   to version 2.
+    fn migrate(&mut self) -> R<()> {
+        let Some(dir_len) = self.pending_migration else {
+            return Ok(());
+        };
+        let legacy = self.read_legacy_directory(dir_len)?;
+
+        // Build the radix directory in pages that, until the header lands, no
+        // durable state claims. Dead slots are simply not written: an absent
+        // subtree already reads as FREE, so the conversion skips the holes.
+        self.dir_root = 0;
+        self.dir_height = 0;
+        self.dir_count = 0;
+        for (recid, loc) in legacy.iter().enumerate() {
+            if loc.is_live() {
+                self.dir_set(recid as u64, *loc)?;
+            }
+        }
+        self.dir_count = legacy.len() as u64;
+        if let Some(f) = self.file.as_mut() {
+            f.sync_all()?;
+        }
+
+        // ── the commit point ────────────────────────────────────────────────
+        // `dir_head` still names the old chain, deliberately: it is what tells
+        // the next open that the chain's pages are waiting to be reclaimed.
+        self.write_header()?;
+        if let Some(f) = self.file.as_mut() {
+            f.sync_all()?;
+        }
+        self.pending_migration = None;
+
+        self.reclaim_legacy_chain()
+    }
+
+    /// Give the old directory chain's pages back to the free list.
+    ///
+    /// Runs after the version flip, and is safe to run any number of times: a
+    /// container with `dir_head == 0` has nothing to do. If it is interrupted,
+    /// the next open finds a version 3 header whose `dir_head` is still set and
+    /// finishes the job. The worst outcome is pages that stay allocated, which
+    /// costs space and breaks nothing.
+    fn reclaim_legacy_chain(&mut self) -> R<()> {
+        if self.dir_head == 0 {
+            return Ok(());
+        }
+        for id in self.legacy_chain_pages()? {
+            self.free_page(id)?;
         }
         self.dir_head = 0;
-        if self.directory.is_empty() {
-            return Ok(());
+        self.write_header()?;
+        if let Some(f) = self.file.as_mut() {
+            f.sync_all()?;
+        }
+        Ok(())
+    }
+
+    /// Rewrite this container in the **version 2** form — the directory as a
+    /// linked chain, and a header with neither radix fields nor a checksum.
+    ///
+    /// Test-only, and the only remaining writer of that format. It exists so
+    /// the conversion can be exercised against a container the retired code
+    /// would have produced, rather than against a hand-rolled approximation
+    /// that drifts from what is actually in the field.
+    #[cfg(test)]
+    fn downgrade_to_v2(&mut self) -> R<()> {
+        let mut dir = Vec::with_capacity(self.dir_count as usize);
+        for recid in 0..self.dir_count {
+            dir.push(self.dir_get(recid)?);
         }
         const ENTRY: usize = 15; // kind(1) + page(8) + slot(2) + len(4)
         let per_page = (PAGE_SIZE - 11) / ENTRY;
-        // Snapshot into owned chunks so we can allocate pages while iterating.
-        let chunks: Vec<Vec<RecLoc>> = self
-            .directory
-            .chunks(per_page)
-            .map(|c| c.to_vec())
-            .collect();
+        let chunks: Vec<Vec<RecLoc>> = dir.chunks(per_page.max(1)).map(|c| c.to_vec()).collect();
         let mut ids = Vec::with_capacity(chunks.len());
         for _ in 0..chunks.len() {
             ids.push(self.alloc_page()?);
@@ -1914,34 +2239,102 @@ impl DiskIndexedFile {
             }
             self.write_page(ids[ci], &b)?;
         }
-        self.dir_head = ids[0];
+        self.dir_head = ids.first().copied().unwrap_or(0);
+        let dir_len = dir.len() as u64;
+
+        // The version 2 header, byte for byte.
+        let mut b = Vec::with_capacity(PAGE_SIZE);
+        b.extend_from_slice(MAGIC);
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&(PAGE_SIZE as u32).to_le_bytes());
+        b.push(1u8);
+        b.push(if self.compressing { 1 } else { 0 });
+        b.extend_from_slice(&(self.record_len as u32).to_le_bytes());
+        b.extend_from_slice(&self.next_page_id.to_le_bytes());
+        b.extend_from_slice(&self.free_list_head.to_le_bytes());
+        b.extend_from_slice(&self.record_count.to_le_bytes());
+        b.extend_from_slice(&self.data_tail.to_le_bytes());
+        b.extend_from_slice(&self.primary_root.to_le_bytes());
+        b.extend_from_slice(&self.dir_head.to_le_bytes());
+        b.extend_from_slice(&dir_len.to_le_bytes());
+        b.extend_from_slice(&(self.alt_roots.len() as u16).to_le_bytes());
+        for r in &self.alt_roots {
+            b.extend_from_slice(&r.to_le_bytes());
+        }
+        let info = self.inspect();
+        let mut keys = vec![info.primary.clone()];
+        keys.extend(info.alternates.iter().cloned());
+        b.extend_from_slice(&(keys.len() as u16).to_le_bytes());
+        for k in &keys {
+            b.push(k.duplicates_allowed as u8);
+            b.extend_from_slice(&(k.parts.len() as u16).to_le_bytes());
+            for p in &k.parts {
+                b.extend_from_slice(&p.offset.to_le_bytes());
+                b.extend_from_slice(&p.length.to_le_bytes());
+            }
+        }
+        b.extend_from_slice(&self.next_alt_seq.to_le_bytes());
+        self.write_page(0, &b)?;
+        if let Some(f) = self.file.as_mut() {
+            f.sync_all()?;
+        }
         Ok(())
     }
 
-    fn load_directory(&mut self, dir_len: usize) -> R<()> {
-        self.directory = Vec::with_capacity(dir_len);
+    /// Read a **version ≤ 2** directory chain into memory, for conversion.
+    ///
+    /// The chain is 15-byte entries packed 272 to a page, threaded head to
+    /// tail. This is the only code left that understands it, and it reads
+    /// without writing: the chain stays intact on disk until the converted
+    /// directory has been published, so an interrupted conversion leaves the
+    /// container exactly as it found it.
+    fn read_legacy_directory(&mut self, dir_len: usize) -> R<Vec<RecLoc>> {
+        let mut out = Vec::with_capacity(dir_len);
         let mut pid = self.dir_head;
+        let mut guard = 0u64;
         while pid != 0 {
+            // A chain that points back into itself must not spin.
+            guard += 1;
+            if guard > self.next_page_id + 1 {
+                return Err(corrupt("the directory chain loops back on itself"));
+            }
             let p = self.read_page(pid)?;
+            if p[0] != PT_DIR {
+                return Err(corrupt("a directory chain page is not a directory page"));
+            }
             let next = u64::from_le_bytes(p[1..9].try_into().unwrap());
             let count = u16::from_le_bytes([p[9], p[10]]) as usize;
             let mut i = 11;
             for _ in 0..count {
-                let kind = p[i];
-                let page = u64::from_le_bytes(p[i + 1..i + 9].try_into().unwrap());
-                let slot = u16::from_le_bytes([p[i + 9], p[i + 10]]);
-                let len = u32::from_le_bytes(p[i + 11..i + 15].try_into().unwrap());
-                i += 15;
-                self.directory.push(RecLoc {
-                    kind,
-                    page,
-                    slot,
-                    len,
+                if i + 15 > PAGE_SIZE {
+                    return Err(corrupt("a directory chain page claims more entries than it holds"));
+                }
+                out.push(RecLoc {
+                    kind: p[i],
+                    page: u64::from_le_bytes(p[i + 1..i + 9].try_into().unwrap()),
+                    slot: u16::from_le_bytes([p[i + 9], p[i + 10]]),
+                    len: u32::from_le_bytes(p[i + 11..i + 15].try_into().unwrap()),
                 });
+                i += 15;
             }
             pid = next;
         }
-        Ok(())
+        Ok(out)
+    }
+
+    /// The page ids of a **version ≤ 2** directory chain.
+    fn legacy_chain_pages(&mut self) -> R<Vec<u64>> {
+        let mut ids = Vec::new();
+        let mut pid = self.dir_head;
+        while pid != 0 {
+            if ids.len() as u64 > self.next_page_id + 1 {
+                return Err(corrupt("the directory chain loops back on itself"));
+            }
+            let p = self.read_page(pid)?;
+            ids.push(pid);
+            pid = u64::from_le_bytes(p[1..9].try_into().unwrap());
+        }
+        Ok(ids)
     }
 
     /// Read a file's schema without opening it for I/O (the disk equivalent of
@@ -2076,6 +2469,216 @@ mod tests {
         )
     }
 
+    /// Read the container version straight out of page 0.
+    fn container_version(path: &PathBuf) -> u16 {
+        let b = std::fs::read(path).expect("container readable");
+        assert_eq!(&b[0..8], MAGIC);
+        u16::from_le_bytes([b[8], b[9]])
+    }
+
+    /// A version 2 container converts on open, and reads back identically.
+    #[test]
+    fn a_version_2_container_converts_and_reads_the_same() {
+        let p = tmp("migrate-v2");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile(p.clone(), true, false);
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        // Enough records to need more than one directory leaf (255 per leaf),
+        // so the conversion has to build an index level, not just one page.
+        for i in 1..=600u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "NAME")), status::OK);
+        }
+        f.close();
+
+        // Delete a few, so the conversion also has to carry holes across.
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        for k in ["00007", "00300", "00600"] {
+            assert_eq!(f.delete(Some(k.as_bytes())), status::OK);
+        }
+        f.close();
+
+        let before = read_all(&p, true);
+        assert_eq!(before.len(), 597);
+
+        // Put it back into the old form, exactly as the retired code wrote it.
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        f.downgrade_to_v2().unwrap();
+        f.open = None;
+        f.file = None;
+        assert_eq!(container_version(&p), 2, "the fixture really is version 2");
+
+        // Opening converts it.
+        let mut g = newfile(p.clone(), true, false);
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        g.close();
+        assert_eq!(container_version(&p), 3, "the open published version 3");
+
+        assert_eq!(read_all(&p, true), before, "every record survived, in order");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Conversion is idempotent: opening a converted container again does not
+    /// convert it a second time, and cannot send it back.
+    #[test]
+    fn converting_twice_changes_nothing() {
+        let p = tmp("migrate-idempotent");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=40u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        f.downgrade_to_v2().unwrap();
+        f.open = None;
+        f.file = None;
+
+        let mut g = newfile_pk(p.clone());
+        assert_eq!(g.open(OpenMode::Io), status::OK);
+        g.close();
+        let after_first = std::fs::read(&p).unwrap();
+
+        // Every further open must leave the bytes alone.
+        for _ in 0..3 {
+            let mut h = newfile_pk(p.clone());
+            assert_eq!(h.open(OpenMode::Io), status::OK);
+            h.close();
+            assert_eq!(
+                std::fs::read(&p).unwrap(),
+                after_first,
+                "a converted container is rewritten by neither the conversion nor a reopen"
+            );
+        }
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A conversion interrupted before the version flip leaves the container
+    /// untouched, and the next open converts it cleanly.
+    ///
+    /// This is the constraint the whole migration is shaped around: repeated
+    /// interruption must converge, never accumulate and never loop.
+    #[test]
+    fn a_conversion_interrupted_before_the_flip_leaves_the_file_as_it_was() {
+        let p = tmp("migrate-interrupted");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=300u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+        assert_eq!(f.open(OpenMode::Io), status::OK);
+        f.downgrade_to_v2().unwrap();
+        f.open = None;
+        f.file = None;
+        let v2_bytes = std::fs::read(&p).unwrap();
+
+        // Interrupt three times: build the radix, then drop the handle without
+        // ever writing the header. Each attempt must leave the file as it was.
+        for attempt in 0..3 {
+            let mut g = newfile_pk(p.clone());
+            g.file = Some(
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&p)
+                    .expect("reopen"),
+            );
+            g.load_header().unwrap();
+            assert!(g.pending_migration.is_some(), "still unconverted");
+            let legacy = g.read_legacy_directory(g.pending_migration.unwrap()).unwrap();
+            g.dir_root = 0;
+            g.dir_height = 0;
+            for (recid, loc) in legacy.iter().enumerate() {
+                if loc.is_live() {
+                    g.dir_set(recid as u64, *loc).unwrap();
+                }
+            }
+            // … and here the process dies. No header, so nothing is published.
+            g.file = None;
+            let now = std::fs::read(&p).unwrap();
+            assert_eq!(
+                &now[..v2_bytes.len()],
+                &v2_bytes[..],
+                "attempt {attempt}: every byte the version 2 container occupied is unchanged"
+            );
+            assert_eq!(container_version(&p), 2, "attempt {attempt}: still version 2");
+        }
+
+        // The real conversion still works, and the records are all there.
+        let mut h = newfile_pk(p.clone());
+        assert_eq!(h.open(OpenMode::Io), status::OK);
+        h.close();
+        assert_eq!(container_version(&p), 3);
+        assert_eq!(read_all(&p, false).len(), 300);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A header whose checksum does not match is refused, not believed.
+    #[test]
+    fn a_torn_header_is_refused() {
+        let p = tmp("torn-header");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        assert_eq!(f.write(&rec("1", "N")), status::OK);
+        f.close();
+
+        // Flip one byte of the record count — the shape of a half-written
+        // header, and before version 3 it was undetectable.
+        let mut b = std::fs::read(&p).unwrap();
+        b[28] ^= 0xFF;
+        std::fs::write(&p, &b).unwrap();
+
+        let mut g = newfile_pk(p.clone());
+        assert_eq!(
+            g.open(OpenMode::Io),
+            status::IO_ERROR,
+            "a header that fails its checksum must not be acted on"
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// The radix directory is addressed correctly across every level it grows.
+    #[test]
+    fn the_directory_addresses_every_recordid_across_levels() {
+        let p = tmp("radix-levels");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        // 255 per leaf, 510 children per index page, so 130 051 forces a third
+        // level. Probe the boundaries rather than filling it.
+        for (n, recid) in [(0u64, 0u64), (1, 254), (2, 255), (3, 130_049), (4, 130_050)]
+            .iter()
+            .enumerate()
+            .map(|(_, &(n, r))| (n, r))
+        {
+            let loc = RecLoc {
+                kind: 1,
+                page: 1000 + n,
+                slot: n as u16,
+                len: n as u32,
+            };
+            f.dir_set(recid, loc).unwrap();
+            f.dir_count = f.dir_count.max(recid + 1);
+        }
+        assert_eq!(f.dir_height, 3, "130 050 needs three levels");
+        for (n, recid) in [(0u64, 0u64), (1, 254), (2, 255), (3, 130_049), (4, 130_050)]
+            .iter()
+            .map(|&(n, r)| (n, r))
+        {
+            let got = f.dir_get(recid).unwrap();
+            assert_eq!(got.page, 1000 + n, "RecordId {recid} reads back its own slot");
+            assert_eq!(got.slot, n as u16);
+        }
+        // Everything between the probes is a hole, and a hole is FREE.
+        assert!(!f.dir_get(1_000).unwrap().is_live());
+        assert!(!f.dir_get(129_000).unwrap().is_live());
+        f.close();
+        let _ = std::fs::remove_file(&p);
+    }
+
     /// A tree entry whose RecordId slot is dead must be **stepped over**, not
     /// treated as the end of the file.
     ///
@@ -2100,8 +2703,8 @@ mod tests {
         // Kill the slot behind record 00003, leaving its index entry in place.
         let (_, st) = f.read_key(b"00003");
         assert_eq!(st, status::OK);
-        let victim = f.current.expect("record 3 is current") as usize;
-        f.directory[victim] = RecLoc::FREE;
+        let victim = f.current.expect("record 3 is current");
+        f.dir_set(victim, RecLoc::FREE).unwrap();
         f.cursor = None;
         f.current = None;
         f.resume_key = None;
@@ -2139,8 +2742,8 @@ mod tests {
         assert_eq!(f.open(OpenMode::Input), status::OK);
         let (_, st) = f.read_key(b"00003");
         assert_eq!(st, status::OK);
-        let victim = f.current.expect("record 3 is current") as usize;
-        f.directory[victim] = RecLoc::FREE;
+        let victim = f.current.expect("record 3 is current");
+        f.dir_set(victim, RecLoc::FREE).unwrap();
         // An unpositioned READ PREVIOUS starts at the rightmost entry. (A
         // START would not: it stores the *predecessor* as the cursor so the
         // next READ NEXT yields the matched entry, which puts a READ PREVIOUS
@@ -2180,8 +2783,8 @@ mod tests {
         for k in [b"00002", b"00003", b"00004"] {
             let (_, st) = f.read_key(k);
             assert_eq!(st, status::OK);
-            let victim = f.current.unwrap() as usize;
-            f.directory[victim] = RecLoc::FREE;
+            let victim = f.current.unwrap();
+            f.dir_set(victim, RecLoc::FREE).unwrap();
         }
         f.cursor = None;
         f.current = None;
@@ -2195,6 +2798,26 @@ mod tests {
         assert!(b.is_none());
         f.close();
         let _ = std::fs::remove_file(&p);
+    }
+
+    /// Every record in a container, in primary order.
+    fn read_all(path: &PathBuf, dup_alt: bool) -> Vec<Bytes> {
+        let mut f = if dup_alt {
+            newfile(path.clone(), true, false)
+        } else {
+            newfile_pk(path.clone())
+        };
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        let mut out = Vec::new();
+        loop {
+            let (b, st) = f.read_seq(ReadDir::Next);
+            if st != status::OK {
+                break;
+            }
+            out.push(b.unwrap());
+        }
+        f.close();
+        out
     }
 
     #[test]
