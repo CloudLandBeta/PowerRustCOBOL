@@ -153,6 +153,19 @@ pub struct DiskIndexedFile {
     // guard so the inverse operations applied during a rollback don't re-log.
     undo: Vec<DiskUndo>,
     tx_replay: bool,
+
+    /// A durability step — `fsync`, or the header/directory write that precedes
+    /// it — has failed since this file was opened.
+    ///
+    /// `COMMIT` and `ROLLBACK` are file-less verbs: they name no `SELECT`, so
+    /// there is no FILE STATUS for them to set and nowhere for a failure to be
+    /// reported at the moment it happens. Swallowing it (`let _ = f.sync_all()`)
+    /// is what made a full disk, a revoked mount or an I/O error look exactly
+    /// like a successful commit. The failure is therefore remembered here and
+    /// reported by the next verb that *does* carry a status — every write-path
+    /// verb, and `CLOSE` — as `30`. It is never cleared: once the container's
+    /// durability is in doubt, nothing later restores that confidence.
+    io_failed: bool,
 }
 
 /// An undoable mutation recorded since the last `COMMIT`/`OPEN`.
@@ -200,6 +213,7 @@ impl DiskIndexedFile {
             directory: Vec::new(),
             undo: Vec::new(),
             tx_replay: false,
+            io_failed: false,
         }
     }
 
@@ -1001,8 +1015,14 @@ impl DiskIndexedFile {
                 code = status::IO_ERROR;
             }
             if let Some(f) = self.file.as_mut() {
-                let _ = f.flush();
-                let _ = f.sync_all();
+                if f.flush().is_err() || f.sync_all().is_err() {
+                    code = status::IO_ERROR;
+                }
+            }
+            // A failure recorded by an earlier COMMIT/ROLLBACK is reported here
+            // even when this close itself went through cleanly.
+            if self.io_failed {
+                code = status::IO_ERROR;
             }
         }
         self.open = None;
@@ -1021,6 +1041,11 @@ impl DiskIndexedFile {
             Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)
         ) {
             return status::NOT_OPEN_OUTPUT;
+        }
+        // A durability failure recorded by an earlier COMMIT/ROLLBACK, which had
+        // no status of its own to report it with. See `io_failed`.
+        if self.io_failed && !self.tx_replay {
+            return status::IO_ERROR;
         }
         let rec = self.fit(rec);
         let pkey = Self::extract(&self.primary, &rec);
@@ -1173,7 +1198,7 @@ impl DiskIndexedFile {
                     .and_then(|(leaf, idx)| self.step_back(leaf, idx).unwrap_or(None)),
             };
             return match pos {
-                Some((leaf, idx)) => self.deliver_at(leaf, idx),
+                Some((leaf, idx)) => self.deliver_at(leaf, idx, dir),
                 None => (None, status::EOF),
             };
         }
@@ -1196,24 +1221,62 @@ impl DiskIndexedFile {
         let Some((leaf, idx)) = next_pos else {
             return (None, status::EOF);
         };
-        self.deliver_at(leaf, idx)
+        self.deliver_at(leaf, idx, dir)
     }
 
-    /// Make the entry at `(leaf, idx)` the current record and return its bytes.
-    fn deliver_at(&mut self, leaf: u64, idx: usize) -> (Option<Bytes>, &'static str) {
-        match self.entry_at(leaf, idx) {
-            Ok(Some((_, recid))) => {
-                self.cursor = Some((leaf, idx));
-                self.current = Some(recid);
-                match self.directory.get(recid as usize).copied() {
-                    Some(loc) if loc.is_live() => match self.load_record_bytes(loc) {
+    /// Make the entry at `(leaf, idx)` the current record and return its bytes,
+    /// **stepping over index entries whose directory slot is not live**.
+    ///
+    /// An index entry can outlive the record it names: a `DELETE` tombstones the
+    /// RecordId slot, and under several run units another process may do so
+    /// between this scan's two reads. Treating that as the end of the file is a
+    /// silent wrong answer of the worst kind — the program takes its `AT END`
+    /// branch, prints its totals, and the report is short by however many
+    /// records followed, with no non-zero file status and no `USE` declarative
+    /// to notice. A dead slot means "not this one", never "no more".
+    ///
+    /// The skip follows the scan's own direction, so a `READ PREVIOUS` steps
+    /// back rather than forward. The walk terminates because the tree is finite
+    /// and each step strictly advances.
+    fn deliver_at(
+        &mut self,
+        leaf: u64,
+        idx: usize,
+        dir: ReadDir,
+    ) -> (Option<Bytes>, &'static str) {
+        let (mut leaf, mut idx) = (leaf, idx);
+        loop {
+            let Ok(Some((_, recid))) = self.entry_at(leaf, idx) else {
+                return (None, status::EOF);
+            };
+            match self.directory.get(recid as usize).copied() {
+                Some(loc) if loc.is_live() => {
+                    // Only a delivered record becomes the current one. Leaving
+                    // the cursor on a dead entry would make the next sequential
+                    // read step from a position no record occupies.
+                    self.cursor = Some((leaf, idx));
+                    self.current = Some(recid);
+                    return match self.load_record_bytes(loc) {
                         Ok(b) => (Some(b), status::OK),
                         Err(_) => (None, status::IO_ERROR),
-                    },
-                    _ => (None, status::EOF),
+                    };
+                }
+                _ => {
+                    let stepped = match dir {
+                        ReadDir::Next => self.step_forward(leaf, idx),
+                        ReadDir::Previous => self.step_back(leaf, idx),
+                    };
+                    match stepped {
+                        Ok(Some((l, i))) => {
+                            leaf = l;
+                            idx = i;
+                        }
+                        // Genuinely past the end — this one IS `AT END`.
+                        Ok(None) => return (None, status::EOF),
+                        Err(_) => return (None, status::IO_ERROR),
+                    }
                 }
             }
-            _ => (None, status::EOF),
         }
     }
 
@@ -1350,6 +1413,11 @@ impl DiskIndexedFile {
         if self.open != Some(OpenMode::Io) {
             return status::NOT_OPEN_IO;
         }
+        // A durability failure recorded by an earlier COMMIT/ROLLBACK, which had
+        // no status of its own to report it with. See `io_failed`.
+        if self.io_failed && !self.tx_replay {
+            return status::IO_ERROR;
+        }
         let rec = self.fit(rec);
         let pkey = Self::extract(&self.primary, &rec);
         let recid = match random_key {
@@ -1462,6 +1530,11 @@ impl DiskIndexedFile {
         if self.open != Some(OpenMode::Io) {
             return status::NOT_OPEN_IO;
         }
+        // A durability failure recorded by an earlier COMMIT/ROLLBACK, which had
+        // no status of its own to report it with. See `io_failed`.
+        if self.io_failed && !self.tx_replay {
+            return status::IO_ERROR;
+        }
         let recid = match random_key {
             Some(k) => {
                 let key = pad(k, self.primary.len);
@@ -1528,11 +1601,7 @@ impl DiskIndexedFile {
     /// start a fresh transaction (drops the undo log).
     pub fn commit(&mut self) {
         self.undo.clear();
-        let _ = self.persist_directory();
-        let _ = self.write_header();
-        if let Some(f) = self.file.as_mut() {
-            let _ = f.sync_all();
-        }
+        self.persist_and_sync();
     }
 
     /// `ROLLBACK` — undo every `WRITE`/`REWRITE`/`DELETE` since the last
@@ -1560,11 +1629,17 @@ impl DiskIndexedFile {
         self.current = None;
         self.cursor = None;
         self.resume_key = None;
-        let _ = self.persist_directory();
-        let _ = self.write_header();
+        self.persist_and_sync();
+    }
+
+    /// Write the directory and header, then `fsync`, recording any failure in
+    /// [`Self::io_failed`] so a verb that carries a FILE STATUS can report it.
+    fn persist_and_sync(&mut self) {
+        let mut failed = self.persist_directory().is_err() || self.write_header().is_err();
         if let Some(f) = self.file.as_mut() {
-            let _ = f.sync_all();
+            failed |= f.sync_all().is_err();
         }
+        self.io_failed |= failed;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1999,6 +2074,127 @@ mod tests {
             },
             Vec::new(),
         )
+    }
+
+    /// A tree entry whose RecordId slot is dead must be **stepped over**, not
+    /// treated as the end of the file.
+    ///
+    /// The slot is tombstoned here without removing the index entry, which is
+    /// exactly the state a reader sees when another run unit deletes a record
+    /// between the reader's descent and its fetch. Before this was fixed the
+    /// scan returned `AT END` at the hole: the program took its end-of-file
+    /// branch and printed a report that was short by every record after it,
+    /// with a `00` file status and no `USE` declarative to notice.
+    #[test]
+    fn a_dead_directory_slot_is_skipped_not_taken_for_end_of_file() {
+        let p = tmp("dead-slot-next");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=5u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        // Kill the slot behind record 00003, leaving its index entry in place.
+        let (_, st) = f.read_key(b"00003");
+        assert_eq!(st, status::OK);
+        let victim = f.current.expect("record 3 is current") as usize;
+        f.directory[victim] = RecLoc::FREE;
+        f.cursor = None;
+        f.current = None;
+        f.resume_key = None;
+
+        let mut seen = Vec::new();
+        loop {
+            let (b, st) = f.read_seq(ReadDir::Next);
+            if st != status::OK {
+                assert_eq!(st, status::EOF, "the scan must end at EOF, not an error");
+                break;
+            }
+            seen.push(String::from_utf8_lossy(&b.unwrap()[..5]).to_string());
+        }
+        f.close();
+        assert_eq!(
+            seen,
+            vec!["00001", "00002", "00004", "00005"],
+            "the hole is skipped and the scan runs to the real end"
+        );
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// The same, backwards: `READ PREVIOUS` must step *back* over the hole.
+    #[test]
+    fn a_dead_directory_slot_is_skipped_reading_backwards() {
+        let p = tmp("dead-slot-prev");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=5u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        let (_, st) = f.read_key(b"00003");
+        assert_eq!(st, status::OK);
+        let victim = f.current.expect("record 3 is current") as usize;
+        f.directory[victim] = RecLoc::FREE;
+        // An unpositioned READ PREVIOUS starts at the rightmost entry. (A
+        // START would not: it stores the *predecessor* as the cursor so the
+        // next READ NEXT yields the matched entry, which puts a READ PREVIOUS
+        // two entries back — correct, but not the walk this test wants.)
+        f.cursor = None;
+        f.current = None;
+        f.resume_key = None;
+
+        let mut seen = Vec::new();
+        loop {
+            let (b, st) = f.read_seq(ReadDir::Previous);
+            if st != status::OK {
+                assert_eq!(st, status::EOF);
+                break;
+            }
+            seen.push(String::from_utf8_lossy(&b.unwrap()[..5]).to_string());
+        }
+        f.close();
+        assert_eq!(seen, vec!["00005", "00004", "00002", "00001"]);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// A container whose whole tail is dead still terminates, and terminates
+    /// with `AT END` rather than an error or a spin.
+    #[test]
+    fn an_entirely_dead_tail_still_reaches_end_of_file() {
+        let p = tmp("dead-tail");
+        let _ = std::fs::remove_file(&p);
+        let mut f = newfile_pk(p.clone());
+        assert_eq!(f.open(OpenMode::Output), status::OK);
+        for i in 1..=4u32 {
+            assert_eq!(f.write(&rec(&i.to_string(), "N")), status::OK);
+        }
+        f.close();
+
+        assert_eq!(f.open(OpenMode::Input), status::OK);
+        for k in [b"00002", b"00003", b"00004"] {
+            let (_, st) = f.read_key(k);
+            assert_eq!(st, status::OK);
+            let victim = f.current.unwrap() as usize;
+            f.directory[victim] = RecLoc::FREE;
+        }
+        f.cursor = None;
+        f.current = None;
+        f.resume_key = None;
+
+        let (b, st) = f.read_seq(ReadDir::Next);
+        assert_eq!(st, status::OK);
+        assert_eq!(&b.unwrap()[..5], b"00001");
+        let (b, st) = f.read_seq(ReadDir::Next);
+        assert_eq!(st, status::EOF, "a wholly dead tail ends the scan");
+        assert!(b.is_none());
+        f.close();
+        let _ = std::fs::remove_file(&p);
     }
 
     #[test]

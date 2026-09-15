@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.30] — 2026-09-15
+
+### A scan no longer stops at a hole, and a failed fsync no longer passes for success
+
+Three corrections to the PRCIDXD1 indexed engine, each one a case where the
+engine gave a wrong answer without reporting anything.
+
+**A deleted record ended the scan.** `deliver_at` returned `AT END` whenever a
+B+tree entry's RecordId slot was not live. The program took its end-of-file
+branch, printed its totals and stopped — short by every record that followed the
+hole, with file status `00` throughout and no `USE` declarative to notice. A
+dead slot means *not this one*, never *no more*, so the scan now steps over it,
+in its own direction: `READ NEXT` forward, `READ PREVIOUS` back. A container
+whose entire tail is dead still reaches `AT END`, and cannot spin.
+
+**A failed `fsync` was invisible.** `close()`, `COMMIT` and `ROLLBACK` each
+ended in `let _ = f.sync_all()`, so a full disk, a revoked mount or an I/O error
+looked exactly like a durable commit. `CLOSE` now reports `30`. `COMMIT` and
+`ROLLBACK` name no `SELECT` and so have no status of their own to report with —
+the failure is remembered instead, and the next `WRITE`, `REWRITE` or `DELETE`
+returns `30`. It is never cleared: once a container's durability is in doubt,
+nothing later restores that confidence.
+
+**`crc32` is now `pub(crate)`.** PRCIDXD1 has no checksum of its own, which
+leaves a torn header indistinguishable from a good one. The in-memory engine's
+CRC-32 is the one it will use; no new dependency.
+
+NIST CCVS85 unchanged on both axes: compile 420 / 420, execution 383 clean,
+8418 PASS / 50 FAIL, every module on baseline.
+
 ## [PowerRustCOBOL 1.70.29] — 2026-09-15
 
 ### The IDE notices a newer release, once per start-up

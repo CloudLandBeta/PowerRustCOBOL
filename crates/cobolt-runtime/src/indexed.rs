@@ -1240,7 +1240,11 @@ impl<'a> Cur<'a> {
 }
 
 /// CRC-32 (IEEE 802.3, reflected) — self-contained, no external crate.
-fn crc32(data: &[u8]) -> u32 {
+///
+/// Shared with [`crate::indexed_disk`], which has no checksum of its own: a
+/// torn header or a half-written journal record is indistinguishable from a
+/// good one without it.
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     let mut crc: u32 = 0xFFFF_FFFF;
     for &byte in data {
         crc ^= byte as u32;
