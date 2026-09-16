@@ -2601,16 +2601,79 @@ impl Interpreter {
         self.env.set_str("CONTROL-NODE-CHECKED", checked);
     }
 
+    /// The property the DataGrid's CSV button sets when it is pressed. Written
+    /// by the renderer, read here and nowhere else.
+    const DATAGRID_EXPORT_REQUEST: &'static str = "_ExportCSVRequested";
+
     /// Drain any pending UI-driven property updates into the object registry.
     /// Called just before an event handler runs so getters see the live value.
     fn drain_input(&mut self) {
-        if let Some(rx) = &self.input_rx {
-            let pending: Vec<StateUpdate> = rx.try_iter().collect();
-            for upd in pending {
-                self.objects
-                    .set_property(&upd.ctrl_id, &upd.prop, upd.value);
+        let pending: Vec<StateUpdate> = match &self.input_rx {
+            Some(rx) => rx.try_iter().collect(),
+            None => return,
+        };
+        // Grids whose CSV button was pressed this batch. Collected rather than
+        // exported inline because the export needs `&mut self` for the whole
+        // interpreter, not just the registry.
+        let mut csv_exports: Vec<String> = Vec::new();
+        for upd in pending {
+            let asked_for_csv = upd.prop == Self::DATAGRID_EXPORT_REQUEST
+                && !matches!(upd.value.trim(), "" | "0");
+            if asked_for_csv {
+                csv_exports.push(upd.ctrl_id.clone());
             }
+            self.objects
+                .set_property(&upd.ctrl_id, &upd.prop, upd.value);
         }
+        for obj in csv_exports {
+            self.run_datagrid_csv_export(&obj);
+        }
+    }
+
+    /// Carry out the export the DataGrid's CSV button asked for.
+    ///
+    /// The button could not do it itself. It sets `_ExportCSVRequested` and
+    /// raises `onExportCSV`, and **nothing in the workspace read either** — so
+    /// pressing it did nothing at all unless the developer had bound a handler
+    /// that called `ExportCSV` from COBOL, which is not what a button with an
+    /// export icon on it promises (operator, 2026-09-16).
+    ///
+    /// It runs here, in `drain_input`, because that is reached from
+    /// `COBOL-WAIT-EVENT` on EVERY event before COBOL decides whether to
+    /// dispatch a handler — so the button works on a form that binds nothing,
+    /// which is the case that was broken. Being in the interpreter, it reaches
+    /// `rcrun run-form`, embedded child forms and the compiled binary alike.
+    ///
+    /// The file goes to `CSVExportPath` when the developer set one, and to
+    /// `<control-id>.csv` in the working directory otherwise. The outcome is
+    /// left on the control as `_ExportCSVStatus` (`0` ok, `1` failed) and
+    /// `_ExportCSVPath`, so a bound `onExportCSV` handler can report it — and
+    /// the request flag is cleared so the next press is a fresh request.
+    fn run_datagrid_csv_export(&mut self, obj: &str) {
+        let configured = self.obj_get(obj, "CSVExportPath").trim().to_owned();
+        let path = if configured.is_empty() {
+            format!("{obj}.csv")
+        } else {
+            configured
+        };
+        let text = self.datagrid_export_csv(obj);
+        let ok = match std::fs::write(&path, text) {
+            Ok(()) => {
+                tracing::info!(target: "datagrid", "{obj}: CSV exported to {path}");
+                true
+            }
+            Err(e) => {
+                tracing::warn!(target: "datagrid", "{obj}: CSV export to {path} failed: {e}");
+                false
+            }
+        };
+        self.obj_set(obj, "_ExportCSVPath", path);
+        self.obj_set(
+            obj,
+            "_ExportCSVStatus",
+            if ok { "0".to_owned() } else { "1".to_owned() },
+        );
+        self.obj_set(obj, Self::DATAGRID_EXPORT_REQUEST, "0".to_owned());
     }
 
     // ── Async I/O operations (spec 032) ───────────────────────────────────────
@@ -16719,6 +16782,78 @@ MAIN.
         // 072) — this test only cares that the field's real value (72)
         // reached the control, not COBOL's own numeric-edit formatting.
         assert_eq!(value, "72");
+    }
+
+    /// Pressing the DataGrid's CSV button writes a CSV file, on a form that
+    /// binds NO handler.
+    ///
+    /// The button sets `_ExportCSVRequested` and raises `onExportCSV`, and
+    /// nothing in the workspace read either — so it did nothing at all unless
+    /// the developer had written COBOL to call `ExportCSV` themselves. The
+    /// request is now carried out in `drain_input`, which every event reaches
+    /// through `COBOL-WAIT-EVENT` before COBOL decides whether to dispatch.
+    #[test]
+    fn the_datagrid_csv_button_writes_a_file_with_no_handler_bound() {
+        let source = "
+IDENTIFICATION DIVISION.
+PROGRAM-ID. GRIDCSV.
+DATA DIVISION.
+WORKING-STORAGE SECTION.
+01 WS-X PIC 9 VALUE 0.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let dir = std::env::temp_dir().join(format!("prc-csv-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let out = dir.join("actors.csv");
+        let _ = std::fs::remove_file(&out);
+
+        let (input_tx, input_rx) = std::sync::mpsc::channel();
+        let mut interp = Interpreter::new(program);
+        interp.set_input_channel(input_rx);
+        interp.seed_objects([(
+            "Grid-1".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                ("Columns".to_owned(), "Id:number\nName:string".to_owned()),
+                ("Rows".to_owned(), "1\tAda\n2\tGrace".to_owned()),
+                (
+                    "CSVExportPath".to_owned(),
+                    out.to_string_lossy().into_owned(),
+                ),
+            ],
+        )]);
+
+        // Exactly what the renderer sends when the badge is clicked.
+        input_tx
+            .send(StateUpdate::new(
+                "Grid-1".to_owned(),
+                "_ExportCSVRequested".to_owned(),
+                "1".to_owned(),
+            ))
+            .expect("send");
+        interp.drain_input();
+
+        let written = std::fs::read_to_string(&out)
+            .unwrap_or_else(|e| panic!("the button must write {}: {e}", out.display()));
+        assert!(
+            written.contains("Ada") && written.contains("Grace"),
+            "the CSV must carry the grid rows, got {written:?}"
+        );
+        assert_eq!(
+            interp.obj_get("Grid-1", "_ExportCSVStatus"),
+            "0",
+            "a successful export reports status 0"
+        );
+        assert_eq!(
+            interp.obj_get("Grid-1", "_ExportCSVRequested"),
+            "0",
+            "the request is cleared so the next press is a fresh one"
+        );
+        let _ = std::fs::remove_file(&out);
     }
 
     #[test]
