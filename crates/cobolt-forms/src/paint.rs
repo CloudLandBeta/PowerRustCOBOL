@@ -9873,6 +9873,33 @@ impl DropShadowSpec {
     }
 }
 
+/// Paint the drop shadow [`draw_control`] would paint for `ctrl` at `rect`.
+///
+/// For a control whose arm in the interactive renderer paints its own face and
+/// therefore never calls `draw_control` at all. The **DataGrid** is that
+/// control: it draws its own background, header, rows and grid lines, so it
+/// cast a shadow on the designer canvas — which does go through `draw_control` —
+/// and none whatever in Preview, Run Form or a compiled binary (operator,
+/// 2026-09-16).
+///
+/// Mirrors the generic frame path step for step, including the `overlay` skip
+/// and the Neumorphic case, where `regular_drop_shadow` answers `None` because
+/// the relief is the shadow and the face painter owns it.
+pub(crate) fn draw_control_drop_shadow(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    rect: Rect,
+    face_alpha: f32,
+) {
+    let is_neumorphic =
+        glass_config_applies(painter.ctx()) && active_glass_style(painter.ctx()).is_neumorphic();
+    if let Some(shadow) =
+        regular_drop_shadow(ctrl, rect, is_neumorphic).filter(|shadow| !shadow.overlay)
+    {
+        draw_regular_drop_shadow(painter, &shadow, face_alpha);
+    }
+}
+
 /// The shadow [`draw_control`]'s generic frame path draws, placed at `rect`.
 ///
 /// 049 — a SideMenu is absent from it on purpose. The rail owns its whole face:

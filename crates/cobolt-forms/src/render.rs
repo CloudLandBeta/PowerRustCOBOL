@@ -6509,6 +6509,15 @@ fn render_interactive(
             // rows, the text or the grid lines — `Transparency` has always been
             // about the face, not about erasing the control.
             let face_alpha = alpha * face_opacity;
+            // The grid's drop shadow, BEHIND its face — the first layer of the
+            // background order, before the grid background itself.
+            //
+            // This arm paints its own face and never calls `paint::draw_control`,
+            // which is where every other control's shadow comes from. So a grid
+            // with ShadowEnabled cast a shadow on the designer canvas and none
+            // at all in Preview, Run Form or a compiled binary (operator,
+            // 2026-09-16) — the same split that hid `Transparency`.
+            paint::draw_control_drop_shadow(&painter, ctrl, screen, face_alpha);
             paint::draw_surface_auto_bg(
                 &painter,
                 screen,
@@ -9691,6 +9700,66 @@ mod tests {
     ///
     /// The style-independence test above cannot catch this: a shadow that comes
     /// from the CONTROL is identical under a light host and a dark one.
+    /// A DataGrid casts its drop shadow on the INTERACTIVE surfaces too.
+    ///
+    /// The grid arm paints its own face and never calls `paint::draw_control`,
+    /// which is where every other control's shadow comes from — so the shadow
+    /// showed on the designer canvas and nowhere else (operator, 2026-09-16).
+    /// Differential, because what a shadow looks like depends on the theme: the
+    /// SAME grid with the shadow on must paint outside its own rect, and with it
+    /// off must not.
+    #[test]
+    fn a_datagrid_casts_its_drop_shadow_when_running() {
+        fn strays_outside(shadow_on: bool) -> usize {
+            let mut grid = ctrl("Grd", ControlType::DataGrid, 40, 40, 200, 100);
+            grid.set_prop("Columns", PropValue::String("A:string".into()));
+            grid.set_prop("Rows", PropValue::String("one\ntwo".into()));
+            grid.set_prop("ShadowEnabled", PropValue::Bool(shadow_on));
+            grid.set_prop("ShadowOpacity", PropValue::Int(100));
+            grid.set_prop("ShadowDistance", PropValue::Int(9));
+            let controls = vec![grid];
+
+            let ctx = egui::Context::default();
+            let active = ActiveTabs::new();
+            let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        ui.set_min_size(Vec2::new(400.0, 300.0));
+                        let rin = RenderInput {
+                            controls: &controls,
+                            state: &DesignedVisibility,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let _ = render_form(ui, &rin);
+                    });
+            });
+            out.textures_delta.clear();
+
+            // The grid occupies 40,40 .. 240,140. A drop shadow is that rect
+            // offset and grown, so it is the only thing that can paint beyond
+            // the bottom-right of it.
+            let own = Rect::from_min_max(pos2(40.0, 40.0), pos2(240.0, 140.0));
+            painted_rect_fills(&out)
+                .into_iter()
+                .filter(|(r, _)| r.max.x > own.max.x + 1.0 || r.max.y > own.max.y + 1.0)
+                .filter(|(r, _)| r.intersects(own.expand(40.0)))
+                .count()
+        }
+
+        let on = strays_outside(true);
+        let off = strays_outside(false);
+        assert!(
+            on > off,
+            "a DataGrid with ShadowEnabled must paint outside its own rect while \
+             running: {on} shape(s) with the shadow on vs {off} with it off"
+        );
+    }
+
     #[test]
     fn a_menu_bar_with_its_shadow_off_paints_no_halo() {
         use crate::menu::{MenuDefinition, MenuItem};
