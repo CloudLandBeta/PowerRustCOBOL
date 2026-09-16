@@ -12978,7 +12978,37 @@ impl Interpreter {
                 self.obj_set(obj, "_CopySelection", "1".into());
                 val(self.datagrid_selected_text(obj))
             }
-            "EXPORTCSV" => val(self.datagrid_export_csv(obj)),
+            // `ExportCSV` WRITES A FILE when it is given a path.
+            //
+            // It only ever built the text and handed it back, ignoring its
+            // arguments entirely — so the generated
+            //   INVOKE <grid> 'ExportCSV' USING BY REFERENCE WS-<grid>-CSV-PATH
+            //                             RETURNING WS-<grid>-CSV-STATUS
+            // paragraph put a path in and got a CSV document back where it
+            // expected a status, and no file was ever written (operator,
+            // 2026-09-16).
+            //
+            // With no path the old behaviour stands — the CSV comes back as the
+            // method's value — so a caller reading it as text is unaffected.
+            "EXPORTCSV" => {
+                let text = self.datagrid_export_csv(obj);
+                let path = arg(0);
+                let path = path.trim();
+                if path.is_empty() {
+                    val(text)
+                } else {
+                    match std::fs::write(path, text) {
+                        Ok(()) => val("0".to_owned()),
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "datagrid",
+                                "ExportCSV {obj}: cannot write {path}: {e}"
+                            );
+                            val("1".to_owned())
+                        }
+                    }
+                }
+            }
             "REFRESHBINDING" => {
                 tracing::debug!(target: "databinding", "RUN-FORM {} REFRESHBINDING", obj);
                 let n = self.refresh_binding(obj);

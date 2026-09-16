@@ -6417,6 +6417,23 @@ fn render_interactive(
                 paint::theme_token(painter.ctx(), Tok::InputBg)
                     .unwrap_or(Color32::from_rgb(26, 32, 58))
             });
+            // The control's OWN `Transparency`, as a multiplier.
+            //
+            // Fading the surface underneath the rows is not enough: the grid
+            // repaints its chosen BackgroundColor per CELL and again in the
+            // filler right of the last column, and both did so at full opacity
+            // — so a grid with a colour and any rows stayed solid however far
+            // Transparency was moved. This is the copy the body painters use.
+            let face_opacity = paint::face_opacity_of(ctrl);
+            let fade_face = |c: Color32| {
+                Color32::from_rgba_unmultiplied(
+                    c.r(),
+                    c.g(),
+                    c.b(),
+                    (c.a() as f32 * face_opacity).round().clamp(0.0, 255.0) as u8,
+                )
+            };
+            let grid_bg_underlay_faded = grid_bg_underlay.map(fade_face);
             let alt_bg_base = paint::parse_hex(&sv(ctrl, "AlternatingRowColor")).unwrap_or_else(
                 || {
                     paint::theme_token(painter.ctx(), Tok::CardRaised)
@@ -6478,6 +6495,20 @@ fn render_interactive(
             // their corners from the same value.
             let grid_round =
                 paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl));
+            // The grid's OWN `Transparency`, folded into the inherited alpha.
+            //
+            // The designer honoured it and no interactive surface did, which is
+            // the two-path split this engine keeps producing: the designer face
+            // goes through `paint::draw_control`, which applies `face_alpha`
+            // itself, while this arm paints its own background and passed only
+            // the ancestor `alpha` — so a grid set to 60 % came out solid in
+            // Preview, Run Form and the compiled binary (operator, 2026-09-16).
+            //
+            // `face_opacity_of`, not the raw property, for the reason the
+            // ToolBar below gives; and it fades the grid's FACE only, never the
+            // rows, the text or the grid lines — `Transparency` has always been
+            // about the face, not about erasing the control.
+            let face_alpha = alpha * face_opacity;
             paint::draw_surface_auto_bg(
                 &painter,
                 screen,
@@ -6485,7 +6516,7 @@ fn render_interactive(
                 grid_bg_underlay,
                 grid_round,
                 false,
-                alpha,
+                face_alpha,
                 paint::SurfaceRole::Input,
             );
             let bg_image = sv(ctrl, "GridBackgroundImage");
@@ -6576,7 +6607,7 @@ fn render_interactive(
                 screen,
                 paint::corner_radius(ctrl),
                 &sv(ctrl, "GridBackgroundPattern"),
-                Color32::from_rgba_unmultiplied(255, 255, 255, 24),
+                fade_face(Color32::from_rgba_unmultiplied(255, 255, 255, 24)),
             );
             let scroll_id = ctrl_id.with("datagrid-scroll-y");
             let scroll_x_id = ctrl_id.with("datagrid-scroll-x");
@@ -6614,13 +6645,29 @@ fn render_interactive(
             // no overflow) so scrolling never leaks to the container; the clamps
             // below make the applied scroll a no-op when there's nothing to move.
             if ui.rect_contains_pointer(screen) {
+                // Wheel units, normalised to points exactly as egui does it and
+                // as the Maps control above already does — a line-based mouse
+                // and a pixel-based trackpad must agree on what a notch costs.
+                // Reading `delta` RAW is why the grid "barely scrolled" on
+                // Windows (operator, 2026-09-16): a trackpad reports `Point`,
+                // so macOS felt right, while a wheel notch reports `Line` with
+                // a delta of about 1.0 — applied as points, one pixel a notch.
+                let wheel_line = ui.ctx().options(|o| o.input_options.line_scroll_speed);
+                // A page is THIS grid's viewport, not the window's: paging a
+                // grid means one screenful of its own rows.
+                let wheel_page = body_rect.height().max(row_h.max(1.0));
                 let (wheel_delta_x, wheel_delta_y) = ui.input_mut(|i| {
                     let mut dx = 0.0_f32;
                     let mut dy = 0.0_f32;
                     i.events.retain(|event| match event {
-                        egui::Event::MouseWheel { delta, .. } => {
-                            dx += delta.x;
-                            dy += delta.y;
+                        egui::Event::MouseWheel { unit, delta, .. } => {
+                            let scale = match unit {
+                                egui::MouseWheelUnit::Point => 1.0,
+                                egui::MouseWheelUnit::Line => wheel_line,
+                                egui::MouseWheelUnit::Page => wheel_page,
+                            };
+                            dx += delta.x * scale;
+                            dy += delta.y * scale;
                             false // consumed by the DataGrid â do not bubble up
                         }
                         _ => true,
@@ -6729,19 +6776,60 @@ fn render_interactive(
             if grid_focus.clicked() {
                 grid_focus.request_focus();
             }
-            if enabled && grid_focus.has_focus() && !displayed_row_indices.is_empty() && ncols > 0 {
-                let key_state = ui.input(|i| {
+            // Whether the GRID owns the keyboard — tracked here, not read from
+            // egui's focus.
+            //
+            // egui moves focus WITH the arrow keys, and it does so at the start
+            // of the pass, before any of this runs. So the first ArrowDown moved
+            // the selection and in the same breath handed focus to a `dg-cell`
+            // widget; from then on `has_focus()` was false and every further
+            // press did nothing at all. The selection sat one row below where it
+            // started however long you held the key (operator, 2026-09-16), and
+            // consuming the key inside the widget is far too late to prevent it.
+            //
+            // The ComboBox already keeps its own flag for exactly this reason.
+            // The grid keeps one too: the keyboard follows the last press, not
+            // egui's idea of the focused widget.
+            let kb_id = ctrl_id.with("datagrid-has-keyboard");
+            let mut has_keyboard: bool = ui.data(|d| d.get_temp(kb_id)).unwrap_or(false);
+            if ui.input(|i| i.pointer.any_pressed()) {
+                // A press anywhere decides it: inside the grid takes the
+                // keyboard, outside gives it up.
+                has_keyboard = ui.rect_contains_pointer(screen);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
+                has_keyboard = false;
+            }
+            if grid_focus.has_focus() {
+                has_keyboard = true;
+            }
+            ui.data_mut(|d| d.insert_temp(kb_id, has_keyboard));
+            if enabled && has_keyboard && !displayed_row_indices.is_empty() && ncols > 0 {
+                // CONSUME the navigation keys, do not merely observe them.
+                //
+                // egui moves keyboard focus with the arrows, and a grid that
+                // only *read* them let it: the first ArrowDown moved the
+                // selection AND handed focus to a `dg-cell` widget, after which
+                // `grid_focus.has_focus()` was false and every later press did
+                // nothing. The selection stuck one row below where it started,
+                // whatever you pressed (operator, 2026-09-16).
+                //
+                // `consume_key` with the modifiers actually held, so Cmd/Ctrl +
+                // Arrow still reaches the jump-to-end branches below. Same
+                // remedy the ListBox already uses for the same reason.
+                let key_state = ui.input_mut(|i| {
+                    let m = i.modifiers;
                     (
-                        i.key_pressed(egui::Key::ArrowUp),
-                        i.key_pressed(egui::Key::ArrowDown),
-                        i.key_pressed(egui::Key::ArrowLeft),
-                        i.key_pressed(egui::Key::ArrowRight),
-                        i.key_pressed(egui::Key::PageUp),
-                        i.key_pressed(egui::Key::PageDown),
-                        i.key_pressed(egui::Key::Home),
-                        i.key_pressed(egui::Key::End),
-                        i.modifiers.command || i.modifiers.ctrl,
-                        i.modifiers.shift,
+                        i.consume_key(m, egui::Key::ArrowUp),
+                        i.consume_key(m, egui::Key::ArrowDown),
+                        i.consume_key(m, egui::Key::ArrowLeft),
+                        i.consume_key(m, egui::Key::ArrowRight),
+                        i.consume_key(m, egui::Key::PageUp),
+                        i.consume_key(m, egui::Key::PageDown),
+                        i.consume_key(m, egui::Key::Home),
+                        i.consume_key(m, egui::Key::End),
+                        m.command || m.ctrl,
+                        m.shift,
                     )
                 });
                 let (
@@ -7178,15 +7266,51 @@ fn render_interactive(
                 && prop_bool(ctrl, "ShowCSVExportButton", false)
                 && header_rect.width() >= 64.0
             {
+                // A drawn CSV badge, not a text button.
+                //
+                // `egui::Button::new("CSV")` took the ui's font, which on a
+                // form with a larger FontSize was wider than the 48 px box the
+                // header could spare — so the label wrapped and the control
+                // read as "CS" over "V" (operator, 2026-09-16). An icon cannot
+                // wrap: the glyph is sized from the box it is given, and the
+                // box is sized from the header band it sits in.
+                let badge_h = (header_h - 8.0).clamp(14.0, 22.0);
+                let badge_w = badge_h * 1.9;
                 let button_rect = Rect::from_min_size(
-                    pos2(header_rect.max.x - 54.0, header_rect.min.y + 3.0),
-                    vec2(48.0, (row_h - 6.0).max(14.0)),
+                    pos2(
+                        header_rect.max.x - (badge_w + 6.0),
+                        header_rect.min.y + (header_h - badge_h) * 0.5,
+                    ),
+                    vec2(badge_w, badge_h),
                 );
-                if ui
-                    .put(button_rect, egui::Button::new("CSV").small())
-                    .on_hover_text("Export CSV")
-                    .clicked()
+                let csv_resp = ui
+                    .interact(button_rect, ctrl_id.with("dg-csv"), Sense::click())
+                    .on_hover_text("Export CSV");
                 {
+                    let ink = if csv_resp.hovered() {
+                        Color32::from_rgba_premultiplied(255, 255, 255, 235)
+                    } else {
+                        Color32::from_rgba_premultiplied(225, 233, 245, 190)
+                    };
+                    // The internal border: inset by half the stroke so the line
+                    // lands wholly inside the badge, 3 px corners as asked.
+                    painter.rect_stroke(
+                        button_rect.shrink(0.5),
+                        3.0,
+                        Stroke::new(1.0, ink),
+                        egui::StrokeKind::Inside,
+                    );
+                    // The letters, sized to the badge so three of them always
+                    // fit on one line whatever the form's font is set to.
+                    painter.text(
+                        button_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "CSV",
+                        egui::FontId::proportional((badge_h * 0.56).clamp(8.0, 12.0)),
+                        ink,
+                    );
+                }
+                if csv_resp.clicked() {
                     out.prop_updates.push((
                         id.to_owned(),
                         "_ExportCSVRequested".to_owned(),
@@ -7371,7 +7495,7 @@ fn render_interactive(
                                 .and_then(|column| paint::parse_hex(&column.background_color))
                                 .filter(|c| c.a() > 0)
                         })
-                        .or(grid_bg_underlay);
+                        .or(grid_bg_underlay_faded);
                     if let Some(bg) = cell_bg {
                         if bg.a() > 0 {
                             // Full column width (not the inset cell) so the gutter
@@ -7807,7 +7931,7 @@ fn render_interactive(
             // appearance background instead of the glass. Rounded only on the
             // bottom-right, matching the grid's own corner. Drawn after the rows
             // (covers glass + alternating tint) and before the separators.
-            if let Some(fill) = grid_bg_underlay {
+            if let Some(fill) = grid_bg_underlay_faded {
                 let filler_x0 = screen.min.x + layout.total_columns_width;
                 if filler_x0 < screen.max.x - 0.5 {
                     let filler_rect = Rect::from_min_max(
@@ -7930,32 +8054,122 @@ fn render_interactive(
                     painter.add(frozen_shadow_shape(shadow, FrozenShadowEdge::Top, 55));
                 }
             }
-            if layout.max_scroll_y > 0.0 && body_rect.height() > 8.0 {
+            // ── Scrollbars ───────────────────────────────────────────────
+            //
+            // A PILL, and a real widget. The bar used to be a 3 px sliver with a
+            // 2 px radius painted straight onto the canvas with no `interact`
+            // at all — so it could not be grabbed, only looked at, and there was
+            // no horizontal bar whatsoever (operator, 2026-09-16). The radius is
+            // half the thickness, which is what makes a pill rather than a
+            // rounded rectangle, and the thumb has a minimum length so a grid
+            // with thousands of rows still leaves something to take hold of.
+            const BAR: f32 = 10.0; // track thickness
+            const BAR_MIN: f32 = 28.0; // shortest grabbable thumb
+            let bar_r = BAR / 2.0;
+            let v_bar = layout.max_scroll_y > 0.0 && body_rect.height() > BAR * 2.0;
+            let h_bar = layout.max_scroll_x > 0.0 && body_rect.width() > BAR * 2.0;
+            // Each bar stops short of the other so they never overlap in the
+            // corner, which is where two full-length tracks would cross.
+            let v_gap = if h_bar { BAR + 2.0 } else { 2.0 };
+            let h_gap = if v_bar { BAR + 2.0 } else { 2.0 };
+
+            if v_bar {
                 // The track hugs the right edge, so its bottom sits inside the grid's
                 // rounded corner band. Pull the bottom up by the arc's vertical inset
                 // at the track's x so the scrollbar never pokes past the rounded
                 // bottom-right corner (a DataGrid-line-style bleed).
-                let track_v_inset = rounded_edge_inset_v(screen, grid_cr, screen.max.x - 3.5);
-                let track_bottom = (body_rect.max.y - 2.0).min(screen.max.y - track_v_inset);
+                let track_x1 = screen.max.x - 2.0;
+                let track_v_inset = rounded_edge_inset_v(screen, grid_cr, track_x1 - bar_r);
+                let track_bottom =
+                    (body_rect.max.y - v_gap).min(screen.max.y - track_v_inset);
                 let track = Rect::from_min_max(
-                    pos2(screen.max.x - 5.0, body_rect.min.y + 2.0),
-                    pos2(screen.max.x - 2.0, track_bottom),
+                    pos2(track_x1 - BAR, body_rect.min.y + 2.0),
+                    pos2(track_x1, track_bottom),
                 );
-                let thumb_h = paint::fit_clamp(
-                    body_rect.height() / layout.total_rows_height * track.height(),
-                    12.0,
-                    track.height(),
+                if track.height() > BAR {
+                    let thumb_h = paint::fit_clamp(
+                        body_rect.height() / layout.total_rows_height * track.height(),
+                        BAR_MIN.min(track.height()),
+                        track.height(),
+                    );
+                    let travel = (track.height() - thumb_h).max(0.0);
+                    let thumb_y = track.min.y + travel * (scroll_y / layout.max_scroll_y);
+                    let thumb = Rect::from_min_size(
+                        pos2(track.min.x, thumb_y),
+                        vec2(track.width(), thumb_h),
+                    );
+                    let resp = ui.interact(
+                        thumb,
+                        ctrl_id.with("dg-vbar"),
+                        Sense::click_and_drag(),
+                    );
+                    if resp.dragged() && travel > 0.0 && enabled {
+                        scroll_y = (scroll_y
+                            + resp.drag_delta().y / travel * layout.max_scroll_y)
+                            .clamp(0.0, layout.max_scroll_y);
+                        ui.ctx()
+                            .memory_mut(|m| m.data.insert_temp(scroll_id, scroll_y));
+                    }
+                    let lit = resp.hovered() || resp.dragged();
+                    painter.rect_filled(track, bar_r, Color32::from_rgba_premultiplied(0, 0, 0, 55));
+                    painter.rect_filled(
+                        thumb,
+                        bar_r,
+                        if lit {
+                            Color32::from_rgba_premultiplied(255, 255, 255, 210)
+                        } else {
+                            Color32::from_rgba_premultiplied(230, 235, 255, 150)
+                        },
+                    );
+                }
+            }
+
+            if h_bar {
+                let track_y1 = screen.max.y - 2.0;
+                let track_h_inset = rounded_edge_inset(screen, grid_cr, track_y1 - bar_r);
+                let track_right = (body_rect.max.x - h_gap).min(screen.max.x - track_h_inset);
+                let track = Rect::from_min_max(
+                    pos2(body_rect.min.x + 2.0, track_y1 - BAR),
+                    pos2(track_right, track_y1),
                 );
-                let thumb_y =
-                    track.min.y + (track.height() - thumb_h) * (scroll_y / layout.max_scroll_y);
-                let thumb =
-                    Rect::from_min_size(pos2(track.min.x, thumb_y), vec2(track.width(), thumb_h));
-                painter.rect_filled(track, 2.0, Color32::from_rgba_premultiplied(0, 0, 0, 55));
-                painter.rect_filled(
-                    thumb,
-                    2.0,
-                    Color32::from_rgba_premultiplied(230, 235, 255, 150),
-                );
+                if track.width() > BAR {
+                    let visible_w = body_rect.width().max(1.0);
+                    let total_w = visible_w + layout.max_scroll_x;
+                    let thumb_w = paint::fit_clamp(
+                        visible_w / total_w * track.width(),
+                        BAR_MIN.min(track.width()),
+                        track.width(),
+                    );
+                    let travel = (track.width() - thumb_w).max(0.0);
+                    let thumb_x = track.min.x + travel * (scroll_x / layout.max_scroll_x);
+                    let thumb = Rect::from_min_size(
+                        pos2(thumb_x, track.min.y),
+                        vec2(thumb_w, track.height()),
+                    );
+                    let resp = ui.interact(
+                        thumb,
+                        ctrl_id.with("dg-hbar"),
+                        Sense::click_and_drag(),
+                    );
+                    if resp.dragged() && travel > 0.0 && enabled {
+                        scroll_x = (scroll_x
+                            + resp.drag_delta().x / travel * layout.max_scroll_x)
+                            .clamp(0.0, layout.max_scroll_x);
+                        ui.ctx()
+                            .memory_mut(|m| m.data.insert_temp(scroll_x_id, scroll_x));
+                    }
+                    let lit = resp.hovered() || resp.dragged();
+                    painter.rect_filled(track, bar_r, Color32::from_rgba_premultiplied(0, 0, 0, 55));
+                    painter.rect_filled(
+                        thumb,
+                        bar_r,
+                        if lit {
+                            Color32::from_rgba_premultiplied(255, 255, 255, 210)
+                        } else {
+                            Color32::from_rgba_premultiplied(230, 235, 255, 150)
+                        },
+                    );
+                }
             }
             // DataGrid component-frame diagnostic (private to the grid): outline
             // every internal sub-component last, on a foreground layer, so the
@@ -13474,6 +13688,18 @@ mod tests {
     /// `wheel_pos`, and return `(outer_scrollarea_offset_y, datagrid_scroll_y)`
     /// after the wheel frame. Mirrors how the run/compiled surfaces host a form.
     fn drive_datagrid_wheel(controls: &[Control], wheel_pos: Pos2) -> (f32, f32) {
+        drive_datagrid_wheel_unit(controls, wheel_pos, egui::MouseWheelUnit::Point, -40.0)
+    }
+
+    /// The same, with the wheel's UNIT and delta chosen by the caller — a
+    /// trackpad reports `Point`, a wheel notch reports `Line`, and the grid has
+    /// to answer both.
+    fn drive_datagrid_wheel_unit(
+        controls: &[Control],
+        wheel_pos: Pos2,
+        unit: egui::MouseWheelUnit,
+        delta_y: f32,
+    ) -> (f32, f32) {
         let ctx = egui::Context::default();
         ctx.set_fonts(egui::FontDefinitions::default());
         let active = ActiveTabs::new();
@@ -13485,8 +13711,8 @@ mod tests {
             vec![
                 Event::PointerMoved(wheel_pos),
                 Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: Vec2::new(0.0, -40.0), // negative y = scroll down
+                    unit,
+                    delta: Vec2::new(0.0, delta_y), // negative y = scroll down
                     modifiers: Modifiers::default(),
                     phase: egui::TouchPhase::Move,
                 },
@@ -13536,6 +13762,183 @@ mod tests {
                 .unwrap_or(0.0)
         });
         (outer_offset_y, grid_scroll_y)
+    }
+
+    /// Click the grid, then drive keys into it; returns the settled scroll
+    /// offset and the selected cell.
+    fn drive_datagrid_keys(
+        controls: &[Control],
+        click_at: Pos2,
+        keys: &[egui::Key],
+    ) -> (f32, Option<DataGridCellSelection>) {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::default());
+        let active = ActiveTabs::new();
+        let overrides: RefCell<Map<String, Map<String, String>>> = RefCell::new(Map::new());
+        let mk = |k: egui::Key| Event::Key {
+            key: k,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        };
+        let mut frames: Vec<Vec<Event>> = vec![
+            vec![],
+            vec![Event::PointerMoved(click_at)],
+            vec![Event::PointerButton {
+                pos: click_at,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::default(),
+            }],
+            vec![Event::PointerButton {
+                pos: click_at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::default(),
+            }],
+        ];
+        // Press AND release each key: egui tracks keys already down, so a
+        // second press with no release in between is a repeat, not a new press.
+        for k in keys {
+            frames.push(vec![mk(*k)]);
+            frames.push(vec![Event::Key {
+                key: *k,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }]);
+        }
+        frames.push(vec![]);
+        for (i, evs) in frames.into_iter().enumerate() {
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(pos2(0.0, 0.0), Vec2::new(1000.0, 800.0)));
+            input.focused = true;
+            input.time = Some(i as f64 * 0.05);
+            input.events = evs;
+            let st = MapState(&overrides);
+            ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        let inp = RenderInput {
+                            controls,
+                            state: &st,
+                            form_size: Vec2::new(1000.0, 800.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Backdrop::default(),
+                        };
+                        render_form(ui, &inp);
+                    });
+            })
+            .textures_delta
+            .clear();
+        }
+        let base = egui::Id::new(("rt_ctrl", "Grd"));
+        let scroll_y = ctx.memory(|m| {
+            m.data
+                .get_temp::<f32>(base.with("datagrid-scroll-y"))
+                .unwrap_or(0.0)
+        });
+        let sel = ctx.memory(|m| {
+            m.data
+                .get_temp::<DataGridCellSelection>(base.with("datagrid-selection"))
+        });
+        (scroll_y, sel)
+    }
+
+    /// The arrow keys move the selection and drag the view along with it.
+    ///
+    /// The navigation itself has been implemented for a long time — including
+    /// PageUp/PageDown/Home/End and scroll-to-reveal — but it is gated on the
+    /// grid HAVING FOCUS, and nothing proved the focus actually lands. This
+    /// pins that down: click the grid, press Down thirty times, and the
+    /// selection must have walked down and taken the viewport with it.
+    #[test]
+    fn engine_datagrid_arrow_keys_move_the_selection_and_scroll() {
+        let rows: String = (0..200).map(|i| format!("row{i}\n")).collect();
+        let grid = ctrlp(
+            "Grd",
+            ControlType::DataGrid,
+            0,
+            0,
+            300,
+            150,
+            &[("Columns", "A:string"), ("Rows", &rows), ("RowHeight", "24")],
+        );
+        let downs: Vec<egui::Key> = (0..30).map(|_| egui::Key::ArrowDown).collect();
+        let (scroll_y, sel) = drive_datagrid_keys(&[grid.clone()], pos2(150.0, 90.0), &downs);
+
+        let sel = sel.expect("clicking the grid must establish a selected cell");
+        assert!(
+            sel.row_index >= 20,
+            "thirty ArrowDowns must walk the selection well down the grid \
+             (row_index={}); if this is 0 the grid never received the keys",
+            sel.row_index
+        );
+        assert!(
+            scroll_y > 0.0,
+            "the view must follow the selection off the bottom of the viewport \
+             (scroll_y={scroll_y})"
+        );
+
+        // A control test: the same grid with no keys stays put, so the
+        // assertions above cannot pass by accident.
+        let (idle_y, _) = drive_datagrid_keys(&[grid], pos2(150.0, 90.0), &[]);
+        assert!(
+            idle_y.abs() < 0.5,
+            "a click alone must not scroll the grid (scroll_y={idle_y})"
+        );
+    }
+
+    /// One wheel NOTCH must move the grid by rows, not by a pixel.
+    ///
+    /// A trackpad reports `MouseWheelUnit::Point` and a delta already in points;
+    /// a mouse wheel reports `Line` with a delta of about 1.0. The grid used to
+    /// apply `delta` raw, so a notch on Windows moved it a single pixel while
+    /// macOS felt fine — "barely scrolls" (operator, 2026-09-16). This fails if
+    /// the unit is ever ignored again.
+    #[test]
+    fn engine_datagrid_wheel_notch_scrolls_by_lines_not_pixels() {
+        let rows: String = (0..200).map(|i| format!("row{i}\n")).collect();
+        let grid = ctrlp(
+            "Grd",
+            ControlType::DataGrid,
+            0,
+            0,
+            300,
+            150,
+            &[("Columns", "A:string"), ("Rows", &rows), ("RowHeight", "24")],
+        );
+
+        // One notch down, reported the way a mouse reports it.
+        let (_outer, line_y) = drive_datagrid_wheel_unit(
+            &[grid.clone()],
+            pos2(150.0, 90.0),
+            egui::MouseWheelUnit::Line,
+            -1.0,
+        );
+        assert!(
+            line_y > 8.0,
+            "one Line notch must scroll the grid a useful distance, not a pixel \
+             (grid_scroll_y={line_y})"
+        );
+
+        // And the trackpad path still behaves: 40 points is 40 points.
+        let (_o2, point_y) = drive_datagrid_wheel_unit(
+            &[grid],
+            pos2(150.0, 90.0),
+            egui::MouseWheelUnit::Point,
+            -40.0,
+        );
+        assert!(
+            (point_y - 40.0).abs() < 1.0,
+            "a Point wheel must still move exactly its delta (grid_scroll_y={point_y})"
+        );
     }
 
     #[test]
