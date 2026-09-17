@@ -3620,15 +3620,35 @@ fn radio_group_key(ctrl: &Control) -> String {
     }
 }
 
-/// Is this radio currently on? `Value` answers when it has been set; otherwise
-/// the designed `Checked` does.
+/// Is this radio currently on? Its state property answers; `Value` is the
+/// fallback. See [`toggle_state_or_value`].
 fn radio_is_on(ctrl: &Control) -> bool {
-    let value = sv(ctrl, "Value");
-    if value.is_empty() {
-        crate::model::toggle_state_of(ctrl)
+    toggle_state_or_value(ctrl)
+}
+
+/// A toggle's state: the canonical property when it has one, else the live
+/// `Value` echo.
+///
+/// The order matters and used to be the other way round. `Value` is written by
+/// a click and by nothing else in the designer — `Control::new` seeds
+/// `Checked` / `Selected`, never `Value` — so treating it as the fresher of the
+/// two meant a click permanently outranked the program: after the operator had
+/// touched a box, `SET … TO TRUE/FALSE` changed the property COBOL reads and
+/// the screen kept showing the click (operator, 2026-09-16).
+///
+/// The `Value` fallback survives for a control that somehow carries only that
+/// key, which is the one case the old order got right.
+fn toggle_state_or_value(ctrl: &Control) -> bool {
+    let primary = crate::model::selection_property(&ctrl.control_type);
+    let legacy = if primary == crate::model::SELECTED_PROP {
+        crate::model::CHECKED_PROP
     } else {
-        matches!(value.as_str(), "1" | "true")
+        crate::model::SELECTED_PROP
+    };
+    if let Some(v) = ctrl.get_prop(primary).or_else(|| ctrl.get_prop(legacy)) {
+        return v.as_bool();
     }
+    matches!(sv(ctrl, "Value").as_str(), "1" | "true")
 }
 
 /// One radio at a time. A radio turns itself ON when clicked, but nothing ever
@@ -3669,8 +3689,7 @@ fn clear_radio_group_siblings(
             .filter(|c| c.id != on_id)
             .filter(|c| radio_group_key(c) == group)
         {
-            out.prop_updates
-                .push((other.id.clone(), "Value".to_owned(), "0".to_owned()));
+            push_toggle_state(out, other, &other.id, false);
             // Only the one that was actually lit reports going out â a form
             // that watches onUncheck should hear about a change, not about
             // every other button in the group on every click.
@@ -3680,6 +3699,36 @@ fn clear_radio_group_siblings(
                 out.events.push(UiEvent::ev(&other.id, "onValueChanged"));
             }
         }
+    }
+}
+
+/// Write a toggle's new state under every spelling the product reads back.
+///
+/// A CheckBox or RadioButton click used to push `Value` and nothing else. The
+/// renderer reads `Value` first, so the control looked right and behaved right
+/// — but COBOL does not read `Value`: `IsChecked()` and `IsSelected()` both
+/// read `Checked` (`interpreter.rs`, `obj_get(obj, "Checked")`), and the click
+/// never touched it. A box the operator had just ticked answered **0**, and a
+/// form that branched on it took the wrong path (operator, 2026-09-16).
+///
+/// The Switch arm never had this: it writes `Checked` directly. This makes the
+/// other two agree with it while keeping `Value` — a handler reading `::Value`
+/// is just as entitled to it, and dropping it would trade one silent divergence
+/// for another.
+///
+/// A RadioButton gets `Selected` (canonical since 2026-08-31) *and* `Checked`
+/// (what the interpreter actually reads). They are written together and always
+/// agree, so `toggle_state_of` reading either one gets the same answer.
+fn push_toggle_state(out: &mut RenderOutput, ctrl: &Control, id: &str, on: bool) {
+    let v = if on { "1" } else { "0" };
+    let mut put = |key: &str| {
+        out.prop_updates
+            .push((id.to_owned(), key.to_owned(), v.to_owned()));
+    };
+    put("Value");
+    put(crate::model::selection_property(&ctrl.control_type));
+    if matches!(ctrl.control_type, ControlType::RadioButton) {
+        put(crate::model::CHECKED_PROP);
     }
 }
 
@@ -4156,12 +4205,17 @@ fn render_interactive(
             }
         }
         CT::CheckBox => {
-            let cur = sv(ctrl, "Value");
-            let checked = if cur.is_empty() {
-                matches!(sv(ctrl, "Checked").as_str(), "1" | "true")
-            } else {
-                cur == "true" || cur == "1"
-            };
+            // `Checked` IS the state, exactly as it is for the Switch beside
+            // this arm. `Value` is the renderer's own live echo and nothing
+            // more — it is not a designer property, `Control::new` seeds only
+            // `Checked` — so it is still written for a handler that reads
+            // `::Value`, but it no longer outranks a write from the program.
+            //
+            // Reading it first meant that once the operator had clicked a box,
+            // every later `SET Chk::Checked TO …` was painted over by whatever
+            // that click had left behind, and the box ignored its own program
+            // (operator, 2026-09-16).
+            let checked = toggle_state_or_value(ctrl);
             let mut drawn = ctrl.clone();
             drawn
                 .properties
@@ -4170,19 +4224,19 @@ fn render_interactive(
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
-                let v = if checked { "0" } else { "1" };
-                out.prop_updates
-                    .push((id.to_owned(), "Value".to_owned(), v.to_owned()));
+                let now = !checked;
+                let v = if now { "1" } else { "0" };
+                push_toggle_state(out, ctrl, id, now);
                 out.events.push(UiEvent::change(id, v));
-                push_toggle_events(out, id, v == "1");
+                push_toggle_events(out, id, now);
                 out.events.push(UiEvent::ev(id, "onValueChanged"));
             }
         }
         CT::RadioButton => {
-            // A radio's designed state is `Selected` (legacy: `Checked`); the
-            // live one is `Value`, which the click writes and the host echoes.
-            let selected = matches!(sv(ctrl, "Value").as_str(), "1" | "true")
-                || (sv(ctrl, "Value").is_empty() && crate::model::toggle_state_of(ctrl));
+            // A radio's state is `Selected` (legacy: `Checked`). `Value` is the
+            // live echo and is consulted only when neither spelling is present
+            // — see the CheckBox arm above for why it must not come first.
+            let selected = toggle_state_or_value(ctrl);
             let mut drawn = ctrl.clone();
             drawn.properties.insert(
                 crate::model::SELECTED_PROP.to_owned(),
@@ -4195,8 +4249,7 @@ fn render_interactive(
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() && enabled {
-                out.prop_updates
-                    .push((id.to_owned(), "Value".to_owned(), "1".to_owned()));
+                push_toggle_state(out, ctrl, id, true);
                 out.events.push(UiEvent::change(id, "1"));
                 // A radio only ever moves INTO the selected state by being
                 // clicked; the one it deselects is a sibling, not this control.

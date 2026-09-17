@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.38] — 2026-09-16
+
+### A tick box and the program that owns it finally agree
+
+**`IsChecked()` answered 0 on a box that was visibly ticked.** A CheckBox held
+its state in two places — the `Checked` property the designer sets, and a
+`Value` property the renderer wrote when the operator clicked — and the two were
+never reconciled. COBOL reads `Checked`. The click wrote `Value`. So a form that
+branched on `IsChecked()` took the wrong path for every box the operator had
+touched, while the screen showed exactly the opposite.
+
+**And it failed the other way round too, which is the half that was not
+reported.** The renderer consulted `Value` *first*, so once a box had been
+clicked, every later `SET Chk-Email::Checked TO TRUE` (or `FALSE`) was painted
+over by the stale click: the control ignored its own program. That is why boxes
+could sit ticked that the `onLoad` handler had explicitly turned off.
+
+Both directions are fixed. A click now writes the state under every spelling its
+readers use, and the renderer reads the control's real state property — the same
+way the Switch, which never had either bug, has always worked. `Value` is still
+written, so a handler reading `::Value` keeps working; what it no longer does is
+outrank the program. It was never a designer property in the first place: a new
+CheckBox is seeded with `Checked` and a new RadioButton with `Selected`, never
+with `Value`.
+
+**The RadioButton had the identical defect**, including the button a click
+*deselects* — it was left reading as still selected from COBOL while another
+button in the group was visibly lit. A radio now reports its state under
+`Selected` and the legacy `Checked` together, so whichever one a handler reads,
+it gets the same answer.
+
+Five regression tests, and the three that cover the click path were confirmed to
+fail when the fix is reverted.
+
 ## [PowerRustCOBOL 1.70.37] — 2026-09-16
 
 ### The COBOL preprocessor stops reading the Rust you write
