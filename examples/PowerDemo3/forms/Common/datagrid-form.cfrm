@@ -306,7 +306,7 @@
     <Property name="AllowSorting">true</Property>
     <Property name="AllowColumnResize">true</Property>
     <Property name="ShowRowNumbers">true</Property>
-    <Property name="ExportCSV">false</Property>
+    <Property name="ExportCSV">true</Property>
     <Property name="CSVDelimiter">,</Property>
     <Property name="CornerRadius">13</Property>
     <Property name="Columns">Actor Id:number
@@ -319,7 +319,7 @@ Actor Awards:string</Property>
     <Property name="AllowColumnReorder">false</Property>
     <Property name="AllowRowResize">true</Property>
     <Property name="ShowColumnFilters">true</Property>
-    <Property name="ShowCSVExportButton">false</Property>
+    <Property name="ShowCSVExportButton">true</Property>
     <Property name="CSVExportMode">Filtered</Property>
     <Property name="FrozenColumns">2</Property>
     <Property name="FrozenRows">0</Property>

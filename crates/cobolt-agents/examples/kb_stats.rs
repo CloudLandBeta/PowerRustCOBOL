@@ -13,7 +13,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::Deserialize;
 
 const CHUNKS: TableDefinition<&str, &[u8]> = TableDefinition::new("chunks");

@@ -236,7 +236,7 @@
     <Property name="Italic">false</Property>
     <Property name="Underline">false</Property>
     <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
+    <Property name="Cursor">Hand</Property>
     <Property name="HoverDelayMs">200</Property>
     <Property name="Anchor">false</Property>
     <Property name="Padding">0</Property>

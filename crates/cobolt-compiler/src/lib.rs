@@ -4743,7 +4743,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "FilterBackgroundColor" => (COLOR_DOMAIN, "Filter row field fill. Empty = the form theme decides."),
         "ColumnFilters" => ("`column=value` pairs, one per line", "Active column filters (runtime)."),
         "ExportCSV" => (BOOL_DOMAIN, "Enables CSV export."),
-        "ShowCSVExportButton" => (BOOL_DOMAIN, "Shows the built-in export button."),
+        "ShowCSVExportButton" => (BOOL_DOMAIN, "Shows the built-in export button. It sits hard right on its own band above the column titles, so it never covers a column title; `Title` shares that band."),
         "CSVDelimiter" => ("single character, default `,`", "CSV field delimiter."),
         "CSVExportMode" => ("`Filtered` | `AllRows`", "Whether export honours active filters."),
         "FrozenColumns" => ("integer ≥ 0", "Leading columns that do not scroll."),
@@ -4866,7 +4866,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "OperatorName" => ("registered user name or empty", "`OPEN ... REGISTERED USER` operator identity."),
 
         // ── Charts ──
-        "Title" => ("free text", "Chart title (also the window title on Form methods)."),
+        "Title" => ("free text", "Chart title — and, on a DataGrid, the caption centred on the band that carries the CSV button; empty means no caption. Also the window title on Form methods."),
         "TitleFontSize" => (
             "points >= 0; 0 = follow the chart",
             "The title's own point size. **0** - the default - leaves it following \

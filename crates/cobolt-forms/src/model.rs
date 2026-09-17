@@ -4810,6 +4810,11 @@ impl Control {
                 props.insert(DATAGRID_ADVANCED_PROP.into(), PropValue::String("".into()));
                 props.insert("ShowRowNumbers".into(), PropValue::Bool(false));
                 props.insert("ShowColumnFilters".into(), PropValue::Bool(false));
+                // The grid's own caption, centred on the band that carries the CSV
+                // button. Empty = no caption; the band then appears only for the
+                // button, and not at all when neither is wanted. Same name and
+                // same job as the charts' `Title`.
+                props.insert("Title".into(), PropValue::String("".into()));
                 props.insert("ExportCSV".into(), PropValue::Bool(true));
                 props.insert("ShowCSVExportButton".into(), PropValue::Bool(true));
                 props.insert("CSVDelimiter".into(), PropValue::String(",".into()));

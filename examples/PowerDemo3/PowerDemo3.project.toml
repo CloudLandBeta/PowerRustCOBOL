@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.65.124"
+built_with_version = "1.70.35"
 
 [files]
 sources = ["src/main.cbl"]
@@ -146,6 +146,7 @@ inspector_dump_enabled = true
 inspector_dump_path = "/tmp/prc_inspector_dump.txt"
 hide_ai_setup_prompt = false
 debug_watches = []
+indexed_engine = ""
 
 [ide.theme_defaults]
 

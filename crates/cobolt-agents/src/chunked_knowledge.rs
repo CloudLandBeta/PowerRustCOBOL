@@ -31,7 +31,7 @@
 
 use std::path::{Path, PathBuf};
 
-use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 use crate::bert_embedder::EmbedderKind;
@@ -314,11 +314,51 @@ fn split_content(content: &str) -> Vec<String> {
     parts
 }
 
+/// Retire a knowledge store redb 3 cannot read, and report that it happened.
+///
+/// redb 3 dropped the v2 file format, so every store written by an earlier
+/// PowerRustCOBOL answers `UpgradeRequired(2)`. A knowledge store is a DERIVED
+/// cache — every chunk in it was built from documents that are still on disk —
+/// so the answer is to rebuild it, not to fail. The stale file is moved aside
+/// rather than deleted (nothing here is ever the only copy of anything, and a
+/// silent delete is not this project's habit) and an empty store takes its
+/// place; **File → Reindex Knowledge Bases** refills it.
+pub(crate) fn retire_obsolete_store(path: &Path, version: u8) {
+    let aside = path.with_extension(format!("v{version}-obsolete"));
+    // …and the `.rev` sidecar with it. `install_prebuilt` skips a store whose
+    // recorded revision matches the bytes it would write, so leaving the
+    // sidecar behind would let an EMPTY store keep a revision saying it is
+    // current, and the System KB would answer nothing until a manual reindex.
+    // Without it the next IDE start re-seeds unconditionally.
+    let _ = std::fs::remove_file(path.with_extension("data.rev"));
+    match std::fs::rename(path, &aside) {
+        Ok(()) => tracing::warn!(
+            target: "knowledge",
+            "{} is a redb v{version} store, which redb 3 no longer reads — moved to \
+             {} and started fresh; run File → Reindex Knowledge Bases to refill it",
+            path.display(),
+            aside.display()
+        ),
+        Err(e) => tracing::warn!(
+            target: "knowledge",
+            "{} is a redb v{version} store and could not be moved aside: {e}",
+            path.display()
+        ),
+    }
+}
+
 fn open(db_path: &Path) -> Result<Database, String> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    Database::create(db_path).map_err(|e| e.to_string())
+    match Database::create(db_path) {
+        Ok(db) => Ok(db),
+        Err(redb::DatabaseError::UpgradeRequired(version)) => {
+            retire_obsolete_store(db_path, version);
+            Database::create(db_path).map_err(|e| e.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 /// Remove every chunk record belonging to `doc_path`.

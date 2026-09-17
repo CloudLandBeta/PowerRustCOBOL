@@ -46,7 +46,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use redb::{
-    Database, MultimapTableDefinition, ReadableMultimapTable, ReadableTable, TableDefinition,
+    Database, DatabaseError, MultimapTableDefinition, ReadOnlyDatabase, ReadTransaction,
+    ReadableDatabase, ReadableMultimapTable, ReadableTable, TableDefinition, TransactionError,
     WriteTransaction,
 };
 
@@ -110,6 +111,158 @@ macro_rules! with_alt {
     }};
 }
 
+/// The open redb handle, and the reason `OPEN INPUT` is not the same kind of
+/// handle as every other mode.
+///
+/// redb's file backend takes a file lock on the container. A writable
+/// [`Database`] takes it **exclusively**: while one is open, no other handle in
+/// any process may open that file at all. That is correct for a writer, and
+/// ruinous for a reader — two COBOL programs doing nothing but `OPEN INPUT` on
+/// the same indexed file could not both run, and the only way anyone got two
+/// readers was to give each its own COPY of the file (operator, 2026-09-16).
+///
+/// redb 3 answers that with [`ReadOnlyDatabase`], which takes a **shared** lock:
+/// any number of processes may hold one at the same time. `OPEN INPUT` — the
+/// mode that promises not to write — takes one, so readers no longer exclude
+/// each other and no copy is needed. A writable open is unchanged: still one
+/// exclusive handle, and a reader cannot join a live writer (redb answers
+/// `DatabaseAlreadyOpen`, which this engine reports as file status 93 — the
+/// status this engine already uses for a file another run unit is holding).
+enum RedbHandle {
+    /// `OPEN INPUT` — shared lock, many readers.
+    Read(ReadOnlyDatabase),
+    /// `OPEN OUTPUT` / `I-O` / `EXTEND` — exclusive lock, one writer.
+    Write(Database),
+}
+
+impl RedbHandle {
+    /// A snapshot read transaction. Both flavours provide one; only the
+    /// writable flavour can also begin a write.
+    fn begin_read(&self) -> Result<ReadTransaction, TransactionError> {
+        match self {
+            RedbHandle::Read(db) => db.begin_read(),
+            RedbHandle::Write(db) => db.begin_read(),
+        }
+    }
+
+    /// `None` on a read-only handle — a caller reaching here in `INPUT` is a
+    /// bug, not a runtime condition, and silently doing nothing is better than
+    /// a panic inside a COBOL program.
+    fn begin_write(&self) -> Option<WriteTransaction> {
+        match self {
+            RedbHandle::Write(db) => db.begin_write().ok(),
+            RedbHandle::Read(_) => None,
+        }
+    }
+}
+
+/// Upgrade a redb **v2** container in place so the current redb can open it.
+///
+/// redb 3 removed the v2 file format outright, so a container written by an
+/// earlier PowerRustCOBOL stopped opening anywhere: `OPEN` answered 39 and a
+/// bound DataGrid reported "Loaded 0" with the file sitting right there
+/// (operator, 2026-09-16). The only code that can still READ v2 is redb 2.6's
+/// `Database::upgrade()`, which is why an older redb is in the graph under the
+/// `redb2` alias — this function is its entire purpose.
+///
+/// It runs for `OPEN INPUT` as well, which does mean a mode that promises not
+/// to write performs one write. The alternative is refusing to open a file the
+/// developer can still see, and a format migration is not a data change: every
+/// record, key and value survives it. It happens once — `upgrade()` answers
+/// `false` immediately on a container that is already current.
+///
+/// The handle is dropped before returning, so the lock it took is released and
+/// the caller's real open can take its own.
+fn migrate_v2_container(path: &Path) -> Result<bool, String> {
+    let mut db = redb2::Database::open(path).map_err(|e| e.to_string())?;
+    db.upgrade().map_err(|e| e.to_string())
+}
+
+/// Open, migrating a v2 container first if that is what stands in the way.
+///
+/// Shared by the writable and read-only paths so they cannot disagree about
+/// when a migration happens. `open` is tried once, and only a genuine
+/// `UpgradeRequired` triggers the second attempt.
+fn open_or_migrate<T>(
+    path: &Path,
+    open: impl Fn(&Path) -> Result<T, DatabaseError>,
+) -> Result<T, &'static str> {
+    match open(path) {
+        Ok(db) => Ok(db),
+        Err(DatabaseError::UpgradeRequired(v)) => {
+            tracing::info!(
+                target: "indexed",
+                "redb {}: file format v{v} — upgrading the container in place",
+                path.display()
+            );
+            match migrate_v2_container(path) {
+                Ok(_) => {
+                    // SETTLE it with a writable handle before handing the
+                    // caller theirs. The upgrade leaves the container wanting
+                    // recovery, and recovery is a WRITE — so a read-only handle
+                    // cannot perform it and answers `RepairAborted` instead
+                    // (measured on the real 4.7 MB actors.idx). Opening
+                    // writable once does the repair and drops the lock again;
+                    // `OPEN INPUT` then gets a clean shared handle.
+                    match Database::create(path) {
+                        Ok(db) => drop(db),
+                        Err(e) => {
+                            tracing::warn!(
+                                target: "indexed",
+                                "redb {}: upgraded, but the repair pass failed: {e:?}",
+                                path.display()
+                            );
+                            return Err(open_error_status(&e, path));
+                        }
+                    }
+                    open(path).map_err(|e| open_error_status(&e, path))
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "indexed",
+                        "redb {}: cannot upgrade from v{v}: {e}", path.display()
+                    );
+                    Err(status::ATTR_MISMATCH)
+                }
+            }
+        }
+        Err(e) => Err(open_error_status(&e, path)),
+    }
+}
+
+/// Map a redb open failure onto a COBOL file status.
+///
+/// `UpgradeRequired` is the one worth naming: redb 3 dropped the v2 file
+/// format, so a container written by an earlier PowerRustCOBOL opens nowhere
+/// until it is migrated. It reports **39** (file attributes do not match), the
+/// same status a schema mismatch uses, and says so in the log — a bare I/O
+/// error would send the developer looking for a disk fault.
+fn open_error_status(err: &DatabaseError, path: &Path) -> &'static str {
+    match err {
+        DatabaseError::DatabaseAlreadyOpen => {
+            tracing::warn!(
+                target: "indexed",
+                "redb {}: already open elsewhere with write access", path.display()
+            );
+            status::UNAVAILABLE
+        }
+        DatabaseError::UpgradeRequired(v) => {
+            tracing::warn!(
+                target: "indexed",
+                "redb {}: file format v{v}, which redb 3 no longer reads — \
+                 rebuild the container (rcrun can re-import it) or keep it on the \
+                 PRCIDXD1 engine",
+                path.display()
+            );
+            status::ATTR_MISMATCH
+        }
+        other => {
+            tracing::warn!(target: "indexed", "redb {}: {other:?}", path.display());
+            status::IO_ERROR
+        }
+    }
+}
+
 /// The redb-backed indexed file.
 pub struct RedbIndexedFile {
     path: PathBuf,
@@ -121,7 +274,7 @@ pub struct RedbIndexedFile {
     strict_metadata: bool,
     compressing: bool,
 
-    db: Option<Database>,
+    db: Option<RedbHandle>,
     wtx: Option<WriteTransaction>,
     open: Option<OpenMode>,
     kor: usize,
@@ -675,8 +828,15 @@ impl RedbIndexedFile {
         Ok(cur)
     }
 
-    fn open_db(&self) -> Result<Database, ()> {
-        Database::create(&self.path).map_err(|_| ())
+    /// A WRITABLE handle: exclusive lock, one process.
+    fn open_db(&self) -> Result<RedbHandle, &'static str> {
+        open_or_migrate(&self.path, |p: &Path| Database::create(p)).map(RedbHandle::Write)
+    }
+
+    /// A READ-ONLY handle: shared lock, so other readers may hold the same
+    /// container at the same time. This is what `OPEN INPUT` takes.
+    fn open_db_read_only(&self) -> Result<RedbHandle, &'static str> {
+        open_or_migrate(&self.path, |p: &Path| ReadOnlyDatabase::open(p)).map(RedbHandle::Read)
     }
 }
 
@@ -761,12 +921,12 @@ impl IndexedStore for RedbIndexedFile {
                 let _ = std::fs::remove_file(&self.path);
                 let db = match self.open_db() {
                     Ok(d) => d,
-                    Err(()) => return status::IO_ERROR,
+                    Err(st) => return st,
                 };
                 self.db = Some(db);
-                self.wtx = match self.db.as_ref().unwrap().begin_write() {
-                    Ok(w) => Some(w),
-                    Err(_) => return status::IO_ERROR,
+                self.wtx = match self.db.as_ref().and_then(RedbHandle::begin_write) {
+                    Some(w) => Some(w),
+                    None => return status::IO_ERROR,
                 };
                 if self.init_tables_and_meta().is_err() {
                     return status::IO_ERROR;
@@ -776,9 +936,16 @@ impl IndexedStore for RedbIndexedFile {
                 if !exists {
                     return status::FILE_NOT_FOUND;
                 }
-                let db = match self.open_db() {
+                // The one mode that promises not to write, and so the one that
+                // can take a SHARED lock: any number of readers, in any number
+                // of processes, over one container. It used to take
+                // `Database::create` like every other mode, whose lock is
+                // exclusive — so a second reader was refused and the only way
+                // to run two was to give each its own copy of the file
+                // (operator, 2026-09-16).
+                let db = match self.open_db_read_only() {
                     Ok(d) => d,
-                    Err(()) => return status::IO_ERROR,
+                    Err(st) => return st,
                 };
                 self.db = Some(db);
                 self.wtx = None;
@@ -793,12 +960,12 @@ impl IndexedStore for RedbIndexedFile {
             OpenMode::Io | OpenMode::Extend => {
                 let db = match self.open_db() {
                     Ok(d) => d,
-                    Err(()) => return status::IO_ERROR,
+                    Err(st) => return st,
                 };
                 self.db = Some(db);
-                self.wtx = match self.db.as_ref().unwrap().begin_write() {
-                    Ok(w) => Some(w),
-                    Err(_) => return status::IO_ERROR,
+                self.wtx = match self.db.as_ref().and_then(RedbHandle::begin_write) {
+                    Some(w) => Some(w),
+                    None => return status::IO_ERROR,
                 };
                 if exists {
                     if let Some((schema, comp)) = self.read_meta() {
@@ -1223,7 +1390,7 @@ impl IndexedStore for RedbIndexedFile {
             Some(OpenMode::Output | OpenMode::Io | OpenMode::Extend)
         ) {
             if let Some(db) = &self.db {
-                self.wtx = db.begin_write().ok();
+                self.wtx = db.begin_write();
             }
         }
     }
@@ -1234,11 +1401,67 @@ impl IndexedStore for RedbIndexedFile {
         }
         self.log_event("ROLLBACK", &[]);
         if let Some(db) = &self.db {
-            self.wtx = db.begin_write().ok();
+            self.wtx = db.begin_write();
         }
         self.cursor = None;
         self.start_at = None;
         self.current = None;
+    }
+}
+
+#[cfg(test)]
+mod v2_migration {
+    use super::*;
+
+    /// A redb **v2** container opens, after being upgraded in place.
+    ///
+    /// redb 3 removed the v2 file format, so every container written by an
+    /// earlier PowerRustCOBOL stopped opening the moment the crate was bumped:
+    /// `OPEN` answered 39 and a bound DataGrid reported "Loaded 0" with the
+    /// data sitting right there (operator, 2026-09-16, on a real 4.7 MB
+    /// actors.idx holding 1098 records).
+    ///
+    /// The fixture is built with the older redb the shim already depends on,
+    /// so this is a genuine v2 file and not an approximation of one.
+    #[test]
+    fn a_v2_container_is_upgraded_and_opens() {
+        let n = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("prc-redb-v2-{n}.rdb"));
+        let _ = std::fs::remove_file(&path);
+
+        // A container in the OLD format, written by the old redb.
+        {
+            let db = redb2::Builder::new()
+                .create_with_file_format_v3(false)
+                .create(&path)
+                .expect("create a v2 container");
+            let table: redb2::TableDefinition<&[u8], &[u8]> =
+                redb2::TableDefinition::new("primary");
+            let w = db.begin_write().expect("begin");
+            {
+                let mut tb = w.open_table(table).expect("open table");
+                tb.insert(b"k1".as_slice(), b"v1".as_slice()).expect("insert");
+            }
+            w.commit().expect("commit");
+        }
+
+        // The current redb must refuse it — otherwise this test proves nothing.
+        match Database::create(&path) {
+            Err(DatabaseError::UpgradeRequired(_)) => {}
+            other => panic!("the fixture must be a v2 container redb 4 refuses, got {other:?}"),
+        }
+
+        // …and the engine's own open path must take it anyway.
+        let handle = open_or_migrate(&path, |p: &Path| Database::create(p))
+            .expect("a v2 container must open after being upgraded");
+        drop(handle);
+
+        // The upgrade is one-way and idempotent: opening again is a plain open.
+        Database::create(&path).expect("the upgraded container opens directly");
+        let _ = std::fs::remove_file(&path);
     }
 }
 

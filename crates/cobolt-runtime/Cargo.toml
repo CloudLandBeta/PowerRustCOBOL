@@ -81,7 +81,13 @@ rusqlite        = { workspace = true, optional = true }
 postgres        = { version = "0.19", optional = true }
 mysql           = { version = "28", default-features = false, features = ["minimal-rust"], optional = true }
 # Phase 12 — crash-safe INDEXED engine substrate (pure-Rust ACID, no system lib).
-redb            = { version = "2.2" }
+redb            = { version = "4.3" }
+# The v2→v3 upgrade shim, and nothing else. redb 3 REMOVED the v2 file format
+# and the only `Database::upgrade()` that reads v2 lives in redb 2.6 — so a
+# container written by an earlier PowerRustCOBOL can be migrated by exactly one
+# call into this older copy, and is then opened by the current one. Two majors
+# of redb in the graph is the price of not orphaning existing data files.
+redb2           = { package = "redb", version = "2.6" }
 # Phase 10 — REST client runtime (blocking HTTP, no async required)
 ureq            = { version = "2", default-features = false, features = ["json", "gzip", "native-tls"], optional = true }  # native-tls, not rustls (ring compiles C)
 native-tls      = { version = "0.2", optional = true }   # the connector ureq needs handed to it; see http_runtime::tls_connector

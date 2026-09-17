@@ -1,5 +1,61 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.35] — 2026-09-16
+
+### The CSV button gets a row of its own, and readers stop needing their own copy
+
+**The DataGrid's CSV button was sitting on a column title.** It was centred in
+the column-header band at its right edge, which put a drawn button on top of
+the last column's heading — and a column heading is itself a click target that
+sorts the grid, so the two were competing for the same pixels and the button
+read as unclickable. It now has a band of its own above the column titles,
+hard right, where no column reaches it. The band is optional and costs nothing
+when it is not wanted: it appears only when the button is enabled or a title is
+set, and a grid too short to spare the room keeps its column titles and a row
+of data instead.
+
+**A DataGrid can carry a title.** The new `Title` property is centred on that
+same band, so a grid showing the export button is not spending a whole row on
+one badge. Empty means no title, which is what every existing form has. A title
+long enough to reach the button is cut rather than drawn underneath it — the
+point of the band is that nothing overlaps. It is edited in **Edit DataGrid
+settings…**, first row, and it is the same `Title` the charts already use.
+
+**Two programs reading one indexed file no longer need two copies of it.** The
+redb engine's `OPEN INPUT` took a writable handle, and redb locks a writable
+container **exclusively**: the first reader shut every other handle out, in
+every process, so the only way to run two readers over one file was to give
+each its own copy. redb answers that with a read-only handle that takes a
+**shared** lock, and `OPEN INPUT` — the one mode that promises not to write —
+now takes one. Any number of readers may hold the same container at once. A
+writer is unchanged: still exactly one, and a reader that tries to join a live
+writer gets file status **93** (unavailable), a status a COBOL program can test,
+rather than an I/O error.
+
+**An indexed container written by an earlier PowerRustCOBOL still opens.** This
+change moves redb from 2.2 to **4.3**, and redb 3 removed the v2 file format
+outright — so every `.redb` INDEXED container written before this release
+stopped opening the moment the crate was bumped: `OPEN` answered **39** and a
+bound DataGrid reported "Loaded 0" with the data sitting right there. The only
+code that can still read v2 is redb 2.6's `Database::upgrade()`, so that one
+older copy is in the graph under the `redb2` alias for exactly that call: a v2
+container is **upgraded in place on first open** and then read normally. Every
+record, key and value survives it, and it happens once — an already-current
+container is not touched. Verified on a 4.7 MB container holding 1098 records:
+`OPEN INPUT` → **00**, all 1098 read, `CLOSE` → **00**.
+
+⚠️ The upgrade runs for `OPEN INPUT` too, so the one mode that promises not to
+write performs a single format migration the first time it meets a v2 file. The
+alternative was refusing to open a file the developer can still see. Keep a copy
+if that matters to you; PRCIDXD1 containers are unaffected, and PRCIDXD1 has
+been the default engine since 1.70.24.
+
+**The knowledge stores rebuild themselves.** A knowledge store is a derived
+cache — every chunk in it was built from documents still on disk — so a v2 store
+is moved aside to `<name>.v2-obsolete` rather than migrated, an empty one takes
+its place, and **File → Reindex Knowledge Bases** refills it. The shipped
+`assets/knowledge/chunked.data` was regenerated in this change.
+
 ## [PowerRustCOBOL 1.70.34] — 2026-09-15
 
 ### A second Build no longer wrecks the one already running

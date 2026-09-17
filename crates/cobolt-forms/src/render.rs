@@ -6495,6 +6495,50 @@ fn render_interactive(
             // their corners from the same value.
             let grid_round =
                 paint::control_border_rounding(ctrl, screen, paint::corner_radius(ctrl));
+            // The caption row: a band of the grid's own, ABOVE the column titles,
+            // carrying the CSV button hard right and the optional `Title` centred.
+            //
+            // The badge used to be centred in the column-header band at its right
+            // edge, which put it on top of the last column's title — and a column
+            // title is itself a click target that sorts, so the two were fighting
+            // over the same pixels (operator, 2026-09-16). A row of its own is what
+            // makes "never overlaps a column title" a property of the LAYOUT rather
+            // than of how wide the columns happen to be that frame.
+            //
+            // The title shares the row so a grid showing the button is not spending
+            // a whole band on one badge.
+            let grid_title = sv(ctrl, "Title").trim().to_owned();
+            let show_csv_button = prop_bool(ctrl, "ShowCSVExportButton", false);
+            let title_font = (font_size + 2.0).clamp(10.0, 22.0);
+            // The row is never shorter than the grid's own top arc, because the
+            // arc becomes ITS arc. egui shrinks a corner radius that will not fit
+            // the rect it is drawing, so a band shorter than the arc would be
+            // drawn with a SMALLER curve than the grid's face underneath it and
+            // leave a wedge at both top corners — this project's most repeated
+            // class of regression (spec 057).
+            let top_arc = grid_round.nw.max(grid_round.ne) as f32;
+            let caption_want = (title_font + 12.0).max(24.0).max(top_arc);
+            // All or nothing: a grid too short to spare the row keeps its column
+            // titles and a row of data instead of becoming a caption with nothing
+            // underneath it. A sliver of a caption row would be worse than none.
+            let caption_h = if (show_csv_button || !grid_title.is_empty())
+                && screen.height() >= caption_want + header_h + row_h
+            {
+                caption_want
+            } else {
+                0.0
+            };
+            // Sized from the row it sits in, so three letters always fit on one
+            // line whatever the form's font is set to — an icon cannot wrap, and
+            // `egui::Button::new("CSV")` took the ui's font and wrapped to "CS"
+            // over "V" on a large-font form (operator, 2026-09-16).
+            let badge_h = (caption_h - 8.0).clamp(14.0, 22.0);
+            let badge_w = badge_h * 1.9;
+            // What the header band costs the body, caption row included. Every
+            // `DataGridLayout::compute` below is given THIS, so the layout's
+            // `body_rect`, row window and `max_scroll_y` all agree with what is
+            // painted.
+            let band_h = caption_h + header_h;
             // The grid's OWN `Transparency`, folded into the inherited alpha.
             //
             // The designer honoured it and no interactive surface did, which is
@@ -6629,11 +6673,11 @@ fn render_interactive(
                 .memory(|m| m.data.get_temp::<f32>(scroll_x_id).unwrap_or(0.0));
             let mut layout = DataGridLayout::compute(&DataGridLayoutInput {
                 width: screen.width(),
-                height: (screen.height() - frozen_rows_height).max(header_h),
+                height: (screen.height() - frozen_rows_height).max(band_h),
                 row_count: scrollable_row_count,
                 columns: column_measures.clone(),
                 row_height: row_h,
-                header_height: header_h,
+                header_height: band_h,
                 frozen_columns,
                 frozen_rows: 0,
                 scroll_x,
@@ -6642,7 +6686,12 @@ fn render_interactive(
             });
             scroll_y = layout.scroll_y;
             scroll_x = layout.scroll_x;
-            let header_rect = Rect::from_min_size(screen.min, vec2(screen.width(), header_h));
+            let caption_rect =
+                Rect::from_min_size(screen.min, vec2(screen.width(), caption_h));
+            let header_rect = Rect::from_min_size(
+                pos2(screen.min.x, screen.min.y + caption_h),
+                vec2(screen.width(), header_h),
+            );
             let body_rect = Rect::from_min_max(pos2(screen.min.x, header_rect.max.y), screen.max);
             // While the pointer is anywhere over the DataGrid, the grid owns the
             // wheel: read AND *consume* the wheel so it never bleeds into the
@@ -6693,11 +6742,11 @@ fn render_interactive(
             }
             layout = DataGridLayout::compute(&DataGridLayoutInput {
                 width: screen.width(),
-                height: (screen.height() - frozen_rows_height).max(header_h),
+                height: (screen.height() - frozen_rows_height).max(band_h),
                 row_count: scrollable_row_count,
                 columns: column_measures.clone(),
                 row_height: row_h,
-                header_height: header_h,
+                header_height: band_h,
                 frozen_columns,
                 frozen_rows: 0,
                 scroll_x,
@@ -6956,11 +7005,11 @@ fn render_interactive(
 
                     layout = DataGridLayout::compute(&DataGridLayoutInput {
                         width: screen.width(),
-                        height: (screen.height() - frozen_rows_height).max(header_h),
+                        height: (screen.height() - frozen_rows_height).max(band_h),
                         row_count: scrollable_row_count,
                         columns: column_measures.clone(),
                         row_height: row_h,
-                        header_height: header_h,
+                        header_height: band_h,
                         frozen_columns,
                         frozen_rows: 0,
                         scroll_x,
@@ -7056,16 +7105,59 @@ fn render_interactive(
                 }
             }
 
+            // With a caption row present it is the TOP of the grid, so it takes
+            // the rounded top corners and the column-header band below it becomes
+            // square — otherwise an arc would be drawn across the middle of the
+            // header.
+            if caption_h > 0.0 {
+                painter.rect_filled(
+                    caption_rect,
+                    egui::CornerRadius {
+                        nw: grid_round.nw,
+                        ne: grid_round.ne,
+                        sw: 0,
+                        se: 0,
+                    },
+                    header_bg,
+                );
+            }
             painter.rect_filled(
                 header_rect,
-                egui::CornerRadius {
-                    nw: grid_round.nw,
-                    ne: grid_round.ne,
-                    sw: 0,
-                    se: 0,
+                if caption_h > 0.0 {
+                    egui::CornerRadius::ZERO
+                } else {
+                    egui::CornerRadius {
+                        nw: grid_round.nw,
+                        ne: grid_round.ne,
+                        sw: 0,
+                        se: 0,
+                    }
                 },
                 header_bg,
             );
+            // The grid's own `Title`, centred on the caption row. Clipped short of
+            // the badge's gutter so a long title is CUT rather than drawn under the
+            // button — the whole point of the row is that nothing overlaps.
+            if caption_h > 0.0 && !grid_title.is_empty() {
+                let title_clip = if show_csv_button {
+                    Rect::from_min_max(
+                        caption_rect.min,
+                        pos2(
+                            (caption_rect.max.x - (badge_w + 14.0)).max(caption_rect.min.x),
+                            caption_rect.max.y,
+                        ),
+                    )
+                } else {
+                    caption_rect
+                };
+                painter.with_clip_rect(title_clip).text(
+                    caption_rect.center(),
+                    Align2::CENTER_CENTER,
+                    &grid_title,
+                    FontId::proportional(title_font),
+                    header_fg,
+                );
+            }
             for col in layout
                 .frozen_columns
                 .iter()
@@ -7271,24 +7363,15 @@ fn render_interactive(
                     }
                 }
             }
-            if enabled
-                && prop_bool(ctrl, "ShowCSVExportButton", false)
-                && header_rect.width() >= 64.0
-            {
-                // A drawn CSV badge, not a text button.
+            if enabled && show_csv_button && caption_h > 0.0 && caption_rect.width() >= 64.0 {
+                // A drawn CSV badge, not a text button — see `badge_h` above for
+                // why the glyph is sized from its box rather than from the font.
                 //
-                // `egui::Button::new("CSV")` took the ui's font, which on a
-                // form with a larger FontSize was wider than the 48 px box the
-                // header could spare — so the label wrapped and the control
-                // read as "CS" over "V" (operator, 2026-09-16). An icon cannot
-                // wrap: the glyph is sized from the box it is given, and the
-                // box is sized from the header band it sits in.
-                let badge_h = (header_h - 8.0).clamp(14.0, 22.0);
-                let badge_w = badge_h * 1.9;
+                // Hard right on the caption row, which no column title reaches.
                 let button_rect = Rect::from_min_size(
                     pos2(
-                        header_rect.max.x - (badge_w + 6.0),
-                        header_rect.min.y + (header_h - badge_h) * 0.5,
+                        caption_rect.max.x - (badge_w + 8.0),
+                        caption_rect.min.y + (caption_h - badge_h) * 0.5,
                     ),
                     vec2(badge_w, badge_h),
                 );
@@ -7974,12 +8057,16 @@ fn render_interactive(
                     screen.min.x + layout.frozen_columns_width
                 };
                 if x > min_x && x < screen.max.x {
+                    // From the top of the COLUMN TITLES, not of the grid: a column
+                    // separator drawn up through the caption row would cut the
+                    // title and the badge in half. Identical to `screen.min.y`
+                    // when there is no caption row.
                     draw_datagrid_line(
                         &painter,
                         clip_datagrid_line_to_corners(
                             screen,
                             grid_cr,
-                            [pos2(x, screen.min.y), pos2(x, screen.max.y)],
+                            [pos2(x, header_rect.min.y), pos2(x, screen.max.y)],
                         ),
                         Stroke::new(1.0, grid_c),
                         grid_line_style,
@@ -7992,13 +8079,30 @@ fn render_interactive(
                     screen,
                     grid_cr,
                     [
-                        pos2(screen.min.x, screen.min.y + header_h),
-                        pos2(screen.max.x, screen.min.y + header_h),
+                        pos2(screen.min.x, header_rect.max.y),
+                        pos2(screen.max.x, header_rect.max.y),
                     ],
                 ),
                 Stroke::new(1.0, grid_c),
                 grid_line_style,
             );
+            // …and one under the caption row, so the band reads as two rows and
+            // not as one tall header with a stray badge floating in it.
+            if caption_h > 0.0 {
+                draw_datagrid_line(
+                    &painter,
+                    clip_datagrid_line_to_corners(
+                        screen,
+                        grid_cr,
+                        [
+                            pos2(screen.min.x, caption_rect.max.y),
+                            pos2(screen.max.x, caption_rect.max.y),
+                        ],
+                    ),
+                    Stroke::new(1.0, grid_c),
+                    grid_line_style,
+                );
+            }
 
             // Outer border of the whole DataGrid (left and bottom especially, since
             // right-of-last and header-bottom are drawn above). Use the DataGrid's

@@ -24,7 +24,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use redb::{Database, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 use crate::bert_embedder::{self, EmbedderKind};
@@ -161,7 +161,14 @@ fn open(project_root: &Path) -> Result<Database, String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    Database::create(path).map_err(|e| e.to_string())
+    match Database::create(&path) {
+        Ok(db) => Ok(db),
+        Err(redb::DatabaseError::UpgradeRequired(version)) => {
+            crate::chunked_knowledge::retire_obsolete_store(&path, version);
+            Database::create(&path).map_err(|e| e.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn fnv1a(text: &str) -> u64 {

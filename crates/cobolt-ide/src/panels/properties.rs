@@ -4775,6 +4775,8 @@ impl PropertiesPanel {
                             .num_columns(2)
                             .spacing([8.0, 4.0])
                             .show(ui, |ui| {
+                                datagrid_text_modal_row(ui, id, "Title", "Grid title", ctrl, action, "");
+                                ui.end_row();
                                 bool_row(ui, id, "ReadOnly", "Read only", ctrl, action);
                                 ui.end_row();
                                 bool_row(ui, id, "AllowSorting", "Allow sorting", ctrl, action);

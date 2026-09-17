@@ -30,7 +30,7 @@ tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 # Pure-Rust embedded store for the project Knowledge Base index (was bundled
 # SQLite, i.e. a C amalgamation compiled on every machine). Same version the
 # runtime already uses.
-redb = "2.2"
+redb = "4.3"
 bincode = { workspace = true }
 tempfile = "3.10"
 # OS TLS (schannel on Windows, Security.framework on macOS) instead of the

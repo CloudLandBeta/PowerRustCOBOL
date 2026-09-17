@@ -337,7 +337,7 @@ fn bench_object_churn(scale: f64) -> Row {
 /// whole write transaction, which is what that micro-benchmark concluded was
 /// worth doing (~16% faster than opening twice per insert).
 fn bench_indexed_redb(scale: f64) -> (Row, Row) {
-    use redb::{Database, TableDefinition};
+    use redb::{Database, ReadableDatabase, TableDefinition};
 
     const PRIMARY: TableDefinition<&[u8], &[u8]> = TableDefinition::new("primary");
 

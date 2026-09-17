@@ -536,3 +536,86 @@ fn dropping_after_commit_with_no_explicit_close_does_not_deadlock() {
     assert_eq!(r.unwrap(), rec("1", "ANA"));
     assert_eq!(reopened.close(), status::OK);
 }
+
+/// Two readers, one container, no copies.
+///
+/// `OPEN INPUT` used to take `Database::create`, whose file lock is EXCLUSIVE:
+/// the first reader locked the container and every other handle — reader or
+/// writer, same process or another — was refused outright. The only way anyone
+/// ran two readers over one indexed file was to give each its own copy of it
+/// (operator, 2026-09-16). `OPEN INPUT` now takes redb 3's `ReadOnlyDatabase`,
+/// whose lock is shared.
+///
+/// Both handles are opened before either reads, so the test cannot pass by
+/// accident on serialised opens; and both must see the same records, because a
+/// shared lock that handed out empty snapshots would be no better than a copy.
+#[test]
+fn two_open_input_handles_share_one_container() {
+    let path = tmp_path("shared-readers");
+    let primary = KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+    let spec = || KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+
+    let mut writer = RedbIndexedFile::new(&path, 9, primary, Vec::new());
+    assert_eq!(writer.open(OpenMode::Output), status::OK);
+    assert_eq!(writer.write(&rec("1", "ANA")), status::OK);
+    assert_eq!(writer.write(&rec("2", "BOB")), status::OK);
+    assert_eq!(writer.close(), status::OK);
+
+    let mut a = RedbIndexedFile::new(&path, 9, spec(), Vec::new());
+    let mut b = RedbIndexedFile::new(&path, 9, spec(), Vec::new());
+    assert_eq!(a.open(OpenMode::Input), status::OK, "first reader");
+    assert_eq!(
+        b.open(OpenMode::Input),
+        status::OK,
+        "second reader refused while the first held the container — the \
+         exclusive-lock regression is back"
+    );
+
+    for (who, f) in [("a", &mut a), ("b", &mut b)] {
+        let (r, st) = f.read_key(b"0002");
+        assert_eq!(st, status::OK, "reader {who} could not read");
+        assert_eq!(r.unwrap(), rec("2", "BOB"), "reader {who} read the wrong record");
+    }
+
+    assert_eq!(a.close(), status::OK);
+    assert_eq!(b.close(), status::OK);
+}
+
+/// A writer still gets the container to itself: a reader may not join one.
+///
+/// The shared lock is for readers only. `OPEN INPUT` against a container a
+/// writer is holding reports **93** (file unavailable) — a definite COBOL file
+/// status the program can test, not an I/O error.
+#[test]
+fn a_reader_cannot_join_a_live_writer() {
+    let path = tmp_path("reader-vs-writer");
+    let spec = || KeySpec {
+        offset: 0,
+        len: 4,
+        duplicates: false,
+    };
+
+    let mut writer = RedbIndexedFile::new(&path, 9, spec(), Vec::new());
+    assert_eq!(writer.open(OpenMode::Output), status::OK);
+    assert_eq!(writer.write(&rec("1", "ANA")), status::OK);
+
+    let mut reader = RedbIndexedFile::new(&path, 9, spec(), Vec::new());
+    assert_eq!(
+        reader.open(OpenMode::Input),
+        status::UNAVAILABLE,
+        "a reader was let in while a writer held the container"
+    );
+
+    assert_eq!(writer.close(), status::OK);
+    // …and once the writer is gone the reader is admitted.
+    assert_eq!(reader.open(OpenMode::Input), status::OK);
+    assert_eq!(reader.close(), status::OK);
+}

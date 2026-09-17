@@ -24,4 +24,4 @@ cobolt-ast      = { path = "../cobolt-ast" }
 cobolt-parser   = { path = "../cobolt-parser" }
 cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
-redb            = "2.2"
+redb            = "4.3"
