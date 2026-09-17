@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.37] — 2026-09-16
+
+### The COBOL preprocessor stops reading the Rust you write
+
+**The word `replace` anywhere inside an `EXEC RUST` block corrupted it.** The
+COPY/REPLACE pass runs over the whole source before anything is lexed, and it
+matched the bare word `REPLACE` wherever it appeared — including inside a block
+whose body is Rust, not COBOL. So `str::replace`, a local named `replace`, a
+`.replace(…)` call, **and the word sitting in a comment** were each read as the
+start of a `REPLACE … BY … .` directive, which swallowed source text and left
+the block mangled.
+
+What made it expensive is that the error never pointed at the offending line:
+the block was already wrecked by the time the parser reached it, so the
+diagnostic came out as `expected PROCEDURE DIVISION` — or
+`expected expression, found EndExec` — at whatever line the parser finally gave
+up on. An hour of looking at correct code.
+
+`EXEC RUST … END-EXEC` is now emitted byte for byte. The COBOL around it is
+still rewritten as before, and an active `REPLACE` still applies on both sides
+of the block — it simply stops at the block's edge. There was a guard for
+`str::replace` alone (it checked for a preceding `::`) and it caught nothing
+else; that narrow case is now covered by the general rule.
+
+⚠️ If you wrote a workaround for this — most likely giving a Rust function a
+parameter it ignores, because an empty argument list appeared not to parse —
+you can take it out. That symptom was this defect, not a separate one: an
+inline call with `()` parses, and did all along.
+
+**`rcrun --help` named the wrong default engine.** It advertised
+`redb (default)` for `--indexed-engine`, which has been wrong since 1.70.24,
+when the default went back to the PRCIDXD1 Rust engine for concurrency. It now
+reads `rust (default)`. The `IndexedEngine::Rust` documentation was corrected in
+the same pass: it still said a redb container admits no second opener, "reader
+or writer alike", which 1.70.35 made false for readers.
+
 ## [PowerRustCOBOL 1.70.36] — 2026-09-16
 
 ### A DataGrid you can scroll, navigate, and export from

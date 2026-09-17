@@ -201,7 +201,35 @@ fn expand_text(
 
     while i < toks.len() {
         let t = &toks[i];
-        if t.kind == PKind::Word && eqi(&t.text, "COPY") {
+        // An `EXEC RUST … END-EXEC` body is Rust, not COBOL source text, and the
+        // preprocessor has no business inside it. `replace` is an ordinary Rust
+        // identifier — `str::replace`, a local binding, a word in a `//` comment
+        // — and every one of them was being read as a `REPLACE` directive, which
+        // mangled the block and then reported the failure at whatever line the
+        // parser gave up on, never the offending one (found 2026-09-15 building
+        // a real integration against `oracle-rs`). The `::` guard below caught
+        // `str::replace` alone and nothing else.
+        //
+        // The gap BEFORE the block is ordinary COBOL and is still rewritten; the
+        // block itself is emitted byte for byte, so what `try_capture_exec_rust`
+        // later slices out of the preprocessed text is exactly what the
+        // developer wrote.
+        if t.kind == PKind::Word && eqi(&t.text, "EXEC") && is_exec_rust(&toks, i) {
+            match exec_rust_end(&toks, i) {
+                Some((end_idx, end_byte)) => {
+                    out.push_str(&apply_pairs(&text[prev_end..t.start], &active));
+                    out.push_str(&text[t.start..end_byte]);
+                    prev_end = end_byte;
+                    i = end_idx + 1;
+                }
+                None => {
+                    // Unterminated: leave it alone rather than guess where it
+                    // ends. The lexer reports the missing END-EXEC with a far
+                    // better message than anything available here.
+                    i += 1;
+                }
+            }
+        } else if t.kind == PKind::Word && eqi(&t.text, "COPY") {
             let is_method = i > 0 && toks[i - 1].kind == PKind::ColonColon;
             if is_method {
                 i += 1;
@@ -254,6 +282,27 @@ fn expand_text(
     }
     out.push_str(&apply_pairs(&text[prev_end..], &active));
     out
+}
+
+/// Is the `EXEC` at token `i` the start of an `EXEC RUST` block?
+///
+/// Only `RUST` is skipped, not every `EXEC`: this is the one block whose body is
+/// a foreign language, and narrowing it keeps the change to the defect.
+fn is_exec_rust(toks: &[PTok], i: usize) -> bool {
+    matches!(toks.get(i + 1), Some(n) if n.kind == PKind::Word && eqi(&n.text, "RUST"))
+}
+
+/// The `END-EXEC` closing the block opened at token `i`.
+///
+/// Returns its token index and the byte offset just past it. `END-EXEC` scans as
+/// one word because the scanner treats `-` as a word character. Nested
+/// `EXEC RUST` is not a thing, so the first `END-EXEC` wins.
+fn exec_rust_end(toks: &[PTok], i: usize) -> Option<(usize, usize)> {
+    toks.iter()
+        .enumerate()
+        .skip(i + 2)
+        .find(|(_, t)| t.kind == PKind::Word && eqi(&t.text, "END-EXEC"))
+        .map(|(idx, t)| (idx, t.end))
 }
 
 /// Parse a `COPY name [OF/IN lib] [REPLACING op BY op …] .` directive.
@@ -681,6 +730,67 @@ mod tests {
         let d = tmp();
         let r = expand_copybooks("COPY NOPE.\n", &d, SourceFormat::Free);
         assert!(r.errors.iter().any(|e| e.contains("not found")));
+    }
+
+    #[test]
+    /// `replace` is an ordinary Rust word, and the preprocessor must not touch
+    /// it — nor anything else — inside an `EXEC RUST` block.
+    ///
+    /// Every one of these forms mangled the block before: a local binding, a
+    /// method call, and the word sitting in a `//` comment (which the scanner
+    /// does not recognise as a comment, because `*>` is COBOL's). The failure
+    /// then surfaced as `expected PROCEDURE DIVISION` at an unrelated line.
+    #[test]
+    fn the_preprocessor_keeps_its_hands_off_an_exec_rust_block() {
+        let d = tmp();
+        let src = "\
+PROCEDURE DIVISION.
+EXEC RUST
+    pub fn f(cell: String) -> String {
+        let replace = 1;              // replace it
+        cell.replace(char::from(9), \" \")
+    }
+END-EXEC.
+DISPLAY \"done\".
+";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        for needle in [
+            "let replace = 1;",
+            "// replace it",
+            "cell.replace(char::from(9)",
+            "END-EXEC.",
+        ] {
+            assert!(
+                r.text.contains(needle),
+                "the block lost {needle:?}; got:\n{}",
+                r.text
+            );
+        }
+    }
+
+    /// …and an active REPLACE stops at the block's edge: it still rewrites the
+    /// COBOL around it, and rewrites nothing inside.
+    #[test]
+    fn an_active_replace_does_not_reach_into_an_exec_rust_block() {
+        let d = tmp();
+        let src = "\
+REPLACE ==FOO== BY ==BAR==.
+01 FOO PIC X.
+EXEC RUST
+    pub fn f() -> i32 { let FOO = 1; FOO }
+END-EXEC.
+01 FOO PIC 9.
+";
+        let r = expand_copybooks(src, &d, SourceFormat::Free);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert!(r.text.contains("01 BAR PIC X."), "got: {}", r.text);
+        assert!(r.text.contains("01 BAR PIC 9."), "got: {}", r.text);
+        assert!(
+            r.text.contains("let FOO = 1; FOO"),
+            "REPLACE reached inside the Rust block: {}",
+            r.text
+        );
     }
 
     #[test]

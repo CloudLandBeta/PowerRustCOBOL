@@ -114,10 +114,16 @@ pub enum IndexedEngine {
     ///
     /// **The default again since 1.70.24** (operator ruling, 2026-09-14),
     /// reversing the 2026-08-29 ruling that promoted [`Self::Redb`]. The reason
-    /// is concurrency: redb's own file backend takes `flock(LOCK_EX)` on its
-    /// container with no shared variant, so **exactly one process may have a
-    /// redb file open** — a second opener, reader or writer alike, is refused
-    /// before it reaches a record. PRCIDXD1 admits concurrent readers.
+    /// is concurrency: a redb container open for WRITING takes `flock(LOCK_EX)`,
+    /// so **exactly one process may be writing one**, and no one else may open
+    /// it at all while that lasts. PRCIDXD1 admits concurrent readers *and* a
+    /// concurrent writer.
+    ///
+    /// Readers are no longer part of that argument. Since 1.70.35 `OPEN INPUT`
+    /// on the redb engine takes a read-only handle whose lock is **shared**, so
+    /// any number of readers may hold one container — what a reader still
+    /// cannot do is join a live writer (file status 93). The ruling stands on
+    /// the writer case, which is unchanged.
     ///
     /// ⚠️ It admits concurrent *writers* too, with no coordination between
     /// them, so an updating program must open `WITH LOCK` (or `SHARING WITH NO
