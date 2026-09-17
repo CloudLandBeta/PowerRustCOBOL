@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.40] — 2026-09-16
+
+### The CSV button asks where to put the file, and behaves like a button
+
+**Pressing it wrote to a destination nobody chose.** The export landed on
+`CSVExportPath` when the developer had set one and on `<control-id>.csv` in the
+working directory otherwise — a path the operator never picked and, for a
+packaged application started from the Finder or a shortcut, not one they could
+predict. Pressing the button now opens the **native Save panel**. Cancelling it
+writes nothing, which was not previously possible: there was no way to change
+your mind once the button was down.
+
+`CSVExportPath` is no longer overridden when it is set — it becomes the panel's
+starting folder and suggested file name, so a form that configures a destination
+still proposes it and the operator can accept it with one keystroke.
+
+Nothing moved about *what* a CSV of a grid is: the runtime still writes it, and
+`_ExportCSVStatus`, `_ExportCSVPath` and the `onExportCSV` event are unchanged,
+so a handler that reports the outcome keeps working. A form that raises
+`_ExportCSVRequested` from COBOL itself is also unchanged and still exports
+straight away without a panel — the panel belongs to the button, not to the verb.
+
+**And it answers like a button.** It had a hover tint and nothing else: no
+pointer, and no acknowledgement of the press, which is most of why it read as
+decoration even after it became clickable. It now takes a pointing hand on hover
+and fills while it is held.
+
 ## [PowerRustCOBOL 1.70.39] — 2026-09-16
 
 ### A Knowledge Base can be searched by more than one thing at a time

@@ -358,6 +358,20 @@ pub struct RenderOutput {
     /// (`event`, `procedure:`, `open-modal:`) never appears here â it goes out as
     /// an ordinary `UiEvent` instead.
     pub toolbar_actions: Vec<(String, String, String)>,
+    /// Control ids whose DataGrid **CSV export button** was pressed this frame.
+    ///
+    /// Same division of labour as `file_picker_requests`: the engine knows the
+    /// button was pressed and takes no dependency on a native dialog to say
+    /// where the file should go. The host opens a save panel and writes the
+    /// chosen path back as `CSVExportPath`, then re-raises the export request,
+    /// so the one implementation of "a CSV of this grid" — the runtime's —
+    /// still does the writing.
+    ///
+    /// The button pressed is a request for a DESTINATION, which is why it is
+    /// here and not an ordinary prop write: it used to export straight to
+    /// `<control-id>.csv` in the working directory, a path the operator never
+    /// chose and, for a packaged application, could not predict.
+    pub csv_export_requests: Vec<String>,
 }
 
 /// The size the backdrop covers: the form's own size, stretched to the host
@@ -7431,12 +7445,35 @@ fn render_interactive(
                 let csv_resp = ui
                     .interact(button_rect, ctrl_id.with("dg-csv"), Sense::click())
                     .on_hover_text("Export CSV");
+                // It is a button, so it answers like one. It had a hover tint
+                // and nothing else: no pointer, and no acknowledgement of the
+                // press itself, which is what made it read as decoration even
+                // once it was clickable (operator, 2026-09-16). A pointing hand
+                // on hover and a filled face while held are what every other
+                // button in the product gives.
+                if csv_resp.hovered() {
+                    ui.ctx()
+                        .set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 {
-                    let ink = if csv_resp.hovered() {
+                    let held = csv_resp.is_pointer_button_down_on();
+                    let ink = if held {
+                        Color32::WHITE
+                    } else if csv_resp.hovered() {
                         Color32::from_rgba_premultiplied(255, 255, 255, 235)
                     } else {
                         Color32::from_rgba_premultiplied(225, 233, 245, 190)
                     };
+                    // Pressed reads as a filled face rather than a moved one:
+                    // nudging the glyph would fight the caption row's baseline,
+                    // and the badge is too small for the shift to be legible.
+                    if held {
+                        painter.rect_filled(
+                            button_rect.shrink(0.5),
+                            3.0,
+                            Color32::from_rgba_premultiplied(255, 255, 255, 46),
+                        );
+                    }
                     // The internal border: inset by half the stroke so the line
                     // lands wholly inside the badge, 3 px corners as asked.
                     painter.rect_stroke(
@@ -7456,11 +7493,24 @@ fn render_interactive(
                     );
                 }
                 if csv_resp.clicked() {
-                    out.prop_updates.push((
-                        id.to_owned(),
-                        "_ExportCSVRequested".to_owned(),
-                        "1".to_owned(),
-                    ));
+                    // Ask the host for a destination. It opens a native save
+                    // panel, writes the answer to `CSVExportPath`, and only then
+                    // raises `_ExportCSVRequested` — so the export itself still
+                    // happens in exactly one place, the runtime.
+                    //
+                    // `_ExportCSVRequested` used to be raised right here, which
+                    // exported to `<control-id>.csv` in the working directory: a
+                    // path the operator never chose and a packaged application
+                    // cannot predict (operator, 2026-09-16). The flag itself is
+                    // unchanged and still honoured — COBOL may raise it, and the
+                    // host raises it once a destination exists.
+                    //
+                    // Only a form HOST acts on this list, exactly as with
+                    // `file_picker_requests`; on the designer canvas the press
+                    // raises `onExportCSV` and nothing else, which is all it
+                    // could ever do there — no interpreter is running to write a
+                    // file.
+                    out.csv_export_requests.push(id.to_owned());
                     out.events.push(UiEvent::ev(id, "onExportCSV"));
                 }
             }

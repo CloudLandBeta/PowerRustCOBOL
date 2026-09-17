@@ -199,3 +199,80 @@ fn a_grid_without_a_title_or_a_button_has_no_caption_row() {
         "a grid with the button off still exported; got {fired:?}"
     );
 }
+
+/// Pressing the badge asks the HOST where to write, rather than exporting to a
+/// destination nobody chose.
+///
+/// It used to raise `_ExportCSVRequested` here and the runtime wrote
+/// `<control-id>.csv` into the working directory — a path the operator never
+/// picked and a packaged application cannot predict (operator, 2026-09-16). The
+/// press now goes out as a `csv_export_requests` entry; the host opens a native
+/// save panel and raises the flag itself once there is a path.
+///
+/// `cobolt-forms` owns no dialog, which is exactly why the request leaves the
+/// engine — the same division of labour `file_picker_requests` already uses.
+#[test]
+fn the_csv_badge_asks_the_host_for_a_destination() {
+    let controls = grid(false, "");
+    let ctx = egui::Context::default();
+    let size = Vec2::new(1000.0, 600.0);
+    let active = ActiveTabs::new();
+    let p = badge_rect(false).center();
+
+    // Press and release, keeping the frame's whole output on the release.
+    let mut out_requests: Vec<String> = Vec::new();
+    let mut out_props: Vec<(String, String, String)> = Vec::new();
+    for ev in [
+        vec![],
+        vec![egui::Event::PointerMoved(p)],
+        vec![egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        }],
+        vec![egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }],
+    ] {
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), size));
+        input.events = ev;
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(root, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: size,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let out = cobolt_forms::render::render_form(ui, &inp);
+                    out_requests = out.csv_export_requests.clone();
+                    out_props = out.prop_updates.clone();
+                });
+        });
+        full.textures_delta.clear();
+    }
+
+    assert_eq!(
+        out_requests,
+        vec!["DataGrid-1".to_string()],
+        "the badge did not ask the host for a destination"
+    );
+    // …and it must NOT raise the export itself any more, or the file would be
+    // written to the old unchosen path before the save panel even appeared.
+    assert!(
+        !out_props
+            .iter()
+            .any(|(_, k, _)| k == "_ExportCSVRequested"),
+        "the badge still raised _ExportCSVRequested itself; got {out_props:?}"
+    );
+}

@@ -890,6 +890,7 @@ impl FormBody {
         self.run_platform_requests(
             &ctx,
             &out.file_picker_requests,
+            &out.csv_export_requests,
             &out.toolbar_actions,
             pre_focus,
             Some(footer_id_scope()),
@@ -1281,6 +1282,7 @@ impl FormBody {
         &mut self,
         ctx: &egui::Context,
         file_pickers: &[String],
+        csv_exports: &[String],
         toolbar_actions: &[(String, String, String)],
         pre_focus: Option<egui::Id>,
         // The id space the surface those requests came from was rendered in
@@ -1300,6 +1302,66 @@ impl FormBody {
         for id in file_pickers {
             let key = format!("filedropzone:{id}");
             crate::file_dialog::begin(ctx, &key, crate::file_dialog::DialogSpec::open());
+        }
+
+        // The DataGrid CSV button asking where to write. Same division of labour
+        // as the FileDropZone above: the engine knows the button was pressed and
+        // owns no dialog, this crate owns the dialog and no CSV, and the runtime
+        // owns the one definition of what a CSV of a grid is.
+        //
+        // Before this the button exported straight to `<control-id>.csv` in the
+        // working directory — a destination the operator never chose and a
+        // packaged application cannot predict (operator, 2026-09-16).
+        for id in csv_exports {
+            let key = format!("datagridcsv:{id}");
+            // `CSVExportPath` still leads when the developer set one: it becomes
+            // the suggested name and folder rather than being overridden.
+            let configured = self
+                .controls
+                .iter()
+                .find(|c| &c.id == id)
+                .and_then(|c| c.get_prop("CSVExportPath"))
+                .map(|v| v.as_str().trim().to_owned())
+                .filter(|s| !s.is_empty());
+            let suggested = configured.unwrap_or_else(|| format!("{id}.csv"));
+            let suggested = Path::new(&suggested);
+            let mut spec = crate::file_dialog::DialogSpec::save().filter("CSV", &["csv"]);
+            if let Some(name) = suggested.file_name().and_then(|n| n.to_str()) {
+                spec = spec.file_name(name);
+            }
+            if let Some(dir) = suggested.parent().filter(|p| !p.as_os_str().is_empty()) {
+                spec = spec.directory(dir);
+            }
+            crate::file_dialog::begin(ctx, &key, spec);
+            acted = true;
+        }
+        let grid_ids: Vec<String> = self
+            .controls
+            .iter()
+            .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::DataGrid))
+            .map(|c| c.id.clone())
+            .collect();
+        for id in grid_ids {
+            let key = format!("datagridcsv:{id}");
+            let Some(answer) = crate::file_dialog::take(&key) else {
+                continue;
+            };
+            acted = true;
+            // Cancelled: nothing is written and no export is raised. A save
+            // panel the operator dismissed must not still produce a file.
+            let Some(path) = answer else { continue };
+            // Destination FIRST, then the request — the interpreter reads
+            // `CSVExportPath` when it carries the export out, so the order is
+            // what makes the chosen path the one actually used.
+            for (prop, value) in [
+                ("CSVExportPath", path.display().to_string()),
+                ("_ExportCSVRequested", "1".to_owned()),
+            ] {
+                self.state_entry_mut(&id).set(prop, value.clone());
+                let _ = self
+                    .input_tx
+                    .send(StateUpdate::new(id.clone(), prop.to_owned(), value));
+            }
         }
         let file_drop_zone_ids: Vec<String> = self
             .controls
@@ -2154,6 +2216,7 @@ impl FormBody {
             if self.run_platform_requests(
                 ctx,
                 &output.file_picker_requests,
+                &output.csv_export_requests,
                 &output.toolbar_actions,
                 pre_focus,
                 None,
@@ -4400,6 +4463,7 @@ impl FormHost {
             if self.root.run_platform_requests(
                 ctx,
                 &output.file_picker_requests,
+                &output.csv_export_requests,
                 &output.toolbar_actions,
                 pre_focus,
                 None,
@@ -6154,7 +6218,7 @@ mod parity {
         let pre = Some(egui::Id::new(("rt_ctrl", "TXT-1")));
         let mut full = ctx.run_ui(Default::default(), |_root| {
             let ctx2 = _root.ctx().clone();
-            body.run_platform_requests(&ctx2, &[], &press, pre, None);
+            body.run_platform_requests(&ctx2, &[], &[], &press, pre, None);
         });
         full.textures_delta.clear();
         let copied = full.platform_output.commands.iter().find_map(|c| match c {
@@ -6178,7 +6242,7 @@ mod parity {
         let ctx = egui::Context::default();
         let mut full = ctx.run_ui(Default::default(), |_root| {
             let ctx2 = _root.ctx().clone();
-            body.run_platform_requests(&ctx2, &[], &press, None, None);
+            body.run_platform_requests(&ctx2, &[], &[], &press, None, None);
         });
         full.textures_delta.clear();
         assert!(
@@ -6227,7 +6291,7 @@ mod parity {
         let mut full = ctx.run_ui(Default::default(), |root| {
             let ctx2 = root.ctx().clone();
             // Live focus already surrendered by the press; pre-press focus names the field.
-            body.run_platform_requests(&ctx2, &[], &press, Some(widget_id), None);
+            body.run_platform_requests(&ctx2, &[], &[], &press, Some(widget_id), None);
         });
         full.textures_delta.clear();
 
