@@ -361,6 +361,34 @@ fn open(db_path: &Path) -> Result<Database, String> {
     }
 }
 
+/// Open the store for READING, taking a shared lock.
+///
+/// Searching a knowledge base is a read, but it used to go through [`open`],
+/// which calls `Database::create` — a WRITABLE handle, and redb locks one
+/// exclusively. So the System KB could be searched by exactly one thing at a
+/// time: a second search anywhere in the process failed outright with
+/// "Database already open. Cannot acquire lock." It showed up as an
+/// intermittently red `knowledge_search_covers_both_stores_and_answers_a_repeat`
+/// under a loaded test run, and it would show up the same way in the product
+/// whenever Grace searched while a reindex or a second window held the store.
+///
+/// `ReadOnlyDatabase`'s lock is shared, so any number of readers coexist.
+///
+/// A store needing the v2 retirement cannot be fixed read-only — that is a
+/// rename and a create — so it falls back to [`open`], which retires it, and
+/// then reopens. A missing file is left to the caller, every one of which
+/// already treats "no store" as "no results".
+fn open_read_only(db_path: &Path) -> Result<redb::ReadOnlyDatabase, String> {
+    match redb::ReadOnlyDatabase::open(db_path) {
+        Ok(db) => Ok(db),
+        Err(redb::DatabaseError::UpgradeRequired(_)) => {
+            drop(open(db_path)?);
+            redb::ReadOnlyDatabase::open(db_path).map_err(|e| e.to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Remove every chunk record belonging to `doc_path`.
 fn remove_doc_chunks(
     chunks: &mut redb::Table<&str, &[u8]>,
@@ -522,7 +550,7 @@ pub fn stale_documents(
     documents: &[(String, String)],
     stamp: &str,
 ) -> Result<Vec<String>, String> {
-    let database = open(db_path)?;
+    let database = open_read_only(db_path)?;
     let read = database.begin_read().map_err(|e| e.to_string())?;
     let docs = match read.open_table(DOCS) {
         Ok(table) => table,
@@ -620,7 +648,7 @@ pub fn search(db_path: &Path, query: &str, limit: usize) -> Result<Vec<ChunkHit>
     if query.trim().is_empty() || limit == 0 || !db_path.exists() {
         return Ok(Vec::new());
     }
-    let database = open(db_path)?;
+    let database = open_read_only(db_path)?;
     let (embedder, kind) = project_knowledge::active_embedder();
     let query_vector = embedder.embed_query(query);
     let read = database.begin_read().map_err(|e| e.to_string())?;
@@ -737,7 +765,7 @@ pub fn search(db_path: &Path, query: &str, limit: usize) -> Result<Vec<ChunkHit>
 /// Diagnostic view of every stored record: (key, subject, embedder stamp,
 /// vector length, vector norm). For debugging only.
 pub fn debug_records(db_path: &Path) -> Result<Vec<(String, String, String, usize, f32)>, String> {
-    let database = open(db_path)?;
+    let database = open_read_only(db_path)?;
     let read = database.begin_read().map_err(|e| e.to_string())?;
     let chunks = match read.open_table(CHUNKS) {
         Ok(table) => table,
@@ -767,7 +795,7 @@ pub fn corpus_chars(db_path: &Path) -> Result<u64, String> {
     if !db_path.exists() {
         return Ok(0);
     }
-    let database = open(db_path)?;
+    let database = open_read_only(db_path)?;
     let read = database.begin_read().map_err(|e| e.to_string())?;
     let chunks = match read.open_table(CHUNKS) {
         Ok(table) => table,
@@ -893,6 +921,65 @@ mod tests {
     }
 
     /// Retrieval answers a subject question with THAT subject's records only.
+    #[test]
+    /// One store, two readers at the same time.
+    ///
+    /// Searching used to go through `open`, i.e. `Database::create` — a
+    /// WRITABLE handle, whose redb lock is exclusive. So the System KB could be
+    /// searched by exactly one thing at a time and a second search failed with
+    /// "Database already open. Cannot acquire lock." It surfaced as an
+    /// intermittently red `knowledge_search_covers_both_stores_and_answers_a_repeat`
+    /// in the IDE suite, and in the product it would bite whenever Grace
+    /// searched while a reindex or a second window held the store.
+    ///
+    /// The first handle is deliberately still OPEN while the second is taken —
+    /// serialised opens would pass even with the exclusive lock back, and prove
+    /// nothing.
+    #[test]
+    fn two_searches_can_hold_one_store_at_the_same_time() {
+        let path = store("shared-readers");
+        sync_documents(
+            &path,
+            &[("Knowledge Base/controls.md".into(), CATALOGUE.into())],
+        )
+        .unwrap();
+
+        // Negative control: the WRITABLE handle `search` used to take really is
+        // exclusive. Without this the test could pass on a redb that had simply
+        // stopped locking, and prove nothing about the fix.
+        {
+            let writer = open(&path).expect("writable open");
+            assert!(
+                matches!(
+                    Database::create(&path),
+                    Err(redb::DatabaseError::DatabaseAlreadyOpen)
+                ),
+                "a writable redb handle is no longer exclusive — this test's premise is gone"
+            );
+            drop(writer);
+        }
+
+        let first = open_read_only(&path).expect("the first reader could not open the store");
+        let second = open_read_only(&path).expect(
+            "a second reader was refused while the first held the store — the exclusive-lock \
+             regression is back",
+        );
+
+        // Both must actually be usable, not merely constructible: a handle that
+        // hands out empty snapshots would be no better than a refusal.
+        for (who, db) in [("first", &first), ("second", &second)] {
+            let read = db.begin_read().expect("begin_read");
+            let table = read.open_table(CHUNKS).expect("chunks table");
+            assert!(
+                table.len().expect("len") > 0,
+                "reader {who} saw an empty store"
+            );
+        }
+        drop(first);
+        drop(second);
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn search_returns_the_asked_subject_not_the_catalogue() {
         let path = store("select");

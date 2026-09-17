@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.39] — 2026-09-16
+
+### A Knowledge Base can be searched by more than one thing at a time
+
+Searching a knowledge store opened it for **writing**. redb locks a writable
+container exclusively, so the System KB could be read by exactly one thing at a
+time anywhere in the process — a second search failed outright with *"Database
+already open. Cannot acquire lock."* rather than returning results.
+
+It looked intermittent, because it needs two searches to overlap, and it first
+showed up as an occasionally red Knowledge Base test under a loaded run. In the
+product it is not intermittent at all: it is what happens whenever Grace
+searches while **File → Reindex Knowledge Bases** is running, or while anything
+else holds the store.
+
+The four read-only operations — search, the staleness check, the record dump and
+the corpus size — now take redb's shared-lock handle, so any number of readers
+coexist. Writing is unchanged and still exclusive. A store old enough to need
+the v2 retirement still gets it: that path cannot run read-only, so it falls
+back to the writable open once and then reopens shared.
+
+The test holds two readers open **at the same time** — serialised opens would
+pass even with the bug back — and asserts both see the records. It carries a
+negative control proving a writable handle really is still exclusive, so it
+cannot quietly start passing for the wrong reason.
+
 ## [PowerRustCOBOL 1.70.38] — 2026-09-16
 
 ### A tick box and the program that owns it finally agree
