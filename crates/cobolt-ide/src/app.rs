@@ -3912,6 +3912,21 @@ impl CoboltApp {
     /// also the only build that stamps [`ProjectMeta::built_with_version`],
     /// because it is the only one that can promise nothing older survived.
     fn do_build_binary_with(&mut self, full: bool) {
+        // One build at a time. Every build of a project stages into the same
+        // `$TMPDIR/cobolt-build-<binary>` folder, and a full build's first act
+        // is to throw that folder away — so a second build started while one is
+        // still compiling deletes the artefacts the live cargo is writing. What
+        // the developer gets is pages of compiler errors naming crates they
+        // never wrote ("could not compile regex-automata", "no such file or
+        // directory: …rcgu.o"), with nothing in them pointing at the cause
+        // (operator report, 2026-09-15). The Building modal is not this guard:
+        // its Close button deliberately hides it mid-build, and that hands the
+        // toolbar back while the build is still running.
+        if self.pending_build_rx.is_some() {
+            self.output
+                .push_status(self.lang.tr().status_build_already_running.to_owned());
+            return;
+        }
         self.pending_build_full = full;
         if !self.allow_data_binding_project_action(BindingActionGate::BuildProject) {
             return;
@@ -13862,6 +13877,7 @@ impl eframe::App for CoboltApp {
             debuggable,
             has_active,
             has_unsaved,
+            self.pending_build_rx.is_some(),
         ) {
             ToolbarAction::Run => self.do_run(),
             ToolbarAction::Stop => self.do_stop(),

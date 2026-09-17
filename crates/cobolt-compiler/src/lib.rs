@@ -1071,6 +1071,45 @@ fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<(), CompilerError> {
     std::fs::write(path, bytes).ctx(|| format!("write '{}'", path.display()))
 }
 
+/// Throw a staging directory away whole, so nothing of it survives into the
+/// build that follows.
+///
+/// The obvious `remove_dir_all` walks the tree deleting as it goes, which makes
+/// it two bad things at once when anything else is writing in there — another
+/// build of the same binary name, which stages into the very same folder. The
+/// walk fails partway with `Directory not empty` (the writer keeps putting
+/// files back), and it fails having ALREADY deleted most of the tree: cargo's
+/// `.fingerprint` entries then vouch for artefacts that are no longer on disk,
+/// and the build that follows collapses into pages of "no such file or
+/// directory" naming crates the developer never heard of (operator report,
+/// 2026-09-15).
+///
+/// Renaming the directory aside is one atomic step instead: it either takes the
+/// whole tree out of the way — a genuinely clean slate, whatever else is
+/// writing — or it fails having removed nothing at all. The moved copy is then
+/// deleted at leisure.
+fn discard_dir(dir: &Path) -> std::io::Result<()> {
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "cobolt-build".to_owned());
+    // The pid keeps two PowerRustCOBOLs from colliding on the aside name; a
+    // leftover from an earlier run of *this* pid is ours to clear, and the
+    // rename below needs the name free.
+    let aside = dir.with_file_name(format!("{name}.discarded-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&aside);
+    match std::fs::rename(dir, &aside) {
+        Ok(()) => {
+            let _ = std::fs::remove_dir_all(&aside);
+            Ok(())
+        }
+        // Windows refuses to rename a directory somebody holds a handle inside,
+        // so the in-place walk stays as the fallback rather than failing the
+        // build on the platform where the move is the less reliable of the two.
+        Err(_) => std::fs::remove_dir_all(dir),
+    }
+}
+
 // ── Toolchain (spec 041 R14, R18) ────────────────────────────────────────────
 
 /// Turn a failure to start a toolchain program into a diagnostic that names it.
@@ -1545,9 +1584,12 @@ fn build_core(
     if opts.full && build_dir.exists() {
         report(0.50, "Full build — clearing previous artefacts…");
         log("🧹 Full build: discarding the incremental build directory");
-        if let Err(e) = std::fs::remove_dir_all(&build_dir) {
+        if let Err(e) = discard_dir(&build_dir) {
             log(&format!(
-                "⚠️  Could not clear {}: {e} — continuing incrementally",
+                "⚠️  Could not clear {}: {e} — continuing incrementally. If \
+                 another build of this project is running, stop it and build \
+                 again: both stage into this folder, and what one writes the \
+                 other deletes.",
                 build_dir.display()
             ));
         }
@@ -6586,6 +6628,104 @@ error: could not compile `powerdemo3` (bin \"powerdemo3\") due to 1 previous err
             "error: the linker `cc` returned a duplicate symbol"
         ));
         assert!(!is_missing_linker_message(""));
+    }
+}
+
+/// Discarding the staging directory for a full build.
+#[cfg(test)]
+mod discard_dir_tests {
+    use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("prc-discard-{tag}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A tree somebody else is writing into still goes away whole.
+    ///
+    /// This is the failure the rename exists for. Two builds of one project
+    /// stage into the same folder, so a full build's clear can run against a
+    /// live cargo — and a delete that WALKS the tree then does the worst
+    /// possible thing: it gives up partway (`Directory not empty`, because the
+    /// writer keeps putting files back) having already removed most of what was
+    /// there. Cargo's surviving fingerprints vouch for artefacts that are gone,
+    /// and the build that follows dies with "no such file or directory" against
+    /// crates nobody touched (operator report, 2026-09-15).
+    #[test]
+    fn a_tree_being_written_into_still_goes_away() {
+        let root = temp_dir("live");
+        let staging = root.join("cobolt-build-demo");
+        let deps = staging.join("target").join("debug").join("deps");
+        fs::create_dir_all(&deps).unwrap();
+        for i in 0..200 {
+            fs::write(deps.join(format!("seed-{i}.rlib")), b"x").unwrap();
+        }
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let writer_stop = Arc::clone(&stop);
+        let writer_dir = deps.clone();
+        let writer = std::thread::spawn(move || {
+            let mut n = 0u32;
+            while !writer_stop.load(Ordering::Relaxed) {
+                // The directory vanishes under this thread mid-run — that is
+                // the whole point, so a refused write is the expected outcome
+                // rather than a failure.
+                let _ = fs::write(writer_dir.join(format!("live-{n}.rlib")), b"x");
+                n = n.wrapping_add(1);
+            }
+        });
+
+        let outcome = discard_dir(&staging);
+        stop.store(true, Ordering::Relaxed);
+        writer.join().unwrap();
+
+        assert!(outcome.is_ok(), "discarding failed: {outcome:?}");
+        assert!(
+            !staging.exists(),
+            "the staging path survived a discard run against a live writer"
+        );
+
+        // And what the build does next — recreate it — starts from nothing:
+        // no fingerprint of a deleted artefact is left to be believed.
+        fs::create_dir_all(staging.join("src")).unwrap();
+        assert_eq!(fs::read_dir(&staging).unwrap().count(), 1);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The ordinary case leaves nothing beside it.
+    ///
+    /// The moved-aside copy is real, and each one is the best part of a
+    /// gigabyte; a full build that quietly parked one in the temp folder every
+    /// time would fill a disk within a week, and this project's builds already
+    /// fail that way often enough.
+    #[test]
+    fn a_quiet_tree_leaves_no_copy_behind() {
+        let root = temp_dir("quiet");
+        let staging = root.join("cobolt-build-demo");
+        fs::create_dir_all(staging.join("target").join("debug").join(".fingerprint")).unwrap();
+        fs::write(staging.join("Cargo.toml"), b"[package]").unwrap();
+
+        discard_dir(&staging).unwrap();
+
+        assert!(!staging.exists());
+        assert_eq!(
+            fs::read_dir(&root).unwrap().count(),
+            0,
+            "a discarded copy was left in {}",
+            root.display()
+        );
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
 

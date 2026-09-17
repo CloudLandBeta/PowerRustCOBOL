@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.34] — 2026-09-15
+
+### A second Build no longer wrecks the one already running
+
+Building a project twice over produced pages of compiler errors naming crates
+the developer never wrote — `could not compile regex-automata`, `no such file
+or directory: …async_trait…rcgu.o`, `failed to write .fingerprint/…` — with
+nothing in any of them pointing at the cause. Two things had to be wrong for
+that, and both were.
+
+**The IDE let a second build start.** Every build of a project stages into one
+folder, `$TMPDIR/cobolt-build-<binary>`, and a full build's first act is to
+throw that folder away — so a build started while another was compiling deleted
+the artefacts the live cargo was writing. The File menu had always greyed its
+Build item out while a build ran; the toolbar button beside it had not, and the
+Building modal is no guard either, because its Close button deliberately hides
+it mid-build and hands the toolbar back. A build now refuses to start while one
+is in flight, says so in the Output panel, and the toolbar button greys out with
+the reason on hover. The one guard covers every way in: the toolbar, the File
+menu, Run Form, and the EXEC RUST auto-build inside Run.
+
+**Clearing the folder could half-empty it.** `remove_dir_all` walks the tree
+deleting as it goes, which against a live writer fails partway — `Directory not
+empty`, because the writer keeps putting files back — having already removed
+most of what was there. The build then ran against a tree where cargo's
+fingerprints vouched for artefacts that were gone, which is where the
+nonsensical errors came from. The clear now renames the directory aside first,
+one atomic step that either takes the whole tree out of the way or removes
+nothing at all, and deletes the moved copy afterwards. A test discards a tree
+while a thread writes into it and asserts the path is gone and the slate clean;
+another asserts the moved copy is not left behind, because each one is the best
+part of a gigabyte.
+
+**And the Build button's tooltip can now appear at all.** It explained why the
+button was greyed out through `on_hover_text`, which egui shows only on an
+ENABLED widget — so "add a COBOL program or a form first" had never once been
+seen. Both of its disabled-state hints are on `on_disabled_hover_text` now, the
+way Save three buttons to its left has always had it.
+
 ## [PowerRustCOBOL 1.70.33] — 2026-09-15
 
 ### Two defects in the new journal code, and most of the read cost back

@@ -31,6 +31,11 @@ pub fn show(
     // `has_unsaved`: true when a form designer, an editor tab, or the Settings
     // form has pending edits — gates Save only.
     has_unsaved: bool,
+    // `building`: a build is already running. Every build of a project stages
+    // into one folder and a full build empties it first, so a second build
+    // wrecks the first — the File menu has always greyed its Build item out
+    // while one runs, and this is the same rule on the button beside it.
+    building: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::None;
     let busy = runner.is_running();
@@ -84,13 +89,20 @@ pub fn show(
             crate::theme::flash_on_click(ui, &search_resp);
 
             // ── Build binary ──────────────────────────────────────────────────
-            let build_resp = ui.add_enabled(compilable, Button::new(tr.tb_build));
+            let build_resp = ui.add_enabled(compilable && !building, Button::new(tr.tb_build));
             if build_resp.clicked() {
                 action = ToolbarAction::Build;
             }
             crate::theme::flash_on_click(ui, &build_resp);
+            // `on_disabled_hover_text`, not `on_hover_text`: the button is
+            // disabled in both branches, and egui shows the plain tooltip only
+            // on an ENABLED widget — so the "add a program first" hint has
+            // never once appeared. Save, three buttons to the left, has had it
+            // right all along.
             if !compilable {
-                build_resp.on_hover_text(tr.tb_need_program);
+                build_resp.on_disabled_hover_text(tr.tb_need_program);
+            } else if building {
+                build_resp.on_disabled_hover_text(tr.tb_build_busy);
             }
 
             ui.separator();
