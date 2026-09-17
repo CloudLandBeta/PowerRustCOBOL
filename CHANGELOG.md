@@ -1,5 +1,36 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.42] — 2026-09-17
+
+### Breakpoints stop the form again — in the generated program and in a handler
+
+**A breakpoint set in the generated program was marked and then ignored.**
+Pressing **Debug** regenerates the form's `.cbl` and starts the debuggee on it —
+but an editor tab that was already open kept showing the text it was opened
+with, because the tab was only brought to the front, never re-read. So the
+developer was marking lines in the *previous* version of the program while the
+child ran the new one. A breakpoint only ever fires when its line is the line of
+an executable statement, so a mark that came to rest on a blank or a comment was
+discarded without a word. The tab is now refreshed from disk whenever the file
+is regenerated, as every other regeneration path already did.
+
+**And a breakpoint set in the event editor can now be honoured at all.** The
+handler editor is a separate editor with its own marks, and a handler's line 4
+is not line 4 of the generated program — so there was no way to even express
+that breakpoint to the debuggee, which knows nothing but the generated file. The
+gutter accepted the mark and the form ran straight past it.
+
+The generator already records where each handler's text lands in the generated
+program, so the answer was there to be read: a mark in the event editor is now
+translated to the generated line it became, and sent with the rest. It works
+while the form is running too — set a breakpoint in a handler mid-session and
+the next event stops on it.
+
+A mark that cannot be placed is dropped rather than approximated. If the handler
+text has changed since the program was generated, the line it names may no
+longer exist, and stopping at a nearby one would halt the program somewhere
+nobody asked for.
+
 ## [PowerRustCOBOL 1.70.41] — 2026-09-17
 
 ### A DataGrid column can be a percentage, and the columns can fill the grid

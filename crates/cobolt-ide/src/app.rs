@@ -2301,14 +2301,28 @@ impl CoboltApp {
         self.debugger.set_watches(&saved_watches);
         self.debugger
             .set_source(cbl_path.display().to_string(), &source, &bp_set);
+        // "Only my code" ranges AND the handler-editor translation come from
+        // ONE generation: the map records where each site's text landed, and
+        // `user_body_ranges` is derived from the same spans, so the debugger's
+        // two views of the generated file cannot drift apart.
+        let (_, source_map) = cobolt_codegen::generate_with_map(form);
+        // A breakpoint set in the event editor is a line of the HANDLER's text;
+        // the debuggee only knows the generated program. Translate before
+        // sending, or the mark is accepted by the gutter and then ignored by
+        // the running form (operator, 2026-09-16).
+        let mut bp_lines = bp_lines;
+        for line in self.handler_breakpoint_gen_lines(form_path, &source_map) {
+            if !bp_lines.contains(&line) {
+                bp_lines.push(line);
+            }
+        }
+        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
         run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
         self.debug_sent_breakpoints = bp_set;
         // "Only my code": the generated `.cbl` is mostly scaffolding — the
         // `COBOL-EVENT-LOOP` and its plumbing — so hand the child the ranges
         // that hold the developer's own handler and procedure bodies.
-        // `generate_with_user_lines` reports them from the same recording path
-        // that produced the file, so the two cannot drift.
-        let (_, ranges) = cobolt_codegen::generate_with_user_lines(form);
+        let ranges = source_map.user_body_ranges();
         self.debug_user_lines = ranges
             .into_iter()
             .flat_map(|(from, to)| from..=to)
@@ -2973,7 +2987,26 @@ impl CoboltApp {
         if path.as_os_str().is_empty() {
             return;
         }
-        let bp_lines = self.editor.breakpoints_for(&path);
+        let mut bp_lines = self.editor.breakpoints_for(&path);
+        // The open handler editor's own marks, translated into generated lines.
+        // They belong here as much as at attach: a breakpoint set in a handler
+        // WHILE the form runs must reach the debuggee, which is the whole point
+        // of this per-frame sync.
+        if let Some(form_path) = self.debug_owner_form.clone() {
+            if let Some(form) = self
+                .designers
+                .iter()
+                .find(|(p, _)| *p == form_path)
+                .map(|(_, d)| d.form.clone())
+            {
+                let (_, source_map) = cobolt_codegen::generate_with_map(&form);
+                for line in self.handler_breakpoint_gen_lines(&form_path, &source_map) {
+                    if !bp_lines.contains(&line) {
+                        bp_lines.push(line);
+                    }
+                }
+            }
+        }
         let bp_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
         if bp_set == self.debug_sent_breakpoints {
             return;
@@ -2993,6 +3026,37 @@ impl CoboltApp {
         } else if let Ok(mut guard) = self.debug_runner.breakpoints.lock() {
             *guard = bp_set;
         }
+    }
+
+    /// The open handler editor's breakpoints, as lines of the GENERATED
+    /// program — the only coordinate space the debuggee understands.
+    ///
+    /// The event modal keeps its own editor and therefore its own breakpoint
+    /// map, so these marks are invisible to a lookup keyed by the generated
+    /// `.cbl` path. They used to go nowhere at all: the gutter accepted them
+    /// and the running form never stopped (operator, 2026-09-16).
+    ///
+    /// A mark the map cannot place is dropped rather than guessed at. That is
+    /// the honest answer for a handler whose text has changed since the file
+    /// was generated — the line it named may no longer exist, and inventing a
+    /// nearby one would stop the program somewhere the developer never asked
+    /// for.
+    fn handler_breakpoint_gen_lines(
+        &self,
+        form_path: &Path,
+        map: &cobolt_codegen::SourceMap,
+    ) -> Vec<u32> {
+        self.designers
+            .iter()
+            .find(|(path, _)| path == form_path)
+            .map(|(_, designer)| {
+                designer
+                    .open_handler_breakpoints()
+                    .into_iter()
+                    .filter_map(|(site, line)| map.gen_line_for(&site, line))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Push the "only my code" scope when the developer flips the toggle.
@@ -10575,6 +10639,20 @@ impl CoboltApp {
                         self.do_save_project();
                     }
                 }
+                // An already-open tab must be refreshed from disk, not merely
+                // focused: `open_file_ro` returns early for a tab it finds and
+                // keeps the content it was opened with. Every other
+                // regeneration path already reloads; this one did not, and it
+                // is the one Run and Debug go through.
+                //
+                // The cost was a debugger that ignored breakpoints. Debug
+                // regenerates the `.cbl` and then spawns the child on it, so
+                // the developer was marking lines in the PREVIOUS text while
+                // the child ran the new one. A breakpoint only ever fires when
+                // its line is the line of an executable statement, so a mark
+                // that came to rest on a blank or a comment was discarded in
+                // silence — no warning, no stop (operator, 2026-09-16).
+                self.editor.reload_file(&cbl_path);
                 // Queue the file to be opened in the editor next frame.
                 self.pending_open_in_editor = Some(cbl_path);
             }

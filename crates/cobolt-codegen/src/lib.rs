@@ -140,6 +140,29 @@ impl SourceMap {
             .map(|s| (&s.site, s.site_line_at_start + (gen_line - s.gen_start)))
     }
 
+    /// The generated line holding line `site_line` of `site`'s own text, or
+    /// `None` when that site contributed no such line.
+    ///
+    /// The inverse of [`Self::resolve`], and what lets a breakpoint set in the
+    /// handler editor be honoured: the developer marks a line of the text they
+    /// actually wrote, and the debuggee — which only ever knows the generated
+    /// program — is told the line that text became. Without it a handler
+    /// breakpoint could not be expressed to the debuggee at all, so the gutter
+    /// accepted a mark and the program ran straight past it.
+    ///
+    /// `site_line_at_start` is respected rather than assumed to be 1, for the
+    /// same reason [`Self::resolve`] respects it.
+    pub fn gen_line_for(&self, site: &CodeSite, site_line: u32) -> Option<u32> {
+        self.spans.iter().find_map(|s| {
+            if &s.site != site {
+                return None;
+            }
+            let first = s.site_line_at_start;
+            let last = first + s.gen_end.saturating_sub(s.gen_start);
+            (site_line >= first && site_line <= last).then(|| s.gen_start + (site_line - first))
+        })
+    }
+
     fn record(&mut self, site: CodeSite, gen_start: u32, gen_end: u32, site_line_at_start: u32) {
         self.spans.push(MappedSpan {
             site,
@@ -4143,6 +4166,57 @@ mod source_map_tests {
     /// site kinds resolves to exactly that site and that site line (±0),
     /// untidy input included — the WORKING-STORAGE marker sits behind two
     /// skipped leading blank lines.
+    /// The inverse: a line of the developer's OWN text resolves to the
+    /// generated line it became.
+    ///
+    /// This is what lets a breakpoint set in the handler editor be honoured.
+    /// The editor knows only the handler's own line numbers; the debuggee knows
+    /// only the generated program. Without the translation the mark could not
+    /// even be expressed to the debuggee, so the gutter accepted it and the
+    /// running form went straight past (operator, 2026-09-16).
+    ///
+    /// Asserted as a true round trip against `resolve`, so the two can never
+    /// disagree about where a site's text landed — including WORKING-STORAGE,
+    /// whose marker sits behind two skipped blank lines and so is the case that
+    /// catches anyone assuming `site_line_at_start` is always 1.
+    #[test]
+    fn a_site_line_maps_back_to_the_generated_line_it_became() {
+        let form = all_sites_fixture();
+        let (src, map) = generate_with_map(&form);
+        let lines: Vec<&str> = src.lines().collect();
+
+        println!("── inverse lookup: site line → generated line ───────────");
+        for (site, marker, site_line) in fixture_markers() {
+            let expected = lines
+                .iter()
+                .position(|l| l.contains(marker))
+                .map(|i| i as u32 + 1)
+                .unwrap_or_else(|| panic!("marker {marker} not in generated source"));
+
+            let got = map.gen_line_for(&site, site_line).unwrap_or_else(|| {
+                panic!(
+                    "{} line {site_line} ({marker}) has no generated line",
+                    site.display_path(&form.name)
+                )
+            });
+            assert_eq!(
+                got, expected,
+                "{} line {site_line} ({marker}) mapped to gen {got}, marker is at {expected}",
+                site.display_path(&form.name)
+            );
+            // …and it really is the inverse of `resolve`, not a coincidence.
+            assert_eq!(
+                map.resolve(got).map(|(s, l)| (s.clone(), l)),
+                Some((site.clone(), site_line)),
+                "round trip broke for {marker}"
+            );
+            println!(
+                "  {marker:<26} site line {site_line:>2} → gen {got:>3}   {}",
+                site.display_path(&form.name)
+            );
+        }
+    }
+
     #[test]
     fn source_map_finds_every_marker_at_its_site_line() {
         let form = all_sites_fixture();

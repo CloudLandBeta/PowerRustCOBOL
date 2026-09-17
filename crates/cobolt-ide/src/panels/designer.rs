@@ -5367,6 +5367,43 @@ impl DesignerPanel {
 
     /// Open the modal COBOL code editor for `event_name` on control `ctrl_id`.
     /// Pass an empty `ctrl_id` for form-level events (OnLoad, OnClose).
+    /// Breakpoints the developer set in the OPEN handler editor, each as the
+    /// code site plus the 1-based line **of that handler's own text**.
+    ///
+    /// The event modal hosts its own [`EditorPanel`], so its marks live in a
+    /// different breakpoint map from the main editor's — invisible to a lookup
+    /// keyed by the generated `.cbl` path, whatever that path is. That is why a
+    /// breakpoint set here was accepted by the gutter and then ignored by the
+    /// running form (operator, 2026-09-16). The caller turns each one into a
+    /// generated line with `SourceMap::gen_line_for`.
+    ///
+    /// Empty when no handler is open, which is the usual case.
+    ///
+    /// [`EditorPanel`]: super::editor::EditorPanel
+    pub fn open_handler_breakpoints(&self) -> Vec<(cobolt_forms::code_site::CodeSite, u32)> {
+        use cobolt_forms::code_site::CodeSite;
+        let Some(modal) = self.event_modal.as_ref() else {
+            return Vec::new();
+        };
+        // The same synthetic path `open_event_modal` gave the buffer.
+        let path = std::path::PathBuf::from(format!("{}.handler", modal.program_id));
+        let site = if modal.ctrl_id.trim().is_empty() {
+            CodeSite::FormEvent {
+                event: modal.event_name.clone(),
+            }
+        } else {
+            CodeSite::ControlEvent {
+                control_id: modal.ctrl_id.clone(),
+                event: modal.event_name.clone(),
+            }
+        };
+        self.event_editor
+            .breakpoints_for(&path)
+            .into_iter()
+            .map(|line| (site.clone(), line))
+            .collect()
+    }
+
     pub fn open_event_modal(&mut self, ctrl_id: &str, event_name: &str) {
         // Find the event binding — either in a control or in form_events — and
         // resolve its PROGRAM-ID and existing source.
