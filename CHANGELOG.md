@@ -1,5 +1,91 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.36] — 2026-09-16
+
+### A DataGrid you can scroll, navigate, and export from
+
+Seven defects in one control, found by driving it rather than reading it. The
+code for these landed over three commits that could not carry a version bump at
+the time — a second session held `version.rs` staged, and bumping would have
+reverted their file — so they are documented together here.
+
+**A wheel notch moved the grid one pixel.** The grid read
+`MouseWheel { delta, .. }` and discarded the event's `unit`. A trackpad reports
+`Point` — a delta already in points, which is why macOS felt right — while a
+wheel notch reports `Line` with a delta of about 1.0, and applying that as
+points moved the grid a single pixel against egui's 40-point line speed. Units
+are now normalised exactly as the Maps control in the same file already did it.
+This was never Windows-only: a plain wheel mouse on macOS takes the same branch.
+
+**The scrollbar could not be grabbed.** It was a 3 px sliver with a 2 px radius,
+painted with `rect_filled` and **no `interact` at all** — decoration, not a
+widget — and there was no horizontal bar. Both bars are now 10 px pills (the
+radius is half the thickness, which is what makes a pill), with a 28 px minimum
+thumb, real dragging on each axis, a hover highlight, and each stepping aside
+from the other in the corner.
+
+**The arrow keys moved the selection exactly once.** Navigation had been
+implemented for a long time, PageUp/PageDown/Home/End and scroll-to-reveal
+included, but egui moves keyboard focus with the arrows and does it at the START
+of the pass: the first `ArrowDown` moved the selection and in the same breath
+handed focus to a cell widget, after which the grid never saw another key.
+Consuming the key inside the widget is far too late. The grid now keeps its own
+keyboard-ownership flag, as the ComboBox already did for the same reason.
+
+**Transparency worked only in the designer.** The designer face goes through
+`paint::draw_control`, which applies `face_alpha` itself; the interactive arm
+painted its own background and passed only the inherited ancestor alpha. Fading
+that surface alone was not enough — the grid also repaints its `BackgroundColor`
+per cell, in the filler right of the last column, and as the background
+pattern, every one of them at full opacity. All four now fade together, and
+`Transparency` still fades the FACE only, never the rows, the text or the grid
+lines.
+
+**A DataGrid cast its drop shadow in the designer and nowhere else.** The same
+split, one layer down: because the grid arm paints its own face it never calls
+`paint::draw_control`, which is where every other control's shadow comes from —
+so `ShadowEnabled` showed on the designer canvas and produced nothing whatever
+in Preview, Run Form or a compiled binary. The shadow is now drawn behind the
+grid background, first of all the layers, and with `face_alpha` rather than full
+strength, so a grid faded by `Transparency` fades its shadow with it instead of
+keeping a full-strength halo.
+
+**The CSV button read "CS" over "V".** It was an `egui::Button` whose label took
+the form's font and wrapped inside the 48 px the header could spare. It is now a
+drawn badge — a 3 px-corner internal border with the letters sized from the
+badge, so three of them fit on one line whatever the form's font is set to.
+
+### `ExportCSV` writes a file, and the button uses it
+
+**The verb ignored its arguments.** `ExportCSV` built the CSV text and handed it
+back — so the generated `INVOKE <grid> 'ExportCSV' USING BY REFERENCE
+WS-<grid>-CSV-PATH RETURNING WS-<grid>-CSV-STATUS` paragraph put a path in, got a
+CSV document back where it expected a status, and no file was ever written.
+Given a path it now writes the file and returns `0` or `1`; with no path the old
+text-returning behaviour stands, so a caller reading it as text is unaffected.
+
+**And the button did nothing unless you had already written the handler it was
+meant to save you.** The badge's click was delivered — the engine raised
+`onExportCSV` and set `_ExportCSVRequested` — but nothing in the product read
+that property, and the runtime's own export was reachable only from COBOL. The
+request is now carried out in `drain_input`, which is reached from
+`COBOL-WAIT-EVENT` on every event *before* COBOL decides whether to dispatch a
+handler: the button works on a form that binds nothing, and being in the
+interpreter it reaches `rcrun run-form`, embedded child forms and the compiled
+binary alike, with no per-host wiring to forget. It reuses the runtime's
+existing export, so there is one definition of what a CSV of this grid means.
+
+The file goes to `CSVExportPath` when the developer set one, and to
+`<control-id>.csv` in the working directory otherwise. The outcome is left on
+the control as `_ExportCSVStatus` (0 ok, 1 failed) and `_ExportCSVPath`, so a
+bound `onExportCSV` handler can report it, and the request flag is cleared so
+the next press is a fresh request rather than a no-op.
+
+Four regression tests pin the wheel, the arrows, the shadow and the
+no-handler export; each fails if its fix is reverted. NIST CCVS85 unchanged on
+both axes: compile 420 / 420, execution 383 clean, 8418 PASS / 50 FAIL, every
+module on baseline.
+
 ## [PowerRustCOBOL 1.70.35] — 2026-09-16
 
 ### The CSV button gets a row of its own, and readers stop needing their own copy
