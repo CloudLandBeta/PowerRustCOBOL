@@ -4734,6 +4734,15 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "RowHeightOverrides" => ("`row:height` pairs, one per line", "Per-row height overrides."),
         "AllowSorting" => (BOOL_DOMAIN, "Click a header to sort."),
         "AllowColumnResize" => (BOOL_DOMAIN, "Drag header edges to resize."),
+        "AutoFitColumns" => (
+            BOOL_DOMAIN,
+            "Make the columns fill the grid's width exactly instead of scrolling or leaving a gap. \
+             The difference is absorbed by the columns measured in points, in proportion to their \
+             size, so a column declared as a percentage keeps the share it asked for. Off by \
+             default: the columns keep their declared widths. Each column chooses its own unit in \
+             **Edit DataGrid settings…** — points for the narrow, predictable ones, a percentage \
+             for those that should follow the form.",
+        ),
         "AllowColumnReorder" => (BOOL_DOMAIN, "Drag headers to reorder columns."),
         "AllowRowResize" => (BOOL_DOMAIN, "Drag row edges to resize."),
         "AdvancedGrid" => ("internal serialized settings; leave empty", "Advanced designer-managed grid settings."),

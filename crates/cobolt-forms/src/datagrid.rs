@@ -49,6 +49,107 @@ impl DataGridLayoutColumn {
     }
 }
 
+/// The narrowest a column is ever drawn. Matches the floor the resize drag
+/// already enforces, so a percentage cannot produce a column too thin to grab.
+pub const MIN_COLUMN_WIDTH: f32 = 32.0;
+
+/// Resolve each column's drawn width from what it declared.
+///
+/// A column states its width either in points or as a percentage of the grid's
+/// usable width, and the two mix freely: the narrow, predictable columns — a
+/// flag, a code, a date — hold their size while the ones carrying prose take a
+/// share of whatever width the form ends up at.
+///
+/// `adaptive` decides what happens to the difference between what the columns
+/// asked for and the width there actually is. Off (the default, and what every
+/// existing grid does) the columns keep their asked-for widths and the grid
+/// scrolls or leaves a gap. On, the columns are made to fill the grid exactly:
+/// the shortfall or surplus is absorbed by the **points** columns in proportion
+/// to their size, because a percentage column has already been told what share
+/// of the total it gets and moving it would contradict its own declaration. A
+/// grid whose columns are *all* percentages spreads the difference over all of
+/// them, since there is nothing else to absorb it.
+///
+/// No column is ever drawn below [`MIN_COLUMN_WIDTH`], which means a set of
+/// columns can still exceed `available` when there are more of them than the
+/// grid has room for — the caller scrolls, exactly as it does today.
+pub fn resolve_column_widths(
+    declared: &[(f32, crate::model::DataGridWidthUnit)],
+    available: f32,
+    adaptive: bool,
+) -> Vec<f32> {
+    use crate::model::DataGridWidthUnit as Unit;
+    if declared.is_empty() {
+        return Vec::new();
+    }
+    // Nothing sensible to take a percentage OF, so every column keeps its
+    // number and a percentage is treated as the points it nominally is. This is
+    // the zero-size first frame, not a state anything is drawn in.
+    if !available.is_finite() || available <= 0.0 {
+        return declared
+            .iter()
+            .map(|(w, _)| w.max(MIN_COLUMN_WIDTH))
+            .collect();
+    }
+
+    let mut widths: Vec<f32> = declared
+        .iter()
+        .map(|(w, unit)| match unit {
+            Unit::Points => *w,
+            Unit::Percent => available * (w.clamp(0.0, 100.0) / 100.0),
+        })
+        .map(|w| w.max(MIN_COLUMN_WIDTH))
+        .collect();
+
+    if !adaptive {
+        return widths;
+    }
+
+    let total: f32 = widths.iter().sum();
+    let difference = available - total;
+    if difference.abs() < 0.5 {
+        return widths;
+    }
+
+    // Who absorbs it: the points columns, or everyone when they are all
+    // percentages. Only columns with room to give are counted, so shrinking
+    // cannot push one under the floor and lose the difference silently.
+    let absorbing: Vec<usize> = {
+        let points: Vec<usize> = declared
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, unit))| matches!(unit, Unit::Points))
+            .map(|(i, _)| i)
+            .collect();
+        if points.is_empty() {
+            (0..declared.len()).collect()
+        } else {
+            points
+        }
+    };
+    let absorbing: Vec<usize> = if difference < 0.0 {
+        absorbing
+            .into_iter()
+            .filter(|i| widths[*i] > MIN_COLUMN_WIDTH)
+            .collect()
+    } else {
+        absorbing
+    };
+    if absorbing.is_empty() {
+        return widths;
+    }
+
+    let share_base: f32 = absorbing.iter().map(|i| widths[*i]).sum();
+    if share_base <= 0.0 {
+        return widths;
+    }
+    for i in absorbing {
+        let share = widths[i] / share_base;
+        widths[i] = (widths[i] + difference * share).max(MIN_COLUMN_WIDTH);
+    }
+    widths
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DataGridColumnMeasure {
     pub width: f32,
@@ -561,5 +662,86 @@ mod tests {
             ),
             Some("1\tLeonardo DiCaprio\t30000000".into())
         );
+    }
+
+    use crate::model::DataGridWidthUnit::{Percent, Points};
+
+    /// Points and percentages in one grid, which is the whole point: the narrow
+    /// predictable columns hold their size and the prose column takes a share.
+    #[test]
+    fn points_and_percentages_mix_in_one_grid() {
+        // 1000 wide: a 120pt code column, a 50% description, a 80pt date.
+        let w = resolve_column_widths(&[(120.0, Points), (50.0, Percent), (80.0, Points)], 1000.0, false);
+        assert_eq!(w, vec![120.0, 500.0, 80.0]);
+    }
+
+    /// A percentage follows the grid, a points column does not.
+    #[test]
+    fn a_percentage_column_follows_the_grid_width() {
+        let cols = [(100.0, Points), (25.0, Percent)];
+        assert_eq!(resolve_column_widths(&cols, 400.0, false), vec![100.0, 100.0]);
+        assert_eq!(resolve_column_widths(&cols, 800.0, false), vec![100.0, 200.0]);
+    }
+
+    /// Adaptive off is today's behaviour: the columns keep what they asked for
+    /// and the grid scrolls or leaves a gap. This is the compatibility pin.
+    #[test]
+    fn without_auto_fit_the_columns_keep_their_declared_widths() {
+        let cols = [(120.0, Points), (120.0, Points)];
+        assert_eq!(resolve_column_widths(&cols, 1000.0, false), vec![120.0, 120.0]);
+        assert_eq!(resolve_column_widths(&cols, 100.0, false), vec![120.0, 120.0]);
+    }
+
+    /// Adaptive on: the columns fill the grid exactly.
+    #[test]
+    fn auto_fit_makes_the_columns_fill_the_grid() {
+        for available in [300.0_f32, 640.0, 1000.0, 1913.0] {
+            let w = resolve_column_widths(
+                &[(120.0, Points), (30.0, Percent), (200.0, Points)],
+                available,
+                true,
+            );
+            let total: f32 = w.iter().sum();
+            assert!(
+                (total - available).abs() < 0.5,
+                "available={available}: columns summed to {total} ({w:?})"
+            );
+        }
+    }
+
+    /// …and the percentage column still gets exactly the share it asked for.
+    /// The surplus is the points columns' business, not its.
+    #[test]
+    fn auto_fit_leaves_a_percentage_column_its_declared_share() {
+        let w = resolve_column_widths(&[(100.0, Points), (40.0, Percent)], 1000.0, true);
+        assert_eq!(w[1], 400.0, "the 40% column moved: {w:?}");
+        assert_eq!(w[0], 600.0, "the points column did not absorb the rest: {w:?}");
+    }
+
+    /// A grid that is all percentages has nothing else to absorb the
+    /// difference, so it spreads across them.
+    #[test]
+    fn auto_fit_with_only_percentages_spreads_across_them() {
+        // 30 + 30 = 60% of 1000 = 600, leaving 400 to distribute.
+        let w = resolve_column_widths(&[(30.0, Percent), (30.0, Percent)], 1000.0, true);
+        let total: f32 = w.iter().sum();
+        assert!((total - 1000.0).abs() < 0.5, "got {w:?}");
+        assert!((w[0] - w[1]).abs() < 0.5, "equal declarations must stay equal: {w:?}");
+    }
+
+    /// No column is ever drawn too thin to grab, whatever the percentage says.
+    #[test]
+    fn no_column_is_drawn_below_the_minimum() {
+        let w = resolve_column_widths(&[(1.0, Percent), (1.0, Percent), (98.0, Percent)], 200.0, false);
+        for (i, got) in w.iter().enumerate() {
+            assert!(*got >= MIN_COLUMN_WIDTH, "column {i} came out at {got}");
+        }
+    }
+
+    /// The zero-width first frame must not turn every percentage into nothing.
+    #[test]
+    fn a_grid_with_no_width_yet_keeps_its_numbers() {
+        let w = resolve_column_widths(&[(120.0, Points), (50.0, Percent)], 0.0, true);
+        assert_eq!(w, vec![120.0, 50.0]);
     }
 }

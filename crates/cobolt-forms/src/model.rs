@@ -194,6 +194,25 @@ impl DataGridGridLineStyle {
     }
 }
 
+/// What a column's `width` number means.
+///
+/// A grid used to be able to say only "this column is 120 points wide", which
+/// is the wrong unit for most of a table: the columns that should hold their
+/// size are the narrow, predictable ones — a flag, a code, a date — while the
+/// ones carrying prose want a share of whatever width the form ends up at.
+/// Mixing the two is the point; neither alone lays a table out well.
+///
+/// `Points` is the default and is what every existing `.cfrm` gets on load, so
+/// a saved grid is laid out exactly as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum DataGridWidthUnit {
+    /// `width` is a fixed measurement in points.
+    #[default]
+    Points,
+    /// `width` is a percentage (0–100) of the grid's usable width.
+    Percent,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DataGridTextAlignment {
     Left,
@@ -308,6 +327,10 @@ pub struct DataGridColumn {
     #[serde(default)]
     pub control_kind: String,
     pub width: f32,
+    /// What `width` is measured in. `#[serde(default)]` — every grid saved
+    /// before this reads back as `Points` and lays out unchanged.
+    #[serde(default)]
+    pub width_unit: DataGridWidthUnit,
     pub visible: bool,
     pub frozen: bool,
     pub filter_enabled: bool,
@@ -353,6 +376,7 @@ impl Default for DataGridColumn {
             edit_control: Self::default_edit_control(),
             control_kind: String::new(),
             width: 120.0,
+            width_unit: DataGridWidthUnit::Points,
             visible: true,
             frozen: false,
             filter_enabled: false,
@@ -4815,6 +4839,12 @@ impl Control {
                 // button, and not at all when neither is wanted. Same name and
                 // same job as the charts' `Title`.
                 props.insert("Title".into(), PropValue::String("".into()));
+                // Make the columns fill the grid exactly rather than scrolling
+                // or leaving a gap: the difference is absorbed by the columns
+                // measured in points, so the ones declared as a percentage keep
+                // the share they asked for. Off by default — a grid designed
+                // before this existed lays out exactly as it did.
+                props.insert("AutoFitColumns".into(), PropValue::Bool(false));
                 props.insert("ExportCSV".into(), PropValue::Bool(true));
                 props.insert("ShowCSVExportButton".into(), PropValue::Bool(true));
                 props.insert("CSVDelimiter".into(), PropValue::String(",".into()));

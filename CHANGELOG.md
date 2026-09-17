@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.41] — 2026-09-17
+
+### A DataGrid column can be a percentage, and the columns can fill the grid
+
+**A column could only be a fixed number of points**, which is the wrong unit for
+most of a table. The columns that should hold their size are the narrow,
+predictable ones — a flag, a code, a date — while the ones carrying prose want a
+share of whatever width the form ends up at. Neither unit lays a table out well
+on its own; mixing them is the point.
+
+Each column now chooses, in **Edit DataGrid settings…**, whether its width is
+measured in **points** or as a **percentage** of the grid's usable width. The
+editor's number box follows the choice — `1–100 %` or `32–1600 pt` — and
+converting between them carries the value across rather than leaving `400`
+sitting in a field that now reads "400 %".
+
+**And the columns can be made to fill the grid exactly.** The new
+`AutoFitColumns` property takes up the difference between what the columns asked
+for and the width there actually is, so the grid neither scrolls nor leaves a
+band of empty backdrop past the last column. The difference is absorbed by the
+columns measured in **points**, in proportion to their size — a column that
+declared itself 40 % of the grid has already said what share it wants, and
+moving it would contradict its own declaration. A grid whose columns are all
+percentages has nothing else to absorb the difference, so it spreads evenly
+across them.
+
+No column is ever drawn narrower than 32 points, so a small percentage on a
+narrow grid still leaves an edge you can grab.
+
+⚠️ **Nothing an existing form does changes.** A column with no unit recorded
+reads back as points, and `AutoFitColumns` is off by default — so a grid
+designed before this release lays out exactly as it did, to the pixel.
+
 ## [PowerRustCOBOL 1.70.40] — 2026-09-16
 
 ### The CSV button asks where to put the file, and behaves like a button

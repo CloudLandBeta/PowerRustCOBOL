@@ -6412,9 +6412,31 @@ fn render_interactive(
             let col_w = screen.width() / ncols as f32;
             let frozen_columns = advanced_grid.frozen_columns.min(ncols);
             let frozen_rows = advanced_grid.frozen_rows.min(displayed_row_indices.len());
+            // Every column's DECLARED width, with the unit it was declared in.
+            // A column the advanced metadata does not describe falls back to an
+            // equal share, which is what an unconfigured grid has always done.
+            let declared_widths: Vec<(f32, crate::model::DataGridWidthUnit)> = (0..ncols)
+                .map(|i| match advanced_grid.columns.get(i) {
+                    Some(column) => (column.width.max(1.0), column.width_unit),
+                    None => (col_w, crate::model::DataGridWidthUnit::Points),
+                })
+                .collect();
+            // `AutoFitColumns` makes the columns fill the grid exactly instead
+            // of scrolling or leaving a gap. Off by default: a grid laid out
+            // before this property existed must not move.
+            let auto_fit = prop_bool(ctrl, "AutoFitColumns", false);
+            let resolved = crate::datagrid::resolve_column_widths(
+                &declared_widths,
+                screen.width(),
+                auto_fit,
+            );
             let column_measures: Vec<DataGridColumnMeasure> = (0..ncols)
                 .map(|i| DataGridColumnMeasure {
-                    width: advanced_grid.column_width(i).unwrap_or(col_w).max(32.0),
+                    width: resolved
+                        .get(i)
+                        .copied()
+                        .unwrap_or(col_w)
+                        .max(crate::datagrid::MIN_COLUMN_WIDTH),
                     frozen: advanced_grid
                         .columns
                         .get(i)

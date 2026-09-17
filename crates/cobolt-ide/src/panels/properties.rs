@@ -4783,6 +4783,8 @@ impl PropertiesPanel {
                                 ui.end_row();
                                 bool_row(ui, id, "AllowColumnResize", "Allow column resize", ctrl, action);
                                 ui.end_row();
+                                bool_row(ui, id, "AutoFitColumns", "Auto-fit columns", ctrl, action);
+                                ui.end_row();
                                 bool_row(ui, id, "AllowColumnReorder", "Allow column reorder", ctrl, action);
                                 ui.end_row();
                                 bool_row(ui, id, "AllowRowResize", "Allow row resize", ctrl, action);
@@ -4900,8 +4902,72 @@ impl PropertiesPanel {
                                                 .changed();
                                             ui.end_row();
                                         }
+                                        // Points or a percentage of the grid, per column: the
+                                        // narrow predictable ones hold their size while the
+                                        // prose ones follow the form. The range follows the
+                                        // unit, because 32..=1600 is meaningless as a percent.
                                         ui.label("Column width");
-                                        changed_advanced |= ui.add(DragValue::new(&mut column.width).speed(1.0).range(32.0..=1600.0)).changed();
+                                        ui.horizontal(|ui| {
+                                            let percent = matches!(
+                                                column.width_unit,
+                                                cobolt_forms::model::DataGridWidthUnit::Percent
+                                            );
+                                            changed_advanced |= if percent {
+                                                ui.add(
+                                                    DragValue::new(&mut column.width)
+                                                        .speed(0.5)
+                                                        .range(1.0..=100.0)
+                                                        .suffix(" %"),
+                                                )
+                                                .changed()
+                                            } else {
+                                                ui.add(
+                                                    DragValue::new(&mut column.width)
+                                                        .speed(1.0)
+                                                        .range(32.0..=1600.0)
+                                                        .suffix(" pt"),
+                                                )
+                                                .changed()
+                                            };
+                                            let mut unit = column.width_unit;
+                                            egui::ComboBox::from_id_salt((
+                                                "dg-col-width-unit",
+                                                index,
+                                            ))
+                                            .width(84.0)
+                                            .selected_text(if percent { "percent" } else { "points" })
+                                            .show_ui(ui, |ui| {
+                                                changed_advanced |= ui
+                                                    .selectable_value(
+                                                        &mut unit,
+                                                        cobolt_forms::model::DataGridWidthUnit::Points,
+                                                        "points",
+                                                    )
+                                                    .changed();
+                                                changed_advanced |= ui
+                                                    .selectable_value(
+                                                        &mut unit,
+                                                        cobolt_forms::model::DataGridWidthUnit::Percent,
+                                                        "percent",
+                                                    )
+                                                    .changed();
+                                            });
+                                            if unit != column.width_unit {
+                                                // The number means something else now, so carry
+                                                // it across rather than leaving 400 sitting in a
+                                                // field that reads "400 %".
+                                                column.width = match unit {
+                                                    cobolt_forms::model::DataGridWidthUnit::Percent => {
+                                                        (column.width / 8.0).clamp(1.0, 100.0)
+                                                    }
+                                                    cobolt_forms::model::DataGridWidthUnit::Points => {
+                                                        (column.width * 8.0).clamp(32.0, 1600.0)
+                                                    }
+                                                };
+                                                column.width_unit = unit;
+                                                changed_advanced = true;
+                                            }
+                                        });
                                         ui.end_row();
                                         ui.label("Header font size");
                                         let mut header_size = column.header_font_size as i64;
