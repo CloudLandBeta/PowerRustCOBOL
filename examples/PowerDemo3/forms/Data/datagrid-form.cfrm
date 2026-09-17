@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="DATAGRID-FORM" title="Datagrid DEMO" width="1288" height="776" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/rust.png" bg-image-mode="Stretch" form-format="Embedded">
+<Form name="DATAGRID-FORM" title="Datagrid DEMO" width="1288" height="776" background="#2E3138FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" background-image="assets/images/bgrust.png" bg-image-mode="Stretch" form-format="Embedded">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -54,192 +54,6 @@
     <Event name="onClose" paragraph="DATAGRID-FORM--ONCLOSE">
     </Event>
   </form-events>
-  <DataBindings schema-version="1"><![CDATA[[
-  {
-    "schema_version": 1,
-    "id": "bind-actors-datagrid-1",
-    "display_name": "ACTORS -> DataGrid-1",
-    "source": {
-      "IndexedFile": {
-        "definition_path": "indexed/actors.cidx",
-        "record_name": "CUSTOMER-RECORD",
-        "fields": [
-          {
-            "name": "ACTOR-ID",
-            "display_name": "Actor Id",
-            "data_type": "Integer",
-            "cobol_mask": "9(9)",
-            "edit_control": "Textbox",
-            "nullable": true,
-            "key": true,
-            "multiple": false
-          },
-          {
-            "name": "ACTOR-THUMB",
-            "display_name": "Actor Thumb",
-            "data_type": "Text",
-            "cobol_mask": "X(60)",
-            "edit_control": "Textbox",
-            "nullable": true,
-            "key": false,
-            "multiple": false
-          },
-          {
-            "name": "ACTOR-CAPTION",
-            "display_name": "Actor Caption",
-            "data_type": "Text",
-            "cobol_mask": "X(30)",
-            "edit_control": "Textbox",
-            "nullable": true,
-            "key": false,
-            "multiple": false
-          },
-          {
-            "name": "ACTOR-SALARY",
-            "display_name": "Actor Salary",
-            "data_type": "Decimal",
-            "cobol_mask": "9(9)V99",
-            "edit_control": "Textbox",
-            "nullable": true,
-            "key": false,
-            "multiple": false
-          },
-          {
-            "name": "ACTOR-AWARDS",
-            "display_name": "Actor Awards",
-            "data_type": "Text",
-            "cobol_mask": "X",
-            "edit_control": "Textbox",
-            "nullable": true,
-            "key": false,
-            "multiple": false
-          }
-        ],
-        "key_field": "ACTOR-ID",
-        "writable": true
-      }
-    },
-    "target": {
-      "DataGrid": {
-        "control_id": "DataGrid-1"
-      }
-    },
-    "mappings": [
-      {
-        "source_field": "ACTOR-ID",
-        "target": {
-          "GridColumn": {
-            "control_id": "DataGrid-1",
-            "column_id": "ACTOR-ID"
-          }
-        },
-        "compatibility": "Exact"
-      },
-      {
-        "source_field": "ACTOR-THUMB",
-        "target": {
-          "GridColumn": {
-            "control_id": "DataGrid-1",
-            "column_id": "ACTOR-THUMB"
-          }
-        },
-        "compatibility": "Exact"
-      },
-      {
-        "source_field": "ACTOR-CAPTION",
-        "target": {
-          "GridColumn": {
-            "control_id": "DataGrid-1",
-            "column_id": "ACTOR-CAPTION"
-          }
-        },
-        "compatibility": "Exact"
-      },
-      {
-        "source_field": "ACTOR-SALARY",
-        "target": {
-          "GridColumn": {
-            "control_id": "DataGrid-1",
-            "column_id": "ACTOR-SALARY"
-          }
-        },
-        "compatibility": "Exact"
-      },
-      {
-        "source_field": "ACTOR-AWARDS",
-        "target": {
-          "GridColumn": {
-            "control_id": "DataGrid-1",
-            "column_id": "ACTOR-AWARDS"
-          }
-        },
-        "compatibility": "Exact"
-      }
-    ],
-    "mode": "ReadOnly",
-    "validation": {
-      "findings": [],
-      "source_signature": "",
-      "validated_with_schema_version": 1
-    },
-    "saved_source_metadata": {
-      "fields": [
-        {
-          "name": "ACTOR-ID",
-          "display_name": "Actor Id",
-          "data_type": "Integer",
-          "cobol_mask": "9(9)",
-          "edit_control": "Textbox",
-          "nullable": true,
-          "key": true,
-          "multiple": false
-        },
-        {
-          "name": "ACTOR-THUMB",
-          "display_name": "Actor Thumb",
-          "data_type": "Text",
-          "cobol_mask": "X(60)",
-          "edit_control": "Textbox",
-          "nullable": true,
-          "key": false,
-          "multiple": false
-        },
-        {
-          "name": "ACTOR-CAPTION",
-          "display_name": "Actor Caption",
-          "data_type": "Text",
-          "cobol_mask": "X(30)",
-          "edit_control": "Textbox",
-          "nullable": true,
-          "key": false,
-          "multiple": false
-        },
-        {
-          "name": "ACTOR-SALARY",
-          "display_name": "Actor Salary",
-          "data_type": "Decimal",
-          "cobol_mask": "9(9)V99",
-          "edit_control": "Textbox",
-          "nullable": true,
-          "key": false,
-          "multiple": false
-        },
-        {
-          "name": "ACTOR-AWARDS",
-          "display_name": "Actor Awards",
-          "data_type": "Text",
-          "cobol_mask": "X",
-          "edit_control": "Textbox",
-          "nullable": true,
-          "key": false,
-          "multiple": false
-        }
-      ],
-      "schema_text": "",
-      "sample_payload": ""
-    }
-  }
-]]]></DataBindings>
   <Control id="Panel-1" type="Panel" x="40" y="304" w="1184" h="424" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
@@ -275,7 +89,7 @@
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
   </Control>
   <Control id="DataGrid-1" type="DataGrid" x="64" y="328" w="1136" h="376" tab-order="0" z-order="60" visible="true" enabled="true" parent="Panel-1">
-    <Property name="BackgroundColor">#F0F0F0</Property>
+    <Property name="BackgroundColor">#EFEFEFB3</Property>
     <Property name="ForegroundColor">#FFFFFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">17</Property>
@@ -297,9 +111,9 @@
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
     <Property name="ReadOnly">false</Property>
-    <Property name="AlternatingRowColor">#12212FFF</Property>
-    <Property name="HeaderBackgroundColor">#183242FF</Property>
-    <Property name="HeaderForegroundColor">#F8F9F4FF</Property>
+    <Property name="AlternatingRowColor">#13212FB3</Property>
+    <Property name="HeaderBackgroundColor">#183242B3</Property>
+    <Property name="HeaderForegroundColor">#F8F9F4B3</Property>
     <Property name="GridLineColor">#485B58FF</Property>
     <Property name="SelectionMode">Row</Property>
     <Property name="RowHeight">43</Property>
@@ -340,6 +154,8 @@ Actor Awards:string</Property>
     <Property name="BorderStyle">Single</Property>
     <Property name="BorderColor">#888888</Property>
     <Property name="BorderWidth">1</Property>
+    <Property name="FilterBackgroundColor">#1A1F3AB3</Property>
+    <Property name="FilterForegroundColor">#EBEEF9B3</Property>
     <Property name="RowHeightOverrides"></Property>
     <Property name="ColumnFilters"></Property>
   </Control>
@@ -419,7 +235,7 @@ export, data binding to indexed files, COBOL data items, and SQL tables, as well
 programmatic interface for creating content directly in code.</Property>
     <Property name="CornerRadius">22</Property>
   </Control>
-  <Control id="Button-1" type="Button" x="184" y="216" w="160" h="40" tab-order="0" z-order="66" visible="true" enabled="true">
+  <Control id="Button-1" type="Button" x="40" y="232" w="160" h="40" tab-order="0" z-order="66" visible="true" enabled="true">
     <Property name="Caption">Load data</Property>
     <Property name="BackgroundColor">#F0F0F0</Property>
     <Property name="BackgroundGradientEnabled">false</Property>

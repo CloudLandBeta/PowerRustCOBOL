@@ -49,6 +49,43 @@ pub type DebugWiring = (
 // (which reads it) can both see one spelling of the name.
 pub use cobolt_runtime::{debug_session_requested, DEBUG_SESSION_ENV};
 
+/// Is the debuggee stopped right now — at a breakpoint, a step, or a pause?
+///
+/// Process-wide rather than threaded through [`DebugWiring`], because a debug
+/// session IS process-wide: one `@DBG` link on this process's own stdio, one
+/// interpreter, one answer. The form host reads it every frame to decide
+/// whether the window takes input; no debug session means it is never set, so
+/// a normally running form is untouched.
+static PAUSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// While the program is stopped, the form must not accept clicks.
+///
+/// A stopped program cannot run a handler — the interpreter is blocked inside
+/// `debug_check` waiting for the next command — but the GUI thread keeps
+/// painting and keeps collecting input, so every click the developer made while
+/// reading the code was queued up and delivered in a burst the moment they
+/// pressed Continue (operator, 2026-09-17). The window stays visible and legible
+/// and simply takes no input, the same way it behaves under a modal child.
+pub fn is_paused() -> bool {
+    PAUSED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn set_paused(paused: bool) {
+    PAUSED.store(paused, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Does this command set the program going again?
+///
+/// Everything does except the two that deliberately do not: `Query` answers a
+/// question while the program stays exactly where it is — that is the whole
+/// point of it, so the developer can open a group, then a table, then an
+/// 88-level without it moving underneath them — and `Pause` is a request to
+/// STOP, so treating it as a resume would unblock the window at the moment it
+/// should be locking.
+fn resumes(cmd: &DebugCmd) -> bool {
+    !matches!(cmd, DebugCmd::Query { .. } | DebugCmd::Pause)
+}
+
 /// Open the `@DBG` link on this process's stdin/stdout.
 ///
 /// Spawns two threads: a reader that parses `@DBG` command lines off stdin and
@@ -75,6 +112,15 @@ pub fn stdio_debug_wiring() -> DebugWiring {
                 };
                 match serde_json::from_str::<RemoteDebugCmd>(json) {
                     Ok(RemoteDebugCmd::Cmd(c)) => {
+                        // Every command resumes the program except a Query,
+                        // which deliberately answers without moving it, and a
+                        // Pause, which asks it to STOP. Clearing the flag as the
+                        // command goes in — rather than waiting to be told the
+                        // program moved — means the window is live again on the
+                        // same frame the developer pressed Continue.
+                        if resumes(&c) {
+                            set_paused(false);
+                        }
                         if cmd_tx.send(c).is_err() {
                             break;
                         }
@@ -109,6 +155,11 @@ pub fn stdio_debug_wiring() -> DebugWiring {
     std::thread::spawn(move || {
         use std::io::Write;
         for ev in ev_rx.iter() {
+            // The program has come to rest: from here until the next resuming
+            // command the form takes no input.
+            if matches!(ev, DebugEvent::Stopped { .. }) {
+                set_paused(true);
+            }
             match serde_json::to_string(&ev) {
                 Ok(json) => {
                     println!("@DBG {json}");
@@ -120,4 +171,56 @@ pub fn stdio_debug_wiring() -> DebugWiring {
     });
 
     (cmd_rx, ev_tx, breakpoints, user_scope)
+}
+
+
+#[cfg(test)]
+mod paused_tests {
+    use super::*;
+    use cobolt_runtime::DebugQuery;
+
+    /// Which commands let the form take input again.
+    ///
+    /// A stopped program cannot run a handler, so while it is stopped the
+    /// window must refuse clicks rather than bank them for delivery on Continue
+    /// (operator, 2026-09-17). Getting this list wrong in either direction is
+    /// invisible until someone clicks: too eager and the window unlocks while
+    /// the program is still stopped; too shy and it stays dead after Continue.
+    #[test]
+    fn every_command_resumes_except_query_and_pause() {
+        for cmd in [
+            DebugCmd::Continue,
+            DebugCmd::StepOver,
+            DebugCmd::StepIn,
+            DebugCmd::StepOut,
+            DebugCmd::RunToCursor { line: 42 },
+            DebugCmd::Terminate,
+        ] {
+            assert!(resumes(&cmd), "{cmd:?} should resume the program");
+        }
+
+        // A Query answers without moving the program, so the window stays shut.
+        assert!(
+            !resumes(&DebugCmd::Query {
+                id: 1,
+                query: DebugQuery::Variables { reference: 7 },
+            }),
+            "a Query must not unblock the form: the program has not moved"
+        );
+        // And a Pause is the opposite of a resume.
+        assert!(
+            !resumes(&DebugCmd::Pause),
+            "Pause asks the program to STOP; it cannot also unblock the form"
+        );
+    }
+
+    /// Not in a debug session at all: the flag is never set, so an ordinary
+    /// running form is untouched by any of this.
+    #[test]
+    fn a_form_with_no_debug_session_is_never_blocked() {
+        assert!(
+            !is_paused(),
+            "the paused flag must start clear — a form run normally takes input"
+        );
+    }
 }

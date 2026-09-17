@@ -1416,6 +1416,7 @@ name = "cobolt-ide"
 version = "0.2.0"
 dependencies = [
  "bincode",
+ "chrono",
  "cobolt-agents",
  "cobolt-ast",
  "cobolt-codegen",

@@ -1217,6 +1217,25 @@ pub fn selection_property(control_type: &ControlType) -> &'static str {
     }
 }
 
+/// Which group a RadioButton belongs to.
+///
+/// Its `GroupName` when it has one — radios sharing a name are mutually
+/// exclusive, whatever they sit in. With no name they group by what CONTAINS
+/// them, so three radios dropped straight onto a form behave as one group
+/// without the developer having to name it, and three inside a GroupBox make
+/// their own.
+pub fn radio_group_key(ctrl: &Control) -> String {
+    let name = ctrl
+        .get_prop("GroupName")
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_default();
+    if name.is_empty() {
+        format!("\u{0}parent:{}", ctrl.parent.clone().unwrap_or_default())
+    } else {
+        format!("name:{name}")
+    }
+}
+
 /// A RadioButton's state property, since 2026-08-31.
 pub const SELECTED_PROP: &str = "Selected";
 /// A CheckBox's / Switch's state property — and a RadioButton's *legacy* one.

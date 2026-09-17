@@ -26,6 +26,11 @@ cobolt-semantic = { path = "../cobolt-semantic" }
 cobolt-runtime  = { path = "../cobolt-runtime" }
 cobolt-stdlib   = { path = "../cobolt-stdlib" }
 
+# Local wall-clock time for the debugger's investigation-dock timestamps
+# (HH:MM:SS:mmm). Adds nothing to the build: chrono is already compiled for the
+# workspace through cobolt-runtime's own dependency, with the same feature set.
+chrono      = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
 # Form designer
 cobolt-forms    = { path = "../cobolt-forms", features = ["render"] }
 cobolt-codegen  = { path = "../cobolt-codegen" }

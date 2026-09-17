@@ -1,5 +1,279 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.59] — 2026-09-17
+
+### The investigation dock timestamps read as wall-clock time
+
+The number that led each dock line (Console / Events / File I/O / Problems) was
+the elapsed time since the session began, in `seconds.milliseconds` — awkward to
+read once a session ran into the minutes (`602.959`). It is now the **local
+wall-clock time** each line was recorded, as `HH:MM:SS:mmm` (ISO-8601 time of
+day, e.g. `14:23:07:332`), so an event can be lined up against real time and
+other logs. It stays derived from the same millisecond offset, so the Timeline's
+ordering is unchanged.
+
+### The dock output is set in Courier New
+
+The dock's columns (timestamp, channel tag, and text) now render in Courier New
+where the OS provides it, so the aligned output — `CALL     BUTTON-1--ONCLICK`,
+`OPEN     actors.idx   status 00` — lines up on its own. Where Courier New is
+absent, the built-in monospace font is used, never a proportional one.
+
+### A radio-button group allows only one selection at a time
+
+Radio buttons that share a group now behave as a group: selecting one clears the
+others, and the arrow keys move the selection within it. Radios group by their
+`GroupName`, or — when none is set — by the container they sit in, so three
+radios dropped straight onto a form act as one group and three inside a GroupBox
+make their own, with no naming required.
+
+### A debugger watch resolves a data item the handler itself declares
+
+Every RAD event handler is a nested program with its own `WORKING-STORAGE`, so
+the items a handler works with are usually its own. Stopping inside a handler and
+watching one of those items reported *"… is not a data item in this frame"*; a
+watch now resolves against the nested program's own data when the stop is inside
+it.
+
+## [PowerRustCOBOL 1.70.58] — 2026-09-17
+
+### A DataGrid's indexed-file read now shows on the File I/O channel
+
+A DataGrid bound to an indexed `.cidx` (via `DataSource` or the Data Binding
+editor) loads its rows through the same engine a `READ NEXT` uses, but by a
+direct path that never runs the COBOL file verbs — so its read never reached the
+hook that feeds the debugger's **File I/O** channel, and the tab stayed empty
+even while the grid loaded every record. The binding now reports itself there in
+the same shape as a file verb — `BIND  actors.cidx  status 00  1098 records` on
+a successful load, `status 35` for a missing data file, `status 30` for a read
+or definition failure (with the reason). Only while a debug session is
+listening; a plain Run Form is unaffected.
+
+## [PowerRustCOBOL 1.70.57] — 2026-09-17
+
+### Breakpoints you set are the only breakpoints you see
+
+The "stop at the first event" pseudo-breakpoints — one on the first line of every
+form handler, so the debugger opens on your code the moment the form fires — are
+no longer mixed into your own breakpoint set. They stopped the form the first
+time it stopped and then quietly stuck around: showing as red gutter dots and as
+rows in the Breakpoints list, on lines you never marked, that you could not
+clear (an EVALUATE that was "always enabled"). They are now separate and
+one-shot — sent to the running form so it still stops on the first handler, never
+shown as your marks, and dropped the instant that first stop happens. Set and
+unset now do exactly what they say.
+
+### The Breakpoints list gains a heading, a code preview, and a remove button
+
+Each row now reads `● line 313 - EVALUATE SNACKBAR-1::LastButtonId` — the line
+number followed by the code it sits on — and carries a `✕` to clear it. The tab
+has a `Breakpoints` heading in place of the bare bullet column.
+
+### An inline method invocation can hold a breakpoint
+
+A line like `grid-1::rows::getItem(1)` opens with an object name, not a COBOL
+verb, but it is a real statement the debugger stops on — so the gutter now offers
+a breakpoint on it, alongside the statement-verb lines.
+
+## [PowerRustCOBOL 1.70.56] — 2026-09-17
+
+### A breakpoint may be set only on a COBOL statement
+
+The debugger's gutter now offers a breakpoint only on a line that begins an
+executable statement — a COBOL verb (MOVE, IF, PERFORM, CALL, DISPLAY, …). It no
+longer shows a ring or accepts a click on the PROCEDURE DIVISION header, a
+section, a paragraph name, a data item, a scope terminator (`END-IF`), a clause
+continuation (`WHEN`, `INTO`) or a comment — none of which the program ever stops
+on. An existing breakpoint anywhere can still be cleared.
+
+## [PowerRustCOBOL 1.70.55] — 2026-09-17
+
+### Debugger: breakpoints, first-event stop, and literal colouring
+
+- **Comment and blank lines take no breakpoint.** The gutter shows the hollow
+  breakpoint ring only on executable lines now, and a click on a comment or a
+  blank line is ignored — a breakpoint there could never fire.
+- **The debugger stops on the first event the form fires.** A pseudo-breakpoint
+  is placed on the first statement of EVERY event handler, so whichever event
+  happens first, execution stops on that handler's first line instead of running
+  it straight through. (A form with an `onLoad` still stops there at load.)
+- **A quoted literal is one colour end to end.** The debugger's syntax
+  highlighter now treats both `"…"` and `'…'` as strings, so a COBOL reserved
+  word inside a literal is coloured as text, not as code.
+
+## [PowerRustCOBOL 1.70.54] — 2026-09-17
+
+### A DataGrid bound to an indexed file by its DataSource now loads every record
+
+A DataGrid whose **DataSource** property names an indexed `.cidx` (the quick-bind
+set in the property grid, distinct from the Data Binding editor) was never
+populated at run time — the generated program emitted nothing for it, so the grid
+showed only the designer's small sample preview (e.g. 2 of 1000+ records). At form
+initialisation the runtime now recognises such a grid, sets up the IndexedFile
+binding, and loads **every** record in primary-key order — reading each field the
+`.cidx` declares, one per column. The fix is in the shared runtime, so it applies
+to `rcrun run-form`, embedded child forms and compiled binaries alike, and needs
+no regeneration of already-built forms.
+
+## [PowerRustCOBOL 1.70.53] — 2026-09-17
+
+### Frosted skin: panels and background swapped
+
+In the Frosted (light) skin the panels and the window ground are inverted: the
+listing, inspector and console are now near-white "paper" sitting on a light-grey
+background, instead of grey panels on a lighter ground. The Smoked skin keeps its
+darker panels (the 20 % darkening is now baked into its palette rather than
+applied at paint time).
+
+## [PowerRustCOBOL 1.70.52] — 2026-09-17
+
+### A folded block is a small arrow, not a labelled pill
+
+A folded run in the debugger listing now shows as a compact down-arrow in the
+gutter; its description ("4 blocos vazios ocultos", or a generated region's name
+and line count) is the arrow's tooltip. Clicking it still expands the run.
+
+## [PowerRustCOBOL 1.70.51] — 2026-09-17
+
+### Debugging a form from the editor Debug button no longer finishes instantly
+
+Pressing **Debug** on a form's generated `.cbl` used to run it headless — with no
+form window, its `COBOL-EVENT-LOOP` had nothing to wait for, so it ran straight
+through `onLoad` to `STOP RUN` and the session "finished" the moment it started.
+The editor Debug button now recognises a form's generated program and launches it
+the same way the designer's Debug button does: as a real form with its window and
+event loop. If the form's designer is open it debugs that; otherwise it loads the
+form from its file. A hand-written COBOL program still debugs headless as before.
+
+The debug session now stays alive and stops in your handler when its event fires
+(immediately for an `onLoad` handler, which runs at load).
+
+## [PowerRustCOBOL 1.70.50] — 2026-09-17
+
+### The debugger's panels are 20% darker
+
+Every panel background — the listing, the inspector and the console — is painted
+20 % darker in both the Smoked and Frosted skins, in one place so the two stay in
+step.
+
+## [PowerRustCOBOL 1.70.49] — 2026-09-17
+
+### DataGrid CSV export follows the default CSV quoting rules
+
+Every field in a DataGrid's exported CSV is now enclosed in double quotes, and a
+double quote inside a value is escaped by doubling it (`"` → `""`) — the standard
+RFC 4180 rules. Quoting every field, not only the ones that would otherwise break
+a row, means a value carrying the delimiter, a newline or a quote can never split
+a row, whatever delimiter is in force. The change is in the shared runtime, so it
+applies identically to `rcrun run-form`, embedded child forms and compiled
+binaries.
+
+## [PowerRustCOBOL 1.70.48] — 2026-09-17
+
+### Debugger toolbar, labels, current line, and the build modal's home
+
+- **"Run to Cursor" is now "Go to the executing line"** — the crosshair button
+  centres the listing on the line currently running, and **Pause** sits
+  immediately to its left.
+- **UI labels are two points larger** across the debugger (tabs, breadcrumb,
+  status, console, inspector) — the code listing keeps its own A−/A+ size.
+- **The current-line band is clearly visible** — a distinct blue behind the
+  stopped line, with the amber margin bar and line number as before.
+- **The build modal opens over the form's designer window**, not the IDE, when a
+  build is started by that designer's Run Form (it already fell back to the main
+  window when the form has no open designer).
+
+## [PowerRustCOBOL 1.70.47] — 2026-09-17
+
+### The listing's bottom gutter, and a visible breakpoint target on every line
+
+- **The bottom gutter is reserved explicitly.** egui's `Frame` reserves its top
+  inner margin before the content but adds the bottom one only afterwards, so
+  the listing ran all the way to the console and the gap never showed until a
+  resize. The pane now ends one gutter above the dock by construction, from the
+  first frame.
+- **Every line shows where a breakpoint can be set** — a hollow, high-contrast
+  ring in the gutter (brighter under the pointer), and the solid red dot still
+  marks the lines that carry one.
+
+## [PowerRustCOBOL 1.70.46] — 2026-09-17
+
+### The debugger's bottom gutter is there from the first frame
+
+The debugger is its own window, and its first frame laid out against a
+not-yet-final window size; because egui only repaints when something changes,
+that first layout — with the gutter between the listing and the console missing
+— stayed on screen until the developer resized a pane. The window now repaints a
+few frames on open, so the layout settles against the real size immediately.
+
+## [PowerRustCOBOL 1.70.45] — 2026-09-17
+
+### Debugger — heavy-gray ground, distinct panels, and code controls
+
+- **A heavy neutral-gray ground**, not violet, with the panels a clear step
+  above it so the gaps between them read as gutters again.
+- **Panels are distinct.** The listing, inspector and console share one solid
+  mid-gray surface (no longer a milky blue), each with a **10 px** rounded
+  corner and its own padding — the dock now inset like the others.
+- **The console's expression input is always editable** (it was only enabled
+  while stopped).
+- **Toolbar buttons are 25 % larger and high-contrast** — a firm filled lozenge
+  with a bright icon rather than a faint wash; the console's clear (trash)
+  button is larger too.
+- **The listing no longer scrolls sideways from a wheel or trackpad swipe** —
+  the horizontal scrollbar knob still drags, and vertical scrolling is
+  unchanged.
+- **Code font size controls** (A−/A+ in the toolbar, 8–22 pt): the listing's
+  line height and gutter follow the chosen size.
+
+## [PowerRustCOBOL 1.70.44] — 2026-09-17
+
+### The debugger opens on your handler, and the window is one surface
+
+- **The debugger stops at your first handler on start.** When a form debug
+  session begins it now stops on the first statement of the first event
+  handler's `PROCEDURE DIVISION` — the `onLoad` handler, which runs the moment
+  the form loads — instead of on the generated `COBOL-MAIN` boilerplate. You no
+  longer have to find the running form and raise an event to reach your own
+  code. The stop line is the first real statement after `PROCEDURE DIVISION`
+  (even if that is just a `CONTINUE`), never the non-executable header.
+- **Watches start empty each session.** A debug session begins with a clean
+  watch list rather than restoring the project's saved one.
+- **Every panel is one surface.** The listing, the inspector and the console
+  now share the code panel's navy→graphite gradient, with no panel borders — the
+  window reads as a single glass surface, panels separated by space and the
+  dashed dividers alone.
+- **A darker ground with a subtle grain**, the toolbar buttons spaced 4 px and
+  the toolbar and state row lined up with the code panel, and the console's
+  expression input at double height with a little breathing room beneath it.
+
+## [PowerRustCOBOL 1.70.43] — 2026-09-17
+
+### The debugger window is rebuilt to the approved visual spec
+
+The debugger's Smoked skin (default) now paints the exact token palette of the
+approved mockup — desaturated navy, subtle violet, controlled cyan, amber only
+for the paused state — and the composition to match. Frosted stays as the light
+alternative.
+
+- **The ground is the spec's 2×3 gradient**, a header band over a console band,
+  with one soft petrol glow low and centre. The big decorative blooms are gone.
+- **The editor is a horizontal navy→graphite gradient** (`#41557D → #3F475C`),
+  rounded, hairline-framed — no longer a flat dark slab.
+- **The inspector is a violet panel** (`#34345C`) with violet-grey value cards
+  (`#49466A`); the window carries a discrete blue border (`#46658F`).
+- **Three primary tabs.** Variáveis · Observações · Pilha; Pontos de interrupção
+  moves to a small overflow control (the feature is kept, not dropped).
+- **Tabs, toolbar buttons, the run-state pill, the file tab and folded runs**
+  are all the mockup's lozenges, drawn in the skin.
+- **Syntax** is the spec's palette: keywords cyan `#55B7FF`, literals amber
+  `#E2A640`, comments green `#6FCE8F`, over the gradient editor.
+
+The window keeps its native OS decoration (real title bar and controls); the
+internal title bar is not duplicated. All debugger logic, state, shortcuts,
+callbacks, breakpoints, search and output are preserved — only the presentation
+changed.
+
 ## [PowerRustCOBOL 1.70.42] — 2026-09-17
 
 ### Breakpoints stop the form again — in the generated program and in a handler

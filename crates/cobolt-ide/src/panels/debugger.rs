@@ -88,42 +88,407 @@ pub enum DebugAction {
     ToggleBreakpoint(u32),
 }
 
-/// Height of one source line in the code pane.
-///
-/// The monospace glyphs are about 13.5 px tall, so this number IS the leading:
-/// at 18 there were ~4.5 px between lines and the listing read double-spaced
-/// (operator screenshot, 2026-09-02). At 15 the gap is ~1.4 px — 30 % of what
-/// it was — which is what the operator asked for and what a code listing should
-/// look like: dense enough to see a paragraph at once, still separated enough
-/// to track along a line.
-///
-/// One constant, because the row, its gutter, the current-line highlight and a
-/// blank line must agree or the pointer sits between two lines.
-const CODE_LINE_H: f32 = 15.0;
-
-/// A blank source line, at the same 30 % proportion.
+/// A blank source line — a thin spacer between statements.
 const CODE_BLANK_H: f32 = 1.0;
 
-/// The stopped line's band. Lime, and opaque: the ink drawn on it is chosen
-/// for contrast against exactly this colour, so a translucent band over an
-/// unknown background would make that promise unkeepable.
-const CURRENT_BG: Color32 = Color32::from_rgb(140, 230, 60);
+/// The stopped line's band.
+///
+/// A TINT, not a slab. It used to be fluorescent lime with near-black text —
+/// legible, and the single thing that made the window read as a terminal from
+/// 1975 (operator, 2026-09-17: "too mainframeish"). Every modern debugger marks
+/// the stopped line the same way: warm the row, put an accent bar down its
+/// edge, and leave the code alone. The syntax colours stay, so the current line
+/// still reads as COBOL instead of turning into a monochrome ribbon.
+const CURRENT_BG: Color32 = Color32::from_rgb(31, 58, 92);
 
-/// Everything written on that band — source, line number, arrow, inline values.
-/// Near-black on lime is about 13:1, so the syntax palette is dropped for the
-/// one line that has to be readable at a glance.
-const CURRENT_INK: Color32 = Color32::from_rgb(12, 28, 6);
+/// The accent bar down the left edge of the stopped row, and the arrow and line
+/// number that go with it. Amber, because it is the one hue the syntax palette
+/// does not already use — so "you are here" cannot be mistaken for a keyword.
+const CURRENT_ACCENT: Color32 = Color32::from_rgb(255, 191, 71);
+
+/// The stopped line's own annotations — the arrow, its line number and the
+/// inline values. Warm and light: they belong to the accent, not to the code.
+const CURRENT_INK: Color32 = Color32::from_rgb(255, 214, 150);
+
+/// Width of the accent bar.
+const CURRENT_STRIPE_W: f32 = 3.0;
 
 /// Where one frame ends and the next begins. The panes used to meet with
 /// nothing drawn between them.
 const FRAME_LINE: Color32 = Color32::from_gray(110);
 
+/// Which material the debugger window is made of.
+///
+/// The debugger carries its OWN look, separate from the IDE's theme: it is a
+/// tool you stare at while reading one program, and the ground that suits a
+/// project tree is not the ground that suits a listing. Both were mocked up and
+/// the operator liked both (2026-09-17), so both ship and a pair of toolbar
+/// buttons chooses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DebugSkin {
+    /// Smoked: white at a few percent over a deep slate ground. The low-light
+    /// feel, without the flat black slab — surfaces separate by translucency
+    /// and a hairline rather than by a step in darkness.
+    #[default]
+    Smoked,
+    /// Frosted: white at 60–70% over a pale ground. The listing sits on paper
+    /// instead of in a hole, for anyone the dark ground tires.
+    Frosted,
+}
+
+/// Every colour the debugger paints with, for one skin.
+///
+/// One struct rather than scattered constants because a second skin is exactly
+/// what scattered constants cannot have: each one would need its own `if`, and
+/// the one someone forgot would be the one that stayed dark on a light ground.
+#[derive(Debug, Clone, Copy)]
+struct Skin {
+    /// The listing's own surface — the LEFT stop of its horizontal gradient.
+    /// Every panel (listing, inspector, dock) now shares this gradient
+    /// (operator: "all panels must use the same background as the code panel").
+    code_bg: Color32,
+    /// The RIGHT stop of the editor's horizontal gradient (spec §9: azul
+    /// acinzentado → grafite across the listing).
+    code_bg2: Color32,
+    /// Dividers and frame rules.
+    line: Color32,
+    /// Ordinary code.
+    ink: Color32,
+    /// Line numbers and other quiet chrome.
+    gutter: Color32,
+    /// Selection band and the ink redrawn over it.
+    sel_bg: Color32,
+    sel_ink: Color32,
+    /// The stopped row: tint, accent bar, and the annotations that ride with it.
+    cur_bg: Color32,
+    cur_accent: Color32,
+    cur_ink: Color32,
+    /// Syntax.
+    kw: Color32,
+    lit: Color32,
+    cmt: Color32,
+    num: Color32,
+
+    // ── Chrome ────────────────────────────────────────────────────────────
+    // Everything that is not the listing. Without these the skin reached the
+    // code pane and stopped: Frosted lit the listing and left the toolbar, the
+    // inspector and the window itself dark around it (operator, 2026-09-17).
+    /// The window behind every pane.
+    window_bg: Color32,
+    /// The inspector and other panels that sit on the window.
+    panel_bg: Color32,
+    /// The inspector's expression/value cards (spec §9: violeta-acinzentado).
+    row_bg: Color32,
+    /// Primary and secondary UI text.
+    chrome: Color32,
+    chrome_dim: Color32,
+    /// A pressed toolbar button, a selected tab, and the ink on them.
+    accent: Color32,
+    accent_ink: Color32,
+    /// A text field's own ground, and a widget under the pointer.
+    field_bg: Color32,
+    hover_bg: Color32,
+    /// The window's ground gradient, spec §3: a 2×3 mesh — the TOP row of three
+    /// stops (left/centre/right of the header band)…
+    grad_top: [Color32; 3],
+    /// …and the BOTTOM row (left/centre/right of the console band). The mesh
+    /// runs top→bottom between them. The big decorative blooms are gone (spec
+    /// §1: "Remova as ondas grandes e chamativas").
+    grad_bot: [Color32; 3],
+    /// The one remaining glow: a soft petrol wash low and centre (spec §1/§3).
+    petrol: Color32,
+}
+
+/// The window's ground: the flat fill plus three soft blooms.
+///
+/// egui has no blur, so a bloom is a stack of concentric circles whose alpha
+/// falls off — cheap, and at this size indistinguishable from a blurred blob.
+/// They are what the panes are translucent OVER; without them "glass" is a
+/// solid colour with a lighter edge.
+fn paint_backdrop(painter: &egui::Painter, rect: egui::Rect, sk: Skin) {
+    // Spec §3: the shell ground is a 2×3 gradient mesh — a top row (the header
+    // band, three stops across) and a bottom row (the console band), the mesh
+    // running top→bottom between them. No rasterised texture, and none of the
+    // big decorative blooms the old ground had (spec §1: "Remova as ondas
+    // grandes e chamativas").
+    let cx = rect.center().x;
+    let mut mesh = egui::epaint::Mesh::default();
+    let v = |p: egui::Pos2, c: Color32| egui::epaint::Vertex {
+        pos: p,
+        uv: egui::epaint::WHITE_UV,
+        color: c,
+    };
+    let i = mesh.vertices.len() as u32;
+    mesh.vertices.push(v(rect.left_top(), sk.grad_top[0]));
+    mesh.vertices.push(v(egui::pos2(cx, rect.top()), sk.grad_top[1]));
+    mesh.vertices.push(v(rect.right_top(), sk.grad_top[2]));
+    mesh.vertices.push(v(rect.left_bottom(), sk.grad_bot[0]));
+    mesh.vertices.push(v(egui::pos2(cx, rect.bottom()), sk.grad_bot[1]));
+    mesh.vertices.push(v(rect.right_bottom(), sk.grad_bot[2]));
+    mesh.indices.extend_from_slice(&[
+        i, i + 1, i + 4, i, i + 4, i + 3, // left cell
+        i + 1, i + 2, i + 5, i + 1, i + 5, i + 4, // right cell
+    ]);
+    painter.add(egui::Shape::mesh(mesh));
+
+    // A subtle texture over the ground (operator): faint diagonal grain, a
+    // near-invisible lightening every 18 px, so the flat gradient reads as a
+    // surface rather than a fill.
+    let grain = Color32::from_rgba_unmultiplied(255, 255, 255, 4);
+    let step = 18.0;
+    let mut off = -rect.height();
+    while off < rect.width() {
+        let x = rect.left() + off;
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x + rect.height(), rect.bottom())],
+            egui::Stroke::new(1.0, grain),
+        );
+        off += step;
+    }
+
+    // Spec §1/§3: the one remaining glow — a soft petrol wash, low and centre.
+    // egui has no blur, so it is a short stack of concentric circles whose alpha
+    // falls off towards the edge.
+    let centre = egui::pos2(cx, rect.bottom() - rect.height() * 0.05);
+    let full = rect.width().max(rect.height()) * 0.34;
+    const RINGS: usize = 14;
+    for ring in (0..RINGS).rev() {
+        let t = (ring + 1) as f32 / RINGS as f32;
+        let a = (1.0 - t).powf(1.7) * 20.0;
+        painter.circle_filled(
+            centre,
+            full * t,
+            Color32::from_rgba_unmultiplied(sk.petrol.r(), sk.petrol.g(), sk.petrol.b(), a as u8),
+        );
+    }
+}
+
+/// The shared pane surface (operator: every panel uses the code panel's
+/// background): a soft horizontal gradient, left→right, rounded at a small
+/// radius, and NO border. egui cannot clip a mesh to a rounded rect, so the
+/// rounded base is filled first and the gradient inset by the radius —
+/// invisible at 5 px, and the corners stay cut.
+fn paint_grad_pane_h(painter: &egui::Painter, rect: egui::Rect, left: Color32, right: Color32) {
+    // The panel darkening is now baked per skin (Smoked's surfaces carry it;
+    // Frosted inverts panel and ground instead), so this paints the colours as
+    // given.
+    // 10 px on every panel (operator).
+    let r = egui::CornerRadius::same(10);
+    painter.rect_filled(rect, r, left);
+    let inner = rect.shrink(10.0);
+    let mut mesh = egui::epaint::Mesh::default();
+    let v = |p: egui::Pos2, c: Color32| egui::epaint::Vertex {
+        pos: p,
+        uv: egui::epaint::WHITE_UV,
+        color: c,
+    };
+    let i = mesh.vertices.len() as u32;
+    mesh.vertices.push(v(inner.left_top(), left));
+    mesh.vertices.push(v(inner.right_top(), right));
+    mesh.vertices.push(v(inner.right_bottom(), right));
+    mesh.vertices.push(v(inner.left_bottom(), left));
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// Dress the whole egui subtree in this skin.
+///
+/// Set once at the debugger's root rather than threaded through every widget:
+/// buttons, tabs, text fields and labels all read `Ui::visuals`, so one
+/// assignment is what makes the skin reach them. Painting the panes by hand and
+/// leaving the widgets on the IDE's visuals is exactly how Frosted ended up as
+/// a light listing inside a dark window.
+fn apply_skin_visuals(sk: Skin, ui: &mut egui::Ui) {
+    let v = ui.visuals_mut();
+    v.panel_fill = sk.window_bg;
+    v.window_fill = sk.window_bg;
+    v.extreme_bg_color = sk.field_bg;
+    // Striped rows (the inspector's variable table) take the violet-grey card
+    // colour the spec asks for (§9).
+    v.faint_bg_color = sk.row_bg;
+    v.override_text_color = Some(sk.chrome);
+    v.hyperlink_color = sk.accent;
+    v.selection.bg_fill = sk.accent;
+    v.selection.stroke = egui::Stroke::new(1.0, sk.accent_ink);
+    v.widgets.noninteractive.bg_fill = sk.panel_bg;
+    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, sk.chrome_dim);
+    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, sk.line);
+    v.widgets.inactive.bg_fill = sk.panel_bg;
+    v.widgets.inactive.weak_bg_fill = sk.panel_bg;
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, sk.chrome);
+    v.widgets.hovered.bg_fill = sk.hover_bg;
+    v.widgets.hovered.weak_bg_fill = sk.hover_bg;
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, sk.chrome);
+    v.widgets.active.bg_fill = sk.accent;
+    v.widgets.active.weak_bg_fill = sk.accent;
+    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, sk.accent_ink);
+    v.widgets.open.bg_fill = sk.panel_bg;
+    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, sk.chrome);
+}
+
+impl DebugSkin {
+    fn palette(self) -> Skin {
+        match self {
+            // The spec's token table (§3), verbatim. Desaturated navy, subtle
+            // violet, controlled cyan, amber only for the paused/current-line
+            // state. The editor is a horizontal navy→graphite gradient, the
+            // inspector a violet panel with violet-grey cards.
+            // Heavy neutral gray (operator: gray, not violet), with the panels
+            // a clear step ABOVE a deep gray window so the gaps between them
+            // read as gutters, not seams. The code surface is a solid mid-gray,
+            // not the pale blue that came out milky.
+            DebugSkin::Smoked => Skin {
+                // Panels 20% darker than the ground (operator), baked in.
+                code_bg: Color32::from_rgb(45, 48, 54),
+                code_bg2: Color32::from_rgb(42, 45, 50),
+                line: Color32::from_rgb(92, 99, 110),
+                ink: Color32::from_rgb(216, 222, 230),
+                gutter: Color32::from_rgb(122, 130, 142),
+                sel_bg: Color32::from_rgb(58, 108, 176),
+                sel_ink: Color32::WHITE,
+                cur_bg: Color32::from_rgb(62, 84, 132),
+                cur_accent: Color32::from_rgb(226, 166, 64), // amber #E2A640
+                cur_ink: Color32::from_rgb(233, 180, 92),
+                kw: Color32::from_rgb(85, 183, 255),        // blue #55B7FF
+                lit: Color32::from_rgb(226, 166, 64),       // amber #E2A640
+                cmt: Color32::from_rgb(111, 206, 143),      // green #6FCE8F
+                num: Color32::from_rgb(150, 172, 214),      // blue-grey, not violet
+                window_bg: Color32::from_rgb(35, 37, 42),   // heavy gray ground
+                panel_bg: Color32::from_rgb(56, 60, 67),    // widgets blend into the panel
+                row_bg: Color32::from_rgb(66, 71, 80),      // inspector cards
+                chrome: Color32::from_rgb(216, 222, 230),
+                chrome_dim: Color32::from_rgb(150, 162, 178),
+                accent: Color32::from_rgb(85, 183, 255),    // blue #55B7FF
+                accent_ink: Color32::WHITE,
+                field_bg: Color32::from_rgb(46, 50, 57),
+                hover_bg: Color32::from_rgb(68, 74, 84),
+                grad_top: [
+                    Color32::from_rgb(44, 47, 53),
+                    Color32::from_rgb(37, 39, 44),
+                    Color32::from_rgb(40, 42, 48),
+                ],
+                grad_bot: [
+                    Color32::from_rgb(40, 42, 47),
+                    Color32::from_rgb(43, 46, 52),
+                    Color32::from_rgb(35, 37, 42),
+                ],
+                petrol: Color32::from_rgb(56, 72, 78), // muted gray-teal, subtle
+            },
+            // Ink chosen against `code_bg`, not against white: the pane is
+            // translucent over a pale ground, so the darkest thing behind the
+            // text is the pane itself. Every pair here clears 4.5:1 on it.
+            // Frosted is the light alternative the spec does not target; kept
+            // working, with the new fields given light equivalents.
+            DebugSkin::Frosted => Skin {
+                // Frosted inverts panel and ground (operator): near-white paper
+                // panels sit on a light-grey background.
+                code_bg: Color32::from_rgb(250, 251, 253),
+                code_bg2: Color32::from_rgb(245, 248, 252),
+                line: Color32::from_rgb(150, 163, 184),
+                ink: Color32::from_rgb(31, 41, 55),
+                gutter: Color32::from_rgb(105, 116, 136),
+                sel_bg: Color32::from_rgb(29, 78, 216),
+                sel_ink: Color32::WHITE,
+                cur_bg: Color32::from_rgb(214, 226, 247),
+                cur_accent: Color32::from_rgb(194, 105, 8),
+                cur_ink: Color32::from_rgb(124, 74, 12),
+                kw: Color32::from_rgb(29, 78, 216),
+                lit: Color32::from_rgb(166, 76, 9),
+                cmt: Color32::from_rgb(58, 110, 66),
+                num: Color32::from_rgb(109, 40, 217),
+                window_bg: Color32::from_rgb(200, 208, 221),
+                panel_bg: Color32::from_rgb(250, 251, 253),
+                row_bg: Color32::from_rgb(233, 237, 244),
+                chrome: Color32::from_rgb(38, 50, 66),
+                // 4.7:1 on the dock, the panel and the sheet alike — the dim
+                // ink has to clear the floor on the LIGHTEST surface it lands
+                // on, which is the code sheet, not the window.
+                chrome_dim: Color32::from_rgb(98, 112, 132),
+                accent: Color32::from_rgb(29, 78, 216),
+                accent_ink: Color32::WHITE,
+                field_bg: Color32::from_rgb(238, 242, 248),
+                hover_bg: Color32::from_rgb(222, 228, 238),
+                grad_top: [
+                    Color32::from_rgb(206, 214, 226),
+                    Color32::from_rgb(212, 217, 226),
+                    Color32::from_rgb(208, 214, 225),
+                ],
+                grad_bot: [
+                    Color32::from_rgb(210, 216, 226),
+                    Color32::from_rgb(204, 211, 223),
+                    Color32::from_rgb(199, 206, 219),
+                ],
+                petrol: Color32::from_rgb(168, 198, 191),
+            },
+        }
+    }
+}
+
+/// The code pane's own face — a step DARKER than the panes beside and below it.
+///
+/// The listing is the thing being read; the watches, the stack and the console
+/// are apparatus around it. Giving the reading surface its own darker ground
+/// separates the two without a border doing the work, and it is what the rest
+/// of the window's dark palette already implies.
+const CODE_BG: Color32 = Color32::from_rgb(10, 17, 24);
+
+/// The dock's face: between [`CODE_BG`] and the window, so the three surfaces
+/// read as a hierarchy rather than as one flat sheet.
+const DOCK_BG: Color32 = Color32::from_rgb(16, 26, 34);
+
+/// Dash and gap for every divider between two panes.
+const DASH: f32 = 4.0;
+const DASH_GAP: f32 = 3.0;
+
+/// The band behind selected code.
+///
+/// A strong blue, not a tint: the listing's own ground is very dark, and a
+/// muted band over it read as "slightly different dark" rather than as a
+/// selection (operator, 2026-09-17). Paired with [`SEL_INK`], which is redrawn
+/// over the band so the selected characters are the high-contrast pair — white
+/// on this blue is about 8:1 — instead of syntax colours chosen for a dark
+/// ground and left to fend for themselves on a light one.
+const SEL_BG: Color32 = Color32::from_rgb(29, 96, 176);
+
+/// The selected characters themselves, redrawn over [`SEL_BG`].
+const SEL_INK: Color32 = Color32::WHITE;
+
+/// The console prompt's row: the field, its spacing, and a little air.
+///
+/// Named because two places must agree on it — the dock's scroll area, which
+/// stops short of it, and the panel, which is tall enough to hold it.
+const PROMPT_H: f32 = 52.0;
+
+/// Air on every side of every pane.
+///
+/// Without it the right-hand pane's tabs, filter box and table all began ON the
+/// dividing line, so it read as a border drawn around that pane instead of as
+/// the division between two (operator, 2026-09-17).
+///
+/// **10, by operator instruction the same day** — "the code pane should have
+/// consistent 10x padding on all sides (bottom is touching the bottom pane)" —
+/// and deliberately the same number as `PANE_RADIUS`, so a pane's gap from its
+/// neighbour matches the curve of its own corner.
+const PANE_PAD: f32 = 10.0;
+
 /// Toolbar button footprint, and the icon inside it.
-const TB_BTN: Vec2 = Vec2::new(28.0, 24.0);
-const TB_ICON: f32 = 16.0;
+// +25% (operator): 30×28 → 38×35, icon 16 → 20.
+const TB_BTN: Vec2 = Vec2::new(38.0, 35.0);
+const TB_ICON: f32 = 20.0;
 
 /// Longest value a hover tooltip prints before it is cut.
-const TIP_VALUE_CHARS: usize = 18;
+///
+/// 100 by operator instruction (2026-09-17). It was 18, which is shorter than
+/// most of the strings worth hovering: a caption, a path or a SQL fragment was
+/// cut to a stub that answered nothing. The cap still exists because a DataGrid
+/// caption can run to hundreds of characters and a tooltip that tall covers the
+/// code it was asked about.
+const TIP_VALUE_CHARS: usize = 100;
+
+/// Longest quoted literal the listing DRAWS before eliding its middle.
+///
+/// Display only — see [`elide_long_literals`].
+const LITERAL_DRAW_CHARS: usize = 60;
 
 /// The data items a source line names, with their current values.
 ///
@@ -234,6 +599,119 @@ fn hover_tip(name: &str, value: &str) -> String {
     }
 }
 
+/// Shorten over-long quoted literals **for drawing only**.
+///
+/// Generated forms carry documentation text in `VALUE` clauses and `MOVE`
+/// statements — a DataGrid's own caption runs to several hundred characters —
+/// and one such line made the whole listing scroll sideways. Every other line
+/// then had to be read through a horizontal offset it did not need.
+///
+/// The value is untouched: this rewrites the string the listing PAINTS, never
+/// the source, never the program. The elision is marked with `…` so nobody
+/// mistakes the drawn text for the whole literal, and the closing quote is kept
+/// so the line still reads as COBOL.
+///
+/// Counted in characters rather than bytes — these literals are exactly the
+/// ones holding accented prose, and cutting mid-character would corrupt it.
+fn elide_long_literals(line: &str, max: usize) -> std::borrow::Cow<'_, str> {
+    if !line.contains('"') && !line.contains('\'') {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    let mut changed = false;
+    while let Some(c) = chars.next() {
+        if c != '"' && c != '\'' {
+            out.push(c);
+            continue;
+        }
+        // Inside a literal: take it up to its closing quote, or to end of line
+        // for the unterminated one a half-typed source can hold.
+        let quote = c;
+        let mut body = String::new();
+        let mut closed = false;
+        for d in chars.by_ref() {
+            if d == quote {
+                closed = true;
+                break;
+            }
+            body.push(d);
+        }
+        out.push(quote);
+        if body.chars().count() > max {
+            let head: String = body.chars().take(max).collect();
+            out.push_str(&head);
+            out.push('…');
+            changed = true;
+        } else {
+            out.push_str(&body);
+        }
+        if closed {
+            out.push(quote);
+        }
+    }
+    if changed {
+        std::borrow::Cow::Owned(out)
+    } else {
+        std::borrow::Cow::Borrowed(line)
+    }
+}
+
+/// The span of the "word" under `idx`, as a character range.
+///
+/// A word here is what the operator asked for: a run bounded by spaces, by the
+/// start or end of the line, or by a period (2026-09-17). That is coarser than
+/// a COBOL identifier on purpose — double-clicking `WS-LINE` inside
+/// `TRIM(WS-LINE))` takes the whole `TRIM(WS-LINE))`, because that is the thing
+/// sitting between two spaces — and it is deliberately NOT the rule
+/// [`word_at`] uses for the hover tooltip, which must find the data ITEM under
+/// the pointer and nothing around it.
+///
+/// `None` when the character under the pointer is itself a separator: there is
+/// no word there to take.
+fn word_span_at(line: &str, idx: usize) -> Option<(usize, usize)> {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    // A double-click just past the end takes the last word, which is what the
+    // pointer landing in the blank tail of a line means.
+    let at = idx.min(chars.len() - 1);
+    let sep = |c: char| c.is_whitespace() || c == '.';
+    if sep(chars[at]) {
+        return None;
+    }
+    let mut from = at;
+    while from > 0 && !sep(chars[from - 1]) {
+        from -= 1;
+    }
+    let mut to = at + 1;
+    while to < chars.len() && !sep(chars[to]) {
+        to += 1;
+    }
+    Some((from, to))
+}
+
+/// A dashed divider between two panes, vertical.
+fn dashed_vline(painter: &egui::Painter, x: f32, y: egui::Rangef, color: Color32) {
+    painter.extend(egui::Shape::dashed_line(
+        &[egui::pos2(x, y.min), egui::pos2(x, y.max)],
+        egui::Stroke::new(1.0, color),
+        DASH,
+        DASH_GAP,
+    ));
+}
+
+/// A dashed divider between two panes, horizontal.
+fn dashed_hline(painter: &egui::Painter, x: egui::Rangef, y: f32, color: Color32) {
+    painter.extend(egui::Shape::dashed_line(
+        &[egui::pos2(x.min, y), egui::pos2(x.max, y)],
+        egui::Stroke::new(1.0, color),
+        DASH,
+        DASH_GAP,
+    ));
+}
+
 // ── Toolbar buttons ───────────────────────────────────────────────────────────
 
 /// One icon-only toolbar button, drawn from the platform's own icon catalogue.
@@ -257,26 +735,141 @@ fn tool_icon(
     let (rect, resp) = ui.allocate_exact_size(TB_BTN, sense);
 
     let visuals = ui.visuals();
-    let (bg, fg) = if !enabled {
-        (Color32::TRANSPARENT, visuals.weak_text_color())
+    // The mockup gives every toolbar button the same lozenge: a translucent
+    // wash of the skin's ink over the strip, a hairline of the same, radius 8.
+    // Derived from the ink (near-white on Smoked, near-slate on Frosted) so the
+    // one rule reads on both grounds.
+    // High contrast (operator): a clearly-filled lozenge with a firm border and
+    // a bright icon, not a faint wash.
+    let base = visuals.text_color();
+    let wash = |a: u8| Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a);
+    let (bg, fg, border) = if !enabled {
+        (wash(14), visuals.weak_text_color(), wash(34))
     } else if active {
-        (visuals.selection.bg_fill, visuals.strong_text_color())
+        (
+            visuals.selection.bg_fill,
+            visuals.strong_text_color(),
+            visuals.selection.bg_fill,
+        )
     } else if resp.hovered() {
-        (visuals.widgets.hovered.bg_fill, visuals.strong_text_color())
+        (wash(120), visuals.strong_text_color(), wash(150))
     } else {
-        (Color32::TRANSPARENT, visuals.text_color())
+        (wash(64), visuals.strong_text_color(), wash(96))
     };
     let fg = tint.filter(|_| enabled).unwrap_or(fg);
 
-    if bg != Color32::TRANSPARENT {
-        ui.painter().rect_filled(rect, 4.0, bg);
-    }
+    let r = egui::CornerRadius::same(9);
+    ui.painter().rect_filled(rect, r, bg);
+    ui.painter()
+        .rect_stroke(rect, r, egui::Stroke::new(1.0, border), egui::StrokeKind::Inside);
     let icon_rect = egui::Rect::from_center_size(rect.center(), Vec2::splat(TB_ICON));
     cobolt_forms::icons::draw_menu_icon(ui.painter(), icon_rect, icon, fg);
     if enabled && resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp.on_hover_text(tip.into())
+}
+
+/// A pill tab — the mockup's tab: a translucent-blue lozenge with blue ink when
+/// selected, ghost text otherwise. egui's own `selectable_value` draws an
+/// underline-style highlight instead, which is not this window's look.
+fn pill_tab(ui: &mut egui::Ui, selected: bool, label: &str, sk: Skin) -> egui::Response {
+    let ink = if selected { sk.kw } else { sk.chrome_dim };
+    let galley =
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), egui::FontId::proportional(15.0), ink);
+    let pad = egui::vec2(12.0, 6.0);
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + pad * 2.0, egui::Sense::click());
+    let r = egui::CornerRadius::same(9);
+    let k = sk.kw;
+    if selected {
+        ui.painter().rect_filled(
+            rect,
+            r,
+            Color32::from_rgba_unmultiplied(k.r(), k.g(), k.b(), 40),
+        );
+        ui.painter().rect_stroke(
+            rect,
+            r,
+            egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(k.r(), k.g(), k.b(), 87)),
+            egui::StrokeKind::Inside,
+        );
+    } else if resp.hovered() {
+        ui.painter()
+            .rect_filled(rect, r, Color32::from_rgba_unmultiplied(255, 255, 255, 14));
+    }
+    ui.painter()
+        .galley(rect.center() - galley.size() * 0.5, galley, ink);
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp
+}
+
+/// The run-state pill, as the mockup draws it: a rounded lozenge washed in its
+/// accent, a dot, and ink that is the accent lifted toward white. Amber while
+/// stopped, green while running.
+fn status_pill(ui: &mut egui::Ui, text: &str, accent: Color32) {
+    let a = |x: u8| Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), x);
+    let lift = |c: u8| c + ((255 - c) as f32 * 0.42) as u8;
+    let ink = Color32::from_rgb(lift(accent.r()), lift(accent.g()), lift(accent.b()));
+    let galley =
+        ui.painter()
+            .layout_no_wrap(text.to_owned(), egui::FontId::proportional(14.0), ink);
+    let pad = egui::vec2(11.0, 4.0);
+    let dot_w = 13.0;
+    let size = Vec2::new(galley.size().x + dot_w + pad.x * 2.0, galley.size().y + pad.y * 2.0);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let r = egui::CornerRadius::same((size.y * 0.5) as u8);
+    ui.painter().rect_filled(rect, r, a(46));
+    ui.painter().rect_stroke(
+        rect,
+        r,
+        egui::Stroke::new(1.0, a(115)),
+        egui::StrokeKind::Inside,
+    );
+    let x = rect.left() + pad.x;
+    ui.painter()
+        .circle_filled(egui::pos2(x + 3.0, rect.center().y), 3.0, accent);
+    ui.painter().galley(
+        egui::pos2(x + dot_w, rect.center().y - galley.size().y * 0.5),
+        galley,
+        ink,
+    );
+}
+
+/// A folded-run chip, as the mockup draws it: a translucent lozenge, indented
+/// past the gutter, carrying a chevron and the run's name. Replaces the plain
+/// grey label the runs used to fold to.
+fn fold_chip(ui: &mut egui::Ui, tip: &str, sk: Skin) -> egui::Response {
+    const INDENT: f32 = 66.0;
+    // A compact down-arrow, indented past the gutter (operator: an arrow, not a
+    // labelled pill). The run's description is the arrow's tooltip, and a click
+    // still expands the run.
+    let (rect, resp) =
+        ui.allocate_exact_size(Vec2::new(INDENT + 24.0, 22.0), egui::Sense::click());
+    let cx = rect.left() + INDENT + 12.0;
+    let cy = rect.center().y;
+    let (half, depth) = (8.0, 9.0);
+    let col = if resp.hovered() {
+        Color32::from_rgb(150, 205, 255)
+    } else {
+        sk.kw
+    };
+    // Downward triangle ▼, painter-drawn (never a system glyph).
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(cx - half, cy - depth * 0.5),
+            egui::pos2(cx + half, cy - depth * 0.5),
+            egui::pos2(cx, cy + depth * 0.5),
+        ],
+        col,
+        egui::Stroke::NONE,
+    ));
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    resp.on_hover_text(tip)
 }
 
 /// A full-width rule between two frames.
@@ -288,8 +881,7 @@ fn frame_rule(ui: &mut egui::Ui) {
     ui.add_space(3.0);
     let (rect, _) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), egui::Sense::hover());
-    ui.painter()
-        .hline(rect.x_range(), rect.center().y, egui::Stroke::new(1.0, FRAME_LINE));
+    dashed_hline(ui.painter(), rect.x_range(), rect.center().y, FRAME_LINE);
     ui.add_space(3.0);
 }
 
@@ -303,6 +895,12 @@ pub struct DebuggerPanel {
     current_para: String,
     current_line: u32,
     is_paused: bool,
+    /// Frames to keep repainting after a session opens. The debugger is its own
+    /// immediate viewport; its first frame lays out against a not-yet-final
+    /// window size, and egui — being reactive — would leave that first layout on
+    /// screen (the bottom gutter missing) until an event forced a fresh pass.
+    /// A short warm-up burst gives it those passes automatically.
+    warmup_frames: u8,
     /// Why the program stopped, for the session strip. `None` while running —
     /// the strip then says Running rather than inventing a reason.
     stop_reason: Option<StopReason>,
@@ -317,6 +915,11 @@ pub struct DebuggerPanel {
     source_lines: Vec<String>,
     source_path: String,
     breakpoints: HashSet<u32>,
+    /// A line the developer asked to clear from the Breakpoints list this frame
+    /// (its ✕ button). Drained by `split_body` into a `ToggleBreakpoint`, the
+    /// same action a gutter click raises, so removal and the gutter share one
+    /// path back to the editor's breakpoint set.
+    bp_remove_request: Option<u32>,
     last_scrolled_line: u32,
     force_center_current: bool,
 
@@ -376,8 +979,53 @@ pub struct DebuggerPanel {
     /// makes a pane grow every frame until it fills the window. It changes only
     /// when the developer drags the grip.
     dock_height: f32,
+    /// Where a code selection started and where it is now, each as
+    /// `(0-based source line, character index in that line)`.
+    ///
+    /// The listing is read-only and stays read-only: this exists so the
+    /// developer can take a copy of what they are looking at — a paragraph
+    /// name, a PICTURE, a whole handler — without retyping it (operator,
+    /// 2026-09-17).
+    sel_anchor: Option<(usize, usize)>,
+    sel_cursor: Option<(usize, usize)>,
+    /// Which material this window is made of. Debugger-local: the IDE keeps
+    /// its own theme, and switching here changes nothing outside this window.
+    pub skin: DebugSkin,
+
+    /// The find bar: what is typed, every hit, and which one is current.
+    ///
+    /// Find only — there is no replace and there will not be: the listing is
+    /// generated code the developer cannot edit from here, so a replace box
+    /// would be a control that refuses every use of it.
+    find_query: String,
+    /// Every match, as `(0-based line, char from, char to)`, in reading order.
+    find_hits: Vec<(usize, usize, usize)>,
+    /// Which hit is current. Meaningless when `find_hits` is empty.
+    find_at: usize,
+    /// Take keyboard focus on the frame the bar opens, so the developer types
+    /// into it rather than at the listing.
+    find_focus: bool,
+    /// The query the hit list was built from, so it is rebuilt only when the
+    /// text or the source actually changed.
+    find_built_for: String,
+    /// A line the find bar wants brought into view on the next frame.
+    current_find_line: Option<u32>,
+
+    /// What this debugger last copied. It is what the Paste button offers.
+    ///
+    /// egui cannot READ the system clipboard — it only writes to it and
+    /// delivers a paste the window manager hands over — so the button is armed
+    /// by our own copy rather than by whatever else is on the clipboard. That
+    /// is exactly the journey it exists for: select a name in the listing, copy
+    /// it, paste it into a watch expression or the variable filter.
+    copied: Option<String>,
     dock: Vec<DockLine>,
     session_started: Option<Instant>,
+    /// The wall-clock time at session start, captured next to `session_started`
+    /// so a dock line's absolute time is `this + at_ms` — the local HH:MM:SS:mmm
+    /// the investigation dock shows. `Instant` alone (monotonic) cannot name a
+    /// clock time; this supplies the anchor, and the two are read together.
+    session_started_wall: Option<chrono::DateTime<chrono::Local>>,
     /// Which row is being edited, and the text so far.
     editing: Option<(i64, String, String)>,
     /// The last refusal from the debuggee — a failed edit or a stale handle.
@@ -393,6 +1041,9 @@ pub struct DebuggerPanel {
     /// statement. A VIEW filter only: real line numbers are preserved and
     /// stepping is untouched (operator ruling, 2026-09-02).
     hide_empty_blocks: bool,
+    /// The code listing's font size, in points. The developer changes it with
+    /// the toolbar's A−/A+ controls; the line height and gutter follow it.
+    code_font_pt: f32,
     /// Fold the `*> <NAME>` regions codegen marks. On by default: the generated
     /// scaffolding is assumed to work, and scrolling past it to reach a handler
     /// is the developer's most common complaint about the pane.
@@ -413,6 +1064,8 @@ impl DebuggerPanel {
             current_para: String::new(),
             current_line: 0,
             is_paused: false,
+            warmup_frames: 0,
+            code_font_pt: 12.0,
             stop_reason: None,
             frames: Vec::new(),
             selected_frame: 0,
@@ -420,6 +1073,8 @@ impl DebuggerPanel {
             source_lines: Vec::new(),
             source_path: String::new(),
             breakpoints: HashSet::new(),
+            bp_remove_request: None,
+            session_started_wall: None,
             last_scrolled_line: 0,
             force_center_current: false,
             active_tab: Tab::default(),
@@ -444,6 +1099,16 @@ impl DebuggerPanel {
             history_pos: None,
             dock_tab: DockTab::default(),
             dock_height: 170.0,
+            sel_anchor: None,
+            sel_cursor: None,
+            skin: DebugSkin::default(),
+            find_query: String::new(),
+            find_hits: Vec::new(),
+            find_at: 0,
+            find_focus: false,
+            find_built_for: String::new(),
+            current_find_line: None,
+            copied: None,
             dock: Vec::new(),
             session_started: None,
             editing: None,
@@ -462,6 +1127,9 @@ impl DebuggerPanel {
         self.current_para.clear();
         self.current_line = 0;
         self.is_paused = false;
+        // Repaint the first handful of frames so the layout settles against the
+        // real window size instead of the placeholder the first frame sees.
+        self.warmup_frames = 6;
         self.stop_reason = None;
         self.frames.clear();
         self.selected_frame = 0;
@@ -475,9 +1143,12 @@ impl DebuggerPanel {
 
     /// Supply the COBOL source text and initial breakpoint set at session start.
     pub fn set_source(&mut self, path: String, source: &str, bps: &HashSet<u32>) {
-        // A new session: the dock's clock starts here, so every timestamp is
-        // "since this run began" rather than since the IDE launched.
+        // A new session: the dock's clock starts here. `session_started` is the
+        // monotonic base every `at_ms` measures from; `session_started_wall` is
+        // the matching wall-clock instant, so a line's absolute local time is
+        // `session_started_wall + at_ms`.
         self.session_started = Some(Instant::now());
+        self.session_started_wall = Some(chrono::Local::now());
         self.dock.clear();
         self.source_path = path;
         self.source_lines = source.lines().map(|l| l.to_owned()).collect();
@@ -741,6 +1412,14 @@ impl DebuggerPanel {
         let ctx = panel_ui.ctx().clone();
         let ctx = &ctx;
 
+        // Warm-up: force a few extra passes right after the window opens, so the
+        // panels re-lay-out once the viewport reports its real size and the
+        // bottom gutter is not left missing until the developer resizes.
+        if self.warmup_frames > 0 {
+            self.warmup_frames -= 1;
+            ctx.request_repaint();
+        }
+
         let mut action: Option<DebugAction> = None;
 
         // Global keyboard shortcuts — active even when the window is not focused.
@@ -774,9 +1453,17 @@ impl DebuggerPanel {
             action = self.maybe_animate_step(ctx);
         }
 
+        self.copy_shortcut(ctx);
+        self.find_shortcuts(ctx);
+
         let need_scroll = self.should_center_current_line();
 
-        egui::CentralPanel::default().show(panel_ui, |ui| {
+        let sk = self.skin.palette();
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(panel_ui, |ui| {
+            paint_backdrop(ui.painter(), ui.max_rect(), sk);
+            apply_skin_visuals(sk, ui);
             self.status_row(ui, tr);
             if let Some(a) = self.toolbar(ui, tr) {
                 action = Some(a);
@@ -844,6 +1531,9 @@ impl DebuggerPanel {
             action = self.maybe_animate_step(ctx);
         }
 
+        self.copy_shortcut(ctx);
+        self.find_shortcuts(ctx);
+
         let debug_name = std::path::Path::new(&self.source_path)
             .file_stem()
             .and_then(|n| n.to_str())
@@ -871,6 +1561,9 @@ impl DebuggerPanel {
                             // min-size equals the box: the Resize can neither
                             // auto-grow nor auto-shrink to measured content.
                             ui.set_min_size(sz);
+                            let sk = self.skin.palette();
+                            paint_backdrop(ui.painter(), ui.max_rect(), sk);
+                            apply_skin_visuals(sk, ui);
 
                             self.status_row(ui, tr);
                             if let Some(a) = self.toolbar(ui, tr) {
@@ -918,36 +1611,36 @@ impl DebuggerPanel {
     }
 
     fn status_row(&self, ui: &mut egui::Ui, tr: &Tr) {
+        let sk = self.skin.palette();
         ui.horizontal(|ui| {
-            // Amber for paused/current execution, green for connected/running —
-            // the palette the spec fixes. Hardcoded, not read from
-            // `ui.visuals()`: on a glass theme that renders dark-on-dark.
-            let (text, colour) = if self.is_paused {
-                let mut t = format!("● {}", tr.dbg_state_paused);
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.add_space(PANE_PAD); // line the state row up with the code panel
+            // Amber while stopped, green while running — the mockup's rounded
+            // pill, its ink and dot the accent lifted toward white. The colours
+            // are fixed, not read from `ui.visuals()`, which on a glass ground
+            // renders dark-on-dark.
+            if self.is_paused {
+                let mut t = tr.dbg_state_paused.to_owned();
                 if let Some(r) = &self.stop_reason {
                     t.push_str(" · ");
                     t.push_str(&Self::reason_label(r, tr));
                 }
-                (t, Color32::from_rgb(220, 180, 50))
+                status_pill(ui, &t, Color32::from_rgb(245, 158, 11));
             } else {
-                (
-                    format!("○ {}", tr.dbg_state_running),
-                    Color32::from_rgb(80, 200, 80),
-                )
-            };
-            ui.label(RichText::new(text).color(colour).size(12.0));
+                status_pill(ui, tr.dbg_state_running, Color32::from_rgb(90, 200, 110));
+            }
 
             if self.is_paused && !self.current_para.is_empty() {
                 ui.label(
-                    RichText::new(format!("  {}  ", self.current_para))
+                    RichText::new(&self.current_para)
                         .monospace()
-                        .color(Color32::from_rgb(120, 190, 255))
-                        .size(12.0),
+                        .color(sk.kw)
+                        .size(14.0),
                 );
                 ui.label(
                     RichText::new(format!("line {}", self.current_line))
-                        .color(Color32::from_gray(150))
-                        .size(12.0),
+                        .color(sk.chrome_dim)
+                        .size(13.5),
                 );
             }
         });
@@ -960,7 +1653,10 @@ impl DebuggerPanel {
         let mut refold = false;
 
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
+            // 4 px between buttons (operator), and a left indent that lines the
+            // toolbar up with the code panel below it (PANE_PAD).
+            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.add_space(PANE_PAD);
             let paused = self.is_paused;
 
             if tool_icon(ui, "stop", true, false, Some(Color32::from_rgb(220, 80, 80)), tr.dbg_stop)
@@ -1011,35 +1707,94 @@ impl DebuggerPanel {
                 self.last_animate_step = None;
             }
 
-            // Disabled until the developer clicks a line: Run to Cursor with no
-            // cursor would have to guess a target, and guessing here means
-            // running the program to somewhere they did not ask for.
-            let target = self.cursor_line;
+            // Pause sits immediately LEFT of Go-to-current-line (operator).
+            if tool_icon(ui, "pause", !paused, false, None, tr.dbg_pause).clicked() {
+                self.center_current_line_next_frame();
+                action = Some(DebugAction::Pause);
+            }
+
+            // Go to the line currently executing: centre the listing on it. It
+            // does not run anything, so it is available whenever there IS a
+            // current line, stopped or not (operator: replaces Run-to-Cursor).
             if tool_icon(
                 ui,
                 "crosshair",
-                paused && target.is_some(),
+                self.current_line > 0,
                 false,
                 None,
-                match target {
-                    Some(l) => format!("{} — line {l}", tr.dbg_run_to_cursor),
-                    None => tr.dbg_run_to_cursor.to_owned(),
-                },
+                tr.dbg_goto_running,
             )
             .clicked()
             {
-                if let Some(l) = target {
-                    action = Some(DebugAction::RunToCursor(l));
-                    self.is_paused = false;
-                    self.last_animate_step = None;
+                self.center_current_line_next_frame();
+            }
+
+            ui.separator();
+
+            // The two materials, one button each. A pair rather than a toggle:
+            // a toggle hides which one you are on until you read its tooltip,
+            // and this is a choice people make once and want to see.
+            for (skin, icon, tip) in [
+                (DebugSkin::Smoked, "dark-mode", tr.dbg_skin_smoked),
+                (DebugSkin::Frosted, "light-mode", tr.dbg_skin_frosted),
+            ] {
+                if tool_icon(ui, icon, true, self.skin == skin, None, tip).clicked() {
+                    self.skin = skin;
                 }
             }
 
             ui.separator();
 
-            if tool_icon(ui, "pause", !paused, false, None, tr.dbg_pause).clicked() {
-                self.center_current_line_next_frame();
-                action = Some(DebugAction::Pause);
+            // Copy / Paste. The listing is read-only and stays that way: Copy
+            // takes what is selected, and Paste puts what was copied into
+            // whatever text field has focus — a watch expression or the
+            // variable filter. Over the listing it lands nowhere, because the
+            // listing is not a text field (operator, 2026-09-17).
+            let has_selection = self.selection_range().is_some();
+            if tool_icon(
+                ui,
+                "clipboard-copy",
+                has_selection,
+                false,
+                None,
+                format!(
+                    "{}\n\nDrag across the code to select it. The listing cannot be \
+                     edited — only copied.",
+                    tr.dbg_copy
+                ),
+            )
+            .clicked()
+            {
+                if let Some(text) = self.selected_text() {
+                    ui.ctx().copy_text(text.clone());
+                    self.copied = Some(text);
+                }
+            }
+
+            let can_paste = self.copied.is_some();
+            if tool_icon(
+                ui,
+                "clipboard-paste",
+                can_paste,
+                false,
+                None,
+                format!(
+                    "{}\n\nInto a watch expression or the variable filter. Nothing \
+                     happens over the code, which is read-only.",
+                    tr.dbg_paste
+                ),
+            )
+            .clicked()
+            {
+                if let Some(text) = self.copied.clone() {
+                    // Delivered as a paste EVENT rather than written anywhere:
+                    // egui hands it to whichever field has focus, and to nothing
+                    // at all when none has. That is exactly the wanted
+                    // behaviour, and it needs no knowledge here of which boxes
+                    // exist.
+                    ui.ctx()
+                        .input_mut(|i| i.events.push(egui::Event::Paste(text)));
+                }
             }
 
             ui.separator();
@@ -1126,6 +1881,19 @@ impl DebuggerPanel {
                         .step_by(1.0),
                 );
             }
+
+            ui.separator();
+            // Code font size (operator): A−/A+, clamped 8–22 pt.
+            if tool_icon(ui, "minus", self.code_font_pt > 8.0, false, None, tr.dbg_font_smaller)
+                .clicked()
+            {
+                self.code_font_pt = (self.code_font_pt - 1.0).max(8.0);
+            }
+            if tool_icon(ui, "plus", self.code_font_pt < 22.0, false, None, tr.dbg_font_larger)
+                .clicked()
+            {
+                self.code_font_pt = (self.code_font_pt + 1.0).min(22.0);
+            }
         });
 
         if refold {
@@ -1185,17 +1953,29 @@ impl DebuggerPanel {
     /// useful thing to show: the developer knows which project they opened and
     /// cannot read a 70-character path at a glance anyway. What they need is
     /// WHERE IN THE PROGRAM the pointer is, which is the trail.
-    fn file_strip(&self, ui: &mut egui::Ui) {
-        let path = std::path::Path::new(&self.source_path);
-        let file = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("(no source)");
-        let folder = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+    fn file_strip(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        // Owned up front: the find box on this row needs `&mut self`, and a
+        // borrow of `source_path` would still be alive inside the closure.
+        let (file, folder) = {
+            let path = std::path::Path::new(&self.source_path);
+            (
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("(no source)")
+                    .to_owned(),
+                path.parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_owned(),
+            )
+        };
+        let (file, folder) = (file.as_str(), folder.as_str());
+        // Copied out once so the tab is painted in the skin, not in the
+        // hardcoded slate it used to be — which was a dark tab on Frosted's
+        // pale ground. `sk` is `Copy`, so this leaves no borrow to fight the
+        // `&mut self` the find box needs below.
+        let sk = self.skin.palette();
 
         // The tab. One file today — a session debugs one program — so it is
         // drawn as the tab it will be rather than promising a strip that does
@@ -1208,30 +1988,48 @@ impl DebuggerPanel {
                 Vec2::new(file.chars().count() as f32 * 7.0 + 22.0, 22.0),
                 egui::Sense::hover(),
             );
+            // The mockup's tab: 9%-white paper, rounded on top only (radius 9),
+            // mono name in the chrome ink, an amber underline for "active".
             ui.painter().rect_filled(
                 rect,
                 egui::CornerRadius {
-                    nw: 4,
-                    ne: 4,
+                    nw: 9,
+                    ne: 9,
                     sw: 0,
                     se: 0,
                 },
-                Color32::from_rgb(28, 46, 58),
+                sk.field_bg,
+            );
+            ui.painter().rect_stroke(
+                rect,
+                egui::CornerRadius {
+                    nw: 9,
+                    ne: 9,
+                    sw: 0,
+                    se: 0,
+                },
+                egui::Stroke::new(1.0, sk.line),
+                egui::StrokeKind::Inside,
             );
             ui.painter().text(
-                rect.left_center() + Vec2::new(9.0, 0.0),
+                rect.left_center() + Vec2::new(10.0, 0.0),
                 egui::Align2::LEFT_CENTER,
                 file,
-                egui::FontId::proportional(12.0),
-                Color32::from_rgb(215, 225, 240),
+                egui::FontId::monospace(13.5),
+                sk.chrome,
             );
             // The amber underline is the "this is the active tab" marker, the
-            // same amber the current-line pointer uses.
+            // same amber the current-line pointer uses (the mockup's #f5b544).
             ui.painter().hline(
                 rect.x_range(),
                 rect.max.y - 1.0,
-                egui::Stroke::new(2.0, Color32::from_rgb(230, 180, 40)),
+                egui::Stroke::new(2.0, sk.cur_accent),
             );
+            // Find sits on this row, hard right: always there, never a panel
+            // that appears and shifts the listing down when you press a key.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.find_bar(ui, tr);
+            });
         });
 
         // The trail. Each crumb is what the debugger actually knows: the
@@ -1263,13 +2061,13 @@ impl DebuggerPanel {
                 if i > 0 {
                     ui.label(
                         RichText::new("›")
-                            .size(11.0)
+                            .size(13.0)
                             .color(Color32::from_gray(90)),
                     );
                 }
                 ui.label(
                     RichText::new(c)
-                        .size(11.0)
+                        .size(13.0)
                         // The last crumb is where you ARE; the rest are context.
                         .color(if i == last {
                             Color32::from_rgb(215, 225, 240)
@@ -1282,75 +2080,391 @@ impl DebuggerPanel {
     }
 
     fn split_body(&mut self, ui: &mut egui::Ui, tr: &Tr, need_scroll: bool) -> Option<u32> {
-        // The dock takes its OWN stored height off the top; the split gets what
-        // is left. Deriving either from the content is what makes a pane creep.
+        // The dock and the status bar are laid out as BOTTOM PANELS, before the
+        // split, and the split takes what is left.
+        //
+        // They used to be allocated after the split table, from whatever height
+        // the arithmetic said was left — and the table, with `auto_shrink` off,
+        // takes the whole space it is offered. So the grip, the dock and the
+        // status bar were placed past the bottom of the window and simply never
+        // drawn: the operator saw a dead band under the code and asked what it
+        // was for, twice (2026-09-17). A bottom panel cannot be pushed off,
+        // because egui gives it its height before the central area sees any.
         const GRIP_H: f32 = 6.0;
         let total = ui.available_height();
         let dock_h = self.dock_height.clamp(80.0, (total - 160.0).max(80.0));
-        let body_h = (total - dock_h - GRIP_H).max(160.0);
         let mut toggled: Option<u32> = None;
 
-        TableBuilder::new(ui)
-            .id_salt("dbg_split_table")
-            .resizable(true)
-            .vscroll(false)
-            .auto_shrink([false, false])
-            .cell_layout(egui::Layout::top_down(egui::Align::Min))
-            .column(Column::remainder().at_least(240.0).resizable(true))
-            .column(Column::initial(330.0).at_least(240.0).resizable(true))
-            .body(|mut body| {
-                body.row(body_h, |mut row| {
-                    row.col(|ui| {
-                        let pane_w = ui.available_width();
-                        toggled = self.code_viewer(ui, need_scroll, pane_w, tr);
-                    });
-                    row.col(|ui| {
-                        // The two panes met with nothing drawn between them.
-                        ui.painter().vline(
-                            ui.max_rect().left(),
-                            ui.max_rect().y_range(),
-                            egui::Stroke::new(1.0, FRAME_LINE),
-                        );
-                        self.data_tabs(ui, tr);
-                    });
-                });
+        // The status strip sits below the dock, so it is claimed first.
+        egui::Panel::bottom("dbg_status_strip")
+            .resizable(false)
+            .show_separator_line(false)
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin {
+                left: PANE_PAD as i8,
+                right: PANE_PAD as i8,
+                top: 2,
+                bottom: 2,
+            }))
+            .show(ui, |ui| {
+                self.status_bar(ui, tr);
             });
 
-        // The grip: the ONE writer of `dock_height`, and it only ever moves by
-        // the drag the developer performed.
-        let (grip, grip_resp) =
-            ui.allocate_exact_size(Vec2::new(ui.available_width(), GRIP_H), egui::Sense::drag());
-        if grip_resp.hovered() || grip_resp.dragged() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
-        }
-        if grip_resp.dragged() {
-            self.dock_height =
-                (self.dock_height - grip_resp.drag_delta().y).clamp(80.0, (total - 160.0).max(80.0));
-        }
-        ui.painter().hline(
-            grip.x_range(),
-            grip.center().y,
-            egui::Stroke::new(1.0, FRAME_LINE),
-        );
+        let sk = self.skin.palette();
+        let line_c = sk.line;
+        egui::Panel::bottom("dbg_investigation_dock")
+            .resizable(false)
+            .show_separator_line(false)
+            .exact_size(dock_h + GRIP_H + PROMPT_H)
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                // Inset so the dock has the same side gutter as the listing and
+                // inspector, and its rounded corners are visible against the
+                // darker window (operator: restore the padding between panels).
+                paint_grad_pane_h(
+                    ui.painter(),
+                    ui.max_rect().shrink2(egui::vec2(PANE_PAD, 0.0)),
+                    sk.code_bg,
+                    sk.code_bg2,
+                );
+                // The grip: the ONE writer of `dock_height`, and it only ever
+                // moves by the drag the developer performed.
+                let (grip, grip_resp) = ui.allocate_exact_size(
+                    Vec2::new(ui.available_width(), GRIP_H),
+                    egui::Sense::drag(),
+                );
+                if grip_resp.hovered() || grip_resp.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                }
+                if grip_resp.dragged() {
+                    self.dock_height = (self.dock_height - grip_resp.drag_delta().y)
+                        .clamp(80.0, (total - 160.0).max(80.0));
+                }
+                dashed_hline(ui.painter(), grip.x_range(), grip.center().y, line_c);
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin {
+                        left: PANE_PAD as i8,
+                        right: PANE_PAD as i8,
+                        top: 0,
+                        bottom: 0,
+                    })
+                    .show(ui, |ui| {
+                        self.investigation_dock(ui, tr);
+                    });
+            });
 
-        let dock_rect = egui::Rect::from_min_size(
-            ui.cursor().min,
-            Vec2::new(ui.available_width(), dock_h),
-        );
-        // A face behind the dock, one step darker than the panes above it. The
-        // dock rendered onto bare canvas before, so an empty console read as
-        // "the window just stops here" rather than as a pane waiting for
-        // output.
-        ui.painter()
-            .rect_filled(dock_rect, 0.0, Color32::from_rgb(16, 26, 34));
-        ui.allocate_ui(Vec2::new(ui.available_width(), dock_h), |ui| {
-            ui.add_space(2.0);
-            self.investigation_dock(ui, tr);
+        // Rows sit flush; nothing between the listing and the dock but the
+        // padding each pane draws for itself.
+        ui.spacing_mut().item_spacing.y = 0.0;
+
+        // The inspector is a RIGHT PANEL and the listing takes what is left.
+        //
+        // It was a two-column `TableBuilder`, and that is what wrecked the
+        // layout (operator, 2026-09-17): a resizable table persists its column
+        // widths under its own id, so after the window and the panels around it
+        // changed, the two columns kept widths measured for a different box —
+        // roughly 630 + 670 of a 2000-wide window, with the rest left as bare
+        // backdrop and the column separators ruled down through the dock.
+        //
+        // A panel cannot do that. egui gives it its width before the central
+        // area is measured, the central area is whatever remains, and there is
+        // no stored geometry to go stale. Same reason the dock became a panel.
+        egui::Panel::right("dbg_inspector")
+            .resizable(true)
+            .show_separator_line(false)
+            .default_size(380.0)
+            .min_size(260.0)
+            .max_size(720.0)
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                // The divider, with air on each side, then the pane itself.
+                dashed_vline(
+                    ui.painter(),
+                    ui.max_rect().left(),
+                    ui.max_rect().y_range(),
+                    line_c,
+                );
+                // Inset on ALL four sides, not just left and right: inset
+                // horizontally alone left this pane running flush to the
+                // toolbar above and the dock below while the listing beside it
+                // kept its gap, which is the uneven padding the operator
+                // reported (2026-09-17). Same inset as the listing, so the two
+                // panes start and stop on the same lines.
+                let pane = ui.max_rect().shrink(PANE_PAD);
+                paint_grad_pane_h(ui.painter(), pane, sk.code_bg, sk.code_bg2);
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::same((PANE_PAD * 2.0) as i8))
+                    .show(ui, |ui| {
+                        self.data_tabs(ui, tr);
+                    });
+            });
+
+        // Whatever the panels left over is the listing.
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                let pane_w = (ui.available_width() - PANE_PAD * 2.0).max(80.0);
+                egui::Frame::NONE
+                    .inner_margin(egui::Margin::same(PANE_PAD as i8))
+                    .show(ui, |ui| {
+                        toggled = self.code_viewer(ui, need_scroll, pane_w, tr);
+                    });
+            });
+
+        // A gutter click wins the frame; otherwise a ✕ pressed in the
+        // Breakpoints list clears that line. Both are the same toggle.
+        toggled.or_else(|| self.bp_remove_request.take())
+    }
+
+    /// Ctrl/Cmd+C over a selection, because that is the key everyone reaches
+    /// for before they look for a button.
+    ///
+    /// Only when something is selected: swallowing the chord otherwise would
+    /// take it from a watch expression box the developer was editing.
+    fn copy_shortcut(&mut self, ctx: &Context) {
+        if self.selection_range().is_none() {
+            return;
+        }
+        let pressed = ctx.input(|i| {
+            i.key_pressed(Key::C) && (i.modifiers.command || i.modifiers.ctrl)
         });
-        ui.separator();
-        self.status_bar(ui, tr);
+        if !pressed {
+            return;
+        }
+        if let Some(text) = self.selected_text() {
+            ctx.copy_text(text.clone());
+            self.copied = Some(text);
+        }
+    }
 
-        toggled
+    // ── Find ──────────────────────────────────────────────────────────────────
+
+    /// Ctrl/Cmd+F opens the find bar; Escape closes it; F3 and Shift+F3 walk
+    /// the hits from anywhere, without the bar needing focus.
+    fn find_shortcuts(&mut self, ctx: &Context) {
+        let (open, close, next, prev) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::COMMAND, egui::Key::F),
+                i.key_pressed(egui::Key::Escape),
+                i.consume_key(egui::Modifiers::NONE, egui::Key::F3),
+                i.consume_key(egui::Modifiers::SHIFT, egui::Key::F3),
+            )
+        });
+        if open {
+            self.find_focus = true;
+        }
+        // Escape empties the box rather than hiding it: the box is part of the
+        // strip now, and a control that vanishes on Escape is one you have to
+        // rediscover.
+        if close && !self.find_query.is_empty() {
+            self.find_query.clear();
+            self.rebuild_find_hits();
+            self.clear_selection();
+        }
+        if next || prev {
+            self.rebuild_find_hits();
+            self.step_find(next);
+        }
+    }
+
+    /// The find bar: a query box, the hit count, and the two arrows.
+    ///
+    /// No replace box. The listing is generated code opened read-only, so a
+    /// replace would be a control that refuses every use of it.
+    fn find_bar(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        // Always on screen. It used to appear on Ctrl+F and take a row of its
+        // own, which pushed the listing down the moment you reached for it;
+        // the mockup has it sitting in the file strip, and a search box you can
+        // see is one you remember you have (operator, 2026-09-17). Ctrl+F now
+        // only puts the caret in it.
+        //
+        // Laid out right-to-left by the caller, so the controls are written in
+        // reverse: the close button first, the field last.
+        {
+            let ui = &mut *ui;
+            if tool_icon(ui, "x-mark", !self.find_query.is_empty(), false, None, tr.dbg_find_close)
+                .clicked()
+            {
+                self.find_query.clear();
+                self.rebuild_find_hits();
+                self.clear_selection();
+            }
+            let total = self.find_hits.len();
+            let label = if self.find_query.trim().is_empty() {
+                String::new()
+            } else if total == 0 {
+                tr.dbg_find_none.to_owned()
+            } else {
+                format!("{} / {total}", self.find_at + 1)
+            };
+            ui.label(
+                RichText::new(label)
+                    .size(13.0)
+                    .color(if total == 0 && !self.find_query.trim().is_empty() {
+                        Color32::from_rgb(220, 120, 120)
+                    } else {
+                        self.skin.palette().chrome_dim
+                    }),
+            );
+            let any = total > 0;
+            if tool_icon(ui, "arrow-down", any, false, None, format!("{} — F3", tr.dbg_find_next))
+                .clicked()
+            {
+                self.step_find(true);
+            }
+            if tool_icon(ui, "arrow-up", any, false, None, format!("{} — ⇧F3", tr.dbg_find_prev))
+                .clicked()
+            {
+                self.step_find(false);
+            }
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut self.find_query)
+                    .desired_width(190.0)
+                    .hint_text(tr.dbg_find_hint)
+                    .font(egui::TextStyle::Monospace),
+            );
+            if std::mem::take(&mut self.find_focus) {
+                field.request_focus();
+            }
+            self.rebuild_find_hits();
+            // Enter walks forward, Shift+Enter back — the same pairing the
+            // editor's own find uses, so the habit carries over.
+            if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let back = ui.input(|i| i.modifiers.shift);
+                self.step_find(!back);
+                self.find_focus = true;
+            }
+        }
+    }
+
+
+
+    /// Rebuild the hit list when the query changed.
+    ///
+    /// Case-insensitive, because COBOL is: a developer looking for `ws-line`
+    /// means `WS-LINE`, and making them match the listing's case would be a
+    /// rule they have to remember for no gain.
+    ///
+    /// Searched against the DRAWN text, the same string the listing paints and
+    /// the same one a selection copies — so a hit's character range lines up
+    /// with what is on screen, elided literals included.
+    fn rebuild_find_hits(&mut self) {
+        if self.find_built_for == self.find_query {
+            return;
+        }
+        self.find_built_for = self.find_query.clone();
+        self.find_hits.clear();
+        self.find_at = 0;
+        let needle = self.find_query.trim().to_ascii_uppercase();
+        if needle.is_empty() {
+            return;
+        }
+        let width = needle.chars().count();
+        for (idx, raw) in self.source_lines.iter().enumerate() {
+            let drawn = elide_long_literals(raw, LITERAL_DRAW_CHARS);
+            let hay: Vec<char> = drawn.chars().collect();
+            let upper: String = drawn.to_ascii_uppercase();
+            let upper: Vec<char> = upper.chars().collect();
+            if upper.len() < width {
+                continue;
+            }
+            // Character-indexed rather than byte-indexed: a line carrying
+            // accented prose has more bytes than columns, and every consumer
+            // here — the band, the copy, the caret — counts in characters.
+            for start in 0..=(upper.len() - width) {
+                if upper[start..start + width]
+                    .iter()
+                    .copied()
+                    .eq(needle.chars())
+                {
+                    let _ = &hay;
+                    self.find_hits.push((idx, start, start + width));
+                }
+            }
+        }
+    }
+
+    /// Move to the next hit (`forward`) or the previous one, wrapping.
+    ///
+    /// The current hit is also selected, so Copy works on what was found and
+    /// the band the developer is looking at is the one selection they have.
+    fn step_find(&mut self, forward: bool) {
+        if self.find_hits.is_empty() {
+            return;
+        }
+        self.find_at = if forward {
+            (self.find_at + 1) % self.find_hits.len()
+        } else {
+            (self.find_at + self.find_hits.len() - 1) % self.find_hits.len()
+        };
+        self.reveal_current_hit();
+    }
+
+    /// Select the current hit and scroll it into view.
+    fn reveal_current_hit(&mut self) {
+        let Some(&(line, from, to)) = self.find_hits.get(self.find_at) else {
+            return;
+        };
+        self.sel_anchor = Some((line, from));
+        self.sel_cursor = Some((line, to));
+        // The listing centres on a line by number, the same road the stopped
+        // line takes, so a hit off-screen is brought into view the same way.
+        self.current_find_line = Some(line as u32 + 1);
+    }
+
+    // ── Code selection ────────────────────────────────────────────────────────
+
+    /// The selection, ordered so the start never follows the end.
+    ///
+    /// Stored as anchor-and-cursor because that is what a drag produces; every
+    /// reader wants it the other way round.
+    fn selection_range(&self) -> Option<((usize, usize), (usize, usize))> {
+        let (a, b) = (self.sel_anchor?, self.sel_cursor?);
+        if a == b {
+            return None;
+        }
+        Some(if a <= b { (a, b) } else { (b, a) })
+    }
+
+    /// The character range of `line` that is selected, if any.
+    ///
+    /// `None` means the line is untouched; a returned range may be empty at the
+    /// very edges of the drag, which paints as nothing and copies as nothing.
+    fn selection_on_line(&self, line: usize, len: usize) -> Option<(usize, usize)> {
+        let ((s_line, s_col), (e_line, e_col)) = self.selection_range()?;
+        if line < s_line || line > e_line {
+            return None;
+        }
+        let from = if line == s_line { s_col.min(len) } else { 0 };
+        let to = if line == e_line { e_col.min(len) } else { len };
+        (from < to).then_some((from, to))
+    }
+
+    /// The selected text, exactly as the listing shows it.
+    ///
+    /// Taken from the DRAWN lines, so a literal the listing elided is copied
+    /// elided too — copying text the developer cannot see would be the more
+    /// surprising of the two. Lines are joined with `\n` whatever the platform,
+    /// which is what every editor this is pasted into expects.
+    fn selected_text(&self) -> Option<String> {
+        let ((s_line, _), (e_line, _)) = self.selection_range()?;
+        let mut out = String::new();
+        for line in s_line..=e_line {
+            let text = self.source_lines.get(line)?;
+            let drawn = elide_long_literals(text, LITERAL_DRAW_CHARS);
+            let chars: Vec<char> = drawn.chars().collect();
+            if let Some((from, to)) = self.selection_on_line(line, chars.len()) {
+                out.extend(&chars[from..to]);
+            }
+            if line < e_line {
+                out.push('\n');
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
+    fn clear_selection(&mut self) {
+        self.sel_anchor = None;
+        self.sel_cursor = None;
     }
 
     // ── Code viewer ───────────────────────────────────────────────────────────
@@ -1367,22 +2481,72 @@ impl DebuggerPanel {
     ) -> Option<u32> {
         // The file tab and the breadcrumb trail, in place of the bare absolute
         // path this used to print.
-        self.file_strip(ui);
+        self.file_strip(ui, tr);
         ui.add_space(2.0);
 
         // The gutter click collected this frame. `code_viewer` only reads the
         // panel, so the toggle travels out as a return value instead of being
         // applied here — the breakpoint set lives in the editor, and both the
         // panel and the running debuggee are synced from there.
+        let sk = self.skin.palette();
+        // The developer-chosen code font, and the row height and gutter that
+        // follow it (operator: font-size controls).
+        let fpt = self.code_font_pt;
+        let line_h = (fpt + 3.0).max(14.0);
+        let gutter_pt = (fpt - 1.5).max(8.0);
         let mut toggled: Option<u32> = None;
         // Collected inside the closure and applied after it, so nothing borrows
         // `self` mutably while the source list is being read.
         let mut expand_run: Option<u32> = None;
         let mut picked_line: Option<u32> = None;
+        // Collected inside the scroll closure and applied after it: the closure
+        // borrows `self` immutably to read the source, so it cannot also move
+        // the selection.
+        let mut drag_from: Option<(usize, usize)> = None;
+        let mut drag_to: Option<(usize, usize)> = None;
+        let mut clicked_bare = false;
+        let mut dbl_word: Option<(usize, usize, usize)> = None;
+        // Taken before the loop: the closure reads `self` immutably, so the
+        // request cannot be cleared from inside it.
+        let find_line = self.current_find_line;
+
+        // The listing's own darker ground, painted under the whole remaining
+        // pane before the rows go on top of it. Taken from `available_*` at the
+        // point the scroll area starts, which is the pane the caller sized —
+        // not from measured content, so it cannot feed a growth loop.
+        // The Frame that wraps this pane reserves its TOP inner margin before
+        // the content but adds the BOTTOM one only after, so `available_height`
+        // runs all the way down to the dock. Reserve the bottom gutter here
+        // explicitly, so the pane ends PANE_PAD above the dock and the window
+        // shows through the gap (operator: the bottom padding was missing on
+        // open, and a resize was the only thing that brought it back).
+        let pane_h = (ui.available_height() - PANE_PAD).max(0.0);
+        let face = egui::Rect::from_min_size(
+            ui.cursor().min,
+            Vec2::new(ui.available_width(), pane_h),
+        );
+        paint_grad_pane_h(ui.painter(), face, sk.code_bg, sk.code_bg2);
+
+        // Horizontal wheel/trackpad scrolling is suppressed over the listing
+        // (operator): a sideways swipe while reading no longer drifts the code.
+        // The horizontal scrollbar KNOB still works — it is driven by a drag on
+        // the bar, not by scroll delta — and vertical scrolling is untouched.
+        if ui.rect_contains_pointer(face) {
+            ui.input_mut(|i| {
+                i.smooth_scroll_delta.x = 0.0;
+                for ev in &mut i.events {
+                    if let egui::Event::MouseWheel { delta, .. } = ev {
+                        delta.x = 0.0;
+                    }
+                }
+            });
+        }
 
         ScrollArea::both()
             .id_salt("dbg_code_scroll")
             .auto_shrink([false, false])
+            // Stop the listing at the reserved bottom gutter, not the dock.
+            .max_height(pane_h)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let current = self.current_line;
@@ -1411,32 +2575,21 @@ impl DebuggerPanel {
                                 || expanded.contains(&run.start);
                             if !forced {
                                 if line_num == run.start {
-                                    let resp = ui.add(
-                                        egui::Label::new(
-                                            RichText::new(match run.kind {
-                                                // A generated region says WHAT
-                                                // it is; an empty run says how
-                                                // many blocks it swallowed.
-                                                FoldKind::Generated => format!(
-                                                    "     ⌄  {}  ({} lines)",
-                                                    run.label.as_deref().unwrap_or("generated"),
-                                                    run.lines()
-                                                ),
-                                                FoldKind::Empty => format!(
-                                                    "     ⌄  {}",
-                                                    marker_text(tr.dbg_empty_blocks_hidden, run)
-                                                ),
-                                            })
-                                            .monospace()
-                                            .size(11.0)
-                                            .color(Color32::from_gray(110)),
-                                        )
-                                        .sense(egui::Sense::click()),
-                                    );
-                                    if resp.hovered() {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                                    }
-                                    if resp.clicked() {
+                                    // The run's description — shown only as the
+                                    // arrow's tooltip now (operator), so a
+                                    // generated region names itself and count and
+                                    // an empty run says how many it swallowed.
+                                    let tip = match run.kind {
+                                        FoldKind::Generated => format!(
+                                            "{}  ·  {}",
+                                            run.label.as_deref().unwrap_or("generated"),
+                                            run.lines()
+                                        ),
+                                        FoldKind::Empty => {
+                                            marker_text(tr.dbg_empty_blocks_hidden, run)
+                                        }
+                                    };
+                                    if fold_chip(ui, &tip, sk).clicked() {
                                         expand_run = Some(run.start);
                                     }
                                 }
@@ -1449,10 +2602,18 @@ impl DebuggerPanel {
                         let (rect, _) =
                             ui.allocate_exact_size(Vec2::new(pane_w, CODE_BLANK_H), egui::Sense::hover());
                         if is_current {
+                            let full = egui::Rect::from_x_y_ranges(
+                                ui.clip_rect().x_range(),
+                                rect.y_range(),
+                            );
+                            ui.painter().rect_filled(full, 0.0, sk.cur_bg);
                             ui.painter().rect_filled(
-                                egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), rect.y_range()),
+                                egui::Rect::from_min_size(
+                                    full.min,
+                                    Vec2::new(CURRENT_STRIPE_W, full.height()),
+                                ),
                                 0.0,
-                                CURRENT_BG,
+                                sk.cur_accent,
                             );
                             if need_scroll {
                                 ui.scroll_to_cursor(Some(egui::Align::Center));
@@ -1473,31 +2634,36 @@ impl DebuggerPanel {
 
                         // Line number
                         ui.add_sized(
-                            [32.0, CODE_LINE_H],
+                            [32.0, line_h],
                             egui::Label::new(
                                 RichText::new(format!("{:>4}", line_num))
                                     .monospace()
-                                    .size(11.0)
-                                    .color(if is_current {
-                                        CURRENT_INK
-                                    } else {
-                                        Color32::from_gray(80)
-                                    }),
+                                    .size(gutter_pt)
+                                    .color(if is_current { sk.cur_accent } else { sk.gutter }),
                             ),
                         );
 
                         // Gutter: breakpoint dot and/or ► arrow. Clickable — a
                         // developer sets a breakpoint where they are reading the
                         // code, which is here, not in a separate editor tab.
+                        // A breakpoint belongs ONLY on a line that starts a COBOL
+                        // statement — a verb (operator). Never a division or
+                        // section header, a paragraph name, a data item, a scope
+                        // terminator or a comment; those show no ring and swallow
+                        // no click, because the program never stops on them.
+                        let bp_allowed = line_allows_breakpoint(line_text);
                         let (gut_rect, gut_resp) =
                             ui.allocate_exact_size(
-                                Vec2::new(18.0, CODE_LINE_H),
+                                Vec2::new(18.0, line_h),
                                 egui::Sense::click(),
                             );
-                        if gut_resp.clicked() {
+                        // Clickable to SET on a verb line, or to CLEAR an
+                        // existing breakpoint anywhere (so a stale one is never
+                        // stuck).
+                        if (bp_allowed || is_bp) && gut_resp.clicked() {
                             toggled = Some(line_num);
                         }
-                        if gut_resp.hovered() {
+                        if (bp_allowed || is_bp) && gut_resp.hovered() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                         }
                         if is_bp {
@@ -1506,60 +2672,128 @@ impl DebuggerPanel {
                                 4.5,
                                 Color32::from_rgb(210, 50, 50),
                             );
-                        } else if gut_resp.hovered() {
-                            // A hollow ghost so an empty gutter shows it can be
-                            // clicked at all.
+                        } else if bp_allowed {
+                            // Always a hollow high-contrast ring where a
+                            // breakpoint CAN be set (operator), brighter under
+                            // the pointer so the click target is unmistakable.
+                            let ring = if gut_resp.hovered() {
+                                Color32::from_rgb(232, 238, 246)
+                            } else {
+                                sk.chrome_dim
+                            };
                             ui.painter().circle_stroke(
                                 gut_rect.center(),
                                 4.5,
-                                egui::Stroke::new(1.0, Color32::from_rgb(150, 70, 70)),
+                                egui::Stroke::new(1.5, ring),
                             );
                         }
                         if is_current {
                             ui.painter().text(
                                 gut_rect.center() + Vec2::new(2.0, 0.0),
                                 egui::Align2::CENTER_CENTER,
-                                "►",
-                                egui::FontId::monospace(11.0),
-                                CURRENT_INK,
+                                "▶",
+                                egui::FontId::monospace(10.0),
+                                sk.cur_accent,
                             );
                         }
 
                         // Syntax-highlighted source line. Clickable: clicking
                         // picks the Run-to-Cursor target, which is why that
                         // button stays disabled until there is one.
-                        let job = build_cobol_layout_job_inked(
-                            line_text,
-                            is_current.then_some(CURRENT_INK),
-                        );
+                        // Drawn with over-long literals elided, so one line of
+                        // documentation prose cannot make the whole listing
+                        // scroll sideways. `draw_text` is what the galley, the
+                        // hover lookup and the inline values all use, so the
+                        // character indices they trade in agree; the source and
+                        // the program are untouched.
+                        let draw_text = elide_long_literals(line_text, LITERAL_DRAW_CHARS);
+                        let draw_text = draw_text.as_ref();
+                        // No forced ink on the stopped line any more: the band
+                        // below it is a tint, so the syntax palette is still
+                        // legible and the line still reads as code.
+                        let job = build_cobol_layout_job_inked(draw_text, sk, None, fpt);
                         // Laid out by hand rather than through `Label`, because
                         // the galley is what can answer "which word is the
                         // pointer over" — and that is the whole of the hover
                         // tooltip below.
                         let galley = ui.painter().layout_job(job);
                         let size = galley.size();
+                        // `click_and_drag`, because a drag across the listing is
+                        // how a selection is made. The click meaning is
+                        // unchanged: it still picks the Run-to-Cursor target.
                         let (text_rect, resp) = ui.allocate_exact_size(
-                            Vec2::new(size.x, size.y.max(CODE_LINE_H)),
-                            egui::Sense::click(),
+                            Vec2::new(size.x, size.y.max(line_h)),
+                            egui::Sense::click_and_drag(),
                         );
                         let text_pos = egui::pos2(
                             text_rect.left(),
                             text_rect.center().y - size.y / 2.0,
                         );
+
+                        // Where in this line the pointer is, in characters.
+                        let char_at = |p: egui::Pos2| -> usize {
+                            galley.cursor_from_pos(p - text_pos).index.0
+                        };
+                        // Double-click takes the whole word under the pointer.
+                        if resp.double_clicked() {
+                            if let Some(p) = resp.interact_pointer_pos() {
+                                if let Some((from, to)) = word_span_at(draw_text, char_at(p)) {
+                                    dbl_word = Some((idx, from, to));
+                                }
+                            }
+                        }
+                        if resp.drag_started() {
+                            if let Some(p) = resp.interact_pointer_pos() {
+                                drag_from = Some((idx, char_at(p)));
+                            }
+                        }
+                        if resp.dragged() {
+                            if let Some(p) = resp.interact_pointer_pos() {
+                                drag_to = Some((idx, char_at(p)));
+                            }
+                        }
+
+                        // The selection band, under the text so the ink stays
+                        // on top of it.
+                        let drawn_len = draw_text.chars().count();
+                        let sel_band = self.selection_on_line(idx, drawn_len).map(|(from, to)| {
+                            let x0 = galley.pos_from_cursor(egui::text::CCursor::new(from)).left();
+                            let x1 = galley.pos_from_cursor(egui::text::CCursor::new(to)).left();
+                            let band = egui::Rect::from_min_max(
+                                egui::pos2(text_pos.x + x0, text_rect.top()),
+                                egui::pos2(text_pos.x + x1, text_rect.bottom()),
+                            );
+                            ui.painter().rect_filled(band, 1.0, sk.sel_bg);
+                            band
+                        });
+
                         ui.painter().galley(
                             text_pos,
                             galley.clone(),
-                            if is_current { CURRENT_INK } else { Color32::from_gray(210) },
+                            sk.ink,
                         );
+                        // …and the selected characters again, in one high-contrast
+                        // ink, clipped to the band. The first pass wears syntax
+                        // colours picked for a dark ground; left on the blue band
+                        // they are barely legible, and a selection you cannot read
+                        // is not much of a selection.
+                        if let Some(band) = sel_band {
+                            let job = build_cobol_layout_job_inked(draw_text, sk, Some(sk.sel_ink), fpt);
+                            let hot = ui.painter().layout_job(job);
+                            ui.painter()
+                                .with_clip_rect(band.intersect(ui.clip_rect()))
+                                .galley(text_pos, hot, SEL_INK);
+                        }
                         if resp.clicked() {
                             picked_line = Some(line_num);
+                            clicked_bare = true;
                         }
                         // Hovering a data item says what it holds right now.
                         // Only the paused frame has values to report, so this
                         // is silent while the program runs.
                         if let Some(pos) = resp.hover_pos() {
                             let cursor = galley.cursor_from_pos(pos - text_pos);
-                            if let Some(word) = word_at(line_text, cursor.index.0) {
+                            if let Some(word) = word_at(draw_text, cursor.index.0) {
                                 if let Some((name, value)) = lookup_value(&word, vars) {
                                     resp.clone().on_hover_text(hover_tip(name, value));
                                 }
@@ -1567,13 +2801,13 @@ impl DebuggerPanel {
                         }
                         // Inline values, on the stopped line only.
                         if is_current {
-                            for (name, value) in inline_values(line_text, vars, 2) {
+                            for (name, value) in inline_values(draw_text, vars, 2) {
                                 ui.add_space(14.0);
                                 ui.label(
                                     RichText::new(format!("{name} = {value}"))
                                         .monospace()
-                                        .size(10.0)
-                                        .color(CURRENT_INK),
+                                        .size(12.0)
+                                        .color(sk.cur_ink),
                                 );
                             }
                         }
@@ -1583,16 +2817,24 @@ impl DebuggerPanel {
                     // whole visible width, whatever the horizontal scroll, and
                     // exactly the row's own height.
                     if let Some(idx) = band {
+                        let full = egui::Rect::from_x_y_ranges(
+                            ui.clip_rect().x_range(),
+                            row.response.rect.y_range(),
+                        );
                         ui.painter().set(
                             idx,
-                            egui::Shape::rect_filled(
-                                egui::Rect::from_x_y_ranges(
-                                    ui.clip_rect().x_range(),
-                                    row.response.rect.y_range(),
+                            egui::Shape::Vec(vec![
+                                egui::Shape::rect_filled(full, 0.0, sk.cur_bg),
+                                // The accent bar down the left edge.
+                                egui::Shape::rect_filled(
+                                    egui::Rect::from_min_size(
+                                        full.min,
+                                        Vec2::new(CURRENT_STRIPE_W, full.height()),
+                                    ),
+                                    0.0,
+                                    sk.cur_accent,
                                 ),
-                                0.0,
-                                CURRENT_BG,
-                            ),
+                            ]),
                         );
                     }
 
@@ -1600,14 +2842,41 @@ impl DebuggerPanel {
                     if is_current && need_scroll {
                         ui.scroll_to_cursor(Some(egui::Align::Center));
                     }
+                    // …and when the find bar has just moved to a hit. Same
+                    // road, so a match off-screen is brought into view exactly
+                    // as the stopped line is.
+                    if find_line == Some(line_num) {
+                        ui.scroll_to_cursor(Some(egui::Align::Center));
+                    }
                 }
             });
 
+        self.current_find_line = None;
         if let Some(start) = expand_run {
             self.expanded_runs.insert(start);
         }
         if let Some(l) = picked_line {
             self.cursor_line = Some(l);
+        }
+        // A drag that began this frame starts a new selection; one already in
+        // flight extends it. A bare click with no drag clears it, the way it
+        // does in every editor — otherwise the band would sit there after the
+        // developer had plainly moved on.
+        if let Some(from) = drag_from {
+            self.sel_anchor = Some(from);
+            self.sel_cursor = Some(from);
+        }
+        if let Some(to) = drag_to {
+            self.sel_cursor = Some(to);
+        } else if clicked_bare && drag_from.is_none() && dbl_word.is_none() {
+            self.clear_selection();
+        }
+        // A double-click outranks both: egui reports it as a click too, and the
+        // clear above would otherwise undo the word in the same frame it was
+        // taken.
+        if let Some((line, from, to)) = dbl_word {
+            self.sel_anchor = Some((line, from));
+            self.sel_cursor = Some((line, to));
         }
         toggled
     }
@@ -1633,16 +2902,16 @@ impl DebuggerPanel {
             };
             ui.label(
                 RichText::new(format!("{dot} {label}"))
-                    .size(10.0)
+                    .size(12.0)
                     .color(colour),
             );
-            ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+            ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
             ui.label(
                 RichText::new("COBOL source mapping ✓")
-                    .size(10.0)
+                    .size(12.0)
                     .color(Color32::from_gray(130)),
             );
-            ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+            ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
             // One interpreter per debuggee, so the thread list is one entry —
             // named after the program rather than called "Thread 1", which
             // would say nothing.
@@ -1653,24 +2922,44 @@ impl DebuggerPanel {
                 .unwrap_or_else(|| "—".to_owned());
             ui.label(
                 RichText::new(format!("Main thread · {thread}"))
-                    .size(10.0)
+                    .size(12.0)
                     .color(Color32::from_gray(130)),
             );
-            ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+            ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
             ui.label(
                 RichText::new(format!("Frame {}", self.selected_frame))
-                    .size(10.0)
+                    .size(12.0)
                     .color(Color32::from_gray(130)),
             );
             if self.current_line > 0 {
-                ui.label(RichText::new("│").size(10.0).color(Color32::from_gray(70)));
+                ui.label(RichText::new("│").size(12.0).color(Color32::from_gray(70)));
                 ui.label(
                     RichText::new(format!("line {}", self.current_line))
-                        .size(10.0)
+                        .size(12.0)
                         .color(Color32::from_gray(130)),
                 );
             }
         });
+    }
+
+    /// A dock line's absolute wall-clock time as `HH:MM:SS:mmm` in LOCAL time
+    /// (operator: ISO-8601 time-of-day). Reconstructed from the wall clock at
+    /// session start plus the line's millisecond offset, so it stays exactly in
+    /// step with `at_ms` (which still orders the Timeline). If the session's
+    /// wall clock is somehow missing, the offset itself is shown in the same
+    /// HH:MM:SS:mmm shape rather than a blank.
+    fn dock_stamp(&self, at_ms: u64) -> String {
+        if let Some(start) = self.session_started_wall {
+            let t = start + chrono::TimeDelta::milliseconds(at_ms as i64);
+            return t.format("%H:%M:%S:%3f").to_string();
+        }
+        format!(
+            "{:02}:{:02}:{:02}:{:03}",
+            at_ms / 3_600_000,
+            (at_ms / 60_000) % 60,
+            (at_ms / 1000) % 60,
+            at_ms % 1000,
+        )
     }
 
     /// The bottom dock: debugger output, split by channel, plus a prompt.
@@ -1678,6 +2967,7 @@ impl DebuggerPanel {
     /// Returns any query the prompt produced. The prompt is the same evaluator
     /// the watches use, so anything that works in one works in the other.
     fn investigation_dock(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        let sk = self.skin.palette();
         ui.horizontal(|ui| {
             let counts = |c: cobolt_runtime::OutputChannel| {
                 self.dock.iter().filter(|l| l.channel == c).count()
@@ -1700,10 +2990,12 @@ impl DebuggerPanel {
                 } else {
                     label.to_owned()
                 };
-                ui.selectable_value(&mut self.dock_tab, tab, text);
+                if pill_tab(ui, self.dock_tab == tab, &text, sk).clicked() {
+                    self.dock_tab = tab;
+                }
             }
             if ui
-                .add(egui::Label::new(RichText::new("🗑").size(12.0)).sense(egui::Sense::click()))
+                .add(egui::Label::new(RichText::new("🗑").size(15.0)).sense(egui::Sense::click()))
                 .on_hover_text("Clear")
                 .clicked()
             {
@@ -1723,23 +3015,38 @@ impl DebuggerPanel {
             DockTab::Timeline => None,
         };
 
-        let rows = ui.available_height() - 26.0;
+        // What the scroll area may take: everything left, LESS the prompt's own
+        // row. 26 px was not enough for a `TextEdit` plus its spacing, so the
+        // prompt was drawn past the panel's edge and arrived clipped in half
+        // (operator, 2026-09-17). `PROMPT_H` is what it actually occupies, and
+        // the panel is sized with the same number.
+        let rows = ui.available_height() - if self.dock_tab == DockTab::Console {
+            PROMPT_H
+        } else {
+            4.0
+        };
         ScrollArea::vertical()
             .id_salt("dbg_dock_scroll")
             .max_height(rows.max(40.0))
             .auto_shrink([false, false])
             .stick_to_bottom(true)
             .show(ui, |ui| {
+                // Courier New for the whole dock line — timestamp, channel tag
+                // and text — so the columns line up on their own (operator).
+                // Cloned Context so `font_id` can run while `ui` is borrowed
+                // mutably in the loop below.
+                let ctx = ui.ctx().clone();
+                let mono12 = dock_font(&ctx, 12.0);
+                let mono13 = dock_font(&ctx, 13.0);
                 let mut any = false;
                 for line in self.dock.iter().filter(|l| want.is_none_or(|c| l.channel == c)) {
                     any = true;
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.0;
                         ui.label(
-                            RichText::new(format!("{:>7}.{:03}", line.at_ms / 1000, line.at_ms % 1000))
-                                .monospace()
-                                .size(10.0)
-                                .color(Color32::from_gray(100)),
+                            RichText::new(self.dock_stamp(line.at_ms))
+                                .font(mono12.clone())
+                                .color(sk.chrome_dim),
                         );
                         if want.is_none() {
                             ui.label(
@@ -1750,15 +3057,13 @@ impl DebuggerPanel {
                                     Ch::Problems => "prb",
                                     Ch::Timeline => "tml",
                                 })
-                                .monospace()
-                                .size(10.0)
+                                .font(mono12.clone())
                                 .color(Color32::from_gray(120)),
                             );
                         }
                         ui.label(
                             RichText::new(&line.text)
-                                .monospace()
-                                .size(11.0)
+                                .font(mono13.clone())
                                 .color(if line.channel == Ch::Problems {
                                     Color32::from_rgb(230, 140, 140)
                                 } else {
@@ -1769,9 +3074,7 @@ impl DebuggerPanel {
                 }
                 if !any {
                     ui.label(
-                        RichText::new(tr.dbg_dock_empty)
-                            .size(11.0)
-                            .color(Color32::from_gray(110)),
+                        RichText::new(tr.dbg_dock_empty).size(13.0).color(sk.chrome_dim),
                     );
                 }
             });
@@ -1785,12 +3088,23 @@ impl DebuggerPanel {
                         .monospace()
                         .color(Color32::from_rgb(120, 190, 255)),
                 );
-                let resp = ui.add_enabled(
-                    self.is_paused,
+                // Always editable (operator): the developer can type an
+                // expression whenever, not only while stopped. It is evaluated
+                // against the current frame when a stop is in effect.
+                let resp = ui.add(
                     TextEdit::singleline(&mut self.console_input)
                         .hint_text(tr.dbg_console_hint)
                         .font(egui::TextStyle::Monospace)
-                        .desired_width(f32::INFINITY),
+                        .desired_width(f32::INFINITY)
+                        // Double the box height (operator) by padding inside the
+                        // field — the font is unchanged, the caret just sits in
+                        // a taller well.
+                        .margin(egui::Margin {
+                            left: 8,
+                            right: 8,
+                            top: 11,
+                            bottom: 11,
+                        }),
                 );
                 if resp.has_focus() {
                     // ↑/↓ walk the history, as every console does.
@@ -1846,12 +3160,14 @@ impl DebuggerPanel {
                     }
                 }
             });
+            ui.add_space(5.0); // bottom padding under the prompt (operator)
         }
     }
 
     // ── Tabbed data panel ─────────────────────────────────────────────────────
 
     fn data_tabs(&mut self, ui: &mut egui::Ui, tr: &Tr) {
+        let sk = self.skin.palette();
         // Collected in the closure, applied after: every one of these mutates
         // state the tree is being read from.
         let mut pick_frame: Option<usize> = None;
@@ -1865,12 +3181,43 @@ impl DebuggerPanel {
         let mut drop_watch: Option<usize> = None;
         let mut evaluate_watches: Vec<(usize, String)> = Vec::new();
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.active_tab, Tab::Variables, tr.dbg_variables);
-            ui.selectable_value(&mut self.active_tab, Tab::Watches, tr.dbg_watches);
-            ui.selectable_value(&mut self.active_tab, Tab::CallStack, tr.dbg_call_stack);
-            ui.selectable_value(&mut self.active_tab, Tab::Breakpoints, tr.dbg_breakpoints);
+            ui.spacing_mut().item_spacing.x = 4.0;
+            // Three primary tabs only (spec §9): Variáveis, Observações, Pilha.
+            for (tab, label) in [
+                (Tab::Variables, tr.dbg_variables),
+                (Tab::Watches, tr.dbg_watches),
+                (Tab::CallStack, tr.dbg_call_stack),
+            ] {
+                if pill_tab(ui, self.active_tab == tab, label, sk).clicked() {
+                    self.active_tab = tab;
+                }
+            }
+            // Breakpoints is moved off the three-tab row (spec §9), reachable
+            // from a small overflow control on the right — a painter-drawn
+            // breakpoint dot, never an emoji.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let active = self.active_tab == Tab::Breakpoints;
+                let (rect, resp) =
+                    ui.allocate_exact_size(Vec2::new(26.0, 22.0), egui::Sense::click());
+                if active {
+                    ui.painter().rect_filled(
+                        rect,
+                        egui::CornerRadius::same(8),
+                        Color32::from_rgba_unmultiplied(sk.kw.r(), sk.kw.g(), sk.kw.b(), 40),
+                    );
+                }
+                let col = if active { sk.kw } else { sk.chrome_dim };
+                ui.painter().circle_filled(rect.center(), 4.5, col);
+                let resp = resp.on_hover_text(tr.dbg_breakpoints);
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if resp.clicked() {
+                    self.active_tab = Tab::Breakpoints;
+                }
+            });
         });
-        ui.separator();
+        ui.add_space(8.0);
 
         match self.active_tab {
             Tab::Variables => {
@@ -1883,7 +3230,7 @@ impl DebuggerPanel {
                     ui.label(
                         RichText::new(format!("⚠ {err}"))
                             .color(Color32::from_rgb(230, 120, 120))
-                            .size(11.0),
+                            .size(13.0),
                     );
                 }
                 ui.add_space(2.0);
@@ -1892,7 +3239,7 @@ impl DebuggerPanel {
                     ui.label(
                         RichText::new(tr.dbg_state_running)
                             .color(Color32::from_gray(110))
-                            .size(11.0),
+                            .size(13.0),
                     );
                     return;
                 }
@@ -1923,7 +3270,7 @@ impl DebuggerPanel {
                             header.col(|ui| {
                                 ui.label(
                                     RichText::new(label)
-                                        .size(11.0)
+                                        .size(13.0)
                                         .color(Color32::from_gray(150)),
                                 );
                             });
@@ -1948,7 +3295,7 @@ impl DebuggerPanel {
                                             r.name
                                         ))
                                         .monospace()
-                                        .size(11.0)
+                                        .size(13.0)
                                         .color(r.name_colour),
                                     )
                                     .sense(egui::Sense::click()),
@@ -1966,7 +3313,7 @@ impl DebuggerPanel {
                                 ui.label(
                                     RichText::new(&r.type_text)
                                         .monospace()
-                                        .size(10.0)
+                                        .size(12.0)
                                         .color(Color32::from_gray(140)),
                                 );
                             });
@@ -1995,7 +3342,7 @@ impl DebuggerPanel {
                                 } else {
                                     let mut rt = RichText::new(&r.value_text)
                                         .monospace()
-                                        .size(11.0)
+                                        .size(13.0)
                                         .color(r.value_colour);
                                     if r.value_italic {
                                         rt = rt.italics();
@@ -2039,7 +3386,7 @@ impl DebuggerPanel {
                     ui.label(
                         RichText::new(tr.dbg_watch_empty)
                             .color(Color32::from_gray(110))
-                            .size(11.0),
+                            .size(13.0),
                     );
                 } else {
                     // Its own two-column table, as the mockup asks — the same
@@ -2063,7 +3410,7 @@ impl DebuggerPanel {
                                 header.col(|ui| {
                                     ui.label(
                                         RichText::new(label)
-                                            .size(11.0)
+                                            .size(13.0)
                                             .color(Color32::from_gray(150)),
                                     );
                                 });
@@ -2078,7 +3425,7 @@ impl DebuggerPanel {
                                     ui.label(
                                         RichText::new(expr)
                                             .monospace()
-                                            .size(11.0)
+                                            .size(13.0)
                                             .color(Color32::from_rgb(215, 220, 235)),
                                     );
                                 });
@@ -2086,7 +3433,7 @@ impl DebuggerPanel {
                                     (_, Some(e)) => {
                                         ui.label(
                                             RichText::new(e)
-                                                .size(11.0)
+                                                .size(13.0)
                                                 .italics()
                                                 .color(Color32::from_rgb(230, 120, 120)),
                                         );
@@ -2095,7 +3442,7 @@ impl DebuggerPanel {
                                         ui.label(
                                             RichText::new(v.trim())
                                                 .monospace()
-                                                .size(11.0)
+                                                .size(13.0)
                                                 .color(Color32::from_rgb(240, 200, 120)),
                                         );
                                     }
@@ -2105,7 +3452,7 @@ impl DebuggerPanel {
                                     (None, None) => {
                                         ui.label(
                                             RichText::new(if paused { "…" } else { "—" })
-                                                .size(11.0)
+                                                .size(13.0)
                                                 .color(Color32::from_gray(110)),
                                         );
                                     }
@@ -2115,7 +3462,7 @@ impl DebuggerPanel {
                                         .add(
                                             egui::Label::new(
                                                 RichText::new("🗑")
-                                                    .size(11.0)
+                                                    .size(14.0)
                                                     .color(Color32::from_gray(120)),
                                             )
                                             .sense(egui::Sense::click()),
@@ -2145,7 +3492,7 @@ impl DebuggerPanel {
                     .show(ui, |ui| {
                         if self.frames.is_empty() {
                             ui.label(
-                                RichText::new(tr.dbg_no_frame).color(Color32::from_gray(100)),
+                                RichText::new(tr.dbg_no_frame).color(sk.chrome_dim),
                             );
                             return;
                         }
@@ -2163,7 +3510,7 @@ impl DebuggerPanel {
                                         f.display_name()
                                     ))
                                     .monospace()
-                                    .size(12.0)
+                                    .size(14.0)
                                     .color(if is_top {
                                         Color32::from_rgb(230, 180, 40)
                                     } else if f.generated {
@@ -2190,7 +3537,7 @@ impl DebuggerPanel {
                                         f.kind, f.line
                                     ))
                                     .monospace()
-                                    .size(10.0)
+                                    .size(12.0)
                                     .color(Color32::from_gray(110)),
                                 );
                             }
@@ -2199,31 +3546,62 @@ impl DebuggerPanel {
             }
 
             Tab::Breakpoints => {
+                // A named column heading, not a bare bullet (operator).
+                ui.label(RichText::new(tr.dbg_breakpoints).strong().color(sk.chrome));
+                ui.add_space(4.0);
                 ScrollArea::vertical()
                     .id_salt("dbg_bp_scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         if self.breakpoints.is_empty() {
                             ui.label(
-                                RichText::new("No breakpoints set").color(Color32::from_gray(100)),
+                                RichText::new(tr.dbg_no_breakpoints).color(sk.chrome_dim),
                             );
                         } else {
                             let mut sorted: Vec<u32> = self.breakpoints.iter().cloned().collect();
                             sorted.sort_unstable();
                             egui::Grid::new("dbg_bp_grid")
-                                .num_columns(2)
+                                .num_columns(3)
                                 .striped(true)
                                 .show(ui, |ui| {
                                     for line in &sorted {
+                                        // The red dot — the "o" of the gutter,
+                                        // so a row reads the same as the code.
                                         ui.label(
                                             RichText::new("●")
                                                 .color(Color32::from_rgb(210, 50, 50)),
                                         );
+                                        // `line N - <excerpt>`: the code the
+                                        // breakpoint sits on, trimmed and
+                                        // clipped so a long statement never
+                                        // stretches the dock (operator).
+                                        let excerpt = self
+                                            .source_lines
+                                            .get((*line as usize).saturating_sub(1))
+                                            .map(|s| bp_line_excerpt(s))
+                                            .unwrap_or_default();
+                                        let text = if excerpt.is_empty() {
+                                            format!("line {line}")
+                                        } else {
+                                            format!("line {line} - {excerpt}")
+                                        };
                                         ui.label(
-                                            RichText::new(format!("line {line}"))
+                                            RichText::new(text)
                                                 .monospace()
                                                 .color(Color32::from_rgb(100, 180, 255)),
                                         );
+                                        // The ✕ clears this breakpoint — the
+                                        // same toggle a gutter click raises,
+                                        // routed out through `bp_remove_request`.
+                                        let x = ui.add(
+                                            egui::Button::new(
+                                                RichText::new("✕").color(sk.chrome_dim),
+                                            )
+                                            .frame(false),
+                                        );
+                                        if x.on_hover_text(tr.dbg_remove_breakpoint).clicked() {
+                                            self.bp_remove_request = Some(*line);
+                                        }
                                         ui.end_row();
                                     }
                                 });
@@ -2399,7 +3777,7 @@ impl DebuggerPanel {
     }
 
     fn fit_value_preview(ui: &egui::Ui, value: &str, max_px: f32) -> String {
-        let font_id = egui::FontId::monospace(11.0);
+        let font_id = egui::FontId::monospace(13.0);
         let text_width = |text: &str| {
             ui.fonts_mut(|fonts| {
                 fonts
@@ -2554,8 +3932,86 @@ fn is_cobol_keyword(word: &str) -> bool {
     COBOL_KEYWORDS.iter().any(|&kw| kw == upper.as_str())
 }
 
+/// The COBOL-85 statement verbs — the words that OPEN an executable statement.
+/// A breakpoint belongs only on a line that starts with one of these: never a
+/// division or section header, a paragraph name, a data item, a scope
+/// terminator (`END-IF`), a clause continuation (`WHEN`, `INTO`) or a comment.
+const COBOL_STMT_VERBS: &[&str] = &[
+    "ACCEPT", "ADD", "ALTER", "CALL", "CANCEL", "CLOSE", "COMPUTE", "CONTINUE",
+    "DELETE", "DISPLAY", "DIVIDE", "EVALUATE", "EXEC", "EXIT", "GO", "GOBACK",
+    "IF", "INITIALIZE", "INSPECT", "INVOKE", "MERGE", "MOVE", "MULTIPLY", "OPEN",
+    "PERFORM", "READ", "RELEASE", "RETURN", "REWRITE", "SEARCH", "SET", "SORT",
+    "START", "STOP", "STRING", "SUBTRACT", "UNLOCK", "UNSTRING", "WRITE",
+];
+
+/// `true` when a breakpoint may be set on `line`. Two shapes qualify, and only
+/// these two (operator):
+///
+///  1. A line that OPENS an executable statement — its first word is a COBOL
+///     verb.
+///  2. An inline method invocation — `grid-1::rows::getItem(1)` — which begins
+///     with an object name, not a verb, yet is a real statement the debuggee
+///     stops on. The `::` after the first identifier is the tell.
+///
+/// Everything else — a division or section header, a paragraph name, a data
+/// item, a scope terminator, a clause continuation, a comment — shows no ring
+/// and swallows no click, because the program never stops on it.
+/// Whether the OS provides the "Courier New" font. Cached in a `OnceLock`:
+/// `system_fonts()` enumerates the whole system list, far too much to redo per
+/// dock line per frame.
+fn courier_available() -> bool {
+    static AVAIL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAIL.get_or_init(|| {
+        crate::fonts::system_fonts()
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case("Courier New"))
+    })
+}
+
+/// The investigation dock's monospace font at `size`: Courier New where the OS
+/// has it (operator), so the columns line up on their own; egui's own
+/// monospace otherwise. Never the proportional fallback `font_id` gives for an
+/// absent family — that would defeat the alignment the dock exists to provide.
+fn dock_font(ctx: &egui::Context, size: f32) -> egui::FontId {
+    if courier_available() {
+        crate::fonts::font_id(ctx, "Courier New", size)
+    } else {
+        egui::FontId::monospace(size)
+    }
+}
+
+/// A one-line preview of the code a breakpoint sits on, for the Breakpoints
+/// list: trimmed of its fixed-form indentation and clipped so a long statement
+/// does not stretch the dock. A trailing `…` marks a clip.
+fn bp_line_excerpt(line: &str) -> String {
+    const MAX: usize = 44;
+    let trimmed = line.trim();
+    if trimmed.chars().count() > MAX {
+        let mut s: String = trimmed.chars().take(MAX).collect();
+        s.push('…');
+        s
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn line_allows_breakpoint(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let first: String = trimmed
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    if COBOL_STMT_VERBS.contains(&first.to_ascii_uppercase().as_str()) {
+        return true;
+    }
+    // `<identifier>::` — an inline invocation. The first token must be a real
+    // identifier (so a bare `::` or a line starting with punctuation does not
+    // qualify), and `::` must follow it, allowing for spacing.
+    !first.is_empty() && trimmed[first.len()..].trim_start().starts_with("::")
+}
+
 fn build_cobol_layout_job(line: &str) -> egui::text::LayoutJob {
-    build_cobol_layout_job_inked(line, None)
+    build_cobol_layout_job_inked(line, DebugSkin::default().palette(), None, 12.0)
 }
 
 /// The same colouring, except that `ink` — when given — overrides every colour
@@ -2565,18 +4021,23 @@ fn build_cobol_layout_job(line: &str) -> egui::text::LayoutJob {
 /// dark editor is close to unreadable there: the comment green and the string
 /// brown both sit near the band's own luminance. One high-contrast ink for that
 /// one line is worth more than the colouring it replaces.
-fn build_cobol_layout_job_inked(line: &str, ink: Option<Color32>) -> egui::text::LayoutJob {
+fn build_cobol_layout_job_inked(
+    line: &str,
+    sk: Skin,
+    ink: Option<Color32>,
+    font_pt: f32,
+) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     // Disable wrapping — code lines extend to the right.
     job.wrap.max_width = f32::INFINITY;
 
-    let mono = egui::FontId::monospace(12.0);
+    let mono = egui::FontId::monospace(font_pt);
     let paint = |c: Color32| ink.unwrap_or(c);
-    let col_kw = paint(Color32::from_rgb(86, 156, 214));
-    let col_str = paint(Color32::from_rgb(206, 145, 120));
-    let col_cmt = paint(Color32::from_rgb(87, 166, 74));
-    let col_num = paint(Color32::from_rgb(181, 206, 168));
-    let col_def = paint(Color32::from_gray(210));
+    let col_kw = paint(sk.kw);
+    let col_str = paint(sk.lit);
+    let col_cmt = paint(sk.cmt);
+    let col_num = paint(sk.num);
+    let col_def = paint(sk.ink);
 
     let trimmed = line.trim_start();
     if trimmed.starts_with("*>") {
@@ -2607,10 +4068,15 @@ fn build_cobol_layout_job_inked(line: &str, ink: Option<Color32>) -> egui::text:
     }
 
     while i < len {
-        if chars[i] == '"' {
+        if chars[i] == '"' || chars[i] == '\'' {
+            // A quoted literal is ONE colour end to end (operator): its content
+            // is text, not code, so reserved words inside it are never
+            // keyword-coloured. COBOL allows both quote styles, and a literal
+            // closes only on its own quote.
+            let quote = chars[i];
             let start = i;
             i += 1;
-            while i < len && chars[i] != '"' {
+            while i < len && chars[i] != quote {
                 i += 1;
             }
             if i < len {
@@ -2660,6 +4126,7 @@ fn build_cobol_layout_job_inked(line: &str, ink: Option<Color32>) -> egui::text:
             while i < len
                 && !chars[i].is_alphabetic()
                 && chars[i] != '"'
+                && chars[i] != '\''
                 && !chars[i].is_ascii_digit()
             {
                 if chars[i] == '-' && i + 1 < len && chars[i + 1].is_alphanumeric() {
@@ -2688,6 +4155,38 @@ fn build_cobol_layout_job_inked(line: &str, ink: Option<Color32>) -> egui::text:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A breakpoint may be set only on a line that starts a COBOL statement.
+    #[test]
+    fn breakpoints_on_statement_verbs_and_inline_invocations() {
+        for ok in [
+            "           MOVE X TO Y",
+            "       IF WS-X = 1",
+            "           STOP RUN.",
+            "           CONTINUE.",
+            "           PERFORM COBOL-EVENT-LOOP",
+            "           CALL \"X\"",
+            // Inline method invocations open with an object, not a verb, yet
+            // are real statements the debuggee stops on (operator).
+            "           grid-1::rows::getItem(1)",
+            "           SNACKBAR-1::show",
+        ] {
+            assert!(line_allows_breakpoint(ok), "should allow: {ok:?}");
+        }
+        for no in [
+            "       PROCEDURE DIVISION.",
+            "       COBOL-MAIN.",
+            "       01 WS-ROW-COUNT PIC 9(9).",
+            "       WORKING-STORAGE SECTION.",
+            "      *> a comment",
+            "",
+            "           END-IF",
+            "               WHEN \"retry\"",
+            "           MOVE-FLAG", // a data name, not the MOVE verb
+        ] {
+            assert!(!line_allows_breakpoint(no), "should refuse: {no:?}");
+        }
+    }
 
     /// Regression: a `-` directly followed by an alphanumeric (negative literal
     /// like `BY -1`) used to make the tokenizer loop forever with zero progress,
@@ -2967,23 +4466,29 @@ mod hover_value_tests {
         assert_eq!(lookup_value("WS-BLANK", &vars), None);
     }
 
-    /// Long values are cut so the tooltip stays one short line — counted in
+    /// Long values are cut so the tooltip stays readable — counted in
     /// characters, because a value carrying accents has more bytes than columns
     /// and cutting by byte would split one in half.
+    ///
+    /// Written against `TIP_VALUE_CHARS` rather than a literal: the cap moved
+    /// from 18 to 100 on operator instruction (2026-09-17), and a test that
+    /// spells the number out has to be edited every time it does — which is how
+    /// a test starts pinning yesterday's decision.
     #[test]
-    fn a_long_value_is_cut_at_eighteen_characters() {
+    fn a_long_value_is_cut_at_the_tooltip_cap() {
+        use super::TIP_VALUE_CHARS;
         assert_eq!(hover_tip("WS-X", "short"), "WS-X = short");
-        // Exactly eighteen is not long.
-        assert_eq!(hover_tip("WS-X", "123456789012345678"), "WS-X = 123456789012345678");
-        assert_eq!(
-            hover_tip("WS-X", "1234567890123456789"),
-            "WS-X = 123456789012345678..."
-        );
-        // Nineteen accented characters: cut at the character, never mid-byte.
-        let accented = "\u{e7}\u{f5}".repeat(10);
+        // Exactly the cap is not long.
+        let at_cap: String = "1".repeat(TIP_VALUE_CHARS);
+        assert_eq!(hover_tip("WS-X", &at_cap), format!("WS-X = {at_cap}"));
+        // One over it is.
+        let over: String = "1".repeat(TIP_VALUE_CHARS + 1);
+        assert_eq!(hover_tip("WS-X", &over), format!("WS-X = {at_cap}..."));
+        // Accented characters: cut at the character, never mid-byte.
+        let accented = "\u{e7}\u{f5}".repeat(TIP_VALUE_CHARS);
         let tip = hover_tip("WS-X", &accented);
         assert!(tip.ends_with("..."), "{tip}");
-        assert_eq!(tip.chars().count(), "WS-X = ".len() + 18 + 3);
+        assert_eq!(tip.chars().count(), "WS-X = ".len() + TIP_VALUE_CHARS + 3);
     }
 }
 
@@ -3046,5 +4551,240 @@ mod inline_value_tests {
     fn matching_ignores_case() {
         let vars = vec![v("WS-TOTAL", "42")];
         assert_eq!(inline_values("    move 1 to ws-total.", &vars, 4).len(), 1);
+    }
+}
+
+
+#[cfg(test)]
+mod selection_and_elision_tests {
+    use super::{elide_long_literals, word_span_at, DebuggerPanel, LITERAL_DRAW_CHARS, TIP_VALUE_CHARS};
+
+    fn panel(lines: &[&str]) -> DebuggerPanel {
+        let mut p = DebuggerPanel::new();
+        p.source_lines = lines.iter().map(|l| (*l).to_string()).collect();
+        p
+    }
+
+    /// One line of documentation prose in a VALUE clause used to make the whole
+    /// listing scroll sideways, so every other line had to be read through an
+    /// offset it did not need.
+    #[test]
+    fn a_long_literal_is_elided_for_drawing_only() {
+        let long = "X".repeat(400);
+        let line = format!("           MOVE \"{long}\" TO WS-DOC.");
+        let drawn = elide_long_literals(&line, LITERAL_DRAW_CHARS);
+
+        assert!(drawn.chars().count() < line.chars().count(), "nothing was elided");
+        assert!(drawn.contains('…'), "the cut is not marked: {drawn}");
+        // Still recognisable as COBOL: the statement around it survives whole.
+        assert!(drawn.starts_with("           MOVE \""), "got {drawn}");
+        assert!(drawn.ends_with("\" TO WS-DOC."), "the tail was lost: {drawn}");
+    }
+
+    /// A literal that fits is returned untouched — and borrowed, so the common
+    /// line costs no allocation.
+    #[test]
+    fn a_short_literal_is_left_exactly_as_written() {
+        let line = "           MOVE \"OK\" TO WS-FLAG.";
+        assert!(matches!(
+            elide_long_literals(line, LITERAL_DRAW_CHARS),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        assert_eq!(elide_long_literals(line, LITERAL_DRAW_CHARS), line);
+    }
+
+    /// Accented prose is exactly what these literals hold, and cutting by byte
+    /// would split a character in half.
+    #[test]
+    fn eliding_counts_characters_not_bytes() {
+        let accented = "á".repeat(200);
+        let line = format!("      01 WS-T PIC X(200) VALUE \"{accented}\".");
+        let drawn = elide_long_literals(&line, 10);
+        assert!(drawn.contains("áááááááááá…"), "got {drawn}");
+        // The proof it is not byte-cut: it is still valid UTF-8 text we can
+        // count, and the head is exactly 10 characters.
+        let head: String = drawn
+            .chars()
+            .skip_while(|c| *c != '"')
+            .skip(1)
+            .take_while(|c| *c != '…')
+            .collect();
+        assert_eq!(head.chars().count(), 10, "head was {head:?}");
+    }
+
+    /// An unterminated literal — a half-typed line — must not swallow the rest
+    /// of the file or panic.
+    #[test]
+    fn an_unterminated_literal_is_handled() {
+        let line = "           MOVE \"no closing quote here";
+        let drawn = elide_long_literals(line, LITERAL_DRAW_CHARS);
+        assert_eq!(drawn, line);
+    }
+
+    /// Dragging across two lines copies both, joined with a newline.
+    #[test]
+    fn a_selection_spanning_lines_copies_every_line_it_covers() {
+        let mut p = panel(&["MOVE A TO B.", "ADD 1 TO C.", "DISPLAY C."]);
+        // From "A" on line 0 to just past "1" on line 1.
+        p.sel_anchor = Some((0, 5));
+        p.sel_cursor = Some((1, 5));
+        assert_eq!(p.selected_text().as_deref(), Some("A TO B.\nADD 1"));
+    }
+
+    /// A selection inside one line copies exactly that run.
+    #[test]
+    fn a_selection_within_one_line_copies_that_run() {
+        let mut p = panel(&["           PERFORM VALIDATE-CUSTOMER."]);
+        p.sel_anchor = Some((0, 19));
+        p.sel_cursor = Some((0, 36));
+        assert_eq!(p.selected_text().as_deref(), Some("VALIDATE-CUSTOMER"));
+    }
+
+    /// Dragging backwards selects the same text as dragging forwards.
+    #[test]
+    fn a_backwards_drag_selects_the_same_text() {
+        let mut p = panel(&["MOVE A TO B.", "ADD 1 TO C."]);
+        p.sel_anchor = Some((1, 5));
+        p.sel_cursor = Some((0, 5));
+        assert_eq!(p.selected_text().as_deref(), Some("A TO B.\nADD 1"));
+    }
+
+    /// Nothing selected means nothing to copy — which is what disables the
+    /// Copy button rather than letting it put an empty string on the clipboard.
+    #[test]
+    fn an_empty_selection_offers_nothing() {
+        let mut p = panel(&["MOVE A TO B."]);
+        assert!(p.selection_range().is_none());
+        assert!(p.selected_text().is_none());
+        // Anchor and cursor at the same spot is a click, not a selection.
+        p.sel_anchor = Some((0, 4));
+        p.sel_cursor = Some((0, 4));
+        assert!(p.selection_range().is_none());
+        assert!(p.selected_text().is_none());
+    }
+
+    /// What is copied is what the listing SHOWS: a literal drawn elided is
+    /// copied elided, because copying text the developer cannot see would be
+    /// the more surprising of the two.
+    #[test]
+    fn copying_an_elided_line_copies_what_is_drawn() {
+        let long = "Z".repeat(300);
+        let mut p = panel(&[format!("MOVE \"{long}\" TO X.").as_str()]);
+        p.sel_anchor = Some((0, 0));
+        p.sel_cursor = Some((0, 10_000));
+        let copied = p.selected_text().expect("a selection");
+        assert!(copied.contains('…'), "the copy is not the drawn text: {copied}");
+        assert!(copied.chars().count() < 300, "the whole literal was copied");
+    }
+
+    /// Double-click takes the whole run between two spaces.
+    ///
+    /// The operator's own rule (2026-09-17): a word is what is surrounded by
+    /// spaces, bounded also by the start or end of the line and by a period.
+    /// Deliberately coarser than a COBOL identifier — `TRIM(WS-LINE))` is one
+    /// word, because that is the thing sitting between two spaces.
+    #[test]
+    fn a_double_click_takes_the_run_between_two_spaces() {
+        let line = "           Txt-Log::AppendText(FUNCTION TRIM(WS-LINE)).";
+        let at = line.find("TRIM").unwrap();
+        let (from, to) = word_span_at(line, at).expect("a word");
+        assert_eq!(&line[from..to], "TRIM(WS-LINE))");
+
+        // …and the token before it, from anywhere inside.
+        let mid = line.find("AppendText").unwrap() + 3;
+        let (from, to) = word_span_at(line, mid).expect("a word");
+        assert_eq!(&line[from..to], "Txt-Log::AppendText(FUNCTION");
+    }
+
+    /// A word may begin in column 1 and may end at the end of the line.
+    #[test]
+    fn a_word_may_touch_either_end_of_the_line() {
+        assert_eq!(word_span_at("MAIN-PARA", 0), Some((0, 9)));
+        let line = "MOVE 1 TO WS-N";
+        let (from, to) = word_span_at(line, line.len() - 1).expect("a word");
+        assert_eq!(&line[from..to], "WS-N");
+    }
+
+    /// A period ends a word, so double-clicking the last one on a sentence does
+    /// not drag the period in with it.
+    #[test]
+    fn a_period_ends_a_word() {
+        let line = "           STOP RUN.";
+        let at = line.find("RUN").unwrap();
+        let (from, to) = word_span_at(line, at).expect("a word");
+        assert_eq!(&line[from..to], "RUN");
+    }
+
+    /// On a separator there is no word to take — a double-click in the indent
+    /// selects nothing rather than guessing at a neighbour.
+    #[test]
+    fn a_double_click_on_a_gap_takes_nothing() {
+        assert_eq!(word_span_at("           STOP RUN.", 3), None);
+        assert_eq!(word_span_at("           STOP RUN.", 19), None); // the period
+        assert_eq!(word_span_at("", 0), None);
+    }
+
+    /// Find walks every match, in reading order, wrapping at both ends.
+    #[test]
+    fn find_locates_every_match_and_walks_them() {
+        let mut p = panel(&[
+            "           MOVE WS-LINE TO WS-NL.",
+            "           DISPLAY WS-LINE.",
+            "           STOP RUN.",
+        ]);
+        p.find_query = "ws-line".into();
+        p.rebuild_find_hits();
+
+        assert_eq!(p.find_hits.len(), 2, "both lines hold a match: {:?}", p.find_hits);
+        assert_eq!(p.find_hits[0].0, 0);
+        assert_eq!(p.find_hits[1].0, 1);
+        // Case-insensitive: COBOL is, so the search is.
+        assert_eq!(p.find_at, 0);
+
+        p.step_find(true);
+        assert_eq!(p.find_at, 1);
+        p.step_find(true);
+        assert_eq!(p.find_at, 0, "forward wraps");
+        p.step_find(false);
+        assert_eq!(p.find_at, 1, "backward wraps");
+    }
+
+    /// The current hit is selected, so Copy takes what was found.
+    #[test]
+    fn the_current_hit_becomes_the_selection() {
+        let mut p = panel(&["           PERFORM VALIDATE-CUSTOMER."]);
+        p.find_query = "validate".into();
+        p.rebuild_find_hits();
+        p.reveal_current_hit();
+        assert_eq!(p.selected_text().as_deref(), Some("VALIDATE"));
+    }
+
+    /// A query matching nothing leaves no hits and no selection to copy.
+    #[test]
+    fn a_query_with_no_match_finds_nothing() {
+        let mut p = panel(&["           STOP RUN."]);
+        p.find_query = "WS-NOWHERE".into();
+        p.rebuild_find_hits();
+        assert!(p.find_hits.is_empty());
+        // Stepping an empty list must not panic or wrap into nothing.
+        p.step_find(true);
+        assert_eq!(p.find_at, 0);
+    }
+
+    /// Two matches on ONE line are two hits, not one.
+    #[test]
+    fn two_matches_on_one_line_are_two_hits() {
+        let mut p = panel(&["           ADD WS-N TO WS-N."]);
+        p.find_query = "WS-N".into();
+        p.rebuild_find_hits();
+        assert_eq!(p.find_hits.len(), 2, "got {:?}", p.find_hits);
+        assert_ne!(p.find_hits[0].1, p.find_hits[1].1, "both hits at one column");
+    }
+
+    /// The hover tooltip's cap, raised from 18 to 100 by operator instruction:
+    /// 18 cut a caption or a path to a stub that answered nothing.
+    #[test]
+    fn the_tooltip_cap_is_a_hundred_characters() {
+        assert_eq!(TIP_VALUE_CHARS, 100);
     }
 }

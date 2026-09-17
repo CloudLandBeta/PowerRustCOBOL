@@ -163,6 +163,93 @@ impl SourceMap {
         })
     }
 
+    /// The span of the form's first event handler.
+    ///
+    /// Prefers the `onLoad` handler — it runs the moment the form loads, with no
+    /// user action — so a debugger can stop there the instant the program
+    /// starts, ON the developer's own code, instead of on the generated
+    /// `COBOL-MAIN` boilerplate. Falls back to the earliest handler of any kind.
+    fn first_handler_span(&self) -> Option<&MappedSpan> {
+        let is_handler = |s: &&MappedSpan| {
+            matches!(
+                s.site,
+                CodeSite::FormEvent { .. } | CodeSite::ControlEvent { .. }
+            )
+        };
+        self.spans
+            .iter()
+            .filter(|s| {
+                matches!(&s.site, CodeSite::FormEvent { event } if event.eq_ignore_ascii_case("onLoad"))
+            })
+            .min_by_key(|s| s.gen_start)
+            .or_else(|| self.spans.iter().filter(is_handler).min_by_key(|s| s.gen_start))
+    }
+
+    /// The generated line where the first handler's *body* begins (its first
+    /// header line). `None` when the program binds no handlers.
+    pub fn first_handler_gen_line(&self) -> Option<u32> {
+        self.first_handler_span().map(|s| s.gen_start)
+    }
+
+    /// The generated line a debugger should stop on to open ON the first
+    /// handler's code: the first real statement after that handler's `PROCEDURE
+    /// DIVISION` — even if it is only a `CONTINUE`. A `PROCEDURE DIVISION`
+    /// header is not an executable safepoint, so stopping there would never
+    /// fire; the first statement line is what the running program actually
+    /// reaches. Needs the generated text `first_handler_gen_line` was built
+    /// from. `None` when there is no handler.
+    pub fn first_handler_stop_line(&self, generated: &str) -> Option<u32> {
+        let lines: Vec<&str> = generated.lines().collect();
+        Self::first_statement_in_span(self.first_handler_span()?, &lines)
+    }
+
+    /// The stop line for EVERY event handler — the first real statement of each.
+    ///
+    /// A pseudo-breakpoint on each means that whichever event the form fires
+    /// first, the debugger stops on that handler's first line, instead of
+    /// running the handler straight through (operator: it "waits for an event"
+    /// and then runs the code without stopping). Deduplicated and sorted.
+    pub fn all_handler_stop_lines(&self, generated: &str) -> Vec<u32> {
+        let lines: Vec<&str> = generated.lines().collect();
+        let mut out: Vec<u32> = self
+            .spans
+            .iter()
+            .filter(|s| {
+                matches!(
+                    s.site,
+                    CodeSite::FormEvent { .. } | CodeSite::ControlEvent { .. }
+                )
+            })
+            .filter_map(|span| Self::first_statement_in_span(span, &lines))
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    /// The generated line of the first real statement after a handler span's
+    /// `PROCEDURE DIVISION` — even if that statement is only a `CONTINUE`. A
+    /// header line is not an executable safepoint, so it would never fire.
+    fn first_statement_in_span(span: &MappedSpan, lines: &[&str]) -> Option<u32> {
+        let start = span.gen_start as usize;
+        let end = (span.gen_end as usize).min(lines.len());
+        let mut seen_proc = false;
+        for ln in start..=end {
+            let text = lines.get(ln.saturating_sub(1)).copied().unwrap_or("").trim();
+            if !seen_proc {
+                if text.to_ascii_uppercase().starts_with("PROCEDURE DIVISION") {
+                    seen_proc = true;
+                }
+                continue;
+            }
+            if text.is_empty() || text.starts_with("*>") || text.starts_with('*') {
+                continue;
+            }
+            return Some(ln as u32);
+        }
+        Some(span.gen_start)
+    }
+
     fn record(&mut self, site: CodeSite, gen_start: u32, gen_end: u32, site_line_at_start: u32) {
         self.spans.push(MappedSpan {
             site,
@@ -2729,6 +2816,68 @@ mod tests {
         BindingTargetPath, Control, ControlType, DataBindingDef, EventBinding, FieldMapping, Form,
         PropValue,
     };
+
+    fn span(site: CodeSite, gen_start: u32) -> MappedSpan {
+        MappedSpan {
+            site,
+            gen_start,
+            gen_end: gen_start + 3,
+            site_line_at_start: 1,
+        }
+    }
+
+    /// The debugger stops at the first handler's first line at start: `onLoad`
+    /// wins even when a control handler is generated earlier in the file.
+    #[test]
+    fn first_handler_gen_line_prefers_onload() {
+        let mut map = SourceMap::default();
+        map.spans.push(span(
+            CodeSite::ControlEvent {
+                control_id: "BTN".into(),
+                event: "onClick".into(),
+            },
+            100,
+        ));
+        map.spans
+            .push(span(CodeSite::FormEvent { event: "onLoad".into() }, 200));
+        map.spans.push(span(
+            CodeSite::Section(StructureSection::WorkingStorage),
+            10,
+        ));
+        assert_eq!(map.first_handler_gen_line(), Some(200));
+    }
+
+    /// With no `onLoad`, it falls back to the earliest handler of any kind.
+    #[test]
+    fn first_handler_gen_line_falls_back_to_earliest_handler() {
+        let mut map = SourceMap::default();
+        map.spans.push(span(
+            CodeSite::ControlEvent {
+                control_id: "BTN".into(),
+                event: "onClick".into(),
+            },
+            300,
+        ));
+        map.spans.push(span(
+            CodeSite::ControlEvent {
+                control_id: "TXT".into(),
+                event: "onChange".into(),
+            },
+            150,
+        ));
+        assert_eq!(map.first_handler_gen_line(), Some(150));
+    }
+
+    /// A program that binds no handlers has nothing to stop on.
+    #[test]
+    fn first_handler_gen_line_none_without_handlers() {
+        let mut map = SourceMap::default();
+        map.spans.push(span(
+            CodeSite::Section(StructureSection::WorkingStorage),
+            10,
+        ));
+        assert_eq!(map.first_handler_gen_line(), None);
+    }
 
     fn make_form() -> Form {
         let mut form = Form::new("MAIN-FORM", "Test", 800, 600);

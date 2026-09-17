@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.70.40"
+built_with_version = "1.70.55"
 
 [files]
 sources = ["src/main.cbl"]
@@ -42,7 +42,7 @@ forms = [
     "forms/General/inner-form1.cfrm",
     "forms/General/inner-form2.cfrm",
     "forms/Common/maps-demo.cfrm",
-    "forms/Common/datagrid-form.cfrm",
+    "forms/Data/datagrid-form.cfrm",
     "forms/Non-Visual/snackbar-form.cfrm",
     "forms/Charts/charts-form.cfrm",
     "forms/Non-Visual/restapi-form.cfrm",
@@ -145,7 +145,7 @@ background_opacity = 70
 inspector_dump_enabled = true
 inspector_dump_path = "/tmp/prc_inspector_dump.txt"
 hide_ai_setup_prompt = false
-debug_watches = ["label-2::caption"]
+debug_watches = []
 indexed_engine = ""
 
 [ide.theme_defaults]

@@ -372,6 +372,15 @@ pub struct RenderOutput {
     /// `<control-id>.csv` in the working directory, a path the operator never
     /// chose and, for a packaged application, could not predict.
     pub csv_export_requests: Vec<String>,
+    /// A focused RadioButton asked the focus to move to the next (`true`) or
+    /// previous (`false`) button of its own group.
+    ///
+    /// Collected rather than acted on where it happens: a control arm is given
+    /// ONE control and cannot see its group, and the group is what decides
+    /// which button is "next". Resolved after the control loop, where the whole
+    /// form is in scope — the same reason `clear_radio_group_siblings` runs
+    /// there.
+    pub radio_focus_move: Option<(String, bool)>,
 }
 
 /// The size the backdrop covers: the form's own size, stretched to the host
@@ -2365,6 +2374,7 @@ fn render_form_inner(
     draw_deferred_tabcontrol_tabs(&painter, input, &out);
 
     clear_radio_group_siblings(input, controls, &mut out);
+    move_radio_focus(ui, scope, controls, &out);
 
     // ââ Second pass: open ComboBox dropdowns float above everything. ââââââââââ
     for combo in open_combos {
@@ -3622,17 +3632,10 @@ fn control_geometry_events(
 /// them, so three radios dropped straight onto a form behave as one group
 /// without the developer having to name it, and three inside a GroupBox make
 /// their own.
-fn radio_group_key(ctrl: &Control) -> String {
-    let name = ctrl
-        .get_prop("GroupName")
-        .map(|v| v.as_str().trim().to_owned())
-        .unwrap_or_default();
-    if name.is_empty() {
-        format!("\u{0}parent:{}", ctrl.parent.clone().unwrap_or_default())
-    } else {
-        format!("name:{name}")
-    }
-}
+/// It lives in `model`, not here, because exclusivity is enforced in two
+/// places — this renderer when a radio is CLICKED, and the form host when code
+/// writes one — and two copies of "which radios are a group" would drift.
+use crate::model::radio_group_key;
 
 /// Is this radio currently on? Its state property answers; `Value` is the
 /// fallback. See [`toggle_state_or_value`].
@@ -3663,6 +3666,62 @@ fn toggle_state_or_value(ctrl: &Control) -> bool {
         return v.as_bool();
     }
     matches!(sv(ctrl, "Value").as_str(), "1" | "true")
+}
+
+/// Move the keyboard focus to the next or previous radio of the same group.
+///
+/// Arrow keys walk the GROUP, not the form's whole tab order: a group is a
+/// single stop for Tab, and within it the arrows choose. Which buttons are in
+/// the group, and in what order, is only knowable here — the arm that saw the
+/// key press is given one control.
+///
+/// Order is the order the controls are declared, which is the order they were
+/// dropped on the form and the order the designer lists them. Wrapping at both
+/// ends keeps a long press from dead-ending at the last button.
+///
+/// The focus is moved; the selection is NOT. Space is what selects, so arrowing
+/// through a group to look at it cannot change the answer by accident.
+fn move_radio_focus(
+    ui: &egui::Ui,
+    scope: Option<egui::Id>,
+    controls: &[Control],
+    out: &RenderOutput,
+) {
+    let Some((from_id, forward)) = out.radio_focus_move.as_ref() else {
+        return;
+    };
+    // Move only while the focus is still where the key was pressed.
+    //
+    // egui may run a frame's closure TWICE, and it re-delivers the same input to
+    // each pass — so without this the arrow was honoured once per pass and one
+    // press walked TWO buttons (measured: R1 + Down landed on R3 of three).
+    // After the first pass the focus is already on the neighbour, so the second
+    // pass finds this guard false and does nothing.
+    if ui.memory(|m| m.focused()) != Some(rt_id_in(scope, from_id)) {
+        return;
+    }
+    let Some(from) = controls.iter().find(|c| &c.id == from_id) else {
+        return;
+    };
+    let group = radio_group_key(from);
+    let members: Vec<&Control> = controls
+        .iter()
+        .filter(|c| matches!(c.control_type, ControlType::RadioButton))
+        .filter(|c| c.visible && c.enabled)
+        .filter(|c| radio_group_key(c) == group)
+        .collect();
+    if members.len() < 2 {
+        return;
+    }
+    let Some(at) = members.iter().position(|c| &c.id == from_id) else {
+        return;
+    };
+    let next = if *forward {
+        (at + 1) % members.len()
+    } else {
+        (at + members.len() - 1) % members.len()
+    };
+    ui.memory_mut(|m| m.request_focus(rt_id_in(scope, &members[next].id)));
 }
 
 /// One radio at a time. A radio turns itself ON when clicked, but nothing ever
@@ -4262,13 +4321,61 @@ fn render_interactive(
             paint::draw_control(&painter, screen.min, &drawn, false, glass, alpha, 1.0, None);
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
-            if resp.clicked() && enabled {
+            // A radio takes keyboard focus, so Tab reaches it and the arrows and
+            // the space bar below have something to act on.
+            if enabled {
+                ui.memory_mut(|m| m.interested_in_focus(ctrl_id, ui.layer_id()));
+            }
+            // Selected by the keyboard as well as the mouse: with focus on a
+            // radio, the space bar picks it. Same writes as a click, because it
+            // is the same act.
+            let space = enabled
+                && resp.has_focus()
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Space));
+            if (resp.clicked() && enabled) || space {
                 push_toggle_state(out, ctrl, id, true);
                 out.events.push(UiEvent::change(id, "1"));
                 // A radio only ever moves INTO the selected state by being
                 // clicked; the one it deselects is a sibling, not this control.
                 push_toggle_events(out, id, true);
                 out.events.push(UiEvent::ev(id, "onValueChanged"));
+            }
+            // …and the arrows walk the group. Down/Right go forward, Up/Left
+            // back — the pairing every platform's radio group uses, because a
+            // group may be laid out in either direction and the developer
+            // should not have to know which.
+            if enabled && resp.has_focus() {
+                // Claim the arrows, or egui spends them on its own focus
+                // navigation and the group is not what they walk.
+                //
+                // Consuming the key here is far too late: egui reads the RAW
+                // events in `begin_pass` and has already decided a focus
+                // direction before any widget runs. The one thing it honours is
+                // the focused widget's event filter — the same lever `Slider`
+                // pulls so an arrow nudges the value instead of leaving the
+                // widget (measured: without it, one press walked two buttons,
+                // and a lone radio handed focus to another group entirely).
+                ui.memory_mut(|m| {
+                    m.set_focus_lock_filter(
+                        ctrl_id,
+                        egui::EventFilter {
+                            horizontal_arrows: true,
+                            vertical_arrows: true,
+                            ..Default::default()
+                        },
+                    );
+                });
+                let forward = ui.input_mut(|i| {
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                        || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+                });
+                let backward = ui.input_mut(|i| {
+                    i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                        || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+                });
+                if forward || backward {
+                    out.radio_focus_move = Some((id.to_owned(), forward));
+                }
             }
         }
         CT::TextBox => {

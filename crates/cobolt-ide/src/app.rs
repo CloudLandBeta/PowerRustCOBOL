@@ -538,6 +538,22 @@ pub struct CoboltApp {
     /// had just marked. Kept here so the per-frame sync can tell "changed" from
     /// "unchanged" and push only on a real edit.
     debug_sent_breakpoints: std::collections::HashSet<u32>,
+    /// The auto-stop pseudo-breakpoints — the first statement of every form
+    /// handler — so the debugger opens on the developer's code the moment the
+    /// form fires its first event, with no gutter mark to hunt for. They are
+    /// NOT the developer's breakpoints: they never show as a gutter dot or a
+    /// row in the Breakpoints list, they cannot be toggled, and they are
+    /// ONE-SHOT — dropped from the set the debuggee holds as soon as it stops
+    /// on one, so a stale pseudo-stop can never masquerade as a real one (the
+    /// bug the operator hit: an EVALUATE that was "always enabled" and would
+    /// not clear). Sent to the debuggee only while `debug_auto_stop_armed`;
+    /// kept here so the disarm check can recognise the stop.
+    debug_auto_stop_lines: std::collections::HashSet<u32>,
+    /// Whether the auto-stop pseudo-breakpoints are still in the set the
+    /// debuggee holds. Armed at attach, disarmed the first time the debuggee
+    /// stops on one — after that the developer's own breakpoints are the whole
+    /// set. `false` for an editor-started session, which has none.
+    debug_auto_stop_armed: bool,
     /// The generated-`.cbl` lines that hold the developer's own handler and
     /// procedure bodies, from `codegen::generate_with_user_lines`. Empty for an
     /// editor-started session, which means "debug everything".
@@ -1773,6 +1789,8 @@ impl CoboltApp {
             debug_owner_form: None,
             debug_external: false,
             debug_sent_breakpoints: std::collections::HashSet::new(),
+            debug_auto_stop_lines: std::collections::HashSet::new(),
+            debug_auto_stop_armed: false,
             debug_user_lines: Vec::new(),
             debug_sent_user_only: None,
             debugger_vp_sized: false,
@@ -2292,20 +2310,16 @@ impl CoboltApp {
         }
         let bp_set: std::collections::HashSet<u32> = bp_lines.iter().cloned().collect();
         self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
         self.debugger
             .set_source(cbl_path.display().to_string(), &source, &bp_set);
         // "Only my code" ranges AND the handler-editor translation come from
         // ONE generation: the map records where each site's text landed, and
         // `user_body_ranges` is derived from the same spans, so the debugger's
         // two views of the generated file cannot drift apart.
-        let (_, source_map) = cobolt_codegen::generate_with_map(form);
+        let (gen_src, source_map) = cobolt_codegen::generate_with_map(form);
         // A breakpoint set in the event editor is a line of the HANDLER's text;
         // the debuggee only knows the generated program. Translate before
         // sending, or the mark is accepted by the gutter and then ignored by
@@ -2316,9 +2330,32 @@ impl CoboltApp {
                 bp_lines.push(line);
             }
         }
-        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
-        run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines));
-        self.debug_sent_breakpoints = bp_set;
+        // `bp_lines` is now the DEVELOPER's set — gutter marks plus the event
+        // editor's own — and it is what the Breakpoints list and the gutter
+        // dots show. The debugger's display set is exactly this, never the
+        // auto-stops below.
+        let user_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
+        self.debugger.set_breakpoints(&user_set);
+        // Stop at the first handler the moment the form loads (operator): the
+        // onLoad handler runs at startup, so a stop on its first line opens the
+        // debugger ON the developer's own code — no need to find the running
+        // form and raise an event first. These are PSEUDO-breakpoints: sent to
+        // the debuggee so it stops, but never shown as the developer's marks,
+        // and ONE-SHOT — armed here, dropped the moment the debuggee stops on
+        // one (see `maybe_disarm_auto_stop`). Armed before the child begins so
+        // they are in place when onLoad executes.
+        let auto_stop = source_map.all_handler_stop_lines(&gen_src);
+        self.debug_auto_stop_lines = auto_stop.iter().copied().collect();
+        self.debug_auto_stop_armed = true;
+        let mut sent_lines = bp_lines.clone();
+        for line in &auto_stop {
+            if !sent_lines.contains(line) {
+                sent_lines.push(*line);
+            }
+        }
+        let sent_set: std::collections::HashSet<u32> = sent_lines.iter().copied().collect();
+        run.send_debug(&cobolt_runtime::RemoteDebugCmd::SetBreakpoints(sent_lines));
+        self.debug_sent_breakpoints = sent_set;
         // "Only my code": the generated `.cbl` is mostly scaffolding — the
         // `COBOL-EVENT-LOOP` and its plumbing — so hand the child the ranges
         // that hold the developer's own handler and procedure bodies.
@@ -2580,6 +2617,32 @@ impl CoboltApp {
         let path = path.clone();
         let source = src.to_owned();
 
+        // A generated FORM program has no meaning run headless: with no form
+        // window its `COBOL-EVENT-LOOP` finds nothing to wait for, so it runs
+        // straight through `onLoad` to STOP RUN and "finishes" the instant it
+        // starts (operator: the editor Debug button ended immediately). Route it
+        // to the form-debug path, which gives it a real window and event loop —
+        // the same debugger the designer's Debug button uses.
+        if self.path_is_generated(&path) {
+            if let Some(idx) = self.designer_idx_for_generated(&path) {
+                self.do_debug_form(idx);
+            } else if let Some(form_path) = self.form_for_generated(&path) {
+                match cobolt_forms::load_form(&form_path) {
+                    Ok(form) => self.spawn_form_run(form_path, form, true),
+                    Err(e) => self
+                        .output
+                        .push_status(format!("Cannot debug this form: {e}")),
+                }
+            } else {
+                self.output.push_status(
+                    "This is a form's generated program — open the form and press \
+                     Debug to run it with its window."
+                        .to_owned(),
+                );
+            }
+            return;
+        }
+
         self.output.clear_run_output();
         self.output.push_status(format!(
             "── Debug {} ──",
@@ -2587,13 +2650,9 @@ impl CoboltApp {
         ));
         self.editor.clear_diags();
         self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
 
         // Sync breakpoints into the interpreter's shared set and into the debug window.
         let bp_lines = self.editor.breakpoints_for(&path);
@@ -2613,6 +2672,11 @@ impl CoboltApp {
         // which is the right answer for hand-written COBOL.
         self.debug_user_lines.clear();
         self.debug_sent_user_only = None;
+        // Hand-written COBOL has no form handlers, so there are no auto-stops
+        // to arm — and any left armed from a previous form session must not
+        // leak into this one.
+        self.debug_auto_stop_lines.clear();
+        self.debug_auto_stop_armed = false;
 
         self.debug_runner.start(path.display().to_string(), source);
         self.debug_active = true;
@@ -2818,6 +2882,11 @@ impl CoboltApp {
             if self.pending_build_rx.is_some() {
                 self.output.push_status(building);
                 self.pending_build_then_run = Some((form_path.clone(), intent));
+                // A build started by Run Form belongs to THAT form's designer
+                // window — the operator is looking at it, not the IDE (operator).
+                // The IDE's own gate falls back to the main window when this
+                // form has no open designer, so this is always safe to set.
+                self.build_modal_host = Some(form_path.clone());
             } else {
                 // The build refused to start (guardian gate, missing manifest,
                 // form errors — each already reported its own reason). Without
@@ -2987,11 +3056,17 @@ impl CoboltApp {
         if path.as_os_str().is_empty() {
             return;
         }
-        let mut bp_lines = self.editor.breakpoints_for(&path);
-        // The open handler editor's own marks, translated into generated lines.
-        // They belong here as much as at attach: a breakpoint set in a handler
-        // WHILE the form runs must reach the debuggee, which is the whole point
-        // of this per-frame sync.
+        // The DEVELOPER's breakpoints: the gutter marks on the generated file,
+        // plus the open handler editor's own marks translated into generated
+        // lines. This — and only this — is what the gutter dots and the
+        // Breakpoints list show, and what a gutter click toggles.
+        let mut user_lines = self.editor.breakpoints_for(&path);
+        // The auto-stop pseudo-breakpoints, added to the SENT set only. Kept
+        // separate so they never masquerade as the developer's marks (the bug
+        // the operator hit: a handler's first line showing as an un-clearable
+        // breakpoint). Recomputed each frame while armed, so a form edited mid
+        // session still stops on the right first line; empty once disarmed.
+        let mut auto_stop: Vec<u32> = Vec::new();
         if let Some(form_path) = self.debug_owner_form.clone() {
             if let Some(form) = self
                 .designers
@@ -2999,20 +3074,36 @@ impl CoboltApp {
                 .find(|(p, _)| *p == form_path)
                 .map(|(_, d)| d.form.clone())
             {
-                let (_, source_map) = cobolt_codegen::generate_with_map(&form);
+                let (gen_src, source_map) = cobolt_codegen::generate_with_map(&form);
                 for line in self.handler_breakpoint_gen_lines(&form_path, &source_map) {
-                    if !bp_lines.contains(&line) {
-                        bp_lines.push(line);
+                    if !user_lines.contains(&line) {
+                        user_lines.push(line);
                     }
+                }
+                if self.debug_auto_stop_armed {
+                    auto_stop = source_map.all_handler_stop_lines(&gen_src);
+                    self.debug_auto_stop_lines = auto_stop.iter().copied().collect();
                 }
             }
         }
-        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
-        if bp_set == self.debug_sent_breakpoints {
+        // The display set follows the developer's marks every frame, so a
+        // toggle takes effect at once — even on a line that is also an
+        // auto-stop, which is exactly the case that used to stick.
+        let user_set: std::collections::HashSet<u32> = user_lines.iter().copied().collect();
+        self.debugger.set_breakpoints(&user_set);
+        // The debuggee holds the union: the developer's marks plus any armed
+        // auto-stops.
+        let mut sent_lines = user_lines.clone();
+        for line in &auto_stop {
+            if !sent_lines.contains(line) {
+                sent_lines.push(*line);
+            }
+        }
+        let sent_set: std::collections::HashSet<u32> = sent_lines.iter().copied().collect();
+        if sent_set == self.debug_sent_breakpoints {
             return;
         }
-        self.debug_sent_breakpoints = bp_set.clone();
-        self.debugger.set_breakpoints(&bp_set);
+        self.debug_sent_breakpoints = sent_set.clone();
         if self.debug_external {
             use cobolt_runtime::RemoteDebugCmd;
             let owner = self.debug_owner_form.clone();
@@ -3021,10 +3112,27 @@ impl CoboltApp {
                 .iter_mut()
                 .find(|r| r.debug && owner.as_ref() == Some(&r.form_path))
             {
-                run.send_debug(&RemoteDebugCmd::SetBreakpoints(bp_lines));
+                run.send_debug(&RemoteDebugCmd::SetBreakpoints(sent_lines));
             }
         } else if let Ok(mut guard) = self.debug_runner.breakpoints.lock() {
-            *guard = bp_set;
+            *guard = sent_set;
+        }
+    }
+
+    /// Drop the auto-stop pseudo-breakpoints the first time the debuggee stops
+    /// on one. They exist to open the debugger on the first handler that runs;
+    /// once that stop has happened their job is done, and leaving them in the
+    /// set would stop the form again on every other handler's first line —
+    /// stops the developer never asked for. Disarming lets the next
+    /// [`Self::sync_breakpoints_to_debuggee`] send the set without them, so
+    /// from here on the developer's own breakpoints are the whole of it.
+    fn maybe_disarm_auto_stop(&mut self) {
+        if !self.debug_auto_stop_armed {
+            return;
+        }
+        let line = self.debugger.current_line();
+        if line > 0 && self.debug_auto_stop_lines.contains(&line) {
+            self.debug_auto_stop_armed = false;
         }
     }
 
@@ -3142,13 +3250,9 @@ impl CoboltApp {
                     self.debug_external = false;
                     self.debug_owner_form = None;
                     self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
                 }
                 DebugAction::Continue => {
                     if let Some(run) = run {
@@ -3198,13 +3302,9 @@ impl CoboltApp {
                 self.debug_active = false;
                 self.debug_owner_form = None;
                 self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
                 self.editor.debug_line = None;
             }
             DebugAction::Continue => self.debug_runner.send_cmd(DebugCmd::Continue),
@@ -6402,6 +6502,25 @@ impl CoboltApp {
     /// Path for a form's generated `.cbl`: the tracked (possibly relocated) entry
     /// when one exists, else the project's `generated/` folder, else next to the
     /// `.cfrm`.
+    /// The open designer whose form generated `gen`, if any.
+    fn designer_idx_for_generated(&self, gen: &std::path::Path) -> Option<usize> {
+        self.designers
+            .iter()
+            .position(|(p, _)| self.generated_cbl_path(p) == gen)
+    }
+
+    /// The project form (`.cfrm`) whose generated program is `gen`, whether or
+    /// not it is open in a designer.
+    fn form_for_generated(&self, gen: &std::path::Path) -> Option<PathBuf> {
+        let proj = self.cobolt_project.as_ref()?;
+        let dir = self.project_path.as_ref()?.parent()?;
+        proj.files
+            .forms
+            .iter()
+            .map(|rel| dir.join(rel))
+            .find(|cfrm| self.generated_cbl_path(cfrm) == gen)
+    }
+
     fn generated_cbl_path(&self, cfrm: &std::path::Path) -> PathBuf {
         let stem = cfrm.file_stem().and_then(|s| s.to_str()).unwrap_or("form");
         let file_name = format!("{stem}.cbl");
@@ -13464,6 +13583,10 @@ impl eframe::App for CoboltApp {
         // or a file the developer opened mid-session — reaches the running
         // debuggee on the next frame. Covers BOTH session kinds, which is why
         // it sits above the in-IDE-only drain below.
+        // If the debuggee has stopped on an auto-stop pseudo-breakpoint, retire
+        // them BEFORE the sync, so the set it sends this frame already excludes
+        // them and the form is not stopped again on the next handler's entry.
+        self.maybe_disarm_auto_stop();
         self.sync_breakpoints_to_debuggee();
         self.sync_user_scope_to_debuggee();
 
@@ -13489,13 +13612,9 @@ impl eframe::App for CoboltApp {
                 self.debug_active = false;
                 self.debug_owner_form = None;
                 self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
                 self.editor.debug_line = None;
             }
             if dirty {
@@ -14505,13 +14624,9 @@ impl eframe::App for CoboltApp {
                     self.debug_external = false;
                     self.debug_owner_form = None;
                     self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
                 }
             }
             if !dbg_events.is_empty() {
@@ -17053,13 +17168,9 @@ impl CoboltApp {
                             self.debug_external = false;
                             self.debug_owner_form = None;
                             self.debugger.reset();
-        // The project's saved watches, restored for this session.
-        let saved_watches = self
-            .cobolt_project
-            .as_ref()
-            .map(|p| p.ide.debug_watches.clone())
-            .unwrap_or_default();
-        self.debugger.set_watches(&saved_watches);
+        // Watches start empty each debug session (operator): a clean slate,
+        // not the project's saved list.
+        self.debugger.set_watches(&[]);
                         }
                     }
                     DesignerToolbarAction::Cut => {

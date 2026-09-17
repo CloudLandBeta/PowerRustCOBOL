@@ -1203,6 +1203,54 @@ impl FormBody {
     /// Shared by the root and child paths for the reason
     /// [`Self::apply_interpreter_update`] gives: two consumers of one
     /// `RenderOutput` drift, and two of them already had.
+    /// Turn off every other radio in `id`'s group, and tell the program.
+    ///
+    /// A radio group holds at most one selection, and that has to be true
+    /// whoever made it: the renderer clears siblings on a CLICK, and this
+    /// clears them on a write from code. Without it a `SET Rad-PIX::Selected TO
+    /// TRUE` lit PIX and left Boleto lit beside it (operator, 2026-09-17).
+    ///
+    /// Both directions are updated. The host's own state is what the next frame
+    /// paints from; the `StateUpdate` back to the interpreter is what makes
+    /// `Rad-Boleto::IsSelected()` answer 0 afterwards, which it would not if
+    /// only the picture were corrected.
+    ///
+    /// Every spelling the sibling might be read under is cleared, because a
+    /// handler may ask with either and both must agree — the same rule the
+    /// renderer's click path follows.
+    fn clear_radio_siblings(&mut self, id: &str) {
+        let Some(group) = self
+            .controls
+            .iter()
+            .find(|c| c.id == id)
+            .map(cobolt_forms::model::radio_group_key)
+        else {
+            return;
+        };
+        let siblings: Vec<String> = self
+            .controls
+            .iter()
+            .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::RadioButton))
+            .filter(|c| c.id != id)
+            .filter(|c| cobolt_forms::model::radio_group_key(c) == group)
+            .map(|c| c.id.clone())
+            .collect();
+        for sibling in siblings {
+            for prop in [
+                cobolt_forms::model::SELECTED_PROP,
+                cobolt_forms::model::CHECKED_PROP,
+                "Value",
+            ] {
+                self.state_entry_mut(&sibling).set(prop, "0".to_owned());
+                let _ = self.input_tx.send(StateUpdate::new(
+                    sibling.clone(),
+                    prop.to_owned(),
+                    "0".to_owned(),
+                ));
+            }
+        }
+    }
+
     pub(crate) fn forward_interaction(
         &mut self,
         prop_updates: &[(String, String, String)],
@@ -1674,7 +1722,27 @@ impl FormBody {
                         .unwrap_or(false)
                 })
         };
+        // One radio at a time, whoever turned it on.
+        //
+        // The renderer clears a group's other buttons when one is CLICKED, but
+        // a `SET Rad-PIX::Selected TO TRUE` never passes through it — the write
+        // arrives here, straight from the interpreter — so the button that was
+        // already lit stayed lit and the group showed two selected at once
+        // (operator, 2026-09-17). Exclusivity has to hold for every writer, and
+        // this is the one place every code-driven write passes through.
+        let turned_on = !matches!(u.value.trim(), "" | "0" | "false" | "FALSE");
+        let is_radio_state = self
+            .controls
+            .iter()
+            .find(|c| c.id == key)
+            .is_some_and(|c| {
+                matches!(c.control_type, cobolt_forms::ControlType::RadioButton)
+                    && cobolt_forms::model::is_toggle_state_property(&c.control_type, &u.prop)
+            });
         self.state_entry_mut(&key).set(&u.prop, u.value);
+        if is_radio_state && turned_on {
+            self.clear_radio_siblings(&key);
+        }
         if changed {
             for event in observers {
                 self.send_event(FormEvent::new(key.clone(), event.to_owned()));
@@ -3201,8 +3269,10 @@ impl FormHost {
 
         let mut close_requests: Vec<String> = Vec::new();
         for i in 0..self.children.len() {
-            // The window blocks while ITS OWN modal child lives (R28).
-            let blocked = {
+            // The window blocks while ITS OWN modal child lives (R28) — and
+            // while the program is stopped in the debugger, which stops every
+            // window of the application, not just the root one.
+            let blocked = crate::debug_link::is_paused() || {
                 let h = &self.children[i].handle;
                 !self.supervisor.modal_children_of(h).is_empty()
             };
@@ -4198,10 +4268,17 @@ impl FormHost {
         let surface = self.surface;
         // 051 R19/R28 — while a MODAL child of this window is open, the whole
         // root face is disabled: it stays visible but takes no input.
-        let root_blocked = !self
-            .supervisor
-            .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
-            .is_empty();
+        // …and so is a form whose program is STOPPED in the debugger. The
+        // interpreter is blocked inside `debug_check` and cannot run a handler,
+        // but the GUI thread keeps painting and keeps collecting input — so
+        // every click made while reading the code was queued and delivered in a
+        // burst on Continue (operator, 2026-09-17). Same treatment as a modal
+        // child: visible, legible, taking nothing.
+        let root_blocked = crate::debug_link::is_paused()
+            || !self
+                .supervisor
+                .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
+                .is_empty();
         // 051 Q2 — parked bodies keep their timers running, whoever owns the
         // pane this frame.
         self.tick_parked_bodies(ctx);

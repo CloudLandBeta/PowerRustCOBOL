@@ -4510,7 +4510,21 @@ impl Interpreter {
         }
 
         // 1 — a data item by name, including a qualified or group one.
-        let key = self.env.canonical_name(&src.to_ascii_uppercase(), &[]);
+        //
+        // `resolve_name`, NOT `canonical_name`: it is the path a running
+        // statement takes, and the only one that applies the ACTIVATION DIVERT.
+        // While a nested program runs, each of its private items is aliased
+        // from its own name onto an activation key (`HANDLER\u{4}WS-LINE`), and
+        // `canonical_name` knows nothing of that — it canonicalises and stops,
+        // so the key it produced was never in the store.
+        //
+        // Every RAD event handler is a nested program with its own DATA
+        // DIVISION, so this was every watch on a handler's own data item:
+        // stopped on the line that reads `WS-LINE`, the watch answered
+        // "WS-LINE is not a data item in this frame" while the statement beside
+        // it read that item perfectly well (operator, 2026-09-17). Asking the
+        // debugger and asking the program now go through one resolver.
+        let key = self.env.resolve_name(&src.to_ascii_uppercase(), &[]);
         if let Some(v) = self.env.get(&key) {
             let pic = self.env.symbol(&key).map(|s| s.pic.clone()).unwrap_or_default();
             return DebugAnswer::Evaluated {
@@ -9764,9 +9778,15 @@ impl Interpreter {
         let mut resolved = true;
         match prog_name.as_str() {
             // ── Built-in runtime calls (COBOL-* prefix) ────────────
-            // COBOL-INIT-FORM USING form-name  — initialise the form; no-op in CLI mode
+            // COBOL-INIT-FORM USING form-name  — initialise the form.
             "COBOL-INIT-FORM" | "COBOLT-INIT-FORM" => {
-                // Nothing to do in non-GUI (CLI) mode.
+                // A DataGrid whose `DataSource` names an indexed `.cidx` is bound
+                // to that file (a quick-bind set in the designer's property grid,
+                // separate from the Data Binding editor's DataBindingDef). Codegen
+                // emits no population for it, so load it here at INIT — every
+                // record, exactly the path a proper binding takes — instead of
+                // leaving the grid on the designer's sample preview.
+                self.populate_datasource_grids();
             }
 
             // ── Generated data-binding helper calls ─────────────────────────
@@ -11108,22 +11128,53 @@ impl Interpreter {
     /// that machinery is keyed by a DATA DIVISION declaration, and a
     /// Designer-only binding needs no SELECT/FD at all — the `.cidx` is the
     /// only record layout that exists for this file.
+    /// Load every DataGrid whose `DataSource` property names an indexed `.cidx`
+    /// file. The `DataSource` is `"<cidx-path> / <record>"`; only the path is
+    /// needed — the `.cidx` itself carries the field layout. Idempotent: a grid
+    /// already set up as an `IndexedFile` binding (the Data Binding editor's
+    /// path) is left alone.
+    fn populate_datasource_grids(&mut self) {
+        let grid_ids: Vec<String> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| o.class == "DataGrid")
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in grid_ids {
+            if self
+                .obj_get(&id, "_BindingKind")
+                .eq_ignore_ascii_case("IndexedFile")
+            {
+                continue;
+            }
+            let ds = self.obj_get(&id, "DataSource");
+            let path = ds.split(" / ").next().unwrap_or(&ds).trim().to_owned();
+            if !path.to_ascii_lowercase().ends_with(".cidx") {
+                continue;
+            }
+            self.obj_set(&id, "_BindingKind", "IndexedFile".to_owned());
+            self.obj_set(&id, "_BindingIndexedPath", path);
+            // `_BindingFields` left empty on purpose — `refresh_indexed_file_binding`
+            // then reads every leaf the `.cidx` declares, in order, one per column.
+            self.refresh_indexed_file_binding(&id);
+        }
+    }
+
     fn refresh_indexed_file_binding(&mut self, control_id: &str) -> usize {
         let def_path = self.obj_get(control_id, "_BindingIndexedPath");
         let def_path = def_path.trim();
         if def_path.is_empty() {
             return 0;
         }
-        let fields = self
+        // May be empty for a `DataSource` quick-bind — the `.cidx`'s own leaves
+        // then stand in for it, one per column (filled in after the def loads).
+        let mut fields = self
             .obj_get(control_id, "_BindingFields")
             .split(|ch| matches!(ch, '\n' | '\r' | ',' | ';' | '\t'))
             .map(str::trim)
             .filter(|field| !field.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        if fields.is_empty() {
-            return 0;
-        }
         // Both paths here are DESIGNER-stored and project-relative — the
         // `.cidx` as the Designer saved it, the data file as the `.cidx`'s own
         // `assign-path` — so they are anchored the way every other stored path
@@ -11135,6 +11186,14 @@ impl Interpreter {
         // always resolved against the project root) found nothing at run time
         // and blanked the grid. An absolute path still passes straight through.
         let def_file = cobolt_forms::assets::resolve(def_path);
+        // The name the developer recognises on the File I/O channel — the
+        // `.cidx` the DataSource points at, not the (often FILLER-named) data
+        // file behind it.
+        let file_label = def_file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(def_path)
+            .to_owned();
         let def = match cobolt_indexed::load_indexed(&def_file) {
             Ok(def) => def,
             Err(e) => {
@@ -11142,6 +11201,7 @@ impl Interpreter {
                     "IndexedFile binding on {control_id}: cannot read '{}': {e:?}",
                     def_file.display()
                 );
+                self.debug_binding_io(&file_label, "30", "cannot read definition");
                 self.obj_set(control_id, "Rows", String::new());
                 return 0;
             }
@@ -11150,6 +11210,14 @@ impl Interpreter {
             .record_root()
             .map(|root| root.all_leaves())
             .unwrap_or_default();
+        // A `DataSource` quick-bind names no fields — show every leaf the
+        // `.cidx` declares, in order, one per grid column.
+        if fields.is_empty() {
+            fields = leaves.iter().map(|leaf| leaf.name.clone()).collect();
+        }
+        if fields.is_empty() {
+            return 0;
+        }
         let data_path = cobolt_forms::assets::resolve(&def.assign_path);
         let data_path = data_path.as_path();
         // A missing data file is an empty grid, not a fault — the same
@@ -11158,6 +11226,7 @@ impl Interpreter {
         // opens I-O and would otherwise create an empty file on disk as a
         // side effect of what is meant to be a read-only refresh.
         if !data_path.exists() {
+            self.debug_binding_io(&file_label, "35", "file not found");
             self.obj_set(control_id, "Rows", String::new());
             return 0;
         }
@@ -11168,6 +11237,7 @@ impl Interpreter {
                     "IndexedFile binding on {control_id}: cannot open '{}': {e}",
                     data_path.display()
                 );
+                self.debug_binding_io(&file_label, "30", &format!("open failed: {e}"));
                 self.obj_set(control_id, "Rows", String::new());
                 return 0;
             }
@@ -11196,7 +11266,34 @@ impl Interpreter {
             .collect();
         let row_count = rows.len();
         self.obj_set(control_id, "Rows", rows.join("\n"));
+        self.debug_binding_io(&file_label, "00", &format!("{row_count} records"));
         row_count
+    }
+
+    /// Report a Designer DataGrid binding read on the debugger's File I/O
+    /// channel, in the same shape the COBOL file verbs use (`VERB file status
+    /// NN`), with a trailing detail — the record count on success, the reason
+    /// on failure.
+    ///
+    /// A `DataSource`/Data-Binding indexed grid loads through
+    /// `indexed_ide::GridSession`, NOT the COBOL file verbs, so it never
+    /// reaches `set_file_status` and its read was invisible in the File I/O
+    /// channel even while it loaded every record. This puts it back, so "what
+    /// did this program do to my files" includes the grid binding. `BIND`
+    /// (rather than `OPEN`/`READ`) marks it as the binding's own read, which
+    /// runs no SELECT/FD. Silent unless a debug session is listening — and
+    /// gated here so the format string is not even built during a plain Run
+    /// Form, where a grid refresh happens just the same.
+    fn debug_binding_io(&self, file: &str, code: &str, detail: &str) {
+        if self.debug_event_tx.is_none() {
+            return;
+        }
+        let line = if detail.is_empty() {
+            format!("{:<8} {file:<24} status {code}", "BIND")
+        } else {
+            format!("{:<8} {file:<24} status {code}   {detail}", "BIND")
+        };
+        self.debug_out(crate::debugger::OutputChannel::FileIo, line);
     }
 
     /// Read the WS table fields seeded in `_BindingMarkerFields`
@@ -11605,12 +11702,16 @@ impl Interpreter {
         }
     }
 
-    fn datagrid_csv_escape(value: &str, delimiter: char) -> String {
-        if value.contains(delimiter) || value.contains('"') || value.contains('\n') {
-            format!("\"{}\"", value.replace('"', "\"\""))
-        } else {
-            value.to_owned()
-        }
+    /// A CSV field, per the default rules (RFC 4180): every value is enclosed in
+    /// double quotes, and any double quote inside it is escaped by doubling it
+    /// (`"` → `""`). Quoting EVERY field — not only the ones that would
+    /// otherwise break a row — is what the operator asked the DataGrid export to
+    /// do, and it means a value carrying the delimiter, a newline or a quote can
+    /// never split a row, whatever delimiter is in force. The delimiter is
+    /// therefore no longer consulted, but stays in the signature for the two
+    /// call sites that thread it through.
+    fn datagrid_csv_escape(value: &str, _delimiter: char) -> String {
+        format!("\"{}\"", value.replace('"', "\"\""))
     }
 
     fn datagrid_filter_pairs(&self, control_id: &str) -> Vec<(String, String)> {
@@ -16856,6 +16957,73 @@ MAIN.
         let _ = std::fs::remove_file(&out);
     }
 
+    /// A DataGrid bound via its `DataSource` property to an indexed `.cidx`
+    /// loads EVERY record at form init, not the designer's small sample
+    /// (operator: only 2 of 1000+ records were loading). Reads the real
+    /// PowerDemo3 actors file; skips silently if that fixture is absent.
+    #[test]
+    fn datasource_grid_loads_all_records_not_the_sample() {
+        let root = "/Users/emersonlopes/Documents/PowerRustCOBOL/examples/PowerDemo3";
+        if !std::path::Path::new(&format!("{root}/data/idxfiles/actors.idx")).exists() {
+            return;
+        }
+        cobolt_forms::assets::set_base(root);
+        let program = parse(tokenize(
+            "IDENTIFICATION DIVISION.\nPROGRAM-ID. T.\nPROCEDURE DIVISION.\nSTOP RUN.",
+            SourceFormat::Free,
+        ))
+        .program
+        .unwrap();
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "Grid-1".to_owned(),
+            "DataGrid".to_owned(),
+            vec![
+                (
+                    "Columns".to_owned(),
+                    "Actor Id:number\nActor Thumb:string".to_owned(),
+                ),
+                (
+                    "DataSource".to_owned(),
+                    "indexed/actors.cidx / CUSTOMER-RECORD".to_owned(),
+                ),
+            ],
+        )]);
+        interp.populate_datasource_grids();
+        assert_eq!(
+            interp.obj_get("Grid-1", "_BindingKind"),
+            "IndexedFile",
+            "the DataSource quick-bind must become an IndexedFile binding"
+        );
+        let rows = interp.obj_get("Grid-1", "Rows");
+        let n = rows.split('\n').filter(|l| !l.trim().is_empty()).count();
+        assert!(n > 100, "expected the whole file, got {n} row(s)");
+    }
+
+    /// The DataGrid CSV export encloses EVERY field in double quotes and escapes
+    /// an embedded quote by doubling it (operator: default CSV rules).
+    #[test]
+    fn datagrid_csv_escape_always_quotes_and_doubles_quotes() {
+        let q = |s: &str| Interpreter::datagrid_csv_escape(s, ',');
+        assert_eq!(q("Ada"), "\"Ada\"", "a plain value is still enclosed");
+        assert_eq!(q(""), "\"\"", "an empty value is a pair of quotes");
+        assert_eq!(
+            q("a,b"),
+            "\"a,b\"",
+            "a value carrying the delimiter stays one field"
+        );
+        assert_eq!(
+            q("she said \"hi\""),
+            "\"she said \"\"hi\"\"\"",
+            "an embedded quote is doubled"
+        );
+        assert_eq!(
+            q("line1\nline2"),
+            "\"line1\nline2\"",
+            "a newline is safe inside the quotes"
+        );
+    }
+
     #[test]
     fn switch_control_refresh_binding_writes_checked_property_not_value() {
         // A Switch's seeded property name is Checked, not Value (R21) — the
@@ -17943,11 +18111,13 @@ MAIN.
         assert!(updates
             .iter()
             .any(|(prop, value)| prop == "_CopySelection" && value == "1"));
+        // CSV export always double-quotes every field (operator), so the header
+        // and each record come back fully quoted.
         assert_eq!(
             interp
                 .exec_method("ActorGrid", "ExportCSV", &[])
                 .as_display_string(),
-            "Actor Id,Actor Caption,Actor Salary"
+            "\"Actor Id\",\"Actor Caption\",\"Actor Salary\""
         );
 
         interp.exec_method("ActorGrid", "ClearFilters", &[]);
@@ -17955,7 +18125,9 @@ MAIN.
             interp
                 .exec_method("ActorGrid", "ExportCSV", &[])
                 .as_display_string(),
-            "Actor Id,Actor Caption,Actor Salary\n1,Leonardo DiCaprio,30000000\n2,Leo,12000000"
+            "\"Actor Id\",\"Actor Caption\",\"Actor Salary\"\n\
+             \"1\",\"Leonardo DiCaprio\",\"30000000\"\n\
+             \"2\",\"Leo\",\"12000000\""
         );
         assert_eq!(interp.obj_get("ActorGrid", "_RuntimeColumnFilters"), "");
     }
@@ -18034,7 +18206,9 @@ MAIN.
             interp
                 .exec_method("ActorGrid", "ExportCSV", &[])
                 .as_display_string(),
-            "Actor Name,Actor Id\nLeonardo DiCaprio,1"
+            // Every field is enclosed in double quotes (operator: default CSV
+            // rules), so the display order and filtering read through the quotes.
+            "\"Actor Name\",\"Actor Id\"\n\"Leonardo DiCaprio\",\"1\""
         );
 
         interp.exec_method(
@@ -18049,7 +18223,7 @@ MAIN.
             interp
                 .exec_method("ActorGrid", "ExportCSV", &[])
                 .as_display_string(),
-            "Actor Name,Actor Id\nLeonardo DiCaprio,1\nJoe Pesci,2"
+            "\"Actor Name\",\"Actor Id\"\n\"Leonardo DiCaprio\",\"1\"\n\"Joe Pesci\",\"2\""
         );
     }
 
