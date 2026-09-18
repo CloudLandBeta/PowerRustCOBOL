@@ -501,6 +501,7 @@ impl FormHost {
                 action_notice: None,
                 last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
+                viewer_sessions: Default::default(),
             },
             children: Vec::new(),
             occupants: HashMap::new(),
@@ -734,6 +735,11 @@ pub(crate) struct FormBody {
     /// form's messages stack in that child, and navigating away disposes them
     /// rather than carrying a message about screen A onto screen B.
     pub(crate) snackbars: crate::snackbar_stack::SnackbarStack,
+    /// 058 — one live session per Viewer control on this surface, keyed by
+    /// control id: its decode thread, bounded page cache, view state and
+    /// (for Streamed layout) conversation history. Lazily populated — a
+    /// Viewer with no document open yet has no entry here at all.
+    pub(crate) viewer_sessions: HashMap<String, crate::viewer_session::ViewerSession>,
 }
 
 /// The id space the SideMenu footer fragment renders in.
@@ -3243,6 +3249,7 @@ impl FormHost {
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
+                viewer_sessions: Default::default(),
         };
         Ok((body, form))
     }
@@ -6259,6 +6266,7 @@ mod parity {
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
+                viewer_sessions: Default::default(),
         }
     }
 

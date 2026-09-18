@@ -93,6 +93,12 @@ const TOOLS: &[ToolEntry] = &[
         ct: ControlType::Maps,
         category: "Common",
     },
+    // Spec 058 — a document viewer (text/Markdown/images/PDF/HTML subset).
+    ToolEntry {
+        label: "Viewer",
+        ct: ControlType::Viewer,
+        category: "Common",
+    },
     // ── Containers ─────────────────────────────────────────────────────────────
     ToolEntry {
         label: "GroupBox",
@@ -1748,6 +1754,40 @@ mod snackbar_icon_tests {
             toolbox.len() > 1,
             "the snackbar icon is still the {}-shape fallback box",
             toolbox.len()
+        );
+    }
+}
+
+#[cfg(test)]
+mod palette_coverage_tests {
+    use super::*;
+
+    /// Spec 058 T5 — `TOOLS` is a plain static list with no test cross-
+    /// checking it against the catalogue, so a forgotten entry compiles
+    /// clean and the control simply never appears in the Designer palette.
+    /// One `Custom` variant, discovered at runtime, is the only legitimate
+    /// gap — every other `ControlType::ALL` member must have a `TOOLS` row.
+    #[test]
+    fn every_control_type_has_a_toolbox_entry() {
+        let listed: std::collections::BTreeSet<String> =
+            TOOLS.iter().map(|t| format!("{:?}", t.ct)).collect();
+        let missing: Vec<String> = ControlType::ALL
+            .iter()
+            .filter(|ct| !matches!(ct, ControlType::Custom { .. }))
+            .map(|ct| format!("{ct:?}"))
+            .filter(|name| !listed.contains(name))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "ControlType::ALL entries with no TOOLS palette row: {missing:?}"
+        );
+        assert_eq!(
+            TOOLS.len(),
+            ControlType::ALL.len(),
+            "TOOLS and ControlType::ALL have drifted to different lengths \
+             ({} vs {}) — a duplicate row is as much a bug as a missing one",
+            TOOLS.len(),
+            ControlType::ALL.len()
         );
     }
 }

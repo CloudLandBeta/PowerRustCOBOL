@@ -38,7 +38,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage A — the control exists
 
-- [ ] **T1 — Add `ControlType::Viewer`** (R1)
+- [x] **T1 — Add `ControlType::Viewer`** (R1)
   - Files: `crates/cobolt-forms/src/model.rs`
   - Do: the variant (appended last, never inserted), `as_str()`,
         `supported_events()` (`onError`, `onLoadProgress`, `onLoaded`),
@@ -48,7 +48,7 @@ not a claim about what §8.1 means architecturally.
         match errors these four sites don't cover; write that list down — it's
         T2's checklist.
 
-- [ ] **T2 — Satisfy every match the compiler named, and the two matches it
+- [x] **T2 — Satisfy every match the compiler named, and the two matches it
       won't** (R1, R22)
   - Files: whatever T1's build listed, **plus explicitly**
         `crates/cobolt-forms/src/model.rs` (`Control::new`'s property-seeding
@@ -63,13 +63,13 @@ not a claim about what §8.1 means architecturally.
         forgotten `from_str` arm). A second test prints the seeded property
         table and confirms every default matches plan §3.
 
-- [ ] **T3 — The `control-viewer` icon** (AC10)
+- [x] **T3 — The `control-viewer` icon** (AC10)
   - Files: `crates/cobolt-forms/src/icons.rs`
   - Do: one icon, the existing 24-unit-grid/1.5-unit-stroke treatment.
   - Verify: `cargo test -p cobolt-forms --features render
         every_control_type_has_an_icon` green.
 
-- [ ] **T4 — `render_interactive` arm** (R5, AC9)
+- [x] **T4 — `render_interactive` arm** (R5, AC9)
   - Files: `crates/cobolt-forms/src/render.rs`
   - Do: an explicit `ControlType::Viewer => { … }` arm — the wildcard fallback
         this match already has silently strips interactivity, and already did
@@ -81,7 +81,7 @@ not a claim about what §8.1 means architecturally.
         observable changes), not just a paint-diff — a paint-diff would pass
         even against the generic fallback painter this task exists to avoid.
 
-- [ ] **T5 — Toolbox palette entry** (R1)
+- [x] **T5 — Toolbox palette entry** (R1)
   - Files: `crates/cobolt-ide/src/panels/toolbox.rs`
   - Do: the `TOOLS` entry (plain static list — **no test cross-checks its
         length today**, so a forgotten entry compiles clean and Viewer simply
@@ -93,11 +93,16 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage B — the host session (threading engine)
 
-- [ ] **T6 — `ViewerSession`: spawn, drain, shut down** (R5, R5.1, AC21)
+- [x] **T6 — `ViewerSession`: spawn, drain, shut down** (R5, R5.1, AC21)
   - Files: `crates/cobolt-form-host/src/viewer_session.rs` (new), `src/lib.rs`,
         `src/host.rs` (`FormBody` owns `viewer_sessions: HashMap<String,
         ViewerSession>`, ticked/drained per frame — the `SnackbarStack`
         precedent)
+  - *(Scoping note: the field and its 3 construction sites are wired; the
+        per-frame paint-loop tick/drain call is deferred to whichever Stage C
+        task first has real content to drain INTO — nothing to paint yet
+        means nothing to tick against, the same reasoning T4 applied to its
+        own placeholder.)*
   - Do: one named background thread per control instance
         (`thread::Builder::new().name(format!("viewer-{ctrl_id}"))`), a
         jobs/done channel pair, non-blocking bounded per-frame drain +
@@ -110,7 +115,7 @@ not a claim about what §8.1 means architecturally.
         distinct thread names (**AC21**); shutdown reports a **measured**
         completion signal within a bound, never a sleep-and-hope.
 
-- [ ] **T7 — Bounded decoded-page cache** (R2, AC1)
+- [x] **T7 — Bounded decoded-page cache** (R2, AC1)
   - Files: `crates/cobolt-form-host/src/viewer_session.rs`
   - Do: an LRU-evicted, budget-configurable page cache — modeled on
         `indexed_disk.rs`'s bounded directory-cache philosophy (decode on

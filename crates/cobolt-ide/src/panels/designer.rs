@@ -12961,6 +12961,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::Maps => "Maps",
         CT::WebSearch => "WebSearch",
         CT::Snackbar => "Snackbar",
+        CT::Viewer => "Viewer",
         CT::Custom { .. } => "Control",
     }
 }

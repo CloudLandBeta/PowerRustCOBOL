@@ -10069,6 +10069,36 @@ fn render_interactive(
             }
         }
 
+        // Spec 058, T4: scaffolding only — a placeholder face plus a real
+        // `interact()` region, so T8 onward have somewhere to attach the
+        // actual document/toolbar/Find behaviour. Given its own arm from day
+        // one rather than left on the wildcard below: the wildcard's job is
+        // "nothing more specific applies," and every later Viewer task would
+        // otherwise be adding behaviour to a fallback that was never meant to
+        // carry it — one step earlier than the Snackbar/WebSearch/IndexedFile
+        // lesson above, same shape.
+        CT::Viewer => {
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            let resp = ui.interact(screen, ctrl_id, Sense::click());
+            focus_keyboard_events(ui, &resp, id, out, &bound);
+            if resp.clicked() {
+                let mem = ctrl_id.with("viewer-click-count");
+                let n = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<u32>(mem))
+                    .unwrap_or(0)
+                    + 1;
+                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, n));
+            }
+            painter.text(
+                screen.center(),
+                Align2::CENTER_CENTER,
+                "Viewer — no document loaded",
+                FontId::proportional(13.0),
+                Color32::from_gray(140),
+            );
+        }
+
         _ => {
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
         }
@@ -10171,6 +10201,71 @@ mod tests {
         let fills = painted_rect_fills(&run());
         crate::paint::register_menus(std::iter::empty());
         fills
+    }
+
+    /// Spec 058 T4 — `ControlType::Viewer` gets its OWN `render_interactive`
+    /// arm, not the generic wildcard fallback (`paint::draw_control` alone,
+    /// with no per-type behaviour). A paint-diff can't prove that — the
+    /// wildcard paints the same face — so this simulates a real press then
+    /// release on the control and asserts the arm's own click-tracking
+    /// fired, which only runs from inside the dedicated `CT::Viewer` arm.
+    #[test]
+    fn a_click_on_the_viewer_reaches_its_own_arm_not_the_wildcard() {
+        let viewer = ctrl("VWR-1", ControlType::Viewer, 0, 0, 400, 300);
+        let controls = vec![viewer];
+        let ctx = egui::Context::default();
+        let active = ActiveTabs::new();
+
+        let run = |time: f64, evs: Vec<egui::Event>| {
+            let mut input = egui::RawInput::default();
+            input.time = Some(time);
+            input.events = evs;
+            let mut out = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        let rin = RenderInput {
+                            controls: &controls,
+                            state: &DesignedVisibility,
+                            form_size: Vec2::new(400.0, 300.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let _ = render_form(ui, &rin);
+                    });
+            });
+            out.textures_delta.clear();
+        };
+
+        let click_count = || {
+            let id = rt_id_in(None, "VWR-1").with("viewer-click-count");
+            ctx.memory(|m| m.data.get_temp::<u32>(id)).unwrap_or(0)
+        };
+
+        let center = egui::Pos2::new(200.0, 150.0);
+        let button = |pressed| egui::Event::PointerButton {
+            pos: center,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+
+        run(0.0, vec![]); // first frame lays the control out
+        assert_eq!(click_count(), 0, "no click yet");
+
+        run(0.05, vec![egui::Event::PointerMoved(center)]);
+        run(0.10, vec![button(true)]);
+        assert_eq!(click_count(), 0, "a press alone is not a click");
+
+        run(0.15, vec![button(false)]);
+        assert_eq!(
+            click_count(),
+            1,
+            "release completes the click, and the dedicated Viewer arm — \
+             not the wildcard fallback — is what records it"
+        );
     }
 
     /// **A MenuBar with ShadowEnabled off casts no shadow.**
