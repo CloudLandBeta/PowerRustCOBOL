@@ -109,11 +109,12 @@ not `Html`), so a developer is never told the control does more than it does.
 
 ### Display and layout
 
-- **R7 (ubiquitous):** The control shall support four layouts in `Layout`:
+- **R7 (ubiquitous):** The control shall support five layouts in `Layout`:
   `Raw` (no formatting), `Web` (formatted, no page margins), `Print` (page
-  margins top/bottom/left/right), and `Page` (print layout plus a black-on-white
-  document body). `Page` applies to any paginated content — Markdown and text
-  included — not to a document class.
+  margins top/bottom/left/right), `Page` (print layout plus a black-on-white
+  document body), and `Streamed` (a single content pane with no toolbar, Find
+  bar or thumbnail/filmstrip chrome — see §8.8). `Page` applies to any
+  paginated content — Markdown and text included — not to a document class.
 - **R8 (state):** While `Layout` is `Print` or `Page`, the control shall draw a
   paper border and a paper shadow around each page.
 - **R9 (ubiquitous):** The control shall honour page breaks: explicit breaks in
@@ -209,6 +210,38 @@ toolbar-adjacent feature.)*
   Previous, open/close — shall be readable and writable from COBOL, with no
   Find capability reachable only by mouse.
 
+### Events
+
+- **R32 (ubiquitous):** Every user-driven state change, and every
+  asynchronous, OS-handoff action (Print, Share, Save As), shall raise a
+  matching event, so a COBOL program is never blind to an interaction it did
+  not itself trigger through a property or method call. This extends R22's
+  "no capability mouse-only" principle from *control* to *observability*.
+  Naming follows this project's existing async-lifecycle convention (the
+  `onComplete`/`onCancelled` pair already used by `RestClient`/`SqlDatabase`/
+  `IndexedFile`/`Maps`/`WebSearch` — no "Finished"/"Done"/"Success" wording),
+  applied per action via a prefix wherever a control has more than one
+  asynchronous action to disambiguate.
+
+  | Event | Fires when | Ties to |
+  |---|---|---|
+  | `onError` | a document fails to open, or its format is unsupported | R4 |
+  | `onLoadProgress` | while a document is opening, with 0–100 `Progress` | R6 |
+  | `onLoaded` | a document finishes opening | R6 |
+  | `onLayoutChanged` | `Layout` changes (`Raw`/`Web`/`Print`/`Page`/`Streamed`) | R7, §8.8 |
+  | `onZoomChanged` | `Zoom` settles after a wheel, double-click or programmatic change | R11–R13 |
+  | `onThumbnailsToggled` | `ShowThumbnails` turns on or off | R14 |
+  | `onFilmstripToggled` | `ShowFilmstrip` turns on or off | R14 |
+  | `onFullscreenEntered` / `onFullscreenExited` | `Fullscreen` is entered / left | R15 |
+  | `onFindOpened` / `onFindClosed` | the Find bar opens / closes | R26 |
+  | `onPrintComplete` / `onPrintCancelled` | the OS print handoff finishes / the user cancels it | R20 |
+  | `onShareComplete` / `onShareCancelled` | the OS share handoff finishes / the user cancels it | R19 |
+  | `onSaveComplete` / `onSaveCancelled` | Save As finishes writing / the user cancels the dialog | R18, R18.1 |
+  | `onSplitModeChanged` | `SplitMode` changes | R21 |
+  | `onConversationCreated` | `NewConversation()` is called | §8.8 |
+  | `onConversationSelected` | `SelectConversation(id)` is called, carrying `id` | §8.8 |
+  | `onContentRendered` | newly appended content (§8.2) finishes laying out — not merely after the data is accepted | §8.2, §8.8 |
+
 ### Split view
 
 - **R21 (optional):** Where `SplitMode` is `LeftRight` or `TopBottom`, the
@@ -294,6 +327,10 @@ toolbar-adjacent feature.)*
 - [ ] **AC24** — Search text, case sensitivity, highlight toggle, and match
       count/index all round-trip through the COBOL API (set/read), and Find,
       Next and Previous are all COBOL-callable.
+- [ ] **AC30** — Every event in R32's table fires at its documented moment and
+      never at another one — verified per event, not by sampling a few.
+      *(AC25–AC29 are the Streamed-layout/conversation-management criteria in
+      §8.7.)*
 
 ## 7. Constraints & steering check
 
@@ -363,6 +400,8 @@ existing message identified by a stable ID. Content must always appear in
 3. Update only the affected message whenever possible.
 4. Recalculate the layout before applying any scrolling behaviour.
 5. Avoid rebuilding or reparsing the entire conversation.
+6. Raise `onContentRendered` once the newly appended content's layout is
+   complete — not merely once the data is accepted (§5's events table, R32).
 
 ### 8.3 Automatic scrolling (auto-follow)
 
@@ -442,6 +481,63 @@ These extend §6 for the append/streaming use case.
 - [ ] **AC18** — Late layout changes (images or fonts loading) keep the viewport
       pinned to the end when auto-follow is active and otherwise preserve the
       user's reading position.
+- [ ] **AC25** — Streamed layout shows exactly one content pane with no
+      toolbar, Find bar, thumbnail or filmstrip chrome, regardless of what
+      chrome the previous `Layout` had shown.
+- [ ] **AC26** — `NewConversation()` archives a non-empty pane into history,
+      clears it, and raises `onConversationCreated`; calling it on an empty
+      pane raises no event and creates no history entry.
+- [ ] **AC27** — `SelectConversation(id)` archives the currently-open
+      conversation, removes the selected id from history, clears the pane, and
+      raises `onConversationSelected(id)` — the control never repaints content
+      from anywhere but a subsequent host-supplied append call.
+- [ ] **AC28** — History never exceeds 10 entries; archiving or registering an
+      11th evicts the oldest, verified by id.
+- [ ] **AC29** — `HistoryList` lists every current entry as `id|title`, one per
+      line, staying in sync after every archive, selection and eviction.
+
+### 8.8 Streamed layout and conversation management
+
+The Viewer's fifth `Layout` value, **Streamed**, is built for hosting a
+chatbot conversation with nothing else on screen: a single content pane, no
+toolbar, no Find bar, no thumbnail or filmstrip chrome. Starting, browsing and
+managing conversations is not drawn by the control at all — every affordance
+for it (a "new chat" action, a history list, search, save, share) is the
+developer's own UI, built from whatever controls fit the application, wired to
+the methods and events below. *(An earlier draft of this section built a fixed
+sidebar into the control, reusing `ControlType::SideMenu`; the operator ruled
+this out — the developer must not be forced into a UI they cannot customize,
+and separately, SideMenu turned out to have no hamburger/trigger concept at
+all and is not architecturally reusable by a second control regardless.)*
+
+- **`NewConversation()`** — a method. If the content pane holds a non-empty
+  conversation, it is archived into history first (below); the pane is then
+  cleared; `onConversationCreated` is raised. Calling it on an already-empty
+  pane does not create a spurious history entry.
+- **History** holds **up to 10** entries, each carrying only an id and a
+  title — never a conversation's rendered content. Past 10, the oldest entry
+  is evicted. History starts every run holding only what that run itself
+  archives; `RegisterConversation(id, title)` lets the host seed an entry left
+  over from an earlier run (its content, like every other entry's, is fetched
+  on selection, never held by the control).
+- **`SelectConversation(id)`** — a method. The currently open conversation (if
+  any) is archived into history exactly as `NewConversation()` does; the entry
+  named by `id` is removed from history and becomes current; the pane is
+  cleared; `onConversationSelected` is raised carrying `id`, telling the host
+  to supply that conversation's content via the append methods of §8.2. The
+  control never restores content from a cache of its own — every selection is
+  a fresh request to the host, which is what keeps memory bounded no matter
+  how long a session runs (ties to R2).
+- **`HistoryList`** — a read-only property, one entry per line as `id|title`
+  (the same multi-line-list convention `Buttons` already uses on Snackbar), so
+  the developer's own UI can enumerate, sort or search history without a
+  dedicated search method — nothing here that the developer's own COBOL cannot
+  already do against a dozen lines of text.
+
+The three events this section introduces — `onConversationCreated`,
+`onConversationSelected`, `onContentRendered` — are listed with every other
+event in R32's table (§5); nothing about them is unique to Streamed layout
+except that they are the ones most likely to fire while it is active.
 
 ## 9. Decisions already taken
 
@@ -478,6 +574,29 @@ the requirements above, so the resolution is traceable back to its source.
   proposed. The single word "search" in §3's PDF row had no requirement behind
   it; this gives it one. New "Search" subsection, requirements R26–R31 (§5),
   a new toolbar entry in R16, and new AC22–AC24 (§6).
+- **Streamed layout for chatbot use, with a pure COBOL API — no built-in
+  sidebar** (operator, 2026-09-18, in two parts). First asked for a
+  distraction-free single-pane layout with a hamburger-triggered sidebar
+  reusing `ControlType::SideMenu` (New chat / Search / Save / Share / up to 10
+  past conversations); investigation found SideMenu has **no** hamburger or
+  trigger concept at all (deliberately rejected in its own code) and is not
+  architecturally reusable by a second control regardless. Before that
+  research even finished, the operator corrected course: **no built-in
+  sidebar at all** — "the developer will decide how to implement it rather
+  [than] be forced to use one he cannot customize." The control now exposes
+  the capability as a pure API (`NewConversation()`, `SelectConversation(id)`,
+  `RegisterConversation(id, title)`, `HistoryList`) and draws nothing for it.
+  Also folded in: selecting a past conversation never restores cached content
+  — it always re-requests it from the host by event, and the previously-open
+  conversation swaps into history while the selected one becomes current.
+  New §8.8, new events in R32's table, new AC25–AC29 (§8.7).
+- **Events for every interaction, not just Print/Share** (operator,
+  2026-09-18): "provide events for every possible interaction," given Print/
+  Share-cancelled as examples. Read broadly — extended to every state change
+  (layout, zoom, fullscreen, split mode, thumbnails/filmstrip, Find open/
+  closed) alongside the OS-handoff actions (Print/Share/Save), reusing this
+  project's existing `onComplete`/`onCancelled` async-lifecycle naming
+  (spec 032), prefixed per action. New "Events" subsection, R32 (§5).
 - **Split view: search is per-view** (operator, 2026-09-18): each view's Find
   is fully independent — its own search text, toggles, current match and
   count — including when both views hold the **same** document (R21.1), so

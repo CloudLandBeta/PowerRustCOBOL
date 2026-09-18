@@ -1,6 +1,6 @@
 # Plan — Viewer Control
 
-- **Status:** draft (awaiting review — run `/tasks` once approved)
+- **Status:** approved
 - **Spec:** ./spec.md   **Date:** 2026-09-18
 
 ## 1. Approach
@@ -29,12 +29,27 @@ Snackbar. §2 below is written as that checklist, with the **silent-failure
 traps this codebase has already been bitten by once** called out explicitly,
 because they don't show up as compile errors.
 
+**A fourth thing added after this plan's first draft is not architecturally
+new, just larger than usual:** R32's comprehensive event surface (~16 events)
+reuses the exact `onComplete`/`onCancelled` async-lifecycle pattern already
+proven by `RestClient`/`SqlDatabase`/`IndexedFile`/`Maps`/`WebSearch` (spec
+032) — no new dispatch mechanism, just more entries through the same
+`FormRequest`-style channel R6 already uses for `onLoadProgress`/`onLoaded`.
+§8.8's conversation-management API (`NewConversation`/`SelectConversation`/
+`RegisterConversation`/`HistoryList`) is genuinely new in one specific way —
+history holds only an id and a title, **never** a past conversation's
+rendered content, so selecting one is always a fresh request back to the host
+rather than a cache restore (§3, §4) — everything else about it is ordinary
+method/property/event plumbing, the same shape as every other control's
+COBOL surface.
+
 **Requirement coverage:** R1–R6 the decode engine/host session; R7–R10 layout
 modes and the format renderers; R11–R15 navigation chrome; R16–R20+R18.1 the
-toolbar and its actions; R26–R31 Search; R21–R21.2 split view; R22–R23 the
-COBOL surface (cross-cutting); R24–R25 boundaries (governance, cross-cutting);
-§8/AC12–18 the conversation-mode extension (§7 below, the least-precedented
-part of this plan — flagged honestly as such, not dressed up as proven).
+toolbar and its actions; R26–R31 Search; R32 the event surface; R21–R21.2
+split view; R22–R23 the COBOL surface (cross-cutting); R24–R25 boundaries
+(governance, cross-cutting); §8/AC12–18 the conversation-mode extension and
+§8.8/AC25–29 Streamed layout (§7 below, the least-precedented part of this
+plan — flagged honestly as such, not dressed up as proven).
 
 ## 2. Affected crates / files
 
@@ -45,7 +60,7 @@ part of this plan — flagged honestly as such, not dressed up as proven).
   exhaustive — silently deserializes a saved Viewer control as `Custom` on next
   load if forgotten; no test catches this today, see §5**).
 - `src/viewer.rs` **(new)** — pure, `egui`-free model code: `ViewerLayout`
-  (`Raw`/`Web`/`Print`/`Page`), `ViewerFormat` (`Text`/`Markdown`/`Image`/`Pdf`/
+  (`Raw`/`Web`/`Print`/`Page`/`Streamed` — §8.8), `ViewerFormat` (`Text`/`Markdown`/`Image`/`Pdf`/
   `HtmlSubset` — R0's honest naming), `SplitMode` (`None`/`LeftRight`/
   `TopBottom`), each with the `as_str()`/lenient-`from_str()` idiom
   `DataGridGridLineStyle` already establishes (`model.rs:163-181`); the Markdown
@@ -154,6 +169,21 @@ round-trip pattern (34 files today → 35).
 
 ## 3. Data / model changes
 
+**Storage is native-format, always — rendering is a separate, derived step.**
+Operator correction, 2026-09-18, replacing an earlier misreading of §8.1: every
+document's **stored** representation is its own source format, never a shared
+intermediate one — a Markdown document's internal storage is its Markdown
+text, an HTML document's is its HTML text, a PDF's is its PDF bytes, an
+image's is its own encoded bytes; each **lives in that format** whether in
+memory, on disk, or on screen. What gets **displayed** (tables, links, images,
+formatted text) is computed *from* that stored form at layout/paint time —
+cacheable for performance, but never the system of record and never a
+replacement for it. This is what makes R18's byte-identical Save As correct by
+construction rather than a special case, and what keeps R24 ("never modify the
+source") structurally true rather than merely intended. The "shared
+layout-primitive set" decision in §4 is about that *derived* computation, not
+about storage — see its amended wording there.
+
 **`.cfrm`:** one new `<Control type="Viewer">`. `ControlType` serialises **by
 name** (confirmed against the Snackbar precedent), so appending the variant is
 backward compatible.
@@ -164,7 +194,7 @@ backward compatible.
 |---|---|---|
 | `Source` | string | path; alias for `View1Source` when `SplitMode = None` |
 | `Format` | string, read-only | resolved per R3/R0 |
-| `Layout` | string enum | `Raw`/`Web`/`Print`/`Page` |
+| `Layout` | string enum | `Raw`/`Web`/`Print`/`Page`/`Streamed` (§8.8) |
 | `Zoom` | int (%) | alias for `View1Zoom` |
 | `FontSize` | int | |
 | `ShowThumbnails` / `ShowFilmstrip` | bool | |
@@ -175,28 +205,47 @@ backward compatible.
 | `SplitMode` | string enum | `None`/`LeftRight`/`TopBottom` |
 | `View1*` / `View2*` | — | `Source`, `Page`, `Zoom`, `ScrollPosition`, `SearchText`, `SearchCaseSensitive`, `SearchHighlightEnabled`, `SearchCurrentMatch` (read-only), `SearchMatchCount` (read-only), `FindOpen` (bool) — present only meaningfully once `SplitMode != None`, but always addressable |
 | `RenderAsHtml` | bool, default true | §8.1's global override — see §7 |
+| `HistoryList` | string, read-only, multi-line | one `id\|title` per line, ≤10 lines (§8.8) — the `Buttons` multi-line-list idiom |
 
 **Methods:** `LoadBytes(bytes)`, `FindNext()`, `FindPrevious()`, `SaveAs(path)`
 (COBOL-driven Save As always takes an explicit path — R18.1's proposed-default-
 filename behaviour is specifically the **interactive dialog's** convenience,
 not the method's contract), `Print()`, `Share()`, plus the conversation-mode
 `AppendHtml(content)` / `AppendMarkdown(content)` / `AppendRaw(content)` /
-`AppendToMessage(messageId, content, mode)`.
+`AppendToMessage(messageId, content, mode)`, and §8.8's conversation-management
+trio `NewConversation()` / `SelectConversation(id)` / `RegisterConversation(id,
+title)`.
 
-**Events:** `onError`, `onLoadProgress`, `onLoaded` — exactly R4/R6, nothing
-invented beyond the spec's explicit list.
+**Events:** the full ~16-event set in spec.md R32's table — the original
+`onError`/`onLoadProgress`/`onLoaded` (R4/R6) plus a change event for every
+other state R22 already makes COBOL-writable (`onLayoutChanged`,
+`onZoomChanged`, `onThumbnailsToggled`, `onFilmstripToggled`,
+`onFullscreenEntered`/`Exited`, `onFindOpened`/`Closed`, `onSplitModeChanged`),
+a Complete/Cancelled pair for each OS-handoff action (`onPrintComplete`/
+`Cancelled`, `onShareComplete`/`Cancelled`, `onSaveComplete`/`Cancelled`), and
+the three §8.8 conversation events (`onConversationCreated`,
+`onConversationSelected`, `onContentRendered`). All dispatched through the
+same `FormRequest`-style channel R6 already uses — no new delivery mechanism,
+just more call sites (§1, §5 risk).
 
 **Live model (host-side only, never serialised — does not exist at rest):**
 ```
 ViewerSession { ctrl_id, thread: JoinHandle, jobs_tx, done_rx,
                 page_cache: BoundedLru<PageIndex, DecodedPage>,
-                views: [ViewState; 1 or 2] }
+                views: [ViewState; 1 or 2],
+                history: VecDeque<HistoryEntry>  // capped at 10 (§8.8)
+              }
 ViewState { source, page, zoom, scroll, search: SearchState }
 SearchState { text, case_sensitive, highlight_enabled, current_match, matches: Vec<Span> }
+HistoryEntry { id: String, title: String }  // NEVER content — see §8.8, R2
 ```
 When both views hold the same document (R21.1), both `ViewState`s hold a
 shared `Arc`-style handle into the *same* `ViewerSession`'s decoded-document
 state — "attach, don't reload" is enforced by construction, not by a check.
+`history` holds only `HistoryEntry`, deliberately — a past conversation's
+rendered content is never cached (§8.8's `SelectConversation` always re-asks
+the host), which is what keeps a long Streamed-layout session's memory bounded
+the same way the page cache bounds a large static document (R2, T7).
 
 **No AST change** — every Viewer method is an ordinary `Stmt::Invoke`, matching
 Snackbar's `Show()`; the bincode append-only hazard is untouched.
@@ -272,13 +321,44 @@ Snackbar's `Show()`; the bincode append-only hazard is untouched.
   as a goal.
 
 - **The Markdown and HTML renderers share one internal layout-primitive set**
-  (headings/paragraphs/lists/tables/images), not two independent layout
-  engines. *Why:* keeps the HTML milestone's *incremental* cost to "parse HTML
-  into the same shape Markdown already produces," not a second full layout
-  engine — directly serves spec.md §7's fidelity-ordering decision (Markdown
-  proves the layout primitives; HTML reuses them last). *Rejected:* fully
-  independent renderers per format — simpler to reason about per-format, but
-  duplicates every layout bug fix across two engines going forward.
+  (headings/paragraphs/lists/tables/images) **for the derived rendering step
+  only** — not two independent layout engines, and **not a shared storage
+  format**: each document's stored form stays its own native text (§3). A
+  Markdown file's canonical representation is its Markdown text throughout;
+  the layout-model tree is computed from it at paint time, discarded/recomputed
+  as needed, never persisted as a replacement. *Why:* keeps the HTML
+  milestone's *incremental* cost to "parse HTML into the same shape Markdown
+  already produces," not a second full layout engine — directly serves
+  spec.md §7's fidelity-ordering decision (Markdown proves the layout
+  primitives; HTML reuses them last). *Rejected:* fully independent renderers
+  per format — simpler to reason about per-format, but duplicates every layout
+  bug fix across two engines going forward.
+
+- **Streamed layout draws no navigation chrome of its own — conversation
+  management is a pure COBOL API.** *Why:* the operator ruled this out
+  directly after an initial sidebar-reuse plan was investigated and found
+  wanting on its own technical merits too — `ControlType::SideMenu` has no
+  hamburger/trigger concept at all (its own code rejects one explicitly: "the
+  header pane carries the logo... a ☰ would be a second affordance for
+  something the whole pane already does") and isn't architecturally reusable
+  by a second control (`state_for_control`/`form_content_pane`/`rail_view`
+  are all hard-gated to `ControlType::SideMenu` specifically, not a shared
+  entry point the way `splitter::geometry()` is). *Rejected:* building
+  Streamed layout's own fixed sidebar (the original ask) — even setting the
+  SideMenu findings aside, it would have been the one part of this whole
+  control reachable only by mouse, sitting awkwardly next to R22's "no
+  capability mouse-only" principle that governs everything else.
+
+- **History holds an id and a title, never a conversation's content.** *Why:*
+  the same bounded-memory ethos R2/T7 already establish for a single large
+  document, applied to a Streamed-layout session that could otherwise
+  accumulate dozens of conversations over a long run. `SelectConversation`
+  therefore always re-asks the host rather than restoring from a cache — one
+  mechanism (a host round-trip on selection), not two (a cache with its own
+  invalidation rules). *Rejected:* caching each conversation's rendered
+  layout model on eviction from view — bounded by nothing, and the operator's
+  own words ("unless the past sessions are loaded by the host, it appears
+  empty") already assume the host is the source of truth, not the control.
 
 ## 5. Risks & mitigations
 
@@ -358,12 +438,21 @@ Snackbar's `Show()`; the bincode append-only hazard is untouched.
   GIF/WebP/APNG playback or needs its own minimal frame-timing logic on top of
   the extended `image` crate features.
 
-- **Risk: scope.** 31 static-document requirements plus a full conversation-
-  mode extension (§8) is a large feature, comparable to or larger than the
-  spec-039 batch (6 controls). → *Mitigation:* `/tasks` sequences by the
-  fidelity order spec.md already settled — a Viewer that opens text/Markdown/
-  images and paints on both surfaces lands before PDF, before HTML, before
-  Search, before split view, before conversation mode. Each stage independently
+- **Risk: ~16 events is a lot of near-identical "does this fire at exactly
+  this moment" tests to write by hand, and hand-written near-duplicates are
+  exactly where one gets silently skipped.** → *Mitigation:* one table-driven
+  test iterating R32's event table (trigger → expected event name), rather
+  than sixteen bespoke test functions — the table itself becomes the
+  single place a missing case would have to hide, and AC30 is written to
+  match ("verified per event, not by sampling a few").
+
+- **Risk: scope, now larger.** 32 requirements across the static-document
+  surface plus the full conversation-mode extension (§8, including §8.8) is a
+  large feature, comparable to or larger than the spec-039 batch (6 controls).
+  → *Mitigation:* `/tasks` sequences by the fidelity order spec.md already
+  settled — a Viewer that opens text/Markdown/images and paints on both
+  surfaces lands before PDF, before HTML, before Search, before split view,
+  before conversation mode and Streamed layout. Each stage independently
   green, matching this project's own precedent for large single-control work.
 
 ## 6. Test strategy
@@ -386,6 +475,10 @@ Snackbar's `Show()`; the bincode append-only hazard is untouched.
   reporting dimensions/frame counts per format (§3's Format table, verified,
   not assumed).
 - `from_str_recovers_viewer_not_custom` (§5) — the round-trip regression guard.
+- `streamed_layout_draws_a_single_pane_and_nothing_else` (§8.8, AC25) — asserts
+  no toolbar/Find-bar/thumbnail/filmstrip shapes are emitted under `Layout =
+  Streamed`, reporting the shape count against every other layout's for
+  contrast.
 
 **`cobolt-form-host` (the session, deterministic — a fabricated clock, never a sleep)**
 - `viewer_session_spawns_exactly_one_thread_per_instance` — two sessions,
@@ -399,16 +492,34 @@ Snackbar's `Show()`; the bincode append-only hazard is untouched.
   (channel closed / thread joined within a bound), not a sleep.
 - `each_view_keeps_independent_search_state` (R21.2) — search one view, assert
   the other's `SearchState` is untouched; report both views' match counts.
+- `history_never_exceeds_ten_and_evicts_the_oldest` (§8.8, AC28) — archive/
+  register 12 entries, report the surviving 10 ids in order and confirm the
+  first two are gone.
+- `select_conversation_swaps_current_and_history_without_touching_content`
+  (§8.8, AC27) — asserts the currently-open entry lands in history and the
+  selected one is removed from it, and that no cached content is read back
+  from anywhere (the mitigation for §4's "history holds an id and a title,
+  never content" decision, made concrete).
 
 **`cobolt-runtime`**
 - `loadbytes_findnext_findprevious_saveas_print_share_dispatch` — each method
   reaches the host session; report which fired.
-- `onerror_onloadprogress_onloaded_fire_in_order` — a deliberately-unsupported
-  format and a normal load, reporting the event sequence for each.
+- `every_event_in_r32s_table_fires_at_its_documented_moment` (AC30) — **one
+  table-driven test**, not sixteen bespoke ones (§5's mitigation): drives each
+  trigger in turn and asserts the matching event and *only* that event fired,
+  reporting a pass/fail per row so a gap is visible by name, not inferred from
+  a missing test function.
+- `new_conversation_and_select_conversation_dispatch` (§8.8) — `NewConversation()`
+  on empty vs. non-empty panes (AC26's two branches, reported separately);
+  `SelectConversation(id)` raises `onConversationSelected` carrying the right
+  id and does **not** itself append any content (that's the host's job, via
+  §8.2's methods, on receipt of the event).
 - conversation-mode: `append_html_markdown_raw_preserve_arrival_order`,
   `render_as_html_false_forces_raw_regardless_of_append_mode` (§7's flagged
   reading of §8.1, tested explicitly so the interpretation is checked, not just
-  asserted in prose).
+  asserted in prose), `oncontentrendered_fires_after_layout_not_after_accept`
+  (§8.2's new item 6, AC29's "in sync" claim depends on this ordering being
+  real).
 
 **`cobolt-compiler`**
 - `spec_058_viewer_is_fully_published_in_the_system_kb` — the exact template
@@ -435,7 +546,11 @@ table exactly, with no format silently over- or under-delivering; split view
 with two different documents and with the same document twice, confirming
 independent search per view; Find bar case-sensitivity/highlight-toggle/
 wraparound; design-canvas vs. running-form parity (AC11); corner rendering
-once `self_clipping_type` is set, on every surface.
+once `self_clipping_type` is set, on every surface; Streamed layout in a
+sample chatbot form — confirm no chrome bleeds through, that a developer-built
+sidebar (any controls, not a Viewer-supplied one) can drive `NewConversation`/
+`SelectConversation` convincingly, and that the events in R32's table actually
+reach a bound COBOL handler, not just the automated test harness.
 
 ## 7. Open note carried into this plan (not a spec change)
 
