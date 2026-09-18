@@ -130,30 +130,89 @@ not `Html`), so a developer is never told the control does more than it does.
   step, up to a maximum of **16×**.
 - **R13 (event):** When Esc is pressed, the control shall return `Zoom` to
   100 %; if fullscreen, it shall first leave fullscreen.
-- **R14 (optional):** The control offers two page-browsing chromes. Where
-  `ShowThumbnails` is on, it shall show the pages as a **card grid** — one card
-  per page — that reflows to fit the pane; the number of cards shown follows the
-  pane width (i.e. the screen resolution) and the current card size. Where
-  `ShowFilmstrip` is on, it shall show a filmstrip whose size the user can drag.
-- **R14.1:** A **card-size slider** sits at the **bottom-right** of the viewer
-  and scales the cards continuously — larger cards mean fewer per row, smaller
-  cards mean more.
-- **R14.2 (event):** When the card-size slider reaches its **maximum (100 %)**
-  and the user leaves it there, the control shall **exit card/thumbnail mode and
-  show the document** — one page filling the view. The largest card is the
-  document itself.
-- **R14.3 (event):** When the **filmstrip splitter** is dragged until the
-  filmstrip collapses to its border (leftward), the control shall **close the
-  filmstrip and show just the document** — the mirror of R14.2, both gestures
-  collapsing a page-browser into the document.
+
+  *(R33–R33.3 sit here in reading order — numbered past R32 to avoid
+  renumbering everything below, the same out-of-sequence pattern this spec
+  already uses for Search and Events.)*
+
+- **R33 (event):** Arrow Up/Down scroll the content, matching the IDE's own
+  Documentation viewer exactly: a tap moves one line (`FontSize × 1.6`); a
+  held key accelerates continuously from a base speed to a **4× ceiling over
+  2 seconds**, with the acceleration only starting after a short hold delay
+  (so a tap always reads as a tap, never a flicker of fast scroll). Never
+  while another control — the Find input, for instance — holds keyboard
+  focus.
+- **R33.1:** Page Up/Down scroll by nearly a full viewport (the viewport
+  height minus two lines, so context carries across the jump); Home/End jump
+  straight to the top/bottom of the content.
+- **R33.2 (event):** A left-button press-drag anywhere over the content pans
+  it 1:1 with the pointer. Releasing while still moving **continues
+  scrolling** at the speed measured from the drag's own last ~0.12 s of
+  movement — never from wherever the pointer happens to be if it leaves the
+  content first — decelerating under **constant friction** to a stop (not a
+  fixed-duration ease: a fast throw travels further and takes longer than a
+  gentle one, both ending at exactly zero). A new press while still gliding
+  stops the glide at once — catching a moving page, the way every touch
+  surface behaves.
+- **R33.3:** R33/R33.1/R33.2 apply to `Full` mode (R14) only, independently
+  per split view (R21) when `SplitMode != None` — `Cards` mode's own
+  navigation is paging between cards, a different interaction, not a scrolled
+  document.
+
+- **R14 (ubiquitous):** Each view (R21 — the single view when `SplitMode =
+  None`, or each of the two independently when split) has two mutually
+  exclusive view modes, `ViewMode`: **`Full`** (the document itself, under
+  whichever `Layout` is active) and **`Cards`** (a reflowing grid of
+  page-thumbnail cards, one per page, **replacing** the document rather than
+  sitting beside it). Both the number of columns and the number of rows the
+  grid reflows to are a function of two things only — the current card size
+  (R14.1) and **the control's own width** — never the window, the screen, or
+  anything outside the control's own designed rect (a control's layout must
+  not depend on something it cannot see). **Two toolbar buttons switch that
+  view's mode explicitly** — in split mode, each view's buttons are its own,
+  so one side can browse cards while the other reads the document. `ViewMode`
+  does not apply while `Layout = Streamed` (§8.8), which has no chrome to
+  switch at all.
+- **R14.1:** **One slider per view** sits at the **bottom-right of that
+  view, directly below its content area** — the same control, the same
+  relative location, unified with zoom rather than duplicated (operator,
+  2026-09-18: "unify the zoom control for the content, the card"). In `Full`
+  mode it drives that view's `Zoom`; in `Cards` mode, that view's `CardSize`.
+  Larger always means "more of the pane per item" — more of the page filling
+  the view in `Full` mode, fewer, bigger cards per row in `Cards` mode.
+  `CardSize` and `ViewMode` are therefore per-view properties
+  (`View1CardSize`/`View2CardSize`, `View1ViewMode`/`View2ViewMode`),
+  exactly like `Zoom` already is — one shared slider would otherwise have two
+  views' independent modes fighting over it.
+- **R14.2:** The slider's range adapts to whichever property it is currently
+  driving — `Zoom`'s full range in `Full` mode (down to a legible minimum, up
+  to R12's 16× cap), `CardSize`'s 0–100 % in `Cards` mode — and switching
+  `ViewMode` never changes the *other* mode's own remembered value: leaving
+  `Cards` mode and returning later shows the same card size as before, and
+  likewise for `Zoom`. *(Retires the original rule that dragging the card
+  slider to 100 % auto-exited to the document — superseded, since mode
+  switching is now the two buttons' explicit job; see §9.)*
+- **R14.3 (ubiquitous):** Independent of `ViewMode`, each view may also show a
+  **filmstrip** — a resizable rail of page thumbnails **docked to the left
+  edge of that view's content**, opened by its own toolbar button (in `Full`
+  mode only; `Cards` mode is already a page browser, so a filmstrip beside it
+  would duplicate its own job). `ShowFilmstrip` is therefore also a per-view
+  property, `View1ShowFilmstrip`/`View2ShowFilmstrip`.
+- **R14.4 (event):** The filmstrip closes exactly two ways, both leaving
+  `Full` mode showing just the document: clicking its own toolbar button a
+  second time (the button shows pressed while the filmstrip is open), or
+  dragging the filmstrip's own right-hand splitter all the way to the view's
+  left edge — the same gesture that resizes it, taken to its limit.
 - **R15 (event):** When `Fullscreen` is entered, the toolbar shall be hidden;
   when left, it shall reappear.
 
 ### Toolbar and actions
 
 - **R16 (ubiquitous):** The toolbar shall sit at the top of the control and
-  offer: layout, zoom, font size, thumbnails, filmstrip, fullscreen, split,
-  Find, Print, Share, Save As.
+  offer: layout, view mode (`Full`/`Cards`, R14), font size, filmstrip,
+  fullscreen, split, Find, Print, Share, Save As. **Zoom and card size are not
+  toolbar items** — R14.1's single bottom-right slider is their only control,
+  unified rather than duplicated in the toolbar too.
 - **R17 (constraint):** Toolbar icons shall be **hand-drawn painter icons only**
   — no font glyphs, no bitmaps. Each shall carry its function name as a tooltip.
   Any icon the project lacks shall be drawn as part of this work.
@@ -229,9 +288,11 @@ toolbar-adjacent feature.)*
   | `onLoadProgress` | while a document is opening, with 0–100 `Progress` | R6 |
   | `onLoaded` | a document finishes opening | R6 |
   | `onLayoutChanged` | `Layout` changes (`Raw`/`Web`/`Print`/`Page`/`Streamed`) | R7, §8.8 |
-  | `onZoomChanged` | `Zoom` settles after a wheel, double-click or programmatic change | R11–R13 |
-  | `onThumbnailsToggled` | `ShowThumbnails` turns on or off | R14 |
-  | `onFilmstripToggled` | `ShowFilmstrip` turns on or off | R14 |
+  | `onZoomChanged` | `Zoom` settles after a wheel, double-click, the R14.1 slider, or a programmatic change | R11–R13, R14.1 |
+  | `onCardSizeChanged` | `CardSize` settles after the R14.1 slider, or a programmatic change | R14.1 |
+  | `onScrolled` | the content's scroll position comes to rest — after a key, a throw's glide, or a programmatic change, never mid-glide | R33 |
+  | `onViewModeChanged` | a view's `ViewMode` changes between `Full` and `Cards` | R14 |
+  | `onFilmstripToggled` | a view's `ShowFilmstrip` turns on or off | R14.3 |
   | `onFullscreenEntered` / `onFullscreenExited` | `Fullscreen` is entered / left | R15 |
   | `onFindOpened` / `onFindClosed` | the Find bar opens / closes | R26 |
   | `onPrintComplete` / `onPrintCancelled` | the OS print handoff finishes / the user cancels it | R20 |
@@ -301,12 +362,26 @@ toolbar-adjacent feature.)*
 - [ ] **AC10** — Every toolbar icon is painter-drawn and carries a tooltip.
 - [ ] **AC11** — The control paints identically on the designer canvas and the
       running form (spec 017 parity).
-- [ ] **AC19** — Thumbnails show as a reflowing card grid (one card per page)
-      whose per-row count tracks pane width and the card-size slider; the slider
-      sits bottom-right. Leaving the slider at its 100 % maximum exits card mode
-      to the document; dragging the filmstrip splitter to its border closes the
-      filmstrip to the document. *(AC12–AC18 are the conversation-mode criteria
-      in §8.7.)*
+- [ ] **AC19** — Switching a view's `ViewMode` to `Cards` replaces its content
+      with a reflowing card grid (one card per page) whose row and column
+      counts both track that view's own width and card size — resizing the
+      *control*, not the window, changes the count; switching back to `Full`
+      shows the document, with each mode's own slider value (`Zoom`,
+      `CardSize`) remembered independently across the switch. A view's
+      filmstrip opens docked to its content's left edge from its own toolbar
+      button, and closes exactly two ways — that button again, or dragging
+      its splitter to the view's left edge — without leaving `Full` mode.
+      *(AC12–AC18 are the conversation-mode criteria in §8.7.)*
+- [ ] **AC31** — Holding Arrow Down scrolls at a steady base speed at first,
+      measurably faster by 2 s in, capped at 4× — reported as the measured
+      speed at three points (tap, ~1 s held, ~2 s+ held); Page Up/Down and
+      Home/End move by the documented amounts; none of it fires while the
+      Find input has focus.
+- [ ] **AC32** — Dragging the content pans it 1:1 with the pointer; releasing
+      while moving continues scrolling and comes to rest under constant
+      friction, always at exactly the scroll limit or zero velocity, never a
+      fixed-duration animation; a drag that stopped moving before release
+      throws nothing; pressing during a glide stops it immediately.
 - [ ] **AC20** — Save As on a `LoadBytes` document with no source path defaults
       the filename to its first three words plus the extension matching its
       `Format`; an image or other textless document falls back to a generic
@@ -541,7 +616,7 @@ except that they are the ones most likely to fire while it is active.
 
 ## 9. Decisions already taken
 
-Four questions the operator has now answered directly (2026-09-18), plus three
+Four questions the operator has now answered directly (2026-09-18), plus five
 instructions given alongside them. Recorded here with the reasoning folded into
 the requirements above, so the resolution is traceable back to its source.
 
@@ -602,6 +677,50 @@ the requirements above, so the resolution is traceable back to its source.
   count — including when both views hold the **same** document (R21.1), so
   searching one side never disturbs the other. R21 now lists search state
   among the per-view independent state; new R21.2; AC8 extended.
+- **Content scrolling matches the Documentation viewer exactly** (operator,
+  2026-09-18): arrow keys and mouse grab-and-throw, "just like the
+  documentation viewer." Investigated rather than assumed —
+  `crates/cobolt-ide/src/panels/doc_viewer.rs`'s own key-accel and throw/
+  friction formulas (base speed ramping to a 4× ceiling over 2 s; release
+  speed measured from the drag's own last ~0.12 s, decelerating under
+  constant friction, never a fixed-duration ease) are real, precisely
+  measured, and **not reusable code** (private to that module, and
+  `cobolt-ide` is a binary crate `cobolt-forms` cannot call regardless) — so
+  this reproduces the same mechanics, not a shared implementation. New
+  R33–R33.3, new AC31–AC32.
+- **Zoom and card size unify into one bottom-right slider; thumbnails become
+  an explicit `ViewMode`** (operator, 2026-09-18): "unify the zoom control for
+  the content, the card... a slider on the bottom right... right below the
+  content." Read together with "the card viewer is a view mode (content is
+  the other mode) activated by buttons" as a single redesign: `ShowThumbnails`
+  (a togglable chrome) is replaced by `ViewMode` (`Content`/`Card`, switched
+  by two toolbar buttons), and R14.1's slider now drives `Zoom` in `Content`
+  mode and `CardSize` in `Card` mode — one control, one location, instead of
+  a toolbar zoom group **and** a separate card-size slider. This retires the
+  original "slider at 100 % auto-exits card mode" rule (R14.2) — mode
+  switching is now the buttons' explicit job, so an implicit slider-triggered
+  exit would just be a second, competing way to do the same thing. Landed
+  before Stage C touched Navigation or the toolbar, so no implementation
+  needed reworking — only the design. R14/R14.1/R14.2 rewritten, R16's toolbar
+  list updated, AC19 rewritten.
+- **Three refinements to that redesign** (operator, 2026-09-18): (1)
+  `ViewMode`'s two values are named **`Full`** and **`Cards`**, not
+  `Content`/`Card` — renamed throughout. (2) The card grid's row/column count
+  depends on **the control's own width**, never the window or screen — this
+  corrects a stray "(i.e. the screen resolution)" gloss that had sat in §3's
+  original `/specify` output since before this feature had a plan, unnoticed
+  until now; a control's layout must not depend on something it cannot see.
+  (3) Filmstrip is **left-docked to its view's content** (R14.3's own
+  "collapses to its border (leftward)" wording already implied this — the
+  published mockups had drawn it as a bottom strip, which contradicted the
+  spec they were illustrating), closes by its own toolbar button or by
+  dragging its splitter to the view's left edge (new R14.4), and — since a
+  control-wide filmstrip cannot mean anything once two split views can hold
+  two different documents — is a **per-view** property,
+  `View1ShowFilmstrip`/`View2ShowFilmstrip`, matching everything else split
+  view already made independent. R14/R14.1/R14.3 amended, new R14.4, R16/AC19/
+  the events table updated; `model.rs`'s already-seeded defaults corrected to
+  match (§2's silent-drift risk, caught here rather than later).
 
 ## 10. Open questions
 

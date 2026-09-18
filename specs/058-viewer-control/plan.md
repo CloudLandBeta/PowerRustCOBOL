@@ -197,13 +197,11 @@ backward compatible.
 | `Layout` | string enum | `Raw`/`Web`/`Print`/`Page`/`Streamed` (§8.8) |
 | `Zoom` | int (%) | alias for `View1Zoom` |
 | `FontSize` | int | |
-| `ShowThumbnails` / `ShowFilmstrip` | bool | |
-| `CardSize` | int (%) | the R14.1 slider |
 | `Fullscreen` | bool | |
 | `Progress` | int, read-only | 0–100 |
 | `LastError` | string, read-only | |
 | `SplitMode` | string enum | `None`/`LeftRight`/`TopBottom` |
-| `View1*` / `View2*` | — | `Source`, `Page`, `Zoom`, `ScrollPosition`, `SearchText`, `SearchCaseSensitive`, `SearchHighlightEnabled`, `SearchCurrentMatch` (read-only), `SearchMatchCount` (read-only), `FindOpen` (bool) — present only meaningfully once `SplitMode != None`, but always addressable |
+| `View1*` / `View2*` | — | `Source`, `Page`, `Zoom`, `ViewMode` (string enum, `Full`/`Cards`), `CardSize` (int %, the R14.1 slider — driven together with `Zoom` by one slider per view, whichever `ViewMode` is active), `ShowFilmstrip` (bool — left-docked to that view's content, R14.3/R14.4; per-view because a control-wide filmstrip cannot mean anything once the two views can hold different documents), `ScrollPosition`, `SearchText`, `SearchCaseSensitive`, `SearchHighlightEnabled`, `SearchCurrentMatch` (read-only), `SearchMatchCount` (read-only), `FindOpen` (bool) — present only meaningfully once `SplitMode != None`, but always addressable |
 | `RenderAsHtml` | bool, default true | §8.1's global override — see §7 |
 | `HistoryList` | string, read-only, multi-line | one `id\|title` per line, ≤10 lines (§8.8) — the `Buttons` multi-line-list idiom |
 
