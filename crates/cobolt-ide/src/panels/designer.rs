@@ -6190,6 +6190,10 @@ impl DesignerPanel {
                 self.form.title_visible = value != "false" && value != "0";
                 self.dirty = true;
             }
+            "ModalOverlayStyle" => {
+                self.form.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::from_str(&value);
+                self.dirty = true;
+            }
             "WindowEffects" => {
                 self.form.window_effects = value != "false" && value != "0";
                 self.dirty = true;
@@ -6314,6 +6318,7 @@ impl DesignerPanel {
             "WindowState" => Some(self.form.window_state.as_str().to_string()),
             "FullScreen" => Some(bool_str(self.form.full_screen)),
             "TitleVisible" => Some(bool_str(self.form.title_visible)),
+            "ModalOverlayStyle" => Some(self.form.modal_overlay_style.as_str().to_string()),
             "WindowEffects" => Some(bool_str(self.form.window_effects)),
             "FormFormat" => Some(self.form.form_format.as_str().to_string()),
             "MenuPaneCustom" => Some(bool_str(self.form.menu_pane_background.is_some())),
@@ -12961,6 +12966,7 @@ fn control_type_name(ct: &ControlType) -> &'static str {
         CT::Maps => "Maps",
         CT::WebSearch => "WebSearch",
         CT::Snackbar => "Snackbar",
+        CT::Viewer => "Viewer",
         CT::Custom { .. } => "Control",
     }
 }
@@ -13362,6 +13368,8 @@ pub(crate) const FORM_PROP_KEYS: &[&str] = &[
     "WindowState",
     "FullScreen",
     "TitleVisible",
+    // 051 R19/R28
+    "ModalOverlayStyle",
     "WindowEffects",
     // 049 Application shell
     "FormFormat",

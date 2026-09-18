@@ -1015,6 +1015,7 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "control-web-search",
             "control-side-menu",
             "control-snackbar",
+            "control-viewer",
             "control-custom",
         ],
     ),
@@ -7275,6 +7276,18 @@ fn control_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(6.0, 19.6), (10.4, 19.6)]),
             p(&[(13.0, 19.6), (18.0, 19.6)]),
         ],
+        // Spec 058: the control's own frame with a toolbar band across the
+        // top (the one thing every other document-shaped glyph in this
+        // catalogue lacks — a viewer has chrome, a plain document icon does
+        // not) and three lines of paginated content below it.
+        "control-viewer" => vec![
+            rr(2.0, 3.0, 20.0, 18.0, 2.2),
+            p(&[(2.0, 8.2), (22.0, 8.2)]),
+            rrf(4.2, 4.8, 3.2, 2.0, 0.7),
+            p(&[(5.0, 12.4), (15.4, 12.4)]),
+            p(&[(5.0, 15.4), (19.0, 15.4)]),
+            p(&[(5.0, 18.4), (12.2, 18.4)]),
+        ],
         "control-web-search" => vec![
             rr(2.5, 4.5, 19.0, 15.0, 1.5),
             p(&[(2.5, 8.4), (21.5, 8.4)]),
@@ -9554,7 +9567,7 @@ mod tests {
         let controls = count("PowerRustCOBOL Controls");
         let cs = count("Computer Science");
         let ui = count("User Interface");
-        assert_eq!(controls, 44, "43 ControlType::ALL entries + Custom");
+        assert_eq!(controls, 45, "44 ControlType::ALL entries + Custom");
         assert!(cs >= 79, "computer-science set, got {cs}");
         assert!(ui >= 49, "user-interface set, got {ui}");
 

@@ -481,6 +481,7 @@ impl FormHost {
                 bg_image: form.background_image.clone(),
                 bg_mode: form.bg_image_mode,
                 use_theme_background: form.use_theme_background,
+                modal_overlay_style: form.modal_overlay_style,
                 form_size: egui::vec2(fw, fh),
                 ev_tx,
                 input_tx,
@@ -501,6 +502,7 @@ impl FormHost {
                 action_notice: None,
                 last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
+                viewer_sessions: Default::default(),
             },
             children: Vec::new(),
             occupants: HashMap::new(),
@@ -680,6 +682,9 @@ pub(crate) struct FormBody {
     /// The form's `UseThemeBackground` opt-in — the pack's background art
     /// replaces the form's own image when the active theme provides one.
     pub(crate) use_theme_background: bool,
+    /// 051 R19/R28 — how THIS form's own face paints while blocked by a
+    /// modal child of its own (`child_frame`'s `blocked` overlay).
+    pub(crate) modal_overlay_style: cobolt_forms::model::ModalOverlayStyle,
     pub(crate) form_size: egui::Vec2,
     pub(crate) ev_tx: mpsc::Sender<FormEvent>,
     pub(crate) input_tx: mpsc::Sender<StateUpdate>,
@@ -734,6 +739,11 @@ pub(crate) struct FormBody {
     /// form's messages stack in that child, and navigating away disposes them
     /// rather than carrying a message about screen A onto screen B.
     pub(crate) snackbars: crate::snackbar_stack::SnackbarStack,
+    /// 058 — one live session per Viewer control on this surface, keyed by
+    /// control id: its decode thread, bounded page cache, view state and
+    /// (for Streamed layout) conversation history. Lazily populated — a
+    /// Viewer with no document open yet has no entry here at all.
+    pub(crate) viewer_sessions: HashMap<String, crate::viewer_session::ViewerSession>,
 }
 
 /// The id space the SideMenu footer fragment renders in.
@@ -2211,6 +2221,22 @@ impl FormBody {
                             );
                         });
                 });
+            // 051 R19/R28 — `disable()` above already refuses input; this is
+            // only the paint that lets the operator SEE this form is waiting,
+            // in the style ITS OWN design chose (a ContentPane occupant is
+            // its own form here, not the shell — the shell has no `.cfrm` of
+            // its own to carry the choice).
+            if blocked {
+                let fill = match self.modal_overlay_style {
+                    cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
+                        egui::Color32::from_white_alpha(70)
+                    }
+                    cobolt_forms::model::ModalOverlayStyle::Greyed => {
+                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
+                    }
+                };
+                panel_ui.painter().rect_filled(panel_rect, 0.0, fill);
+            }
             out
         };
         // Where the engine actually put every control this frame — see
@@ -3252,6 +3278,7 @@ impl FormHost {
             bg_image: form.background_image.clone(),
             bg_mode: form.bg_image_mode,
             use_theme_background: form.use_theme_background,
+            modal_overlay_style: form.modal_overlay_style,
             form_size: egui::vec2(fw, fh),
             ev_tx,
             input_tx,
@@ -3272,6 +3299,7 @@ impl FormHost {
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
+                viewer_sessions: Default::default(),
         };
         Ok((body, form))
     }
@@ -4492,6 +4520,24 @@ impl FormHost {
                         });
                     content_scroll = sa.state.offset;
                 });
+            // 051 R19/R28 — `disable()` above already refuses input; this is
+            // only the paint that lets the operator SEE the root is waiting,
+            // in the style the ROOT form's own design chose. Mirrors the
+            // occupant/child-window overlay in `FormBody::child_frame` — the
+            // root's own content render is a separate, hand-inlined copy of
+            // that logic rather than a call to it, so the paint has to be
+            // added here too.
+            if root_blocked {
+                let fill = match self.root.modal_overlay_style {
+                    cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
+                        egui::Color32::from_white_alpha(70)
+                    }
+                    cobolt_forms::model::ModalOverlayStyle::Greyed => {
+                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
+                    }
+                };
+                root_ui.painter().rect_filled(snack_surface, 0.0, fill);
+            }
             out
         };
         self.last_pane_backdrop_rect = pane_backdrop_rect;
@@ -6025,6 +6071,76 @@ mod parity {
         println!();
     }
 
+    /// 051 R19/R28 — `ModalOverlayStyle` actually changes what gets PAINTED
+    /// over a blocked form, not just whether `disable()` runs. Registers a
+    /// modal child of the ROOT directly with the supervisor (no real child
+    /// needs to spawn — `root_modal_blocked` only cares that one is
+    /// registered), then checks a filled rect in that exact fill color
+    /// covers the frame.
+    #[test]
+    fn modal_overlay_style_changes_the_painted_fill() {
+        fn painted_with(style: cobolt_forms::model::ModalOverlayStyle) -> Vec<egui::Color32> {
+            let (mut app, _pipes) =
+                host_with_surface("none:0:linear", "none:0:linear", false, Surface::Window);
+            app.root.modal_overlay_style = style;
+            let (reply_tx, _reply_rx) = mpsc::channel();
+            let _ = app.supervisor.handle_request(
+                cobolt_runtime::form_host::FormRequest::OpenForm {
+                    caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                    form_id: "CHILD".into(),
+                    sync: true,
+                    window_state: None,
+                    x: None,
+                    y: None,
+                    width: None,
+                    height: None,
+                    modal: true,
+                    reply: reply_tx,
+                },
+            );
+            assert!(app.root_modal_blocked(), "the registered modal must block the root");
+
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(420.0, 320.0),
+            ));
+            let mut full = ctx.run_ui(input, |root_ui| app.ui_impl(root_ui));
+            full.textures_delta.clear();
+
+            fn walk(s: &egui::Shape, out: &mut Vec<egui::Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) => out.push(r.fill),
+                    _ => {}
+                }
+            }
+            let mut fills = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut fills);
+            }
+            fills
+        }
+
+        let semi = painted_with(cobolt_forms::model::ModalOverlayStyle::SemiTransparent);
+        assert!(
+            semi.contains(&egui::Color32::from_white_alpha(70)),
+            "SemiTransparent must paint its own overlay fill: {semi:?}"
+        );
+        let grey = painted_with(cobolt_forms::model::ModalOverlayStyle::Greyed);
+        let grey_fill = egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150);
+        assert!(
+            grey.contains(&grey_fill),
+            "Greyed must paint its own, DIFFERENT overlay fill: {grey:?}"
+        );
+        assert!(
+            !semi.contains(&grey_fill),
+            "SemiTransparent must not ALSO paint Greyed's fill: {semi:?}"
+        );
+        println!("051 — SemiTransparent and Greyed each paint their own, distinct overlay fill");
+    }
+
     /// One headless frame; returns the ROOT viewport's commands.
     fn frame(app: &mut FormHost, ctx: &egui::Context, input: egui::RawInput) -> Vec<egui::ViewportCommand> {
         let mut full = ctx.run_ui(input, |root_ui| app.ui_impl(root_ui));
@@ -6489,6 +6605,7 @@ mod parity {
             bg_image: String::new(),
             bg_mode: cobolt_forms::model::BgImageMode::default(),
             use_theme_background: false,
+            modal_overlay_style: cobolt_forms::model::ModalOverlayStyle::default(),
             form_size: egui::vec2(320.0, 200.0),
             ev_tx,
             input_tx,
@@ -6509,6 +6626,7 @@ mod parity {
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
+                viewer_sessions: Default::default(),
         }
     }
 

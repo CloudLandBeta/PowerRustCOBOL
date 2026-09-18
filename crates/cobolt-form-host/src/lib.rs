@@ -45,6 +45,13 @@ pub mod shell;
 /// surfaces consume this crate, so they cannot drift (R25).
 pub mod snackbar_stack;
 pub mod state;
+/// The Viewer's live per-instance state (spec 058) — a dedicated background
+/// decode thread, a bounded LRU page cache, and (for Streamed layout, §8.8)
+/// conversation history. It lives here for the same reason `snackbar_stack`
+/// does: `cobolt-forms` owns nothing that outlives a frame, and both live
+/// surfaces consuming this crate is what keeps `rcrun run-form` and a
+/// compiled binary from drifting apart (R25).
+pub mod viewer_session;
 
 pub use host::{
     fx_duration_ms, load_host_icon, run, ChildThemeSource, FormHost, FormHostConfig, FormSource,

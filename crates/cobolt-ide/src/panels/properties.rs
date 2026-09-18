@@ -10076,6 +10076,26 @@ impl PropertiesPanel {
                         }
                     });
                 });
+                // 051 R19/R28 — how this form's own face looks while a Sync
+                // (modal) child of its own blocks it. Applies regardless of
+                // FormFormat: a ContentPane occupant has no window of its own
+                // but can still open a modal child, and it is exactly that
+                // form's own appearance that must dim underneath it.
+                property_row(ui, tr.lbl_modal_overlay_style, |ui| {
+                    let cur = form.modal_overlay_style.as_str();
+                    egui::ComboBox::from_id_salt("modal-overlay-style")
+                        .selected_text(cur)
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            for opt in ["SemiTransparent", "Greyed"] {
+                                if ui.selectable_label(cur == opt, opt).clicked() && cur != opt {
+                                    action
+                                        .form_props
+                                        .push(("ModalOverlayStyle".into(), opt.to_owned()));
+                                }
+                            }
+                        });
+                });
                 // 038 R3 — play the PROJECT's window effects, or open/close
                 // instantly. Forms never choose effects, only this on/off.
                 property_row(ui, tr.lbl_window_effects, |ui| {

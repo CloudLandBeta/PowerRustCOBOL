@@ -201,6 +201,7 @@ enum OwnedEvent {
         window_state: crate::model::WindowState,
         full_screen: bool,
         title_visible: bool,
+        modal_overlay_style: crate::model::ModalOverlayStyle,
         // 049 Application shell
         form_format: crate::model::FormFormat,
         // 038 Window effects opt-out
@@ -310,6 +311,12 @@ fn next_owned<R: std::io::BufRead>(
                     let title_visible = get_attr(e, b"title-visible")?
                         .map(|v| v != "false" && v != "0")
                         .unwrap_or(true);
+                    // Absent means SemiTransparent — the closest match to the
+                    // fade `disable()` already gave every blocked form before
+                    // this property existed, so an old `.cfrm` looks the same.
+                    let modal_overlay_style = get_attr(e, b"modal-overlay-style")?
+                        .map(|v| crate::model::ModalOverlayStyle::from_str(&v))
+                        .unwrap_or_default();
                     // 049 R1 — absent means Standalone, so every pre-049 form
                     // keeps opening in its own window (R3).
                     let form_format = get_attr(e, b"form-format")?
@@ -357,6 +364,7 @@ fn next_owned<R: std::io::BufRead>(
                         window_state,
                         full_screen,
                         title_visible,
+                        modal_overlay_style,
                         form_format,
                         window_effects,
                         x,
@@ -498,6 +506,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 window_state,
                 full_screen,
                 title_visible,
+                modal_overlay_style,
                 form_format,
                 window_effects,
                 x,
@@ -527,6 +536,7 @@ fn read_form<R: std::io::BufRead>(reader: &mut Reader<R>) -> Result<Form, FormEr
                 f.window_state = window_state;
                 f.full_screen = full_screen;
                 f.title_visible = title_visible;
+                f.modal_overlay_style = modal_overlay_style;
                 f.form_format = form_format;
                 f.window_effects = window_effects;
                 f.x = x;
@@ -1409,6 +1419,11 @@ pub fn form_to_string(form: &Form) -> Result<String, FormError> {
         }
         if !form.title_visible {
             elem.push_attribute(("title-visible", "false"));
+        }
+        // Additive: only written when it is not the SemiTransparent default,
+        // so a form nobody touched this on round-trips byte-identical.
+        if form.modal_overlay_style != crate::model::ModalOverlayStyle::default() {
+            elem.push_attribute(("modal-overlay-style", form.modal_overlay_style.as_str()));
         }
         // 049 R1 — additive: only written when it is not the Standalone default,
         // so every pre-049 form round-trips byte-identical.

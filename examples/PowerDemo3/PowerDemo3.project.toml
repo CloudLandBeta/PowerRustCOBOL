@@ -29,7 +29,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 destination_folder = "PowerDemo3"
 debug_compilation = true
-built_with_version = "1.70.55"
+built_with_version = "1.70.63"
 
 [files]
 sources = ["src/main.cbl"]
@@ -41,6 +41,8 @@ forms = [
     "forms/sidebar-form.cfrm",
     "forms/General/inner-form1.cfrm",
     "forms/General/inner-form2.cfrm",
+    "forms/General/call-form-demo.cfrm",
+    "forms/General/called-form-demo.cfrm",
     "forms/Common/maps-demo.cfrm",
     "forms/Data/datagrid-form.cfrm",
     "forms/Non-Visual/snackbar-form.cfrm",
@@ -93,6 +95,8 @@ generated = [
     "generated/sidebar-inner-form1.cbl",
     "generated/inner-form1.cbl",
     "generated/inner-form2.cbl",
+    "generated/call-form-demo.cbl",
+    "generated/called-form-demo.cbl",
     "generated/maps-demo.cbl",
     "generated/new-morph-form.cbl",
     "generated/datagrid-form.cbl",
@@ -160,7 +164,7 @@ exit-ms = 400
 exit-easing = "ease-in"
 entrance-on-restore = true
 main-form = "SIDEBAR-FORM"
-main-form-seal = "8130fcb9d79370640d5ac91b864c8a9fef9b820fc5f583a530e51b558caaa1e0"
+main-form-seal = "7c993ae1a1eebd1c8a8bf1a7a14d311063ef6aa8ee59dcae5fa3557262496b92"
 
 [ai]
 schema_version = 1

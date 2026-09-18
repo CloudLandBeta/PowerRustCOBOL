@@ -2453,6 +2453,10 @@ pub enum ControlType {
     // TEMPLATE carrying the defaults, never the notification itself — each
     // `Show()` mints a new one into the surface's stack (spec 055 D1/D2).
     Snackbar,
+    // Spec 058: a document viewer (text/Markdown/images/PDF/HTML-subset),
+    // paginated, off-thread decoding, up to two independent split views, and
+    // a Streamed layout for chatbot-style conversations (spec 058 R1-R32).
+    Viewer,
     // Plugin-provided
     Custom {
         plugin_id: String,
@@ -2573,6 +2577,7 @@ impl ControlType {
         ControlType::Maps,
         ControlType::WebSearch,
         ControlType::Snackbar,
+        ControlType::Viewer,
     ];
 
     pub fn as_str(&self) -> &str {
@@ -2620,6 +2625,7 @@ impl ControlType {
             ControlType::Maps => "Maps",
             ControlType::WebSearch => "WebSearch",
             ControlType::Snackbar => "Snackbar",
+            ControlType::Viewer => "Viewer",
             ControlType::Custom {
                 plugin_id,
                 control_id,
@@ -2672,6 +2678,7 @@ impl ControlType {
             "Maps" => ControlType::Maps,
             "WebSearch" => ControlType::WebSearch,
             "Snackbar" => ControlType::Snackbar,
+            "Viewer" => ControlType::Viewer,
             other => {
                 if let Some((p, c)) = other.split_once(':') {
                     ControlType::Custom {
@@ -2745,6 +2752,7 @@ impl ControlType {
             // designed rect — a notification is sized at run time from its
             // `Size` class, not from anything the designer placed.
             ControlType::Snackbar => (56, 56),
+            ControlType::Viewer => (400, 320),
             ControlType::Custom { .. } => (100, 30),
         }
     }
@@ -3587,6 +3595,65 @@ impl ControlType {
                 "onMouseLeave",
                 "onMouseWheel",
                 "onContextMenu",
+                "onHoverEnter",
+                "onHoverLeave",
+                "onResize",
+                "onResized",
+                "onMove",
+                "onMoved",
+                "onVisibleChanged",
+                "onEnabledChanged",
+                "onLoad",
+            ],
+            // Spec 058 R32 — the Viewer's own events first (loading, every
+            // interactive state change, the three OS-handoff Complete/
+            // Cancelled pairs, and §8.8's conversation-management trio), then
+            // the standard visual-control base set (the DataGrid shape: this
+            // control is keyboard-interactive — Ctrl+F, Esc, F3 — so it keeps
+            // focus/key events, unlike the plainer generic block above).
+            ControlType::Viewer => &[
+                "onError",
+                "onLoadProgress",
+                "onLoaded",
+                "onLayoutChanged",
+                "onZoomChanged",
+                "onCardSizeChanged",
+                "onScrolled",
+                "onViewModeChanged",
+                "onFilmstripToggled",
+                "onFullscreenEntered",
+                "onFullscreenExited",
+                "onFindOpened",
+                "onFindClosed",
+                "onSplitModeChanged",
+                "onPrintComplete",
+                "onPrintCancelled",
+                "onShareComplete",
+                "onShareCancelled",
+                "onSaveComplete",
+                "onSaveCancelled",
+                "onConversationCreated",
+                "onConversationSelected",
+                "onContentRendered",
+                "onClick",
+                "onDblClick",
+                "onDoubleClick",
+                "onRightClick",
+                "onMiddleClick",
+                "onMouseDown",
+                "onMouseUp",
+                "onMouseMove",
+                "onMouseEnter",
+                "onMouseLeave",
+                "onMouseWheel",
+                "onContextMenu",
+                "onGotFocus",
+                "onLostFocus",
+                "onKeyDown",
+                "onKeyUp",
+                "onKeyPress",
+                "onEnterPressed",
+                "onEscapePressed",
                 "onHoverEnter",
                 "onHoverLeave",
                 "onResize",
@@ -5598,6 +5665,53 @@ impl Control {
                 props.insert("Buttons".into(), PropValue::String("".into()));
             }
 
+            // Spec 058 — Viewer. `FontSize` is already seeded above by the
+            // universal prelude and is not repeated here. `Source`/`Zoom`/
+            // `ScrollPosition`/`Search*`/`FindOpen` have NO entry of their
+            // own: when `SplitMode = None` they are plain-name ALIASES the
+            // property-access layer resolves onto `View1*`, the single
+            // canonical store for a view's state (plan.md §3/§4) — seeding
+            // both would give one value two places to go out of sync.
+            ControlType::Viewer => {
+                props.insert("Format".into(), PropValue::String("".into()));
+                props.insert("Layout".into(), PropValue::String("Page".into()));
+                props.insert("Fullscreen".into(), PropValue::Bool(false));
+                props.insert("SplitMode".into(), PropValue::String("None".into()));
+                props.insert("RenderAsHtml".into(), PropValue::Bool(true));
+                props.insert("HistoryList".into(), PropValue::String("".into()));
+                props.insert("Progress".into(), PropValue::Int(0));
+                props.insert("LastError".into(), PropValue::String("".into()));
+                for view in ["View1", "View2"] {
+                    props.insert(format!("{view}Source"), PropValue::String("".into()));
+                    props.insert(format!("{view}Page"), PropValue::Int(1));
+                    props.insert(format!("{view}Zoom"), PropValue::Int(100));
+                    // `ViewMode` replaces the original, control-wide
+                    // `ShowThumbnails` bool (operator, 2026-09-18): `Full`/
+                    // `Cards` are two mutually exclusive modes switched by
+                    // toolbar buttons (spec.md R14) — and, like `Zoom`, PER
+                    // VIEW: each split pane browses independently, one
+                    // showing its document while the other browses that
+                    // document's (or a different document's) cards. `CardSize`
+                    // follows it into the per-view group for the same reason
+                    // — one bottom-right slider per view, not one shared
+                    // slider a second view's mode-switch would fight over.
+                    // `ShowFilmstrip` joins them for the same reason again
+                    // (operator, 2026-09-18): a control-wide filmstrip cannot
+                    // mean anything once the two views can hold different
+                    // documents, and R14.3 docks it to THAT view's content.
+                    props.insert(format!("{view}ViewMode"), PropValue::String("Full".into()));
+                    props.insert(format!("{view}CardSize"), PropValue::Int(55));
+                    props.insert(format!("{view}ShowFilmstrip"), PropValue::Bool(false));
+                    props.insert(format!("{view}ScrollPosition"), PropValue::Int(0));
+                    props.insert(format!("{view}SearchText"), PropValue::String("".into()));
+                    props.insert(format!("{view}SearchCaseSensitive"), PropValue::Bool(false));
+                    props.insert(format!("{view}SearchHighlightEnabled"), PropValue::Bool(true));
+                    props.insert(format!("{view}SearchCurrentMatch"), PropValue::Int(0));
+                    props.insert(format!("{view}SearchMatchCount"), PropValue::Int(0));
+                    props.insert(format!("{view}FindOpen"), PropValue::Bool(false));
+                }
+            }
+
             // ── Charts ────────────────────────────────────────────────────────
             ControlType::BarChart
             | ControlType::LineChart
@@ -6676,6 +6790,45 @@ impl FormFormat {
     }
 }
 
+/// How this form's own face looks while a Sync-opened (modal) child of ITS
+/// blocks it (051 R19/R28) — a child window, or a modal opened by a
+/// ContentPane occupant blocking the shell underneath it. Either way `blocked`
+/// already disables input (`ui.disable()`); this only controls the paint on
+/// top of that, so the operator can SEE the form is waiting, not just fail to
+/// click it.
+///
+/// `SemiTransparent` is the default, and it is what every `.cfrm` written
+/// before this field parses to — the closest match to the fade `disable()`
+/// already gave every blocked form before this property existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModalOverlayStyle {
+    /// A light wash over the whole form — it reads as faded, not obscured.
+    #[default]
+    SemiTransparent,
+    /// A darker, more opaque wash — the classic dimmed/greyed-out modal
+    /// backdrop.
+    Greyed,
+}
+
+impl ModalOverlayStyle {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModalOverlayStyle::SemiTransparent => "SemiTransparent",
+            ModalOverlayStyle::Greyed => "Greyed",
+        }
+    }
+
+    /// Lenient parse; anything unrecognised is `SemiTransparent`, so an old or
+    /// hand-edited `.cfrm` never fails to load over this field.
+    pub fn from_str(value: &str) -> Self {
+        if value.trim().eq_ignore_ascii_case("Greyed") {
+            ModalOverlayStyle::Greyed
+        } else {
+            ModalOverlayStyle::SemiTransparent
+        }
+    }
+}
+
 /// The shell MenuPane's own background (spec 049 R39), persisted on the main
 /// form — the shell's owner (spec Q7). Deliberately the same field shapes as the
 /// form background so `paint_backdrop` renders both: one background dialect.
@@ -6923,6 +7076,10 @@ pub struct Form {
     pub full_screen: bool,
     /// Show the native title bar; false = chromeless window (R15).
     pub title_visible: bool,
+    /// How this form's own face looks while blocked by a Sync-opened (modal)
+    /// child of its own — a child window, or a modal a ContentPane occupant
+    /// opened (051 R19/R28). Defaults to `SemiTransparent`.
+    pub modal_overlay_style: ModalOverlayStyle,
 
     // ── 049 Application shell ───────────────────────────────────────────────
     /// How this form may be loaded: its own window, the shell's ContentPane, or
@@ -7008,6 +7165,7 @@ impl Form {
             window_state: WindowState::default(),
             full_screen: false,
             title_visible: true,
+            modal_overlay_style: ModalOverlayStyle::default(),
             form_format: FormFormat::default(),
             menu_pane_background: None,
             window_effects: true,
@@ -8139,6 +8297,86 @@ mod tests {
             !line_contains_point(x, y, w, h, upright, "Horizontal", 1.0, 10.0, 2.0),
             "the rect is no longer the target; the segment is"
         );
+    }
+
+    /// Spec 058 plan §5's highest-severity flagged risk, made concrete:
+    /// `ControlType::from_str` is NOT an exhaustive match, so a forgotten
+    /// `"Viewer" => ControlType::Viewer` arm compiles clean and silently
+    /// deserializes a saved Viewer control back as `Custom` on the next load
+    /// — no compile error, and until this test, nothing caught it either.
+    #[test]
+    fn from_str_recovers_viewer_not_custom() {
+        let mut form = super::Form::new("F1", "Test", 400, 300);
+        form.controls
+            .push(super::Control::new("VWR-1", super::ControlType::Viewer, 10, 10));
+
+        let xml = crate::form_to_string(&form).expect("form_to_string failed");
+        let loaded = crate::load_form_from_str(&xml).expect("load_form_from_str failed");
+
+        assert_eq!(loaded.controls.len(), 1, "the control must survive the round trip");
+        assert_eq!(
+            loaded.controls[0].control_type,
+            super::ControlType::Viewer,
+            "a saved Viewer must reload as ControlType::Viewer, not silently as Custom \
+             (report the reloaded type: {:?})",
+            loaded.controls[0].control_type
+        );
+    }
+
+    /// Spec 058 plan §3 — the documented defaults a freshly-dropped Viewer
+    /// seeds, printed so a wrong default is visible by name, not inferred
+    /// from a failing assert with no context.
+    #[test]
+    fn viewer_seeds_the_documented_property_defaults() {
+        let ctrl = super::Control::new("VWR-1", super::ControlType::Viewer, 0, 0);
+        let expect_str = |name: &str, want: &str| {
+            let got = ctrl.get_prop(name).map(|v| v.as_str().to_owned());
+            println!("Viewer.{name} = {got:?} (want {want:?})");
+            assert_eq!(got.as_deref(), Some(want), "Viewer.{name}");
+        };
+        let expect_int = |name: &str, want: i64| {
+            let got = ctrl.get_prop(name).and_then(|v| match v {
+                super::PropValue::Int(n) => Some(*n),
+                _ => None,
+            });
+            println!("Viewer.{name} = {got:?} (want {want})");
+            assert_eq!(got, Some(want), "Viewer.{name}");
+        };
+        let expect_bool = |name: &str, want: bool| {
+            let got = ctrl.get_prop(name).and_then(|v| match v {
+                super::PropValue::Bool(b) => Some(*b),
+                _ => None,
+            });
+            println!("Viewer.{name} = {got:?} (want {want})");
+            assert_eq!(got, Some(want), "Viewer.{name}");
+        };
+
+        expect_str("Format", "");
+        expect_str("Layout", "Page");
+        expect_bool("Fullscreen", false);
+        expect_str("SplitMode", "None");
+        expect_bool("RenderAsHtml", true);
+        expect_str("HistoryList", "");
+        expect_int("Progress", 0);
+        expect_str("LastError", "");
+        for view in ["View1", "View2"] {
+            expect_str(&format!("{view}Source"), "");
+            expect_int(&format!("{view}Page"), 1);
+            expect_int(&format!("{view}Zoom"), 100);
+            expect_str(&format!("{view}ViewMode"), "Full");
+            expect_int(&format!("{view}CardSize"), 55);
+            expect_bool(&format!("{view}ShowFilmstrip"), false);
+            expect_int(&format!("{view}ScrollPosition"), 0);
+            expect_str(&format!("{view}SearchText"), "");
+            expect_bool(&format!("{view}SearchCaseSensitive"), false);
+            expect_bool(&format!("{view}SearchHighlightEnabled"), true);
+            expect_int(&format!("{view}SearchCurrentMatch"), 0);
+            expect_int(&format!("{view}SearchMatchCount"), 0);
+            expect_bool(&format!("{view}FindOpen"), false);
+        }
+        // FontSize is the universal prelude's, not Viewer's own — confirm it
+        // was not accidentally shadowed by a duplicate insert.
+        expect_int("FontSize", 14);
     }
 
     /// An unrotated line still behaves, and the slack makes a hairline grabbable.

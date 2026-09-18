@@ -1,6 +1,6 @@
 # Spec — Viewer Control
 
-- **Status:** draft → **awaiting review** (open questions in §9; no implementation yet)
+- **Status:** draft → **ready for `/plan`** (every question settled; no implementation yet)
 - **Folder:** specs/058-viewer-control/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-08
 
@@ -8,8 +8,10 @@
 
 A **Viewer** control for the Commons category: a designable control that
 displays a document — text, Markdown, images, PDF and HTML — inside a form, with a toolbar, page navigation, zoom,
-thumbnails, a filmstrip, print, OS share and Save As. It can show **two
-documents side by side**. Every function is settable and readable from COBOL,
+thumbnails, a filmstrip, print, OS share and Save As. It can show **two views
+side by side** — two different documents, or the same document in both views so
+one section can be reviewed while another is browsed. Every function is settable
+and readable from COBOL,
 and the reading and decoding work happens off the UI thread so a large document
 never stalls the form.
 
@@ -74,8 +76,9 @@ not `Html`), so a developer is never told the control does more than it does.
   immediately, so I can inspect production output without a specialised tool.
 - As a COBOL developer, I want to set every viewer option from COBOL, so the
   view can follow the data my program is showing.
-- As a COBOL developer, I want two documents side by side, so a user can compare
-  a statement with its supporting detail.
+- As a COBOL developer, I want two views side by side, so a user can compare a
+  statement with its supporting detail — or read one section of a long document
+  while browsing another section of the *same* document in the other view.
 - As a user, I want to zoom, print, share and save the original file, so the
   viewer is as useful as the tools I already know.
 
@@ -96,16 +99,22 @@ not `Html`), so a developer is never told the control does more than it does.
   leave any previously loaded document displayed.
 - **R5 (ubiquitous):** Decoding, indexing and page rendering shall run on a
   worker thread; the UI thread shall only paint already-prepared pages.
+- **R5.1 (constraint):** Each Viewer instance shall own a **dedicated
+  background thread** for its decoding, indexing and paging work — not a
+  thread shared across other Viewer instances or unrelated subsystems — so a
+  slow or large document in one Viewer cannot stall another Viewer's loading,
+  or work belonging to any other control.
 - **R6 (event):** When a document is opening, the control shall raise
   `onLoadProgress` with a 0–100 `Progress`, and `onLoaded` on completion.
 
 ### Display and layout
 
-- **R7 (ubiquitous):** The control shall support four layouts in `Layout`:
+- **R7 (ubiquitous):** The control shall support five layouts in `Layout`:
   `Raw` (no formatting), `Web` (formatted, no page margins), `Print` (page
-  margins top/bottom/left/right), and `Page` (print layout plus a black-on-white
-  document body). `Page` applies to any paginated content — Markdown and text
-  included — not to a document class.
+  margins top/bottom/left/right), `Page` (print layout plus a black-on-white
+  document body), and `Streamed` (a single content pane with no toolbar, Find
+  bar or thumbnail/filmstrip chrome — see §8.8). `Page` applies to any
+  paginated content — Markdown and text included — not to a document class.
 - **R8 (state):** While `Layout` is `Print` or `Page`, the control shall draw a
   paper border and a paper shadow around each page.
 - **R9 (ubiquitous):** The control shall honour page breaks: explicit breaks in
@@ -121,9 +130,22 @@ not `Html`), so a developer is never told the control does more than it does.
   step, up to a maximum of **16×**.
 - **R13 (event):** When Esc is pressed, the control shall return `Zoom` to
   100 %; if fullscreen, it shall first leave fullscreen.
-- **R14 (optional):** Where `ShowThumbnails` is on, the control shall show a
-  page thumbnail pane; where `ShowFilmstrip` is on, a filmstrip whose size the
-  user can drag.
+- **R14 (optional):** The control offers two page-browsing chromes. Where
+  `ShowThumbnails` is on, it shall show the pages as a **card grid** — one card
+  per page — that reflows to fit the pane; the number of cards shown follows the
+  pane width (i.e. the screen resolution) and the current card size. Where
+  `ShowFilmstrip` is on, it shall show a filmstrip whose size the user can drag.
+- **R14.1:** A **card-size slider** sits at the **bottom-right** of the viewer
+  and scales the cards continuously — larger cards mean fewer per row, smaller
+  cards mean more.
+- **R14.2 (event):** When the card-size slider reaches its **maximum (100 %)**
+  and the user leaves it there, the control shall **exit card/thumbnail mode and
+  show the document** — one page filling the view. The largest card is the
+  document itself.
+- **R14.3 (event):** When the **filmstrip splitter** is dragged until the
+  filmstrip collapses to its border (leftward), the control shall **close the
+  filmstrip and show just the document** — the mirror of R14.2, both gestures
+  collapsing a page-browser into the document.
 - **R15 (event):** When `Fullscreen` is entered, the toolbar shall be hidden;
   when left, it shall reappear.
 
@@ -131,23 +153,113 @@ not `Html`), so a developer is never told the control does more than it does.
 
 - **R16 (ubiquitous):** The toolbar shall sit at the top of the control and
   offer: layout, zoom, font size, thumbnails, filmstrip, fullscreen, split,
-  Print, Share, Save As.
+  Find, Print, Share, Save As.
 - **R17 (constraint):** Toolbar icons shall be **hand-drawn painter icons only**
   — no font glyphs, no bitmaps. Each shall carry its function name as a tooltip.
   Any icon the project lacks shall be drawn as part of this work.
 - **R18 (event):** When Save As is chosen, the control shall write the
   **original bytes of the source, unmodified**, with the source's own extension.
   It shall **not** write a rendered or re-encoded document.
+- **R18.1 (event):** When Save As is chosen for a document opened via
+  `LoadBytes` (no source path to name it after), the control shall **propose a
+  default filename**: the document's first three words of extracted text,
+  joined, plus the extension matching the resolved `Format` (`.pdf`, `.txt`,
+  `.md`, and so on). If the document has no extractable text (for example, an
+  image), the control shall fall back to a generic base name plus the correct
+  extension. The user may edit the proposed name in the save dialog; if the
+  edited name is missing its extension, the control shall append the correct
+  one when writing the file regardless of what the user typed.
 - **R19 (event):** When Share is chosen, the control shall hand the document to
-  the operating system's share facility.
+  the operating system's share facility — `NSSharingService` on macOS, the
+  Windows share contract, or the Linux desktop's share portal / `xdg-open` —
+  rather than implement sharing itself.
 - **R20 (event):** When Print is chosen, the control shall hand the document to
-  the operating system's print path.
+  the operating system's native print path (its print dialog and spooler)
+  rather than implement printing itself.
+
+### Search
+
+*(Numbered R26–R31, past Boundaries' R25, to avoid renumbering Split view /
+Programmatic control / Boundaries — the same out-of-sequence pattern AC19
+already uses in §6. Placed here, next to Toolbar and actions, since Find is a
+toolbar-adjacent feature.)*
+
+- **R26 (ubiquitous):** The control shall provide in-document **Find**: a
+  toolbar button and the `Ctrl+F` / `Cmd+F` shortcut open a Find bar; `Esc`
+  closes it and takes priority over R13's Zoom/fullscreen Esc behaviour while
+  the bar is open.
+- **R26.1 (constraint):** Find shall operate on any format with extractable
+  text — plain text, Markdown, the HTML subset, and PDF's text layer. A format
+  with no extractable text (for example, a standalone image) has no matches;
+  the Find bar reports zero results rather than raising an error.
+- **R27 (ubiquitous):** The Find bar shall offer a **case-sensitivity toggle**
+  (`SearchCaseSensitive`), off (case-insensitive) by default.
+- **R28 (event):** **Next**/**Previous** controls — and `F3`/`Shift+F3`, or
+  `Enter`/`Shift+Enter` while the Find bar has focus — shall move to the next
+  or previous match, wrapping past the last/first match, and shall scroll the
+  current match into view.
+- **R29 (state):** While Find has one or more matches, the control shall
+  **highlight every match**, with the current match visually distinguished from
+  the rest, unless highlighting is turned off (`SearchHighlightEnabled`); Find
+  still runs and Next/Previous still navigate with highlighting off.
+- **R30 (ubiquitous):** The Find bar shall show a live **match counter**
+  ("current of total"), updating as the user types and as Next/Previous are
+  used.
+- **R31 (ubiquitous, ties to R22):** Every Find property and action — search
+  text, case sensitivity, highlight toggle, current/total match count, Next,
+  Previous, open/close — shall be readable and writable from COBOL, with no
+  Find capability reachable only by mouse.
+
+### Events
+
+- **R32 (ubiquitous):** Every user-driven state change, and every
+  asynchronous, OS-handoff action (Print, Share, Save As), shall raise a
+  matching event, so a COBOL program is never blind to an interaction it did
+  not itself trigger through a property or method call. This extends R22's
+  "no capability mouse-only" principle from *control* to *observability*.
+  Naming follows this project's existing async-lifecycle convention (the
+  `onComplete`/`onCancelled` pair already used by `RestClient`/`SqlDatabase`/
+  `IndexedFile`/`Maps`/`WebSearch` — no "Finished"/"Done"/"Success" wording),
+  applied per action via a prefix wherever a control has more than one
+  asynchronous action to disambiguate.
+
+  | Event | Fires when | Ties to |
+  |---|---|---|
+  | `onError` | a document fails to open, or its format is unsupported | R4 |
+  | `onLoadProgress` | while a document is opening, with 0–100 `Progress` | R6 |
+  | `onLoaded` | a document finishes opening | R6 |
+  | `onLayoutChanged` | `Layout` changes (`Raw`/`Web`/`Print`/`Page`/`Streamed`) | R7, §8.8 |
+  | `onZoomChanged` | `Zoom` settles after a wheel, double-click or programmatic change | R11–R13 |
+  | `onThumbnailsToggled` | `ShowThumbnails` turns on or off | R14 |
+  | `onFilmstripToggled` | `ShowFilmstrip` turns on or off | R14 |
+  | `onFullscreenEntered` / `onFullscreenExited` | `Fullscreen` is entered / left | R15 |
+  | `onFindOpened` / `onFindClosed` | the Find bar opens / closes | R26 |
+  | `onPrintComplete` / `onPrintCancelled` | the OS print handoff finishes / the user cancels it | R20 |
+  | `onShareComplete` / `onShareCancelled` | the OS share handoff finishes / the user cancels it | R19 |
+  | `onSaveComplete` / `onSaveCancelled` | Save As finishes writing / the user cancels the dialog | R18, R18.1 |
+  | `onSplitModeChanged` | `SplitMode` changes | R21 |
+  | `onConversationCreated` | `NewConversation()` is called | §8.8 |
+  | `onConversationSelected` | `SelectConversation(id)` is called, carrying `id` | §8.8 |
+  | `onContentRendered` | newly appended content (§8.2) finishes laying out — not merely after the data is accepted | §8.2, §8.8 |
 
 ### Split view
 
 - **R21 (optional):** Where `SplitMode` is `LeftRight` or `TopBottom`, the
-  control shall display two documents at once, each with its own source, page
-  and zoom; `SplitMode = None` shows one.
+  control shall display two views at once, each with its own source, page,
+  zoom, scroll position and search state; `SplitMode = None` shows one.
+- **R21.1:** The two views may hold **two different documents** *or* the **same
+  document shown twice**. When both views point at the same document, each keeps
+  its own page/zoom/scroll independently, so the user can review one section in
+  one view while browsing another section of the same document in the other.
+  Setting a view's source to the document already open in the other view must
+  not reload or re-decode it — the second view attaches to the same underlying
+  document, only its own viewport state differs.
+- **R21.2:** Each view's Find (§5 "Search") is fully independent: its own
+  search text, case-sensitivity and highlight toggles, current match and match
+  count, and open/closed state. Searching in one view — including the
+  same-document case of R21.1 — shall never change, clear or re-scope the
+  other view's search, so the user can search each side freely and
+  simultaneously.
 
 ### Programmatic control
 
@@ -180,12 +292,45 @@ not `Html`), so a developer is never told the control does more than it does.
       (asserted by comparing bytes, not by opening the result).
 - [ ] **AC7** — Every property and method in the COBOL API round-trips: set from
       COBOL, read back, and the displayed state matches.
-- [ ] **AC8** — Split view shows two documents with independent page and zoom.
+- [ ] **AC8** — Split view shows two views with independent page, zoom, scroll
+      and search — whether the two hold different documents or the **same**
+      document; in the same-document case the document is decoded once, and
+      moving or searching in one view does not move or affect the other.
 - [ ] **AC9** — Opening a large document does not block the UI thread: the form
       keeps painting and answering input while loading.
 - [ ] **AC10** — Every toolbar icon is painter-drawn and carries a tooltip.
 - [ ] **AC11** — The control paints identically on the designer canvas and the
       running form (spec 017 parity).
+- [ ] **AC19** — Thumbnails show as a reflowing card grid (one card per page)
+      whose per-row count tracks pane width and the card-size slider; the slider
+      sits bottom-right. Leaving the slider at its 100 % maximum exits card mode
+      to the document; dragging the filmstrip splitter to its border closes the
+      filmstrip to the document. *(AC12–AC18 are the conversation-mode criteria
+      in §8.7.)*
+- [ ] **AC20** — Save As on a `LoadBytes` document with no source path defaults
+      the filename to its first three words plus the extension matching its
+      `Format`; an image or other textless document falls back to a generic
+      name plus the correct extension; the user can edit the name, and the
+      correct extension is restored at save time even if the user deletes it.
+- [ ] **AC21** — Two Viewer instances open large documents at the same time; a
+      slow decode in one does not delay the other's `onLoadProgress`,
+      `onLoaded`, or UI responsiveness — each runs its decode/index/paging work
+      on its own dedicated thread, not a shared pool.
+- [ ] **AC22** — Typing in the Find bar highlights every match in the document
+      (unless highlighting is off) and shows a "current of total" count that
+      updates live; Next/Previous move between matches, wrapping at the ends,
+      and bring the current match into view.
+- [ ] **AC23** — The case-sensitivity toggle changes which matches are found
+      (e.g. "COBOL" vs. "cobol") without retyping the search text; the
+      highlight-enabled toggle turns all highlighting on/off without breaking
+      Next/Previous navigation or the match count.
+- [ ] **AC24** — Search text, case sensitivity, highlight toggle, and match
+      count/index all round-trip through the COBOL API (set/read), and Find,
+      Next and Previous are all COBOL-callable.
+- [ ] **AC30** — Every event in R32's table fires at its documented moment and
+      never at another one — verified per event, not by sampling a few.
+      *(AC25–AC29 are the Streamed-layout/conversation-management criteria in
+      §8.7.)*
 
 ## 7. Constraints & steering check
 
@@ -205,25 +350,259 @@ not `Html`), so a developer is never told the control does more than it does.
   round-trip test added under `tests/controls/`.
 - **Pure Rust:** R25. Crate choices are `/plan`'s business, but any candidate
   pulling a C toolchain is disqualified at that stage.
+- **Delivery order** (operator ruling, 2026-09-18): built in fidelity order,
+  inside the one delivery — text/Markdown/images → PDF → Mermaid subset → HTML
+  subset — each landing on a proven frame before the next begins. Not
+  parallelized across formats; `/plan` and `/tasks` sequence accordingly.
 
-## 8. Open questions
+## 8. Behavioral spec — dynamic chatbot conversation (incremental append & streaming)
 
-- **Q1 — What remains of the scope/purity conflict, now that Office is out.**
-  Dropping Office removes the largest gap. What still falls short of "everything"
-  under R25 is narrow and worth confirming: **video is dropped entirely** (no
-  pure-Rust decoder worth shipping), **HTML is a subset renderer** rather than a
-  browser, and **PDF is text plus basic vector** rather than a faithful raster of
-  complex pages. If PDF fidelity matters more than purity, PDFium is the single
-  dependency that would lift it — that is the one lever left worth pulling.
+This section specifies the Viewer's behaviour when it hosts a **dynamic chatbot
+conversation** in which messages and streamed content are appended incrementally,
+without rebuilding the whole document. It complements the static-document
+behaviour of §1–§7: the same control, driven as an append-only, self-following
+conversation surface.
 
-- **Q2 — Ordering.** §3 is still a broad surface for one pass, though smaller without Office. Recommend implementing
-  in fidelity order (text/Markdown/images → PDF → Mermaid subset → HTML subset) so each lands on a proven frame. Does the operator want it
-  sequenced that way inside the one delivery, or strictly all-at-once?
-- **Q3 — Share and Print** are OS facilities with no pure-Rust cross-platform
-  crate. Acceptable to shell out to the platform's own mechanism (macOS
-  `NSSharingService` / Windows share contract / `xdg-open`) rather than
-  implement them?
-- **Q4 — `LoadBytes`** implies the viewer may hold a document COBOL built in
-  memory. Does Save As for such a document write those bytes (yes, by R18) even
-  though there is no source file to name — i.e. does `SaveAs` require an
-  explicit target name in that case?
+### 8.1 Content model
+
+The viewer's internal document format is **HTML**. It supports three input modes:
+
+- **HTML** — append the supplied content and render it as HTML.
+- **Markdown** — convert the Markdown to HTML *before* appending it. Markdown is
+  never inserted directly into the viewer.
+- **Raw** — append the supplied content as literal text: HTML tags and entities
+  are escaped so they are displayed rather than interpreted.
+
+Raw content therefore remains part of the viewer's HTML document, but it is
+inserted as an escaped text node or inside an appropriate element such as
+`<pre>`.
+
+For this particular use case, `render_as_html` is **disabled** for newly arriving
+content. Consequently every incoming chunk is appended in **raw** mode and
+displayed exactly as received. The viewer must not automatically reinterpret the
+accumulated raw content as HTML unless explicitly requested by the caller.
+
+### 8.2 Appending content
+
+The control must provide operations equivalent to:
+
+- `append_html(content)`
+- `append_markdown(content)`
+- `append_raw(content)`
+- `append_to_message(message_id, content, mode)`
+
+A new item may create a conversation message, while streamed chunks may extend an
+existing message identified by a stable ID. Content must always appear in
+**arrival order**. Appending content must:
+
+1. Preserve all existing conversation content.
+2. Preserve the current text selection and keyboard focus.
+3. Update only the affected message whenever possible.
+4. Recalculate the layout before applying any scrolling behaviour.
+5. Avoid rebuilding or reparsing the entire conversation.
+6. Raise `onContentRendered` once the newly appended content's layout is
+   complete — not merely once the data is accepted (§5's events table, R32).
+
+### 8.3 Automatic scrolling (auto-follow)
+
+Before appending content, the viewer must determine whether the viewport is
+already at, or sufficiently close to, the end of the conversation. A small
+threshold — **24–32 px** — should be used so that minor rounding or layout
+differences do not incorrectly disable automatic scrolling.
+
+- If the viewport was at the end before the update, the viewer must remain
+  **pinned to the new end** after the content is appended: the existing content
+  moves upward and the newly arrived content becomes visible.
+- If the user has scrolled upward to read previous messages, the viewport must
+  **not** move when new content arrives.
+- Automatic following **resumes** as soon as the user manually returns to the end.
+- The decision must be based on the scroll position **before** the new content
+  changes the document height.
+
+During streamed responses, the viewport must continue following each incoming
+chunk only while the auto-follow state remains active. If images, fonts or other
+asynchronously loaded elements later change the document height, the viewer must
+remain pinned to the end when auto-follow is active; otherwise it must preserve
+the user's current reading position.
+
+### 8.4 New-content indication
+
+When new content arrives while the user is not at the end, show a non-intrusive
+indicator such as "New messages" or "Jump to latest". Activating it must:
+
+1. Scroll to the end of the conversation.
+2. Clear the pending-content indicator.
+3. Re-enable automatic following.
+
+### 8.5 Rendering and safety
+
+- Rendered HTML must be **sanitised** according to the application's security
+  policy. Scripts, inline event handlers, unsafe URLs and other executable
+  content must not run unless explicitly supported and trusted.
+- Raw mode must always escape characters such as `&`, `<` and `>` before
+  inserting the content into the HTML document. Newlines and whitespace should be
+  preserved.
+- The rendering mode must be **specified for each append operation** rather than
+  inferred from the content. Content received in raw mode must remain raw even if
+  it contains valid HTML markup.
+
+### 8.6 Performance
+
+The control must support long conversations and frequent streamed updates. It
+should:
+
+- Batch rapid incoming chunks when appropriate.
+- Avoid a complete document rebuild after every append.
+- Minimise layout recalculations and repainting.
+- Preserve stable message identifiers.
+- Support pruning or virtualisation if conversation size becomes excessive.
+- Keep scrolling smooth while content is streaming.
+
+### 8.7 Acceptance criteria (conversation mode)
+
+These extend §6 for the append/streaming use case.
+
+- [ ] **AC12** — HTML content can be appended and rendered correctly; Markdown is
+      converted to HTML before insertion.
+- [ ] **AC13** — Raw content is displayed literally and never interpreted as
+      markup, even when it contains valid HTML; `&`, `<`, `>` are escaped and
+      whitespace preserved.
+- [ ] **AC14** — Newly arriving content uses `render_as_html = false` and is
+      never reinterpreted as HTML unless the caller explicitly asks.
+- [ ] **AC15** — The viewport follows new content only when it was already showing
+      the end; it stays stable when the user is reading older content; returning
+      to the end re-enables automatic following. The at-end decision uses the
+      pre-append scroll position and the 24–32 px threshold.
+- [ ] **AC16** — Streamed chunks extend an existing chatbot message
+      (`append_to_message`), and content stays in correct arrival order.
+- [ ] **AC17** — Appending content does not clear the conversation, move keyboard
+      focus, or lose the current text selection, and does not rebuild/reparse the
+      whole conversation.
+- [ ] **AC18** — Late layout changes (images or fonts loading) keep the viewport
+      pinned to the end when auto-follow is active and otherwise preserve the
+      user's reading position.
+- [ ] **AC25** — Streamed layout shows exactly one content pane with no
+      toolbar, Find bar, thumbnail or filmstrip chrome, regardless of what
+      chrome the previous `Layout` had shown.
+- [ ] **AC26** — `NewConversation()` archives a non-empty pane into history,
+      clears it, and raises `onConversationCreated`; calling it on an empty
+      pane raises no event and creates no history entry.
+- [ ] **AC27** — `SelectConversation(id)` archives the currently-open
+      conversation, removes the selected id from history, clears the pane, and
+      raises `onConversationSelected(id)` — the control never repaints content
+      from anywhere but a subsequent host-supplied append call.
+- [ ] **AC28** — History never exceeds 10 entries; archiving or registering an
+      11th evicts the oldest, verified by id.
+- [ ] **AC29** — `HistoryList` lists every current entry as `id|title`, one per
+      line, staying in sync after every archive, selection and eviction.
+
+### 8.8 Streamed layout and conversation management
+
+The Viewer's fifth `Layout` value, **Streamed**, is built for hosting a
+chatbot conversation with nothing else on screen: a single content pane, no
+toolbar, no Find bar, no thumbnail or filmstrip chrome. Starting, browsing and
+managing conversations is not drawn by the control at all — every affordance
+for it (a "new chat" action, a history list, search, save, share) is the
+developer's own UI, built from whatever controls fit the application, wired to
+the methods and events below. *(An earlier draft of this section built a fixed
+sidebar into the control, reusing `ControlType::SideMenu`; the operator ruled
+this out — the developer must not be forced into a UI they cannot customize,
+and separately, SideMenu turned out to have no hamburger/trigger concept at
+all and is not architecturally reusable by a second control regardless.)*
+
+- **`NewConversation()`** — a method. If the content pane holds a non-empty
+  conversation, it is archived into history first (below); the pane is then
+  cleared; `onConversationCreated` is raised. Calling it on an already-empty
+  pane does not create a spurious history entry.
+- **History** holds **up to 10** entries, each carrying only an id and a
+  title — never a conversation's rendered content. Past 10, the oldest entry
+  is evicted. History starts every run holding only what that run itself
+  archives; `RegisterConversation(id, title)` lets the host seed an entry left
+  over from an earlier run (its content, like every other entry's, is fetched
+  on selection, never held by the control).
+- **`SelectConversation(id)`** — a method. The currently open conversation (if
+  any) is archived into history exactly as `NewConversation()` does; the entry
+  named by `id` is removed from history and becomes current; the pane is
+  cleared; `onConversationSelected` is raised carrying `id`, telling the host
+  to supply that conversation's content via the append methods of §8.2. The
+  control never restores content from a cache of its own — every selection is
+  a fresh request to the host, which is what keeps memory bounded no matter
+  how long a session runs (ties to R2).
+- **`HistoryList`** — a read-only property, one entry per line as `id|title`
+  (the same multi-line-list convention `Buttons` already uses on Snackbar), so
+  the developer's own UI can enumerate, sort or search history without a
+  dedicated search method — nothing here that the developer's own COBOL cannot
+  already do against a dozen lines of text.
+
+The three events this section introduces — `onConversationCreated`,
+`onConversationSelected`, `onContentRendered` — are listed with every other
+event in R32's table (§5); nothing about them is unique to Streamed layout
+except that they are the ones most likely to fire while it is active.
+
+## 9. Decisions already taken
+
+Four questions the operator has now answered directly (2026-09-18), plus three
+instructions given alongside them. Recorded here with the reasoning folded into
+the requirements above, so the resolution is traceable back to its source.
+
+- **Q1 — PDF stays pure-Rust** (operator, 2026-09-18). No PDFium. The table in
+  §3 and R25 were already written this way; this confirms the fidelity gap is
+  accepted rather than closed with a C dependency, even now that Office is out
+  of scope. Nothing in §3 changes.
+- **Q2 — Fidelity order, one delivery** (operator, 2026-09-18): text/Markdown/
+  images → PDF → Mermaid subset → HTML subset, each landing on a proven frame
+  before the next starts. Recorded in §7 as a delivery-order constraint for
+  `/plan`/`/tasks`.
+- **Q3 — Share and Print shell out to the OS** (operator, 2026-09-18): yes.
+  R19/R20 now name the mechanisms directly (`NSSharingService` on macOS, the
+  Windows share contract, the Linux share portal / `xdg-open`).
+- **Q4 — Save As default filename for a `LoadBytes` document** (operator,
+  2026-09-18): the document's first three words plus the extension matching its
+  format, editable by the user, with the correct extension restored at save
+  time even if the user deletes it. New requirement R18.1, new AC20.
+- **The Viewer runs on its own thread** (operator instruction, 2026-09-18,
+  given alongside the four answers above). Read as: each Viewer instance owns a
+  **dedicated** background thread for decode/index/paging work — not a thread
+  pool shared across other Viewer instances or other controls — so one
+  document cannot stall another's loading. This sharpens R5 rather than
+  replacing it: painting itself still happens only on the UI thread (R5
+  unchanged). New requirement R5.1, new AC21. *(This is the author's reading of
+  a terse instruction, written out so a different reading is a one-line fix
+  rather than a re-derivation.)*
+- **In-document Find** (operator, 2026-09-18): case sensitivity, Previous/Next
+  navigation, and an enable/disable highlight-results toggle, confirmed as
+  proposed. The single word "search" in §3's PDF row had no requirement behind
+  it; this gives it one. New "Search" subsection, requirements R26–R31 (§5),
+  a new toolbar entry in R16, and new AC22–AC24 (§6).
+- **Streamed layout for chatbot use, with a pure COBOL API — no built-in
+  sidebar** (operator, 2026-09-18, in two parts). First asked for a
+  distraction-free single-pane layout with a hamburger-triggered sidebar
+  reusing `ControlType::SideMenu` (New chat / Search / Save / Share / up to 10
+  past conversations); investigation found SideMenu has **no** hamburger or
+  trigger concept at all (deliberately rejected in its own code) and is not
+  architecturally reusable by a second control regardless. Before that
+  research even finished, the operator corrected course: **no built-in
+  sidebar at all** — "the developer will decide how to implement it rather
+  [than] be forced to use one he cannot customize." The control now exposes
+  the capability as a pure API (`NewConversation()`, `SelectConversation(id)`,
+  `RegisterConversation(id, title)`, `HistoryList`) and draws nothing for it.
+  Also folded in: selecting a past conversation never restores cached content
+  — it always re-requests it from the host by event, and the previously-open
+  conversation swaps into history while the selected one becomes current.
+  New §8.8, new events in R32's table, new AC25–AC29 (§8.7).
+- **Events for every interaction, not just Print/Share** (operator,
+  2026-09-18): "provide events for every possible interaction," given Print/
+  Share-cancelled as examples. Read broadly — extended to every state change
+  (layout, zoom, fullscreen, split mode, thumbnails/filmstrip, Find open/
+  closed) alongside the OS-handoff actions (Print/Share/Save), reusing this
+  project's existing `onComplete`/`onCancelled` async-lifecycle naming
+  (spec 032), prefixed per action. New "Events" subsection, R32 (§5).
+- **Split view: search is per-view** (operator, 2026-09-18): each view's Find
+  is fully independent — its own search text, toggles, current match and
+  count — including when both views hold the **same** document (R21.1), so
+  searching one side never disturbs the other. R21 now lists search state
+  among the per-view independent state; new R21.2; AC8 extended.
+
+## 10. Open questions
+
+*(None. The spec is ready for `/plan`.)*

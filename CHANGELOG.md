@@ -1,6 +1,21 @@
 # PowerRustCOBOL — Changelog
 
-## [PowerRustCOBOL 1.70.64] — 2026-09-18
+## [PowerRustCOBOL 1.70.66] — 2026-09-18
+
+### A form can now choose how it looks while a modal child blocks it
+
+New Form property `ModalOverlayStyle` (`"SemiTransparent"` | `"Greyed"`,
+default SemiTransparent — Designer: **Modal overlay style**). While a
+Sync-opened (modal) child of a form blocks it, input was already refused;
+this now also paints over the blocked face in the developer's chosen style —
+a light wash for SemiTransparent, a darker classic dimmed backdrop for
+Greyed — instead of leaving the choice implicit. Applies to any form: a real
+child window, or a ContentPane occupant blocked by a modal child it opened
+(the occupant's own face is what dims, since the shell itself carries no
+`.cfrm` of its own). Readable/settable from COBOL too, as a bare `me::`/
+`super::` property, like every other universal form surface member.
+
+## [PowerRustCOBOL 1.70.65] — 2026-09-18
 
 ### `super` was NULL for every child form the running application ever opened
 
@@ -27,6 +42,21 @@ own COBOL flow correctly blocked inside `OpenFormSync`, but the shell
 underneath the "modal" window stayed fully clickable and could be raised over
 it. `root_modal_blocked` now also checks the ACTIVE occupant's modal
 children.
+
+## [PowerRustCOBOL 1.70.64] — 2026-09-18
+
+### Builds no longer break when the OS temp cleaner prunes a cached artefact
+
+A build could fail with `couldn't read …/libsqlite3-sys-…/out/bindgen.rs: No
+such file or directory` even though the disk was fine. The incremental build
+workspace lived under the OS temp directory (`/var/folders/…/T` on macOS), whose
+periodic cleaner deletes files by age — and `libsqlite3-sys`'s generated
+`bindgen.rs` is stamped with a 2006 mtime, so it was pruned out from under a
+cached build while cargo still recorded the crate as built, breaking the next
+compile. The build workspace now lives under the per-user cache directory
+(`~/Library/Caches/PowerRustCOBOL/builds` on macOS, `%LOCALAPPDATA%` on Windows,
+`$XDG_CACHE_HOME`/`~/.cache` elsewhere), outside the reaper's reach, so a project
+that built once keeps building.
 
 ## [PowerRustCOBOL 1.70.63] — 2026-09-17
 

@@ -474,6 +474,8 @@ pub(crate) fn form_property_valid(key: &str) -> bool {
             | "windowstate"
             | "fullscreen"
             | "titlevisible"
+            // 051 R19/R28 — how this form looks while blocked by its own modal child
+            | "modaloverlaystyle"
             // 038 window effects opt-out
             | "windoweffects"
             // 049 application shell

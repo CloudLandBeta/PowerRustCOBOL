@@ -45,6 +45,9 @@ pub const UNIVERSAL_FORM_PROPS: &[&str] = &[
     "FormFormat",
     "BackgroundColor",
     "Transparency",
+    // 051 R19/R28 — how this form's own face looks while blocked by a modal
+    // child of its own.
+    "ModalOverlayStyle",
     // The breadcrumb reset guard: on, a click on this form's own breadcrumb
     // segment fires `onResetRejected` instead of starting the form over.
     "PreventReset",
