@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.64] — 2026-09-18
+
+### `super` was NULL for every child form the running application ever opened
+
+`Interpreter::set_super_form` — the call that binds a child form's `super`
+receiver to its opener — existed and was exercised by `cobolt-runtime`'s own
+tests, which call it directly. Nothing in the real spawn glue
+(`cobolt-form-host`, the crate both `rcrun run-form` and every compiled binary
+share for hosting a form) ever called it, so `super` was NULL for every child
+ever opened in a running application, whether opened from the root window or
+from a form embedded in the ContentPane — `super::X` and
+`super::"Method"(...)` raised "super is NULL — this form has no parent" the
+moment they ran. `FormSupervisor` gained `caller_of(handle)`, and
+`build_form_instance` (the one function both the child-window and the
+ContentPane-occupant load paths share) now resolves it and calls
+`set_super_form` before the child's program starts.
+
+### A modal child opened by a form embedded in the ContentPane did not block the shell
+
+`root_modal_blocked()` — what disables the whole application face (chrome,
+breadcrumb, ContentPane) while a Sync-opened child is open — checked only
+`modal_children_of(ROOT_HANDLE)`. A ContentPane occupant has no window of its
+own, so a modal child it opened was invisible to that check: the occupant's
+own COBOL flow correctly blocked inside `OpenFormSync`, but the shell
+underneath the "modal" window stayed fully clickable and could be raised over
+it. `root_modal_blocked` now also checks the ACTIVE occupant's modal
+children.
+
 ## [PowerRustCOBOL 1.70.63] — 2026-09-17
 
 ### A selected MenuBar item flashes twice before the menu closes
