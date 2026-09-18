@@ -281,6 +281,15 @@ impl FormSupervisor {
         self.handles.get(handle).map(|i| i.form_id.as_str())
     }
 
+    /// 049 R28/R29 — the handle that opened `handle` (what its `super` must
+    /// bind to), on EITHER load path: a real child window (`open_form`) or a
+    /// ContentPane occupant (`open_embedded`) — both record `caller` at
+    /// registration, before the glue ever builds the interpreter. `None` for
+    /// the root/main form and for an id the supervisor has never seen.
+    pub fn caller_of(&self, handle: &str) -> Option<&str> {
+        self.handles.get(handle).and_then(|i| i.caller.as_deref())
+    }
+
     /// Live Sync children of `handle`.
     fn sync_children(&self, handle: &str) -> Vec<String> {
         self.handles

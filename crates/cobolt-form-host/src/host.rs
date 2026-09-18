@@ -3040,11 +3040,31 @@ impl FormHost {
     /// 051 R19/R28 — is the ROOT window blocked by a live modal child? The
     /// shell disables its chrome (menu pane, breadcrumb) on this too, so the
     /// whole application face waits together.
+    ///
+    /// An occupant has no window of its own — whatever it opens paints as a
+    /// REAL child window, but the occupant's own body is just a region of the
+    /// root viewport — so a modal child of the ACTIVE occupant must block the
+    /// root exactly as one of the root's own would. Checking only
+    /// `modal_children_of(ROOT_HANDLE)` missed this: a form embedded in the
+    /// ContentPane that opened a modal child left the shell fully clickable
+    /// underneath it — not disabled, not even lowered behind it — while the
+    /// occupant's own COBOL flow sat correctly blocked inside `OpenFormSync`
+    /// (operator report, PowerDemo3's Call Form demo, 2026-09-18).
     pub fn root_modal_blocked(&self) -> bool {
-        !self
+        if !self
             .supervisor
             .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
             .is_empty()
+        {
+            return true;
+        }
+        let Some(key) = &self.active_occupant else {
+            return false;
+        };
+        let Some(occ) = self.occupants.get(key) else {
+            return false;
+        };
+        !self.supervisor.modal_children_of(&occ.handle).is_empty()
     }
 
     /// 051 — the child window under `handle`, if any.
@@ -3152,6 +3172,12 @@ impl FormHost {
         // itself must be dispatched under the same literal the generated
         // EVALUATE compares against.
         let control_ids: Vec<String> = form.controls.iter().map(|c| c.id.clone()).collect();
+        // 049 R28/R29 — the caller of THIS handle, resolved now while `self`
+        // is still reachable (the supervisor does not cross into the spawned
+        // thread below). `open_form`/`open_embedded` both record it at
+        // registration, before this function is ever called, so it is
+        // already there on both the child-window and the pane-occupant path.
+        let super_handle = self.supervisor.caller_of(handle).map(|h| h.to_string());
         {
             let finished = Arc::clone(&finished);
             let pending = Arc::clone(&pending);
@@ -3175,6 +3201,9 @@ impl FormHost {
                 interp.set_input_channel(input_rx);
                 interp.set_event_counter(pending);
                 interp.set_form_host(req_tx, &handle, &form_object, closed_rx);
+                if let Some(sh) = &super_handle {
+                    interp.set_super_form(sh);
+                }
                 if let Some(setup) = setup {
                     setup(&mut interp);
                 }
@@ -4266,7 +4295,8 @@ impl FormHost {
         // Render the whole form through the unified engine (one renderer for
         // the designer, preview, and every host — spec 017).
         let surface = self.surface;
-        // 051 R19/R28 — while a MODAL child of this window is open, the whole
+        // 051 R19/R28 — while a MODAL child of this window (or of its active
+        // occupant — `root_modal_blocked` covers both) is open, the whole
         // root face is disabled: it stays visible but takes no input.
         // …and so is a form whose program is STOPPED in the debugger. The
         // interpreter is blocked inside `debug_check` and cannot run a handler,
@@ -4274,11 +4304,7 @@ impl FormHost {
         // every click made while reading the code was queued and delivered in a
         // burst on Continue (operator, 2026-09-17). Same treatment as a modal
         // child: visible, legible, taking nothing.
-        let root_blocked = crate::debug_link::is_paused()
-            || !self
-                .supervisor
-                .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
-                .is_empty();
+        let root_blocked = crate::debug_link::is_paused() || self.root_modal_blocked();
         // 051 Q2 — parked bodies keep their timers running, whoever owns the
         // pane this frame.
         self.tick_parked_bodies(ctx);
@@ -4901,6 +4927,230 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         println!(
             "child spawn — W1 built (form DETAIL), ran to STOP RUN, released; \
              NotifyClosed delivered: {closed:?}"
+        );
+    }
+
+    fn program_from(src: &str) -> cobolt_ast::program::Program {
+        cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+            .program
+            .expect("parses")
+    }
+
+    /// A host whose `FormSource` resolves TWO forms: CALLER (a trivial
+    /// ContentPane occupant) and CHILD (a Sync window CALLER opens, whose
+    /// whole program is a `super::"SetProperty"` probe — it can only reach
+    /// `DISPLAY "SUPER-OK"` if its `super` is bound).
+    fn host_with_caller_and_child(
+    ) -> (FormHost, mpsc::Receiver<String>, mpsc::Sender<cobolt_runtime::form_host::FormRequest>)
+    {
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let source: Option<FormSource> = Some(Box::new(|id: &str| {
+            if id.eq_ignore_ascii_case("CALLER") {
+                Ok((
+                    cobolt_forms::Form::new("CALLER", "Caller", 320, 200),
+                    program_from(
+                        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CALLER.\n\
+                         PROCEDURE DIVISION.\n    STOP RUN.\n",
+                    ),
+                ))
+            } else if id.eq_ignore_ascii_case("CHILD") {
+                Ok((
+                    cobolt_forms::Form::new("CHILD", "Child", 240, 160),
+                    program_from(
+                        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\n\
+                         PROCEDURE DIVISION.\n    \
+                         INVOKE SUPER::\"SetProperty\"(\"Probe\", \"ok\").\n    \
+                         DISPLAY \"SUPER-OK\".\n    STOP RUN.\n",
+                    ),
+                ))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        }));
+        let (host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: form_req_tx.clone(),
+            form_source: source,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        (host, closed_rx, form_req_tx)
+    }
+
+    /// 049 R28/R29 regression — a child window opened by a ContentPane
+    /// OCCUPANT (not the shell/root itself) must still get a bound `super`.
+    /// `Interpreter::set_super_form` existed and was covered by
+    /// `cobolt-runtime`'s own tests, which call it directly — but nothing in
+    /// this crate's real spawn glue ever called it, so `super` was NULL for
+    /// EVERY child ever opened in the running application (root-opened or
+    /// occupant-opened alike). CALLFORM's demo (PowerDemo3) was the first
+    /// form to actually reference `super::` from a form embedded in the
+    /// ContentPane, and hit exactly this (operator report, 2026-09-18).
+    #[test]
+    fn a_child_opened_by_a_contentpane_occupant_gets_a_bound_super() {
+        let (mut host, _closed_rx, _req_tx) = host_with_caller_and_child();
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::Vec2::new(640.0, 480.0),
+        ));
+
+        // ROOT embeds CALLER into the ContentPane — the same registration
+        // the shell's `open-form:` sidebar action performs.
+        host.ensure_occupant("CALLER").expect("occupant builds");
+        let caller_handle = host.occupant_handle("CALLER").expect("occupant registered");
+        assert_ne!(
+            caller_handle,
+            cobolt_runtime::form_host::ROOT_HANDLE,
+            "must be a real occupant handle, not the shell's own — otherwise \
+             this test would not distinguish the fix from the bug"
+        );
+
+        // CALLER opens CHILD as a Sync/modal window — what
+        // `INVOKE me::"OpenFormSync"("CHILD")` does from CALLER's own COBOL;
+        // driven directly here since CALLER's program is not under test.
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let _ = host
+            .supervisor
+            .handle_request(cobolt_runtime::form_host::FormRequest::OpenForm {
+                caller: caller_handle,
+                form_id: "CHILD".into(),
+                sync: true,
+                window_state: None,
+                x: None,
+                y: None,
+                width: None,
+                height: None,
+                modal: true,
+                reply: reply_tx,
+            });
+        let child_handle = "W2".to_string(); // W1 = the CALLER occupant above.
+        let mut full = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(ui.ctx(), vec![spawn_action(&child_handle, "CHILD")]);
+        });
+        full.textures_delta.clear();
+        let child_idx = host
+            .children
+            .iter()
+            .position(|c| c.handle == child_handle)
+            .expect("child window exists");
+
+        // Drive frames until CHILD's program produces its DISPLAY line or
+        // its runtime error (bounded wait — either is a terminal outcome).
+        // Every frame also drains `form_req_rx`, exactly like the real
+        // `ui_impl` loop: CHILD's `INVOKE SUPER::"SetProperty"` is itself a
+        // blocking round trip through the supervisor, so without this the
+        // request just sits unanswered and the child never gets past it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let mut reqs = Vec::new();
+            while let Ok(r) = host.form_req_rx.try_recv() {
+                reqs.push(r);
+            }
+            for req in reqs {
+                let acts = host.supervisor.handle_request(req);
+                let mut f = ctx.run_ui(input.clone(), |ui| {
+                    host.apply_host_actions(ui.ctx(), acts.clone());
+                });
+                f.textures_delta.clear();
+            }
+            let lines: Vec<String> = host.children[child_idx].body.display_rx.try_iter().collect();
+            if !lines.is_empty() {
+                assert!(
+                    lines.iter().any(|l| l.contains("SUPER-OK")),
+                    "expected the child to reach SUPER-OK; got: {lines:?}"
+                );
+                println!("child display (super bound to a real occupant): {lines:?}");
+                return;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child produced no output within the deadline — still running or hung"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// 051 R19/R28 regression — a modal child opened by the ACTIVE OCCUPANT
+    /// must block the root exactly as one opened by the root itself does.
+    /// `root_modal_blocked` used to check only `modal_children_of(ROOT_HANDLE)`,
+    /// so a modal child whose `caller` was an occupant's handle left it
+    /// returning `false` — the whole shell face (chrome, breadcrumb, the
+    /// ContentPane behind the "modal" window) stayed fully clickable
+    /// (operator report, PowerDemo3's Call Form demo, 2026-09-18: "the caller
+    /// window become semi transparent, but I still can click on it").
+    #[test]
+    fn a_modal_child_of_the_active_occupant_blocks_the_root() {
+        let (mut host, _closed_rx, _req_tx) = host_with_caller_and_child();
+        assert!(!host.root_modal_blocked(), "nothing open yet");
+
+        host.ensure_occupant("CALLER").expect("occupant builds");
+        host.show_occupant(Some("CALLER"));
+        assert!(
+            !host.root_modal_blocked(),
+            "an occupant with no modal child of its own must not block"
+        );
+        let caller_handle = host.occupant_handle("CALLER").expect("occupant registered");
+
+        // CALLER opens CHILD Sync/modal — registration alone is enough here;
+        // this test is about the block flag, not the child's own lifecycle.
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let _ = host
+            .supervisor
+            .handle_request(cobolt_runtime::form_host::FormRequest::OpenForm {
+                caller: caller_handle,
+                form_id: "CHILD".into(),
+                sync: true,
+                window_state: None,
+                x: None,
+                y: None,
+                width: None,
+                height: None,
+                modal: true,
+                reply: reply_tx,
+            });
+
+        assert!(
+            host.root_modal_blocked(),
+            "a modal child of the ACTIVE OCCUPANT must block the root — \
+             this is the exact case that shipped broken"
+        );
+
+        // And once the pane shows something else (or nothing), the stale
+        // occupant's modal child must NOT keep blocking a root it no longer
+        // fronts for.
+        host.show_occupant(None);
+        assert!(
+            !host.root_modal_blocked(),
+            "the root must not stay blocked by a modal child of an occupant \
+             that is no longer the active one"
         );
     }
 
