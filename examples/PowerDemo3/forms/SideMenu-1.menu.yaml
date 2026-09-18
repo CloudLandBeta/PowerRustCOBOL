@@ -307,4 +307,10 @@ menu:
       action: open-form:inner-form2
       enabled: true
       preserve_previous_form: true
-hash: 6977e116a1d7c766b4bf22e405ebf7bee282aef933872ecaf04bf0982984d983
+    - id: item-15
+      label: Call Form (Modal)
+      type: action
+      icon: window
+      action: open-form:call-form-demo
+      enabled: true
+hash: 9b57011189dfe88542667f8d22dc3d8122a06cca157a7104236cdc1e05cc588e
