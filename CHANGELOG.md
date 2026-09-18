@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.65] — 2026-09-18
+
+### A form can now choose how it looks while a modal child blocks it
+
+New Form property `ModalOverlayStyle` (`"SemiTransparent"` | `"Greyed"`,
+default SemiTransparent — Designer: **Modal overlay style**). While a
+Sync-opened (modal) child of a form blocks it, input was already refused;
+this now also paints over the blocked face in the developer's chosen style —
+a light wash for SemiTransparent, a darker classic dimmed backdrop for
+Greyed — instead of leaving the choice implicit. Applies to any form: a real
+child window, or a ContentPane occupant blocked by a modal child it opened
+(the occupant's own face is what dims, since the shell itself carries no
+`.cfrm` of its own). Readable/settable from COBOL too, as a bare `me::`/
+`super::` property, like every other universal form surface member.
+
 ## [PowerRustCOBOL 1.70.64] — 2026-09-18
 
 ### Builds no longer break when the OS temp cleaner prunes a cached artefact

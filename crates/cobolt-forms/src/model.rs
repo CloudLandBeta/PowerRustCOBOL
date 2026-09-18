@@ -3617,7 +3617,9 @@ impl ControlType {
                 "onLoaded",
                 "onLayoutChanged",
                 "onZoomChanged",
-                "onThumbnailsToggled",
+                "onCardSizeChanged",
+                "onScrolled",
+                "onViewModeChanged",
                 "onFilmstripToggled",
                 "onFullscreenEntered",
                 "onFullscreenExited",
@@ -5673,9 +5675,6 @@ impl Control {
             ControlType::Viewer => {
                 props.insert("Format".into(), PropValue::String("".into()));
                 props.insert("Layout".into(), PropValue::String("Page".into()));
-                props.insert("ShowThumbnails".into(), PropValue::Bool(false));
-                props.insert("ShowFilmstrip".into(), PropValue::Bool(false));
-                props.insert("CardSize".into(), PropValue::Int(55));
                 props.insert("Fullscreen".into(), PropValue::Bool(false));
                 props.insert("SplitMode".into(), PropValue::String("None".into()));
                 props.insert("RenderAsHtml".into(), PropValue::Bool(true));
@@ -5686,6 +5685,23 @@ impl Control {
                     props.insert(format!("{view}Source"), PropValue::String("".into()));
                     props.insert(format!("{view}Page"), PropValue::Int(1));
                     props.insert(format!("{view}Zoom"), PropValue::Int(100));
+                    // `ViewMode` replaces the original, control-wide
+                    // `ShowThumbnails` bool (operator, 2026-09-18): `Full`/
+                    // `Cards` are two mutually exclusive modes switched by
+                    // toolbar buttons (spec.md R14) — and, like `Zoom`, PER
+                    // VIEW: each split pane browses independently, one
+                    // showing its document while the other browses that
+                    // document's (or a different document's) cards. `CardSize`
+                    // follows it into the per-view group for the same reason
+                    // — one bottom-right slider per view, not one shared
+                    // slider a second view's mode-switch would fight over.
+                    // `ShowFilmstrip` joins them for the same reason again
+                    // (operator, 2026-09-18): a control-wide filmstrip cannot
+                    // mean anything once the two views can hold different
+                    // documents, and R14.3 docks it to THAT view's content.
+                    props.insert(format!("{view}ViewMode"), PropValue::String("Full".into()));
+                    props.insert(format!("{view}CardSize"), PropValue::Int(55));
+                    props.insert(format!("{view}ShowFilmstrip"), PropValue::Bool(false));
                     props.insert(format!("{view}ScrollPosition"), PropValue::Int(0));
                     props.insert(format!("{view}SearchText"), PropValue::String("".into()));
                     props.insert(format!("{view}SearchCaseSensitive"), PropValue::Bool(false));
@@ -6774,6 +6790,45 @@ impl FormFormat {
     }
 }
 
+/// How this form's own face looks while a Sync-opened (modal) child of ITS
+/// blocks it (051 R19/R28) — a child window, or a modal opened by a
+/// ContentPane occupant blocking the shell underneath it. Either way `blocked`
+/// already disables input (`ui.disable()`); this only controls the paint on
+/// top of that, so the operator can SEE the form is waiting, not just fail to
+/// click it.
+///
+/// `SemiTransparent` is the default, and it is what every `.cfrm` written
+/// before this field parses to — the closest match to the fade `disable()`
+/// already gave every blocked form before this property existed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModalOverlayStyle {
+    /// A light wash over the whole form — it reads as faded, not obscured.
+    #[default]
+    SemiTransparent,
+    /// A darker, more opaque wash — the classic dimmed/greyed-out modal
+    /// backdrop.
+    Greyed,
+}
+
+impl ModalOverlayStyle {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModalOverlayStyle::SemiTransparent => "SemiTransparent",
+            ModalOverlayStyle::Greyed => "Greyed",
+        }
+    }
+
+    /// Lenient parse; anything unrecognised is `SemiTransparent`, so an old or
+    /// hand-edited `.cfrm` never fails to load over this field.
+    pub fn from_str(value: &str) -> Self {
+        if value.trim().eq_ignore_ascii_case("Greyed") {
+            ModalOverlayStyle::Greyed
+        } else {
+            ModalOverlayStyle::SemiTransparent
+        }
+    }
+}
+
 /// The shell MenuPane's own background (spec 049 R39), persisted on the main
 /// form — the shell's owner (spec Q7). Deliberately the same field shapes as the
 /// form background so `paint_backdrop` renders both: one background dialect.
@@ -7021,6 +7076,10 @@ pub struct Form {
     pub full_screen: bool,
     /// Show the native title bar; false = chromeless window (R15).
     pub title_visible: bool,
+    /// How this form's own face looks while blocked by a Sync-opened (modal)
+    /// child of its own — a child window, or a modal a ContentPane occupant
+    /// opened (051 R19/R28). Defaults to `SemiTransparent`.
+    pub modal_overlay_style: ModalOverlayStyle,
 
     // ── 049 Application shell ───────────────────────────────────────────────
     /// How this form may be loaded: its own window, the shell's ContentPane, or
@@ -7106,6 +7165,7 @@ impl Form {
             window_state: WindowState::default(),
             full_screen: false,
             title_visible: true,
+            modal_overlay_style: ModalOverlayStyle::default(),
             form_format: FormFormat::default(),
             menu_pane_background: None,
             window_effects: true,
@@ -8293,9 +8353,6 @@ mod tests {
 
         expect_str("Format", "");
         expect_str("Layout", "Page");
-        expect_bool("ShowThumbnails", false);
-        expect_bool("ShowFilmstrip", false);
-        expect_int("CardSize", 55);
         expect_bool("Fullscreen", false);
         expect_str("SplitMode", "None");
         expect_bool("RenderAsHtml", true);
@@ -8306,6 +8363,9 @@ mod tests {
             expect_str(&format!("{view}Source"), "");
             expect_int(&format!("{view}Page"), 1);
             expect_int(&format!("{view}Zoom"), 100);
+            expect_str(&format!("{view}ViewMode"), "Full");
+            expect_int(&format!("{view}CardSize"), 55);
+            expect_bool(&format!("{view}ShowFilmstrip"), false);
             expect_int(&format!("{view}ScrollPosition"), 0);
             expect_str(&format!("{view}SearchText"), "");
             expect_bool(&format!("{view}SearchCaseSensitive"), false);

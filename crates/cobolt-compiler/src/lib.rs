@@ -5896,6 +5896,16 @@ fn controls_reference_doc() -> String {
          CanMaximize) are inert and its Width/Height report the DESIGNED values.\n\n",
     );
     doc.push_str(
+        "`ModalOverlayStyle` (`\"SemiTransparent\"` | `\"Greyed\"`, default SemiTransparent) \
+         controls how THIS form's own face looks while a Sync-opened (modal) child of its own \
+         blocks it: a real child window, or — since a ContentPane occupant has no window of \
+         its own — a modal child that occupant opened, which blocks the shell underneath it \
+         the same way. Input is already refused either way; this only chooses the paint drawn \
+         over the blocked face so the operator can SEE it is waiting, not just fail to click \
+         it. `SemiTransparent` is a light wash (reads as faded); `Greyed` is a darker, more \
+         opaque wash (the classic dimmed modal backdrop).\n\n",
+    );
+    doc.push_str(
         "SHELL mode starts when the main form carries a `SideMenu` control: ONE window with a \
          MenuPane (root menu slot — mounted once — plus the current subsystem's contextual \
          slot; Open/Collapsed, a narrow icon rail when collapsed, with the ☰ toggle drawn on \

@@ -262,6 +262,10 @@ pub fn build_object_seed(
             // Design-time FormState is always Ready (spec 037 R16).
             ("FormState".into(), "Ready".to_string()),
             ("FormFormat".into(), form.form_format.as_str().to_string()),
+            (
+                "ModalOverlayStyle".into(),
+                form.modal_overlay_style.as_str().to_string(),
+            ),
             ("BackgroundColor".into(), form.background_color.clone()),
             ("Transparency".into(), form.transparency.to_string()),
             // The breadcrumb RESET guard: while it is on, a click on this
