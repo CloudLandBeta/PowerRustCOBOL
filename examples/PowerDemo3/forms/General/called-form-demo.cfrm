@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CALLED-FORM-DEMO" title="Called Form Demo" width="480" height="280" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light">
+<Form name="CALLED-FORM-DEMO" title="Called Form Demo" width="480" height="280" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"

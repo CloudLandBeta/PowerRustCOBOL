@@ -10083,12 +10083,26 @@ impl PropertiesPanel {
                 // form's own appearance that must dim underneath it.
                 property_row(ui, tr.lbl_modal_overlay_style, |ui| {
                     let cur = form.modal_overlay_style.as_str();
+                    // The STORED value (.cfrm attribute, COBOL-visible
+                    // me::/super:: property) stays the English enum spelling
+                    // in every language — only the label shown here is
+                    // translated, same discipline as every other in-app
+                    // string.
+                    let opts = [
+                        ("SemiTransparent", tr.val_modal_overlay_semi_transparent),
+                        ("Greyed", tr.val_modal_overlay_greyed),
+                    ];
+                    let cur_label = opts
+                        .iter()
+                        .find(|(v, _)| *v == cur)
+                        .map(|(_, l)| *l)
+                        .unwrap_or(cur);
                     egui::ComboBox::from_id_salt("modal-overlay-style")
-                        .selected_text(cur)
+                        .selected_text(cur_label)
                         .width(ui.available_width())
                         .show_ui(ui, |ui| {
-                            for opt in ["SemiTransparent", "Greyed"] {
-                                if ui.selectable_label(cur == opt, opt).clicked() && cur != opt {
+                            for (opt, label) in opts {
+                                if ui.selectable_label(cur == opt, label).clicked() && cur != opt {
                                     action
                                         .form_props
                                         .push(("ModalOverlayStyle".into(), opt.to_owned()));

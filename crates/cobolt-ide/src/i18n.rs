@@ -771,6 +771,14 @@ pub struct Tr {
     /// 051 R19/R28 — how this form's face looks while blocked by a modal
     /// child of its own (SemiTransparent | Greyed).
     pub lbl_modal_overlay_style: &'static str,
+    /// Display text for `ModalOverlayStyle`'s `SemiTransparent` value in the
+    /// Designer's dropdown. The STORED value stays the English
+    /// "SemiTransparent" in every language (the .cfrm attribute and the
+    /// COBOL-visible property value) — only this label is translated.
+    pub val_modal_overlay_semi_transparent: &'static str,
+    /// Display text for `ModalOverlayStyle`'s `Greyed` value — see
+    /// `val_modal_overlay_semi_transparent`.
+    pub val_modal_overlay_greyed: &'static str,
     /// 038 R3 — the form's window-effects opt-out checkbox.
     pub lbl_window_effects: &'static str,
     // ── 049 Application shell — form/menu properties ──
@@ -2270,6 +2278,8 @@ const EN: Tr = Tr {
     lbl_full_screen:           "Full screen",
     lbl_title_visible:         "Show title bar",
     lbl_modal_overlay_style:   "Modal overlay style",
+    val_modal_overlay_semi_transparent: "Semi-transparent",
+    val_modal_overlay_greyed:           "Greyed",
     lbl_window_effects:        "Window effects",
     lbl_form_format:           "Form format",
     tip_form_format_main:      "The main form owns the application window — its format is always Standalone.",
@@ -3598,6 +3608,8 @@ const ES: Tr = Tr {
     lbl_full_screen:           "Pantalla completa",
     lbl_title_visible:         "Mostrar barra de título",
     lbl_modal_overlay_style:   "Estilo de superposición modal",
+    val_modal_overlay_semi_transparent: "Semitransparente",
+    val_modal_overlay_greyed:           "Grisáceo",
     lbl_window_effects:        "Efectos de ventana",
     lbl_form_format:           "Formato del formulario",
     tip_form_format_main:      "El formulario principal es dueño de la ventana de la aplicación — su formato es siempre Standalone.",
@@ -4926,6 +4938,8 @@ const PT: Tr = Tr {
     lbl_full_screen:           "Tela cheia",
     lbl_title_visible:         "Mostrar barra de título",
     lbl_modal_overlay_style:   "Estilo de sobreposição modal",
+    val_modal_overlay_semi_transparent: "Semitransparente",
+    val_modal_overlay_greyed:           "Acinzentado",
     lbl_window_effects:        "Efeitos de janela",
     lbl_form_format:           "Formato do formulário",
     tip_form_format_main:      "O formulário principal é dono da janela da aplicação — seu formato é sempre Standalone.",
@@ -6253,6 +6267,8 @@ const JA: Tr = Tr {
     lbl_full_screen:           "フルスクリーン",
     lbl_title_visible:         "タイトルバーを表示",
     lbl_modal_overlay_style:   "モーダルオーバーレイのスタイル",
+    val_modal_overlay_semi_transparent: "半透明",
+    val_modal_overlay_greyed:           "グレーアウト",
     lbl_window_effects:        "ウィンドウエフェクト",
     lbl_form_format:           "フォーム形式",
     tip_form_format_main:      "メインフォームはアプリケーションウィンドウを所有するため、形式は常に Standalone です。",
@@ -7587,6 +7603,8 @@ const ZH: Tr = Tr {
     lbl_full_screen: "全屏",
     lbl_title_visible: "显示标题栏",
     lbl_modal_overlay_style: "模态遮罩样式",
+    val_modal_overlay_semi_transparent: "半透明",
+    val_modal_overlay_greyed: "灰色",
     lbl_window_effects: "窗口效果",
     lbl_form_format: "窗体格式",
     tip_form_format_main: "主窗体拥有应用程序窗口——其格式始终为 Standalone。",
@@ -8916,6 +8934,8 @@ const FR: Tr = Tr {
     lbl_full_screen:           "Plein écran",
     lbl_title_visible:         "Afficher la barre de titre",
     lbl_modal_overlay_style:   "Style de superposition modale",
+    val_modal_overlay_semi_transparent: "Semi-transparent",
+    val_modal_overlay_greyed:           "Grisé",
     lbl_window_effects:        "Effets de fenêtre",
     lbl_form_format:           "Format du formulaire",
     tip_form_format_main:      "Le formulaire principal possède la fenêtre de l'application — son format est toujours Standalone.",
