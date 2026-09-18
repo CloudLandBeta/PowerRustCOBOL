@@ -184,22 +184,55 @@ not a claim about what §8.1 means architecturally.
         T30 — this is the first check, not the last); changing `Layout` fires
         `onLayoutChanged` exactly once per change.
 
-- [ ] **T12 — Navigation: zoom, fullscreen, thumbnails/filmstrip** (R11–R15,
-      R32, AC4, AC5, AC19)
+- [ ] **T12 — Navigation: zoom/card slider, ViewMode, fullscreen, filmstrip,
+      scrolling** (R11–R15, R33–R33.3, R32, AC4, AC5, AC19, AC31, AC32)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `src/paint.rs`
   - Do: wheel-zoom about the pointer; double-click zoom to a 16× cap; Esc → 100%
-        then leave fullscreen; fullscreen hides/restores the toolbar; the
-        reflowing thumbnail card grid with the bottom-right size slider (R14.1);
-        100%-slider and filmstrip-collapse-to-border both exit to the document
-        (R14.2/R14.3). Raise `onZoomChanged` once `Zoom` **settles** (not on
-        every intermediate wheel tick), `onFullscreenEntered`/
-        `onFullscreenExited`, and `onThumbnailsToggled`/`onFilmstripToggled`
+        then leave fullscreen; fullscreen hides/restores the toolbar;
+        `ViewMode` (**`Full`**/**`Cards`**) switched by two toolbar buttons,
+        **per view** — `View1ViewMode`/`View2ViewMode`, each independent under
+        `SplitMode`; `Cards` mode **replaces** that view's content with a
+        reflowing grid whose row **and** column counts are a function of card
+        size and **the control's own width only** — never the window or
+        screen; **one slider per view**, bottom-right, directly below that
+        view's own content, driving `Zoom` in `Full` mode and `CardSize` in
+        `Cards` mode (R14.1 — switching a view's mode never touches the
+        *other* mode's remembered slider value, R14.2). **Filmstrip**
+        (R14.3/R14.4), independently per view (`View1ShowFilmstrip`/
+        `View2ShowFilmstrip` — a control-wide filmstrip can't mean anything
+        once the two views may hold different documents): a resizable rail of
+        page thumbnails **docked to that view's content's left edge**, opened
+        by its own toolbar button (`Full` mode only), closed by that same
+        button again or by dragging its splitter to the view's left edge —
+        both leaving `Full` mode showing just the document, never the retired
+        card-mode auto-exit. **Scrolling** (R33–R33.3), reproduced from
+        `doc_viewer.rs`'s own mechanics (not reusable code — private items in
+        a binary crate — the algorithm only): arrow-key tap (one line =
+        `FontSize × 1.6`) and hold-to-accelerate (base speed → 4× ceiling over
+        2 s, after a short hold delay), Page Up/Down (viewport minus two
+        lines) and Home/End, all skipped while another control holds focus;
+        left-drag pans 1:1, release throws at the drag's own last ~0.12 s
+        speed and decelerates under constant friction to exactly zero, never
+        a fixed-duration ease; a new press mid-glide stops it at once. Raise
+        `onZoomChanged`/`onCardSizeChanged`/`onScrolled` once each **settles**
+        (never on an intermediate tick or glide frame), `onViewModeChanged`,
+        `onFullscreenEntered`/`onFullscreenExited`, `onFilmstripToggled`
         (R32).
   - Verify: `cargo test -p cobolt-forms --features render` — zoom stops at 16×
-        (**AC4**), fullscreen toggles the toolbar (**AC5**), card count per row
-        tracks pane width and slider position, both collapse gestures land on
-        the document (**AC19**); each of the four new events fires once per
-        actual change, not per input tick.
+        (**AC4**), fullscreen toggles the toolbar (**AC5**); switching a
+        view's `ViewMode` to `Cards` replaces its content, row/column count
+        tracks *that view's* width (resize the control, not the window/pane,
+        and confirm the count changes — resizing anything else must not) and
+        the per-view slider, switching back keeps each mode's own remembered
+        slider value, a view's filmstrip opens on its content's left edge and
+        closes by its button or by dragging to that edge without leaving
+        `Full` mode (**AC19**); held-arrow-key speed reported at three points
+        (tap / ~1 s / ~2 s+), Page/Home/End by the documented amounts, none of
+        it while Find has focus (**AC31**); a throw's release speed comes only
+        from the drag itself, decelerates under constant friction to exactly
+        the limit or zero, a non-moving release throws nothing, and a press
+        mid-glide stops it (**AC32**); each
+        settle-event fires once per actual change, not per input tick.
 
 - [ ] **T13 — Toolbar chrome and actions: Save As, Share, Print** (R16–R20,
       R18.1, R32, AC6, AC10, AC20)
@@ -208,10 +241,13 @@ not a claim about what §8.1 means architecturally.
         `"SHARE"` in the method table, the `"SHOW"`/`"DISMISSALL"` precedent)
   - Do: hand-drawn painter icons with tooltips for every R16 item (most already
         exist in the catalogue per plan §2 — `chevron-*`, `highlighter`,
-        `fullscreen`, `split-view`, `share`, `printer`, `zoom-in`/`out`,
-        `doc-save-as`; verify layout-switcher/font-size/thumbnails/filmstrip
-        icons exist or author them); Save As writes original bytes unmodified
-        (R18); the `LoadBytes`-with-no-source-path default filename — first
+        `fullscreen`, `split-view`, `share`, `printer`, `doc-save-as`; verify
+        layout-switcher/font-size/filmstrip icons exist or author them; the
+        two `ViewMode` buttons — Full/Cards — need their own icons, and
+        `zoom-in`/`zoom-out` move from a toolbar group onto the small ends of
+        T12's per-view slider instead, not a separate toolbar control); Save
+        As writes original bytes unmodified (R18); the
+        `LoadBytes`-with-no-source-path default filename — first
         three words of extracted text + matching extension, generic fallback
         for textless documents, user-editable, extension always restored
         (R18.1); Share/Print hand off to the OS (`NSSharingService` / Windows
@@ -587,9 +623,9 @@ order.)*
 
 ## Done criteria
 
-All 30 acceptance criteria in `spec.md` (AC1–AC11, AC19–AC24, AC30 from §6;
-AC12–AC18, AC25–AC29 from §8.7) are checked, every suite green, docs and KB
-updated, and the change sits in feature commit(s) on `features` (do **not**
+All 32 acceptance criteria in `spec.md` (AC1–AC11, AC19–AC24, AC30–AC32 from
+§6; AC12–AC18, AC25–AC29 from §8.7) are checked, every suite green, docs and
+KB updated, and the change sits in feature commit(s) on `features` (do **not**
 commit or push unless the operator asks).
 
 **Coverage map** — AC1 T7/T34 · AC2 T9/T10/T18/T20/T21 · AC3 T11 · AC4 T12 ·
@@ -597,4 +633,4 @@ AC5 T12 · AC6 T13/T19 · AC7 T15/T16/T28 · AC8 T16/T17 · AC9 T6 · AC10 T3/T1
 AC11 T11/T30 · AC12 T23 · AC13 T23 · AC14 T25 · AC15 T24 · AC16 T23 ·
 AC17 T23 · AC18 T24 · AC19 T12 · AC20 T13 · AC21 T6 · AC22 T15 · AC23 T15 ·
 AC24 T15 · AC25 T35 · AC26 T36 · AC27 T36 · AC28 T36 · AC29 T36 · AC30 T34
-(exercising T11/T12/T13/T15/T16/T23/T37's events).
+(exercising T11/T12/T13/T15/T16/T23/T37's events) · AC31 T12 · AC32 T12.
