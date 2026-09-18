@@ -6,7 +6,7 @@ Licensed under the Apache License, Version 2.0.
 See the LICENSE file in the project root for full license information.
 -->
 
-<!-- powerrustcobol: 1.65.124 -->
+<!-- powerrustcobol: 1.70.60 -->
 
 # Crash-safe INDEXED engine (redb)
 
@@ -17,19 +17,27 @@ INDEXED` files, built on **redb** — a pure-Rust embedded ACID key-value store
 designed around four operational goals the bespoke engine could not meet at
 scale.
 
-**It is the default engine, and has been since 1.62.73** (operator ruling,
-2026-08-29). `IndexedEngine` derives `Default` with `#[default]` on `Redb`
-(`crates/cobolt-runtime/src/indexed.rs:126`), and a test holds it there
-(`indexed.rs:1643`). Nothing has to be selected to get it.
+**It is opt-in — selected by name, not the default.** From 1.62.73 until
+1.70.24 redb *was* the default engine, but the operator reversed that on
+2026-09-14 (1.70.24): the default is now the `Rust` (`PRCIDXD1`) paged engine.
+`IndexedEngine` derives `Default` with `#[default]` on `Rust`
+(`crates/cobolt-runtime/src/indexed.rs`), and a test holds it there.
 
-The older paged engine is still available by name, and so are the two aliases
-that delegate to the built-in Rust container:
+The reason is **concurrency**: a redb container open for *writing* takes an
+exclusive `flock(LOCK_EX)` with no shared variant, so exactly one process may
+hold it open at a time. `PRCIDXD1` admits concurrent readers. redb remains the
+right choice wherever durability and crash-safety outrank concurrent access —
+choose it by name:
 
 ```bash
-rcrun run program.cbl --indexed-engine rust    # the PRCIDXD1 paged engine
+rcrun run program.cbl --indexed-engine redb
 # or
-COBOL_INDEXED_ENGINE=rust rcrun run program.cbl
+COBOL_INDEXED_ENGINE=redb rcrun run program.cbl
 ```
+
+The default paged engine, and the `rm-cobol85` / `fujitsu` aliases that delegate
+to the built-in Rust container, are chosen the same way
+(`--indexed-engine rust`, `--indexed-engine fujitsu`, …).
 
 Implementation:
 [`crates/cobolt-runtime/src/indexed_redb.rs`](../crates/cobolt-runtime/src/indexed_redb.rs).

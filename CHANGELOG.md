@@ -1,5 +1,60 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.63] — 2026-09-17
+
+### A selected MenuBar item flashes twice before the menu closes
+
+Choosing a dropdown item now flashes that row twice (~300 ms) and only then
+closes the menu, instead of the menu vanishing the instant you click. The item's
+handler still runs immediately on the click — the flash is only the closing
+animation, so nothing about when your `onMenuClick` / `onMenuItemClick` code runs
+changes.
+
+The click still fires on the click itself: an earlier attempt deferred the
+events to the end of the flash, but the "click-outside closes the menu" guard —
+which treated a press on the pulldown (a foreground layer below the bar) as a
+press *outside* — closed the menu on the press frame and swallowed the deferred
+events, so menu clicks stopped doing anything. The guard now recognises the open
+pulldown as part of the menu, and the events fire on the click as they always
+did.
+
+## [PowerRustCOBOL 1.70.62] — 2026-09-17
+
+### An open MenuBar pulldown follows the pointer across the bar
+
+Once a menu is open, moving the pointer onto a different top-level title now
+switches to it — the one you opened closes and the one under the pointer opens,
+with no second click. This is the standard menu-bar behaviour: click once, then
+glide across File / Edit / View / Help. Hovering a title while nothing is open
+still does nothing; a click arms the bar first. (Nested submenus do not yet open
+as fly-out popups in the running form, so this applies to the top-level titles.)
+
+## [PowerRustCOBOL 1.70.61] — 2026-09-17
+
+### The redb engine document matches what ships
+
+`docs/indexed-redb-engine-en.md` still described redb as the default INDEXED
+engine "since 1.62.73". That was reversed on 2026-09-14 (1.70.24): the default is
+the `Rust` (`PRCIDXD1`) paged engine, because a redb container open for writing
+takes an exclusive `flock(LOCK_EX)` and only one process can hold it, while
+`PRCIDXD1` admits concurrent readers. The document now states redb is opt-in
+(`--indexed-engine redb`), gives the correct reason, and its five translations
+were removed per the regeneration rule (they will be rebuilt at the next
+minor).
+
+## [PowerRustCOBOL 1.70.60] — 2026-09-17
+
+### A MenuBar item's icon appears in the open pulldown
+
+An icon set on a menu item was invisible in the running form's dropdown. The
+glyph was drawn through the MenuBar's own painter, which is clipped to the bar's
+rectangle — but the pulldown drops BELOW the bar, so the icon landed outside that
+clip and painted nowhere, while the item's label and the popup background (drawn
+through the dropdown's own layer) showed normally. The reserved 24px slot stayed,
+so the row still looked indented with no icon. The icon now paints through the
+dropdown's own painter, like everything else in the popup, so it shows wherever
+the pulldown opens.
+
 ## [PowerRustCOBOL 1.70.59] — 2026-09-17
 
 ### The investigation dock timestamps read as wall-clock time

@@ -8989,6 +8989,36 @@ fn render_interactive(
                 let mut x = screen.min.x + 8.0;
                 let pad = 8.0;
 
+                // Blink-on-select: a clicked item's events fire AT ONCE (as
+                // before — deferring them loses the action to the click-outside
+                // close below), but the menu does not close immediately. The
+                // clicked row flashes twice and the menu closes at 300 ms. The
+                // state — (open top-menu index, item id, start time) — lives in
+                // egui temp, keyed per control, and is purely the visual close;
+                // the action has already run. Drop a stale one whose menu is no
+                // longer the open one (closed or switched before the blink
+                // finished) so a reopen cannot resurrect it.
+                let anim_id = scoped_id(scope, ("menu_click_anim", id));
+                if let Some((ati, aid, _)) =
+                    ui.data(|d| d.get_temp::<(usize, String, f64)>(anim_id))
+                {
+                    let still_valid = open_idx == Some(ati)
+                        && def
+                            .menu
+                            .get(ati)
+                            .is_some_and(|e| e.items.iter().any(|it| it.id == aid));
+                    if !still_valid {
+                        ui.data_mut(|d| d.remove::<(usize, String, f64)>(anim_id));
+                    }
+                }
+
+                // The open dropdown's rect, captured while it paints, so the
+                // "click outside closes menus" guard below does not treat a
+                // press ON a dropdown row as outside — which would close the
+                // menu on the press frame, before its click (and its blink)
+                // could ever register.
+                let mut open_dropdown_rect: Option<egui::Rect> = None;
+
                 for (ti, entry) in def.menu.iter().enumerate() {
                     if entry.item_type == crate::menu::MenuItemType::Separator {
                         continue;
@@ -9039,12 +9069,41 @@ fn render_interactive(
                         ui.data_mut(|d| d.insert_temp(menu_id, new_idx));
                     }
 
+                    // Once ANY pulldown is open, gliding the pointer onto a
+                    // different title switches to it with no click — the
+                    // standard menu-bar behaviour (operator): click once, then
+                    // slide across the bar. The one being left fires
+                    // `onMenuClose` and the one arriving `onMenuOpen`, the same
+                    // lifecycle a click raises. `open_idx` is this frame's
+                    // value; writing the new index lands next frame, and the
+                    // pointer motion has already scheduled that repaint.
+                    if !is_open && resp.hovered() {
+                        if let Some(prev) = open_idx {
+                            let prev_label = def
+                                .menu
+                                .get(prev)
+                                .map(|e| e.label.clone())
+                                .unwrap_or_default();
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onMenuClose",
+                                &prev_label,
+                            ));
+                            out.events.push(UiEvent::with_value(
+                                id,
+                                "onMenuOpen",
+                                &entry.label,
+                            ));
+                            ui.data_mut(|d| d.insert_temp(menu_id, Some(ti)));
+                        }
+                    }
+
                     // Pulldown dropdown
                     if is_open && !entry.items.is_empty() {
                         let dropdown_id = scoped_id(scope, ("menu_dropdown", id, ti));
 
                         let dropdown_pos = pos2(label_rect.min.x, label_rect.max.y + 2.0);
-                        egui::Area::new(dropdown_id)
+                        let dd_area = egui::Area::new(dropdown_id)
                             .order(egui::Order::Foreground)
                             .fixed_pos(dropdown_pos)
                             .show(ui.ctx(), |ui| {
@@ -9095,6 +9154,16 @@ fn render_interactive(
                                             egui::layers::ShapeIdx,
                                             egui::Rect,
                                         )> = Vec::new();
+                                        // The blink-on-select state, read fresh
+                                        // (after the stale-state guard above)
+                                        // and the clock it is measured against.
+                                        // Two on/off phases of 75 ms each = two
+                                        // blinks, then the menu closes at 300 ms.
+                                        let click_anim: Option<(usize, String, f64)> =
+                                            ui.data(|d| d.get_temp(anim_id));
+                                        let now_t = ui.input(|i| i.time);
+                                        const BLINK_PHASE: f64 = 0.075;
+                                        const BLINK_TOTAL: f64 = 0.300;
                                         for item in &entry.items {
                                             if item.item_type
                                                 == crate::menu::MenuItemType::Separator
@@ -9116,12 +9185,23 @@ fn render_interactive(
                                                 } else {
                                                     fg
                                                 };
-                                                // Icon
+                                                // Icon. Painted with the popup
+                                                // ui's OWN painter, not the form
+                                                // `painter` passed to
+                                                // `draw_control`: the dropdown is
+                                                // a foreground `Area`, so the form
+                                                // painter draws the glyph on the
+                                                // layer BENEATH the popup (and
+                                                // under its own clip), where the
+                                                // popup background hides it — the
+                                                // 24px slot was reserved but the
+                                                // icon never showed (operator:
+                                                // "menubar: ícones não aparecem").
                                                 if let Some(icon_name) = &item.icon {
                                                     let icon_rect =
                                                         ui.allocate_space(Vec2::splat(24.0)).1;
                                                     crate::icons::draw_menu_icon(
-                                                        &painter, icon_rect, icon_name, item_fg,
+                                                        ui.painter(), icon_rect, icon_name, item_fg,
                                                     );
                                                 } else {
                                                     ui.allocate_space(Vec2::splat(24.0));
@@ -9164,14 +9244,55 @@ fn render_interactive(
                                             if let Some(icon) = menu_cursor {
                                                 row_resp = row_resp.on_hover_cursor(icon);
                                             }
-                                            if item.enabled && row_resp.hovered() {
-                                                row_highlights
-                                                    .push((bg_idx, item_resp.response.rect));
+                                            // How long this row has been blinking
+                                            // (the click-select flash), if it is
+                                            // the armed one — matched by BOTH the
+                                            // open menu index and the item id, so
+                                            // a same-id item in another menu never
+                                            // borrows the flash.
+                                            let blink = click_anim
+                                                .as_ref()
+                                                .filter(|(ati, aid, _)| {
+                                                    *ati == ti && *aid == item.id
+                                                })
+                                                .map(|(_, _, start)| now_t - start);
+                                            match blink {
+                                                // The armed row flashes: on for a
+                                                // phase, off for the next.
+                                                Some(elapsed) => {
+                                                    let on = ((elapsed / BLINK_PHASE) as i64) % 2
+                                                        == 0;
+                                                    if on {
+                                                        row_highlights.push((
+                                                            bg_idx,
+                                                            item_resp.response.rect,
+                                                        ));
+                                                    }
+                                                }
+                                                // Every other row follows the
+                                                // pointer, as before.
+                                                None => {
+                                                    if item.enabled && row_resp.hovered() {
+                                                        row_highlights.push((
+                                                            bg_idx,
+                                                            item_resp.response.rect,
+                                                        ));
+                                                    }
+                                                }
                                             }
-                                            if item.enabled && row_resp.clicked() {
-                                                ui.data_mut(|d| {
-                                                    d.insert_temp(menu_id, None::<usize>)
-                                                });
+                                            // A click fires the item's events NOW
+                                            // (as it always did) and arms the
+                                            // blink instead of closing the menu.
+                                            // The menu stays open, flashes twice,
+                                            // and closes at 300 ms — but the
+                                            // action has already run, so no close
+                                            // path can lose it. Armed once: a
+                                            // second click while the blink runs is
+                                            // ignored (the menu is on its way out).
+                                            if item.enabled
+                                                && row_resp.clicked()
+                                                && click_anim.is_none()
+                                            {
                                                 if let Some(action) = &item.action {
                                                     if action == "close-application" {
                                                         out.events.push(UiEvent {
@@ -9194,6 +9315,27 @@ fn render_interactive(
                                                     event: "onMenuItemClick".to_owned(),
                                                     value: Some(path),
                                                 });
+                                                ui.data_mut(|d| {
+                                                    d.insert_temp(
+                                                        anim_id,
+                                                        (ti, item.id.clone(), now_t),
+                                                    )
+                                                });
+                                                ui.ctx().request_repaint();
+                                            }
+                                            // Blinks done → close the menu (the
+                                            // events already fired on the click).
+                                            // Keep repainting until then so the
+                                            // flash actually animates.
+                                            if let Some(elapsed) = blink {
+                                                if elapsed >= BLINK_TOTAL {
+                                                    ui.data_mut(|d| {
+                                                        d.insert_temp(menu_id, None::<usize>);
+                                                        d.remove::<(usize, String, f64)>(anim_id);
+                                                    });
+                                                } else {
+                                                    ui.ctx().request_repaint();
+                                                }
                                             }
                                         }
                                         // The selection bar runs the WIDTH OF
@@ -9227,15 +9369,22 @@ fn render_interactive(
                                         }
                                     });
                             });
+                        open_dropdown_rect = Some(dd_area.response.rect);
                     }
 
                     x += w + pad + 6.0;
                 }
 
-                // Click outside closes menus
+                // Click outside closes menus — but a press ON the open dropdown
+                // is NOT outside. Without this, pressing a row (the dropdown is
+                // a foreground Area below the bar, so it fails `screen.contains`)
+                // closed the menu on the press frame, before the row's click and
+                // its blink could register — which is why menu clicks stopped
+                // firing at all (operator).
                 if open_idx.is_some() && ui.input(|i| i.pointer.any_pressed()) {
                     let ptr = ui.input(|i| i.pointer.interact_pos()).unwrap_or_default();
-                    if !screen.contains(ptr) {
+                    let on_dropdown = open_dropdown_rect.is_some_and(|r| r.contains(ptr));
+                    if !screen.contains(ptr) && !on_dropdown {
                         ui.data_mut(|d| d.insert_temp(menu_id, None::<usize>));
                     }
                 }
@@ -10168,6 +10317,316 @@ mod tests {
             strays.len(),
             &strays[..strays.len().min(4)]
         );
+    }
+
+    /// **A menu item's icon is painted, and painted ON TOP of the popup.**
+    ///
+    /// The dropdown is a foreground `Area` with its own `ui`; the item label
+    /// draws through that `ui`, but the icon used to draw through the FORM
+    /// `painter` handed to `draw_control` — a lower layer. Its glyph landed
+    /// under the popup's own opaque background and was never seen, though the
+    /// 24px slot for it was reserved so the row still looked indented (operator:
+    /// "menubar: ícones não aparecem"). The fix paints the icon with the popup
+    /// `ui`'s painter; this proves an icon part lands in the slot AND after the
+    /// popup background in paint order (i.e. on top of it).
+    #[test]
+    fn a_menu_item_icon_paints_on_top_of_the_popup() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+
+        let bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
+        let controls = vec![bar];
+
+        let mut file = MenuItem::new_action("file", "File");
+        let mut save = MenuItem::new_action("save", "Save");
+        save.icon = Some("doc-save".to_owned());
+        file.items = vec![save];
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition { menu: vec![file], hash: String::new() },
+        )]);
+
+        let ctx = egui::Context::default();
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new(("menu_open", "MenuBar-1")), Some(0usize))
+        });
+        let active = ActiveTabs::new();
+        let mut run = || {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        // A bar-only form (28px): its content_rect ends at the
+                        // bar, so the pulldown — a foreground Area — drops BELOW
+                        // it. That is what exposes the bug: `draw_control`'s
+                        // painter is clipped to content_rect, so an icon drawn
+                        // through it lands outside and shows nothing, while the
+                        // Area's own painter (label, background) is unaffected. A
+                        // roomy form would hide the bug, its content_rect
+                        // containing the whole popup.
+                        let form = Vec2::new(400.0, 28.0);
+                        ui.allocate_ui(form, |ui| {
+                            let rin = RenderInput {
+                                controls: &controls,
+                                state: &DesignedVisibility,
+                                form_size: form,
+                                glass: true,
+                                mode: RenderMode::Interactive,
+                                active_tabs: &active,
+                                backdrop: Default::default(),
+                            };
+                            let _ = render_form(ui, &rin);
+                        });
+                    });
+            });
+            out.textures_delta.clear();
+            out
+        };
+        // Two frames: the Area places itself on the first.
+        let _ = run();
+        let out = run();
+        crate::paint::register_menus(std::iter::empty());
+
+        // Every leaf shape, tagged with the CLIP RECT it was issued under —
+        // that clip is the whole point. A shape whose clip does not contain it
+        // is emitted but painted nowhere, which is exactly how the icon
+        // vanished: `draw_control`'s painter is clipped to the bar's own ~28px
+        // rect (`ancestor_clip_rect` → `content_rect` for a top-level control),
+        // and the pulldown is drawn BELOW the bar.
+        fn walk(
+            s: &egui::Shape,
+            clip: egui::Rect,
+            into: &mut Vec<(egui::Rect, egui::Rect, bool)>,
+        ) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, into)),
+                egui::Shape::Text(_) => {}
+                egui::Shape::Rect(r) => {
+                    into.push((r.rect, clip, r.fill.a() > 200))
+                }
+                other => into.push((other.visual_bounding_rect(), clip, false)),
+            }
+        }
+        // (bounds, clip_rect, is_opaque_fill)
+        let mut leaves: Vec<(egui::Rect, egui::Rect, bool)> = Vec::new();
+        for cs in &out.shapes {
+            walk(&cs.shape, cs.clip_rect, &mut leaves);
+        }
+
+        // The icon parts: the small (24px) glyph shapes in the pulldown's left
+        // column, which sits BELOW the 28px bar. The label is a text shape
+        // (skipped above); the wide popup background/border are excluded by the
+        // size cap. `center().y > 28` places them in the dropdown, not the bar.
+        const BAR_BOTTOM: f32 = 28.0;
+        let icon_parts: Vec<&(egui::Rect, egui::Rect, bool)> = leaves
+            .iter()
+            .filter(|(bounds, _, opaque)| {
+                !*opaque
+                    && bounds.width() > 0.0
+                    && bounds.width() < 26.0
+                    && bounds.height() < 26.0
+                    && bounds.center().x < 60.0
+                    && bounds.center().y > BAR_BOTTOM
+            })
+            .collect();
+
+        assert!(
+            !icon_parts.is_empty(),
+            "the 'doc-save' icon was not painted in the menu item's icon slot"
+        );
+        // The regression: the icon is painted, but under a clip that does not
+        // contain it (the bar's rect), so nothing shows. Require its clip to
+        // actually hold it.
+        let visible = icon_parts
+            .iter()
+            .any(|(bounds, clip, _)| clip.contains(bounds.center()));
+        assert!(
+            visible,
+            "the menu icon is clipped away — every icon part's clip rect \
+             excludes it, which is the 'menubar: icons don't appear' bug. \
+             Parts: {:?}",
+            icon_parts
+        );
+    }
+
+    /// **A click-opened pulldown follows the pointer to another title.**
+    ///
+    /// Standard menu-bar behaviour: once one menu is open, gliding the pointer
+    /// onto a different title switches to it with no second click (operator).
+    /// Hovering while nothing is open does nothing — the bar must be armed by a
+    /// click first.
+    #[test]
+    fn an_open_menu_follows_the_pointer_to_another_title() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+
+        let bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
+        let controls = vec![bar];
+
+        let mut file = MenuItem::new_action("file", "File");
+        file.items = vec![MenuItem::new_action("f1", "New")];
+        let mut edit = MenuItem::new_action("edit", "Edit");
+        edit.items = vec![MenuItem::new_action("e1", "Undo")];
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition { menu: vec![file, edit], hash: String::new() },
+        )]);
+
+        let ctx = egui::Context::default();
+        let menu_id = egui::Id::new(("menu_open", "MenuBar-1"));
+        let active = ActiveTabs::new();
+        let run = |pointer: Option<egui::Pos2>| -> egui::FullOutput {
+            let mut input = egui::RawInput::default();
+            if let Some(p) = pointer {
+                input.events.push(egui::Event::PointerMoved(p));
+            }
+            let mut out = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        let rin = RenderInput {
+                            controls: &controls,
+                            state: &DesignedVisibility,
+                            form_size: Vec2::new(400.0, 200.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        let _ = render_form(ui, &rin);
+                    });
+            });
+            out.textures_delta.clear();
+            out
+        };
+        let open_now =
+            || ctx.data(|d| d.get_temp::<Option<usize>>(menu_id)).flatten();
+
+        // Open File and find its open-title highlight (painted in the default
+        // selected_bg) — a rect in the 28px bar. "Edit" begins just past it, so
+        // hovering a few px beyond its right edge lands on the Edit title
+        // without needing to compute font widths.
+        ctx.data_mut(|d| d.insert_temp(menu_id, Some(0usize)));
+        let out = run(None);
+        assert_eq!(open_now(), Some(0));
+        let selected_bg = Color32::from_rgb(51, 102, 204);
+        let file_rect = painted_rect_fills(&out)
+            .into_iter()
+            .find(|(r, c)| *c == selected_bg && r.max.y <= 30.0)
+            .map(|(r, _)| r)
+            .expect("the open File title paints its selected_bg highlight");
+        let edit_hover = pos2(file_rect.max.x + 10.0, file_rect.center().y);
+
+        // Nothing open: hovering a title must NOT open it (the bar arms on click).
+        ctx.data_mut(|d| d.insert_temp(menu_id, None::<usize>));
+        let _ = run(Some(edit_hover));
+        assert_eq!(open_now(), None, "hover with no menu open must not open one");
+
+        // File open + pointer over Edit → the open menu follows to Edit.
+        ctx.data_mut(|d| d.insert_temp(menu_id, Some(0usize)));
+        let _ = run(Some(edit_hover));
+        assert_eq!(
+            open_now(),
+            Some(1),
+            "with File open, hovering the Edit title must switch the open menu to Edit"
+        );
+
+        crate::paint::register_menus(std::iter::empty());
+    }
+
+    /// **A clicked item fires at once, the row blinks, then the menu closes.**
+    ///
+    /// A real click (press then release on a dropdown row) must: NOT close the
+    /// menu on the press (the click-outside guard treats the dropdown as
+    /// inside); fire the item's events on the click (deferring them lost the
+    /// action to that guard — the regression that stopped clicks logging); keep
+    /// the menu open to flash; and close it only at 300 ms (operator).
+    #[test]
+    fn a_click_fires_at_once_then_the_row_blinks_and_the_menu_closes() {
+        use crate::menu::{MenuDefinition, MenuItem};
+        let _guard = crate::paint::menu_registry_test_lock();
+
+        let bar = ctrl("MenuBar-1", ControlType::MenuBar, 0, 0, 400, 28);
+        let controls = vec![bar];
+        let mut file = MenuItem::new_action("file", "File");
+        file.items = vec![MenuItem::new_action("save", "Save")];
+        crate::paint::register_menus([(
+            "MenuBar-1".to_owned(),
+            MenuDefinition { menu: vec![file], hash: String::new() },
+        )]);
+
+        let ctx = egui::Context::default();
+        let menu_id = egui::Id::new(("menu_open", "MenuBar-1"));
+        ctx.data_mut(|d| d.insert_temp(menu_id, Some(0usize)));
+
+        let active = ActiveTabs::new();
+        let events = std::cell::RefCell::new(Vec::<UiEvent>::new());
+        let run = |time: f64, evs: Vec<egui::Event>| {
+            let mut input = egui::RawInput::default();
+            input.time = Some(time);
+            input.events = evs;
+            let mut out = ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root_ui, |ui| {
+                        let rin = RenderInput {
+                            controls: &controls,
+                            state: &DesignedVisibility,
+                            form_size: Vec2::new(400.0, 200.0),
+                            glass: true,
+                            mode: RenderMode::Interactive,
+                            active_tabs: &active,
+                            backdrop: Default::default(),
+                        };
+                        *events.borrow_mut() = render_form(ui, &rin).events;
+                    });
+            });
+            out.textures_delta.clear();
+        };
+        let open_now =
+            || ctx.data(|d| d.get_temp::<Option<usize>>(menu_id)).flatten();
+        let fired_save = || {
+            events.borrow().iter().any(|e| {
+                e.event == "onMenuClick" && e.value.as_deref() == Some("save")
+            })
+        };
+
+        // Open the dropdown, then find the Save row's rect to aim the click.
+        run(0.0, vec![]);
+        let p = ctx
+            .read_response(egui::Id::new(("mi", "save")))
+            .expect("the Save row is interactive while the menu is open")
+            .rect
+            .center();
+        let button = |pressed| egui::Event::PointerButton {
+            pos: p,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+
+        // Press on the row: the menu must stay open and nothing fires yet.
+        run(0.05, vec![egui::Event::PointerMoved(p)]);
+        run(0.10, vec![button(true)]);
+        assert_eq!(open_now(), Some(0), "pressing a row must not close the menu");
+        assert!(!fired_save(), "nothing fires on the press");
+
+        // Release completes the click: the events fire NOW, menu stays open.
+        run(0.15, vec![button(false)]);
+        assert!(fired_save(), "onMenuClick must fire on the click");
+        assert_eq!(
+            open_now(),
+            Some(0),
+            "the menu stays open to blink, not closed on the click"
+        );
+
+        // Still open mid-blink; closes only after the 300 ms flash.
+        run(0.30, vec![]);
+        assert_eq!(open_now(), Some(0), "the menu stays open during the blink");
+        run(0.50, vec![]);
+        assert_eq!(open_now(), None, "the menu closes after the 300 ms blink");
+
+        crate::paint::register_menus(std::iter::empty());
     }
 
     /// **An open pulldown looks the same whatever the host is wearing.**
