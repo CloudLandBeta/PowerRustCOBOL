@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.64] — 2026-09-18
+
+### Builds no longer break when the OS temp cleaner prunes a cached artefact
+
+A build could fail with `couldn't read …/libsqlite3-sys-…/out/bindgen.rs: No
+such file or directory` even though the disk was fine. The incremental build
+workspace lived under the OS temp directory (`/var/folders/…/T` on macOS), whose
+periodic cleaner deletes files by age — and `libsqlite3-sys`'s generated
+`bindgen.rs` is stamped with a 2006 mtime, so it was pruned out from under a
+cached build while cargo still recorded the crate as built, breaking the next
+compile. The build workspace now lives under the per-user cache directory
+(`~/Library/Caches/PowerRustCOBOL/builds` on macOS, `%LOCALAPPDATA%` on Windows,
+`$XDG_CACHE_HOME`/`~/.cache` elsewhere), outside the reaper's reach, so a project
+that built once keeps building.
+
 ## [PowerRustCOBOL 1.70.63] — 2026-09-17
 
 ### A selected MenuBar item flashes twice before the menu closes

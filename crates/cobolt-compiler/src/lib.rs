@@ -18,7 +18,7 @@
 //!  forms/*.cfrm ──┘
 //!        │
 //!        ▼
-//!  /tmp/cobolt-build-<hash>/
+//!  <user-cache>/PowerRustCOBOL/builds/cobolt-build-<name>/   (not /tmp — see build_cache_root)
 //!    Cargo.toml   (generated — depends on cobolt-runtime, cobolt-forms, eframe)
 //!    src/
 //!      main.rs    (generated — embeds assets via include_bytes!, lazy loader)
@@ -116,6 +116,40 @@ pub fn make_writable(path: &Path) {
 /// `create_dir_all`, reported with the folder it could not create.
 fn create_dir(path: &Path) -> Result<(), CompilerError> {
     std::fs::create_dir_all(path).ctx(|| format!("create the folder '{}'", path.display()))
+}
+
+/// The root under which a project's incremental build workspace lives — a
+/// per-user cache directory, deliberately NOT the OS temp directory.
+///
+/// macOS's periodic temp cleaner deletes files under `$TMPDIR`
+/// (`/var/folders/.../T`) by age, and `libsqlite3-sys`'s build script stamps
+/// its generated `bindgen.rs` with an mtime of 2006 — so the cleaner prunes it
+/// out from under a cached build while cargo still records the crate as built,
+/// and the next compile dies with `couldn't read …/bindgen.rs: No such file or
+/// directory`. Linux's `/tmp` reapers do the same. A cache directory is
+/// writable, per-user, and outside those reapers' scope, so the incremental
+/// workspace survives idle time between builds.
+///
+///  - macOS:   `~/Library/Caches/PowerRustCOBOL/builds`
+///  - Windows: `%LOCALAPPDATA%\PowerRustCOBOL\builds`
+///  - other:   `$XDG_CACHE_HOME/PowerRustCOBOL/builds`, else `~/.cache/…`
+///
+/// Falls back to the OS temp directory only when no home/cache location can be
+/// resolved — a reapable build is still better than no build.
+fn build_cache_root() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    let cache_home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Caches"));
+    #[cfg(target_os = "windows")]
+    let cache_home = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let cache_home = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")));
+
+    cache_home
+        .map(|c| c.join("PowerRustCOBOL").join("builds"))
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 /// Copy `src` over `dst`, and leave `dst` writable.
@@ -1577,7 +1611,9 @@ fn build_core(
 
     // ── 7. Create build staging directory ────────────────────────────────────
     report(0.50, "Packaging solution…");
-    let build_dir = std::env::temp_dir().join(format!("cobolt-build-{}", &bin_name));
+    // NOT the OS temp dir: its reaper prunes cached build artefacts (notably
+    // `libsqlite3-sys`'s `bindgen.rs`) out from under cargo. See `build_cache_root`.
+    let build_dir = build_cache_root().join(format!("cobolt-build-{}", &bin_name));
     // A full build throws away everything cargo cached for this project, so
     // nothing compiled by an older PowerRustCOBOL can survive into the new
     // binary. Slower by design — this is the "make it clean" path.
