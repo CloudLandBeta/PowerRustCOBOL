@@ -18,7 +18,7 @@ menu:
   - id: mb-file-save
     label: Save
     type: action
-    icon: save
+    icon: doc-save
     enabled: true
 - id: mb-edit
   label: Edit
@@ -29,12 +29,12 @@ menu:
   - id: mb-edit-copy
     label: Copy
     type: action
-    icon: copy
+    icon: doc-copy
     enabled: true
   - id: mb-edit-paste
     label: Paste
     type: action
-    icon: paste
+    icon: clipboard-paste
     enabled: true
 - id: mb-view
   label: View
@@ -45,7 +45,7 @@ menu:
   - id: mb-view-grid
     label: Show the grid
     type: action
-    icon: grid
+    icon: control-data-grid
     enabled: true
   - id: mb-view-log
     label: Show the log
@@ -55,12 +55,12 @@ menu:
 - id: mb-help
   label: Help
   type: action
-  icon: help
+  icon: help-circle
   enabled: true
   items:
   - id: mb-help-about
     label: About
     type: action
-    icon: info
+    icon: info-circle
     enabled: true
-hash: c19aa3c25a80c2883f1f238187b99dacdb403deaeda4ab45a8c5fc40d9267a1e
+hash: e03a23372ed8e3fea109ad22466358aae5e0c404a44bfd9de45dc15817513cc5
