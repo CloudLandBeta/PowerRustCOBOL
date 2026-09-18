@@ -2749,13 +2749,29 @@ impl FormHost {
                     // own `me::X` reads stay coherent. Visible application
                     // (retitle/resize) lands with the shell host work.
                     HostAction::SetFormProperty { handle, key, value } => {
+                        // 049/051 — the write-through's target can be ANY of
+                        // the three bodies a handle can name: the root, a
+                        // real child window, or a ContentPane OCCUPANT (an
+                        // occupant has no window of its own, but it has a
+                        // handle and its own interpreter, exactly like the
+                        // other two). Missing the occupant case here meant
+                        // `super::"SetProperty"` aimed at a form embedded in
+                        // the ContentPane was silently dropped — accepted by
+                        // the supervisor (published_prop/GetProperty on that
+                        // handle saw it), but never folded into THAT form's
+                        // own me::X, so its own me::"GetProperty" never saw
+                        // what a modal child it opened had just written
+                        // (operator report, PowerDemo3's Call Form demo,
+                        // 2026-09-18).
                         let target = if handle == ROOT_HANDLE {
                             Some(&self.root)
+                        } else if let Some(c) = self.children.iter().find(|c| c.handle == handle) {
+                            Some(&c.body)
                         } else {
-                            self.children
-                                .iter()
-                                .find(|c| c.handle == handle)
-                                .map(|c| &c.body)
+                            self.occupants
+                                .values()
+                                .find(|o| o.handle == handle)
+                                .map(|o| &o.body)
                         };
                         if let Some(body) = target {
                             let _ = body.input_tx.send(StateUpdate {
@@ -5198,6 +5214,166 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             "the root must not stay blocked by a modal child of an occupant \
              that is no longer the active one"
         );
+    }
+
+    /// A host whose `FormSource` resolves CALLER (a ContentPane occupant with
+    /// its OWN event loop — one real `COBOL-WAIT-EVENT` pass after the modal
+    /// closes, driven by injecting a second event, exactly as a real form's
+    /// generated event loop would be by a real subsequent UI event) and
+    /// CHILD (a Sync/modal window it opens, whose whole program publishes a
+    /// custom property to its opener through `super::"SetProperty"`).
+    fn host_with_publishing_caller_and_child(
+    ) -> (FormHost, mpsc::Receiver<String>, mpsc::Sender<cobolt_runtime::form_host::FormRequest>)
+    {
+        let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200);
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (display_tx, display_rx) = mpsc::channel();
+        let (form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, closed_rx) = mpsc::channel();
+        let source: Option<FormSource> = Some(Box::new(|id: &str| {
+            if id.eq_ignore_ascii_case("CALLER") {
+                let mut form = cobolt_forms::Form::new("CALLER", "Caller", 320, 200);
+                let lbl =
+                    cobolt_forms::Control::new("Lbl-1", cobolt_forms::ControlType::Label, 10, 10);
+                form.add_control(lbl);
+                Ok((
+                    form,
+                    program_from(
+                        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CALLER.\n\
+                         DATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+                         01 WS-H PIC X(8).\n01 WS-RESULT PIC X(40).\n\
+                         01 EVT PIC X(30).\n01 CTL PIC X(30).\n\
+                         PROCEDURE DIVISION.\n    \
+                         INVOKE ME::\"OpenFormSync\"(\"CHILD\") RETURNING WS-H.\n    \
+                         CALL \"COBOL-WAIT-EVENT\" USING EVT CTL.\n    \
+                         INVOKE ME::\"GetProperty\"(\"Probe\") RETURNING WS-RESULT.\n    \
+                         MOVE WS-RESULT TO Lbl-1::Caption.\n    STOP RUN.\n",
+                    ),
+                ))
+            } else if id.eq_ignore_ascii_case("CHILD") {
+                Ok((
+                    cobolt_forms::Form::new("CHILD", "Child", 240, 160),
+                    program_from(
+                        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\n\
+                         PROCEDURE DIVISION.\n    \
+                         INVOKE SUPER::\"SetProperty\"(\"Probe\", \"ButtonOk clicked\").\n    \
+                         INVOKE ME::\"Close\"().\n    STOP RUN.\n",
+                    ),
+                ))
+            } else {
+                Err(format!("no form named '{id}'"))
+            }
+        }));
+        let (host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: form_req_tx.clone(),
+            form_source: source,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        (host, closed_rx, form_req_tx)
+    }
+
+    /// 049/051 regression — `HostAction::SetFormProperty`'s target lookup
+    /// only checked `ROOT_HANDLE` and `self.children` (real windows); it
+    /// never checked `self.occupants`. A `super::"SetProperty"` write aimed
+    /// at a form embedded in the ContentPane (e.g. opened by the sidebar's
+    /// `open-form:` action) was accepted by the supervisor — a windowHandle
+    /// `GetProperty` on that handle saw it — but silently never reached
+    /// THAT form's own interpreter, so its own `me::"GetProperty"` never saw
+    /// what a modal child it opened had just written (operator report,
+    /// PowerDemo3's Call Form demo, 2026-09-18: "Result from the called
+    /// form" never updates). Found with a full end-to-end reproduction using
+    /// the demo's real generated COBOL before being reduced to this minimal,
+    /// self-contained regression.
+    #[test]
+    fn a_property_a_child_publishes_to_an_occupant_reaches_that_occupants_own_interpreter() {
+        let (mut host, _closed_rx, _req_tx) = host_with_publishing_caller_and_child();
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::Vec2::new(640.0, 480.0),
+        ));
+
+        let caller_ev_tx = host.ensure_occupant("CALLER").expect("occupant builds");
+        host.show_occupant(Some("CALLER"));
+
+        // Drive frames until CHILD spawns — CALLER's own `OpenFormSync` is a
+        // real blocking round trip through the supervisor.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while host.children.is_empty() {
+            let mut f = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
+            f.textures_delta.clear();
+            assert!(std::time::Instant::now() < deadline, "CHILD never spawned");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        // Drive frames until CHILD's SetProperty + Close both land and the
+        // modal releases CALLER (bounded wait).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !host.children.is_empty() {
+            let mut f = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
+            f.textures_delta.clear();
+            assert!(std::time::Instant::now() < deadline, "CHILD never closed");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        // CALLER's own paragraph is now parked at its ONE `COBOL-WAIT-EVENT`
+        // — inject a second event (any event on any control works; a real
+        // subsequent UI action does exactly this) so it dispatches, drains
+        // the queued property write into `self.objects`, and writes it to
+        // Lbl-1::Caption, observable through the SAME `state` map the real
+        // render engine reads (unlike DISPLAY, which `child_frame` drains
+        // straight to stdout on this very same render pass).
+        let _ = caller_ev_tx.send(FormEvent::new("Whatever", "onTick"));
+
+        let mut caption = String::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let mut f = ctx.run_ui(input.clone(), |ui| host.ui_impl(ui));
+            f.textures_delta.clear();
+            if let Some(occ) = host.occupants.get("CALLER") {
+                if let Some(cs) = occ.body.state.get("Lbl-1") {
+                    if let Some((_, c)) =
+                        cs.props.iter().find(|(k, _)| k.eq_ignore_ascii_case("Caption"))
+                    {
+                        caption = c.clone();
+                        if caption.contains("ButtonOk clicked") {
+                            break;
+                        }
+                    }
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "CALLER's own me::\"GetProperty\" never saw what CHILD published \
+                 through super::\"SetProperty\"; last seen Lbl-1::Caption: {caption:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 
     /// 051 Q2 (operator ruling) — a PARKED form's enabled timers keep

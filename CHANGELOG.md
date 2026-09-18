@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.67] — 2026-09-18
+
+### A property a modal child published to its opener never reached a form embedded in the ContentPane
+
+`HostAction::SetFormProperty` — the write-through that folds a
+`super::"SetProperty"` write into the TARGET form's own `me::X` reads —
+resolved its target by checking `ROOT_HANDLE` and `self.children` (real
+child windows) only; it never checked `self.occupants`. A form loaded into
+the ContentPane (the sidebar's `open-form:` action) has no window of its
+own but is otherwise an ordinary handle with its own interpreter, exactly
+like the other two — missing it here meant a modal child's answer was
+accepted by the supervisor (a windowHandle `GetProperty` on that handle,
+or another form's `super::X`, saw it) but silently never reached the
+ContentPane form's OWN interpreter, so its own `me::"GetProperty"` never
+saw what the child it had just opened published. `SetFormProperty` now
+also checks `self.occupants`.
+
+This was the second half of PowerDemo3's Call Form demo report
+(2026-09-18): the `super`-NULL crash from 1.70.64 was fixed, but the
+result label still never updated — this is why. Both are now confirmed
+against the demo's real generated COBOL, and a minimal, self-contained
+regression covers the exact failure directly.
+
 ## [PowerRustCOBOL 1.70.66] — 2026-09-18
 
 ### A form can now choose how it looks while a modal child blocks it
