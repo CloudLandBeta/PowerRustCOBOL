@@ -882,7 +882,7 @@
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
     <Property name="BackgroundGradientEndColor">#DFE0E1FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
+    <Property name="ForegroundColor">#F4851EFF</Property>
     <Property name="FontName">Arial</Property>
     <Property name="FontSize">14</Property>
     <Property name="Bold">false</Property>
@@ -926,5 +926,6 @@
     <Property name="StackOrder">Auto</Property>
     <Property name="MaximumVisible">5</Property>
     <Property name="OverflowBehavior">Queue</Property>
+    <Property name="CategoryIconColor">#FFFFFFFF</Property>
   </Control>
 </Form>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CHARTS-FORM" title="Charts - the six types" width="1280" height="788" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#4E4E4EFF" background-gradient-end="#000000FF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" form-format="Both">
+<Form name="CHARTS-FORM" title="Charts - the six types" width="1296" height="816" background="36383EFF" background-gradient-enabled="true" background-gradient-start="#010101FF" background-gradient-end="#310B0BFF" background-gradient-direction="South" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Dark" background-image="assets/images/bg18.png" bg-image-mode="Stretch" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -131,8 +131,8 @@
     <Property name="AnimateValues">true</Property>
     <Property name="AnimationDuration">2000</Property>
     <Property name="HideBackground">false</Property>
-    <Property name="Monochrome">false</Property>
-    <Property name="MonochromeColor">#3F6FB5</Property>
+    <Property name="Monochrome">true</Property>
+    <Property name="MonochromeColor">#51BBFB</Property>
     <Property name="MonochromeGradient">false</Property>
     <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
     <Property name="XAxisLabel">Period</Property>
@@ -140,17 +140,26 @@
     <Property name="Horizontal">false</Property>
     <Property name="Stacked">false</Property>
     <Property name="BarCornerRadius">4</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#000000FF</Property>
+    <Property name="BackgroundGradientEndColor">#001D32FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BorderWidth">2</Property>
+    <Property name="BorderColor">#00DFFF81</Property>
+    <Property name="BorderGradientEnabled">true</Property>
+    <Property name="BorderGradientStartColor">#00DFFF81</Property>
+    <Property name="BorderGradientEndColor">#2D436D81</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">8</Property>
+    <Property name="BorderTransparency">51</Property>
+    <Property name="Transparency">35</Property>
   </Control>
-  <Control id="LineChart-1" type="LineChart" x="440" y="64" w="392" h="240" tab-order="0" z-order="2" visible="true" enabled="true">
+  <Control id="LineChart-1" type="LineChart" x="448" y="64" w="392" h="240" tab-order="0" z-order="2" visible="true" enabled="true">
     <Property name="Title">Orders per month</Property>
     <Property name="ShowLegend">true</Property>
     <Property name="ShowGridLines">true</Property>
@@ -170,20 +179,29 @@
     <Property name="Smooth">true</Property>
     <Property name="ShowPoints">true</Property>
     <Property name="PointRadius">4</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#000000FF</Property>
+    <Property name="BackgroundGradientEndColor">#001D32FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BorderWidth">2</Property>
+    <Property name="BorderColor">#00DFFF81</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="Transparency">28</Property>
   </Control>
-  <Control id="PieChart-1" type="PieChart" x="856" y="64" w="392" h="240" tab-order="0" z-order="3" visible="true" enabled="true">
+  <Control id="PieChart-1" type="PieChart" x="872" y="64" w="392" h="240" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="Title">Share by region</Property>
     <Property name="ShowLegend">true</Property>
-    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowGridLines">false</Property>
     <Property name="ShowXAxis">true</Property>
     <Property name="ShowYAxis">true</Property>
     <Property name="ShowTooltips">true</Property>
@@ -197,16 +215,25 @@
     <Property name="SeriesColors">#4C9BE8,#E87A4C,#4CE87A,#E84C9B,#9B4CE8,#E8C84C</Property>
     <Property name="ShowLabels">true</Property>
     <Property name="LabelFormat">percent</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#000000FF</Property>
+    <Property name="BackgroundGradientEndColor">#001D32FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="TitleFontSize">19</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BorderWidth">2</Property>
+    <Property name="BorderColor">#00DFFF81</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="Transparency">28</Property>
   </Control>
   <Control id="AreaChart-1" type="AreaChart" x="24" y="320" w="392" h="240" tab-order="0" z-order="4" visible="true" enabled="true">
     <Property name="Title">Cumulative volume</Property>
@@ -230,17 +257,26 @@
     <Property name="PointRadius">4</Property>
     <Property name="FillAlpha">40</Property>
     <Property name="Stacked">false</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#000000FF</Property>
+    <Property name="BackgroundGradientEndColor">#001D32FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BorderWidth">2</Property>
+    <Property name="BorderColor">#00DFFF81</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="Transparency">28</Property>
   </Control>
-  <Control id="ScatterChart-1" type="ScatterChart" x="440" y="320" w="392" h="240" tab-order="0" z-order="5" visible="true" enabled="true">
+  <Control id="ScatterChart-1" type="ScatterChart" x="448" y="320" w="392" h="240" tab-order="0" z-order="5" visible="true" enabled="true">
     <Property name="Title">Price against weight</Property>
     <Property name="ShowLegend">true</Property>
     <Property name="ShowGridLines">true</Property>
@@ -258,20 +294,29 @@
     <Property name="XAxisLabel">Period</Property>
     <Property name="YAxisLabel">Value</Property>
     <Property name="BubbleScale">20</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#000000FF</Property>
+    <Property name="BackgroundGradientEndColor">#001D32FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BorderWidth">2</Property>
+    <Property name="BorderColor">#00DFFF81</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="Transparency">28</Property>
   </Control>
-  <Control id="DonutChart-1" type="DonutChart" x="856" y="320" w="392" h="240" tab-order="0" z-order="6" visible="true" enabled="true">
+  <Control id="DonutChart-1" type="DonutChart" x="872" y="320" w="392" h="240" tab-order="0" z-order="6" visible="true" enabled="true">
     <Property name="Title">Storage in use</Property>
     <Property name="ShowLegend">true</Property>
-    <Property name="ShowGridLines">true</Property>
+    <Property name="ShowGridLines">false</Property>
     <Property name="ShowXAxis">true</Property>
     <Property name="ShowYAxis">true</Property>
     <Property name="ShowTooltips">true</Property>
@@ -286,15 +331,24 @@
     <Property name="ShowLabels">true</Property>
     <Property name="LabelFormat">percent</Property>
     <Property name="InnerRadius">40</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientEnabled">true</Property>
+    <Property name="BackgroundGradientStartColor">#000000FF</Property>
+    <Property name="BackgroundGradientEndColor">#001D32FF</Property>
     <Property name="BackgroundGradientDirection">South</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Property name="ShadowEnabled">true</Property>
+    <Property name="BorderStyle">Single</Property>
+    <Property name="ShadowEnabled">false</Property>
     <Property name="FontSize">11</Property>
+    <Property name="BorderWidth">2</Property>
+    <Property name="BorderColor">#00DFFF81</Property>
+    <Property name="BorderGradientEnabled">false</Property>
+    <Property name="BorderGradientStartColor">#3C50A0</Property>
+    <Property name="BorderGradientEndColor">#8FB4FF</Property>
+    <Property name="BorderGradientDirection">South</Property>
+    <Property name="BorderBlur">0</Property>
+    <Property name="BorderTransparency">0</Property>
+    <Property name="Transparency">28</Property>
   </Control>
   <Control id="Button-CHART-LOAD" type="Button" x="24" y="584" w="236" h="40" tab-order="0" z-order="7" visible="true" enabled="true">
     <Property name="Caption">Load the first data set</Property>

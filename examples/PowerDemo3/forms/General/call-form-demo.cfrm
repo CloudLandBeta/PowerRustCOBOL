@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CALL-FORM-DEMO" title="Call Form Demo" width="1000" height="600" background="EAEBEFFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" form-format="Both">
+<Form name="CALL-FORM-DEMO" title="Call Form Demo" width="1000" height="600" background="D7D7DBFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed" form-format="Both">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -55,7 +55,7 @@
     </Event>
   </form-events>
   <Control id="Label-1" type="Label" x="40" y="32" w="600" h="56" tab-order="0" z-order="0" visible="true" enabled="true">
-    <Property name="Caption">Call Form Demo</Property>
+    <Property name="Caption">Call Form Demo (Sync)</Property>
     <Property name="BackgroundColor">#00000000</Property>
     <Property name="BackgroundGradientEnabled">false</Property>
     <Property name="BackgroundGradientStartColor">#F8F8F8FF</Property>
@@ -146,7 +146,7 @@
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#747474FF</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
@@ -163,15 +163,16 @@
     <Property name="CornerRadius">10</Property>
     <Event name="onClick" paragraph="BUTTON-1--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
-       WORKING-STORAGE SECTION.
-       01 WS-H PIC X(8).
        PROCEDURE DIVISION.
-      *> Sync is implicitly modal (developers-guide-en.md, "Opening forms
-      *> from COBOL"): the whole face waits here until the called form
-      *> closes. RETURNING is NULL by the time this resumes — the answer
-      *> travels through super::"SetProperty" instead (see CALLED-FORM-DEMO's
-      *> OK/Cancel handlers) and Tmr-Refresh picks it up right after.
-           INVOKE ME::"OpenFormSync"("CALLED-FORM-DEMO") RETURNING WS-H.]]></Event>
+
+           *> Call the form in modal (Sync)
+
+           INVOKE ME::"OpenFormSync"("CALLED-FORM-DEMO")
+
+           *> Retrieve data set by the modal window
+
+           INVOKE ME::"GetProperty"("ResultText") RETURNING Lbl-Result::Caption.
+]]></Event>
   </Control>
   <Control id="Label-3" type="Label" x="40" y="304" w="500" h="32" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="Caption">Result from the called form:</Property>
@@ -228,53 +229,24 @@
     <Property name="Padding">12</Property>
     <Property name="Transparency">0</Property>
     <Property name="ShadowEnabled">false</Property>
-    <Property name="ShadowOpacity">6</Property>
+    <Property name="ShadowOpacity">17</Property>
     <Property name="ShadowColor">#000000</Property>
     <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
     <Property name="ShadowDistance">7</Property>
     <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
+    <Property name="ShadowBlurStrength">-7</Property>
     <Property name="ZOrder">0</Property>
     <Property name="TextAlignment">Left</Property>
     <Property name="VerticalAlignment">Middle</Property>
     <Property name="WordWrap">false</Property>
     <Property name="AutoSize">false</Property>
-    <Property name="BorderStyle">Solid</Property>
+    <Property name="BorderStyle">None</Property>
     <Property name="CornerRadius">10</Property>
   </Control>
-  <Control id="Tmr-Refresh" type="Timer" x="40" y="424" w="48" h="48" tab-order="0" z-order="5" visible="true" enabled="true">
-    <Property name="BackgroundColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEnabled">false</Property>
-    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
-    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
-    <Property name="BackgroundGradientDirection">South</Property>
-    <Property name="ForegroundColor">#FFFFFF</Property>
-    <Property name="FontName">Arial</Property>
-    <Property name="FontSize">14</Property>
-    <Property name="Bold">false</Property>
-    <Property name="Italic">false</Property>
-    <Property name="Underline">false</Property>
-    <Property name="Strikethrough">false</Property>
-    <Property name="Cursor">Default</Property>
-    <Property name="HoverDelayMs">200</Property>
-    <Property name="Anchor">false</Property>
-    <Property name="Padding">0</Property>
-    <Property name="Transparency">0</Property>
-    <Property name="ShadowEnabled">true</Property>
-    <Property name="ShadowOpacity">6</Property>
-    <Property name="ShadowColor">#000000</Property>
-    <Property name="ShadowLightColor">#FFFFFFFF</Property>
-    <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
-    <Property name="ShadowBlur">true</Property>
-    <Property name="ShadowBlurStrength">8</Property>
-    <Property name="ZOrder">0</Property>
-    <Property name="Interval">200</Property>
-    <Property name="Enabled">true</Property>
-    <Property name="CornerRadius">10</Property>
-    <Property name="BorderStyle">None</Property>
-    <Event name="onTick" paragraph="TMR-REFRESH--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
+  <deleted-controls>
+    <DeletedControl id="Tmr-Refresh" deleted-at="designer-delete-1789808046-5">
+      <Event name="onTick" paragraph="TMR-REFRESH--ONTICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-RESULT PIC X(60).
@@ -291,9 +263,7 @@
       *> right after OpenFormSync returns would still see the old value;
       *> this timer's onTick is itself a COBOL-WAIT-EVENT dispatch, so it
       *> always sees the current one.
-           INVOKE ME::"GetProperty"("ResultText") RETURNING WS-RESULT.
-           IF WS-RESULT NOT = SPACES
-               MOVE WS-RESULT TO Lbl-Result::Caption
-           END-IF.]]></Event>
-  </Control>
+]]></Event>
+    </DeletedControl>
+  </deleted-controls>
 </Form>

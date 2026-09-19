@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Form name="CALLED-FORM-DEMO" title="Called Form Demo" width="480" height="280" background="F2F4F5FF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
+<Form name="CALLED-FORM-DEMO" title="Called Form Demo" width="480" height="280" background="CBCBCBFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" glass-style="Neumorphic Light" modal-overlay-style="Greyed">
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
            CLASS RUST-I8 IS "Rust.i8"
@@ -146,9 +146,9 @@
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#747474FF</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowDistance">5</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
@@ -164,15 +164,12 @@
     <Event name="onClick" paragraph="BTN-OK--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *> super — the form that loaded me (developers-guide-en.md): a
-      *> write-through to the caller's own property surface. SetProperty is
-      *> the generic any-name accessor — a bare super::ResultText fails to
-      *> build, since a bare property is checked against the fixed
-      *> universal form surface only (Name, Title, Width, Height, ...; see
-      *> "super" §22). The caller's Tmr-Refresh reads it back with
-      *> INVOKE me::"GetProperty"("ResultText").
-           INVOKE SUPER::"SetProperty"("ResultText", "ButtonOk clicked").
-           INVOKE ME::"Close"().]]></Event>
+
+           *> Set a value the caller can retrieve
+           INVOKE SUPER::SetProperty("ResultText", "ButtonOk clicked").
+
+           *> Close the modal (me)
+           INVOKE ME::Close().]]></Event>
   </Control>
   <Control id="Btn-Cancel" type="Button" x="266" y="180" w="150" h="56" tab-order="0" z-order="3" visible="true" enabled="true">
     <Property name="Caption">Cancel</Property>
@@ -196,9 +193,9 @@
     <Property name="ShadowEnabled">true</Property>
     <Property name="ShadowOpacity">6</Property>
     <Property name="ShadowColor">#000000FF</Property>
-    <Property name="ShadowLightColor">#747474FF</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
     <Property name="ShadowDirection">SouthEast</Property>
-    <Property name="ShadowDistance">7</Property>
+    <Property name="ShadowDistance">5</Property>
     <Property name="ShadowBlur">true</Property>
     <Property name="ShadowBlurStrength">8</Property>
     <Property name="ZOrder">0</Property>
@@ -214,14 +211,11 @@
     <Event name="onClick" paragraph="BTN-CANCEL--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        PROCEDURE DIVISION.
-      *> super — the form that loaded me (developers-guide-en.md): a
-      *> write-through to the caller's own property surface. SetProperty is
-      *> the generic any-name accessor — a bare super::ResultText fails to
-      *> build, since a bare property is checked against the fixed
-      *> universal form surface only (Name, Title, Width, Height, ...; see
-      *> "super" §22). The caller's Tmr-Refresh reads it back with
-      *> INVOKE me::"GetProperty"("ResultText").
-           INVOKE SUPER::"SetProperty"("ResultText", "ButtonCancel clicked").
-           INVOKE ME::"Close"().]]></Event>
+           *> Set a value the caller can retrieve
+           INVOKE SUPER::SetProperty("ResultText", "ButtonCancel clicked").
+
+           *> Close the modal (me)
+           INVOKE ME::Close().
+]]></Event>
   </Control>
 </Form>
