@@ -1769,6 +1769,14 @@ Appearance **Background color** when you have not set a FillColor).
 Every chart has a **Hide background** property: when checked, the chart's panel
 fill and border frame are not drawn, so only the chart content (grid, axes,
 labels, data) shows — letting the chart sit transparently on the form.
+Short of hiding it, a chart's **Transparency** fades its background *only* —
+the data marks, axes, legend and frame stay solid, so a see-through chart is
+still readable. Its frame is a real border like any other control's
+(**BorderStyle**, **BorderWidth**, **BorderColor**, following **CornerRadius**),
+with two chart-only extras in the Properties pane: tick **Border gradient**
+to run the frame from a start colour to an end colour along a compass
+direction, and set **Border blur** (pixels) for a soft glow outward in the
+border's colour. `BorderStyle` `None` removes all of it.
 Charts also have a **Monochrome** mode: tick it and pick a **base colour** from
 the 256-swatch selector, and the chart renders its data in distinguishable
 tonal variations of that one colour instead of the multi-colour palette. Grid

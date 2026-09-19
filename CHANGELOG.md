@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.81] — 2026-09-19
+
+### A chart's frame is a real border — with a gradient and a blur of its own
+
+The six chart controls drew a fixed 1 px line in a fixed blue and ignored
+every border property (operator, 2026-09-19: "border style needs border size
+with gradients and blur"). They now carry `BorderStyle`, `BorderWidth` and
+`BorderColor` like every other control, drawn through the shared
+`draw_control_border` and following `CornerRadius` — the defaults reproduce
+the old line exactly, so a form nobody restyled looks the same — plus two
+chart-only extras:
+
+- **`BorderGradientEnabled`** with `BorderGradientStartColor`,
+  `BorderGradientEndColor` and `BorderGradientDirection` (the eight compass
+  points): the frame becomes a ring mesh, `BorderWidth` wide, every vertex
+  coloured by where it falls along the direction. egui has no gradient
+  stroke, and a run of coloured segments shows its seams; a mesh does not.
+- **`BorderBlur`** (0–40 px): a soft glow outward in the border's colour (the
+  gradient's mid colour when the gradient is on), built with the shadow
+  stack's own falloff — rings outward, faintest first, never inside the
+  frame.
+
+Both are drawn at the chart's inherited alpha, never at its own
+`Transparency`, so they stay with the border on a see-through chart (1.70.80).
+`BorderStyle` `None` removes border, gradient and blur alike. The Properties
+pane shows the rows for charts in all six IDE languages; the System KB text
+and the Developer's Guide's chart entry describe them; a paint regression
+covers Single, None, gradient and blur.
+
 ## [PowerRustCOBOL 1.70.80] — 2026-09-19
 
 ### A chart's `Transparency` now fades its background — and only that

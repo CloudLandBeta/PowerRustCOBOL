@@ -8639,6 +8639,183 @@ fn format_chart_number(v: f32) -> String {
         format!("{v:.1}")
     }
 }
+/// A compass direction name → unit vector in screen space (y down).
+fn compass_unit(direction: &str) -> (f32, f32) {
+    match direction.trim() {
+        "North" => (0.0, -1.0),
+        "NorthEast" => (0.707, -0.707),
+        "East" => (1.0, 0.0),
+        "SouthEast" => (0.707, 0.707),
+        "SouthWest" => (-0.707, 0.707),
+        "West" => (-1.0, 0.0),
+        "NorthWest" => (-0.707, -0.707),
+        _ => (0.0, 1.0), // South, the default
+    }
+}
+
+/// `c` at `alpha` (0..=1), premultiplied.
+fn premultiplied_at(c: Color32, alpha: f32) -> Color32 {
+    let k = alpha.clamp(0.0, 1.0);
+    Color32::from_rgba_premultiplied(
+        (c.r() as f32 * k) as u8,
+        (c.g() as f32 * k) as u8,
+        (c.b() as f32 * k) as u8,
+        (c.a() as f32 * k) as u8,
+    )
+}
+
+/// The chart's frame border: `BorderStyle` / `BorderWidth` / `BorderColor`
+/// exactly as every other control draws them (`draw_control_border`), plus —
+/// charts only — a two-colour **gradient** along a compass direction
+/// (`BorderGradientEnabled`, `BorderGradientStartColor`, `-EndColor`,
+/// `-Direction`) and a soft **blur** outward (`BorderBlur`, px). Drawn at the
+/// INHERITED alpha `a`, never at the face's: the border is part of what keeps
+/// a see-through chart readable. Charts used to draw a fixed 1 px line in a
+/// fixed blue and ignore all three border properties (operator, 2026-09-19).
+///
+/// The gradient border is a ring mesh between the frame's outer outline and
+/// the same outline `width` further in, every vertex coloured by where it
+/// falls along the direction — egui has no gradient stroke, and a run of
+/// coloured segments would show its seams. The blur is the shadow stack's own
+/// recipe (`regular_shadow_stack`): rings outward, faintest first, so the
+/// glow has a dense core; it is painted in the border's mid colour and never
+/// inside the frame.
+pub(crate) fn draw_chart_border(
+    painter: &egui::Painter,
+    ctrl: &Control,
+    rect: Rect,
+    rounding: egui::CornerRadius,
+    a: u8,
+) {
+    let style = ctrl
+        .get_prop("BorderStyle")
+        .map(|v| v.as_str().trim().to_owned())
+        .unwrap_or_else(|| "Single".to_owned());
+    if style.eq_ignore_ascii_case("None") {
+        return;
+    }
+    let width = ctrl
+        .get_prop("BorderWidth")
+        .map(|v| v.as_i64())
+        .unwrap_or(1)
+        .clamp(0, 40) as f32;
+    if width < 0.5 {
+        return;
+    }
+    let alpha = a as f32 / 255.0;
+    let color = ctrl
+        .get_prop("BorderColor")
+        .map(|v| parse_color(v.as_str()))
+        .unwrap_or(Color32::from_rgb(60, 80, 160));
+    let gradient = ctrl
+        .get_prop("BorderGradientEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    let (start, end) = if gradient {
+        (
+            ctrl.get_prop("BorderGradientStartColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(color),
+            ctrl.get_prop("BorderGradientEndColor")
+                .map(|v| parse_color(v.as_str()))
+                .unwrap_or(color),
+        )
+    } else {
+        (color, color)
+    };
+    let (dx, dy) = compass_unit(
+        &ctrl
+            .get_prop("BorderGradientDirection")
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|| "South".to_owned()),
+    );
+    let blur = ctrl
+        .get_prop("BorderBlur")
+        .map(|v| v.as_i64())
+        .unwrap_or(0)
+        .clamp(0, 40) as f32;
+
+    // ── Blur: rings outward, faintest first ───────────────────────────────
+    if blur >= 0.5 {
+        let mid = lerp_color(start, end, 0.5);
+        const BLUR_PEAK: f32 = 0.6;
+        let layers = blur_ring_count(blur, BLUR_PEAK * alpha * 255.0);
+        for i in 0..=layers {
+            let t = 1.0 - (i as f32 / layers as f32);
+            let expand = t * blur;
+            let falloff = (-3.0 * t * t).exp();
+            let la = BLUR_PEAK * alpha * falloff;
+            let grow = |r: u8| (f32::from(r) + expand).round().clamp(0.0, 255.0) as u8;
+            let ring_rounding = egui::CornerRadius {
+                nw: grow(rounding.nw),
+                ne: grow(rounding.ne),
+                sw: grow(rounding.sw),
+                se: grow(rounding.se),
+            };
+            // Centred on the frame's edge, so half of every ring lies outside
+            // it and the innermost sits on the border itself.
+            painter.rect_stroke(
+                rect.expand(expand),
+                ring_rounding,
+                Stroke::new(width.max(1.0), premultiplied_at(mid, la)),
+                egui::StrokeKind::Middle,
+            );
+        }
+    }
+
+    // ── The border itself ─────────────────────────────────────────────────
+    if gradient {
+        // Inner outline: the same corners, each radius pulled in by the width
+        // but never to zero while the outer one is round — a corner that is
+        // an arc outside and a point inside would give the two outlines a
+        // different vertex count, and the ring could not be meshed.
+        let shrink = |r: u8| -> u8 {
+            if r == 0 {
+                0
+            } else {
+                ((f32::from(r) - width).max(1.0)).round() as u8
+            }
+        };
+        let inner_rounding = egui::CornerRadius {
+            nw: shrink(rounding.nw),
+            ne: shrink(rounding.ne),
+            sw: shrink(rounding.sw),
+            se: shrink(rounding.se),
+        };
+        let outer = rounded_rect_outline_points_per_corner(rect, rounding);
+        let inner = rounded_rect_outline_points_per_corner(rect.shrink(width), inner_rounding);
+        if outer.len() == inner.len() && outer.len() >= 3 {
+            let centre = rect.center();
+            // Extent of the rect along the direction — the gradient runs
+            // from one edge of the frame to the other, whatever the angle.
+            let half = 0.5 * (rect.width() * dx.abs() + rect.height() * dy.abs()).max(1.0);
+            let colour_at = |p: Pos2| -> Color32 {
+                let along = (p.x - centre.x) * dx + (p.y - centre.y) * dy;
+                let t = ((along / half) * 0.5 + 0.5).clamp(0.0, 1.0);
+                premultiplied_at(lerp_color(start, end, t), alpha)
+            };
+            let mut mesh = egui::Mesh::default();
+            for k in 0..outer.len() {
+                mesh.colored_vertex(outer[k], colour_at(outer[k]));
+                mesh.colored_vertex(inner[k], colour_at(inner[k]));
+            }
+            let n = outer.len() as u32;
+            for k in 0..n {
+                let j = (k + 1) % n;
+                let (o0, i0, o1, i1) = (2 * k, 2 * k + 1, 2 * j, 2 * j + 1);
+                mesh.add_triangle(o0, i0, o1);
+                mesh.add_triangle(i0, i1, o1);
+            }
+            painter.add(egui::Shape::mesh(mesh));
+            return;
+        }
+        // Outlines that cannot be paired: a plain border in the start colour.
+        draw_control_border(painter, rect, rounding, &style, width, premultiplied_at(start, alpha));
+        return;
+    }
+    draw_control_border(painter, rect, rounding, &style, width, premultiplied_at(color, alpha));
+}
+
 pub fn draw_chart_preview(
     painter: &egui::Painter,
     ctrl: &Control,
@@ -8745,7 +8922,6 @@ pub fn draw_chart_preview(
         if glass && is_neumorphic {
             draw_neumorphic_overlay_shadow_only(painter, face_rect, rounding, alpha_mul);
         }
-        let border = Color32::from_rgba_premultiplied(60, 80, 160, a);
         let border_rect = debug_frame(
             painter,
             control_rect,
@@ -8754,12 +8930,7 @@ pub fn draw_chart_preview(
             "CHART_BORDER",
             chart_diag,
         );
-        painter.rect_stroke(
-            border_rect,
-            rounding,
-            Stroke::new(1.0, border),
-            egui::StrokeKind::Middle,
-        );
+        draw_chart_border(painter, ctrl, border_rect, rounding, a);
     }
 
     let frame_painter = painter;
@@ -16374,6 +16545,97 @@ slice = [4, 4, 4, 4]
             "a pixel could move {max_shift}/255. One 8-bit step is the smallest \
              difference that can be represented at all; more than that is a \
              real change, and macOS renders this control correctly today"
+        );
+    }
+
+    /// A chart's frame border is a real border: `BorderStyle` `None` removes
+    /// it, a gradient paints it as a ring mesh running from one colour to the
+    /// other, and a blur adds rings outward. Charts used to draw a fixed 1 px
+    /// line in a fixed blue and ignore every border property (operator,
+    /// 2026-09-19: "border style needs border size with gradients and blur").
+    #[test]
+    fn chart_border_honours_style_gradient_and_blur() {
+        struct Painted {
+            /// Full-size stroked rects (the frame border and any blur rings).
+            frame_strokes: usize,
+            /// Distinct vertex colours of any mesh — a gradient ring has many.
+            mesh_colours: usize,
+        }
+        let paint = |props: &[(&str, PropValue)]| -> Painted {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            for (k, v) in props {
+                c.set_prop(*k, v.clone());
+            }
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let mut out = Painted { frame_strokes: 0, mesh_colours: 0 };
+            fn walk(s: &egui::Shape, out: &mut Painted) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r)
+                        if r.rect.width() >= 400.0
+                            && r.stroke.width > 0.0
+                            && r.stroke.color.a() > 0 =>
+                    {
+                        out.frame_strokes += 1;
+                    }
+                    egui::Shape::Mesh(m) => {
+                        let mut cols: Vec<Color32> = m.vertices.iter().map(|v| v.color).collect();
+                        cols.sort_by_key(|c| c.to_array());
+                        cols.dedup();
+                        out.mesh_colours = out.mesh_colours.max(cols.len());
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out
+        };
+
+        let plain = paint(&[("BorderWidth", PropValue::Int(3))]);
+        assert!(plain.frame_strokes >= 1, "a Single border is a full-size stroke");
+        assert_eq!(plain.mesh_colours, 0, "no gradient, no ring mesh");
+
+        let none = paint(&[("BorderStyle", PropValue::String("None".into()))]);
+        assert!(
+            none.frame_strokes < plain.frame_strokes,
+            "BorderStyle None must drop the frame border ({} vs {})",
+            none.frame_strokes,
+            plain.frame_strokes
+        );
+
+        let gradient = paint(&[
+            ("BorderWidth", PropValue::Int(6)),
+            ("BorderGradientEnabled", PropValue::Bool(true)),
+            ("BorderGradientStartColor", PropValue::String("#FF0000".into())),
+            ("BorderGradientEndColor", PropValue::String("#0000FF".into())),
+            ("BorderGradientDirection", PropValue::String("East".into())),
+        ]);
+        assert!(
+            gradient.mesh_colours >= 8,
+            "a gradient border is a ring mesh with many vertex colours, got {}",
+            gradient.mesh_colours
+        );
+
+        let blurred = paint(&[("BorderWidth", PropValue::Int(3)), ("BorderBlur", PropValue::Int(8))]);
+        assert!(
+            blurred.frame_strokes > plain.frame_strokes + 4,
+            "a blur adds rings outward: {} strokes vs {} without",
+            blurred.frame_strokes,
+            plain.frame_strokes
+        );
+        println!(
+            "chart border — Single: {} stroke(s); None: {}; gradient: {} vertex colours; blur 8: {} strokes",
+            plain.frame_strokes, none.frame_strokes, gradient.mesh_colours, blurred.frame_strokes
         );
     }
 

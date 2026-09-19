@@ -4513,6 +4513,17 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         "BackgroundGradientStartColor" => (COLOR_DOMAIN, "Gradient start color."),
         "BackgroundGradientEndColor" => (COLOR_DOMAIN, "Gradient end color."),
         "BackgroundGradientDirection" => (EIGHT_DIRECTIONS, "Direction the gradient flows toward."),
+        "BorderGradientEnabled" => (
+            BOOL_DOMAIN,
+            "Charts only. Draws the frame border as a two-colour gradient from `BorderGradientStartColor` to `BorderGradientEndColor` along `BorderGradientDirection`, `BorderWidth` wide, following `CornerRadius`. Off, the border is `BorderStyle` in `BorderColor`. Charts honour `BorderStyle`, `BorderWidth` and `BorderColor` like every other control (they used to draw a fixed 1 px line); `BorderStyle` `None` removes the border, gradient and blur alike.",
+        ),
+        "BorderGradientStartColor" => (COLOR_DOMAIN, "Charts only. Where the border gradient starts."),
+        "BorderGradientEndColor" => (COLOR_DOMAIN, "Charts only. Where the border gradient ends."),
+        "BorderGradientDirection" => (EIGHT_DIRECTIONS, "Charts only. Direction the border gradient flows toward."),
+        "BorderBlur" => (
+            "`0`–`40` (pixels)",
+            "Charts only. A soft glow outward from the frame border, this many pixels wide, in the border's colour (the gradient's mid colour when the gradient is on) — the shadow stack's own falloff, faintest outermost. `0` (the default) draws none. Drawn at the chart's inherited alpha, never at its own `Transparency`, so it stays with the border on a see-through chart.",
+        ),
         "ForegroundColor" => (COLOR_DOMAIN, "Text / foreground drawing color. On a CheckBox, RadioButton or DateTimePicker it is kept only while it reads on the surface the text lands on, and otherwise flips to black or white — measured against the control's FRAME (its BackgroundColor), never against the tick box or circle, which the caption sits beside rather than on. Above Transparency 70 the frame paints too little to measure, so the color is used exactly as set; a CheckBox is 100 % transparent by default, so its caption color is always the one you gave it."),
         "FontName" => ("installed font family name, e.g. `\"Arial\"`", "Font family for the control's text."),
         "FontSize" => ("points, > 0 (typical 8-72)", "Font size in points."),

@@ -9120,6 +9120,57 @@ impl PropertiesPanel {
             {
                 section_header(ui, tr.sec_basic);
 
+                // ── Frame border ──────────────────────────────────────────────
+                // Style / width / colour like every other control, plus the
+                // chart-only gradient and blur (operator, 2026-09-19).
+                border_rows(ui, id, ctrl, action, &mut self.text_bufs);
+                bool_prop_row(ui, id, "BorderGradientEnabled", tr.lbl_border_gradient, ctrl, action);
+                let border_gradient_on = ctrl
+                    .get_prop("BorderGradientEnabled")
+                    .map(|v| v.as_bool())
+                    .unwrap_or(false);
+                if border_gradient_on {
+                    color_prop_row(
+                        ui,
+                        id,
+                        "BorderGradientStartColor",
+                        tr.lbl_border_gradient_start,
+                        ctrl,
+                        action,
+                        "#3C50A0FF",
+                    );
+                    color_prop_row(
+                        ui,
+                        id,
+                        "BorderGradientEndColor",
+                        tr.lbl_border_gradient_end,
+                        ctrl,
+                        action,
+                        "#8FB4FFFF",
+                    );
+                    combo_prop_row(
+                        ui,
+                        id,
+                        "BorderGradientDirection",
+                        tr.lbl_border_gradient_direction,
+                        ctrl,
+                        action,
+                        &[
+                            "North",
+                            "NorthEast",
+                            "East",
+                            "SouthEast",
+                            "South",
+                            "SouthWest",
+                            "West",
+                            "NorthWest",
+                        ],
+                        "South",
+                    );
+                }
+                int_prop_row(ui, id, "BorderBlur", tr.lbl_border_blur, ctrl, action, 0..=40, None, 1);
+                ui.add_space(4.0);
+
                 // ── Visual ────────────────────────────────────────────────────
                 let cur_title = ctrl
                     .get_prop("Title")

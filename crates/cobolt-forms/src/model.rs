@@ -5793,6 +5793,28 @@ impl Control {
                         props.insert("Stacked".into(), PropValue::Bool(false));
                     }
                 }
+                // The frame border, like every other control's — and, charts
+                // only, a two-colour gradient along a compass direction and a
+                // soft blur outward (operator, 2026-09-19). The defaults
+                // reproduce the 1 px line charts always drew, so nothing moves
+                // on a form nobody restyled.
+                props.insert("BorderStyle".into(), PropValue::String("Single".into()));
+                props.insert("BorderWidth".into(), PropValue::Int(1));
+                props.insert("BorderColor".into(), PropValue::String("#3C50A0".into()));
+                props.insert("BorderGradientEnabled".into(), PropValue::Bool(false));
+                props.insert(
+                    "BorderGradientStartColor".into(),
+                    PropValue::String("#3C50A0".into()),
+                );
+                props.insert(
+                    "BorderGradientEndColor".into(),
+                    PropValue::String("#8FB4FF".into()),
+                );
+                props.insert(
+                    "BorderGradientDirection".into(),
+                    PropValue::String("South".into()),
+                );
+                props.insert("BorderBlur".into(), PropValue::Int(0));
                 if matches!(
                     control_type,
                     ControlType::PieChart | ControlType::DonutChart
