@@ -1,5 +1,35 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.95] — 2026-09-19
+
+### Spec 061 S1 — the debug router (inert; nothing behaves differently yet)
+
+`DebugRouter` in `cobolt-form-host::debug_link` can hand out the
+`(Receiver<DebugCmd>, Sender<DebugEvent>, Breakpoints, DebugUserScope)` tuple
+**once per debuggee**, remembers which supervisor handle each belongs to, and
+does the addressing on both sides: an inbound command goes to that debuggee's
+own channel, and each debuggee's events leave stamped with its handle
+(`DebugWire::{Attached, Detached, Event}`). Two properties are the reason for
+the shape — a command cannot reach the wrong interpreter, because no
+`Receiver` is ever shared (the alternative, one behind a mutex, lets whichever
+interpreter is blocked in `recv` first swallow a `Continue` meant for another
+form, silently); and each registration mints its own breakpoint set, so line
+42 in two forms' generated programs is two breakpoints. A finished
+interpreter detaches itself when its event sender drops, so a closing form
+needs no bookkeeping at the call site. `PAUSED` stays process-wide by
+operator ruling: while any form is stopped, the whole application is.
+
+Inbound lines are read as `RemoteDebugMsg { target, cmd }` with a bare
+`RemoteDebugCmd` still accepted as "the root", so a session degrades to
+single-form debugging rather than failing. `stdio_debug_wiring()` is now that
+shorthand — `stdio()` + `register(ROOT_HANDLE)` — and every caller predating
+this compiles and behaves exactly as before. `cobolt-runtime` is untouched.
+
+Six router tests: a command reaches its target **and no one else** (the
+absence is the assertion), an unaddressed one reaches the root, a bare
+command line still parses, events arrive stamped, breakpoints and scope are
+per debuggee, and attach/detach are announced once each.
+
 ## [PowerRustCOBOL 1.70.94] — 2026-09-19
 
 ### Spec 061 tasks — thirteen, ordered so the tree stays green throughout

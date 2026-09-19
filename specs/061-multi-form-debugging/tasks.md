@@ -1,7 +1,9 @@
 # Tasks — Debugging an application, not a form
 
-- **Status:** draft
+- **Status:** in progress — Stage A done (1.70.95)
 - **Plan:** ./plan.md   **Date:** 2026-09-19
+- **Branch:** `debug` (operator, 2026-09-19), worked in
+  `.claude/worktrees/debug` because the shared checkout is on `features`
 
 Ordered so the tree stays green after every task. There is **no red-by-design
 stage** here: each task either adds inert machinery or completes a behaviour,
@@ -26,7 +28,7 @@ green *unchanged*, never edited to fit).
 
 ## Stage A — the router (plan S1)
 
-- [ ] **T1 — `DebugWire`, `RemoteDebugMsg`, `DebugRouter`** (R2, R5, R10)
+- [x] **T1 — `DebugWire`, `RemoteDebugMsg`, `DebugRouter`** (R2, R5, R10)
   - Files: `crates/cobolt-form-host/src/debug_link.rs`
   - Do: add the three types from plan §3.1–3.2.
     `DebugRouter::new(out: mpsc::Sender<DebugWire>) -> Arc<Self>` holds
@@ -47,7 +49,7 @@ green *unchanged*, never edited to fit).
     `PAUSED` is **not** touched (spec Q1).
   - Verify: `cargo build -p cobolt-form-host`; existing form-host suite green.
 
-- [ ] **T2 — Router tests** (R2, R5, R10)
+- [x] **T2 — Router tests** (R2, R5, R10)
   - Files: `crates/cobolt-form-host/src/debug_link.rs` (`#[cfg(test)]`)
   - Do: over `DebugRouter::new` + `dispatch`, assert
     (a) a command with `target: Some("W1")` arrives on `W1`'s receiver and
