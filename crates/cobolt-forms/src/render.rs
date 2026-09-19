@@ -3969,7 +3969,6 @@ impl ViewerLive {
 #[allow(clippy::too_many_arguments)]
 fn viewer_view_interactive(
     ui: &mut egui::Ui,
-    painter: &egui::Painter,
     screen: Rect,
     ctrl: &Control,
     view_index: usize,
@@ -4414,9 +4413,10 @@ fn viewer_view_interactive(
     st.find_current = find_current;
     st.find_total = find_total;
     st.scroll = live.scroll.offset();
-    let preview = |p: usize| crate::paint::viewer_page_preview(ui.ctx(), &source, p);
-    st.page_preview = Some(&preview);
-    let painted = crate::paint::draw_viewer(painter, screen, ctrl, &st);
+    // What the ONE paint of this control measured for this view. Absent
+    // only on the very first frame, before anything has been drawn.
+    let painted = crate::paint::viewer_measurements(ui.ctx(), &ctrl.id, view_index)
+        .unwrap_or_default();
 
     // A thumbnail click needs the rects the paint just produced — the strip
     // has no scroll model of its own, so its rows are wherever it drew them.
@@ -10870,17 +10870,30 @@ fn render_interactive(
                 Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
             };
 
+            // **AC11.** The control is painted by exactly ONE call — the
+            // same `paint::draw_control` the designer canvas makes, which
+            // handles the split, the chrome and the divider inside itself.
+            // The interactive surface then only SENSES, against what that
+            // paint measured (`paint::viewer_measurements`).
+            //
+            // An earlier arrangement painted from this arm directly and
+            // skipped `draw_control`'s own frame wrapper, leaving a running
+            // form five shapes short of the canvas — `viewer_engine_parity`
+            // caught it, which is what it is for.
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+
             viewer_view_interactive(
-                ui, &painter, to_rect(geom.view1), ctrl, 0, ctrl_id, id, alpha, enabled, &bound, out,
+                ui, to_rect(geom.view1), ctrl, 0, ctrl_id, id, alpha, enabled, &bound, out,
             );
             if let Some(second) = geom.view2 {
                 viewer_view_interactive(
-                    ui, &painter, to_rect(second), ctrl, 1, ctrl_id, id, alpha, enabled, &bound, out,
+                    ui, to_rect(second), ctrl, 1, ctrl_id, id, alpha, enabled, &bound, out,
                 );
             }
 
-            // R21's divider: painted, and draggable, once both views are
-            // laid out — so a drag never fights a view for the same pointer.
+            // R21's divider is drawn by that one paint; this only makes it
+            // draggable, after both views have been sensed so a drag never
+            // fights a view for the same pointer.
             if let Some(divider) = geom.divider {
                 let d = to_rect(divider).expand2(Vec2::new(3.0, 3.0));
                 let resp = ui.interact(d, ctrl_id.with("viewer-divider"), Sense::drag());
@@ -10902,19 +10915,6 @@ fn render_interactive(
                         }
                     }
                 }
-                let ink = paint::resolve_label_ink(
-                    ui.ctx(),
-                    ctrl,
-                    false,
-                    Color32::from_gray(250),
-                    Color32::from_gray(25),
-                );
-                let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
-                painter.rect_filled(
-                    to_rect(divider),
-                    egui::CornerRadius::ZERO,
-                    Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8),
-                );
             }
         }
 

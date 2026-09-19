@@ -862,14 +862,14 @@ order.)*
 
 ## Stage K — surfaces, parity, docs, KB, finalize
 
-- [ ] **T28 — IDE property editors** (R22)
+- [x] **T28 — IDE property editors** (R22)
   - Files: `crates/cobolt-ide/src/panels/properties.rs`
   - Do: grouped editors — `Layout`/`Format`/`SplitMode` dropdowns; the
         `View1`/`View2` groups appear only when `SplitMode != None`.
   - Verify: `cargo test -p cobolt-ide --bins`; **manual:** every property in
         plan §3 is editable from the Properties panel.
 
-- [ ] **T29 — Codegen** (R22)
+- [x] **T29 — Codegen** (R22)
   - Files: `crates/cobolt-codegen/src/lib.rs`
   - Do: declaration + handler stubs for whichever events the developer has
         bound in the Designer, the standard banner intact — no per-event
@@ -879,7 +879,7 @@ order.)*
         `cobolt-parser` and checks clean under `cobolt-semantic` for a form
         binding at least one of the new events (not only the original three).
 
-- [ ] **T30 — Engine parity: designer canvas vs. running form** (R25, AC11)
+- [x] **T30 — Engine parity: designer canvas vs. running form** (R25, AC11)
   - Files: `crates/cobolt-forms/tests/`
   - Do: a parity test in the shape of
         `engine_reference_form_parity_static_vs_faces`, covering every format
@@ -887,7 +887,7 @@ order.)*
   - Verify: `cargo test -p cobolt-forms --features render` — same shapes/fills
         on both paths for every format (**AC11**, closing the loop T11 opened).
 
-- [ ] **T31 — Rounded-corner measurement** (steering: spec 057)
+- [x] **T31 — Rounded-corner measurement** (steering: spec 057)
   - Files: `crates/cobolt-forms/src/render.rs` (`self_clipping_type`, if the
         measurement says Viewer needs the exclusion)
   - Do: nothing assumed — run the harness, read its verdict.
@@ -903,6 +903,39 @@ order.)*
     paint that earned the exclusion is what triggered it. **T31 is now a
     re-run and a read** — confirm the harness is still green and that the
     allow-list still equals what it measures.
+
+  - **T28–T31 DONE — 2026-09-19 (1.70.95).**
+  - **T28:** grouped editors in `properties.rs` — Document, Layout & view,
+    Split view, Find and Conversation — with the `View2*` group and the
+    divider appearing **only** when `SplitMode != None`. Six new `Tr` fields
+    in all six languages, and a `text_prop_row` helper lifted out of the
+    Snackbar's own `Text` row. Two tests: every property paints an editable
+    row, and the second view's rows appear only once the control is split.
+  - **T29 needed no codegen change at all**, exactly as the task predicted.
+    **51** bound events on one Viewer produce 51 handler stubs; the
+    generated program parses with **0** diagnostics and checks clean with
+    **0** semantic errors. An unbound Viewer still generates a valid
+    program. `cobolt-parser`/`cobolt-semantic` became **dev**-dependencies
+    of `cobolt-codegen` so T29's own Verify ("parses under cobolt-parser and
+    checks clean under cobolt-semantic") could actually be run.
+  - **T30 caught a real AC11 bug, which is what it is for.** The running
+    form painted from its own arm and skipped `draw_control`'s frame
+    wrapper, leaving it **five shapes short of the canvas**. Fixed
+    structurally: the arm now makes **exactly one** painting call — the same
+    `paint::draw_control` the canvas makes, which handles the split, the
+    chrome and the divider inside itself — and then only **senses**, against
+    what that paint measured (`paint::viewer_stash_measurements` /
+    `viewer_measurements`). A gesture's visual effect is therefore one frame
+    behind, which is imperceptible, and is the price of there being one
+    paint rather than two that can disagree.
+    **Measured, exact, shape-for-shape:** text/Page 198, text/Raw 128,
+    Markdown+Mermaid/Web 135, image/Print 128, PDF/Page 198, HTML/Web 131,
+    split LeftRight 207, split TopBottom 253 — identical on both surfaces,
+    positions and fills included.
+  - **T31 was already answered at T12** (see its note): the harness measured
+    113 px past the arc as soon as the toolbar band and filmstrip landed,
+    and `Viewer` went into `render::self_clipping_type`'s exclusion list
+    there. Re-run and green.
 
 - [ ] **T32 — System KB** (steering: hard constraint)
   - Files: `crates/cobolt-compiler/src/lib.rs` (all four doc tables),

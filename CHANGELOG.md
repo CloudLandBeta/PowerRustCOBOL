@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.95] — 2026-09-19
+
+### A Viewer is editable in the designer, and paints the same everywhere
+
+Spec 058 T28 to T31. The Properties panel now carries the whole control:
+its document and format, its layout, font size, zoom, view mode, card size,
+filmstrip and fullscreen, its split view, its Find settings and its
+conversation switch. The second view's properties — and the divider position
+— appear only once the control is actually split, because until then there is
+no second view for them to mean anything about.
+
+Generated code needed no change at all. A Viewer with every one of its
+fifty-one events bound produces fifty-one handler stubs, and the program that
+comes out parses and checks clean; one with no events bound still generates a
+valid program, so dropping the control on a form can never break a build.
+
+**A Viewer now paints identically on the designer canvas and in a running
+form** — measured shape for shape, position for position and colour for
+colour, across plain text, Markdown with a diagram in it, an image, a PDF and
+an HTML page, in every layout, and split both ways. Getting there found a real
+defect: the running form had been painting the control itself and skipping the
+frame the designer draws around it, leaving it five shapes short. It now makes
+exactly one painting call — the same one the canvas makes — and reads back
+what that paint measured instead of drawing its own second version.
+
+cobolt-forms 1071 passed, cobolt-codegen 67 passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.94] — 2026-09-19
 
 ### Streamed layout, and a conversation history the developer drives

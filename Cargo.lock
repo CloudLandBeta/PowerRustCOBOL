@@ -1345,6 +1345,8 @@ dependencies = [
  "cobolt-forms",
  "cobolt-indexed",
  "cobolt-lexer",
+ "cobolt-parser",
+ "cobolt-semantic",
  "indexmap",
  "serde",
 ]

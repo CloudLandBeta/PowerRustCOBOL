@@ -8681,6 +8681,7 @@ impl<'a> ViewerPaintState<'a> {
 
 /// What one Viewer paint measured, for the interactive surface to hit-test
 /// and to bound its scrolling with. The engine paints; `render.rs` senses.
+#[derive(Clone)]
 pub(crate) struct ViewerPaintResult {
     /// The laid-out content's full height — what a view's scroll limit is
     /// computed from, and the reason this function reports rather than
@@ -8742,6 +8743,34 @@ fn egui_rect_of(r: crate::viewer::ViewRect) -> egui::Rect {
 /// **plus** a black-on-white document body", so only `Page`, not `Print`,
 /// overrides the theme). `Streamed` paints one content pane and no chrome at
 /// all (§8.8) — T35 fills in what that pane shows.
+/// Remember what a paint measured, per control and view.
+///
+/// The interactive surface senses against **what was actually drawn** —
+/// where the toolbar buttons landed, how tall the content came out, how
+/// many matches the text holds — and the only honest source for that is the
+/// paint itself. Reading it back from here, rather than painting a second
+/// time with its own state, is what keeps AC11's parity exact: there is ONE
+/// paint of a Viewer, and it is the same one the designer canvas makes.
+pub(crate) fn viewer_stash_measurements(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    view_index: usize,
+    result: &ViewerPaintResult,
+) {
+    let id = egui::Id::new(("viewer-measured", ctrl_id, view_index));
+    ctx.memory_mut(|m| m.data.insert_temp(id, result.clone()));
+}
+
+/// What the last paint of this control's view measured, if it has painted.
+pub(crate) fn viewer_measurements(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    view_index: usize,
+) -> Option<ViewerPaintResult> {
+    let id = egui::Id::new(("viewer-measured", ctrl_id, view_index));
+    ctx.memory(|m| m.data.get_temp::<ViewerPaintResult>(id))
+}
+
 pub(crate) fn draw_viewer(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -8811,6 +8840,7 @@ pub(crate) fn draw_viewer(
         result.content_height = h;
         result.card_hits = hits;
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
+        viewer_stash_measurements(ctx, &ctrl.id, st.view_index, &result);
         return result;
     }
 
@@ -8834,12 +8864,14 @@ pub(crate) fn draw_viewer(
             Color32::from_rgba_premultiplied(140, 140, 140, a),
         );
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
+        viewer_stash_measurements(ctx, &ctrl.id, st.view_index, &result);
         return result;
     };
 
     if let ViewerPageContent::Image(img) = content {
         draw_viewer_image(painter, content_rect, ctrl, &st.source, img);
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
+        viewer_stash_measurements(ctx, &ctrl.id, st.view_index, &result);
         return result;
     }
 
@@ -8927,6 +8959,7 @@ pub(crate) fn draw_viewer(
     }
 
     draw_viewer_slider(painter, result.slider_track, st, ink, a);
+    viewer_stash_measurements(ctx, &ctrl.id, st.view_index, &result);
     result
 }
 
@@ -8958,28 +8991,44 @@ pub(crate) fn draw_viewer_views(
     }
     let divider = geom.divider.map(egui_rect_of);
     if let Some(d) = divider {
-        let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
-        painter.rect_filled(
-            d,
-            egui::CornerRadius::ZERO,
-            Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8),
-        );
-        // A grip line down the middle, so the divider reads as draggable
-        // rather than as a gap between two panes.
-        let long = d.width() > d.height();
-        let c = d.center();
-        let half = if long { d.width().min(40.0) / 2.0 } else { d.height().min(40.0) / 2.0 };
-        let (a1, b1) = if long {
-            (egui::pos2(c.x - half, c.y), egui::pos2(c.x + half, c.y))
-        } else {
-            (egui::pos2(c.x, c.y - half), egui::pos2(c.x, c.y + half))
-        };
-        painter.line_segment(
-            [a1, b1],
-            Stroke::new(2.0, Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 2) as u8)),
-        );
+        draw_viewer_divider(painter, d, ink, alpha);
     }
     (out, divider)
+}
+
+/// R21's divider, painted by **one** function.
+///
+/// Both surfaces call it — the design canvas through
+/// [`draw_viewer_views`], the running form from its own arm after both
+/// views are laid out — because a divider drawn two ways is exactly the
+/// kind of drift AC11's parity check exists to catch, and the cheapest
+/// place to prevent it is to have only one drawing.
+pub(crate) fn draw_viewer_divider(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ink: Color32,
+    alpha: f32,
+) {
+    let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::ZERO,
+        Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8),
+    );
+    // A grip line down the middle, so the divider reads as draggable rather
+    // than as a gap between two panes.
+    let long = rect.width() > rect.height();
+    let c = rect.center();
+    let half = if long { rect.width().min(40.0) / 2.0 } else { rect.height().min(40.0) / 2.0 };
+    let (from, to) = if long {
+        (egui::pos2(c.x - half, c.y), egui::pos2(c.x + half, c.y))
+    } else {
+        (egui::pos2(c.x, c.y - half), egui::pos2(c.x, c.y + half))
+    };
+    painter.line_segment(
+        [from, to],
+        Stroke::new(2.0, Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 2) as u8)),
+    );
 }
 
 /// R16's toolbar band and its buttons.
