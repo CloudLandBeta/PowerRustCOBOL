@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.94] — 2026-09-19
+
+### Spec 061 tasks — thirteen, ordered so the tree stays green throughout
+
+`specs/061-multi-form-debugging/tasks.md`. Six stages: the router and its
+tests; the host hook that lets a child form's interpreter be debugged at all,
+with a guard test protecting the per-form event delivery the wait-state
+requirement already rests on; the two form hosts (`rcrun` and the compiled
+binary); the IDE reading the envelope, switching listings without losing
+either file's breakpoints, and addressing commands by handle; the
+more-than-one-stopped-debuggee edge the plan turned up; then docs, i18n and
+the finalising sweep. Each task names its files, what to do and how to verify
+it. Two standing rules are written into the file: `cobolt-runtime` is never
+edited — if a task seems to need it, the design has drifted — and the
+existing debugger tests are the gate, green **unedited**, never adjusted to
+fit. The shipping constraint from the plan is repeated where it bites: five
+of the thirteen are one behavioural change and cannot land singly. No code
+has moved.
+
 ## [PowerRustCOBOL 1.70.93] — 2026-09-19
 
 ### Spec 061 plan — identity lives in the router, so the runtime does not change
