@@ -481,6 +481,21 @@ pub fn open_document(
     let format = detect_format(path_hint, &head).ok_or(ViewerLoadError::UnsupportedFormat)?;
     match format {
         ViewerFormat::Text => Ok(index_text_with_progress(source, on_progress)?),
+        // The HTML subset is one flow: its "pages" are a paginated
+        // layout's, computed at paint time, not byte ranges of the source
+        // (T21). One index entry keeps `page_count()` honest until a
+        // paginating layout exists to say otherwise.
+        ViewerFormat::HtmlSubset => {
+            let total_len = source_len(source)?;
+            let mut on_progress = on_progress;
+            on_progress(100);
+            Ok(DocumentIndex {
+                format: ViewerFormat::HtmlSubset,
+                pages: vec![PageSpan { start: 0, end: total_len }],
+                total_len,
+                addressing: PageAddressing::Bytes,
+            })
+        }
         // R9's page breaks for a PDF are its own page boundaries — the
         // document says where they are, so nothing is computed.
         ViewerFormat::Pdf => {
@@ -550,6 +565,11 @@ pub struct TextStyle {
     pub strikethrough: bool,
     pub code: bool,
     pub link: Option<String>,
+    /// §3's "colours", as an HTML colour string (`#rrggbb`, `red`, …) —
+    /// set only by the HTML subset (T21), which is the only format that
+    /// carries one. `None` means "the theme's own ink", which is what every
+    /// Markdown run means.
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -926,6 +946,7 @@ pub fn parse_markdown(text: &str) -> MarkdownDocument {
                         strikethrough: strike_depth > 0,
                         code: false,
                         link: link_stack.last().cloned(),
+                        color: None,
                     };
                     buf.push(Inline::Text { text: t.to_string(), style });
                 }
@@ -940,6 +961,7 @@ pub fn parse_markdown(text: &str) -> MarkdownDocument {
                         strikethrough: strike_depth > 0,
                         code: true,
                         link: link_stack.last().cloned(),
+                        color: None,
                     };
                     buf.push(Inline::Text { text: t.to_string(), style });
                 }
@@ -1467,6 +1489,368 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     );
 
     ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
+}
+
+// ── HTML subset (T21: R7, AC2) ──────────────────────────────────────────
+//
+// §3's contract: "**Subset renderer**: block/inline layout, common
+// typography, colours, borders, tables, images"; **not delivered** — CSS3
+// grid/flex/animation/transform, JavaScript, floats beyond the simple case.
+// **Not a browser.**
+//
+// plan.md §4's decision made concrete: HTML maps onto the **same** layout
+// primitives the Markdown walker produces — [`Block`] and [`Inline`] — so
+// this milestone's cost is "parse + map", not a second layout engine. Every
+// rendering fix made for Markdown is therefore a fix for HTML too, and
+// neither can drift from the other.
+//
+// An element this subset does not know is **descended into** rather than
+// dropped: a `<div>`, a `<section>`, a `<main>` contribute their children.
+// That is what "degrade to the supported subset" means in practice — a
+// grid-laid-out page loses its grid and keeps its content.
+
+/// The shared layout model. Named for the format that first produced it
+/// (T9's Markdown walker); HTML produces exactly the same shape, which is
+/// plan.md §4's decision expressed in the type system rather than in prose.
+pub type LayoutDocument = MarkdownDocument;
+
+/// Elements whose CONTENT must never be rendered — script and style are not
+/// prose, and showing their source would be worse than dropping it. (§8.5's
+/// sanitisation rests on the same list, from the other direction.)
+const HTML_DROPPED: &[&str] = &["script", "style", "head", "title", "meta", "link", "noscript"];
+
+/// Parse an HTML document into the shared layout model (R7, §3's subset).
+///
+/// Never fails: HTML a COBOL program received from a `RestClient` is not
+/// guaranteed well-formed, and refusing to show a page because a tag was
+/// unclosed would be the wrong answer for a *viewer*. Whatever parses,
+/// renders.
+pub fn parse_html(html: &str) -> LayoutDocument {
+    let Ok(dom) = tl::parse(html, tl::ParserOptions::default()) else {
+        return LayoutDocument::default();
+    };
+    let parser = dom.parser();
+    let mut walker = HtmlWalker { parser, blocks: Vec::new(), inline: Vec::new() };
+    for handle in dom.children() {
+        walker.node(*handle, &TextStyle::default());
+    }
+    walker.flush_paragraph();
+    LayoutDocument { blocks: walker.blocks }
+}
+
+struct HtmlWalker<'a, 'p> {
+    parser: &'p tl::Parser<'a>,
+    blocks: Vec<Block>,
+    /// Inline runs seen outside any block element — flushed into a
+    /// paragraph when a block boundary arrives, so loose text in a `<div>`
+    /// is not lost.
+    inline: Vec<Inline>,
+}
+
+impl HtmlWalker<'_, '_> {
+    fn flush_paragraph(&mut self) {
+        if self.inline.iter().any(|i| match i {
+            Inline::Text { text, .. } => !text.trim().is_empty(),
+            _ => true,
+        }) {
+            let content = std::mem::take(&mut self.inline);
+            self.blocks.push(Block::Paragraph { content });
+        } else {
+            self.inline.clear();
+        }
+    }
+
+    /// Collect an element's children as inline content, under `style`.
+    fn inline_of(&mut self, tag: &tl::HTMLTag<'_>, style: &TextStyle) -> Vec<Inline> {
+        let saved = std::mem::take(&mut self.inline);
+        for child in tag.children().top().iter() {
+            self.node(*child, style);
+        }
+        std::mem::replace(&mut self.inline, saved)
+    }
+
+    /// Collect an element's children as blocks (a list item, a quote, a
+    /// table cell's block content).
+    fn blocks_of(&mut self, tag: &tl::HTMLTag<'_>, style: &TextStyle) -> Vec<Block> {
+        let saved_blocks = std::mem::take(&mut self.blocks);
+        let saved_inline = std::mem::take(&mut self.inline);
+        for child in tag.children().top().iter() {
+            self.node(*child, style);
+        }
+        self.flush_paragraph();
+        let out = std::mem::replace(&mut self.blocks, saved_blocks);
+        self.inline = saved_inline;
+        out
+    }
+
+    fn attr(tag: &tl::HTMLTag<'_>, name: &str) -> Option<String> {
+        tag.attributes().get(name).flatten().map(|v| v.as_utf8_str().into_owned())
+    }
+
+    fn node(&mut self, handle: tl::NodeHandle, style: &TextStyle) {
+        let Some(node) = handle.get(self.parser) else { return };
+        if let Some(raw) = node.as_raw() {
+            let text = decode_html_entities(&raw.as_utf8_str());
+            if !text.is_empty() {
+                self.inline.push(Inline::Text { text, style: style.clone() });
+            }
+            return;
+        }
+        let Some(tag) = node.as_tag() else { return };
+        let name = tag.name().as_utf8_str().to_ascii_lowercase();
+
+        if HTML_DROPPED.contains(&name.as_str()) {
+            return;
+        }
+
+        // Inline elements: style the run and carry on in the same paragraph.
+        let mut styled = style.clone();
+        match name.as_str() {
+            "strong" | "b" => styled.strong = true,
+            "em" | "i" => styled.emphasis = true,
+            "s" | "del" | "strike" => styled.strikethrough = true,
+            "code" | "kbd" | "samp" | "tt" => styled.code = true,
+            "a" => styled.link = Self::attr(tag, "href").or_else(|| style.link.clone()),
+            _ => {}
+        }
+        if let Some(colour) = html_colour(tag) {
+            styled.color = Some(colour);
+        }
+
+        match name.as_str() {
+            "br" => self.inline.push(Inline::Break { hard: true }),
+            "img" => {
+                let src = Self::attr(tag, "src").unwrap_or_default();
+                let alt = Self::attr(tag, "alt").unwrap_or_default();
+                let title = Self::attr(tag, "title");
+                self.inline.push(Inline::Image { alt, src, title });
+            }
+            "hr" => {
+                self.flush_paragraph();
+                self.blocks.push(Block::ThematicBreak);
+            }
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                self.flush_paragraph();
+                let level = name[1..].parse::<u8>().unwrap_or(1);
+                let content = self.inline_of(tag, &styled);
+                self.blocks.push(Block::Heading { level, content });
+            }
+            "p" => {
+                self.flush_paragraph();
+                let content = self.inline_of(tag, &styled);
+                if !content.is_empty() {
+                    self.blocks.push(Block::Paragraph { content });
+                }
+            }
+            "pre" => {
+                self.flush_paragraph();
+                let text = tag.inner_text(self.parser).into_owned();
+                self.blocks.push(Block::CodeBlock { language: None, text: decode_html_entities(&text) });
+            }
+            "blockquote" => {
+                self.flush_paragraph();
+                let blocks = self.blocks_of(tag, &styled);
+                self.blocks.push(Block::BlockQuote { blocks });
+            }
+            "ul" | "ol" => {
+                self.flush_paragraph();
+                let ordered = name == "ol";
+                let start = Self::attr(tag, "start").and_then(|s| s.trim().parse::<u64>().ok());
+                let mut items = Vec::new();
+                for child in tag.children().top().iter() {
+                    let Some(li) = child.get(self.parser).and_then(|n| n.as_tag()) else { continue };
+                    if !li.name().as_utf8_str().eq_ignore_ascii_case("li") {
+                        continue;
+                    }
+                    items.push(ListItem { blocks: self.blocks_of(li, &styled), checked: None });
+                }
+                self.blocks.push(Block::List { ordered, start: if ordered { start.or(Some(1)) } else { None }, items });
+            }
+            "table" => {
+                self.flush_paragraph();
+                let table = self.table(tag, &styled);
+                self.blocks.push(table);
+            }
+            // Everything else — `div`, `section`, `span`, `main`, an
+            // unknown custom element — contributes its CHILDREN. That is
+            // "degrade to the supported subset": a grid-laid-out page loses
+            // its grid and keeps its content.
+            _ => {
+                for child in tag.children().top().iter() {
+                    self.node(*child, &styled);
+                }
+            }
+        }
+    }
+
+    fn table(&mut self, tag: &tl::HTMLTag<'_>, style: &TextStyle) -> Block {
+        let mut header: Vec<Vec<Inline>> = Vec::new();
+        let mut rows: Vec<Vec<Vec<Inline>>> = Vec::new();
+        // `<thead>`/`<tbody>`/`<tfoot>` are transparent here: what matters
+        // is the rows, wherever they are grouped.
+        let mut stack: Vec<tl::NodeHandle> = tag.children().top().iter().copied().collect();
+        let mut row_handles: Vec<tl::NodeHandle> = Vec::new();
+        while let Some(h) = stack.pop() {
+            let Some(t) = h.get(self.parser).and_then(|n| n.as_tag()) else { continue };
+            let n = t.name().as_utf8_str().to_ascii_lowercase();
+            if n == "tr" {
+                row_handles.push(h);
+            } else if matches!(n.as_str(), "thead" | "tbody" | "tfoot") {
+                stack.extend(t.children().top().iter().copied());
+            }
+        }
+        // The walk above pops in reverse; restore document order.
+        row_handles.reverse();
+        for h in row_handles {
+            let Some(tr) = h.get(self.parser).and_then(|n| n.as_tag()) else { continue };
+            let mut cells: Vec<Vec<Inline>> = Vec::new();
+            let mut all_header = true;
+            for c in tr.children().top().iter() {
+                let Some(cell) = c.get(self.parser).and_then(|n| n.as_tag()) else { continue };
+                let cn = cell.name().as_utf8_str().to_ascii_lowercase();
+                if cn != "td" && cn != "th" {
+                    continue;
+                }
+                if cn != "th" {
+                    all_header = false;
+                }
+                cells.push(self.inline_of(cell, style));
+            }
+            if cells.is_empty() {
+                continue;
+            }
+            if all_header && header.is_empty() {
+                header = cells;
+            } else {
+                rows.push(cells);
+            }
+        }
+        let width = header.len().max(rows.first().map(Vec::len).unwrap_or(0));
+        Block::Table { alignments: vec![TableAlignment::None; width], header, rows }
+    }
+}
+
+/// An HTML colour string as RGB — `#rgb`, `#rrggbb`, `rgb(r,g,b)` and the
+/// sixteen original HTML colour names.
+///
+/// The full CSS colour list is 148 names and a subset renderer gains little
+/// from carrying it; anything unrecognised answers `None`, and the caller
+/// then uses the theme's own ink rather than a guess.
+pub fn parse_html_color(value: &str) -> Option<[u8; 3]> {
+    let v = value.trim().to_ascii_lowercase();
+    if let Some(hex) = v.strip_prefix('#') {
+        let expand = |c: char| u8::from_str_radix(&format!("{c}{c}"), 16).ok();
+        return match hex.len() {
+            3 => {
+                let mut it = hex.chars();
+                Some([expand(it.next()?)?, expand(it.next()?)?, expand(it.next()?)?])
+            }
+            6 => Some([
+                u8::from_str_radix(&hex[0..2], 16).ok()?,
+                u8::from_str_radix(&hex[2..4], 16).ok()?,
+                u8::from_str_radix(&hex[4..6], 16).ok()?,
+            ]),
+            _ => None,
+        };
+    }
+    if let Some(inner) = v.strip_prefix("rgb(").and_then(|r| r.strip_suffix(')')) {
+        let parts: Vec<u8> = inner
+            .split(',')
+            .filter_map(|p| p.trim().parse::<i32>().ok())
+            .map(|n| n.clamp(0, 255) as u8)
+            .collect();
+        if parts.len() == 3 {
+            return Some([parts[0], parts[1], parts[2]]);
+        }
+        return None;
+    }
+    let named: &[(&str, [u8; 3])] = &[
+        ("black", [0, 0, 0]),
+        ("silver", [192, 192, 192]),
+        ("gray", [128, 128, 128]),
+        ("grey", [128, 128, 128]),
+        ("white", [255, 255, 255]),
+        ("maroon", [128, 0, 0]),
+        ("red", [255, 0, 0]),
+        ("purple", [128, 0, 128]),
+        ("fuchsia", [255, 0, 255]),
+        ("green", [0, 128, 0]),
+        ("lime", [0, 255, 0]),
+        ("olive", [128, 128, 0]),
+        ("yellow", [255, 255, 0]),
+        ("navy", [0, 0, 128]),
+        ("blue", [0, 0, 255]),
+        ("teal", [0, 128, 128]),
+        ("aqua", [0, 255, 255]),
+    ];
+    named.iter().find(|(n, _)| *n == v).map(|(_, c)| *c)
+}
+
+/// §3's "colours" for the common cases a subset renderer can honestly read:
+/// `<font color>`, and a `color:` in an inline `style` attribute. A
+/// stylesheet is **not** consulted — that is a cascade, and a cascade is a
+/// browser.
+fn html_colour(tag: &tl::HTMLTag<'_>) -> Option<String> {
+    if let Some(c) = HtmlWalker::attr(tag, "color") {
+        return Some(c);
+    }
+    let style = HtmlWalker::attr(tag, "style")?;
+    for decl in style.split(';') {
+        let (key, value) = decl.split_once(':')?;
+        if key.trim().eq_ignore_ascii_case("color") {
+            return Some(value.trim().to_string());
+        }
+    }
+    None
+}
+
+/// The handful of entities a subset renderer must not show raw. Numeric
+/// references are decoded too, so `&#8212;` is an em dash rather than five
+/// literal characters.
+pub fn decode_html_entities(text: &str) -> String {
+    if !text.contains('&') {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i..];
+        let Some(end) = tail[..tail.len().min(12)].find(';') else {
+            out.push('&');
+            rest = &tail[1..];
+            continue;
+        };
+        let name = &tail[1..end];
+        let decoded = match name {
+            "amp" => Some("&".to_string()),
+            "lt" => Some("<".to_string()),
+            "gt" => Some(">".to_string()),
+            "quot" => Some("\"".to_string()),
+            "apos" | "#39" => Some("'".to_string()),
+            "nbsp" => Some("\u{a0}".to_string()),
+            n if n.starts_with("#x") || n.starts_with("#X") => u32::from_str_radix(&n[2..], 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|c| c.to_string()),
+            n if n.starts_with('#') => {
+                n[1..].parse::<u32>().ok().and_then(char::from_u32).map(|c| c.to_string())
+            }
+            _ => None,
+        };
+        match decoded {
+            Some(s) => {
+                out.push_str(&s);
+                rest = &tail[end + 1..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 // ── Mermaid subset (T20: R7, AC2) ───────────────────────────────────────
@@ -4620,5 +5004,245 @@ mod mermaid_tests {
         let hits = find_matches(&text, "StateUpdate", false);
         println!("searching a sequence diagram for \"StateUpdate\" -> {} hit(s)", hits.len());
         assert_eq!(hits.len(), 1, "a diagram's labels are part of what a reader can find");
+    }
+}
+
+/// Spec 058 T21/T22 — the HTML subset (R7, AC2), and the confirmation that
+/// Find, Save As, Print and Share needed nothing HTML-specific (T22).
+///
+/// §3's contract: **delivered** — block/inline layout, common typography,
+/// colours, borders, tables, images; **not delivered** — CSS3 grid/flex/
+/// animation/transform, JavaScript, floats beyond the simple case. Not a
+/// browser.
+#[cfg(test)]
+mod html_tests {
+    use super::*;
+
+    const PAGE: &str = r#"<!DOCTYPE html>
+<html><head><title>Ignored</title><style>p { color: lime }</style></head>
+<body>
+  <h1>Quarterly <em>Report</em></h1>
+  <p>Totals for <strong>September</strong>, with a <a href="/detail">detail link</a>.</p>
+  <div class="grid-wrapper" style="display:grid">
+    <section><p>Nested inside two unknown elements.</p></section>
+  </div>
+  <ul><li>First</li><li>Second</li></ul>
+  <ol start="3"><li>Third</li></ol>
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th></tr></thead>
+    <tbody><tr><td>Widget</td><td>12</td></tr><tr><td>Gadget</td><td>4</td></tr></tbody>
+  </table>
+  <blockquote><p>A quoted remark.</p></blockquote>
+  <pre>let x = 1;</pre>
+  <hr>
+  <p><img src="chart.png" alt="Revenue chart"></p>
+  <script>alert('never rendered');</script>
+</body></html>"#;
+
+    #[test]
+    fn a_representative_html_page_maps_onto_the_shared_layout_primitives() {
+        let doc = parse_html(PAGE);
+        let counts = doc.count_by_kind();
+        println!("HTML -> shared layout blocks: {counts:?}");
+        for (kind, want) in [("Heading", 1usize), ("List", 2), ("Table", 1), ("BlockQuote", 1), ("CodeBlock", 1), ("ThematicBreak", 1)] {
+            let got = *counts.get(kind).unwrap_or(&0);
+            println!("  {kind}: {got} (want {want})");
+            assert_eq!(got, want, "{kind}");
+        }
+        assert!(counts.get("Paragraph").copied().unwrap_or(0) >= 4, "prose paragraphs, including the nested one");
+    }
+
+    #[test]
+    fn a_table_keeps_its_header_row_apart_from_its_body() {
+        let doc = parse_html(PAGE);
+        let table = doc
+            .blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Table { header, rows, .. } => Some((header, rows)),
+                _ => None,
+            })
+            .expect("§3 promises tables");
+        let flat = |cells: &Vec<Vec<Inline>>| -> Vec<String> {
+            cells
+                .iter()
+                .map(|c| c.iter().filter_map(|i| match i {
+                    Inline::Text { text, .. } => Some(text.trim().to_string()),
+                    _ => None,
+                }).collect::<String>())
+                .collect()
+        };
+        println!("header {:?}", flat(table.0));
+        for row in table.1 {
+            println!("row    {:?}", flat(row));
+        }
+        assert_eq!(flat(table.0), ["Item", "Qty"], "a <th> row is the header");
+        assert_eq!(table.1.len(), 2, "two body rows");
+        assert_eq!(flat(&table.1[0]), ["Widget", "12"], "in document order");
+        assert_eq!(flat(&table.1[1]), ["Gadget", "4"]);
+    }
+
+    #[test]
+    fn nested_inline_formatting_survives_the_mapping() {
+        let doc = parse_html("<p>plain <strong>bold <em>and italic</em></strong> <s>gone</s> <code>x</code></p>");
+        let Some(Block::Paragraph { content }) = doc.blocks.first() else {
+            panic!("one paragraph, got {:?}", doc.blocks)
+        };
+        for run in content {
+            if let Inline::Text { text, style } = run {
+                println!(
+                    "{:>18} strong={} em={} strike={} code={}",
+                    format!("{:?}", text),
+                    style.strong,
+                    style.emphasis,
+                    style.strikethrough,
+                    style.code
+                );
+            }
+        }
+        let find = |needle: &str| content.iter().find_map(|i| match i {
+            Inline::Text { text, style } if text.contains(needle) => Some(style.clone()),
+            _ => None,
+        }).unwrap_or_else(|| panic!("no run holding {needle:?}"));
+        assert!(find("bold").strong && !find("bold").emphasis);
+        assert!(find("and italic").strong && find("and italic").emphasis, "nesting is cumulative");
+        assert!(find("gone").strikethrough);
+        assert!(find("x").code);
+        assert!(!find("plain").strong);
+    }
+
+    #[test]
+    fn a_link_carries_its_destination_and_an_image_its_source() {
+        let doc = parse_html(PAGE);
+        let link = doc.blocks.iter().find_map(|b| match b {
+            Block::Paragraph { content } => content.iter().find_map(|i| match i {
+                Inline::Text { style, .. } => style.link.clone(),
+                _ => None,
+            }),
+            _ => None,
+        });
+        let images = doc.image_sources();
+        println!("first link destination {link:?}, image sources {images:?}");
+        assert_eq!(link.as_deref(), Some("/detail"));
+        assert_eq!(images, vec!["chart.png".to_string()], "§3 promises images");
+    }
+
+    /// **T21's own Verify** — "a JS-bearing or grid-laid-out fixture is
+    /// confirmed to degrade to the supported subset rather than silently
+    /// break."
+    #[test]
+    fn javascript_is_dropped_and_an_unsupported_layout_degrades_to_its_content() {
+        let doc = parse_html(PAGE);
+        let text = doc.searchable_text().unwrap_or_default();
+        println!("rendered text ({} bytes):\n{}", text.len(), text.trim());
+        assert!(!text.contains("alert"), "§3: JavaScript is not delivered — and not shown either");
+        assert!(!text.contains("never rendered"), "nor its source");
+        assert!(!text.contains("color: lime"), "a stylesheet is not prose");
+        assert!(!text.contains("Ignored"), "nor a <title>");
+        assert!(
+            text.contains("Nested inside two unknown elements"),
+            "a grid-laid-out <div> loses its grid and KEEPS its content"
+        );
+    }
+
+    #[test]
+    fn entities_are_decoded_rather_than_shown_raw() {
+        let cases: &[(&str, &str)] = &[
+            ("<p>a &amp; b</p>", "a & b"),
+            ("<p>&lt;tag&gt;</p>", "<tag>"),
+            ("<p>&quot;quoted&quot;</p>", "\"quoted\""),
+            ("<p>1&#8212;2</p>", "1\u{2014}2"),
+            ("<p>&#x41;&#x42;</p>", "AB"),
+            ("<p>a &notanentity; b</p>", "a &notanentity; b"),
+        ];
+        for (html, want) in cases {
+            let got = parse_html(html).searchable_text().unwrap_or_default();
+            println!("{html} -> {:?}", got.trim());
+            assert_eq!(got.trim(), *want);
+        }
+    }
+
+    #[test]
+    fn a_runs_own_colour_is_read_where_a_subset_renderer_can_honestly_read_it() {
+        let doc = parse_html(
+            r#"<p><span style="color: #c00">red</span> <font color="blue">blue</font> <span style="font-weight:bold">plain</span></p>"#,
+        );
+        let colours: Vec<(String, Option<String>)> = doc
+            .blocks
+            .iter()
+            .flat_map(|b| match b {
+                Block::Paragraph { content } => content.clone(),
+                _ => vec![],
+            })
+            .filter_map(|i| match i {
+                Inline::Text { text, style } if !text.trim().is_empty() => {
+                    Some((text.trim().to_string(), style.color.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (text, colour) in &colours {
+            println!("{text:>6} -> colour {colour:?} -> rgb {:?}", colour.as_deref().and_then(parse_html_color));
+        }
+        assert_eq!(colours[0].1.as_deref(), Some("#c00"));
+        assert_eq!(parse_html_color("#c00"), Some([0xcc, 0x00, 0x00]));
+        assert_eq!(colours[1].1.as_deref(), Some("blue"));
+        assert_eq!(colours[2].1, None, "a declaration that is not a colour sets none");
+        assert_eq!(parse_html_color("rgb(10, 20, 30)"), Some([10, 20, 30]));
+        assert_eq!(parse_html_color("papayawhip"), None, "unrecognised falls back to the theme's ink");
+    }
+
+    #[test]
+    fn malformed_html_still_renders_whatever_parsed() {
+        // Unclosed tags, a stray close, and text outside any element —
+        // exactly what a `RestClient` can hand a COBOL program.
+        let doc = parse_html("loose text<p>open<b>bold</p></i><ul><li>item");
+        let text = doc.searchable_text().unwrap_or_default();
+        println!("malformed input -> {:?}", text.trim());
+        assert!(text.contains("loose text"), "text outside any element is not lost");
+        assert!(text.contains("bold"));
+        assert!(text.contains("item"));
+    }
+
+    // ── T22: Find, Save As, Print and Share need nothing HTML-specific ──
+
+    /// **T22** — "run Stage D/Stage C's tests against an HTML-subset
+    /// document... if any of these needs an HTML-specific branch, that is
+    /// new scope."
+    ///
+    /// None did. Find searches an HTML document through the very same
+    /// `find_matches` and `SearchableText` that serve text, Markdown and
+    /// PDF, with the same case toggle and the same wraparound.
+    #[test]
+    fn find_searches_an_html_document_through_the_unchanged_engine() {
+        let doc = parse_html(PAGE);
+        let text = doc.searchable_text().expect("this page has prose");
+        let insensitive = find_matches(&text, "report", false);
+        let sensitive = find_matches(&text, "Report", true);
+        println!(
+            "HTML page, searchable text {} bytes: \"report\" case-off -> {}, \"Report\" case-on -> {}",
+            text.len(),
+            insensitive.len(),
+            sensitive.len()
+        );
+        assert_eq!(insensitive.len(), 1, "the heading's own word");
+        assert_eq!(sensitive.len(), 1);
+        assert!(find_matches(&text, "Widget", false).len() == 1, "a table cell is findable");
+        assert!(find_matches(&text, "Revenue chart", false).len() == 1, "and an image's alt text");
+        // R28's navigation is the same pure function, with no format in it.
+        assert_eq!(step_match(0, insensitive.len(), true), Some(0), "one match wraps to itself");
+    }
+
+    /// R18/R18.1 need nothing HTML-specific either: the extension follows
+    /// the resolved format, and the proposed name its first three words.
+    #[test]
+    fn save_as_naming_needs_no_html_specific_branch() {
+        let doc = parse_html(PAGE);
+        let text = doc.searchable_text().unwrap_or_default();
+        let proposed = default_save_name(ViewerFormat::HtmlSubset, Some(&text));
+        println!("an HTML document with no source path would be saved as {proposed:?}");
+        assert!(proposed.ends_with(".html"), "R18.1: the extension follows the format");
+        assert!(proposed.starts_with("Quarterly-Report"), "and the name its first words, got {proposed}");
+        assert_eq!(ensure_extension("my page", ViewerFormat::HtmlSubset), "my page.html");
     }
 }

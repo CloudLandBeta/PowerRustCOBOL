@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.92] — 2026-09-19
+
+### The Viewer reads HTML — as a subset, and it says so
+
+Spec 058 T21 and T22, the last of the four fidelity waves. A Viewer pointed at
+an HTML document lays out its headings, paragraphs, lists, tables, block
+quotes, preformatted text, rules, links and images — onto exactly the same
+layout the Markdown reader produces, so a rendering fix made for one is a fix
+for both, and neither can drift from the other.
+
+It is not a browser, and does not pretend to be one. JavaScript is neither run
+nor shown; a stylesheet is not prose and is dropped with it. An element the
+subset does not know — a `<div>`, a `<section>`, a grid-laid-out wrapper — is
+**descended into rather than dropped**, so a page laid out in ways this
+renderer cannot follow loses its layout and keeps every word of its content.
+
+A run's own colour is read where a subset renderer honestly can: from a
+`<font color>` or an inline `style="color: …"`. A stylesheet is not consulted,
+because that is a cascade, and a cascade is a browser.
+
+Parsing never fails. HTML a COBOL program received over HTTP is not guaranteed
+to be well-formed, and refusing to show a page because a tag was left unclosed
+is the wrong answer for a viewer: whatever parses, renders. Unclosed tags,
+stray closing tags and text outside any element all come through.
+
+Find, Save As, Print and Share needed nothing HTML-specific. Find searches an
+HTML page through the same engine that searches text, Markdown and PDF — a
+table cell and an image's alt text are both findable — and Save As names the
+file from the same rule.
+
+cobolt-forms 1052 passed, cobolt-runtime 920 passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.91] — 2026-09-19
 
 ### A Markdown document's Mermaid diagrams are drawn, not listed

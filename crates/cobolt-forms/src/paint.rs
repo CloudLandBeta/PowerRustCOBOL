@@ -8052,8 +8052,13 @@ pub(crate) fn viewer_first_page_content(
         crate::viewer::ViewerFormat::Pdf => {
             ViewerPageContent::Pdf(crate::viewer::parse_pdf(&bytes).ok()?)
         }
-        // HtmlSubset: T21.
-        crate::viewer::ViewerFormat::HtmlSubset => return None,
+        crate::viewer::ViewerFormat::HtmlSubset => {
+            let raw = String::from_utf8_lossy(&bytes).into_owned();
+            let doc = crate::viewer::parse_html(&raw);
+            // The SAME variant Markdown produces (plan §4): one layout
+            // model, one painter, and every rendering fix reaching both.
+            ViewerPageContent::Markdown { raw, doc }
+        }
     };
     let arc = Arc::new(content);
     ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
@@ -8211,14 +8216,17 @@ fn build_inline_job(
                 } else {
                     egui::FontId::proportional(base_size)
                 };
-                let color = if style.link.is_some() {
-                    link_color
-                } else if style.code {
-                    code_color
-                } else if style.strong {
-                    strong_color
-                } else {
-                    text_color
+                // §3's "colours": an explicit colour on the run wins over
+                // every convention below it — a document that SAYS what
+                // colour its text is means it. Only the HTML subset ever
+                // sets one (T21); Markdown runs leave it `None` and keep
+                // the theme's own ink.
+                let color = match style.color.as_deref().and_then(crate::viewer::parse_html_color) {
+                    Some([r, g, b]) => Color32::from_rgb(r, g, b),
+                    None if style.link.is_some() => link_color,
+                    None if style.code => code_color,
+                    None if style.strong => strong_color,
+                    None => text_color,
                 };
                 let underline = if style.link.is_some() { Stroke::new(1.0, color) } else { Stroke::NONE };
                 let strikethrough = if style.strikethrough { Stroke::new(1.0, color) } else { Stroke::NONE };

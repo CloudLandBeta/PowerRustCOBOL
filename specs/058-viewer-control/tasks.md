@@ -600,7 +600,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage H — HTML subset (fidelity wave 4)
 
-- [ ] **T21 — HTML parse → the shared layout model** (R7, AC2)
+- [x] **T21 — HTML parse → the shared layout model** (R7, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (`html5ever`)
   - Do: parse into a DOM-ish tree, map block/inline layout, typography,
         colours, borders, tables and images onto the **same** layout
@@ -613,13 +613,52 @@ not a claim about what §8.1 means architecturally.
         shared primitives; a JS-bearing or grid-laid-out fixture is confirmed
         to degrade to the supported subset rather than silently break.
 
-- [ ] **T22 — Confirm Find/Save-As/Print/Share need nothing HTML-specific**
+- [x] **T22 — Confirm Find/Save-As/Print/Share need nothing HTML-specific**
       (R18–R20, R26–R31)
   - Files: none expected — this is a verification task
   - Do: run Stage D/Stage C's tests against an HTML-subset document.
   - Verify: `cargo test -p cobolt-forms -p cobolt-runtime` — if any of these
         needs an HTML-specific branch, that's new scope to fold back in here,
         not silently patched elsewhere later.
+
+  - **DONE — 2026-09-19 (1.70.92).** HTML maps onto the **same** `Block`/
+    `Inline` primitives the Markdown walker produces — plan.md §4's decision
+    expressed in the type system (`pub type LayoutDocument =
+    MarkdownDocument`). One layout model, one painter, and every rendering
+    fix reaching both formats.
+  - **⚠️ plan.md §4's parser choice REVERSED, deliberately: `tl`, not
+    `html5ever`.** §4 chose html5ever and explicitly left `tl` flagged "for
+    implementation-time reconsideration". Reconsidered and taken, on §4's
+    *own* argument: a Viewer's dependencies compile into **every** binary
+    that drops the control on a form, with no "strip it if unused" escape
+    hatch. `tl` has **zero dependencies**; html5ever brings markup5ever,
+    string_cache (with build-time codegen), tendril, phf and futf. spec.md
+    §3 already disclaims W3C conformance in as many words ("Not a browser"),
+    and the mapping work on top is identical either way — which was
+    html5ever's only real advantage.
+  - **An unknown element is descended into, never dropped.** A `<div>`, a
+    `<section>`, a custom element contribute their children — which is what
+    "degrade to the supported subset" means in practice: a grid-laid-out
+    page loses its grid and keeps its content. `<script>`, `<style>`,
+    `<head>`, `<title>`, `<meta>` and `<noscript>` are dropped with their
+    contents, so JavaScript is neither run nor shown.
+  - **§3's "colours" are honoured where a subset renderer can honestly read
+    them** — `<font color>` and an inline `style="color: …"`. A stylesheet
+    is not consulted: that is a cascade, and a cascade is a browser.
+    `TextStyle` gained `color: Option<String>`, `None` on every Markdown run
+    (meaning "the theme's ink"), and `parse_html_color` reads `#rgb`,
+    `#rrggbb`, `rgb(…)` and the sixteen original HTML colour names.
+  - **Parsing never fails.** HTML a COBOL program received from a
+    `RestClient` is not guaranteed well-formed, and refusing to show a page
+    because a tag was unclosed is the wrong answer for a *viewer*: whatever
+    parses, renders.
+  - **T22's answer: nothing needed an HTML-specific branch.** Find searches
+    an HTML document through the same `find_matches`/`SearchableText` that
+    serve text, Markdown and PDF, with the same case toggle and the same
+    wraparound — a table cell and an image's alt text are both findable.
+    R18/R18.1's naming follows the resolved format with no branch either.
+    Print and Share never look at the document at all: they hand the OS a
+    file, so a format cannot change what they do.
 
 ## Stage I — Conversation mode (§8, sequenced last — reuses Stage H's HTML layer)
 
