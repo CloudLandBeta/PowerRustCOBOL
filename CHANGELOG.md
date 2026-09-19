@@ -1,5 +1,20 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.80] — 2026-09-19
+
+### A chart's `Transparency` now fades its background — and only that
+
+The Transparency row on the six chart controls did nothing. Every other
+control's painter splits the INHERITED alpha (an ancestor's fade, a load
+animation) from the control's own `Transparency` (`face_alpha`, applied to
+the face fill alone), but `draw_chart_preview` was handed only the inherited
+value, so a chart's own setting never reached its paint (operator,
+2026-09-19). The chart now receives both: its face fill is drawn at the
+combined alpha, while the data marks, axes, captions, legend and border stay
+at the inherited one — a see-through chart still reads. A regression paints
+a BarChart at Transparency 0 and 50 and checks the face's alpha halves while
+the frame's outline colour does not change at all.
+
 ## [PowerRustCOBOL 1.70.79] — 2026-09-19
 
 ### `ModalOverlayStyle` gains `None`, the new default — and an Async child now closes with its opener

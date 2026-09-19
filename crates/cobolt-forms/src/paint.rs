@@ -6010,6 +6010,7 @@ fn draw_control_body(
             ctrl,
             rect,
             a,
+            (face_alpha.clamp(0.0, 1.0) * 255.0).round() as u8,
             alpha_mul,
             glass,
             selected,
@@ -8642,7 +8643,14 @@ pub fn draw_chart_preview(
     painter: &egui::Painter,
     ctrl: &Control,
     rect: egui::Rect,
+    // The INHERITED alpha (an ancestor's fade, a load animation) — what the
+    // series, axes, legend and border are drawn at.
     a: u8,
+    // `a` folded with the chart's OWN `Transparency`: the face fill alone is
+    // drawn at this. Every other control already splits the two this way
+    // (`draw_control_body`'s `face_alpha`); charts were handed `a` only, so
+    // their `Transparency` did nothing at all (operator, 2026-09-19).
+    face_a: u8,
     alpha_mul: f32,
     glass: bool,
     selected: bool,
@@ -8700,11 +8708,14 @@ pub fn draw_chart_preview(
         .get_prop("BackgroundColor")
         .map(|v| parse_color(v.as_str()))
         .unwrap_or(default_face);
+    // The face is the ONLY thing the chart's own `Transparency` reaches: the
+    // data marks, captions, legend and border stay at the inherited alpha,
+    // so a see-through chart still reads (operator, 2026-09-19).
     let bg = Color32::from_rgba_premultiplied(
-        (face.r() as f32 * a as f32 / 255.0) as u8,
-        (face.g() as f32 * a as f32 / 255.0) as u8,
-        (face.b() as f32 * a as f32 / 255.0) as u8,
-        a,
+        (face.r() as f32 * face_a as f32 / 255.0) as u8,
+        (face.g() as f32 * face_a as f32 / 255.0) as u8,
+        (face.b() as f32 * face_a as f32 / 255.0) as u8,
+        face_a,
     );
     if !hide_bg {
         // Charts draw dense internal content and then repaint rounded-corner
@@ -16363,6 +16374,90 @@ slice = [4, 4, 4, 4]
             "a pixel could move {max_shift}/255. One 8-bit step is the smallest \
              difference that can be represented at all; more than that is a \
              real change, and macOS renders this control correctly today"
+        );
+    }
+
+    /// A chart's `Transparency` fades its FACE and nothing else.
+    ///
+    /// It faded nothing: `draw_chart_preview` was handed only the inherited
+    /// alpha, never the control's own `face_alpha` every other control splits
+    /// off, so the Transparency row did nothing on a chart (operator,
+    /// 2026-09-19). And it must not fade the rest either — the data marks,
+    /// captions and border are what make a see-through chart still readable —
+    /// so the border stroke, drawn at the inherited alpha, is the witness that
+    /// stays put while the face goes to half.
+    #[test]
+    fn chart_transparency_fades_the_face_only() {
+        // (face fill, border stroke colour) of the chart's frame rects.
+        let frame_at = |transparency: i64| -> (Color32, Color32) {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            c.set_prop("BackgroundColor", PropValue::String("#3366CC".into()));
+            c.set_prop("Transparency", PropValue::Int(transparency));
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let mut face: Option<Color32> = None;
+            let mut border: Option<Color32> = None;
+            fn walk(
+                s: &egui::Shape,
+                face: &mut Option<Color32>,
+                border: &mut Option<Color32>,
+            ) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, face, border)),
+                    egui::Shape::Rect(r) => {
+                        // The face: the full-size filled rect in the chart's
+                        // own colour (any alpha).
+                        if r.rect.width() > 400.0 && r.fill.a() > 0 && r.fill.r() < r.fill.b() {
+                            *face = Some(r.fill);
+                        }
+                        // The border: the full-size stroked rect.
+                        if r.rect.width() > 400.0 && r.stroke.width > 0.0 && r.stroke.color.a() > 0
+                        {
+                            *border = Some(r.stroke.color);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut face, &mut border);
+            }
+            (
+                face.expect("the chart painted its face"),
+                border.expect("the chart painted its border"),
+            )
+        };
+
+        let (face0, border0) = frame_at(0);
+        let (face50, border50) = frame_at(50);
+        assert_eq!(face0.a(), 255, "opaque at Transparency 0: {face0:?}");
+        assert!(
+            (120..=135).contains(&face50.a()),
+            "Transparency 50 must halve the FACE's alpha, got {face50:?}"
+        );
+        assert!(
+            face50.b() < face0.b(),
+            "premultiplied: the face's channels halve with its alpha ({face0:?} → {face50:?})"
+        );
+        assert_eq!(
+            border0, border50,
+            "the border is drawn at the INHERITED alpha and must not fade with the face"
+        );
+        // Under the glass style the frame's outline is the 170-alpha glass
+        // rim; whatever its designed strength, it is not the face's.
+        assert!(border50.a() > 0);
+        println!(
+            "chart Transparency: face alpha {} → {} at 50 %; border stays {:?}",
+            face0.a(),
+            face50.a(),
+            border50
         );
     }
 
