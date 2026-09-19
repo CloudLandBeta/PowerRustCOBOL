@@ -1594,6 +1594,14 @@ pub struct Interpreter {
     /// The logical depth the current step was issued from. Only Run-to-Cursor
     /// reads it, to notice that its target frame has returned.
     debug_step_origin_depth: usize,
+    /// The `(line, col)` of the last statement `debug_check` saw — what a
+    /// Pause reports when it lands while the program is blocked inside
+    /// `COBOL-WAIT-EVENT` and no statement is running. Zero until the first.
+    debug_last_line: (u32, u32),
+    /// The same, restricted to lines inside the "only my code" scope: the
+    /// developer's last handler line, so a Pause on an idle form shows their
+    /// code rather than the event loop that is waiting (operator, 2026-09-19).
+    debug_last_user_line: (u32, u32),
     /// The logical COBOL call stack — PERFORM ranges, CALLs and event handlers.
     /// Maintained only while a session is attached; empty otherwise, so a
     /// program running without a debugger pays nothing for it.
@@ -1958,6 +1966,8 @@ impl Interpreter {
             debug_user_scope: None,
             debug_step: crate::debug_session::StepMode::Run,
             debug_step_origin_depth: 0,
+            debug_last_line: (0, 0),
+            debug_last_user_line: (0, 0),
             debug_frames: Vec::new(),
             debug_var_refs: crate::debug_session::VarRefTable::new(),
             debug_bp_specs: None,
@@ -3219,13 +3229,30 @@ impl Interpreter {
             if let Some((ctrl, event_id)) = self.async_dispatch_queue.pop_front() {
                 return WaitOutcome::AsyncDispatch(ctrl, event_id);
             }
+            // Under a debugger the wait polls, so a Pause pressed while the
+            // form is idle is noticed now — not at the next statement, which
+            // an idle form never reaches. Pause used to sit in the channel
+            // until the developer clicked something on the form (operator,
+            // 2026-09-19: "pause does not do anything").
+            if self.debug_event_tx.is_some() {
+                match self.debug_poll_while_waiting() {
+                    Ok(()) => {}
+                    Err(_) => return WaitOutcome::Disconnected,
+                }
+            }
             let has_pending = !self.async_pending.is_empty();
+            let debugging = self.debug_event_tx.is_some();
             let rx = match self.event_rx.as_ref() {
                 Some(rx) => rx,
                 None => return WaitOutcome::Disconnected,
             };
-            if has_pending {
-                match rx.recv_timeout(std::time::Duration::from_millis(Self::ASYNC_POLL_MS)) {
+            if has_pending || debugging {
+                let poll = if has_pending {
+                    Self::ASYNC_POLL_MS
+                } else {
+                    Self::DEBUG_WAIT_POLL_MS
+                };
+                match rx.recv_timeout(std::time::Duration::from_millis(poll)) {
                     Ok(ev) => return WaitOutcome::Ui(ev),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -3238,6 +3265,91 @@ impl Interpreter {
                     Err(_) => return WaitOutcome::Disconnected,
                 }
             }
+        }
+    }
+
+    /// How often a debugged `COBOL-WAIT-EVENT` looks for a Pause.
+    const DEBUG_WAIT_POLL_MS: u64 = 50;
+
+    /// While blocked in `COBOL-WAIT-EVENT` under a debugger: act on a Pause or
+    /// a Terminate that arrived, without consuming anything else.
+    ///
+    /// A Pause stops the program at the **last executed line** — the
+    /// developer's last handler line when "only my code" is on, otherwise the
+    /// last statement, which is the wait itself — and holds there until the
+    /// IDE answers, exactly as a stop at a statement does. Continue goes back
+    /// to waiting; a step arms the step mode, and the first statement the next
+    /// event runs stops as that step asks. `Err` means Terminate: the caller
+    /// ends the run the way a closed window does.
+    fn debug_poll_while_waiting(&mut self) -> Result<(), ()> {
+        let Some(cmd_rx) = self.debug_cmd_rx.take() else {
+            return Ok(());
+        };
+        let Some(ev_tx) = self.debug_event_tx.clone() else {
+            self.debug_cmd_rx = Some(cmd_rx);
+            return Ok(());
+        };
+        let outcome = match cmd_rx.try_recv() {
+            Ok(crate::debugger::DebugCmd::Pause) => {
+                let (line, col) = if self.debug_last_user_line.0 > 0 {
+                    self.debug_last_user_line
+                } else {
+                    self.debug_last_line
+                };
+                let depth = self.debug_depth();
+                if let Some(top) = self.debug_frames.last_mut() {
+                    top.line = line;
+                    top.col = col;
+                }
+                self.debug_stop_and_wait(
+                    line,
+                    col,
+                    depth,
+                    crate::debug_session::StopReason::Pause,
+                    &cmd_rx,
+                    &ev_tx,
+                )
+                .map_err(|_| ())
+            }
+            Ok(crate::debugger::DebugCmd::Terminate) => Err(()),
+            // A step or Continue sent while the form is idle is the answer to
+            // no stop; it takes effect at the next statement as before.
+            Ok(other) => {
+                self.debug_apply_idle_cmd(other);
+                Ok(())
+            }
+            Err(_) => Ok(()),
+        };
+        self.debug_cmd_rx = Some(cmd_rx);
+        outcome
+    }
+
+    /// A command that reached an idle wait without a stop to answer: arm what
+    /// it asks so the next statement honours it, as `debug_check` would have.
+    fn debug_apply_idle_cmd(&mut self, cmd: crate::debugger::DebugCmd) {
+        use crate::debug_session::StepMode;
+        let depth = self.debug_depth();
+        match cmd {
+            crate::debugger::DebugCmd::Continue => self.debug_step = StepMode::Run,
+            crate::debugger::DebugCmd::StepOver => self.debug_step = StepMode::Over { depth },
+            crate::debugger::DebugCmd::StepIn => self.debug_step = StepMode::Into,
+            crate::debugger::DebugCmd::StepOut => {
+                self.debug_step = if depth == 0 {
+                    StepMode::Run
+                } else {
+                    StepMode::Out { depth }
+                };
+            }
+            crate::debugger::DebugCmd::RunToCursor { line } => {
+                self.debug_step = StepMode::ToCursor { line };
+            }
+            crate::debugger::DebugCmd::Query { id, query } => {
+                let answer = self.debug_answer(query);
+                if let Some(tx) = self.debug_event_tx.as_ref() {
+                    let _ = tx.send(crate::debugger::DebugEvent::Answer { id, answer });
+                }
+            }
+            crate::debugger::DebugCmd::Pause | crate::debugger::DebugCmd::Terminate => {}
         }
     }
 
@@ -3928,6 +4040,15 @@ impl Interpreter {
             top.col = col;
             top.paragraph = para;
         }
+        // Remembered for a Pause that arrives while no statement is running
+        // (the program blocked in `COBOL-WAIT-EVENT`): that stop is reported
+        // at the last executed line, preferring the developer's own code.
+        if line > 0 {
+            self.debug_last_line = (line, col);
+            if self.debug_line_in_scope(line) {
+                self.debug_last_user_line = (line, col);
+            }
+        }
 
         let hit_ids: Vec<i64> = if line > 0 {
             self.breakpoints
@@ -4045,6 +4166,27 @@ impl Interpreter {
         }
 
         let reason = reason.unwrap_or(StopReason::Step);
+        self.debug_stop_and_wait(line, col, depth, reason, cmd_rx, ev_tx)
+    }
+
+    /// Report a stop at `line` and block until the IDE says what to do next.
+    ///
+    /// The tail of [`Self::debug_check_inner`], on its own so a Pause that
+    /// lands while the program is blocked inside `COBOL-WAIT-EVENT` — where no
+    /// statement is running and `debug_check` is never reached — can stop the
+    /// program in exactly the same way, at the last executed line
+    /// (`next_wait_outcome`). Sets the step mode the answer asks for; the
+    /// caller's next statement then goes through `debug_check` as usual.
+    fn debug_stop_and_wait(
+        &mut self,
+        line: u32,
+        col: u32,
+        depth: usize,
+        reason: crate::debug_session::StopReason,
+        cmd_rx: &mpsc::Receiver<crate::debugger::DebugCmd>,
+        ev_tx: &mpsc::Sender<crate::debugger::DebugEvent>,
+    ) -> Result<(), RuntimeError> {
+        use crate::debug_session::StepMode;
 
         // Every handle issued at the last stop is now stale: the program moved,
         // and a reference into a frame that has returned must resolve to

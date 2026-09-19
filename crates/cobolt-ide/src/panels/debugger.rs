@@ -1228,6 +1228,21 @@ impl DebuggerPanel {
                 self.is_paused = true;
                 self.current_line = line;
                 self.current_para = paragraph;
+                // Animate steps on a timer; a breakpoint is the developer
+                // saying "stop here", and it must win over the timer. The
+                // toggle goes OFF, so the program waits for their next press
+                // — it used to step straight through the breakpoint on the
+                // next tick (operator, 2026-09-19). Both the interpreter's
+                // verdict and the panel's own set are consulted: a stop that
+                // was reported as a step but sits on a line the developer
+                // has marked is a breakpoint to them.
+                if self.animate
+                    && (matches!(reason, StopReason::Breakpoint(_))
+                        || (line > 0 && self.breakpoints.contains(&line)))
+                {
+                    self.animate = false;
+                    self.last_animate_step = None;
+                }
                 self.stop_reason = Some(reason);
                 self.frames = frames;
                 // Every handle issued at the previous stop is now stale, so the
@@ -4399,6 +4414,46 @@ impl DebuggerPanel {
                 self.flatten_children(row.reference, depth + 1, filter, out);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod animate_breakpoint_tests {
+    use super::*;
+
+    fn stopped(line: u32, reason: StopReason) -> DebugEvent {
+        DebugEvent::Stopped {
+            line,
+            col: 1,
+            paragraph: String::new(),
+            reason,
+            frames: Vec::new(),
+        }
+    }
+
+    /// Animate steps on a timer until a breakpoint is reached; then the
+    /// toggle goes off and the program waits for the developer. It used to
+    /// step straight through the breakpoint on the next tick (operator,
+    /// 2026-09-19).
+    #[test]
+    fn a_breakpoint_switches_animate_off_and_a_plain_step_does_not() {
+        let mut p = DebuggerPanel::new();
+        p.set_breakpoints(&[10_u32].into_iter().collect());
+
+        // A plain step on an unmarked line keeps animating.
+        p.animate = true;
+        p.apply_event(stopped(11, StopReason::Step));
+        assert!(p.animate, "a step on a line without a breakpoint keeps animating");
+
+        // The interpreter's own verdict.
+        p.apply_event(stopped(12, StopReason::Breakpoint(vec![12])));
+        assert!(!p.animate, "a breakpoint stop switches Animate off");
+
+        // The panel's own set, even when the stop was reported as a step.
+        p.animate = true;
+        p.apply_event(stopped(10, StopReason::Step));
+        assert!(!p.animate, "a step landing on a marked line is a breakpoint to the developer");
+        assert!(p.last_animate_step.is_none(), "the timer is reset with the toggle");
     }
 }
 

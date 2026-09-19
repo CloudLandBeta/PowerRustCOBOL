@@ -8145,6 +8145,14 @@ Select a Generated Code item and press **Debug** to start a session. You get:
   procedures you wrote. Turn it off in the debugger toolbar when you want to
   watch the machinery. Breakpoints are never filtered by it: one you set on a
   generated line still stops there, because setting it was your decision.
+- **Pause**, which works on an idle form too: press it while the form sits
+  waiting for your click and the program stops at the **last line it
+  executed** — with *Only my code* on, the last line of your own handler,
+  not the event loop. Continue puts the form back to waiting.
+- **Animate**, which steps for you at the speed on the slider — and stops
+  the moment a step lands on a **breakpoint**: the toggle switches itself
+  off and the program waits for you, exactly as it would have had you been
+  stepping by hand.
 
 During a session a *Stop Debug* control appears; otherwise debugging starts from
 the toolbar **Debug** button (to the right of **Run**). In a project the

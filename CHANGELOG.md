@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.89] — 2026-09-19
+
+### Debugger: Pause reaches an idle form, and Animate stops at a breakpoint
+
+Two debugger fixes (operator, 2026-09-19).
+
+**Pause did nothing on an idle form.** The interpreter noticed a Pause only
+at the top of the next statement (`debug_check`), and a form waiting inside
+`COBOL-WAIT-EVENT` executes no statement until an event arrives — so the
+Pause sat in the channel until the developer clicked something. The wait now
+polls for it (50 ms) and stops the program at the **last executed line**,
+holding there exactly as a stop at a statement does (the report-and-block
+tail of `debug_check` is now `debug_stop_and_wait`, shared by both): the
+wait's own `CALL` when everything is in scope, and — with *Only my code* on,
+the default — the developer's last handler line, never the event loop they
+did not write. Continue returns to waiting; a step arms itself and the first
+statement the next event runs stops as asked; Terminate ends the run the way
+a closed window does. Two runtime tests park a form-mode program in the wait
+and press Pause, in and out of scope.
+
+**Animate stepped through breakpoints.** The debugger's Animate mode issues
+a Step Over on a timer and paid no attention to where a step landed. A stop
+that is a breakpoint — by the interpreter's verdict, or by the panel's own
+set when a step lands on a marked line — now switches Animate off, so the
+program waits for the developer's next press. A panel test pins both ways,
+and that a plain step on an unmarked line keeps animating.
+
 ## [PowerRustCOBOL 1.70.88] — 2026-09-19
 
 ### In a project, Debug is enabled only after a build
