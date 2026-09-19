@@ -498,7 +498,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage F — PDF (fidelity wave 2)
 
-- [ ] **T18 — PDF: text, basic vector, page geometry** (R7, R9, AC2)
+- [x] **T18 — PDF: text, basic vector, page geometry** (R7, R9, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (`lopdf ~0.26`,
         promoted from transitive-only to a direct, read-capable dependency)
   - Do: page/text/basic-vector extraction into the same layout model Wave 1
@@ -518,13 +518,49 @@ not a claim about what §8.1 means architecturally.
         scanned-image cases are confirmed **not** delivered (§3's "Not
         delivered" column), not silently attempted.
 
-- [ ] **T19 — PDF Save As is where byte-fidelity actually gets exercised**
+- [x] **T19 — PDF Save As is where byte-fidelity actually gets exercised**
       (R18, AC6)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: confirm T13's byte-identical Save As holds for a PDF specifically —
         the format most likely to tempt a "helpful" re-encode.
   - Verify: `cargo test -p cobolt-runtime` — a PDF Save As compared byte-for-
         byte against the source (**AC6**, PDF case).
+
+  - **GO. The spike's verdict, in numbers (2026-09-19, 1.70.90).** plan.md §5
+    called PDF "the largest technical unknown" and asked for the first
+    attempt to be treated as a go/no-go. `lopdf 0.26`'s read API delivers
+    every item in §3's **delivered** column: page count from the document's
+    own tree, per-page text via `extract_text`, page geometry from the
+    MediaBox (inherited up the page tree when a page declares none), and
+    "basic vector" as `re` rectangles and `m`/`l` segments decoded from the
+    content stream. A 7-page fixture reads 7 pages; a 2-page one with a rect
+    and a line each reads 4 vectors and, without them, 0. **No C dependency
+    was needed and none was reached for** (R25).
+  - **§3's not-delivered column is refused, not half-attempted.** Curves
+    (`c`/`v`/`y`), shading, patterns and clipping are not decoded — a
+    half-drawn Bézier is worse than an honestly absent one. A page with no
+    text layer answers `None`, never an invented string, so R26.1's "zero
+    matches, cleanly" is reached with no special case.
+  - **Find needed no change at all**, which is what T14's design predicted:
+    `PdfDocument` implements `SearchableText` and T14's engine searches it,
+    case toggle included. A PDF's search is 3 hits for "balance" across 3
+    pages, 0 with case sensitivity on — the same engine, the same numbers.
+  - **`PageAddressing` is new, and load-bearing.** Plain text's pages ARE
+    byte ranges, which is what lets `decode_text_page` jump to the last page
+    of a 2 GB log for one page's I/O. A PDF's are not — they live inside
+    compressed object streams — so a `DocumentIndex` now says which kind it
+    holds rather than every caller inferring it from `format` and handing a
+    byte reader the middle of a Flate stream.
+  - **T19's byte-fidelity is asserted on BYTES.** The fixture carries a
+    binary comment line and a stream holding every one of the 256 byte
+    values, so an encoding-aware copy would show up as a difference rather
+    than as a plausible-looking file: 518 bytes in, 518 out, first differing
+    byte `None`. A second test confirms R24 — the source's contents *and its
+    modification time* are untouched.
+  - **Fixtures are written by `lopdf`'s own writer**, not by hand: a PDF's
+    cross-reference table is a list of byte offsets, and a hand-written
+    fixture tests the arithmetic in the test far more than it tests the
+    reader.
 
 ## Stage G — Mermaid subset (fidelity wave 3 — after PDF, per spec.md's order)
 

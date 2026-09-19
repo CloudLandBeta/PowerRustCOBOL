@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.90] — 2026-09-19
+
+### The Viewer opens PDFs — and saves them back untouched
+
+Spec 058 T18 and T19. A Viewer pointed at a PDF now shows it: the page count
+comes from the document's own page tree, each page's text from its text
+layer, each page's size from its MediaBox (inherited from its ancestors when
+the page itself declares none), and the straight lines and rectangles it
+draws from its content stream. Page breaks are the PDF's own — nothing is
+computed.
+
+Find needed no change whatsoever to work on a PDF. The same search, the same
+case toggle, the same Next and Previous, over a PDF's extracted text.
+
+What a PDF does **not** give, it is not pretended to give. Curves, shading
+and clipping are not decoded rather than half-drawn; a page with no text
+layer — a scan — reports no text instead of an invented string, and the Find
+bar then honestly says nothing was found.
+
+Save As on a PDF writes the original file byte for byte. This is the format
+where a "helpful" re-encode would be most tempting, since the Viewer reads
+the document's structure in order to paint it; it saves the **file**, never
+that derived reading. The test asserts on bytes rather than on whether the
+result still opens, because a re-encoded PDF opens perfectly well and is
+still the wrong answer. The source document is never written to, and not so
+much as touched.
+
+All pure Rust: the reader is `lopdf`, already proven in this workspace's
+build, with no C toolchain anywhere near it.
+
+cobolt-forms 1036 passed, cobolt-runtime 920 passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.89] — 2026-09-19
 
 ### A Viewer can show two documents at once — or one document twice

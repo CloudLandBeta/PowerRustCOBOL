@@ -30,6 +30,14 @@ thiserror   = { workspace = true }
 # of viewer.rs (not egui, so not behind `render`). Version matched to
 # cobolt-ide's own pin so the two never resolve to different releases.
 pulldown-cmark = { version = "0.12", default-features = false }
+# The Viewer's PDF reader (spec 058, T18). Pure Rust, no C toolchain — R25's
+# bar is unconditional for this control, because its dependencies compile
+# into EVERY binary that drops a Viewer on a form (plan.md §4). Already
+# resolved in this workspace's lock file via cobolt-ide's `genpdf`, so this
+# promotes a crate the build already proves rather than introducing one.
+# `default-features = false` drops `chrono` and the `pom` parser: the reader
+# uses the `nom` one, and nothing here needs a PDF's creation date.
+lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] }
 egui        = { version = "0.36", optional = true }
 fontdb      = { version = "0.23", optional = true }
 # Validate font faces with the SAME parser egui/epaint >=0.34 uses (skrifa),

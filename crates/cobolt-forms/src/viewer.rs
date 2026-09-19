@@ -269,12 +269,30 @@ impl PageSpan {
     }
 }
 
-/// A document's page-break index, built once by [`index_text`].
+/// How a [`PageSpan`] in a [`DocumentIndex`] is to be read.
+///
+/// Plain text's pages **are** byte ranges of the file, which is what lets
+/// [`decode_text_page`] jump to the last page of a multi-gigabyte log for
+/// the cost of one page. A PDF's are not: its pages live inside compressed
+/// object streams, and handing those offsets to a byte reader would hand it
+/// the middle of a Flate stream. Saying which it is, per index, is cheaper
+/// than every caller inferring it from `format`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageAddressing {
+    /// `start`/`end` are byte offsets into the source.
+    Bytes,
+    /// `start` is a 1-based logical page NUMBER and `end` is `start + 1`.
+    LogicalPages,
+}
+
+/// A document's page-break index, built once by [`index_text`] (or
+/// [`index_pdf`]).
 #[derive(Debug, Clone)]
 pub struct DocumentIndex {
     pub format: ViewerFormat,
     pub pages: Vec<PageSpan>,
     pub total_len: u64,
+    pub addressing: PageAddressing,
 }
 
 impl DocumentIndex {
@@ -406,7 +424,12 @@ pub fn index_text_with_progress(
     if last_reported != 100 {
         on_progress(100);
     }
-    Ok(DocumentIndex { format: ViewerFormat::Text, pages, total_len })
+    Ok(DocumentIndex {
+        format: ViewerFormat::Text,
+        pages,
+        total_len,
+        addressing: PageAddressing::Bytes,
+    })
 }
 
 /// [`index_text_with_progress`] with no progress callback.
@@ -458,7 +481,41 @@ pub fn open_document(
     let format = detect_format(path_hint, &head).ok_or(ViewerLoadError::UnsupportedFormat)?;
     match format {
         ViewerFormat::Text => Ok(index_text_with_progress(source, on_progress)?),
+        // R9's page breaks for a PDF are its own page boundaries — the
+        // document says where they are, so nothing is computed.
+        ViewerFormat::Pdf => {
+            let bytes = read_all(source)?;
+            let doc = parse_pdf(&bytes).map_err(ViewerLoadError::Io)?;
+            let mut on_progress = on_progress;
+            on_progress(100);
+            Ok(index_pdf(&doc, bytes.len() as u64))
+        }
         other => Err(ViewerLoadError::NotYetImplemented(other)),
+    }
+}
+
+/// Every byte of a source. Used only where a format's reader needs the whole
+/// file — a PDF's cross-reference table lives at its END, so there is no
+/// streaming read of one, unlike plain text's.
+fn read_all(source: &DocumentSource) -> io::Result<Vec<u8>> {
+    match source {
+        DocumentSource::Path(path) => std::fs::read(path),
+        DocumentSource::Bytes(bytes) => Ok(bytes.to_vec()),
+    }
+}
+
+/// R9 for a PDF: one index entry per page, addressed by page NUMBER.
+pub fn index_pdf(doc: &PdfDocument, total_len: u64) -> DocumentIndex {
+    let pages = doc
+        .pages
+        .iter()
+        .map(|p| PageSpan { start: p.number as u64, end: p.number as u64 + 1 })
+        .collect();
+    DocumentIndex {
+        format: ViewerFormat::Pdf,
+        pages,
+        total_len,
+        addressing: PageAddressing::LogicalPages,
     }
 }
 
@@ -1394,6 +1451,196 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     );
 
     ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
+}
+
+// ── PDF (T18: R7, R9, AC2) ──────────────────────────────────────────────
+//
+// §3's contract for this format, verbatim: **delivered** — text and basic
+// vector, page geometry, page breaks, search; **not delivered** — a
+// faithful raster of complex pages, embedded fonts with unusual encodings,
+// forms, annotations, and scanned-image-only pages beyond the embedded
+// image. Everything here is on the delivered side of that line, and the
+// tests confirm the other side is *refused*, not silently half-attempted.
+//
+// Per plan.md §3 the PDF's own bytes stay the canonical stored form —
+// binary, unconverted, in memory and on disk alike. What follows is a
+// **derived read for painting**, computed from those bytes and thrown away,
+// which is why R18's byte-identical Save As needs no special case (T19).
+
+/// One PDF page, as much of it as §3 promises.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PdfPage {
+    /// 1-based, as a PDF numbers its own pages.
+    pub number: u32,
+    pub text: String,
+    /// The page's MediaBox, in PostScript points (1/72 inch).
+    pub width_pt: f32,
+    pub height_pt: f32,
+    /// The "basic vector" of §3's promise — straight lines and rectangles
+    /// lifted from the content stream. Curves, shading, patterns and
+    /// clipping are **not** attempted.
+    pub vectors: Vec<PdfVector>,
+}
+
+/// A straight-line or rectangular path from a page's content stream, in the
+/// PDF's own coordinate space (origin bottom-left, y up).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PdfVector {
+    Line { x1: f32, y1: f32, x2: f32, y2: f32 },
+    Rect { x: f32, y: f32, w: f32, h: f32 },
+}
+
+/// A PDF, read as far as §3 says this control reads one.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PdfDocument {
+    pub pages: Vec<PdfPage>,
+}
+
+impl PdfDocument {
+    pub fn page_count(&self) -> usize {
+        self.pages.len()
+    }
+
+    /// How many vectors were lifted, across every page — the number this
+    /// task's own test reports, so "basic vector" is a measurement rather
+    /// than a claim.
+    pub fn vector_count(&self) -> usize {
+        self.pages.iter().map(|p| p.vectors.len()).sum()
+    }
+}
+
+impl SearchableText for PdfDocument {
+    /// Find needs no PDF-specific branch: once a format can say what its
+    /// text is, T14's engine searches it. A PDF with no text layer at all
+    /// (a scan) answers `None`, and the Find bar reports `0 / 0` — R26.1's
+    /// rule, reached without a special case.
+    fn searchable_text(&self) -> Option<String> {
+        let joined: String =
+            self.pages.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("\n");
+        if joined.trim().is_empty() {
+            None
+        } else {
+            Some(joined)
+        }
+    }
+}
+
+/// US Letter, the MediaBox a PDF is assumed to use when it declares none.
+const PDF_DEFAULT_MEDIABOX: (f32, f32) = (612.0, 792.0);
+
+/// Read a PDF's pages, their text, their geometry and their basic vectors.
+///
+/// Errors carry the reader's own message rather than a generic one: a PDF
+/// that will not open is exactly the case R4 exists for, and "could not read
+/// document: Invalid file trailer" tells a developer more than "unsupported".
+pub fn parse_pdf(bytes: &[u8]) -> Result<PdfDocument, String> {
+    let doc = lopdf::Document::load_mem(bytes).map_err(|e| e.to_string())?;
+    let page_ids = doc.get_pages();
+    let mut pages = Vec::with_capacity(page_ids.len());
+    for (&number, &page_id) in &page_ids {
+        // Text is extracted one page at a time, deliberately: a page whose
+        // font encoding this reader cannot follow then costs that page's
+        // text, not the whole document's (§3's "embedded fonts with unusual
+        // encodings" are on the NOT-delivered side of the line, and this is
+        // how that degrades).
+        let text = doc.extract_text(&[number]).unwrap_or_default();
+        let (width_pt, height_pt) = pdf_media_box(&doc, page_id);
+        let vectors = doc
+            .get_page_content(page_id)
+            .ok()
+            .and_then(|c| lopdf::content::Content::decode(&c).ok())
+            .map(|c| pdf_vectors(&c))
+            .unwrap_or_default();
+        pages.push(PdfPage { number, text, width_pt, height_pt, vectors });
+    }
+    Ok(PdfDocument { pages })
+}
+
+/// A page's MediaBox, inherited from its ancestors when the page itself
+/// declares none — which is how most real PDFs are written.
+fn pdf_media_box(doc: &lopdf::Document, page_id: lopdf::ObjectId) -> (f32, f32) {
+    let Ok(boxed) = doc.get_dictionary(page_id).and_then(|_| {
+        doc.get_page_resources(page_id);
+        doc.get_dictionary(page_id)
+    }) else {
+        return PDF_DEFAULT_MEDIABOX;
+    };
+    let media = boxed
+        .get(b"MediaBox")
+        .ok()
+        .and_then(|o| o.as_array().ok())
+        .cloned()
+        .or_else(|| pdf_inherited_media_box(doc, page_id));
+    let Some(values) = media else { return PDF_DEFAULT_MEDIABOX };
+    let nums: Vec<f32> = values
+        .iter()
+        .filter_map(|o| match o {
+            lopdf::Object::Integer(i) => Some(*i as f32),
+            lopdf::Object::Real(r) => Some(*r as f32),
+            _ => None,
+        })
+        .collect();
+    if nums.len() == 4 {
+        ((nums[2] - nums[0]).abs(), (nums[3] - nums[1]).abs())
+    } else {
+        PDF_DEFAULT_MEDIABOX
+    }
+}
+
+/// Walk up the page tree for a MediaBox the page inherits.
+fn pdf_inherited_media_box(
+    doc: &lopdf::Document,
+    page_id: lopdf::ObjectId,
+) -> Option<Vec<lopdf::Object>> {
+    let mut current = page_id;
+    // Bounded: a malformed PDF whose Parent chain loops must not hang a
+    // form. Ten levels is far deeper than any real page tree.
+    for _ in 0..10 {
+        let dict = doc.get_dictionary(current).ok()?;
+        if let Ok(arr) = dict.get(b"MediaBox").and_then(|o| o.as_array()) {
+            return Some(arr.clone());
+        }
+        current = dict.get(b"Parent").ok()?.as_reference().ok()?;
+    }
+    None
+}
+
+/// §3's "basic vector": `re` rectangles and `m`/`l` straight segments.
+///
+/// Curves (`c`/`v`/`y`), shading, patterns and clipping are deliberately not
+/// attempted — they are on §3's not-delivered side, and a half-drawn Bézier
+/// would be worse than an honestly absent one.
+fn pdf_vectors(content: &lopdf::content::Content) -> Vec<PdfVector> {
+    let num = |o: &lopdf::Object| -> Option<f32> {
+        match o {
+            lopdf::Object::Integer(i) => Some(*i as f32),
+            lopdf::Object::Real(r) => Some(*r as f32),
+            _ => None,
+        }
+    };
+    let mut out = Vec::new();
+    let mut cursor: Option<(f32, f32)> = None;
+    for op in &content.operations {
+        let n: Vec<f32> = op.operands.iter().filter_map(num).collect();
+        match op.operator.as_str() {
+            "re" if n.len() >= 4 => {
+                out.push(PdfVector::Rect { x: n[0], y: n[1], w: n[2], h: n[3] });
+                cursor = None;
+            }
+            "m" if n.len() >= 2 => cursor = Some((n[0], n[1])),
+            "l" if n.len() >= 2 => {
+                if let Some((x1, y1)) = cursor {
+                    out.push(PdfVector::Line { x1, y1, x2: n[0], y2: n[1] });
+                }
+                cursor = Some((n[0], n[1]));
+            }
+            // A subpath closed with `h` returns to its start; without
+            // tracking the whole path that is nothing more to draw here.
+            "h" => cursor = None,
+            _ => {}
+        }
+    }
+    out
 }
 
 // ── Split view (T16: R21, R21.1, AC8) ───────────────────────────────────
@@ -3957,5 +4204,215 @@ mod split_tests {
             assert_eq!(view_prop(name, 0), a);
             assert_eq!(view_prop(name, 1), b);
         }
+    }
+}
+
+/// Spec 058 T18 — PDF (R7, R9, AC2). plan.md §5 called this the largest
+/// technical unknown and asked for the first attempt to be treated as a
+/// **go/no-go spike**; these tests are that verdict, in numbers.
+///
+/// The fixtures are built with `lopdf`'s own writer rather than hand-written
+/// byte strings: a PDF's cross-reference table is a list of byte offsets, and
+/// a fixture with hand-computed offsets tests the arithmetic in the test far
+/// more than it tests the reader.
+#[cfg(test)]
+mod pdf_tests {
+    use super::*;
+    use lopdf::{dictionary, Document, Object, Stream};
+
+    /// A PDF of `pages` pages, each carrying `text` plus its number, at the
+    /// given MediaBox, with `vectors` drawn as a rectangle and a line.
+    fn sample_pdf(pages: usize, text: &str, media: (i64, i64), vectors: bool) -> Vec<u8> {
+        let mut doc = Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let font_id = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "Helvetica",
+        });
+        let resources = doc.add_object(dictionary! {
+            "Font" => dictionary! { "F1" => font_id },
+        });
+        let mut kids = Vec::new();
+        for i in 0..pages {
+            // An EMPTY `text` emits no text block at all — a page that
+            // draws and says nothing, which is what the scanned-page case
+            // needs to be honest.
+            let mut stream = if text.is_empty() {
+                String::new()
+            } else {
+                format!("BT /F1 18 Tf 72 700 Td ({text} page {}) Tj ET\n", i + 1)
+            };
+            if vectors {
+                stream.push_str("100 100 200 150 re S\n");
+                stream.push_str("50 50 m 300 400 l S\n");
+            }
+            let content_id = doc.add_object(Stream::new(dictionary! {}, stream.into_bytes()));
+            let page_id = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "Contents" => content_id,
+                "Resources" => resources,
+                "MediaBox" => vec![0.into(), 0.into(), media.0.into(), media.1.into()],
+            });
+            kids.push(page_id.into());
+        }
+        let count = kids.len() as i64;
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => kids,
+                "Count" => count,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        let mut out = Vec::new();
+        doc.save_to(&mut out).expect("lopdf must be able to write its own format");
+        out
+    }
+
+    /// **AC2** — a real PDF opens, and its page count and page breaks come
+    /// from the document rather than being computed.
+    #[test]
+    fn a_pdf_opens_with_the_page_count_the_document_declares() {
+        for pages in [1usize, 3, 7] {
+            let bytes = sample_pdf(pages, "Quarterly report", (612, 792), false);
+            let doc = parse_pdf(&bytes).expect("a PDF this reader wrote must open");
+            let index = index_pdf(&doc, bytes.len() as u64);
+            println!(
+                "{pages}-page PDF ({} bytes) -> {} page(s), addressing {:?}, spans {:?}",
+                bytes.len(),
+                index.page_count(),
+                index.addressing,
+                index.pages.iter().map(|p| p.start).collect::<Vec<_>>()
+            );
+            assert_eq!(doc.page_count(), pages);
+            assert_eq!(index.page_count(), pages, "R9: one break per PDF page");
+            assert_eq!(index.addressing, PageAddressing::LogicalPages);
+            let numbers: Vec<u64> = index.pages.iter().map(|p| p.start).collect();
+            assert_eq!(numbers, (1..=pages as u64).collect::<Vec<_>>(), "1-based, in order");
+        }
+    }
+
+    /// §3's "text" and "page geometry", both measured.
+    #[test]
+    fn a_pdf_yields_its_text_and_its_page_geometry() {
+        let bytes = sample_pdf(2, "Invoice total", (595, 842), false); // A4
+        let doc = parse_pdf(&bytes).unwrap();
+        for page in &doc.pages {
+            println!(
+                "page {}: {:.0}x{:.0} pt, text {:?}",
+                page.number,
+                page.width_pt,
+                page.height_pt,
+                page.text.trim()
+            );
+            assert_eq!((page.width_pt, page.height_pt), (595.0, 842.0), "§3: page geometry");
+            assert!(page.text.contains("Invoice total"), "§3: the text layer");
+            assert!(
+                page.text.contains(&format!("page {}", page.number)),
+                "each page's OWN text, not the document's first"
+            );
+        }
+    }
+
+    /// §3's "basic vector" — rectangles and straight segments, measured, so
+    /// the promise is a number rather than a claim.
+    #[test]
+    fn a_pdf_yields_its_basic_vectors_and_attempts_nothing_more() {
+        let with = parse_pdf(&sample_pdf(2, "Chart", (612, 792), true)).unwrap();
+        let without = parse_pdf(&sample_pdf(2, "Chart", (612, 792), false)).unwrap();
+        println!(
+            "2 pages with a rect + a line each -> {} vector(s); the same document without -> {}",
+            with.vector_count(),
+            without.vector_count()
+        );
+        for page in &with.pages {
+            println!("  page {}: {:?}", page.number, page.vectors);
+        }
+        assert_eq!(with.vector_count(), 4, "one rect and one line per page");
+        assert_eq!(without.vector_count(), 0, "nothing invented where nothing was drawn");
+        assert!(with.pages[0].vectors.contains(&PdfVector::Rect { x: 100.0, y: 100.0, w: 200.0, h: 150.0 }));
+        assert!(with.pages[0].vectors.contains(&PdfVector::Line { x1: 50.0, y1: 50.0, x2: 300.0, y2: 400.0 }));
+    }
+
+    /// **AC2's search clause** — "extracted text is searchable via T14/T15
+    /// **unchanged**". Find gets no PDF-specific branch; this proves it did
+    /// not need one.
+    #[test]
+    fn a_pdfs_text_is_searchable_through_the_unchanged_find_engine() {
+        let bytes = sample_pdf(3, "Balance forward COBOL", (612, 792), false);
+        let doc = parse_pdf(&bytes).unwrap();
+        let text = doc.searchable_text().expect("this PDF has a text layer");
+        let hits = find_matches(&text, "balance", false);
+        let case_on = find_matches(&text, "balance", true);
+        println!(
+            "3-page PDF, searchable text {} bytes: \"balance\" case-insensitive -> {}, case-sensitive -> {}",
+            text.len(),
+            hits.len(),
+            case_on.len()
+        );
+        assert_eq!(hits.len(), 3, "one per page");
+        assert_eq!(case_on.len(), 0, "R27's toggle works on a PDF exactly as on text");
+        assert_eq!(find_matches(&text, "page 2", false).len(), 1);
+    }
+
+    /// **§3's NOT-delivered column, confirmed refused rather than
+    /// half-attempted.** A PDF with no text layer at all — a scan — is not
+    /// OCR'd, guessed at, or reported as having text it does not have.
+    #[test]
+    fn a_pdf_with_no_text_layer_reports_no_text_rather_than_inventing_some() {
+        // Vectors only: a page that draws, and says nothing.
+        let bytes = sample_pdf(1, "", (612, 792), true);
+        let doc = parse_pdf(&bytes).unwrap();
+        let text = doc.searchable_text();
+        println!(
+            "a vector-only page -> {} vector(s), searchable text {:?}",
+            doc.vector_count(),
+            text.as_deref().map(str::trim)
+        );
+        assert_eq!(doc.page_count(), 1, "the page still opens and is counted");
+        assert!(doc.vector_count() > 0, "and what it does draw is read");
+        assert!(text.is_none(), "§3: no text layer means NO text, not an invented one");
+        // R26.1: no text is zero matches, cleanly — never an error.
+        let haystack = text.unwrap_or_default();
+        assert!(find_matches(&haystack, "anything", false).is_empty());
+    }
+
+    /// R4's own case: a file that claims to be a PDF and is not opens
+    /// nothing, and says why.
+    #[test]
+    fn a_corrupt_pdf_reports_the_readers_own_reason() {
+        let junk = b"%PDF-1.4\nthis is not a PDF at all\n";
+        let err = parse_pdf(junk).expect_err("a corrupt PDF must not open");
+        println!("corrupt PDF -> {err:?}");
+        assert!(!err.trim().is_empty(), "R4: LastError must say something useful");
+    }
+
+    /// End-to-end through `open_document`, the door R1 puts every source
+    /// through.
+    #[test]
+    fn open_document_opens_a_pdf_and_reports_its_format() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report.pdf");
+        let bytes = sample_pdf(4, "Statement", (612, 792), false);
+        std::fs::File::create(&path).unwrap().write_all(&bytes).unwrap();
+        let src = DocumentSource::Path(path.to_string_lossy().into_owned());
+        let mut progress = Vec::new();
+        let index = open_document(&src, |p| progress.push(p)).expect("a PDF must open");
+        println!(
+            "report.pdf: format {}, {} page(s), progress {progress:?}",
+            index.format,
+            index.page_count()
+        );
+        assert_eq!(index.format, ViewerFormat::Pdf, "R3: resolved from %PDF- content");
+        assert_eq!(index.page_count(), 4);
+        assert_eq!(progress.last().copied(), Some(100), "R6 reaches 100");
     }
 }

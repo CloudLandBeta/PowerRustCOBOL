@@ -17121,6 +17121,103 @@ MAIN.
         assert_eq!(written, body.as_bytes(), "R18: the bytes COBOL supplied, unmodified");
     }
 
+    // ── Viewer PDF (spec 058 T19): AC6, where re-encoding would tempt ───
+
+    /// **AC6, the PDF case (T19).** A PDF is the format most likely to
+    /// tempt a "helpful" re-encode: the Viewer reads its pages, its text,
+    /// its geometry and its vectors to paint it, and a saver that went
+    /// through that derived model instead of the file would produce a
+    /// different — and probably smaller — document.
+    ///
+    /// The assertion is on BYTES, not on whether the result still opens:
+    /// a re-encoded PDF opens perfectly well and is still the wrong answer
+    /// (R18: "shall **not** write a rendered or re-encoded document").
+    #[test]
+    fn saving_a_pdf_writes_the_original_file_byte_for_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("statement.pdf");
+        // A real PDF: header, binary comment line, an object stream with a
+        // compressible run, a cross-reference table and a trailer. The
+        // binary comment is deliberate — it is the byte sequence a
+        // text-mode copy would mangle.
+        let mut pdf: Vec<u8> = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.7\n");
+        pdf.extend_from_slice(&[b'%', 0xE2, 0xE3, 0xCF, 0xD3, b'\n']);
+        pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        pdf.extend_from_slice(b"3 0 obj\n<< /Length 64 >>\nstream\n");
+        pdf.extend(std::iter::repeat(b'A').take(64));
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        // Every byte value, so any encoding-aware copy shows up as a
+        // difference rather than as a plausible-looking file.
+        pdf.extend_from_slice(b"4 0 obj\n<< /Binary true >>\nstream\n");
+        pdf.extend((0..=255u8).collect::<Vec<u8>>());
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        pdf.extend_from_slice(b"trailer\n<< /Root 1 0 R >>\n%%EOF\n");
+        std::fs::write(&src_path, &pdf).unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let dest = dir.path().join("saved-copy.pdf");
+        interp.exec_method(
+            "VWR-1",
+            "SAVEAS",
+            &[CobolValue::from_str(dest.to_str().unwrap(), 260)],
+        );
+
+        let written = std::fs::read(&dest).expect("Save As must have written a file");
+        let first_difference = pdf
+            .iter()
+            .zip(written.iter())
+            .position(|(a, b)| a != b);
+        println!(
+            "AC6/T19: source {} bytes, saved {} bytes, first differing byte {:?}",
+            pdf.len(),
+            written.len(),
+            first_difference
+        );
+        println!(
+            "  source starts {:?}, saved starts {:?}",
+            &pdf[..16.min(pdf.len())],
+            &written[..16.min(written.len())]
+        );
+        assert_eq!(written.len(), pdf.len(), "a re-encode would change the length");
+        assert_eq!(first_difference, None, "R18: not one byte may differ");
+        assert_eq!(written, pdf, "AC6: byte-identical to the source");
+        assert_eq!(
+            queued_for(&interp, "VWR-1"),
+            vec!["onSaveComplete".to_string()],
+            "and the save reports itself once"
+        );
+    }
+
+    /// R24 — "the control shall **not** modify the source document." Saving
+    /// is a read of the source, never a write to it.
+    #[test]
+    fn saving_a_pdf_leaves_the_source_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("original.pdf");
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        pdf.extend((0..512u16).map(|b| (b % 256) as u8));
+        pdf.extend_from_slice(b"\n%%EOF\n");
+        std::fs::write(&src_path, &pdf).unwrap();
+        let before = std::fs::read(&src_path).unwrap();
+        let before_mtime = std::fs::metadata(&src_path).unwrap().modified().unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let dest = dir.path().join("copy.pdf");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+
+        let after = std::fs::read(&src_path).unwrap();
+        let after_mtime = std::fs::metadata(&src_path).unwrap().modified().unwrap();
+        println!(
+            "R24: source {} bytes before, {} after; modified time unchanged = {}",
+            before.len(),
+            after.len(),
+            before_mtime == after_mtime
+        );
+        assert_eq!(after, before, "R24: the source is never modified");
+        assert_eq!(after_mtime, before_mtime, "not even touched");
+    }
+
     // ── Viewer Find (spec 058 T15): the COBOL surface, R31/AC24 ─────────
 
     /// **AC24**, properties — "search text, case sensitivity, highlight

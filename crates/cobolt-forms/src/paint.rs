@@ -8005,6 +8005,10 @@ pub(crate) enum ViewerPageContent {
     /// structure (for the three formatted layouts).
     Markdown { raw: String, doc: crate::viewer::MarkdownDocument },
     Image(crate::viewer::DecodedImage),
+    /// A PDF, read as far as §3 promises: text, page geometry, page breaks
+    /// and basic vector. The PDF's own bytes stay the stored form (plan §3);
+    /// this is the derived read painting works from.
+    Pdf(crate::viewer::PdfDocument),
 }
 
 /// Decodes (or returns the already-cached) first page of `source`,
@@ -8045,8 +8049,11 @@ pub(crate) fn viewer_first_page_content(
         crate::viewer::ViewerFormat::Image => {
             ViewerPageContent::Image(crate::viewer::decode_image(&bytes).ok()?)
         }
-        // PDF / HtmlSubset: later stages (T18, T21) — not yet decodable.
-        crate::viewer::ViewerFormat::Pdf | crate::viewer::ViewerFormat::HtmlSubset => return None,
+        crate::viewer::ViewerFormat::Pdf => {
+            ViewerPageContent::Pdf(crate::viewer::parse_pdf(&bytes).ok()?)
+        }
+        // HtmlSubset: T21.
+        crate::viewer::ViewerFormat::HtmlSubset => return None,
     };
     let arc = Arc::new(content);
     ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
@@ -8124,6 +8131,7 @@ fn content_searchable_text(content: &ViewerPageContent) -> Option<String> {
     match content {
         ViewerPageContent::Text(t) => Some(t.clone()),
         ViewerPageContent::Markdown { doc, .. } => doc.searchable_text(),
+        ViewerPageContent::Pdf(doc) => doc.searchable_text(),
         ViewerPageContent::Image(_) => None,
     }
 }
@@ -8721,9 +8729,22 @@ pub(crate) fn draw_viewer(
         painter.rect_filled(content_rect, round, surface);
     }
 
+    // A PDF's extracted text is what paints. It is a DERIVED read: the
+    // PDF's own bytes remain the stored form (plan §3), untouched, which is
+    // what makes T19's byte-identical Save As correct by construction.
+    let pdf_text;
     let (raw_text, blocks): (&str, Option<&[crate::viewer::Block]>) = match content {
         ViewerPageContent::Text(t) => (t.as_str(), None),
         ViewerPageContent::Markdown { raw, doc } => (raw.as_str(), Some(&doc.blocks)),
+        ViewerPageContent::Pdf(doc) => {
+            use crate::viewer::SearchableText;
+            pdf_text = doc
+                .pages
+                .get(st.current_page)
+                .map(|p| p.text.clone())
+                .unwrap_or_else(|| doc.searchable_text().unwrap_or_default());
+            (pdf_text.as_str(), None)
+        }
         ViewerPageContent::Image(_) => unreachable!("handled above"),
     };
 
