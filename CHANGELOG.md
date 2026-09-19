@@ -1,5 +1,41 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.69] — 2026-09-18
+
+### Click-through on a modal-blocked ROOT window is now really prevented, on macOS
+
+1.70.68 shipped a cross-platform *reactive* mitigation for the click-through
+bug (always-on-top + steal focus back after the OS raises the caller). Research
+into egui 0.36.1 / eframe 0.36.0 / winit 0.30.13's own source (a dedicated
+investigation, not assumption) found that `eframe::Frame` — the one place the
+app can reach a real native window handle — is only ever populated for the
+**root** viewport (`App::ui`'s own doc: "called for the root viewport";
+confirmed by reading `show_viewport_immediate`/`render_immediate_viewport`,
+which never hand a spawned child's callback a `Frame` at all). For root,
+though, that handle is real: `Frame::winit_window()` → `raw-window-handle`'s
+`AppKit(AppKitWindowHandle{ ns_view, .. })` → (exactly as winit's own
+`raw_window_handle_rwh_06` builds it) `objc2_app_kit::NSView::window()` →
+the actual `NSWindow`.
+
+`FormHost::ui` now toggles real `-[NSWindow setIgnoresMouseEvents:]` on the
+ROOT window's own `NSWindow` whenever `root_modal_blocked()` changes — while
+set, AppKit delivers the window **no mouse events at all**, so neither the
+caller's controls, nor its own background, nor its title bar can react to a
+click, and the OS never raises or focuses it. This is what PowerDemo3's Call
+Form demo report was actually about: `CALL-FORM-DEMO` is opened as a
+ContentPane occupant, which `root_modal_blocked()` already treats as root.
+`NSWindow::addChildWindow` was considered and rejected — Apple's own docs
+describe it as ordering/visibility grouping, not an input block — and a truly
+blocking native modal run loop (`-[NSApplication runModalForWindow:]`) risks
+deadlocking eframe's own winit event loop, so it was not attempted.
+
+This reaches only ROOT: a non-root caller (a child window opening a modal
+child of its own) has no native handle reachable through eframe's public API
+at this version, and still relies on 1.70.68's reactive-refocus mitigation.
+New dependencies `objc2`/`objc2-app-kit`/`raw-window-handle` on
+`cobolt-form-host` (macOS-only for the first two) resolve to versions eframe
+itself already pins, so this adds no new crate versions to the build.
+
 ## [PowerRustCOBOL 1.70.68] — 2026-09-18
 
 ### A modal child's caller could still be raised and clicked through ("click-through")
