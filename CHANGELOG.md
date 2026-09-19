@@ -1,5 +1,43 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.70] — 2026-09-19
+
+### Real OS-level click-through prevention, scoped correctly this time, for a form run standalone
+
+1.70.69 (a same-numbered attempt earlier today, reverted before it ever
+shipped past this branch) placed this fix inside `impl eframe::App for
+FormHost { fn ui() }`. That trait method is dead code for PowerDemo3: its
+main form (`SIDEBAR-FORM`) uses the SideMenu/Shell architecture, whose real
+top-level `App` is `ShellApp` (`shell.rs`) — its own `ui()` discards the
+`Frame` it's given and calls `host.ui_impl(...)` directly, never
+`FormHost::ui()`. So the fix never ran for the demo's real usage.
+
+Investigating further (operator report, 2026-09-19: click-through
+reproduces only when `CALL-FORM-DEMO` is run directly/standalone, NOT when
+opened via the sidebar) explains why `ShellApp` doesn't need this fix at
+all: a ContentPane occupant has no window of its own — it renders inside
+the shell's single root OS window, and the modal child's `always-on-top`
+(1.70.68) is already sufficient, since there is only ever one native window
+for the OS to raise. Click-through is real only when the blocked caller is
+itself a separate top-level OS window — a form run directly/standalone as
+its own root, e.g. via the Designer's single-form preview.
+
+`FormHost::ui()` now toggles real `-[NSWindow setIgnoresMouseEvents:]` on
+root's own `NSWindow` whenever `root_modal_blocked()` changes, exactly as
+1.70.69 did, but this time it actually runs where the problem exists.
+
+**⚠️ Known, accepted trade-off**: `ignoresMouseEvents` makes the whole
+window invisible to hit-testing — a click inside root's bounds but outside
+the (usually smaller) modal's own bounds falls through to whatever the OS
+finds next, which can be a genuinely unrelated window, not merely "nothing
+happens." No AppKit primitive consumes-and-discards a click without either
+blocking the whole window or exposing what's behind it, short of a real
+native modal run loop (`-[NSApplication runModalForWindow:]`, which risks
+deadlocking eframe's own winit event loop and was not attempted). Accepted
+deliberately (operator, 2026-09-19) as better than leaving root fully
+clickable/raisable, and scoped to a standalone/direct form run — not
+PowerDemo3's real, sidebar-driven usage, which needs no native fix at all.
+
 ## [PowerRustCOBOL 1.70.69] — 2026-09-19
 
 ### An immediate `ME::"GetProperty"` right after `OpenFormSync` returns saw a stale value
