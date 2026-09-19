@@ -120,6 +120,8 @@ pub fn analyze_project(
             // 049 R17 — the IDE publishes the form map with the shell wiring
             // (spec 049 T27); until then only the build-path check runs.
             form_formats: None,
+            // The IDE is a product gate: an undeclared item is an error.
+            tolerate_undeclared: false,
         },
     )
 }

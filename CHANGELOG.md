@@ -1,5 +1,45 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.77] — 2026-09-19
+
+### An undeclared identifier is now a build error, not a warning
+
+Step 4 — the fix the last three prepared for. `identifier 'X' is not
+declared in DATA DIVISION` was a warning by design (the resolver's header
+allowed for copybooks or runtime libraries absent from the analysed source),
+and every gate — the IDE's Run Form and Build, `rcrun run-form`, `rcrun
+build` — stops only on errors. So a program naming an item nothing declared
+went straight to the interpreter, which creates such an item on its first
+write, sized to that first value, and truncates every later one to it:
+`"ButtonOk clicked"` (16 characters) once, and `"ButtonCancel clicked"` came
+back forever after as `ButtonCancel cli` (PowerDemo3, 2026-09-19; the
+declaration had left with a deleted Timer). The agent path had already been
+rejecting a handler on this very message (llm.rs); the gates now agree with
+it. Copybooks are expanded by the lexer before analysis and the runtime's own
+registers (`COBOL-*`, `RETURN-CODE`, …) are excluded by name, so what remains
+undeclared is a mistake. Unknown PERFORM / GO TO targets and condition-names
+stay warnings.
+
+Made safe first: 1.70.74 fixed codegen so its own facades declare what they
+use, and 1.70.75 brought the one demo that relied on the leniency up to the
+project's GLOBAL standard — all 44 PowerDemo3 forms compile with zero such
+diagnostics.
+
+**The CCVS85 census keeps the warning, on purpose.** Run as an error, the
+`strict` census dropped from 420/420 to 390/420: `XXXXX081` / `XXXXX065`
+are X-cards — implementor names the installer substitutes — and the SQ
+members' column-7 `P` selector lines reference items declared on other
+selector lines. Analysed untouched, those names are undeclared by the
+suite's construction, not by mistake. New `AnalyzeOptions::tolerate_undeclared`
+(default `false`) reports them as warnings; only the census harness sets it,
+and says so in its header. The execution pass runs each member through the
+`rcrun` binary and hit the same wall (NC 94/95, SQ 58/85), so `rcrun run` /
+`rcrun check` honour `COBOL_TOLERATE_UNDECLARED=1` for the same reason, set
+only by the harness and listed in `rcrun --help`. Every product gate keeps
+the error. Measured after: `strict` census 420/420, per module identical to
+before; NC executes 95/95 with 4614 assertions and 0 failures, SQ 85/85 with
+624 and 0 — the recorded baselines exactly.
+
 ## [PowerRustCOBOL 1.70.76] — 2026-09-19
 
 ### The sidebar wears the blocked form's overlay too — one layer, one window

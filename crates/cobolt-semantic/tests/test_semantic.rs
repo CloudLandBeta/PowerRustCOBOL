@@ -100,8 +100,13 @@ MAIN.
     assert!(warnings.is_empty(), "unexpected warnings: {warnings:?}");
 }
 
+/// An undeclared identifier is an ERROR since 1.70.77 (it was a warning, and
+/// the interpreter then created the item on first write, sized to that value
+/// — see `test_undeclared_identifier.rs`). The census-only
+/// `AnalyzeOptions::tolerate_undeclared` keeps the warning form for CCVS85
+/// members with unsubstituted X-cards.
 #[test]
-fn resolver_warns_undeclared_identifier() {
+fn resolver_rejects_undeclared_identifier() {
     let src = "\
 IDENTIFICATION DIVISION.
 PROGRAM-ID. UNDECL.
@@ -115,10 +120,28 @@ MAIN.
 ";
     let prog = parse_program(src);
     let result = analyze(&prog);
-    let warnings: Vec<_> = result.warnings().collect();
+    let errors: Vec<_> = result.errors().collect();
     assert!(
-        warnings.iter().any(|w| w.message.contains("WS-MISSING")),
-        "expected warning about WS-MISSING, got: {warnings:?}"
+        errors.iter().any(|e| e.message.contains("WS-MISSING")),
+        "expected an ERROR about WS-MISSING, got: {:?}",
+        result.diagnostics
+    );
+    assert!(!result.is_ok());
+
+    let tolerant = cobolt_semantic::analyze_with(
+        &prog,
+        &cobolt_semantic::AnalyzeOptions {
+            tolerate_undeclared: true,
+            ..Default::default()
+        },
+    );
+    assert!(
+        tolerant.is_ok()
+            && tolerant
+                .warnings()
+                .any(|w| w.message.contains("WS-MISSING")),
+        "with tolerate_undeclared the same report is a warning: {:?}",
+        tolerant.diagnostics
     );
 }
 

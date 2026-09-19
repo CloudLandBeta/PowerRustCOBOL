@@ -47,6 +47,7 @@ fn errors_with_map(procedure: &str) -> Vec<String> {
         &AnalyzeOptions {
             external_crates: None,
             form_formats: Some(forms_map()),
+            tolerate_undeclared: false,
         },
     )
     .diagnostics

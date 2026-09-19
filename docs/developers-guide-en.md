@@ -4791,6 +4791,26 @@ edit.
 > parse/analysis run before Build/Run/Debug). A runtime abort still reports
 > the generated program's location for now.
 
+> **⚠️ Caveat — an undeclared data item is an error.** `identifier 'X' is
+> not declared in DATA DIVISION` stops Check, Run Form and Build, as it would
+> on any COBOL compiler. It used to be a warning, and the program then ran:
+> the runtime created the item the first time it was written, **sized to that
+> first value**, and cut every later value to that width — a `WS-RESULT`
+> that first received `ButtonOk clicked` (16 characters) showed `ButtonCancel
+> cli` ever after. Two things trip this in RAD code that a PowerCOBOL or
+> isCOBOL developer would not expect:
+>
+> - **A handler's `WORKING-STORAGE` belongs to that handler.** Delete the
+>   control and its declarations go with it — a data item another handler
+>   still uses must be declared where it is used, or at form level.
+> - **Handlers see form-level data only through `GLOBAL`.** Every event
+>   handler is a `COMMON` program nested in the form's program, so a
+>   form-level item is visible to it only if declared `01 WS-FS GLOBAL PIC
+>   XX.`, and a file's record only if its `FD` says `IS GLOBAL` — the
+>   `FD … IS GLOBAL RECORD CONTAINS 424 CHARACTERS.` clauses in **one
+>   sentence**; a `RECORD CONTAINS` sentence of its own after the `FD`'s
+>   period detaches the record entries from the file.
+
 ---
 
 ## 13. The RustCOBOL language

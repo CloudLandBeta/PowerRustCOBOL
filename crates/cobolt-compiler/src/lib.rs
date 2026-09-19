@@ -1412,6 +1412,8 @@ fn build_core(
             external_crates: has_project
                 .then(|| proj.crates.iter().map(|c| c.lib_name()).collect()),
             form_formats: form_formats.as_ref().map(|(_, map)| map.clone()),
+            // A build is a product gate: an undeclared item is an error.
+            tolerate_undeclared: false,
         },
     );
     for d in &sem.diagnostics {

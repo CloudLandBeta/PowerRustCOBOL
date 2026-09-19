@@ -151,6 +151,15 @@ pub struct AnalyzeOptions {
     /// targeting an `Embedded` form is a compile-time error. `None` = no
     /// project; the load-path check is skipped.
     pub form_formats: Option<std::collections::HashMap<String, FormLoadFormat>>,
+    /// Report an undeclared data-item reference as a WARNING instead of the
+    /// error it is (1.70.77). **For the CCVS85 conformance census only**: its
+    /// members are analysed untouched, so their X-cards (`XXXXX081`, an
+    /// implementor name the installer substitutes) and column-7 selector
+    /// lines (`P`, referencing items declared on other selector lines) are
+    /// undeclared by construction, not by mistake. Every product gate — the
+    /// IDE's Run Form and Build, `rcrun run-form`, `rcrun build`, `rcrun
+    /// check` — leaves this `false`, which is the default.
+    pub tolerate_undeclared: bool,
 }
 
 /// 049 R1 — a project form's FormFormat, as the load-path check needs it.
@@ -210,7 +219,13 @@ fn analyze_contained(
     external::check(program, &mut diagnostics);
 
     // Pass 2: name resolution (carries the 049 R17 form-format map).
-    resolver::resolve(program, &symbols, &mut diagnostics, opts.form_formats.as_ref());
+    resolver::resolve(
+        program,
+        &symbols,
+        &mut diagnostics,
+        opts.form_formats.as_ref(),
+        opts.tolerate_undeclared,
+    );
 
     // Pass 3: type checking.
     type_checker::check(program, &symbols, &mut diagnostics);

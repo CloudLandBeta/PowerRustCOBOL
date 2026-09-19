@@ -38,6 +38,20 @@ use std::path::PathBuf;
 use cobolt_lexer::{tokenize, SourceFormat};
 use cobolt_semantic::flagging::FlagClass;
 
+/// The census analyses each member UNTOUCHED, so an undeclared name there is
+/// the suite's own construction, not a mistake: X-cards (`XXXXX081`) are
+/// implementor names the installer substitutes, and column-7 selector lines
+/// (`P`) reference items declared on other selector lines. The product's
+/// gates report an undeclared data-item as an ERROR (1.70.77); the census
+/// keeps it a warning, or 30 conformant programs would fail for what the
+/// installer, not the compiler, is supposed to supply.
+fn census_opts() -> cobolt_semantic::AnalyzeOptions {
+    cobolt_semantic::AnalyzeOptions {
+        tolerate_undeclared: true,
+        ..Default::default()
+    }
+}
+
 /// One extracted CCVS85 member.
 struct Member {
     kind: String,
@@ -415,7 +429,7 @@ fn main() {
             );
         }
         if let Some(prog) = pr.program.as_ref() {
-            let sr = cobolt_semantic::analyze(prog);
+            let sr = cobolt_semantic::analyze_with(prog, &census_opts());
             for d in sr.errors() {
                 println!("SEM L{:<4} {}", d.span.line, d.message);
             }
@@ -680,7 +694,7 @@ fn main() {
             }
         }
         if let Some(prog) = pr.program.as_ref() {
-            let sr = cobolt_semantic::analyze(prog);
+            let sr = cobolt_semantic::analyze_with(prog, &census_opts());
             for d in sr.errors().take(20) {
                 println!("SEM L{:<5} {}", d.span.line, d.message);
             }
@@ -758,7 +772,7 @@ fn main() {
 
         let mut serr_count = 0usize;
         if let Some(prog) = pr.program.as_ref() {
-            let sr = cobolt_semantic::analyze(prog);
+            let sr = cobolt_semantic::analyze_with(prog, &census_opts());
             let mut seen_s: BTreeMap<String, ()> = BTreeMap::new();
             for d in sr.errors() {
                 serr_count += 1;
@@ -1315,7 +1329,7 @@ fn run_pass(members: &[Member], filter: &str) {
             && pr
                 .program
                 .as_ref()
-                .map(|p| cobolt_semantic::analyze(p).errors().count() == 0)
+                .map(|p| cobolt_semantic::analyze_with(p, &census_opts()).errors().count() == 0)
                 .unwrap_or(false);
         if !compiles {
             outcomes.push((m.name.clone(), module, RunOutcome::CompileFail));
@@ -1790,6 +1804,12 @@ fn run_one_in(
         .arg(&src)
         .arg("--source-format")
         .arg("fixed")
+        // The run pass's counterpart of `census_opts()`: `rcrun` reports an
+        // undeclared data item as an ERROR and refuses the program
+        // (1.70.77), and a member is run untouched — X-cards and selector
+        // lines included — so the suite's own undeclared names must stay
+        // warnings here, or NC103A and 27 SQ programs never run at all.
+        .env("COBOL_TOLERATE_UNDECLARED", "1")
         // The CCVS85 run instructions require the operator to set external
         // switch 1 ON and switch 2 OFF before the suite runs: NC174A, NC253A
         // and NC254A test `ON STATUS` / `OFF STATUS` against exactly that

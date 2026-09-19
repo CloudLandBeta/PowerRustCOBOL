@@ -48,7 +48,7 @@ use cobolt_parser::parse;
 use cobolt_runtime::{
     channels::FormIpcMessage, FormEvent, IndexedEngine, Interpreter, StateUpdate,
 };
-use cobolt_semantic::{analyze, Severity};
+use cobolt_semantic::Severity;
 use std::io::{self, Read, Write};
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -147,7 +147,7 @@ fn cmd_run(args: &[String]) {
     }
 
     // Semantic analysis.
-    let sem = analyze(&program);
+    let sem = cobolt_semantic::analyze_with(&program, &analyze_opts());
     let has_errors = print_diagnostics(&sem.diagnostics, &path.display().to_string());
     if has_errors {
         eprintln!("cobolt: aborting due to semantic errors.");
@@ -326,7 +326,7 @@ fn cmd_check(args: &[String]) {
             process::exit(1);
         }
         Some(prog) => {
-            let sem = analyze(&prog);
+            let sem = cobolt_semantic::analyze_with(&prog, &analyze_opts());
             has_errors |= print_diagnostics(&sem.diagnostics, &path.display().to_string());
 
             if has_errors {
@@ -380,6 +380,8 @@ fn cmd_help() {
         "  COBOLT_SOURCE_FORMAT  Default for --source-format (free | fixed | fixed-relaxed | auto)\n",
         "  COBOL_INDEXED_ENGINE  Indexed (ISAM) engine: rust | rm-cobol85 | fujitsu | redb\n",
         "  COBOL_INDEXED_LOG     INDEXED transaction log level: off (default) | basic | full\n",
+        "  COBOL_TOLERATE_UNDECLARED  Set to '1' to report an undeclared data item as a warning\n",
+        "                        instead of an error (conformance-suite harness only)\n",
         "  COBOL_SWITCHES        SPECIAL-NAMES external switches: NAME=ON|OFF, comma separated\n",
         "                        (also --switch NAME=ON|OFF, repeatable)\n",
     ));
@@ -991,6 +993,23 @@ fn resolve_source_format(args: &[String], source: &str, path: &PathBuf) -> Sourc
             process::exit(2);
         }
         None => detect_format(source, path),
+    }
+}
+
+/// The analyser options `rcrun run` / `rcrun check` use. An undeclared
+/// data-item reference is an ERROR (1.70.77) — `rcrun` is a product gate.
+/// `COBOL_TOLERATE_UNDECLARED=1` demotes it to a warning; it exists for the
+/// CCVS85 conformance harness alone, whose members are run untouched: their
+/// X-cards (`XXXXX081`) are implementor names the installer substitutes, and
+/// their column-7 selector lines reference items declared on other selector
+/// lines — undeclared by the suite's construction, not by mistake.
+fn analyze_opts() -> cobolt_semantic::AnalyzeOptions {
+    let tolerate = std::env::var("COBOL_TOLERATE_UNDECLARED")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes"))
+        .unwrap_or(false);
+    cobolt_semantic::AnalyzeOptions {
+        tolerate_undeclared: tolerate,
+        ..Default::default()
     }
 }
 

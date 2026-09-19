@@ -13,9 +13,12 @@
 //! * Every GO TO target names a declared paragraph.
 //! * CALL targets that are literals are left unchecked (external programs).
 //!
-//! Unknown names produce [`Severity::Warning`] rather than hard errors
-//! because COBOL programs commonly reference items from copybooks or
-//! runtime libraries that are not present in the source being analysed.
+//! An undeclared data-item reference is a [`Severity::Error`] (1.70.77): the
+//! runtime would otherwise create the item on first write, sized to that
+//! value, and silently truncate everything after. Copybooks are expanded by
+//! the lexer before analysis, and the runtime's own registers are excluded
+//! by name, so what remains undeclared is a mistake. Unknown PERFORM / GO TO
+//! targets and condition-names stay warnings.
 
 use cobolt_ast::{
     expr::{Condition, Expr, Literal},
@@ -60,11 +63,13 @@ pub fn resolve(
     symbols: &SymbolTable,
     diagnostics: &mut Vec<SemanticDiagnostic>,
     form_formats: Option<&std::collections::HashMap<String, crate::FormLoadFormat>>,
+    tolerate_undeclared: bool,
 ) {
     let mut ctx = ResolveCtx {
         symbols,
         diagnostics,
         form_formats,
+        tolerate_undeclared,
     };
     match &program.procedure.body {
         ProcedureBody::Paragraphs(paras) => {
@@ -94,6 +99,13 @@ struct ResolveCtx<'a> {
     /// 049 R17 — the project's form formats (UPPERCASE id → format), when a
     /// project supplied them. `None` disables the load-path check.
     form_formats: Option<&'a std::collections::HashMap<String, crate::FormLoadFormat>>,
+    /// Report an undeclared data-item reference as a WARNING instead of the
+    /// error it is (`AnalyzeOptions::tolerate_undeclared`) — for the CCVS85
+    /// census only, whose members are analysed untouched: their X-cards
+    /// (`XXXXX081`) are implementor names the installer substitutes, and
+    /// their column-7 selector lines reference items declared on other
+    /// selector lines. Every product gate leaves this false.
+    tolerate_undeclared: bool,
 }
 
 impl<'a> ResolveCtx<'a> {
@@ -658,11 +670,25 @@ impl<'a> ResolveCtx<'a> {
                         name.as_str(),
                         "RETURN-CODE" | "WHEN-COMPILED" | "LINAGE-COUNTER" | "FORM-NAME"
                     );
+                // An ERROR, as COBOL-85 requires of a compiler — a warning
+                // until 1.70.77. The interpreter creates an undeclared item on
+                // first write, sized to that first value, and truncates every
+                // later one to it: `"ButtonOk clicked"` (16) then
+                // `"ButtonCancel clicked"` came back as `ButtonCancel cli`,
+                // and nothing on the Run Form / build path had refused the
+                // program (PowerDemo3, 2026-09-19 — the declaration had gone
+                // to `<deleted-controls>` with the Timer that owned it). The
+                // agent path already rejected a handler on this message
+                // (llm.rs); the gates now agree. Codegen (1.70.74) and the
+                // demos (1.70.75) were made clean first, so this catches
+                // developer mistakes, not the toolchain's own.
                 if !is_runtime && !self.symbols.has_data_item(name) && name.len() > 1 {
-                    self.warn(
-                        format!("identifier '{name}' is not declared in DATA DIVISION"),
-                        *span,
-                    );
+                    let msg = format!("identifier '{name}' is not declared in DATA DIVISION");
+                    if self.tolerate_undeclared {
+                        self.warn(msg, *span);
+                    } else {
+                        self.error(msg, *span);
+                    }
                 }
             }
             // Qualified: `A OF B`  — the `of` part is the qualifying group expr
