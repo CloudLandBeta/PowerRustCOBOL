@@ -179,11 +179,13 @@ fn super_reads_writes_and_drives_the_opener() {
 }
 
 #[test]
-fn async_child_super_goes_null_when_the_opener_closes() {
-    // AC26/R46 — the child reads its opener's Title; the opener closes; the
-    // SAME reference now raises the standard NULL error and the child keeps
-    // running (the DISPLAY after the failed branch proves liveness via
-    // a second program run).
+fn async_child_closes_with_its_opener_and_its_super_goes_null() {
+    // AC26/R46, revised by the 2026-09-19 ruling: the child reads its
+    // opener's Title; the opener closes — and takes the Async child WITH it
+    // (the supervisor broadcasts NotifyClosed for both, child first). A
+    // handler of the child still mid-statement at that moment sees its
+    // opener's handle among the closed ones, so the SAME `super` reference
+    // raises the standard NULL error rather than reaching a dead window.
     let (req_tx, req_rx) = mpsc::channel::<FormRequest>();
     let (closed_tx, closed_rx) = mpsc::channel::<String>();
     let host = std::thread::spawn(move || {
@@ -288,11 +290,23 @@ fn async_child_super_goes_null_when_the_opener_closes() {
             .unwrap();
         rrx.recv().expect("close reply").expect("close ok");
     }
-    // Wait for the broadcast, then hand it to C's second run.
-    let closed = closed_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("NotifyClosed broadcast");
-    assert_eq!(closed, "W1");
+    // Wait for the broadcasts: B's close takes its Async child C with it
+    // (2026-09-19 ruling — a caller's window subtree, Sync and Async alike),
+    // so BOTH handles are announced. Then hand B's to C's second run.
+    let mut closed: Vec<String> = Vec::new();
+    while closed.len() < 2 {
+        closed.push(
+            closed_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("NotifyClosed broadcast for both B and C"),
+        );
+    }
+    closed.sort();
+    assert_eq!(
+        closed,
+        vec!["W1".to_string(), "W2".to_string()],
+        "closing the opener (W1) closes its Async child (W2) too"
+    );
 
     // C, part 2 — the same reference now raises the standard NULL error,
     // and the interpreter itself is alive enough to raise it cleanly.

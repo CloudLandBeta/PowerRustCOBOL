@@ -5898,14 +5898,22 @@ fn controls_reference_doc() -> String {
          CanMaximize) are inert and its Width/Height report the DESIGNED values.\n\n",
     );
     doc.push_str(
-        "`ModalOverlayStyle` (`\"SemiTransparent\"` | `\"Greyed\"`, default SemiTransparent) \
+        "`ModalOverlayStyle` (`\"None\"` | `\"SemiTransparent\"` | `\"Greyed\"`, default None) \
          controls how THIS form's own face looks while a Sync-opened (modal) child of its own \
          blocks it: a real child window, or — since a ContentPane occupant has no window of \
-         its own — a modal child that occupant opened, which blocks the shell underneath it \
-         the same way. Input is already refused either way; this only chooses the paint drawn \
-         over the blocked face so the operator can SEE it is waiting, not just fail to click \
-         it. `SemiTransparent` is a light wash (reads as faded); `Greyed` is a darker, more \
-         opaque wash (the classic dimmed modal backdrop).\n\n",
+         its own — a modal child that occupant opened, which blocks the shell (rail, \
+         breadcrumb and pane) underneath it the same way. The BEHAVIOUR of the block never \
+         depends on this value: input is refused, a click on the blocked form reaches no \
+         handler, and the modal child keeps the focus. The style only chooses the layer drawn \
+         over the blocked face. `None` (the default) draws nothing — the form keeps exactly the \
+         look it was designed with; `SemiTransparent` is a light grey layer (25 % opaque); \
+         `Greyed` the same layer heavier (~60 %, the classic dimmed modal backdrop). The form \
+         keeps its own designed Transparency under any of them. An Async-opened child never \
+         blocks its opener — the two windows are independent, so for an Async open every style \
+         reads as `None`; the child can still publish to its opener through `super`, and \
+         closing the opener closes its children of either kind unless one of them is \
+         `Waiting` (its `FormState`), which vetoes the whole close and raises \
+         `onCloseRejected`.\n\n",
     );
     doc.push_str(
         "SHELL mode starts when the main form carries a `SideMenu` control: ONE window with a \

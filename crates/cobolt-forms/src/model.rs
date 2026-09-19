@@ -6802,9 +6802,14 @@ impl FormFormat {
 /// already gave every blocked form before this property existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ModalOverlayStyle {
+    /// No layer at all — the default. The form still BEHAVES blocked while a
+    /// Sync-opened child lives (input refused, focus returned to the child);
+    /// it just does not look any different. An Async-opened child never
+    /// blocks its opener, so for it every style reads as `None`.
+    #[default]
+    None,
     /// A light grey layer (25 % opaque) over the whole form — the form keeps
     /// exactly the transparency it was designed with; only this layer dims.
-    #[default]
     SemiTransparent,
     /// The same grey layer, heavier (~60 % opaque) — the classic dimmed /
     /// greyed-out modal backdrop.
@@ -6814,18 +6819,22 @@ pub enum ModalOverlayStyle {
 impl ModalOverlayStyle {
     pub fn as_str(self) -> &'static str {
         match self {
+            ModalOverlayStyle::None => "None",
             ModalOverlayStyle::SemiTransparent => "SemiTransparent",
             ModalOverlayStyle::Greyed => "Greyed",
         }
     }
 
-    /// Lenient parse; anything unrecognised is `SemiTransparent`, so an old or
-    /// hand-edited `.cfrm` never fails to load over this field.
+    /// Lenient parse; anything unrecognised is `None` (the default), so an
+    /// old or hand-edited `.cfrm` never fails to load over this field.
     pub fn from_str(value: &str) -> Self {
-        if value.trim().eq_ignore_ascii_case("Greyed") {
+        let v = value.trim();
+        if v.eq_ignore_ascii_case("Greyed") {
             ModalOverlayStyle::Greyed
-        } else {
+        } else if v.eq_ignore_ascii_case("SemiTransparent") {
             ModalOverlayStyle::SemiTransparent
+        } else {
+            ModalOverlayStyle::None
         }
     }
 }

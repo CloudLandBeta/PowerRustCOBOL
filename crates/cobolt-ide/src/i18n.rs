@@ -779,6 +779,9 @@ pub struct Tr {
     /// Display text for `ModalOverlayStyle`'s `Greyed` value — see
     /// `val_modal_overlay_semi_transparent`.
     pub val_modal_overlay_greyed: &'static str,
+    /// The ModalOverlayStyle dropdown's `None` value — the default: the form
+    /// behaves blocked but wears no layer. Stored value stays "None".
+    pub val_modal_overlay_none: &'static str,
     /// 038 R3 — the form's window-effects opt-out checkbox.
     pub lbl_window_effects: &'static str,
     // ── 049 Application shell — form/menu properties ──
@@ -2280,6 +2283,7 @@ const EN: Tr = Tr {
     lbl_modal_overlay_style:   "Modal overlay style",
     val_modal_overlay_semi_transparent: "Semi-transparent",
     val_modal_overlay_greyed:           "Greyed",
+    val_modal_overlay_none:             "None",
     lbl_window_effects:        "Window effects",
     lbl_form_format:           "Form format",
     tip_form_format_main:      "The main form owns the application window — its format is always Standalone.",
@@ -3610,6 +3614,7 @@ const ES: Tr = Tr {
     lbl_modal_overlay_style:   "Estilo de superposición modal",
     val_modal_overlay_semi_transparent: "Semitransparente",
     val_modal_overlay_greyed:           "Grisáceo",
+    val_modal_overlay_none:             "Ninguno",
     lbl_window_effects:        "Efectos de ventana",
     lbl_form_format:           "Formato del formulario",
     tip_form_format_main:      "El formulario principal es dueño de la ventana de la aplicación — su formato es siempre Standalone.",
@@ -4940,6 +4945,7 @@ const PT: Tr = Tr {
     lbl_modal_overlay_style:   "Estilo de sobreposição modal",
     val_modal_overlay_semi_transparent: "Semitransparente",
     val_modal_overlay_greyed:           "Acinzentado",
+    val_modal_overlay_none:             "Nenhum",
     lbl_window_effects:        "Efeitos de janela",
     lbl_form_format:           "Formato do formulário",
     tip_form_format_main:      "O formulário principal é dono da janela da aplicação — seu formato é sempre Standalone.",
@@ -6269,6 +6275,7 @@ const JA: Tr = Tr {
     lbl_modal_overlay_style:   "モーダルオーバーレイのスタイル",
     val_modal_overlay_semi_transparent: "半透明",
     val_modal_overlay_greyed:           "グレーアウト",
+    val_modal_overlay_none:             "なし",
     lbl_window_effects:        "ウィンドウエフェクト",
     lbl_form_format:           "フォーム形式",
     tip_form_format_main:      "メインフォームはアプリケーションウィンドウを所有するため、形式は常に Standalone です。",
@@ -7605,6 +7612,7 @@ const ZH: Tr = Tr {
     lbl_modal_overlay_style: "模态遮罩样式",
     val_modal_overlay_semi_transparent: "半透明",
     val_modal_overlay_greyed: "灰色",
+    val_modal_overlay_none: "无",
     lbl_window_effects: "窗口效果",
     lbl_form_format: "窗体格式",
     tip_form_format_main: "主窗体拥有应用程序窗口——其格式始终为 Standalone。",
@@ -8936,6 +8944,7 @@ const FR: Tr = Tr {
     lbl_modal_overlay_style:   "Style de superposition modale",
     val_modal_overlay_semi_transparent: "Semi-transparent",
     val_modal_overlay_greyed:           "Grisé",
+    val_modal_overlay_none:             "Aucun",
     lbl_window_effects:        "Effets de fenêtre",
     lbl_form_format:           "Format du formulaire",
     tip_form_format_main:      "Le formulaire principal possède la fenêtre de l'application — son format est toujours Standalone.",

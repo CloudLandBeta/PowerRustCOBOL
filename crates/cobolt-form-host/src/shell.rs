@@ -1172,8 +1172,10 @@ impl Shell {
         // 2026-09-19). A breadcrumb BAND (FullHeight on) lies inside the
         // content rect and is already under the host's own overlay, so it is
         // not painted twice.
-        if let Some(style) = host.blocked_overlay_style() {
-            let fill = crate::host::modal_overlay_fill(style);
+        if let Some(fill) = host
+            .blocked_overlay_style()
+            .and_then(crate::host::modal_overlay_fill)
+        {
             let painter = crate::host::overlay_painter(root_ui);
             painter.rect_filled(menu_rect, 0.0, fill);
             if crumb_done {
@@ -4232,7 +4234,8 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
 
         let ctx = egui::Context::default();
         let mut shell = Shell::default();
-        let grey = crate::host::modal_overlay_fill(cobolt_forms::model::ModalOverlayStyle::Greyed);
+        let grey = crate::host::modal_overlay_fill(cobolt_forms::model::ModalOverlayStyle::Greyed)
+            .expect("Greyed paints a layer");
         // One frame; report the rail rect and whether a rect in the Greyed
         // fill covers it. `root_ui.disable()` first, exactly as `ShellApp::ui`
         // does while blocked — the fade that halved the overlay lived there.

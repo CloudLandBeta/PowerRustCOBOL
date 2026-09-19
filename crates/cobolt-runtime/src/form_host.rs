@@ -290,11 +290,17 @@ impl FormSupervisor {
         self.handles.get(handle).and_then(|i| i.caller.as_deref())
     }
 
-    /// Live Sync children of `handle`.
+    /// Live window children of `handle` — Sync AND Async (operator ruling
+    /// 2026-09-19, revising R25/R26: an Async child is independent of its
+    /// opener while both live, but the opener's close takes it too, unless
+    /// it vetoes by Waiting). Embedded occupants are the shell's, not a
+    /// form's, and are closed by the shell.
     fn sync_children(&self, handle: &str) -> Vec<String> {
         self.handles
             .iter()
-            .filter(|(_, i)| i.kind == Kind::Sync && i.caller.as_deref() == Some(handle))
+            .filter(|(_, i)| {
+                matches!(i.kind, Kind::Sync | Kind::Async) && i.caller.as_deref() == Some(handle)
+            })
             .map(|(h, _)| h.clone())
             .collect()
     }
@@ -594,7 +600,8 @@ impl FormSupervisor {
             // R27 — the main form takes every open form with it.
             self.handles.keys().cloned().collect()
         } else {
-            // R25 — a caller takes its whole Sync subtree with it.
+            // R25 (revised 2026-09-19) — a caller takes its whole window
+            // subtree with it, Sync and Async alike.
             let mut v = self.sync_subtree(handle);
             v.push(handle.to_string());
             v
@@ -634,7 +641,11 @@ impl FormSupervisor {
                 });
             }
         }
-        // R26 — Async children of closed callers survive, detached.
+        // R26 (revised 2026-09-19) — window children now close WITH their
+        // caller, so nothing of theirs survives to be detached; what this
+        // still covers is any handle whose caller link points at a victim
+        // without being one (an Embedded occupant of a closed non-root
+        // caller has no such shape today, but the link must never dangle).
         let gone: Vec<String> = victims;
         for info in self.handles.values_mut() {
             if let Some(c) = &info.caller {
@@ -900,28 +911,46 @@ mod tests {
         println!("waiting child vetoed caller; ready → cascade child-then-caller");
     }
 
-    /// R26/R27 — Async children survive their caller; the main form's close
-    /// takes everything and exits.
+    /// R26 (revised, operator ruling 2026-09-19) — an Async child closes WITH
+    /// its caller, exactly like a Sync one: the two windows are independent
+    /// while both live, but the opener's close takes its children of either
+    /// kind. A Waiting child still vetoes the whole close (R17). R27 — the
+    /// main form's close takes everything and exits.
     #[test]
-    fn form_cascades_async_survival_and_main_close_all() {
+    fn form_cascades_async_children_close_with_their_caller() {
         let mut sup = FormSupervisor::new("MAIN-FORM", "MAIN-FORM");
         let (parent, _) = open(&mut sup, ROOT_HANDLE, "PARENT", false, false);
         let parent = parent.unwrap();
-        let (orphan, _) = open(&mut sup, &parent, "FREE", false, false);
-        let orphan = orphan.unwrap();
+        let (child, _) = open(&mut sup, &parent, "FREE", false, false);
+        let child = child.unwrap();
+
+        // A Waiting async child vetoes its caller's close, like a Sync one.
+        sup.note_form_state(&child, true);
         let acts = sup.try_close(&parent);
-        assert_eq!(closed(&acts), vec![parent.clone()]);
-        assert!(sup.is_open(&orphan), "async child survives (R26)");
+        assert!(closed(&acts).is_empty(), "a Waiting async child vetoes: {acts:?}");
+        assert!(sup.is_open(&parent) && sup.is_open(&child));
+        sup.note_form_state(&child, false);
+
+        // Ready: the caller's close takes the async child with it.
+        let acts = sup.try_close(&parent);
+        let mut victims = closed(&acts);
+        victims.sort();
+        let mut expect = vec![parent.clone(), child.clone()];
+        expect.sort();
+        assert_eq!(victims, expect, "the async child closes with its caller");
+        assert!(!sup.is_open(&child), "no orphan is left behind");
 
         // Main-form close: everything goes, Exit is emitted (R27).
+        let (again, _) = open(&mut sup, ROOT_HANDLE, "AGAIN", false, false);
+        let again = again.unwrap();
         let acts = sup.try_close(ROOT_HANDLE);
         let mut victims = closed(&acts);
         victims.sort();
-        let mut expect = vec![ROOT_HANDLE.to_string(), orphan.clone()];
+        let mut expect = vec![ROOT_HANDLE.to_string(), again.clone()];
         expect.sort();
         assert_eq!(victims, expect);
         assert!(acts.contains(&HostAction::Exit));
-        println!("async survived caller close; main close took {expect:?} + Exit");
+        println!("async child: vetoed while Waiting, closed with its caller when Ready; main close took {expect:?} + Exit");
     }
 
     /// R27 + R17 — a Waiting form vetoes even the main form's close-all.

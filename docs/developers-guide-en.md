@@ -4699,6 +4699,31 @@ instead. Typical pattern: set `Waiting` in `onTextChanged` handlers, set
 closes, every windowHandler that referred to it becomes **NULL**
 automatically; invoking through a NULL handle is a runtime error.
 
+**What the opener looks like while it waits — `ModalOverlayStyle`.** A form
+opened with `OpenFormSync` is modal: until it closes, the opener refuses
+input, a click on it reaches no handler, and the focus stays with the child.
+That behaviour never changes. What *you* choose, per form, in the Designer's
+Properties pane, is whether the blocked face shows it:
+
+| Value | The blocked opener |
+|---|---|
+| `None` (default) | Looks exactly as designed — behaves blocked, wears no layer. |
+| `SemiTransparent` | A light grey layer (25 % opaque) over the whole face. |
+| `Greyed` | The same grey layer, heavier (~60 %) — the classic dimmed backdrop. |
+
+The form keeps its own designed **Transparency** under any of them; when the
+opener lives in a sidebar's ContentPane, the layer covers the sidebar and
+breadcrumb too, so the whole window reads as one waiting face. Read it from
+COBOL with `me::"GetProperty"("ModalOverlayStyle")`.
+
+`OpenFormAsync` is different: the two windows are **independent** — the
+opener is never blocked, so for an Async child every style reads as `None`.
+The child can still hand results back through `super::"SetProperty"`. And
+closing the opener closes its children of **either** kind, unless one of
+them is `Waiting` (`FormState`), which vetoes the whole close and raises
+`onCloseRejected` — the same rule a PowerCOBOL developer would expect from a
+child form that has unsaved work.
+
 **Lifecycle rules.**
 
 - The **main form is a singleton**: opening it while it runs focuses the

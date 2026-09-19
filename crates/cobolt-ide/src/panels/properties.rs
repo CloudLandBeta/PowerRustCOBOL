@@ -10089,6 +10089,7 @@ impl PropertiesPanel {
                     // translated, same discipline as every other in-app
                     // string.
                     let opts = [
+                        ("None", tr.val_modal_overlay_none),
                         ("SemiTransparent", tr.val_modal_overlay_semi_transparent),
                         ("Greyed", tr.val_modal_overlay_greyed),
                     ];

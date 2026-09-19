@@ -273,13 +273,18 @@ pub(crate) fn overlay_painter(ui: &egui::Ui) -> egui::Painter {
 /// — the SAME fill wherever the blocked face is painted (the form's own
 /// pane, and the shell's rail and breadcrumb around it), so `Greyed` never
 /// reads as `SemiTransparent` on one part of the window and not another.
-pub(crate) fn modal_overlay_fill(style: cobolt_forms::model::ModalOverlayStyle) -> egui::Color32 {
+pub(crate) fn modal_overlay_fill(
+    style: cobolt_forms::model::ModalOverlayStyle,
+) -> Option<egui::Color32> {
     match style {
+        // The default: blocked in every way that matters — input refused,
+        // focus returned to the child — but painted exactly as designed.
+        cobolt_forms::model::ModalOverlayStyle::None => None,
         cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
-            egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)
+            Some(egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64))
         }
         cobolt_forms::model::ModalOverlayStyle::Greyed => {
-            egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
+            Some(egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150))
         }
     }
 }
@@ -2296,8 +2301,11 @@ impl FormBody {
             // in the style ITS OWN design chose (a ContentPane occupant is
             // its own form here, not the shell — the shell has no `.cfrm` of
             // its own to carry the choice).
-            if blocked {
-                let fill = modal_overlay_fill(self.modal_overlay_style);
+            if let Some(fill) = if blocked {
+                modal_overlay_fill(self.modal_overlay_style)
+            } else {
+                None
+            } {
                 // Through a FRESH painter, not `panel_ui.painter()`: the
                 // shell disables its whole root `Ui` while blocked
                 // (`ShellApp::ui`), and egui's `Ui::disable` multiplies the
@@ -4728,8 +4736,11 @@ impl FormHost {
             // root's own content render is a separate, hand-inlined copy of
             // that logic rather than a call to it, so the paint has to be
             // added here too.
-            if root_blocked {
-                let fill = modal_overlay_fill(self.root.modal_overlay_style);
+            if let Some(fill) = if root_blocked {
+                modal_overlay_fill(self.root.modal_overlay_style)
+            } else {
+                None
+            } {
                 // A fresh painter for the same reason as in `child_frame`: a
                 // root form shown in Pane mode sits under the shell's
                 // disabled root `Ui`, whose inherited painter would halve
@@ -6646,7 +6657,14 @@ mod parity {
             !semi.contains(&grey_fill),
             "SemiTransparent must not ALSO paint Greyed's fill: {semi:?}"
         );
-        println!("051 — SemiTransparent and Greyed each paint their own, distinct overlay fill");
+        // `None` — the default: still blocked, but no layer at all.
+        let none = painted_with(cobolt_forms::model::ModalOverlayStyle::None);
+        let semi_fill = egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64);
+        assert!(
+            !none.contains(&grey_fill) && !none.contains(&semi_fill),
+            "None must paint no overlay layer at all: {none:?}"
+        );
+        println!("051 — None paints nothing; SemiTransparent and Greyed each paint their own, distinct overlay fill");
     }
 
     /// 051 R19/R28 — the SAME check as `modal_overlay_style_changes_the_painted_fill`,
@@ -6784,7 +6802,13 @@ mod parity {
             !semi.contains(&grey_fill),
             "an occupant's SemiTransparent must not ALSO paint Greyed's fill: {semi:?}"
         );
-        println!("051 — an occupant's SemiTransparent and Greyed each paint their own, distinct overlay fill");
+        let none = painted_with(cobolt_forms::model::ModalOverlayStyle::None);
+        let semi_fill = egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64);
+        assert!(
+            !none.contains(&grey_fill) && !none.contains(&semi_fill),
+            "an occupant's None must paint no overlay layer at all: {none:?}"
+        );
+        println!("051 — an occupant's None paints nothing; SemiTransparent and Greyed each paint their own, distinct overlay fill");
     }
 
     /// One headless frame; returns the ROOT viewport's commands.

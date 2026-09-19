@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.79] — 2026-09-19
+
+### `ModalOverlayStyle` gains `None`, the new default — and an Async child now closes with its opener
+
+`ModalOverlayStyle` has a third value, **`None`**, and it is the default
+(operator ruling, 2026-09-19). A form blocked by a Sync-opened child behaves
+exactly as before under `None` — input refused, a click on it reaches no
+handler, the child keeps the focus — but wears no layer at all: it keeps
+exactly the look it was designed with. `SemiTransparent` and `Greyed` are
+unchanged. A `.cfrm` without the attribute now reads as `None` (it read as
+`SemiTransparent`); the Designer dropdown offers the three in all six IDE
+languages, and the stored value stays English. An Async-opened child never
+blocks its opener — the two windows are independent — so for an Async open
+every style reads as `None`; the child still publishes to its opener through
+`super`.
+
+**Async children close with their opener.** Spec 037 R25/R26 had a caller
+take only its Sync subtree with it and leave Async children orphaned; the
+ruling makes the cascade uniform: closing the opener closes its children of
+either kind, unless one of them vetoes the close by being in the `Waiting`
+`FormState` (R17, unchanged). The supervisor test that pinned the old
+orphaning now pins the cascade and the veto.
+
+The System KB's form-property text and the Developer's Guide's "Opening
+forms from COBOL" section describe all of this; both overlay tests gain the
+`None` case.
+
 ## [PowerRustCOBOL 1.70.78] — 2026-09-19
 
 ### The Properties pane's label/value split can be dragged again
