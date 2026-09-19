@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.68] — 2026-09-18
+
+### A modal child's caller could still be raised and clicked through ("click-through")
+
+Neither egui, eframe nor winit (0.36.1 / 0.36.2 / 0.30.13, this project's
+current versions) expose an OS-level owner/parent-window relationship
+between two top-level windows — `ViewportBuilder` has no such field, and
+`egui-winit` never calls winit's `with_owner_window`/`with_parent_window`.
+The existing `disable()` + overlay paint in `child_frame` only blocks input
+to the CONTENT of a viewport; it cannot stop the OS from raising a
+different, blocked window in front of its modal child when the operator
+clicks it (or its title bar). PowerDemo3's Call Form demo showed this
+directly: with `CALLED-FORM-DEMO` open modally, `CALL-FORM-DEMO`'s own
+window could still be brought to the front and clicked.
+
+`FormHost::update_children` now keeps a live modal child's viewport
+always-on-top for as long as it stays modal, and — since no preventive fix
+is reachable at this dependency version — reactively steals focus back to
+it the instant its caller's viewport reports focused (the OS having just
+raised it). New `FormHost::live_modal_caller_viewport` resolves a handle to
+its caller's viewport only while the two are still in a live modal
+relationship (root window, a real child window, or a ContentPane occupant's
+own — root — window), so a closed or reused handle never keeps stealing
+focus.
+
+**Known limits of this mitigation** (there is no way around them without
+forking `egui-winit` to add real OS-level window ownership): a brief visible
+flash of the caller before focus is stolen back; no effect at all on
+Wayland (`ViewportCommand::Focus` is a no-op there); and the caller's own
+OS title-bar controls (close, minimize) remain clickable throughout — only
+the raise-to-front behavior is mitigated, not full OS-level modality.
+
 ## [PowerRustCOBOL 1.70.67] — 2026-09-18
 
 ### A property a modal child published to its opener never reached a form embedded in the ContentPane

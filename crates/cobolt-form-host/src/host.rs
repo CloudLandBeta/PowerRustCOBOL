@@ -3117,6 +3117,35 @@ impl FormHost {
             .map(|c| c.viewport_id)
     }
 
+    /// 051 R19/R28 — if `handle` is CURRENTLY a live modal child, the
+    /// viewport its caller renders in (so the reactive-refocus mitigation in
+    /// `update_children` knows whose focus to watch). `None` when `handle`
+    /// is not modal, its caller already closed, or (defensively) the caller
+    /// can't be located among the known bodies.
+    fn live_modal_caller_viewport(&self, handle: &str) -> Option<egui::ViewportId> {
+        let caller = self.supervisor.caller_of(handle)?;
+        let is_live_modal = self
+            .supervisor
+            .modal_children_of(caller)
+            .iter()
+            .any(|h| h == handle);
+        if !is_live_modal {
+            return None;
+        }
+        if caller == cobolt_runtime::form_host::ROOT_HANDLE {
+            Some(egui::ViewportId::ROOT)
+        } else if let Some(vp) = self.child_viewport(caller) {
+            Some(vp)
+        } else if self.occupants.values().any(|o| o.handle == caller) {
+            // An occupant has no window of its own — it renders inside the
+            // root's own window, so THAT is the viewport whose focus
+            // actually matters.
+            Some(egui::ViewportId::ROOT)
+        } else {
+            None
+        }
+    }
+
     /// 051 R3/R6 — build ONE child form: resolve its design + program through
     /// the glue's `FormSource`, spawn its own interpreter over its own
     /// channel set (fan-out registered, shared bridge injected), and push the
@@ -3349,16 +3378,42 @@ impl FormHost {
                 let h = &self.children[i].handle;
                 !self.supervisor.modal_children_of(h).is_empty()
             };
+            // 051 R19/R28 — the OS-level half of "modal". egui/eframe/winit
+            // at this version expose no owner/parent-window relationship
+            // (`ViewportBuilder` has no such field, and `egui-winit` never
+            // calls winit's `with_parent_window`/`with_owner_window`), so
+            // there is no way to make the OS itself keep this child above,
+            // or refuse to raise, its caller's window — the disable()+
+            // overlay in `child_frame` only blocks input to the CONTENT of
+            // a viewport, never the OS chrome of a DIFFERENT one. The best
+            // available mitigation: while this child is a live modal, keep
+            // it always-on-top, and the instant its caller's viewport
+            // reports focus (the operator clicked it, or its title bar), a
+            // real OS action succeeded — wrestle focus back immediately.
+            // This is reactive, not preventive: there is a brief visible
+            // flash, `Focus` has no effect on Wayland, and the caller's own
+            // title-bar buttons (close/minimize) remain clickable throughout
+            // — only the raise-to-front behavior is mitigated (operator
+            // report, PowerDemo3's Call Form demo, 2026-09-18).
+            let live_modal_caller_vp = self.live_modal_caller_viewport(&self.children[i].handle);
             let child = &mut self.children[i];
             let mut builder = egui::ViewportBuilder::default()
                 .with_title(child.title.clone())
                 .with_inner_size(child.size)
                 .with_decorations(child.decorations);
+            if live_modal_caller_vp.is_some() {
+                builder = builder.with_always_on_top();
+            }
             if let Some(p) = child.pos {
                 builder = builder.with_position(p);
             }
             let vp = child.viewport_id;
             let handle = child.handle.clone();
+            if let Some(caller_vp) = live_modal_caller_vp {
+                if ctx.input_for(caller_vp, |i| i.viewport().focused).unwrap_or(false) {
+                    ctx.send_viewport_cmd_to(vp, egui::ViewportCommand::Focus);
+                }
+            }
             let mut close_requested = false;
             ctx.show_viewport_immediate(vp, builder, |vp_ui, _class| {
                 if !child.init_sent {
@@ -4989,6 +5044,156 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
         println!(
             "child spawn — W1 built (form DETAIL), ran to STOP RUN, released; \
              NotifyClosed delivered: {closed:?}"
+        );
+    }
+
+    /// 051 R19/R28 — the click-through mitigation's decision logic:
+    /// `live_modal_caller_viewport` must resolve a LIVE MODAL child to its
+    /// caller's viewport (here, root), and forget it once the child stops
+    /// being a live modal (closed / released). `update_children` uses this
+    /// exact lookup, each frame, to decide (a) whether the child's viewport
+    /// should be built always-on-top and (b) whether to steal focus back
+    /// when the caller's OWN viewport reports focused (i.e. the operator
+    /// clicked the "blocked" caller and the OS actually raised it — which
+    /// `disable()` + the overlay paint can never prevent on their own; see
+    /// the long comment at the call site for why no real OS-level modal
+    /// parenting is reachable through this egui/eframe/winit version).
+    ///
+    /// This does NOT drive `update_children` end-to-end and assert on
+    /// `FullOutput::viewport_output`: `show_viewport_immediate` only
+    /// populates that reliably under a real `IMMEDIATE_VIEWPORT_RENDERER`,
+    /// which only a live eframe runtime installs — under
+    /// `egui::Context::default()` in a unit test it silently falls back to
+    /// `show_embedded_viewport`, so the command never lands where the test
+    /// could see it even though `send_viewport_cmd_to` fired correctly.
+    /// Testing the pure decision function is what's actually reachable
+    /// headlessly, and it's the one place the reactive-refocus logic can go
+    /// wrong.
+    #[test]
+    fn live_modal_caller_viewport_finds_the_focused_callers_viewport() {
+        // A CHILD that stays open (an event loop, not a bare STOP RUN) —
+        // the test needs it alive across several frames.
+        let (mut host, _closed_rx, _req_tx) = {
+            let form = cobolt_forms::Form::new("MAIN-FORM", "Main", 320, 200);
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, closed_rx) = mpsc::channel();
+            let source: Option<FormSource> = Some(Box::new(|id: &str| {
+                if id.eq_ignore_ascii_case("DETAIL") {
+                    Ok((
+                        cobolt_forms::Form::new("DETAIL", "Detail", 240, 160),
+                        program_from(
+                            "IDENTIFICATION DIVISION.\nPROGRAM-ID. DETAIL.\n\
+                             DATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+                             01 EVT PIC X(30).\n01 CTL PIC X(30).\n\
+                             PROCEDURE DIVISION.\n    \
+                             PERFORM UNTIL 1 = 2\n        \
+                             CALL \"COBOL-WAIT-EVENT\" USING EVT CTL\n    \
+                             END-PERFORM.\n",
+                        ),
+                    ))
+                } else {
+                    Err(format!("no form named '{id}'"))
+                }
+            }));
+            let (host, _form) = FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx: form_req_tx.clone(),
+                form_source: source,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+                fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Window,
+            });
+            (host, closed_rx, form_req_tx)
+        };
+        let ctx = egui::Context::default();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::Vec2::new(640.0, 480.0),
+        ));
+
+        // Register a MODAL open (supervisor_open_for_test is non-modal), then
+        // build the child window the same way the real spawn action does.
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let _ = host
+            .supervisor
+            .handle_request(cobolt_runtime::form_host::FormRequest::OpenForm {
+                caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                form_id: "DETAIL".into(),
+                sync: true,
+                window_state: None,
+                x: None,
+                y: None,
+                width: None,
+                height: None,
+                modal: true,
+                reply: reply_tx,
+            });
+        let mut full = ctx.run_ui(input.clone(), |ui| {
+            host.apply_host_actions(ui.ctx(), vec![spawn_action("W1", "DETAIL")]);
+        });
+        full.textures_delta.clear();
+        assert_eq!(host.children[0].handle, "W1");
+
+        // W1 IS the registered modal child of ROOT — the lookup must find
+        // root's viewport as the one to watch.
+        assert_eq!(
+            host.live_modal_caller_viewport("W1"),
+            Some(egui::ViewportId::ROOT),
+            "a live modal child of root resolves to root's own viewport"
+        );
+
+        // Drive one real `update_children` frame with root reporting
+        // focused — a smoke test that the production call site actually
+        // reads this decision and queues the command (via
+        // `ctx.send_viewport_cmd_to`) without panicking; the command's
+        // delivery into `FullOutput` is NOT observable here (see the doc
+        // comment above), so this only guards against the call site
+        // diverging from the decision function, not the OS-level effect.
+        input
+            .viewports
+            .insert(egui::ViewportId::ROOT, egui::ViewportInfo {
+                focused: Some(true),
+                ..Default::default()
+            });
+        let mut full = ctx.run_ui(input.clone(), |ui| {
+            let c = ui.ctx().clone();
+            host.update_children(&c);
+        });
+        full.textures_delta.clear();
+
+        // Once W1 is no longer a live modal (its supervisor entry released
+        // via the ordinary close path), the lookup must stop pointing at
+        // root — otherwise a closed/reused handle would keep stealing focus
+        // forever.
+        host.supervisor.try_close("W1");
+        assert_eq!(
+            host.live_modal_caller_viewport("W1"),
+            None,
+            "a released child is no longer a live modal of anything"
         );
     }
 
