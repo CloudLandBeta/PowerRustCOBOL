@@ -10747,11 +10747,20 @@ fn property_row(ui: &mut Ui, label: &str, value: impl FnOnce(&mut Ui)) {
 
     let sep_x = rect.left() + split;
     let sep_rect = Rect::from_min_max(
-        egui::pos2(sep_x - 3.0, rect.top()),
-        egui::pos2(sep_x + 3.0, rect.bottom()),
+        egui::pos2(sep_x - 4.0, rect.top()),
+        egui::pos2(sep_x + 4.0, rect.bottom()),
     );
-    let sep_id = ui.make_persistent_id(("property_grid_separator", rect.top().to_bits(), label));
-    let sep_response = ui.interact(sep_rect, sep_id, Sense::drag());
+    // The grip's id must not depend on WHERE the row is. It used to hash
+    // `rect.top()`: the first frame of a drag re-wraps the labels above,
+    // their rows change height, this row moves, the id changes under the
+    // pointer and egui drops the drag — so the split moved a pixel and
+    // stopped, which read as "cannot resize" (operator, 2026-09-19). The
+    // auto id advanced by this row's own allocation is stable across frames
+    // for as long as the rows keep their order, which is all a drag needs.
+    let sep_id = ui.next_auto_id().with("property_grid_separator");
+    let sep_response = ui
+        .interact(sep_rect, sep_id, Sense::drag())
+        .on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
     if sep_response.dragged() {
         let new_split = (split + sep_response.drag_delta().x).clamp(72.0, max_split);
         ui.data_mut(|d| d.insert_temp(property_split_id(), new_split));
@@ -13595,5 +13604,121 @@ mod border_row_tests {
         let (style, color) = painted_rows(ControlType::ListBox);
         assert!(style, "ListBox must paint a BorderStyle row");
         assert!(color, "ListBox must paint a BorderColor row");
+    }
+}
+
+/// The label/value split of the property grid is dragged, not typed — and a
+/// drag is many frames. The grip's id used to hash the row's `top`: the first
+/// frame of a drag re-wraps the labels above, their rows change height, the
+/// dragged row moves, the id changes under the pointer and egui drops the
+/// drag — so the split moved one frame's worth and stopped (operator,
+/// 2026-09-19: "I can't resize"). This drives a real multi-frame drag on the
+/// SECOND row's grip while the FIRST row's label re-wraps, and expects the
+/// whole distance, not one frame of it.
+#[cfg(test)]
+mod property_split_tests {
+    use super::*;
+
+    const START: f32 = 220.0;
+
+    /// One frame: the split as the rows saw it, and the cursor the frame
+    /// asked for (the grip requests `ResizeHorizontal` while hovered — which
+    /// is how the test finds it instead of guessing row heights).
+    fn frame(ctx: &egui::Context, events: Vec<egui::Event>) -> (f32, egui::CursorIcon) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(480.0, 400.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut seen = 0.0;
+        let mut full = ctx.run_ui(input, |ui| {
+            // No margin: the grip's x is then exactly the split.
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(ui, |ui| {
+                    if ui.data(|d| d.get_temp::<f32>(property_split_id())).is_none() {
+                        ui.data_mut(|d| d.insert_temp(property_split_id(), START));
+                    }
+                    ScrollArea::vertical().show(ui, |ui| {
+                        // A label that wraps to more lines as the split
+                        // shrinks — so dragging the row BELOW it moves it.
+                        property_row(
+                            ui,
+                            "Timeout in milliseconds, minus one means the category default and zero means never",
+                            |ui| {
+                                ui.label("-1");
+                            },
+                        );
+                        property_row(ui, "Size", |ui| {
+                            ui.label("Medium");
+                        });
+                        seen = current_property_split(ui);
+                    });
+                });
+        });
+        full.textures_delta.clear();
+        (seen, full.platform_output.cursor_icon)
+    }
+
+    #[test]
+    fn the_grip_follows_a_multi_frame_drag_while_rows_above_rewrap() {
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            frame(&ctx, vec![]);
+        }
+        // Find the SECOND row's grip by its cursor: rows sit flush, so the
+        // grips form one run down the split line; its bottom end is the
+        // second (last) row — the one that MOVES when the first row's label
+        // re-wraps, which is the case the old id lost.
+        let mut hits: Vec<f32> = Vec::new();
+        let mut y = 2.0;
+        while y < 200.0 {
+            let (_, cursor) = frame(&ctx, vec![egui::Event::PointerMoved(egui::pos2(START, y))]);
+            if cursor == egui::CursorIcon::ResizeHorizontal {
+                hits.push(y);
+            }
+            y += 2.0;
+        }
+        assert!(
+            hits.len() >= 4,
+            "the grip must request a resize cursor along x = split: {hits:?}"
+        );
+        let second_row_y = hits.last().copied().unwrap() - 6.0;
+        let grip = egui::pos2(START, second_row_y);
+        frame(&ctx, vec![egui::Event::PointerMoved(grip)]);
+        frame(
+            &ctx,
+            vec![egui::Event::PointerButton {
+                pos: grip,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            }],
+        );
+        // Drag left in four steps of 20 px — each step re-wraps the first
+        // row's label and moves the row being dragged.
+        let mut pos = grip;
+        for _ in 0..4 {
+            pos.x -= 20.0;
+            frame(&ctx, vec![egui::Event::PointerMoved(pos)]);
+        }
+        let (after, _) = frame(
+            &ctx,
+            vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }],
+        );
+        assert!(
+            (after - (START - 80.0)).abs() < 6.0,
+            "the split must follow the whole drag (expected ≈{}, got {after})",
+            START - 80.0
+        );
+        println!("property split: {START} → {after} over a 4-step, 80 px drag");
     }
 }

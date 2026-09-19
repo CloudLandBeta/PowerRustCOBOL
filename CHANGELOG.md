@@ -1,5 +1,21 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.78] — 2026-09-19
+
+### The Properties pane's label/value split can be dragged again
+
+The grid always had a drag grip on the dashed line between the label and
+value columns — and it moved one frame's worth, then stopped, which read as
+"I can't resize; the labels just wrap" (operator, 2026-09-19). Its id
+hashed the row's `top`: the first frame of a drag re-wraps the labels above
+the dragged row, their rows change height, the dragged row moves, the id
+changes under the pointer and egui drops the drag. The grip now takes the
+auto id its own row's allocation advanced — stable across frames for as
+long as the rows keep their order — its hit strip is 8 px instead of 6, and
+it shows a horizontal-resize cursor while hovered. A headless regression
+drives a four-step, 80 px drag on the second row's grip while the first
+row's label re-wraps and expects the whole distance.
+
 ## [PowerRustCOBOL 1.70.77] — 2026-09-19
 
 ### An undeclared identifier is now a build error, not a warning
