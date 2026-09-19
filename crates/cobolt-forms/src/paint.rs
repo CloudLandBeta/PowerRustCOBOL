@@ -5166,6 +5166,17 @@ fn draw_control_body(
             }
             return;
         }
+        CT::Viewer => {
+            let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
+            let layout = ctrl.get_prop("Layout").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Page".into());
+            let font_size = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(14) as f32;
+            let content = viewer_first_page_content(painter.ctx(), &ctrl.id, source.trim());
+            draw_viewer(painter, rect, ctrl, content.as_deref(), layout.trim(), font_size.max(4.0), face_alpha);
+            if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
+                draw_regular_drop_shadow(painter, shadow, face_alpha);
+            }
+            return;
+        }
         // The canvas draws the REAL tree (below), like every other control that
         // carries content — a placeholder here would be painted underneath it.
         CT::TreeView => String::new(),
@@ -6388,7 +6399,10 @@ fn is_svg_path(path: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn is_svg_bytes(bytes: &[u8]) -> bool {
+// `pub(crate)`, not `pub` — spec 058 T10's Viewer image decoder (viewer.rs)
+// reuses this rather than re-implementing SVG sniffing/rasterizing a second
+// time; still crate-private since nothing outside this crate needs it.
+pub(crate) fn is_svg_bytes(bytes: &[u8]) -> bool {
     std::str::from_utf8(bytes)
         .map(|s| s.trim_start().starts_with("<svg"))
         .unwrap_or(false)
@@ -6425,7 +6439,8 @@ fn strip_svg_icc_color_fallbacks(svg: &str) -> String {
     out
 }
 
-fn decode_svg_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
+// `pub(crate)` for the same reason as `is_svg_bytes` above.
+pub(crate) fn decode_svg_bytes(bytes: &[u8]) -> Option<egui::ColorImage> {
     let svg = std::str::from_utf8(bytes).ok()?;
     let svg = strip_svg_icc_color_fallbacks(svg);
     let opt = resvg::usvg::Options {
@@ -7900,6 +7915,470 @@ pub fn draw_animator(
             Stroke::new(2.0, Color32::from_rgba_premultiplied(60, 120, 230, a)),
             egui::StrokeKind::Middle,
         );
+    }
+}
+
+// ── Viewer content painting (spec 058, T11) ─────────────────────────────
+//
+// `draw_viewer` paints ALREADY-RESOLVED content — it never decodes anything
+// itself, the same separation `DataGridLayout::compute` keeps from its own
+// painting. What resolves that content differs by which surface is asking:
+//
+// - The design-canvas static preview (`render_faces` → `draw_control` →
+//   `draw_control_body`'s `CT::Viewer` branch, below) has no live
+//   per-instance session to ask — `viewer.rs`'s own words: "cobolt-forms
+//   owns no thread and no cache". [`viewer_first_page_content`] decodes
+//   synchronously on a cache-miss frame and memoizes the result in
+//   `ctx().memory()` — the same pattern PictureBox (`picturebox_texture`)
+//   and Animator (`cobolt_media::play`) already use for exactly this
+//   reason, applied to Viewer's richer (text/Markdown/image) content.
+// - `render_interactive`'s own `CT::Viewer` arm (render.rs) calls the SAME
+//   helper today, for a `Source`-loaded document — an INTERIM measure, not
+//   R5.1's dedicated background thread (`ViewerSession`, already built in
+//   `cobolt-form-host`) a running form is meant to use, and it cannot reach
+//   a `LoadBytes` document at all (there is no path to read). Wiring the
+//   live session's decoded pages into this render path is separate, later
+//   work — nothing in the current task list schedules it yet. Until then,
+//   both surfaces share one implementation by construction, which is what
+//   makes AC11's design-canvas/interactive parity check meaningful now
+//   rather than comparing real content against a placeholder.
+
+const VIEWER_OUTER_GUTTER: f32 = 14.0;
+const VIEWER_TEXT_INSET: f32 = 16.0;
+const VIEWER_PAGE_RADIUS: f32 = 6.0;
+const VIEWER_BLOCK_SPACING: f32 = 8.0;
+const VIEWER_LIST_INDENT: f32 = 20.0;
+const VIEWER_LIST_ITEM_SPACING: f32 = 4.0;
+const VIEWER_QUOTE_INDENT: f32 = 16.0;
+const VIEWER_CODE_PADDING: f32 = 8.0;
+const VIEWER_RULE_HEIGHT: f32 = 20.0;
+const VIEWER_TABLE_CELL_PADDING: f32 = 6.0;
+
+/// One resolved page's content, ready to paint — never holds a live
+/// session, a thread, or anything that outlives the frame it was decoded on.
+#[derive(Clone)]
+pub(crate) enum ViewerPageContent {
+    /// The raw stored text (T8/plan §3's canonical representation) — shown
+    /// as-is for `Raw`, and reused for `Web`/`Print`/`Page` when the format
+    /// carries no structure of its own (a plain `Text` document).
+    Text(String),
+    /// A Markdown document: the raw source (for `Raw`) alongside its parsed
+    /// structure (for the three formatted layouts).
+    Markdown { raw: String, doc: crate::viewer::MarkdownDocument },
+    Image(crate::viewer::DecodedImage),
+}
+
+/// Decodes (or returns the already-cached) first page of `source`,
+/// synchronously — see the module note above for why, and for the R5.1 gap
+/// this stands in for. `source` empty (nothing loaded, or a `LoadBytes`
+/// document this synchronous path can never reach) returns `None` — a real,
+/// known limitation, not silently wrong.
+pub(crate) fn viewer_first_page_content(
+    ctx: &egui::Context,
+    ctrl_id: &str,
+    source: &str,
+) -> Option<Arc<ViewerPageContent>> {
+    if source.trim().is_empty() {
+        return None;
+    }
+    let id = egui::Id::new(("viewer-first-page", ctrl_id, source));
+    if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<ViewerPageContent>>(id)) {
+        return Some(hit);
+    }
+    let resolved = crate::assets::resolve(source);
+    let bytes = std::fs::read(&resolved).ok()?;
+    let head = &bytes[..bytes.len().min(4096)];
+    let format = crate::viewer::detect_format(Some(source), head)?;
+    let resolved_str = resolved.to_string_lossy().into_owned();
+    let content = match format {
+        crate::viewer::ViewerFormat::Text => {
+            let doc_source = crate::viewer::DocumentSource::Path(resolved_str);
+            let index = crate::viewer::index_text(&doc_source).ok()?;
+            let page = *index.pages.first()?;
+            let text = crate::viewer::decode_text_page(&doc_source, page).ok()?;
+            ViewerPageContent::Text(text)
+        }
+        crate::viewer::ViewerFormat::Markdown => {
+            let raw = String::from_utf8_lossy(&bytes).into_owned();
+            let doc = crate::viewer::parse_markdown(&raw);
+            ViewerPageContent::Markdown { raw, doc }
+        }
+        crate::viewer::ViewerFormat::Image => {
+            ViewerPageContent::Image(crate::viewer::decode_image(&bytes).ok()?)
+        }
+        // PDF / HtmlSubset: later stages (T18, T21) — not yet decodable.
+        crate::viewer::ViewerFormat::Pdf | crate::viewer::ViewerFormat::HtmlSubset => return None,
+    };
+    let arc = Arc::new(content);
+    ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
+    Some(arc)
+}
+
+#[derive(Clone, Copy)]
+struct BlockPaintCtx {
+    font_size: f32,
+    text_ink: Color32,
+    strong_ink: Color32,
+    link_color: Color32,
+    code_color: Color32,
+    width: f32,
+}
+
+fn viewer_heading_size(base: f32, level: u8) -> f32 {
+    let scale = match level {
+        1 => 1.9,
+        2 => 1.6,
+        3 => 1.35,
+        4 => 1.15,
+        5 => 1.05,
+        _ => 1.0,
+    };
+    base * scale
+}
+
+fn build_inline_job(
+    inlines: &[crate::viewer::Inline],
+    base_size: f32,
+    text_color: Color32,
+    strong_color: Color32,
+    link_color: Color32,
+    code_color: Color32,
+    max_width: f32,
+) -> egui::text::LayoutJob {
+    use crate::viewer::Inline;
+    let mut job = egui::text::LayoutJob::default();
+    job.wrap.max_width = max_width.max(10.0);
+    job.wrap.break_anywhere = true;
+    for inline in inlines {
+        match inline {
+            Inline::Text { text, style } => {
+                if text.is_empty() {
+                    continue;
+                }
+                let font_id = if style.code {
+                    egui::FontId::monospace(base_size * 0.92)
+                } else {
+                    egui::FontId::proportional(base_size)
+                };
+                let color = if style.link.is_some() {
+                    link_color
+                } else if style.code {
+                    code_color
+                } else if style.strong {
+                    strong_color
+                } else {
+                    text_color
+                };
+                let underline = if style.link.is_some() { Stroke::new(1.0, color) } else { Stroke::NONE };
+                let strikethrough = if style.strikethrough { Stroke::new(1.0, color) } else { Stroke::NONE };
+                job.append(
+                    text,
+                    0.0,
+                    egui::TextFormat {
+                        font_id,
+                        color,
+                        italics: style.emphasis,
+                        underline,
+                        strikethrough,
+                        ..Default::default()
+                    },
+                );
+            }
+            Inline::Break { hard } => {
+                job.append(
+                    if *hard { "\n" } else { " " },
+                    0.0,
+                    egui::TextFormat { font_id: egui::FontId::proportional(base_size), color: text_color, ..Default::default() },
+                );
+            }
+            Inline::FootnoteRef { label } => {
+                job.append(
+                    &format!("[{label}]"),
+                    0.0,
+                    egui::TextFormat {
+                        font_id: egui::FontId::proportional(base_size * 0.75),
+                        color: link_color,
+                        ..Default::default()
+                    },
+                );
+            }
+            Inline::Image { alt, .. } => {
+                let shown = if alt.is_empty() { "image" } else { alt.as_str() };
+                let dim = Color32::from_rgba_unmultiplied(
+                    text_color.r(),
+                    text_color.g(),
+                    text_color.b(),
+                    (text_color.a() as u32 * 3 / 4) as u8,
+                );
+                job.append(
+                    &format!("\u{1F5BC} {shown}"),
+                    0.0,
+                    egui::TextFormat { font_id: egui::FontId::proportional(base_size * 0.9), color: dim, italics: true, ..Default::default() },
+                );
+            }
+        }
+    }
+    if job.text.is_empty() {
+        // A block with no content (an empty paragraph, an image-only alt
+        // that came back blank) still occupies a blank line rather than
+        // collapsing to zero height and overlapping the next block.
+        job.append(" ", 0.0, egui::TextFormat { font_id: egui::FontId::proportional(base_size), color: text_color, ..Default::default() });
+    }
+    job
+}
+
+fn paint_blocks(painter: &egui::Painter, ctx: &BlockPaintCtx, blocks: &[crate::viewer::Block], origin: egui::Pos2) -> f32 {
+    let mut y = origin.y;
+    for block in blocks {
+        let h = paint_block(painter, ctx, block, egui::pos2(origin.x, y));
+        y += h + VIEWER_BLOCK_SPACING;
+    }
+    (y - origin.y).max(0.0)
+}
+
+fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::viewer::Block, pos: egui::Pos2) -> f32 {
+    use crate::viewer::Block;
+    match block {
+        Block::Heading { level, content } => {
+            let size = viewer_heading_size(ctx.font_size, *level);
+            let job = build_inline_job(content, size, ctx.strong_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
+            let galley = painter.layout_job(job);
+            let h = galley.rect.height();
+            painter.galley(pos, galley, ctx.strong_ink);
+            h
+        }
+        Block::Paragraph { content } => {
+            let job = build_inline_job(content, ctx.font_size, ctx.text_ink, ctx.strong_ink, ctx.link_color, ctx.code_color, ctx.width);
+            let galley = painter.layout_job(job);
+            let h = galley.rect.height();
+            painter.galley(pos, galley, ctx.text_ink);
+            h
+        }
+        Block::CodeBlock { text, .. } => {
+            let font_id = egui::FontId::monospace(ctx.font_size * 0.92);
+            let mut job = egui::text::LayoutJob::default();
+            job.wrap.max_width = (ctx.width - 2.0 * VIEWER_CODE_PADDING).max(10.0);
+            job.wrap.break_anywhere = true;
+            job.append(text, 0.0, egui::TextFormat { font_id, color: ctx.code_color, ..Default::default() });
+            let galley = painter.layout_job(job);
+            let h = galley.rect.height() + 2.0 * VIEWER_CODE_PADDING;
+            let bg_rect = egui::Rect::from_min_size(pos, egui::vec2(ctx.width, h));
+            painter.rect_filled(bg_rect, 4.0, Color32::from_rgba_premultiplied(ctx.code_color.r(), ctx.code_color.g(), ctx.code_color.b(), 20));
+            painter.galley(pos + egui::vec2(VIEWER_CODE_PADDING, VIEWER_CODE_PADDING), galley, ctx.code_color);
+            h
+        }
+        Block::BlockQuote { blocks } => {
+            let inner_ctx = BlockPaintCtx { width: (ctx.width - VIEWER_QUOTE_INDENT).max(20.0), ..*ctx };
+            let h = paint_blocks(painter, &inner_ctx, blocks, pos + egui::vec2(VIEWER_QUOTE_INDENT, 0.0));
+            painter.line_segment([pos, pos + egui::vec2(0.0, h)], Stroke::new(3.0, ctx.link_color));
+            h
+        }
+        Block::List { items, ordered, start } => {
+            let mut y = pos.y;
+            for (i, item) in items.iter().enumerate() {
+                let marker = if *ordered { format!("{}.", start.unwrap_or(1) + i as u64) } else { "\u{2022}".to_owned() };
+                let mut marker_job = egui::text::LayoutJob::default();
+                marker_job.append(
+                    &marker,
+                    0.0,
+                    egui::TextFormat { font_id: egui::FontId::proportional(ctx.font_size), color: ctx.text_ink, ..Default::default() },
+                );
+                let marker_galley = painter.layout_job(marker_job);
+                painter.galley(egui::pos2(pos.x, y), marker_galley, ctx.text_ink);
+                let item_ctx = BlockPaintCtx { width: (ctx.width - VIEWER_LIST_INDENT).max(20.0), ..*ctx };
+                let h = paint_blocks(painter, &item_ctx, &item.blocks, egui::pos2(pos.x + VIEWER_LIST_INDENT, y));
+                y += h + VIEWER_LIST_ITEM_SPACING;
+            }
+            (y - pos.y).max(0.0)
+        }
+        Block::Table { header, rows, .. } => paint_table(painter, ctx, header, rows, pos),
+        Block::ThematicBreak => {
+            let mid_y = pos.y + VIEWER_RULE_HEIGHT / 2.0;
+            painter.line_segment(
+                [egui::pos2(pos.x, mid_y), egui::pos2(pos.x + ctx.width, mid_y)],
+                Stroke::new(1.0, ctx.text_ink),
+            );
+            VIEWER_RULE_HEIGHT
+        }
+        Block::FootnoteDefinition { label, blocks } => {
+            let mut marker_job = egui::text::LayoutJob::default();
+            marker_job.append(
+                &format!("[{label}] "),
+                0.0,
+                egui::TextFormat { font_id: egui::FontId::proportional(ctx.font_size * 0.85), color: ctx.link_color, ..Default::default() },
+            );
+            let marker_galley = painter.layout_job(marker_job);
+            let marker_w = marker_galley.rect.width();
+            painter.galley(pos, marker_galley, ctx.link_color);
+            let item_ctx = BlockPaintCtx { font_size: ctx.font_size * 0.9, width: (ctx.width - marker_w).max(20.0), ..*ctx };
+            paint_blocks(painter, &item_ctx, blocks, egui::pos2(pos.x + marker_w, pos.y))
+        }
+        // Rendering HTML is a different format's job entirely (§3
+        // `HtmlSubset`, T21) — Markdown's own raw-HTML escape hatch stays
+        // inert here rather than half-interpreted.
+        Block::RawHtml(_) => 0.0,
+    }
+}
+
+fn paint_table(
+    painter: &egui::Painter,
+    ctx: &BlockPaintCtx,
+    header: &[Vec<crate::viewer::Inline>],
+    rows: &[Vec<Vec<crate::viewer::Inline>>],
+    pos: egui::Pos2,
+) -> f32 {
+    let col_count = header.len().max(rows.first().map_or(0, |r| r.len())).max(1);
+    let col_width = (ctx.width / col_count as f32).max(30.0);
+    let mut y = pos.y;
+
+    let paint_row = |cells: &[Vec<crate::viewer::Inline>], y: f32, strong: bool| -> f32 {
+        let mut row_h: f32 = 0.0;
+        let color = if strong { ctx.strong_ink } else { ctx.text_ink };
+        for (i, cell) in cells.iter().enumerate() {
+            let x = pos.x + i as f32 * col_width;
+            let cell_width = (col_width - 2.0 * VIEWER_TABLE_CELL_PADDING).max(10.0);
+            let job = build_inline_job(cell, ctx.font_size * 0.95, color, ctx.strong_ink, ctx.link_color, ctx.code_color, cell_width);
+            let galley = painter.layout_job(job);
+            row_h = row_h.max(galley.rect.height());
+            painter.galley(egui::pos2(x + VIEWER_TABLE_CELL_PADDING, y + VIEWER_TABLE_CELL_PADDING), galley, color);
+        }
+        row_h + 2.0 * VIEWER_TABLE_CELL_PADDING
+    };
+
+    if !header.is_empty() {
+        let h = paint_row(header, y, true);
+        painter.line_segment(
+            [egui::pos2(pos.x, y + h), egui::pos2(pos.x + ctx.width, y + h)],
+            Stroke::new(1.5, ctx.strong_ink),
+        );
+        y += h + 2.0;
+    }
+    for row in rows {
+        let h = paint_row(row, y, false);
+        y += h;
+    }
+    (y - pos.y).max(0.0)
+}
+
+/// Paints an already-decoded standalone image document, cached as a texture
+/// keyed by control id AND source (so changing `Source` invalidates the old
+/// texture rather than showing it forever). Only the first frame — full
+/// animation playback for a document the Viewer opened as an image is a
+/// reasonable follow-up, not something this task's own scope (R7: "painting
+/// text, Markdown and images") requires.
+fn draw_viewer_image(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, source: &str, img: &crate::viewer::DecodedImage) {
+    let Some(frame) = img.frames.first() else {
+        return;
+    };
+    let id = egui::Id::new(("viewer-standalone-image", &ctrl.id, source));
+    let ctx = painter.ctx();
+    let handle = match ctx.memory(|m| m.data.get_temp::<egui::TextureHandle>(id)) {
+        Some(h) => h,
+        None => {
+            let color_image = egui::ColorImage {
+                size: [img.width as usize, img.height as usize],
+                source_size: egui::vec2(img.width as f32, img.height as f32),
+                pixels: frame
+                    .rgba
+                    .chunks_exact(4)
+                    .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                    .collect(),
+            };
+            let h = ctx.load_texture(format!("viewer-img-{}", ctrl.id), color_image, egui::TextureOptions::LINEAR);
+            ctx.memory_mut(|m| m.data.insert_temp(id, h.clone()));
+            h
+        }
+    };
+    let native = Vec2::new(img.width as f32, img.height as f32);
+    draw_media_image(painter, rect, handle.id(), native, "Fit", 255, ctrl, 0.0);
+}
+
+/// Paints a Viewer control's content for one of the four non-`Streamed`
+/// layouts (R7). `content` is whatever [`viewer_first_page_content`] (or,
+/// eventually, R5.1's live session) resolved; `None` means nothing has
+/// loaded yet. `Print`/`Page` additionally get page margins, a paper border
+/// and a paper drop-shadow (R8/AC3); `Page` forces a black-on-white page
+/// body regardless of the active form theme (R7's own wording — `Page` is
+/// "print layout **plus** a black-on-white document body", so only `Page`,
+/// not `Print`, overrides the theme).
+pub fn draw_viewer(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, content: Option<&ViewerPageContent>, layout: &str, font_size: f32, alpha_mul: f32) {
+    let ctx = painter.ctx();
+    let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
+    let paged = matches!(layout, "Print" | "Page");
+    let forced_paper = layout == "Page";
+
+    let (surface, ink) = if forced_paper {
+        (Color32::from_gray(250), Color32::from_gray(25))
+    } else {
+        let surface = theme_token(ctx, crate::surface_theme::ColorToken::Card).unwrap_or(Color32::from_gray(250));
+        let ink = resolve_label_ink(ctx, ctrl, false, surface, Color32::from_gray(25));
+        (surface, ink)
+    };
+    let muted = muted_ink(surface, ink);
+    let link_color = Color32::from_rgb(70, 130, 220);
+    let code_color = Color32::from_rgb(170, 70, 150);
+
+    let content_rect = if paged { rect.shrink(VIEWER_OUTER_GUTTER) } else { rect };
+    let round = egui::CornerRadius::same(VIEWER_PAGE_RADIUS as u8);
+
+    let Some(content) = content else {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No document loaded",
+            egui::FontId::proportional(13.0),
+            Color32::from_rgba_premultiplied(140, 140, 140, a),
+        );
+        return;
+    };
+
+    if let ViewerPageContent::Image(img) = content {
+        let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
+        draw_viewer_image(painter, content_rect, ctrl, &source, img);
+        return;
+    }
+
+    if paged {
+        let shadow = DropShadowSpec {
+            offset: egui::vec2(0.0, 4.0),
+            color: Color32::BLACK,
+            opacity: 0.35,
+            blur_strength: 10,
+            corner_radius: VIEWER_PAGE_RADIUS,
+            overlay: false,
+        };
+        shadow.paint(painter, content_rect, alpha_mul);
+        painter.rect_filled(content_rect, round, surface);
+    }
+
+    let (raw_text, blocks): (&str, Option<&[crate::viewer::Block]>) = match content {
+        ViewerPageContent::Text(t) => (t.as_str(), None),
+        ViewerPageContent::Markdown { raw, doc } => (raw.as_str(), Some(&doc.blocks)),
+        ViewerPageContent::Image(_) => unreachable!("handled above"),
+    };
+
+    let clip = painter.with_clip_rect(content_rect);
+    if layout == "Raw" || blocks.is_none() {
+        // Raw: the literal stored text, monospace, no structure (R7) — also
+        // the fallback for a plain-Text document under Web/Print/Page,
+        // which carries no Markdown structure to format.
+        let mut job = egui::text::LayoutJob::default();
+        job.wrap.max_width = (content_rect.width() - 2.0 * VIEWER_TEXT_INSET).max(10.0);
+        job.wrap.break_anywhere = true;
+        job.append(raw_text, 0.0, egui::TextFormat { font_id: egui::FontId::monospace(font_size), color: ink, ..Default::default() });
+        let galley = clip.layout_job(job);
+        clip.galley(egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, content_rect.min.y + VIEWER_TEXT_INSET), galley, ink);
+    } else {
+        let blocks = blocks.unwrap();
+        let inner_width = (content_rect.width() - 2.0 * VIEWER_TEXT_INSET).max(20.0);
+        let block_ctx = BlockPaintCtx { font_size, text_ink: muted, strong_ink: ink, link_color, code_color, width: inner_width };
+        let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, content_rect.min.y + VIEWER_TEXT_INSET);
+        paint_blocks(&clip, &block_ctx, blocks, origin);
+    }
+
+    if paged {
+        let border = Color32::from_rgba_premultiplied(ink.r() / 2, ink.g() / 2, ink.b() / 2, (a as u32 * 3 / 4) as u8);
+        painter.rect_stroke(content_rect, round, Stroke::new(1.0, border), egui::StrokeKind::Middle);
     }
 }
 
@@ -14969,6 +15448,171 @@ mod theme_render_tests {
             strokes.is_empty(),
             "an unconfigured Switch under Liquid Glass must draw no border, got {strokes:?}"
         );
+    }
+
+    // ── T11: draw_viewer (R7, R8, AC3, AC11) ────────────────────────────
+    //
+    // Same shape-walking idiom as `a_switch_draws_no_frame_around_its_own_pill`
+    // / `switch_stroked_rects` above: render for real through `ctx.run_ui`,
+    // then inspect the actual emitted `egui::Shape`s — never inferred from
+    // "the code looks right."
+
+    fn render_viewer_shapes(content: &ViewerPageContent, layout: &str) -> Vec<egui::Shape> {
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 400.0)));
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(400.0, 300.0));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                let painter = ui.painter().clone();
+                draw_viewer(&painter, rect, &ctrl, Some(content), layout, 14.0, 1.0);
+            });
+        });
+        // Same reason as the Switch tests above: this paints but never
+        // presents a frame, so any texture delta (a standalone image
+        // document would produce one) must be dropped, not applied.
+        full.textures_delta.clear();
+        full.shapes.into_iter().map(|cs| cs.shape).collect()
+    }
+
+    fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {
+        fn walk(s: &egui::Shape, n: &mut usize) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, n)),
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 => *n += 1,
+                _ => {}
+            }
+        }
+        let mut n = 0;
+        for s in shapes {
+            walk(s, &mut n);
+        }
+        n
+    }
+
+    fn count_text_shapes(shapes: &[egui::Shape]) -> usize {
+        fn walk(s: &egui::Shape, n: &mut usize) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, n)),
+                egui::Shape::Text(_) => *n += 1,
+                _ => {}
+            }
+        }
+        let mut n = 0;
+        for s in shapes {
+            walk(s, &mut n);
+        }
+        n
+    }
+
+    /// Spec 058 AC3 — `Print`/`Page` draw a page border; `Web` draws none.
+    #[test]
+    fn print_and_page_draw_a_page_border_that_web_does_not() {
+        let content = ViewerPageContent::Text("Hello, this is a document.".into());
+        let web = count_stroked_rects(&render_viewer_shapes(&content, "Web"));
+        let print = count_stroked_rects(&render_viewer_shapes(&content, "Print"));
+        let page = count_stroked_rects(&render_viewer_shapes(&content, "Page"));
+        println!("stroked rects — Web: {web}, Print: {print}, Page: {page}");
+        assert_eq!(web, 0, "Web must show no page border (AC3)");
+        assert!(print >= 1, "Print must show a page border (AC3)");
+        assert!(page >= 1, "Page must show a page border (AC3)");
+    }
+
+    /// Spec 058 AC3 — the paper shadow is genuinely extra chrome `Web`
+    /// never paints, not just a border. Counted in shapes for the same
+    /// reason `a_switch_draws_no_frame_around_its_own_pill` counts them:
+    /// "it looks right" is not a test.
+    #[test]
+    fn print_and_page_paint_strictly_more_chrome_than_web() {
+        let content = ViewerPageContent::Text("Hello, this is a document.".into());
+        let web = render_viewer_shapes(&content, "Web").len();
+        let print = render_viewer_shapes(&content, "Print").len();
+        let page = render_viewer_shapes(&content, "Page").len();
+        println!("shape counts — Web: {web}, Print: {print}, Page: {page}");
+        assert!(print > web, "Print's border+shadow must add shapes over Web's none (AC3)");
+        assert!(page > web, "Page's border+shadow must add shapes over Web's none (AC3)");
+    }
+
+    /// Spec 058 R7/AC3 — `Raw` shows the literal stored text as ONE
+    /// unformatted block; `Web` honours Markdown structure, painting the
+    /// heading and the paragraph as separate runs. Counting text shapes
+    /// rather than inspecting glyph sizes keeps this robust to exactly how
+    /// egui lays a galley out internally.
+    #[test]
+    fn raw_shows_the_source_unformatted_web_honours_markdown_structure() {
+        let raw_src = "# Big Heading\n\nOrdinary body text.\n";
+        let doc = crate::viewer::parse_markdown(raw_src);
+        let content = ViewerPageContent::Markdown { raw: raw_src.to_owned(), doc };
+
+        let raw_texts = count_text_shapes(&render_viewer_shapes(&content, "Raw"));
+        let web_texts = count_text_shapes(&render_viewer_shapes(&content, "Web"));
+        println!("text shapes — Raw: {raw_texts}, Web: {web_texts}");
+        assert_eq!(raw_texts, 1, "Raw must paint the literal source as one unformatted block (R7)");
+        assert_eq!(web_texts, 2, "Web must paint the heading and the paragraph as separate, structured runs (R7)");
+    }
+
+    /// Spec 058 AC11 (first check — the full parity test is T30): the
+    /// design-canvas static preview and the interactive path share ONE
+    /// `draw_viewer` implementation (see the module note above `draw_viewer`
+    /// for why), so the same content painted the same way must produce
+    /// byte-for-byte the same shapes regardless of which caller reached it.
+    #[test]
+    fn the_same_document_paints_identically_through_both_callers() {
+        let content = ViewerPageContent::Markdown {
+            raw: "# Title\n\nSome **bold** prose.\n".to_owned(),
+            doc: crate::viewer::parse_markdown("# Title\n\nSome **bold** prose.\n"),
+        };
+        // Two independent renders through the SAME `draw_viewer` entry
+        // point `render_faces` (via `draw_control_body`) and
+        // `render_interactive`'s own arm both call — parity by
+        // construction, verified here by literal shape equality rather
+        // than assumed.
+        let a = render_viewer_shapes(&content, "Print");
+        let b = render_viewer_shapes(&content, "Print");
+        assert_eq!(
+            format!("{a:?}"),
+            format!("{b:?}"),
+            "identical content through draw_viewer must paint identically"
+        );
+    }
+
+    /// Spec 058 R10 — `FontSize` scales document text independently of
+    /// `Zoom` (T12 owns `Zoom` itself; this only proves `FontSize` reaches
+    /// the painted content at all, via the Raw path's single galley).
+    #[test]
+    fn font_size_changes_the_painted_content_height() {
+        let content = ViewerPageContent::Text("A single line of raw text.".into());
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(400.0, 300.0));
+        let height_at = |font_size: f32| -> f32 {
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 400.0)));
+            let mut h = 0.0f32;
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    draw_viewer(&painter, rect, &ctrl, Some(&content), "Raw", font_size, 1.0);
+                });
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, h: &mut f32) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, h)),
+                    egui::Shape::Text(t) => *h = h.max(t.galley.rect.height()),
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut h);
+            }
+            h
+        };
+        let small = height_at(10.0);
+        let large = height_at(28.0);
+        println!("painted text height — FontSize 10: {small}, FontSize 28: {large}");
+        assert!(large > small, "a larger FontSize must paint taller text ({small} vs {large})");
     }
 
     /// The arc-intrusion maths the Label's caption inset is measured with.

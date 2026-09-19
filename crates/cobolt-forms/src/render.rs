@@ -10078,7 +10078,23 @@ fn render_interactive(
         // carry it — one step earlier than the Snackbar/WebSearch/IndexedFile
         // lesson above, same shape.
         CT::Viewer => {
-            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+            let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
+            let layout = ctrl.get_prop("Layout").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Page".into());
+            let font_size = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(14) as f32;
+
+            // R32: fire once per actual change, never on the first frame a
+            // value is merely observed (there is nothing to compare against
+            // yet, so nothing has "changed").
+            let layout_mem = ctrl_id.with("viewer-last-layout");
+            let prev_layout = ui.ctx().memory(|m| m.data.get_temp::<String>(layout_mem));
+            if prev_layout.as_deref().is_some_and(|p| p != layout) {
+                out.events.push(UiEvent::ev(id, "onLayoutChanged"));
+            }
+            ui.ctx().memory_mut(|m| m.data.insert_temp(layout_mem, layout.clone()));
+
+            let content = paint::viewer_first_page_content(ui.ctx(), &ctrl.id, source.trim());
+            paint::draw_viewer(&painter, screen, ctrl, content.as_deref(), layout.trim(), font_size.max(4.0), alpha);
+
             let resp = ui.interact(screen, ctrl_id, Sense::click());
             focus_keyboard_events(ui, &resp, id, out, &bound);
             if resp.clicked() {
@@ -10090,13 +10106,6 @@ fn render_interactive(
                     + 1;
                 ui.ctx().memory_mut(|m| m.data.insert_temp(mem, n));
             }
-            painter.text(
-                screen.center(),
-                Align2::CENTER_CENTER,
-                "Viewer — no document loaded",
-                FontId::proportional(13.0),
-                Color32::from_gray(140),
-            );
         }
 
         _ => {

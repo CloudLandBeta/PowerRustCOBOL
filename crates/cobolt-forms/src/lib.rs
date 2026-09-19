@@ -50,6 +50,12 @@ pub mod snackbar;
 pub mod theme;
 pub mod theme_pack;
 pub mod xml;
+/// The Viewer's pure parts (spec 058) — format resolution, plain-text
+/// page-break indexing and on-demand page decoding. Deliberately NOT behind
+/// `render`, for the reason `snackbar` and `splitter` are not: this reads
+/// and seeks real files via plain `std::fs`, none of it `egui`. The live
+/// thread/cache lives in `cobolt-form-host::viewer_session` instead.
+pub mod viewer;
 
 pub use model::{
     parse_map_markers, serialize_map_markers, ApprovedBindingTargetKind, BindingChartKind,

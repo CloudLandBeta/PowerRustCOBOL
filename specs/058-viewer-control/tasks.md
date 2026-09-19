@@ -127,7 +127,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage C — Wave 1: text, Markdown, images (one view, no split, no search yet)
 
-- [ ] **T8 — Plain text: load, index, paginate** (R1, R2, R3, R4, R6, R9)
+- [x] **T8 — Plain text: load, index, paginate** (R1, R2, R3, R4, R6, R9)
   - Files: `crates/cobolt-forms/src/viewer.rs` (new)
   - Do: `Source`/`LoadBytes` loading; format resolution (content first,
         extension second) into `ViewerFormat`; **the loaded bytes/text are
@@ -140,7 +140,7 @@ not a claim about what §8.1 means architecturally.
         (**AC1**, tied to T7); an unsupported format raises `onError` and
         leaves any prior document displayed (R4).
 
-- [ ] **T9 — Markdown walker → internal layout model** (R7, R9, AC2)
+- [x] **T9 — Markdown walker → internal layout model** (R7, R9, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (`pulldown-cmark`,
         matching `cobolt-ide`'s `0.12`, `default-features = false`)
   - Do: walk `pulldown-cmark` events into a layout model — paragraphs,
@@ -150,7 +150,7 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-forms` — reports node counts per construct
         checked; each of the "common extensions" has its own case.
 
-- [ ] **T10 — Image decoding** (R7, AC2)
+- [x] **T10 — Image decoding** (R7, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (extend `image`
         features: `gif`, `webp`, `bmp`, `tiff` — `png`/`jpeg` and `resvg`/SVG
         already present)
@@ -164,7 +164,7 @@ not a claim about what §8.1 means architecturally.
         reporting dimensions/frame counts per format, checked against what §3
         promises (nothing silently over- or under-delivered).
 
-- [ ] **T11 — `paint::draw_viewer`: layouts, and the design-canvas preview**
+- [x] **T11 — `paint::draw_viewer`: layouts, and the design-canvas preview**
       (R7, R8, R10, R32, AC3, AC11)
   - Files: `crates/cobolt-forms/src/paint.rs`
   - Do: the four non-Streamed `Layout` modes (`Raw`/`Web`/`Print`/`Page`)

@@ -1398,6 +1398,7 @@ dependencies = [
  "indexmap",
  "native-tls",
  "pretty_assertions",
+ "pulldown-cmark 0.12.2",
  "quick-xml 0.36.2",
  "resvg",
  "serde",
