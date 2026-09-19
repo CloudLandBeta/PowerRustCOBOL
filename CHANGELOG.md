@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.76] — 2026-09-19
+
+### The sidebar wears the blocked form's overlay too — one layer, one window
+
+With a form in the ContentPane waiting on its modal child, the host painted
+the form's chosen overlay over the pane only; the shell's rail and
+breadcrumb got egui's disabled fade instead (`ShellApp::ui` disables the
+whole root `Ui`, halving its opacity) — so a `Greyed` form sat beside a
+merely semi-transparent sidebar (operator, 2026-09-19). Now
+`Shell::show_with_host` paints the SAME layer, at full strength, over the
+rail and over a breadcrumb panel (a breadcrumb *band* lies inside the
+content rect and is already under the host's overlay, so it is not painted
+twice); the root `Ui` keeps its opacity after `disable()`, and the fill
+comes from one place (`host::modal_overlay_fill`) so no surface can drift.
+`FormHost::blocked_overlay_style()` reports the blocked form's choice — the
+active occupant's, else the root form's — and `None` when nothing blocks.
+New shell regression: blocked, a rect in the form's Greyed fill covers the
+rail; free, no such layer exists.
+
 ## [PowerRustCOBOL 1.70.75] — 2026-09-19
 
 ### PowerDemo3's indexedfile-form follows the project's GLOBAL standard

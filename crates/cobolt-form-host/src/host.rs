@@ -263,10 +263,25 @@ pub(crate) fn fx_window_flags(entrance: &cobolt_forms::window_fx::FxSpec) -> (bo
 /// `disabled_alpha`, 0.5, inherited by every child `Ui`). The overlay is the
 /// deliberate "this form is waiting" signal and must paint at its designed
 /// strength whether or not the shell disabled the whole face above it.
-fn overlay_painter(ui: &egui::Ui) -> egui::Painter {
+pub(crate) fn overlay_painter(ui: &egui::Ui) -> egui::Painter {
     ui.ctx()
         .layer_painter(ui.layer_id())
         .with_clip_rect(ui.clip_rect())
+}
+
+/// The one grey layer a blocked form wears, in the strength its design chose
+/// — the SAME fill wherever the blocked face is painted (the form's own
+/// pane, and the shell's rail and breadcrumb around it), so `Greyed` never
+/// reads as `SemiTransparent` on one part of the window and not another.
+pub(crate) fn modal_overlay_fill(style: cobolt_forms::model::ModalOverlayStyle) -> egui::Color32 {
+    match style {
+        cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
+            egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)
+        }
+        cobolt_forms::model::ModalOverlayStyle::Greyed => {
+            egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
+        }
+    }
 }
 
 pub fn run(config: FormHostConfig) {
@@ -2282,14 +2297,7 @@ impl FormBody {
             // its own form here, not the shell — the shell has no `.cfrm` of
             // its own to carry the choice).
             if blocked {
-                let fill = match self.modal_overlay_style {
-                    cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
-                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)
-                    }
-                    cobolt_forms::model::ModalOverlayStyle::Greyed => {
-                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
-                    }
-                };
+                let fill = modal_overlay_fill(self.modal_overlay_style);
                 // Through a FRESH painter, not `panel_ui.painter()`: the
                 // shell disables its whole root `Ui` while blocked
                 // (`ShellApp::ui`), and egui's `Ui::disable` multiplies the
@@ -2911,6 +2919,29 @@ impl FormHost {
         rx.try_recv().ok().flatten().unwrap_or_default()
     }
 
+    /// Test-only: register a Sync+modal open of `form_id` by the ROOT with the
+    /// supervisor, so `root_modal_blocked()` is true with no real child
+    /// spawned (the supervisor only needs the handle to exist). For tests in
+    /// other modules of this crate, which cannot reach `supervisor` directly.
+    #[cfg(test)]
+    pub(crate) fn supervisor_open_modal_for_test(&mut self, form_id: &str) {
+        let (tx, _rx) = mpsc::channel();
+        let _ = self
+            .supervisor
+            .handle_request(cobolt_runtime::form_host::FormRequest::OpenForm {
+                caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                form_id: form_id.into(),
+                sync: true,
+                window_state: None,
+                x: None,
+                y: None,
+                width: None,
+                height: None,
+                modal: true,
+                reply: tx,
+            });
+    }
+
     /// The shell's `open-form:` probe (PowerDemo3 nested-sidebar report): does
     /// `form_id`'s design carry a SideMenu control anywhere in its tree? A
     /// SideMenu paints as a rail; embedded in the ContentPane it sits beside
@@ -3176,6 +3207,24 @@ impl FormHost {
             return false;
         };
         !self.supervisor.modal_children_of(&occ.handle).is_empty()
+    }
+
+    /// 051 R19/R28 — while the root face is blocked (a live modal child, or
+    /// the debugger), the overlay style the BLOCKED form designed: the active
+    /// ContentPane occupant's, else the root form's own. `None` = not
+    /// blocked. The shell paints its rail and breadcrumb from this so the
+    /// whole window wears one layer.
+    pub fn blocked_overlay_style(&self) -> Option<cobolt_forms::model::ModalOverlayStyle> {
+        if !(crate::debug_link::is_paused() || self.root_modal_blocked()) {
+            return None;
+        }
+        let style = self
+            .active_occupant
+            .as_ref()
+            .and_then(|key| self.occupants.get(key))
+            .map(|occ| occ.body.modal_overlay_style)
+            .unwrap_or(self.root.modal_overlay_style);
+        Some(style)
     }
 
     /// 051 — the child window under `handle`, if any.
@@ -4680,14 +4729,7 @@ impl FormHost {
             // that logic rather than a call to it, so the paint has to be
             // added here too.
             if root_blocked {
-                let fill = match self.root.modal_overlay_style {
-                    cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
-                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)
-                    }
-                    cobolt_forms::model::ModalOverlayStyle::Greyed => {
-                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
-                    }
-                };
+                let fill = modal_overlay_fill(self.root.modal_overlay_style);
                 // A fresh painter for the same reason as in `child_frame`: a
                 // root form shown in Pane mode sits under the shell's
                 // disabled root `Ui`, whose inherited painter would halve

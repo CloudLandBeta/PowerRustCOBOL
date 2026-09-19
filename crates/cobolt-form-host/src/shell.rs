@@ -1163,6 +1163,24 @@ impl Shell {
         }
         host.pane_frame(root_ui);
 
+        // 051 R19/R28 — while the pane's form waits on a modal child, the
+        // WHOLE face waits, and it must LOOK like one face: the host paints
+        // the form's chosen overlay over the pane, so the rail (and a
+        // breadcrumb panel above the content) get the same layer here. They
+        // used to get only egui's disabled fade instead — half opacity —
+        // so a `Greyed` form sat beside a merely faded sidebar (operator,
+        // 2026-09-19). A breadcrumb BAND (FullHeight on) lies inside the
+        // content rect and is already under the host's own overlay, so it is
+        // not painted twice.
+        if let Some(style) = host.blocked_overlay_style() {
+            let fill = crate::host::modal_overlay_fill(style);
+            let painter = crate::host::overlay_painter(root_ui);
+            painter.rect_filled(menu_rect, 0.0, fill);
+            if crumb_done {
+                painter.rect_filled(breadcrumb_rect, 0.0, fill);
+            }
+        }
+
         ShellLayout {
             menu_rect,
             breadcrumb_rect,
@@ -1734,6 +1752,11 @@ impl eframe::App for ShellApp {
         // shell face waits: chrome, breadcrumb and pane alike.
         if self.host.root_modal_blocked() {
             root_ui.disable();
+            // `disable()` refuses input AND halves the painter's opacity;
+            // the fade is not the "waiting" signal — the overlay
+            // `show_with_host` paints over rail, breadcrumb and pane is, in
+            // the style the blocked form chose. Chrome keeps its own look.
+            root_ui.set_opacity(1.0);
         }
         let shell = &mut self.shell;
         let host = &mut self.host;
@@ -4159,6 +4182,104 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
     /// background, unchanged across loads of forms with different
     /// backgrounds (R39); and the breadcrumb strip is disjoint from the
     /// pane-backdrop rect, so no form background can touch it (R14).
+    /// 051 R19/R28 — while the pane's form waits on a modal child, the rail
+    /// wears the SAME overlay the form chose (`Greyed` here), painted at full
+    /// strength: it used to get only egui's disabled fade — half opacity —
+    /// so a Greyed form sat beside a merely faded sidebar (operator,
+    /// 2026-09-19). And with nothing blocking, no such layer exists at all.
+    #[test]
+    fn a_blocked_pane_greys_the_rail_in_the_forms_own_style() {
+        use crate::host::{FormHostConfig, NoHooks, Surface};
+        use std::collections::HashMap;
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        use std::sync::{mpsc, Arc};
+
+        let mut form = cobolt_forms::Form::new("EMB", "Embedded", 300, 200);
+        form.modal_overlay_style = cobolt_forms::model::ModalOverlayStyle::Greyed;
+        let (ev_tx, _ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _f) = crate::FormHost::new(FormHostConfig {
+            form,
+            flat: Vec::new(),
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+            fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Pane,
+        });
+
+        let ctx = egui::Context::default();
+        let mut shell = Shell::default();
+        let grey = crate::host::modal_overlay_fill(cobolt_forms::model::ModalOverlayStyle::Greyed);
+        // One frame; report the rail rect and whether a rect in the Greyed
+        // fill covers it. `root_ui.disable()` first, exactly as `ShellApp::ui`
+        // does while blocked — the fade that halved the overlay lived there.
+        let mut run = |shell: &mut Shell, host: &mut crate::FormHost, blocked: bool| -> (Rect, bool) {
+            let mut layout = None;
+            let mut full = ctx.run_ui(raw(Vec2::new(1000.0, 700.0)), |root_ui| {
+                if blocked {
+                    root_ui.disable();
+                    root_ui.set_opacity(1.0);
+                }
+                layout = Some(shell.show_with_host(root_ui, |ui| { ui.label("menu"); }, host));
+            });
+            full.textures_delta.clear();
+            let menu_rect = layout.expect("shell ran").menu_rect;
+            fn walk(s: &egui::Shape, menu_rect: Rect, grey: egui::Color32, hit: &mut bool) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, menu_rect, grey, hit)),
+                    egui::Shape::Rect(r) if r.fill == grey && r.rect.contains_rect(menu_rect) => {
+                        *hit = true
+                    }
+                    _ => {}
+                }
+            }
+            let mut hit = false;
+            for cs in &full.shapes {
+                walk(&cs.shape, menu_rect, grey, &mut hit);
+            }
+            (menu_rect, hit)
+        };
+
+        let (rect_free, hit_free) = run(&mut shell, &mut host, false);
+        assert!(rect_free.width() > 1.0, "the rail was laid out");
+        assert!(!hit_free, "nothing blocks: the rail must wear no overlay");
+
+        // Register a modal child of the ROOT (the pane's form) — no window
+        // needs to spawn; `root_modal_blocked` only cares that one exists.
+        host.supervisor_open_modal_for_test("CHILD");
+        assert!(host.root_modal_blocked(), "the registered modal must block the root");
+        let (rect_blocked, hit_blocked) = run(&mut shell, &mut host, true);
+        assert!(
+            hit_blocked,
+            "blocked: the rail {rect_blocked:?} must be covered by a rect in the form's \
+             own Greyed overlay fill, at full strength"
+        );
+        println!("blocked rail {rect_blocked:?}: Greyed overlay present; free rail: none");
+    }
+
     #[test]
     fn menu_background_is_immune_to_loaded_forms() {
         use crate::host::{FormHostConfig, NoHooks, Surface};
