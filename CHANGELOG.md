@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.87] — 2026-09-19
+
+### Debug is live whenever Run is — with no source open it debugs the main form
+
+The toolbar's **Debug** (and the Run menu's) was enabled only while a COBOL
+source sat open in the editor, because that file was the only thing
+`do_debug` knew how to debug. Run, beside it, has launched the project's
+**main form** with no tab open since spec 037 — so a developer who had just
+built the project found Run live and Debug grey (operator, 2026-09-19:
+"after a build, the debug button in the IDE should be enabled"). Debug now
+gates as Run does — an open source, or a compilable project — and with no
+source open it debugs the project's main form, the very form Run would
+launch, through the same resolver (`launch_project_main_form`, which Run and
+Debug now share so they can never disagree about the target): an open
+designer's live state wins, a closed main form is loaded from disk, and the
+debugger attaches to the form's real window. A unit test pins the gate; the
+Guide's Debugging chapter says when the button is live.
+
 ## [PowerRustCOBOL 1.70.86] — 2026-09-19
 
 ### A chart's face takes the developer's background gradient — and the theme's card until they colour it
