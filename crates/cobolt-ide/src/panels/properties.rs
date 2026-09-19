@@ -9169,6 +9169,17 @@ impl PropertiesPanel {
                     );
                 }
                 int_prop_row(ui, id, "BorderBlur", tr.lbl_border_blur, ctrl, action, 0..=40, None, 1);
+                int_prop_row(
+                    ui,
+                    id,
+                    "BorderTransparency",
+                    tr.lbl_border_transparency,
+                    ctrl,
+                    action,
+                    0..=100,
+                    None,
+                    1,
+                );
                 ui.add_space(4.0);
 
                 // ── Visual ────────────────────────────────────────────────────

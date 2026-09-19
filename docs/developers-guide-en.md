@@ -1776,7 +1776,10 @@ still readable. Its frame is a real border like any other control's
 with two chart-only extras in the Properties pane: tick **Border gradient**
 to run the frame from a start colour to an end colour along a compass
 direction, and set **Border blur** (pixels) for a soft glow outward in the
-border's colour. `BorderStyle` `None` removes all of it.
+border's colour. **Border transparency** (0 = opaque, 100 = invisible) fades
+the line, the gradient and the blur together — on its own, independently of
+the chart's Transparency, which reaches only the background. `BorderStyle`
+`None` removes all of it.
 Charts also have a **Monochrome** mode: tick it and pick a **base colour** from
 the 256-swatch selector, and the chart renders its data in distinguishable
 tonal variations of that one colour instead of the multi-colour palette. Grid

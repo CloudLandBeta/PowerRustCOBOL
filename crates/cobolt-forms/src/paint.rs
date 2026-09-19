@@ -8702,7 +8702,19 @@ pub(crate) fn draw_chart_border(
     if width < 0.5 {
         return;
     }
-    let alpha = a as f32 / 255.0;
+    // The border's OWN transparency (0 = opaque … 100 = invisible), folded
+    // into the inherited alpha and carried by the line, the gradient ring and
+    // the blur rings alike — the chart's `Transparency` reaches only the
+    // face, so a frame can fade independently of what it frames.
+    let border_transparency = ctrl
+        .get_prop("BorderTransparency")
+        .map(|v| v.as_i64())
+        .unwrap_or(0)
+        .clamp(0, 100) as f32;
+    let alpha = (a as f32 / 255.0) * (1.0 - border_transparency / 100.0);
+    if alpha <= 0.0 {
+        return;
+    }
     let color = ctrl
         .get_prop("BorderColor")
         .map(|v| parse_color(v.as_str()))
@@ -16633,9 +16645,69 @@ slice = [4, 4, 4, 4]
             blurred.frame_strokes,
             plain.frame_strokes
         );
+        // BorderTransparency: the border's OWN fade. At 100 nothing of the
+        // frame is visible (a stroke at alpha 0 is not counted); at 50 the
+        // frame stroke is still there, at half the alpha it has at 0 — and
+        // the chart's face, which `Transparency` owns, is untouched either
+        // way (the walker only looks at strokes).
+        let faded_out = paint(&[
+            ("BorderWidth", PropValue::Int(3)),
+            ("BorderTransparency", PropValue::Int(100)),
+        ]);
+        assert_eq!(
+            faded_out.frame_strokes, none.frame_strokes,
+            "BorderTransparency 100 must leave no visible frame stroke, like BorderStyle None"
+        );
+        let stroke_alpha = |props: &[(&str, PropValue)]| -> u8 {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            for (k, v) in props {
+                c.set_prop(*k, v.clone());
+            }
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            // The widest full-size stroke is the border itself (the glass rim
+            // is 1 px); take its alpha.
+            let mut best: Option<(f32, u8)> = None;
+            fn walk(s: &egui::Shape, best: &mut Option<(f32, u8)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, best)),
+                    egui::Shape::Rect(r)
+                        if r.rect.width() >= 400.0
+                            && r.stroke.width > 0.0
+                            && r.stroke.color.a() > 0 =>
+                    {
+                        if best.map(|(w, _)| r.stroke.width > w).unwrap_or(true) {
+                            *best = Some((r.stroke.width, r.stroke.color.a()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut best);
+            }
+            best.expect("a visible frame stroke").1
+        };
+        let opaque = stroke_alpha(&[("BorderWidth", PropValue::Int(3))]);
+        let half = stroke_alpha(&[
+            ("BorderWidth", PropValue::Int(3)),
+            ("BorderTransparency", PropValue::Int(50)),
+        ]);
+        assert!(
+            (half as f32 - opaque as f32 * 0.5).abs() <= 6.0,
+            "BorderTransparency 50 must halve the frame stroke's alpha: {opaque} → {half}"
+        );
         println!(
-            "chart border — Single: {} stroke(s); None: {}; gradient: {} vertex colours; blur 8: {} strokes",
-            plain.frame_strokes, none.frame_strokes, gradient.mesh_colours, blurred.frame_strokes
+            "chart border — Single: {} stroke(s); None: {}; gradient: {} vertex colours; blur 8: {} strokes; transparency 100: {} strokes; 50: alpha {} → {}",
+            plain.frame_strokes, none.frame_strokes, gradient.mesh_colours, blurred.frame_strokes,
+            faded_out.frame_strokes, opaque, half
         );
     }
 

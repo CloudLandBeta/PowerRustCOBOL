@@ -819,6 +819,7 @@ fn seed_missing_props(form: &mut Form) {
                     ("BorderGradientEndColor", PropValue::String("#8FB4FF".into())),
                     ("BorderGradientDirection", PropValue::String("South".into())),
                     ("BorderBlur", PropValue::Int(0)),
+                    ("BorderTransparency", PropValue::Int(0)),
                 ];
                 for (key, value) in defaults {
                     if c.get_prop(key).is_none() {

@@ -1,5 +1,19 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.84] — 2026-09-19
+
+### A chart's frame border has a transparency of its own
+
+`BorderTransparency` (0 = opaque, the default … 100 = invisible), on the six
+chart types, fades the frame's line, its gradient ring and its blur rings
+together — separately from the chart's `Transparency`, which since 1.70.80
+reaches only the face — so a frame can fade independently of what it frames
+(operator, 2026-09-19: "Border transparency (default 0)"). Seeded by
+`Control::new` and backfilled on load for existing charts; a Properties pane
+row in six languages; the System KB text and the Developer's Guide's chart
+entry describe it; the paint regression checks 100 leaves no visible frame
+stroke and 50 halves the stroke's alpha.
+
 ## [PowerRustCOBOL 1.70.83] — 2026-09-19
 
 ### An existing chart now shows its border rows — width, colour, gradient colours

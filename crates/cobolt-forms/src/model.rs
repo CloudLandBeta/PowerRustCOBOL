@@ -5815,6 +5815,10 @@ impl Control {
                     PropValue::String("South".into()),
                 );
                 props.insert("BorderBlur".into(), PropValue::Int(0));
+                // The border's own transparency (0 = opaque … 100 = invisible),
+                // applied to the line, the gradient and the blur alike — separate
+                // from the chart's `Transparency`, which reaches only the face.
+                props.insert("BorderTransparency".into(), PropValue::Int(0));
                 if matches!(
                     control_type,
                     ControlType::PieChart | ControlType::DonutChart

@@ -4524,6 +4524,10 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "`0`–`40` (pixels)",
             "Charts only. A soft glow outward from the frame border, this many pixels wide, in the border's colour (the gradient's mid colour when the gradient is on) — the shadow stack's own falloff, faintest outermost. `0` (the default) draws none. Drawn at the chart's inherited alpha, never at its own `Transparency`, so it stays with the border on a see-through chart.",
         ),
+        "BorderTransparency" => (
+            "`0`–`100`",
+            "Charts only. The frame border's own transparency: `0` (the default) opaque, `100` invisible. It fades the border line, the gradient ring and the blur rings together — separately from the chart's `Transparency`, which reaches only the face — so a frame can fade independently of what it frames.",
+        ),
         "ForegroundColor" => (COLOR_DOMAIN, "Text / foreground drawing color. On a CheckBox, RadioButton or DateTimePicker it is kept only while it reads on the surface the text lands on, and otherwise flips to black or white — measured against the control's FRAME (its BackgroundColor), never against the tick box or circle, which the caption sits beside rather than on. Above Transparency 70 the frame paints too little to measure, so the color is used exactly as set; a CheckBox is 100 % transparent by default, so its caption color is always the one you gave it."),
         "FontName" => ("installed font family name, e.g. `\"Arial\"`", "Font family for the control's text."),
         "FontSize" => ("points, > 0 (typical 8-72)", "Font size in points."),
