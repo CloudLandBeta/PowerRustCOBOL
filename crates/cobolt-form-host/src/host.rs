@@ -257,6 +257,18 @@ pub(crate) fn fx_window_flags(entrance: &cobolt_forms::window_fx::FxSpec) -> (bo
 
 /// Build the window and run the form host to completion. Returns when the
 /// window closes; the glue then reports interpreter errors its own way.
+/// 051 R19/R28 — the painter the modal-block overlay goes through: `ui`'s
+/// layer and clip rect, but a FRESH painter from the context, so it carries
+/// none of the opacity an ancestor's `Ui::disable` multiplied in (egui 0.36:
+/// `disabled_alpha`, 0.5, inherited by every child `Ui`). The overlay is the
+/// deliberate "this form is waiting" signal and must paint at its designed
+/// strength whether or not the shell disabled the whole face above it.
+fn overlay_painter(ui: &egui::Ui) -> egui::Painter {
+    ui.ctx()
+        .layer_painter(ui.layer_id())
+        .with_clip_rect(ui.clip_rect())
+}
+
 pub fn run(config: FormHostConfig) {
     let title_fallback = config.title_fallback.clone();
     let icon_path = config.icon_path.clone();
@@ -542,7 +554,6 @@ impl FormHost {
             // opens focused, and its theme/DPI/geometry are whatever the first
             // frame observes rather than a transition into them.
             focused_actual: true,
-            root_mouse_ignored_actual: false,
             system_theme_actual: None,
             dpi_actual: None,
             window_size_actual: None,
@@ -2236,7 +2247,18 @@ impl FormBody {
                         egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
                     }
                 };
-                panel_ui.painter().rect_filled(panel_rect, 0.0, fill);
+                // Through a FRESH painter, not `panel_ui.painter()`: the
+                // shell disables its whole root `Ui` while blocked
+                // (`ShellApp::ui`), and egui's `Ui::disable` multiplies the
+                // painter's opacity by `disabled_alpha` (0.5) — which every
+                // child `Ui` inherits. Painted through the inherited painter
+                // the overlay itself arrived at half its alpha (Greyed's 150
+                // → 75), so under the sidebar both styles read as the same
+                // faint wash, while a form run standalone (whose root `Ui`
+                // is never disabled) showed the real fill (operator report,
+                // 2026-09-19). The overlay IS the "you are waiting" signal;
+                // it must paint at its designed strength.
+                overlay_painter(panel_ui).rect_filled(panel_rect, 0.0, fill);
             }
             out
         };
@@ -2538,12 +2560,6 @@ pub struct FormHost {
     maximized_actual: bool,
     /// Last observed window focus, for `onGotFocus` / `onLostFocus`.
     focused_actual: bool,
-    /// 051 R19/R28, macOS only — whether the ROOT window's real OS-level
-    /// `ignoresMouseEvents` was last set true (blocked by a live modal
-    /// child) so it is only touched on a genuine transition, not every
-    /// frame. Always false, and never read, on other platforms — see
-    /// `macos_modal` at the call site in `ui()`.
-    root_mouse_ignored_actual: bool,
     /// Last observed OS light/dark preference, for `onThemeChanged` and
     /// `onSystemColorChanged` — one signal, and the catalogue offers two names
     /// for it, so both are raised together.
@@ -3565,93 +3581,17 @@ impl eframe::App for FormHost {
         }
     }
 
-    fn ui(&mut self, root_ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        // 051 R19/R28, macOS — real OS-level click-through prevention for a
-        // blocked ROOT window. Only reachable here: `ShellApp::ui` (a
-        // SideMenu app's real top-level `App`) discards its own `Frame` and
-        // calls `ui_impl` directly, never this trait method — but that mode
-        // doesn't need this fix, since a ContentPane occupant's "window" is
-        // the SAME single OS window as its modal child's always-on-top
-        // sibling, so there is nothing for the OS to raise. This path is
-        // for a form run directly, standalone, as its OWN top-level window
-        // (e.g. the Designer's single-form preview) — there ROOT and its
-        // modal child genuinely are two separate OS windows, and that is
-        // exactly where click-through was still reproducible (operator
-        // report, PowerDemo3's `CALL-FORM-DEMO` run directly rather than via
-        // the sidebar, 2026-09-19). Touched only on a genuine transition.
-        #[cfg(target_os = "macos")]
-        {
-            let blocked = self.root_modal_blocked();
-            if blocked != self.root_mouse_ignored_actual {
-                macos_modal::set_root_ignores_mouse_events(frame, blocked);
-                self.root_mouse_ignored_actual = blocked;
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        let _ = frame;
+    // 051 R19/R28 — no native click-through prevention here, deliberately.
+    // `-[NSWindow setIgnoresMouseEvents:]` on a modal-blocked root (tried
+    // twice, 1.70.69/1.70.70) makes the whole window invisible to
+    // hit-testing: a click on the caller falls through to whatever sits
+    // behind it — typically the IDE that launched the form — which the OS
+    // then ACTIVATES, so no window of ours is key any more and the modal has
+    // nothing to steal focus back from (operator report, 2026-09-19: "when
+    // clicked does not return focus to the modal"). Strictly worse than the
+    // reactive refocus in `update_children`, which this path relies on.
+    fn ui(&mut self, root_ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.ui_impl(root_ui);
-    }
-}
-
-/// 051 R19/R28 — real OS-level click-through prevention, macOS only.
-///
-/// Neither egui, eframe nor winit (0.36.1 / 0.36.2 / 0.30.13) expose an
-/// owner/parent-window relationship between two top-level windows, and
-/// `eframe::Frame` only ever hands application code the winit `Window` for
-/// the ROOT viewport (`App::ui`'s doc: "called for the root viewport" —
-/// `epi.rs`; a spawned child's own callback gets only an `&mut egui::Ui`,
-/// never a `Frame` — confirmed by reading `show_viewport_immediate` and
-/// eframe's `render_immediate_viewport`, which never forwards one). So a
-/// non-root caller (a child window opening a modal child of its own) has no
-/// reachable native handle here and still relies on the cross-platform
-/// reactive-refocus mitigation in `update_children`.
-///
-/// For ROOT, though, `-[NSWindow setIgnoresMouseEvents:]` is real,
-/// documented AppKit behaviour: while set, the window neither receives
-/// clicks nor becomes key on one, so the OS never raises it. `addChildWindow`
-/// was considered and rejected: Apple's own docs describe it as an
-/// ordering/visibility grouping, not an input block, and a truly blocking
-/// native modal run loop (`-[NSApplication runModalForWindow:]`) risks
-/// deadlocking eframe's own winit event loop — not attempted.
-///
-/// ⚠️ **Known trade-off, not fully solved**: `ignoresMouseEvents` makes the
-/// WHOLE window invisible to hit-testing — a click inside root's bounds but
-/// OUTSIDE the (typically smaller) modal's own bounds falls through to
-/// whatever the OS finds next, which can be a genuinely unrelated window or
-/// app, not just "nothing happens." There is no window-level AppKit
-/// primitive that consumes-and-discards a click without either blocking the
-/// whole window (defeating the point) or exposing what's behind it. Accepted
-/// deliberately (operator, 2026-09-19) because the alternative — leaving
-/// root fully clickable/raisable — is worse, and because this path is a
-/// standalone/direct form run, not PowerDemo3's real sidebar-driven usage
-/// (which needs no native fix at all — see the call site).
-#[cfg(target_os = "macos")]
-mod macos_modal {
-    /// The real `NSWindow` the root viewport renders into, if reachable
-    /// (headless/test contexts, or between the window existing and its
-    /// first frame, give `None` — never panics).
-    fn root_nswindow(frame: &eframe::Frame) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
-        let window = frame.winit_window()?;
-        let handle = raw_window_handle::HasWindowHandle::window_handle(window.as_ref()).ok()?;
-        let raw_window_handle::RawWindowHandle::AppKit(h) = handle.as_raw() else {
-            return None;
-        };
-        // SAFETY: `ns_view` is the NSView backing this still-alive winit
-        // `Window` (kept alive by `frame` for the duration of this call);
-        // reinterpreting the pointer as `objc2_app_kit::NSView` is exactly
-        // what winit's own `raw_window_handle_rwh_06` builds it FROM
-        // (`Retained::as_ptr(&self.view())`, winit's window_delegate.rs).
-        let ns_view: &objc2_app_kit::NSView =
-            unsafe { &*(h.ns_view.as_ptr() as *const objc2_app_kit::NSView) };
-        ns_view.window()
-    }
-
-    /// Set (or clear) real OS-level click-through prevention on the root
-    /// window. A no-op wherever `root_nswindow` can't resolve a handle.
-    pub(crate) fn set_root_ignores_mouse_events(frame: &eframe::Frame, ignore: bool) {
-        if let Some(win) = root_nswindow(frame) {
-            win.setIgnoresMouseEvents(ignore);
-        }
     }
 }
 
@@ -4699,7 +4639,11 @@ impl FormHost {
                         egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
                     }
                 };
-                root_ui.painter().rect_filled(snack_surface, 0.0, fill);
+                // A fresh painter for the same reason as in `child_frame`: a
+                // root form shown in Pane mode sits under the shell's
+                // disabled root `Ui`, whose inherited painter would halve
+                // the overlay's alpha.
+                overlay_painter(root_ui).rect_filled(snack_surface, 0.0, fill);
             }
             out
         };
@@ -5287,22 +5231,6 @@ IDENTIFICATION DIVISION.\nPROGRAM-ID. CHILD.\nPROCEDURE DIVISION.\n    STOP RUN.
             None,
             "a released child is no longer a live modal of anything"
         );
-    }
-
-    /// 051 R19/R28, macOS — `set_root_ignores_mouse_events` must degrade to a
-    /// harmless no-op, never panic, when there is no real native window to
-    /// resolve (exactly `eframe::Frame::_new_kittest()`'s situation, and
-    /// this crate's own test harness never has a real winit window either).
-    /// This is the only part of the macOS click-through fix reachable
-    /// headlessly — the actual AppKit call it guards can only be observed by
-    /// running the app (see `never-drive-the-application`).
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn set_root_ignores_mouse_events_is_a_safe_noop_without_a_real_window() {
-        let frame = eframe::Frame::_new_kittest();
-        macos_modal::set_root_ignores_mouse_events(&frame, true);
-        macos_modal::set_root_ignores_mouse_events(&frame, false);
-        println!("set_root_ignores_mouse_events: no-op and no panic without a real NSWindow");
     }
 
     fn program_from(src: &str) -> cobolt_ast::program::Program {
@@ -6720,7 +6648,19 @@ mod parity {
                 egui::Pos2::ZERO,
                 egui::Vec2::new(640.0, 480.0),
             ));
-            let mut full = ctx.run_ui(input, |root_ui| host.ui_impl(root_ui));
+            // Exactly what `ShellApp::ui` does while blocked: the WHOLE root
+            // `Ui` is disabled first. egui's `Ui::disable` multiplies the
+            // painter's opacity by `disabled_alpha` (0.5), and every child
+            // `Ui` inherits that painter — so an overlay painted through
+            // `panel_ui.painter()` arrived at HALF its alpha, and Greyed and
+            // SemiTransparent both read as the same faint wash under the
+            // sidebar while a standalone run (root never disabled) showed
+            // the real fill. This test only reproduced the symptom once it
+            // disabled the root like the shell does.
+            let mut full = ctx.run_ui(input, |root_ui| {
+                root_ui.disable();
+                host.ui_impl(root_ui);
+            });
             full.textures_delta.clear();
 
             fn walk(s: &egui::Shape, out: &mut Vec<egui::Color32>) {
@@ -6740,7 +6680,8 @@ mod parity {
         let semi = painted_with(cobolt_forms::model::ModalOverlayStyle::SemiTransparent);
         assert!(
             semi.contains(&egui::Color32::from_white_alpha(70)),
-            "an occupant's SemiTransparent must paint its own overlay fill: {semi:?}"
+            "an occupant's SemiTransparent must paint its own overlay fill at FULL \
+             strength even under the shell's disabled root Ui: {semi:?}"
         );
         let grey = painted_with(cobolt_forms::model::ModalOverlayStyle::Greyed);
         let grey_fill = egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150);

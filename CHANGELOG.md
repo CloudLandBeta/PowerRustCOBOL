@@ -1,5 +1,34 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.71] — 2026-09-19
+
+### `ModalOverlayStyle` painted at half strength under the sidebar — and the native click-through "fix" is withdrawn
+
+**Greyed looked like SemiTransparent.** `ShellApp::ui` disables its whole
+root `Ui` while a modal child blocks it, and in egui 0.36 `Ui::disable`
+multiplies the painter's opacity by `disabled_alpha` (0.5) — an opacity
+every child `Ui` inherits. The overlay in `FormBody::child_frame` (and the
+root form's own inlined copy) was painted through that inherited painter, so
+the overlay itself was recorded at half its alpha: Greyed's 150 became 75,
+SemiTransparent's 70 became 35, and under the sidebar both styles collapsed
+into the same faint wash. A form run standalone never disables its root
+`Ui`, which is why it showed the real fill — and why the headless tests,
+which drove a fresh root `Ui`, never caught it. Both overlay sites now paint
+through a fresh context painter (`overlay_painter`) that carries the `Ui`'s
+layer and clip rect but none of an ancestor's opacity; the occupant
+regression now disables the root exactly as the shell does, and fails
+without this change.
+
+**Native click-through prevention withdrawn (1.70.69/1.70.70).**
+`-[NSWindow setIgnoresMouseEvents:]` on a modal-blocked root makes the whole
+window invisible to hit-testing: a click on the caller falls through to
+whatever sits behind it — typically the IDE that launched the form — which
+the OS then *activates*, so no window of ours is key any more and the modal
+has nothing to steal focus back from (operator, 2026-09-19: "when clicked
+does not return focus to the modal"). That is strictly worse than 1.70.68's
+reactive refocus, which a standalone form now relies on again. The
+`objc2`/`objc2-app-kit`/`raw-window-handle` dependencies go with it.
+
 ## [PowerRustCOBOL 1.70.70] — 2026-09-19
 
 ### Real OS-level click-through prevention, scoped correctly this time, for a form run standalone
