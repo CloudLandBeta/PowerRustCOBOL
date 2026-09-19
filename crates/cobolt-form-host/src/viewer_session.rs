@@ -40,6 +40,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 /// One page's decoded, ready-to-paint content.
@@ -160,6 +161,85 @@ pub struct ViewState {
     pub page: i64,
     pub zoom: i64,
     pub scroll_position: i64,
+    /// R21.1 — the decoded document this view is looking at. Two views on
+    /// the same path hold **the same `Arc`**, never two decodes of one
+    /// file.
+    pub document: Option<Arc<SharedDocument>>,
+    /// R21.2 — each view's Find is fully independent: its own query, its
+    /// own toggles, its own current match. It falls out of living here
+    /// rather than being a special case anyone has to maintain.
+    pub search: SearchState,
+}
+
+/// One view's Find state (R21.2).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchState {
+    pub text: String,
+    pub case_sensitive: bool,
+    pub highlight_enabled: bool,
+    pub current_match: usize,
+    pub match_count: usize,
+}
+
+/// A decoded document, shared by however many views are looking at it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedDocument {
+    pub path: String,
+    pub page_count: usize,
+}
+
+/// R21.1 — "setting a view's source to the document already open in the
+/// other view must not reload or re-decode it."
+///
+/// Every open document is held behind an `Arc`, keyed by its path. A view
+/// asking for a path someone already holds gets a clone of that handle; only
+/// a path nothing holds is decoded at all. "Attach, don't reload" is
+/// therefore enforced **by construction** — there is no runtime check to
+/// forget, and no second code path where a reload could creep back in
+/// (plan.md §4, §5's own flagged risk).
+#[derive(Debug, Default)]
+pub struct DocumentRegistry {
+    open: HashMap<String, Arc<SharedDocument>>,
+    decodes: usize,
+}
+
+impl DocumentRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The handle for `path`, decoding it **only** if nothing holds it yet.
+    pub fn attach(
+        &mut self,
+        path: &str,
+        decode: impl FnOnce() -> SharedDocument,
+    ) -> Arc<SharedDocument> {
+        if let Some(existing) = self.open.get(path) {
+            return Arc::clone(existing);
+        }
+        self.decodes += 1;
+        let doc = Arc::new(decode());
+        self.open.insert(path.to_string(), Arc::clone(&doc));
+        doc
+    }
+
+    /// How many decodes have actually happened — AC8's own assertion is
+    /// against this number, not against a belief about the code.
+    pub fn decode_count(&self) -> usize {
+        self.decodes
+    }
+
+    /// Documents no view holds any more are dropped, so closing a view
+    /// releases its decode rather than leaking it for the session's life.
+    pub fn release_unused(&mut self) -> usize {
+        let before = self.open.len();
+        self.open.retain(|_, doc| Arc::strong_count(doc) > 1);
+        before - self.open.len()
+    }
+
+    pub fn open_count(&self) -> usize {
+        self.open.len()
+    }
 }
 
 /// A history entry (spec 058 §8.8) — an id and a title, **never** a
@@ -188,6 +268,8 @@ pub struct ViewerSession {
     done_rx: Receiver<ViewerDone>,
     pub cache: BoundedPageCache,
     pub views: [ViewState; 2],
+    /// R21.1's "attach, don't reload", shared by both views.
+    pub documents: DocumentRegistry,
     history: VecDeque<HistoryEntry>,
 }
 
@@ -236,12 +318,30 @@ impl ViewerSession {
             done_rx,
             cache: BoundedPageCache::new(DEFAULT_CACHE_BUDGET),
             views: [ViewState::default(), ViewState::default()],
+            documents: DocumentRegistry::new(),
             history: VecDeque::new(),
         }
     }
 
     pub fn ctrl_id(&self) -> &str {
         &self.ctrl_id
+    }
+
+    /// Point view `index` at `path`, attaching to an existing decode when
+    /// one of this session's views already holds it (R21.1/AC8). Returns
+    /// the shared handle.
+    pub fn open_in_view(
+        &mut self,
+        index: usize,
+        path: &str,
+        decode: impl FnOnce() -> SharedDocument,
+    ) -> Arc<SharedDocument> {
+        let doc = self.documents.attach(path, decode);
+        if let Some(view) = self.views.get_mut(index) {
+            view.source = path.to_string();
+            view.document = Some(Arc::clone(&doc));
+        }
+        doc
     }
 
     /// The worker thread's OS-visible name, for a test (or a thread dump) to
@@ -502,5 +602,149 @@ mod tests {
         assert_eq!(taken.map(|e| e.id), Some("a".to_owned()));
         assert_eq!(session.history_len(), 1, "the selected entry must leave history");
         assert!(session.take_history_entry("a").is_none(), "it cannot be selected twice");
+    }
+}
+
+/// Spec 058 T16/T17 — R21.1's "attach, don't reload" and R21.2's
+/// independent per-view search, asserted where the state lives.
+#[cfg(test)]
+mod split_view_tests {
+    use super::*;
+
+    fn doc(path: &str, pages: usize) -> SharedDocument {
+        SharedDocument { path: path.to_string(), page_count: pages }
+    }
+
+    /// **AC8**, the same-document clause — "in the same-document case the
+    /// document is decoded once."
+    ///
+    /// Asserted against a measured decode COUNT, not against a belief about
+    /// the code, and against `Arc::ptr_eq` so the two views demonstrably
+    /// hold the same decode rather than two equal ones.
+    #[test]
+    fn two_views_of_one_document_decode_it_exactly_once() {
+        let mut session = ViewerSession::new("VWR-1");
+        let path = "/reports/quarterly.txt";
+
+        let first = session.open_in_view(0, path, || doc(path, 40));
+        let second = session.open_in_view(1, path, || {
+            panic!("R21.1: the second view must ATTACH, never decode again")
+        });
+
+        println!(
+            "two views on {path}: {} decode(s), {} open document(s), same handle = {}",
+            session.documents.decode_count(),
+            session.documents.open_count(),
+            Arc::ptr_eq(&first, &second)
+        );
+        assert_eq!(session.documents.decode_count(), 1, "AC8: decoded once");
+        assert!(Arc::ptr_eq(&first, &second), "both views must hold the SAME decode");
+        assert_eq!(first.page_count, 40);
+    }
+
+    #[test]
+    fn two_views_of_two_documents_decode_each_of_them() {
+        let mut session = ViewerSession::new("VWR-1");
+        session.open_in_view(0, "/a.txt", || doc("/a.txt", 3));
+        session.open_in_view(1, "/b.txt", || doc("/b.txt", 7));
+        println!(
+            "two different documents: {} decode(s), {} open",
+            session.documents.decode_count(),
+            session.documents.open_count()
+        );
+        assert_eq!(session.documents.decode_count(), 2, "two documents are two decodes");
+        assert_eq!(session.views[0].document.as_ref().unwrap().page_count, 3);
+        assert_eq!(session.views[1].document.as_ref().unwrap().page_count, 7);
+    }
+
+    /// Re-pointing a view releases the decode nothing is looking at any
+    /// more — "attach, don't reload" must not become "attach, and never let
+    /// go".
+    #[test]
+    fn a_document_no_view_holds_any_more_is_released() {
+        let mut session = ViewerSession::new("VWR-1");
+        session.open_in_view(0, "/a.txt", || doc("/a.txt", 3));
+        session.open_in_view(1, "/a.txt", || doc("/a.txt", 3));
+        session.open_in_view(1, "/b.txt", || doc("/b.txt", 5));
+        let before = session.documents.open_count();
+        // View 0 still holds /a.txt, so nothing is released yet.
+        let released_while_held = session.documents.release_unused();
+        session.views[0].document = None;
+        let released_after = session.documents.release_unused();
+        println!(
+            "{before} open -> released {released_while_held} while view 1 held it, \
+             {released_after} once it let go, {} open now",
+            session.documents.open_count()
+        );
+        assert_eq!(released_while_held, 0, "a document a view is showing is never released");
+        assert_eq!(released_after, 1, "one nobody holds is");
+        assert_eq!(session.documents.open_count(), 1, "only /b.txt is still open");
+    }
+
+    /// **R21.2** — "each view's Find is fully independent: its own search
+    /// text, case-sensitivity and highlight toggles, current match and
+    /// match count... **including the same-document case of R21.1**."
+    #[test]
+    fn each_view_keeps_its_own_search_even_on_the_same_document() {
+        let mut session = ViewerSession::new("VWR-1");
+        let path = "/shared.txt";
+        session.open_in_view(0, path, || doc(path, 12));
+        session.open_in_view(1, path, || panic!("must attach"));
+
+        session.views[0].search = SearchState {
+            text: "invoice".into(),
+            case_sensitive: true,
+            highlight_enabled: true,
+            current_match: 2,
+            match_count: 9,
+        };
+        session.views[1].search = SearchState {
+            text: "total".into(),
+            case_sensitive: false,
+            highlight_enabled: false,
+            current_match: 0,
+            match_count: 4,
+        };
+
+        println!("one document, two searches:");
+        for (i, v) in session.views.iter().enumerate() {
+            println!(
+                "  view {}: {:?} case={} highlight={} match {} of {}",
+                i + 1,
+                v.search.text,
+                v.search.case_sensitive,
+                v.search.highlight_enabled,
+                v.search.current_match + 1,
+                v.search.match_count
+            );
+        }
+        assert_ne!(session.views[0].search, session.views[1].search);
+        assert_eq!(session.views[0].search.text, "invoice");
+        assert_eq!(session.views[1].search.text, "total");
+        assert_eq!(session.documents.decode_count(), 1, "still one decode behind both");
+
+        // Searching one side again must not disturb the other.
+        let untouched = session.views[1].search.clone();
+        session.views[0].search.current_match = 5;
+        session.views[0].search.text = "balance".into();
+        println!("after re-searching view 1: view 2 is {:?}", session.views[1].search.text);
+        assert_eq!(session.views[1].search, untouched, "R21.2: view 2 is untouched");
+    }
+
+    /// AC8's other half at this level: each view's own page/zoom/scroll.
+    #[test]
+    fn each_view_keeps_its_own_page_zoom_and_scroll() {
+        let mut session = ViewerSession::new("VWR-1");
+        let path = "/shared.txt";
+        session.open_in_view(0, path, || doc(path, 100));
+        session.open_in_view(1, path, || panic!("must attach"));
+        session.views[0] = ViewState { page: 1, zoom: 100, scroll_position: 0, ..session.views[0].clone() };
+        session.views[1] = ViewState { page: 87, zoom: 250, scroll_position: 4200, ..session.views[1].clone() };
+        for (i, v) in session.views.iter().enumerate() {
+            println!("  view {}: page {} zoom {}% scroll {}", i + 1, v.page, v.zoom, v.scroll_position);
+        }
+        assert_eq!((session.views[0].page, session.views[0].zoom), (1, 100));
+        assert_eq!((session.views[1].page, session.views[1].zoom), (87, 250));
+        assert_eq!(session.documents.decode_count(), 1, "one decode, two viewports");
     }
 }

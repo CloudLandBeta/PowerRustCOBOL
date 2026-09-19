@@ -3956,12 +3956,23 @@ impl ViewerLive {
 /// inside either never also grabs the page. Relying on z-order here would
 /// make "drag the slider" and "throw the document" the same gesture on any
 /// frame the ordering changed.
+/// One view of a Viewer (R21). Called once for a single view, twice when
+/// `SplitMode != None` — each call owns its own live state, its own widget
+/// ids and its own `View{n}*` properties, which is what makes AC8's
+/// independence structural rather than something both sides must remember.
+///
+/// **Control-wide state (`Layout`, `FontSize`, `Fullscreen`, `SplitMode`)
+/// is written by whichever view's toolbar was clicked, and its change EVENT
+/// is raised by the first view's pass** — a click in the second view
+/// therefore reports one frame later, which beats two views both reporting
+/// the same change.
 #[allow(clippy::too_many_arguments)]
-fn viewer_interactive(
+fn viewer_view_interactive(
     ui: &mut egui::Ui,
     painter: &egui::Painter,
     screen: Rect,
     ctrl: &Control,
+    view_index: usize,
     ctrl_id: egui::Id,
     id: &str,
     alpha: f32,
@@ -3973,15 +3984,18 @@ fn viewer_interactive(
     use egui::Sense;
 
     let want = |e: &str| bound.contains(&e);
-    let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
-    let source = source.trim().to_owned();
+    // Every widget id below is the VIEW's, never the control's: two views
+    // of one control must not share an interaction id.
+    let vid = ctrl_id.with(("viewer-view", view_index));
+
+    let mut st = crate::paint::ViewerPaintState::from_control(ctrl, view_index, None, alpha);
+    let source = st.source.clone();
     let content = crate::paint::viewer_first_page_content(ui.ctx(), &ctrl.id, &source);
     let page_count = crate::paint::viewer_page_spans(ui.ctx(), &source).max(1);
-
-    let mut st = crate::paint::ViewerPaintState::from_control(ctrl, content.as_deref(), alpha);
+    st.content = content.as_deref();
     st.page_count = page_count;
 
-    let live_id = ctrl_id.with("viewer-live");
+    let live_id = vid.with("viewer-live");
     let mut live: ViewerLive = ui
         .ctx()
         .memory(|m| m.data.get_temp::<ViewerLive>(live_id))
@@ -4010,7 +4024,7 @@ fn viewer_interactive(
         Rect::from_min_max(pos2(s.right() - 4.0, s.y), pos2(s.right() + 4.0, s.bottom()))
     });
 
-    let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
+    let resp = ui.interact(screen, vid, Sense::click_and_drag());
     focus_keyboard_events(ui, &resp, id, out, bound);
 
     let (dt, now, pointer, primary_down, wheel, command, esc, keys) = ui.input(|i| {
@@ -4037,7 +4051,7 @@ fn viewer_interactive(
     // R33: never while another control — the Find input, for instance —
     // holds the caret.
     let focus = ui.ctx().memory(|m| m.focused());
-    let keyboard_free = focus.is_none() || focus == Some(ctrl_id);
+    let keyboard_free = focus.is_none() || focus == Some(vid);
 
     // The engine's own values, reconciled against this frame's properties —
     // see [`SharedValue`] for why a gesture must survive a host that has not
@@ -4071,7 +4085,7 @@ fn viewer_interactive(
     for (action, slot) in &toolbar_slots {
         let r = to_rect(*slot);
         let br = ui
-            .interact(r, ctrl_id.with(("viewer-tb", action.as_str())), Sense::click())
+            .interact(r, vid.with(("viewer-tb", action.as_str())), Sense::click())
             .on_hover_text(vw::toolbar_tooltip(*action));
         if br.is_pointer_button_down_on() || br.hovered() {
             toolbar_busy = true;
@@ -4136,7 +4150,7 @@ fn viewer_interactive(
     // so a designed value is still honoured on the first frame.
     let find_total = live.pushed_total;
 
-    let field_id = ctrl_id.with("viewer-find-field");
+    let field_id = vid.with("viewer-find-field");
     let field_focused = ui.ctx().memory(|m| m.focused()) == Some(field_id);
     let mut find_busy = false;
 
@@ -4160,7 +4174,7 @@ fn viewer_interactive(
                 Sense::click()
             };
             let br = ui
-                .interact(r, ctrl_id.with(("viewer-find", control.as_str())), sense)
+                .interact(r, vid.with(("viewer-find", control.as_str())), sense)
                 .on_hover_text(control.default_tooltip());
             if br.hovered() || br.is_pointer_button_down_on() {
                 find_busy = true;
@@ -4260,7 +4274,7 @@ fn viewer_interactive(
 
     // ── R14.1: the one slider per view ──────────────────────────────────
     let slider_resp = (!streamed && slider_rect.width() > 1.0)
-        .then(|| ui.interact(slider_rect, ctrl_id.with("viewer-slider"), Sense::click_and_drag()));
+        .then(|| ui.interact(slider_rect, vid.with("viewer-slider"), Sense::click_and_drag()));
     let slider_busy = slider_resp.as_ref().is_some_and(|r| r.dragged() || r.is_pointer_button_down_on());
     if enabled {
         if let Some(r) = slider_resp.as_ref() {
@@ -4284,7 +4298,7 @@ fn viewer_interactive(
 
     // ── R14.4: the filmstrip's splitter resizes it, or closes it ────────
     let grip_resp = grip_rect
-        .map(|g| ui.interact(g, ctrl_id.with("viewer-strip-grip"), Sense::click_and_drag()));
+        .map(|g| ui.interact(g, vid.with("viewer-strip-grip"), Sense::click_and_drag()));
     let grip_busy = grip_resp.as_ref().is_some_and(|r| r.dragged() || r.is_pointer_button_down_on());
     if enabled {
         if let Some(r) = grip_resp.as_ref() {
@@ -4419,31 +4433,44 @@ fn viewer_interactive(
     live.scroll.set_max((painted.content_height - chrome.content.h).max(0.0));
 
     // ── Write back every COBOL-visible value, then raise R32's events ───
+    // A per-view property is written under its own `View{n}` name (the
+    // `View#` marker below); the unprefixed alias is the FIRST view's alone
+    // (plan.md §3/§4), so view 2 never writes it and cannot quietly
+    // overwrite view 1's value.
     let mut push = |key: &str, val: String| {
-        out.prop_updates.push((id.to_string(), key.to_string(), val));
+        if let Some(name) = key.strip_prefix("View#") {
+            out.prop_updates.push((id.to_string(), vw::view_prop(name, view_index), val.clone()));
+            if view_index == 0 {
+                out.prop_updates.push((id.to_string(), name.to_string(), val));
+            }
+        } else {
+            out.prop_updates.push((id.to_string(), key.to_string(), val));
+        }
     };
     let strip_on = filmstrip.is_some();
+    // Control-wide change EVENTS are the first view's to raise; both views
+    // may still write the control-wide property.
+    let shared_view = view_index == 0;
     if live.zoom.diverged(zoom) {
-        push("View1Zoom", zoom.to_string());
-        push("Zoom", zoom.to_string());
+        push("View#Zoom", zoom.to_string());
     }
     if live.card.diverged(card_size) {
-        push("View1CardSize", card_size.to_string());
+        push("View#CardSize", card_size.to_string());
     }
     if live.mode.diverged(view_mode) {
-        push("View1ViewMode", view_mode.as_str().to_string());
+        push("View#ViewMode", view_mode.as_str().to_string());
     }
     if live.full.diverged(fullscreen) {
         push("Fullscreen", fullscreen.to_string());
     }
     if live.strip.diverged(filmstrip) {
-        push("View1ShowFilmstrip", strip_on.to_string());
+        push("View#ShowFilmstrip", strip_on.to_string());
         if let Some(w) = filmstrip {
-            push("View1FilmstripWidth", (w.round() as i64).to_string());
+            push("View#FilmstripWidth", (w.round() as i64).to_string());
         }
     }
     if live.page.diverged(page) {
-        push("View1Page", (page + 1).to_string());
+        push("View#Page", (page + 1).to_string());
     }
     if live.font.diverged(font_size) {
         push("FontSize", font_size.to_string());
@@ -4457,31 +4484,25 @@ fn viewer_interactive(
         push("SplitMode", if split { "LeftRight".into() } else { "None".to_string() });
     }
     if live.find.diverged(find_open) {
-        push("View1FindOpen", find_open.to_string());
-        push("FindOpen", find_open.to_string());
+        push("View#FindOpen", find_open.to_string());
     }
     // R31: no Find capability reachable only by mouse — every one of these
     // is a property a COBOL program reads back and can write.
     if find_text != live.find_text.seen {
-        push("View1SearchText", find_text.clone());
-        push("SearchText", find_text.clone());
+        push("View#SearchText", find_text.clone());
     }
     if live.find_case.diverged(find_case) {
-        push("View1SearchCaseSensitive", find_case.to_string());
-        push("SearchCaseSensitive", find_case.to_string());
+        push("View#SearchCaseSensitive", find_case.to_string());
     }
     if live.find_highlight.diverged(find_highlight) {
-        push("View1SearchHighlightEnabled", find_highlight.to_string());
-        push("SearchHighlightEnabled", find_highlight.to_string());
+        push("View#SearchHighlightEnabled", find_highlight.to_string());
     }
     if live.find_current.diverged(find_current) {
-        push("View1SearchCurrentMatch", find_current.to_string());
-        push("SearchCurrentMatch", find_current.to_string());
+        push("View#SearchCurrentMatch", find_current.to_string());
     }
     let offset = live.scroll.offset().round() as i64;
     if offset != live.pushed_scroll {
-        push("View1ScrollPosition", offset.to_string());
-        push("ScrollPosition", offset.to_string());
+        push("View#ScrollPosition", offset.to_string());
         live.pushed_scroll = offset;
     }
     live.zoom.own = zoom;
@@ -4504,21 +4525,18 @@ fn viewer_interactive(
     // "7 / 3" after a query narrowed the list.
     let measured_total = painted.find_total;
     if measured_total != live.pushed_total {
-        push("View1SearchMatchCount", measured_total.to_string());
-        push("SearchMatchCount", measured_total.to_string());
+        push("View#SearchMatchCount", measured_total.to_string());
         live.pushed_total = measured_total;
     }
     if measured_total == 0 && find_current != 0 {
         find_current = 0;
-        push("View1SearchCurrentMatch", "0".to_string());
-        push("SearchCurrentMatch", "0".to_string());
+        push("View#SearchCurrentMatch", "0".to_string());
     } else if measured_total > 0 && find_current >= measured_total {
         find_current = measured_total - 1;
-        push("View1SearchCurrentMatch", find_current.to_string());
-        push("SearchCurrentMatch", find_current.to_string());
+        push("View#SearchCurrentMatch", find_current.to_string());
     }
     live.find_current.own = find_current;
-    if split_changed && want("onSplitModeChanged") {
+    if split_changed && shared_view && want("onSplitModeChanged") {
         out.events.push(UiEvent::ev(id, "onSplitModeChanged"));
     }
     if find_changed {
@@ -4539,7 +4557,7 @@ fn viewer_interactive(
     if live.scroll.take_settled() && want("onScrolled") {
         out.events.push(UiEvent::ev(id, "onScrolled"));
     }
-    if live.last_layout.as_deref().is_some_and(|p| p != st.layout) && want("onLayoutChanged") {
+    if shared_view && live.last_layout.as_deref().is_some_and(|p| p != st.layout) && want("onLayoutChanged") {
         out.events.push(UiEvent::ev(id, "onLayoutChanged"));
     }
     live.last_layout = Some(st.layout.clone());
@@ -4551,7 +4569,7 @@ fn viewer_interactive(
         out.events.push(UiEvent::ev(id, "onFilmstripToggled"));
     }
     live.last_filmstrip = Some(strip_on);
-    if let Some(prev) = live.last_fullscreen {
+    if let Some(prev) = live.last_fullscreen.filter(|_| shared_view) {
         if prev != fullscreen {
             let ev = if fullscreen { "onFullscreenEntered" } else { "onFullscreenExited" };
             if want(ev) {
@@ -10833,7 +10851,71 @@ fn render_interactive(
         // carry it — one step earlier than the Snackbar/WebSearch/IndexedFile
         // lesson above, same shape.
         CT::Viewer => {
-            viewer_interactive(ui, &painter, screen, ctrl, ctrl_id, id, alpha, enabled, &bound, out);
+            let mode = crate::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            );
+            let percent = ctrl
+                .get_prop("SplitPercent")
+                .map(|v| v.as_i64())
+                .filter(|p| *p > 0)
+                .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
+            let bounds = crate::viewer::ViewRect::new(
+                screen.min.x,
+                screen.min.y,
+                screen.width(),
+                screen.height(),
+            );
+            let geom = crate::viewer::split_geometry(bounds, mode, percent);
+            let to_rect = |r: crate::viewer::ViewRect| {
+                Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
+            };
+
+            viewer_view_interactive(
+                ui, &painter, to_rect(geom.view1), ctrl, 0, ctrl_id, id, alpha, enabled, &bound, out,
+            );
+            if let Some(second) = geom.view2 {
+                viewer_view_interactive(
+                    ui, &painter, to_rect(second), ctrl, 1, ctrl_id, id, alpha, enabled, &bound, out,
+                );
+            }
+
+            // R21's divider: painted, and draggable, once both views are
+            // laid out — so a drag never fights a view for the same pointer.
+            if let Some(divider) = geom.divider {
+                let d = to_rect(divider).expand2(Vec2::new(3.0, 3.0));
+                let resp = ui.interact(d, ctrl_id.with("viewer-divider"), Sense::drag());
+                let cursor = if mode == crate::viewer::SplitMode::LeftRight {
+                    egui::CursorIcon::ResizeHorizontal
+                } else {
+                    egui::CursorIcon::ResizeVertical
+                };
+                let resp = resp.on_hover_cursor(cursor);
+                if enabled && resp.dragged() {
+                    if let Some(p) = ui.input(|i| i.pointer.latest_pos()) {
+                        let pct = crate::viewer::split_percent_at(bounds, mode, p.x, p.y);
+                        if pct != percent {
+                            out.prop_updates.push((
+                                id.to_string(),
+                                "SplitPercent".to_string(),
+                                pct.to_string(),
+                            ));
+                        }
+                    }
+                }
+                let ink = paint::resolve_label_ink(
+                    ui.ctx(),
+                    ctrl,
+                    false,
+                    Color32::from_gray(250),
+                    Color32::from_gray(25),
+                );
+                let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+                painter.rect_filled(
+                    to_rect(divider),
+                    egui::CornerRadius::ZERO,
+                    Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8),
+                );
+            }
         }
 
         _ => {
@@ -11615,6 +11697,190 @@ mod tests {
         println!("Ctrl+F then Esc, with three quiet frames after each -> {opens} onFindOpened, {closes} onFindClosed");
         assert_eq!(opens, 1, "R32: opened exactly once");
         assert_eq!(closes, 1, "R32: and closed exactly once");
+    }
+
+    // ── Spec 058 T16/T17: split view, through the real engine ───────────
+
+    /// A Viewer split left/right, each view on its own document.
+    fn split_harness(dir: &tempfile::TempDir, left: &str, right: &str, extra: &[(&str, PropValue)]) -> ViewerHarness {
+        let a = dir.path().join("left.txt");
+        let b = dir.path().join("right.txt");
+        std::fs::write(&a, left).unwrap();
+        std::fs::write(&b, right).unwrap();
+        let mut props: Vec<(&str, PropValue)> = vec![
+            ("SplitMode", PropValue::String("LeftRight".into())),
+            ("SplitPercent", PropValue::Int(50)),
+            ("Layout", PropValue::String("Raw".into())),
+            ("View1Source", PropValue::String(a.to_string_lossy().into_owned())),
+            ("View2Source", PropValue::String(b.to_string_lossy().into_owned())),
+        ];
+        props.extend(extra.iter().cloned());
+        ViewerHarness::new(Vec2::new(700.0, 460.0), 640, 400, &props)
+    }
+
+    /// **AC8**, the independence clause — "moving or searching in one view
+    /// does not move or affect the other".
+    #[test]
+    fn zooming_one_split_view_leaves_the_others_zoom_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = split_harness(&dir, "left document\n", "right document\n", &[]);
+        let click = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        // A double-click well inside the LEFT view's content.
+        let in_left = egui::Pos2::new(120.0, 220.0);
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(in_left)]);
+        h.frame(0.04, vec![click(in_left, true)]);
+        h.frame(0.06, vec![click(in_left, false)]);
+        h.frame(0.08, vec![click(in_left, true)]);
+        let (out, _) = h.frame(0.10, vec![click(in_left, false)]);
+
+        println!(
+            "double-click in view 1 -> View1Zoom {:?}, View2Zoom {:?}, Zoom (alias) {:?}",
+            writes_of(&out, "View1Zoom"),
+            writes_of(&out, "View2Zoom"),
+            writes_of(&out, "Zoom")
+        );
+        println!("  properties now: View1Zoom={:?}, View2Zoom={:?}", h.prop("View1Zoom"), h.prop("View2Zoom"));
+        assert_eq!(writes_of(&out, "View1Zoom"), vec!["125".to_string()], "view 1 zoomed");
+        assert!(writes_of(&out, "View2Zoom").is_empty(), "AC8: view 2 must not move");
+        assert_eq!(h.prop("View2Zoom"), "100", "view 2 is still where it was");
+        assert_eq!(writes_of(&out, "Zoom"), vec!["125".to_string()], "the alias follows view 1, as plan §3 says");
+    }
+
+    /// The other side of the same rule: a double-click in view 2 moves view
+    /// 2, and leaves the unprefixed alias — which is view 1's — alone.
+    #[test]
+    fn zooming_the_second_split_view_never_touches_the_first_or_its_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = split_harness(&dir, "left document\n", "right document\n", &[]);
+        let click = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let in_right = egui::Pos2::new(500.0, 220.0);
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(in_right)]);
+        h.frame(0.04, vec![click(in_right, true)]);
+        h.frame(0.06, vec![click(in_right, false)]);
+        h.frame(0.08, vec![click(in_right, true)]);
+        let (out, _) = h.frame(0.10, vec![click(in_right, false)]);
+        println!(
+            "double-click in view 2 -> View1Zoom {:?}, View2Zoom {:?}, Zoom (alias) {:?}",
+            writes_of(&out, "View1Zoom"),
+            writes_of(&out, "View2Zoom"),
+            writes_of(&out, "Zoom")
+        );
+        assert_eq!(writes_of(&out, "View2Zoom"), vec!["125".to_string()], "view 2 zoomed");
+        assert!(writes_of(&out, "View1Zoom").is_empty(), "AC8: view 1 must not move");
+        assert!(writes_of(&out, "Zoom").is_empty(), "the alias is view 1's alone (plan §3)");
+    }
+
+    /// **R21.2 / AC8's search clause** — each view searches its own
+    /// document with its own query, and neither count disturbs the other.
+    #[test]
+    fn each_split_view_searches_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = split_harness(
+            &dir,
+            "alpha alpha alpha beta\n",
+            "beta beta gamma\n",
+            &[
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String("alpha".into())),
+                ("View2FindOpen", PropValue::Bool(true)),
+                ("View2SearchText", PropValue::String("beta".into())),
+            ],
+        );
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![]);
+        let (one, two) = (h.prop("View1SearchMatchCount"), h.prop("View2SearchMatchCount"));
+        println!("view 1 searching {:?} -> {one} match(es)", "alpha");
+        println!("view 2 searching {:?} -> {two} match(es)", "beta");
+        println!("  View1SearchText={:?}, View2SearchText={:?}", h.prop("View1SearchText"), h.prop("View2SearchText"));
+        assert_eq!(one, "3", "view 1 counts its OWN document's matches");
+        assert_eq!(two, "2", "and view 2 counts its own");
+        assert_eq!(h.prop("View1SearchText"), "alpha", "R21.2: neither query moved");
+        assert_eq!(h.prop("View2SearchText"), "beta");
+    }
+
+    /// **R21.1 + R21.2 together** — the *same* document in both views, each
+    /// with its own search. This is the case the spec singles out.
+    #[test]
+    fn the_same_document_in_both_views_still_searches_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shared.txt");
+        std::fs::write(&path, "alpha alpha beta gamma gamma gamma\n").unwrap();
+        let src = path.to_string_lossy().into_owned();
+        let mut h = ViewerHarness::new(
+            Vec2::new(700.0, 460.0),
+            640,
+            400,
+            &[
+                ("SplitMode", PropValue::String("LeftRight".into())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1Source", PropValue::String(src.clone())),
+                ("View2Source", PropValue::String(src.clone())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String("alpha".into())),
+                ("View2FindOpen", PropValue::Bool(true)),
+                ("View2SearchText", PropValue::String("gamma".into())),
+            ],
+        );
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![]);
+        println!(
+            "one document in both views: view 1 {:?} -> {}, view 2 {:?} -> {}",
+            "alpha",
+            h.prop("View1SearchMatchCount"),
+            "gamma",
+            h.prop("View2SearchMatchCount")
+        );
+        assert_eq!(h.prop("View1SearchMatchCount"), "2");
+        assert_eq!(h.prop("View2SearchMatchCount"), "3");
+    }
+
+    /// R32 — `onSplitModeChanged` fires exactly once when the toolbar's
+    /// Split button is used.
+    #[test]
+    fn the_split_button_fires_onsplitmodechanged_exactly_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, "a document\n").unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(700.0, 460.0),
+            640,
+            400,
+            &[
+                ("Layout", PropValue::String("Raw".into())),
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("View1Source", PropValue::String(path.to_string_lossy().into_owned())),
+            ],
+        );
+        h.bind("onSplitModeChanged");
+        // The Split button is the 7th in `TOOLBAR_ITEMS` (index 6).
+        let x = crate::viewer::TOOLBAR_PAD
+            + 6.0 * (crate::viewer::TOOLBAR_BUTTON + crate::viewer::TOOLBAR_GAP)
+            + crate::viewer::TOOLBAR_BUTTON / 2.0;
+        let at = egui::Pos2::new(x, crate::viewer::TOOLBAR_HEIGHT / 2.0);
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(at)]);
+        h.frame(0.04, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        let (clicked, _) = h.frame(0.06, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        let mut fired = event_names(&clicked).iter().filter(|e| *e == "onSplitModeChanged").count();
+        for i in 0..4 {
+            let (quiet, _) = h.frame(0.2 + i as f64 * 0.02, vec![]);
+            fired += event_names(&quiet).iter().filter(|e| *e == "onSplitModeChanged").count();
+        }
+        println!("Split button clicked -> SplitMode is now {:?}, {fired} onSplitModeChanged event(s)", h.prop("SplitMode"));
+        assert_eq!(h.prop("SplitMode"), "LeftRight", "R21: the button splits the control");
+        assert_eq!(fired, 1, "R32: exactly once");
     }
 
     /// **A MenuBar with ShadowEnabled off casts no shadow.**

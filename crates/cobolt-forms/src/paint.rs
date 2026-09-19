@@ -5169,13 +5169,48 @@ fn draw_control_body(
         CT::Viewer => {
             let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
             let source = source.trim();
-            let content = viewer_first_page_content(painter.ctx(), &ctrl.id, source);
-            let pages = viewer_page_spans(painter.ctx(), source);
-            let preview = |page: usize| viewer_page_preview(painter.ctx(), source, page);
-            let mut st = ViewerPaintState::from_control(ctrl, content.as_deref(), face_alpha);
-            st.page_count = pages.max(1);
-            st.page_preview = Some(&preview);
-            draw_viewer(painter, rect, ctrl, &st);
+            let _ = source;
+            // The designer canvas paints both views too — R21 is part of a
+            // form's design, not only of its run.
+            let mode = crate::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            );
+            let percent = ctrl
+                .get_prop("SplitPercent")
+                .map(|v| v.as_i64())
+                .filter(|p| *p > 0)
+                .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
+            let mut states = Vec::new();
+            let mut contents = Vec::new();
+            let mut sources = Vec::new();
+            for i in 0..mode.view_count() {
+                let st = ViewerPaintState::from_control(ctrl, i, None, face_alpha);
+                sources.push(st.source.clone());
+                contents.push(viewer_first_page_content(painter.ctx(), &ctrl.id, &st.source));
+                states.push(st);
+            }
+            let previews: Vec<_> = sources
+                .iter()
+                .map(|src| {
+                    let src = src.clone();
+                    let ctx = painter.ctx().clone();
+                    move |page: usize| viewer_page_preview(&ctx, &src, page)
+                })
+                .collect();
+            for (i, st) in states.iter_mut().enumerate() {
+                st.content = contents[i].as_deref();
+                st.page_count = viewer_page_spans(painter.ctx(), &sources[i]).max(1);
+                st.page_preview = Some(&previews[i]);
+            }
+            let ink = resolve_label_ink(
+                painter.ctx(),
+                ctrl,
+                false,
+                theme_token(painter.ctx(), crate::surface_theme::ColorToken::Card)
+                    .unwrap_or(Color32::from_gray(250)),
+                Color32::from_gray(25),
+            );
+            draw_viewer_views(painter, rect, ctrl, mode, percent, &states, ink, face_alpha);
             if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
                 draw_regular_drop_shadow(painter, shadow, face_alpha);
             }
@@ -8392,6 +8427,11 @@ pub(crate) type ViewerPagePreview<'a> = &'a dyn Fn(usize) -> Option<String>;
 
 pub(crate) struct ViewerPaintState<'a> {
     pub content: Option<&'a ViewerPageContent>,
+    /// 0 for `View1*`, 1 for `View2*` (R21).
+    pub view_index: usize,
+    /// This view's own document path — `View2Source` differs from
+    /// `View1Source` whenever the two views hold different documents.
+    pub source: String,
     pub layout: String,
     pub font_size: f32,
     pub alpha_mul: f32,
@@ -8428,11 +8468,16 @@ impl<'a> ViewerPaintState<'a> {
     /// single canonical store for a single view's state (plan.md §3/§4) —
     /// the unprefixed `Zoom`/`ScrollPosition` names are aliases onto it, and
     /// are honoured here when a caller wrote them instead.
+    /// `view_index` is 0 for `View1*`, 1 for `View2*` (R21). One view is
+    /// the ordinary case and reads `View1*`, whose unprefixed aliases the
+    /// property layer keeps in step (plan.md §3/§4).
     pub(crate) fn from_control(
         ctrl: &Control,
+        view_index: usize,
         content: Option<&'a ViewerPageContent>,
         alpha_mul: f32,
     ) -> Self {
+        let v = |name: &str| crate::viewer::view_prop(name, view_index);
         let int = |name: &str, fallback: i64| -> i64 {
             ctrl.get_prop(name).map(|v| v.as_i64()).unwrap_or(fallback)
         };
@@ -8445,28 +8490,36 @@ impl<'a> ViewerPaintState<'a> {
         // An alias wins only when the canonical per-view value is still at
         // its seeded default — so a COBOL program that writes the short name
         // is heard, without a stale alias overriding a real per-view write.
-        let mut zoom = int("View1Zoom", crate::viewer::ZOOM_DEFAULT_PCT);
-        if zoom == crate::viewer::ZOOM_DEFAULT_PCT {
+        // The unprefixed aliases belong to the FIRST view only — `Zoom`
+        // means `View1Zoom`, never view 2's.
+        let mut zoom = int(&v("Zoom"), crate::viewer::ZOOM_DEFAULT_PCT);
+        if view_index == 0 && zoom == crate::viewer::ZOOM_DEFAULT_PCT {
             zoom = int("Zoom", crate::viewer::ZOOM_DEFAULT_PCT);
         }
-        let mut scroll = int("View1ScrollPosition", 0);
-        if scroll == 0 {
+        let mut scroll = int(&v("ScrollPosition"), 0);
+        if view_index == 0 && scroll == 0 {
             scroll = int("ScrollPosition", 0);
         }
 
+        let mut source = text(&v("Source")).unwrap_or_default();
+        if view_index == 0 && source.trim().is_empty() {
+            source = text("Source").unwrap_or_default();
+        }
         Self {
             content,
+            view_index,
+            source: source.trim().to_owned(),
             layout: text("Layout").unwrap_or_else(|| "Page".into()).trim().to_owned(),
             font_size: (int("FontSize", 14) as f32).max(4.0),
             alpha_mul,
             zoom_pct: crate::viewer::clamp_zoom(zoom),
             scroll: scroll.max(0) as f32,
             view_mode: crate::viewer::ViewMode::from_str(
-                &text("View1ViewMode").unwrap_or_else(|| "Full".into()),
+                &text(&v("ViewMode")).unwrap_or_else(|| "Full".into()),
             ),
-            card_size_pct: int("View1CardSize", 55).clamp(0, 100),
-            filmstrip: boolean("View1ShowFilmstrip")
-                .then(|| int("View1FilmstripWidth", 0))
+            card_size_pct: int(&v("CardSize"), 55).clamp(0, 100),
+            filmstrip: boolean(&v("ShowFilmstrip"))
+                .then(|| int(&v("FilmstripWidth"), 0))
                 .map(|w| {
                     if w <= 0 {
                         crate::viewer::FILMSTRIP_DEFAULT_WIDTH
@@ -8476,17 +8529,17 @@ impl<'a> ViewerPaintState<'a> {
                 }),
             fullscreen: boolean("Fullscreen"),
             split: !text("SplitMode").unwrap_or_else(|| "None".into()).trim().eq_ignore_ascii_case("None"),
-            find_open: boolean("View1FindOpen"),
-            find_text: text("View1SearchText").unwrap_or_default(),
-            find_case_sensitive: boolean("View1SearchCaseSensitive"),
+            find_open: boolean(&v("FindOpen")),
+            find_text: text(&v("SearchText")).unwrap_or_default(),
+            find_case_sensitive: boolean(&v("SearchCaseSensitive")),
             find_highlight: ctrl
-                .get_prop("View1SearchHighlightEnabled")
+                .get_prop(&v("SearchHighlightEnabled"))
                 .map(|v| v.as_bool())
                 .unwrap_or(true),
-            find_current: int("View1SearchCurrentMatch", 0).max(0) as usize,
-            find_total: int("View1SearchMatchCount", 0).max(0) as usize,
+            find_current: int(&v("SearchCurrentMatch"), 0).max(0) as usize,
+            find_total: int(&v("SearchMatchCount"), 0).max(0) as usize,
             page_count: 1,
-            current_page: (int("View1Page", 1).max(1) - 1) as usize,
+            current_page: (int(&v("Page"), 1).max(1) - 1) as usize,
             page_preview: None,
         }
     }
@@ -8650,8 +8703,7 @@ pub(crate) fn draw_viewer(
     };
 
     if let ViewerPageContent::Image(img) = content {
-        let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
-        draw_viewer_image(painter, content_rect, ctrl, &source, img);
+        draw_viewer_image(painter, content_rect, ctrl, &st.source, img);
         draw_viewer_slider(painter, result.slider_track, st, ink, a);
         return result;
     }
@@ -8728,6 +8780,58 @@ pub(crate) fn draw_viewer(
 
     draw_viewer_slider(painter, result.slider_track, st, ink, a);
     result
+}
+
+/// R21 — paint a Viewer that may be showing **two** views.
+///
+/// `draw_viewer` itself never knew how big the control was, only which rect
+/// it was given: splitting is therefore a matter of handing it half a rect
+/// twice, not of teaching it about split mode. The divider between them is
+/// painted here, and returned so `render.rs` can let the developer drag it.
+///
+/// R21.1's "attach, don't reload" is upstream of this: two views pointed at
+/// the same path resolve to the same cached content, so the same decode is
+/// painted twice rather than decoded twice.
+pub(crate) fn draw_viewer_views(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ctrl: &Control,
+    mode: crate::viewer::SplitMode,
+    percent: i64,
+    views: &[ViewerPaintState<'_>],
+    ink: Color32,
+    alpha: f32,
+) -> (Vec<ViewerPaintResult>, Option<egui::Rect>) {
+    let geom = crate::viewer::split_geometry(view_rect_of(rect), mode, percent);
+    let mut out = Vec::new();
+    out.push(draw_viewer(painter, egui_rect_of(geom.view1), ctrl, &views[0]));
+    if let (Some(second), Some(state)) = (geom.view2, views.get(1)) {
+        out.push(draw_viewer(painter, egui_rect_of(second), ctrl, state));
+    }
+    let divider = geom.divider.map(egui_rect_of);
+    if let Some(d) = divider {
+        let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
+        painter.rect_filled(
+            d,
+            egui::CornerRadius::ZERO,
+            Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8),
+        );
+        // A grip line down the middle, so the divider reads as draggable
+        // rather than as a gap between two panes.
+        let long = d.width() > d.height();
+        let c = d.center();
+        let half = if long { d.width().min(40.0) / 2.0 } else { d.height().min(40.0) / 2.0 };
+        let (a1, b1) = if long {
+            (egui::pos2(c.x - half, c.y), egui::pos2(c.x + half, c.y))
+        } else {
+            (egui::pos2(c.x, c.y - half), egui::pos2(c.x, c.y + half))
+        };
+        painter.line_segment(
+            [a1, b1],
+            Stroke::new(2.0, Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 2) as u8)),
+        );
+    }
+    (out, divider)
 }
 
 /// R16's toolbar band and its buttons.
@@ -16160,6 +16264,8 @@ mod theme_render_tests {
     ) -> ViewerPaintState<'a> {
         ViewerPaintState {
             content: Some(content),
+            view_index: 0,
+            source: String::new(),
             layout: layout.to_string(),
             font_size,
             alpha_mul: 1.0,

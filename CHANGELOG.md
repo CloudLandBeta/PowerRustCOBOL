@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.89] — 2026-09-19
+
+### A Viewer can show two documents at once — or one document twice
+
+Spec 058 T16 and T17. `SplitMode` set to `LeftRight` or `TopBottom` gives a
+Viewer two views with a draggable divider between them, and each view is
+genuinely its own: its own document, page, zoom, scroll position, view mode,
+filmstrip, and its own Find — query, case toggle, highlight toggle, current
+match and match count alike. Moving or searching one side does not move or
+affect the other, including when both sides are showing the **same** document,
+which is the case the split exists for: read one section while browsing
+another.
+
+Pointing the second view at a document the first already has open **attaches
+to that document rather than decoding it again**. Every open document is held
+by path behind one shared handle; a view asking for a path someone already
+holds gets that same handle, and only a path nobody holds is decoded at all.
+A document no view is showing any more is released rather than held for the
+session's life.
+
+Each view's properties are its own — `View1Zoom` and `View2Zoom`, and so on
+through the whole per-view group — while the plain names (`Zoom`,
+`SearchText`, …) stay aliases for the **first** view, so a form written before
+split view existed goes on meaning exactly what it did.
+
+A control too narrow to give both views a usable width shows one rather than
+two unreadable slivers, and a divider dragged to either edge still leaves
+enough of both to drag it back by.
+
+cobolt-forms 1029 passed, cobolt-runtime 918 passed, cobolt-form-host 108
+passed; 0 failed anywhere.
+
 ## [PowerRustCOBOL 1.70.88] — 2026-09-19
 
 ### The Viewer can be searched, from the keyboard or from COBOL

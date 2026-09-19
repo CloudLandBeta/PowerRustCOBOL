@@ -439,7 +439,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage E — Split view (depends on Search)
 
-- [ ] **T16 — Two independent viewports** (R21, R21.1, R32, AC8)
+- [x] **T16 — Two independent viewports** (R21, R21.1, R32, AC8)
   - Files: `crates/cobolt-forms/src/viewer.rs` (the `View1`/`View2`-prefixed
         properties, aliased from the plain names when `SplitMode = None` — plan
         §4's naming decision), `src/paint.rs` (divider, reusing
@@ -457,7 +457,7 @@ not a claim about what §8.1 means architecturally.
         page/zoom/scroll leaves the other's untouched (**AC8**'s independence
         clause); switching `SplitMode` fires `onSplitModeChanged` exactly once.
 
-- [ ] **T17 — Per-view independent search** (R21.2, AC8)
+- [x] **T17 — Per-view independent search** (R21.2, AC8)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: each `ViewState` carries its own `SearchState` (T14/T15's engine,
         instantiated per view) — falls out naturally from where the state
@@ -465,6 +465,36 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-forms` — searching one view leaves the
         other's query/matches/current-index untouched, including when both
         views hold the same document (**AC8**'s search clause, **R21.2**).
+
+  - **DONE — 2026-09-19 (1.70.89).** `viewer::split_geometry` reimplements
+    `splitter::geometry()`'s percent-split arithmetic (the math only — that
+    control owns two developer-droppable child Panels, the wrong shape
+    entirely for one control with two viewports of its own state).
+  - **The refactor was smaller than expected, and that is the design.**
+    `draw_viewer` never knew how big the control was, only which rect it was
+    given — so splitting is handing it half a rect twice, not teaching it
+    about split mode. The same held in `render.rs`: the interaction body
+    became `viewer_view_interactive(…, view_index, …)`, called once or twice.
+  - **Independence is structural, not remembered.** Each view has its own
+    live state slot, its own egui widget ids (`vid = ctrl_id.with(("viewer-
+    view", i))` — two views of one control must never share an interaction
+    id) and its own `View{n}*` properties, written through one `View#`
+    marker in the push helper. **The unprefixed aliases are view 1's alone**,
+    so view 2 can never quietly overwrite `Zoom` or `SearchText`. R21.2 then
+    needed no work at all: per-view search falls out of where the state
+    lives, which is exactly what T17 predicted.
+  - **One deliberate compromise, recorded:** control-wide state (`Layout`,
+    `FontSize`, `Fullscreen`, `SplitMode`) is *written* by whichever view's
+    toolbar was clicked, but its change **event** is raised by view 1's pass
+    — so a click in view 2 reports one frame later. The alternative was two
+    views both reporting the same change.
+  - **AC8's decode-once clause is measured, not asserted.**
+    `viewer_session::DocumentRegistry` holds every open document behind an
+    `Arc` keyed by path: a view asking for a path someone already holds gets
+    a clone, and only an unheld path is decoded. The test's `decode`
+    closure for the second view **panics if it is ever called**, and the
+    registry's own decode counter is asserted `== 1`. `release_unused` keeps
+    "attach, don't reload" from becoming "attach, and never let go".
 
 ## Stage F — PDF (fidelity wave 2)
 

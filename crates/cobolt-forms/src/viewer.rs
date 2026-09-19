@@ -1396,6 +1396,139 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
 }
 
+// ── Split view (T16: R21, R21.1, AC8) ───────────────────────────────────
+
+/// R21 — one view, or two side by side / one above the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SplitMode {
+    #[default]
+    None,
+    LeftRight,
+    TopBottom,
+}
+
+impl SplitMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::LeftRight => "LeftRight",
+            Self::TopBottom => "TopBottom",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "leftright" | "left-right" | "horizontal" => Self::LeftRight,
+            "topbottom" | "top-bottom" | "vertical" => Self::TopBottom,
+            _ => Self::None,
+        }
+    }
+
+    pub fn is_split(self) -> bool {
+        self != Self::None
+    }
+
+    /// How many views this mode shows — the loop bound every surface uses,
+    /// so "is there a second view" is asked in one place.
+    pub fn view_count(self) -> usize {
+        if self.is_split() {
+            2
+        } else {
+            1
+        }
+    }
+}
+
+impl std::fmt::Display for SplitMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The divider's painted thickness between two views.
+pub const SPLIT_DIVIDER: f32 = 6.0;
+/// Where the divider sits by default, as a percentage of the span.
+pub const SPLIT_DEFAULT_PCT: i64 = 50;
+/// Neither view is allowed below this, so a divider dragged to an edge
+/// still leaves something to grab it back by.
+pub const SPLIT_MIN_VIEW: f32 = 40.0;
+
+/// Where the two views and the divider land.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SplitGeometry {
+    pub view1: ViewRect,
+    /// `None` when `SplitMode = None`.
+    pub view2: Option<ViewRect>,
+    pub divider: Option<ViewRect>,
+}
+
+/// R21's two views, from `splitter::geometry()`'s own percent-split
+/// arithmetic — the line's centre at `percent` along the span, one pane
+/// either side of its faces.
+///
+/// The *math* is what is reused, not the Splitter control's model: that one
+/// owns two developer-droppable child Panels, which is the wrong shape
+/// entirely for one control showing two viewports of its own state
+/// (plan.md §1).
+pub fn split_geometry(bounds: ViewRect, mode: SplitMode, percent: i64) -> SplitGeometry {
+    if !mode.is_split() {
+        return SplitGeometry { view1: bounds, view2: None, divider: None };
+    }
+    let horizontal = mode == SplitMode::LeftRight;
+    let span = if horizontal { bounds.w } else { bounds.h };
+    let start = if horizontal { bounds.x } else { bounds.y };
+    let half = SPLIT_DIVIDER / 2.0;
+
+    // Too small to split into two usable views: show one rather than two
+    // slivers neither of which can be read.
+    if span < SPLIT_MIN_VIEW * 2.0 + SPLIT_DIVIDER {
+        return SplitGeometry { view1: bounds, view2: None, divider: None };
+    }
+    let raw = start + span * (percent.clamp(0, 100) as f32) / 100.0;
+    let centre = raw.clamp(
+        start + SPLIT_MIN_VIEW + half,
+        start + span - SPLIT_MIN_VIEW - half,
+    );
+    let a_len = (centre - half - start).max(0.0);
+    let b_start = centre + half;
+    let b_len = (start + span - b_start).max(0.0);
+
+    let (view1, view2, divider) = if horizontal {
+        (
+            ViewRect::new(bounds.x, bounds.y, a_len, bounds.h),
+            ViewRect::new(b_start, bounds.y, b_len, bounds.h),
+            ViewRect::new(centre - half, bounds.y, SPLIT_DIVIDER, bounds.h),
+        )
+    } else {
+        (
+            ViewRect::new(bounds.x, bounds.y, bounds.w, a_len),
+            ViewRect::new(bounds.x, b_start, bounds.w, b_len),
+            ViewRect::new(bounds.x, centre - half, bounds.w, SPLIT_DIVIDER),
+        )
+    };
+    SplitGeometry { view1, view2: Some(view2), divider: Some(divider) }
+}
+
+/// The percentage a divider dragged to `pos` along `bounds` means.
+pub fn split_percent_at(bounds: ViewRect, mode: SplitMode, x: f32, y: f32) -> i64 {
+    let (span, start, pos) = if mode == SplitMode::LeftRight {
+        (bounds.w, bounds.x, x)
+    } else {
+        (bounds.h, bounds.y, y)
+    };
+    if span <= 0.0 {
+        return SPLIT_DEFAULT_PCT;
+    }
+    (((pos - start) / span * 100.0).round() as i64).clamp(0, 100)
+}
+
+/// The property name for one view's `name`, e.g. `("Zoom", 1)` →
+/// `"View2Zoom"`. **One place** builds these, so a typo cannot make a
+/// property that only one of the reader and the writer agrees on.
+pub fn view_prop(name: &str, view_index: usize) -> String {
+    format!("View{}{name}", view_index + 1)
+}
+
 // ── Find: match computation (T14: R26.1, R27) ───────────────────────────
 //
 // The whole of Find's *searching* is this one pure function over a string.
@@ -3715,5 +3848,114 @@ mod find_tests {
         let empty = parse_markdown("");
         println!("an empty Markdown document -> searchable_text = {:?}", empty.searchable_text());
         assert!(empty.searchable_text().is_none(), "R26.1's own case, from the other direction");
+    }
+}
+
+/// Spec 058 T16/T17 — split view (R21, R21.1, R21.2, AC8). The geometry is
+/// pure arithmetic; the independence it enables is asserted at the engine
+/// and session levels, where the state actually lives.
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    #[test]
+    fn split_mode_round_trips_through_its_own_name() {
+        for mode in [SplitMode::None, SplitMode::LeftRight, SplitMode::TopBottom] {
+            let back = SplitMode::from_str(mode.as_str());
+            println!("{mode} -> {:?} -> {back}, {} view(s)", mode.as_str(), mode.view_count());
+            assert_eq!(back, mode);
+        }
+        assert_eq!(SplitMode::from_str("nonsense"), SplitMode::None, "an unknown value shows one view");
+        assert_eq!(SplitMode::None.view_count(), 1);
+        assert_eq!(SplitMode::LeftRight.view_count(), 2);
+    }
+
+    #[test]
+    fn a_left_right_split_divides_the_width_at_the_divider() {
+        let bounds = ViewRect::new(10.0, 20.0, 800.0, 400.0);
+        for pct in [25i64, 50, 75] {
+            let g = split_geometry(bounds, SplitMode::LeftRight, pct);
+            let v2 = g.view2.expect("two views");
+            let d = g.divider.expect("a divider");
+            println!(
+                "{pct}% -> view1 x={:.0} w={:.0} | divider x={:.0} w={:.0} | view2 x={:.0} w={:.0}",
+                g.view1.x, g.view1.w, d.x, d.w, v2.x, v2.w
+            );
+            assert_eq!(g.view1.x, bounds.x);
+            assert_eq!(v2.right(), bounds.right(), "the pair must fill the control exactly");
+            assert_eq!(d.x, g.view1.right(), "no gap between view 1 and the divider");
+            assert_eq!(v2.x, d.right(), "nor between the divider and view 2");
+            assert_eq!(d.w, SPLIT_DIVIDER);
+            assert_eq!(g.view1.h, bounds.h, "a left/right split keeps full height");
+            assert_eq!(v2.h, bounds.h);
+        }
+    }
+
+    #[test]
+    fn a_top_bottom_split_divides_the_height_instead() {
+        let bounds = ViewRect::new(0.0, 0.0, 500.0, 600.0);
+        let g = split_geometry(bounds, SplitMode::TopBottom, 40);
+        let v2 = g.view2.expect("two views");
+        println!(
+            "40% top/bottom -> view1 y={:.0} h={:.0}, view2 y={:.0} h={:.0}",
+            g.view1.y, g.view1.h, v2.y, v2.h
+        );
+        assert_eq!(g.view1.w, bounds.w);
+        assert_eq!(v2.w, bounds.w);
+        assert!(g.view1.h < v2.h, "40 % leaves the smaller share on top");
+        assert_eq!(v2.bottom(), bounds.bottom());
+    }
+
+    #[test]
+    fn no_split_is_one_view_filling_the_control() {
+        let bounds = ViewRect::new(5.0, 5.0, 300.0, 200.0);
+        let g = split_geometry(bounds, SplitMode::None, 50);
+        println!("SplitMode=None -> view1 {:?}, view2 {:?}", (g.view1.w, g.view1.h), g.view2);
+        assert_eq!(g.view1, bounds);
+        assert!(g.view2.is_none() && g.divider.is_none());
+    }
+
+    #[test]
+    fn a_divider_dragged_to_an_edge_still_leaves_both_views_usable() {
+        let bounds = ViewRect::new(0.0, 0.0, 600.0, 300.0);
+        for pct in [0i64, 2, 98, 100] {
+            let g = split_geometry(bounds, SplitMode::LeftRight, pct);
+            let v2 = g.view2.expect("two views");
+            println!("{pct:>3}% -> view1 {:.0} pt, view2 {:.0} pt (minimum {SPLIT_MIN_VIEW})", g.view1.w, v2.w);
+            assert!(g.view1.w >= SPLIT_MIN_VIEW, "view 1 must stay grabbable");
+            assert!(v2.w >= SPLIT_MIN_VIEW, "and so must view 2");
+        }
+    }
+
+    #[test]
+    fn a_control_too_small_to_split_shows_one_view_rather_than_two_slivers() {
+        let bounds = ViewRect::new(0.0, 0.0, 60.0, 200.0);
+        let g = split_geometry(bounds, SplitMode::LeftRight, 50);
+        println!("a {:.0} pt wide control asked to split -> view2 {:?}", bounds.w, g.view2);
+        assert!(g.view2.is_none(), "two unreadable slivers help nobody");
+        assert_eq!(g.view1, bounds);
+    }
+
+    #[test]
+    fn dragging_the_divider_reports_the_percentage_it_landed_on() {
+        let bounds = ViewRect::new(100.0, 0.0, 400.0, 300.0);
+        for (x, want) in [(100.0f32, 0i64), (200.0, 25), (300.0, 50), (500.0, 100), (900.0, 100)] {
+            let pct = split_percent_at(bounds, SplitMode::LeftRight, x, 0.0);
+            println!("divider dragged to x={x:.0} over [{:.0}..{:.0}] -> {pct}%", bounds.x, bounds.right());
+            assert_eq!(pct, want);
+        }
+    }
+
+    #[test]
+    fn a_view_property_is_built_in_exactly_one_place() {
+        for (name, a, b) in [
+            ("Zoom", "View1Zoom", "View2Zoom"),
+            ("SearchText", "View1SearchText", "View2SearchText"),
+            ("ShowFilmstrip", "View1ShowFilmstrip", "View2ShowFilmstrip"),
+        ] {
+            println!("{name} -> {:?} / {:?}", view_prop(name, 0), view_prop(name, 1));
+            assert_eq!(view_prop(name, 0), a);
+            assert_eq!(view_prop(name, 1), b);
+        }
     }
 }
