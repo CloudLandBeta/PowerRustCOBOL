@@ -79,6 +79,16 @@
        01 COBOL-LAST-STATUS       PIC X(256)  VALUE SPACES.
        01 FORM-NAME               PIC X(64)   VALUE 'CUSTOMER-FORM'.
 
+      *>── IndexedFile control: CustomerFile ─────────────────────────────
+      *>   Project indexed file: indexed/customers.cidx
+       01 WS-CustomerFile-OPEN-MODE      PIC X(8)    VALUE 'I-O'.
+       01 WS-CustomerFile-LOAD-STRATEGY  PIC X(8)    VALUE 'Disk'.
+       01 WS-CustomerFile-IS-OPEN        PIC 9       VALUE 0.
+       01 WS-CustomerFile-AT-END         PIC 9       VALUE 0.
+       01 WS-CustomerFile-HAS-RECORD     PIC 9       VALUE 0.
+       01 WS-CustomerFile-CURRENT-OP     PIC X(16)   VALUE SPACES.
+       01 WS-CustomerFile-STATUS   PIC X(2)    VALUE '00'.
+
       *>── Form controls ───────────────────────────────────────────────
        01 WS-CustomerFile.
           05 WS-CustomerFile-TEXT       PIC X(256) VALUE 'CustomerFile'.

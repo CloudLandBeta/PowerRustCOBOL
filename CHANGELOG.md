@@ -1,5 +1,37 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.74] — 2026-09-19
+
+### Codegen declared the items its own facades use — sometimes; now always
+
+Step 1 of making an undeclared identifier a build error (operator ruling,
+2026-09-19). A census of every PowerDemo3 form's generated program found 65
+undeclared names, and the runtime's create-on-first-write leniency had hidden
+all of them. Three codegen defects:
+
+- **IndexedFile**: the control's WORKING-STORAGE flags (`WS-<ID>-IS-OPEN`,
+  `-AT-END`, `-HAS-RECORD`, `-OPEN-MODE`, `-LOAD-STRATEGY`, `-CURRENT-OP`,
+  `-STATUS`) were emitted from the tail of `write_chart_stubs`, which returns
+  early when a form has no chart — so a chart-less form got a facade that
+  used them undeclared, and a form with a chart got them in the PROCEDURE
+  area. They now come from the WORKING-STORAGE writer
+  (`write_indexed_file_fields`), for every form carrying the control. A
+  developer-named `StatusDataItem` is no longer redeclared by the facade
+  (it is theirs — usually a form-level `01 WS-FS PIC XX` already there).
+- **Charts**: the `<ID>-SET-TABLE` facade fell back to `WS-<ID>-TABLE` /
+  `WS-<ID>-COUNT` when `DataSource`/`DataCount` were unset — names nothing
+  declared. With either unset it now says so and does nothing.
+- **WebSearch**: `WS-REQUEST-URL` / `WS-HTTP-RESPONSE` / `WS-HTTP-STATUS`
+  were emitted only when a RestClient existed; the WebSearch facade drives
+  the same items. Emitted for either control now.
+
+Regenerating the demos: charts-form, websearch-form, inner-form2 and
+call-form-demo drop to zero undeclared names. indexedfile-form's remaining
+16 are all form-level items read from `COMMON` handler programs — the
+analyser-contract question step 2 settles. The spec-053 golden snapshot for
+the corpus's indexed-file form gains its ten declarations; nothing else in
+any snapshot moved.
+
 ## [PowerRustCOBOL 1.70.73] — 2026-09-19
 
 ### A blocked form keeps its designed transparency; only the overlay dims

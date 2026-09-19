@@ -483,10 +483,17 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         out.push_str("       01 CONTROL-ARRAY-INDEX     PIC S9(4) COMP-5 VALUE 0.\n");
     }
 
-    // ── REST / HTTP infrastructure (emitted when any RestClient exists) ─────
-    let has_rest = all_controls
-        .iter()
-        .any(|c| c.control_type == ControlType::RestClient);
+    // ── REST / HTTP infrastructure (emitted when any RestClient OR WebSearch
+    // exists — the WebSearch facade drives the same WS-REQUEST-URL /
+    // WS-HTTP-RESPONSE / WS-HTTP-STATUS items, and a form with a WebSearch
+    // but no RestClient used them undeclared; PowerDemo3's websearch-form,
+    // 2026-09-19) ─────────────────────────────────────────────────────────
+    let has_rest = all_controls.iter().any(|c| {
+        matches!(
+            c.control_type,
+            ControlType::RestClient | ControlType::WebSearch
+        )
+    });
     if has_rest {
         out.push_str("      *>── REST / HTTP runtime variables ──────────────────────────────\n");
         out.push_str("      *>   Usage:\n");
@@ -697,6 +704,8 @@ fn write_data_division(out: &mut String, form: &Form, map: &mut SourceMap) {
         ));
         out.push('\n');
     }
+
+    write_indexed_file_fields(out, &all_controls);
 
     // ── Timer runtime fields ──────────────────────────────────────────────
     for ctrl in all_controls
@@ -2037,29 +2046,46 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
     for ctrl in charts {
         let id = &ctrl.id;
         let ws = format!("WS-{}", cobol_word(id));
+        // The table and its count come from the chart's DataSource /
+        // DataCount properties — data items the developer declares. With
+        // either unset there is nothing to bind: the paragraph used to fall
+        // back to `WS-<ID>-TABLE` / `WS-<ID>-COUNT`, names nothing declared,
+        // so every chart without design-time binding shipped a facade that
+        // referenced undeclared items (PowerDemo3's charts-form and
+        // inner-form2, 2026-09-19). Now it says so and does nothing.
         let ds = ctrl
             .get_prop("DataSource")
-            .map(|v| v.as_str().to_owned())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("WS-{}-TABLE", cobol_word(id)));
+            .map(|v| v.as_str().trim().to_owned())
+            .filter(|s| !s.is_empty());
         let cnt = ctrl
             .get_prop("DataCount")
-            .map(|v| v.as_str().to_owned())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("WS-{}-COUNT", cobol_word(id)));
+            .map(|v| v.as_str().trim().to_owned())
+            .filter(|s| !s.is_empty());
 
         // ── SET-TABLE ────────────────────────────────────────────────────────
         out.push_str(&format!("       {id}-SET-TABLE.\n"));
         out.push_str(&format!("      *>    Bind a COBOL table to {id}.\n"));
-        out.push_str(&format!(
-            "      *>    Usage: INVOKE {id} SET-TABLE USING {ds} {cnt}\n"
-        ));
-        out.push_str(&format!(
-            "           MOVE {cnt}        TO {ws}-SELECTED-IDX\n"
-        ));
-        out.push_str(&format!(
-            "           CALL \"COBOL-CHART-SET-TABLE\" USING \"{id}\" {ds} {cnt}\n"
-        ));
+        match (&ds, &cnt) {
+            (Some(ds), Some(cnt)) => {
+                out.push_str(&format!(
+                    "      *>    Bound to DataSource {ds} / DataCount {cnt}.\n"
+                ));
+                out.push_str(&format!(
+                    "           MOVE {cnt}        TO {ws}-SELECTED-IDX\n"
+                ));
+                out.push_str(&format!(
+                    "           CALL \"COBOL-CHART-SET-TABLE\" USING \"{id}\" {ds} {cnt}\n"
+                ));
+            }
+            _ => {
+                out.push_str(
+                    "      *>    Nothing to bind: set DataSource and DataCount on the\n",
+                );
+                out.push_str(&format!(
+                    "      *>    control to data items this program declares, or use {id}-ADD-POINT.\n"
+                ));
+            }
+        }
         out.push_str("           CONTINUE.\n");
         out.push('\n');
 
@@ -2100,7 +2126,19 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push('\n');
     }
 
-    // ── Indexed File control fields ───────────────────────────────────────
+}
+
+/// The IndexedFile control's WORKING-STORAGE items — the flags its facade
+/// paragraphs (`write_indexed_file_stubs`) read and write.
+///
+/// These used to sit at the tail of `write_chart_stubs`, which returns early
+/// when a form has no chart, so a chart-less form got a facade that used
+/// `WS-<ID>-IS-OPEN`/`-AT-END`/`-HAS-RECORD` it never declared (and a form
+/// WITH a chart got them emitted into the PROCEDURE area). The runtime hid
+/// it by creating each name on first write (PowerDemo3's indexedfile-form,
+/// 2026-09-19). Emitted from the WORKING-STORAGE writer, for every form that
+/// carries the control.
+fn write_indexed_file_fields(out: &mut String, all_controls: &[&Control]) {
     for ctrl in all_controls
         .iter()
         .filter(|c| c.control_type == ControlType::IndexedFile)
@@ -2158,9 +2196,15 @@ fn write_chart_stubs(out: &mut String, all_controls: &[&Control]) {
         out.push_str(&format!(
             "       01 {pfx}-CURRENT-OP     PIC X(16)   VALUE SPACES.\n"
         ));
-        out.push_str(&format!(
-            "       01 {status_item:<24} PIC X(2)    VALUE '00'.\n"
-        ));
+        // A StatusDataItem the developer named is theirs to declare (it is
+        // usually a form-level `01 WS-FS PIC XX` already in WORKING-STORAGE);
+        // declaring it here as well would be a duplicate name. Only the
+        // facade's own default gets declared by the facade.
+        if status_item.eq_ignore_ascii_case(&format!("{pfx}-STATUS")) {
+            out.push_str(&format!(
+                "       01 {status_item:<24} PIC X(2)    VALUE '00'.\n"
+            ));
+        }
         out.push('\n');
     }
 }
