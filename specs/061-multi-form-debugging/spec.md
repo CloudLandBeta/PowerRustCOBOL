@@ -1,6 +1,6 @@
 # Spec — Debugging an application, not a form
 
-- **Status:** draft → **needs `/clarify`** (seven open questions in §7)
+- **Status:** draft → **ready for `/plan`** (every question settled — see §7)
 - **Folder:** specs/061-multi-form-debugging/
 - **Author:** Anthropic Claude Codex Agent   **Date:** 2026-09-19
 
@@ -90,11 +90,13 @@ as the cross-process-locking precedent in `CLAUDE.md`.
 - **R6 (event):** When the developer presses Continue, a step or Pause, the
   command shall be delivered to the form the panel is currently showing, and to
   no other.
-- **R7 (state):** While the developer's focus is on form B, form B shall be the
-  form producing events; form A shall remain in its wait state, receiving none,
-  and shall resume receiving them when focus returns to it.
-- **R8 (state):** While one form is stopped, the other forms' windows shall
-  remain **visible and legible** — what they do with input is Q1.
+- **R7 (state):** While the developer works in form B, form B shall be the form
+  producing events; form A shall remain in its wait state, receiving none, and
+  shall resume when the developer returns to it. **This already holds** — see
+  §7 Q2 — so R7 is a *preservation* requirement: the change must not break it.
+- **R8 (state):** While any form is stopped, the **whole application** shall be
+  stopped: every window stays visible and legible and takes no operator input,
+  as it does today (operator ruling, 2026-09-19 — §7 Q1).
 - **R9 (constraint):** The system shall not change single-form debugging: a
   project whose main form opens nothing behaves exactly as it does today.
 - **R10 (constraint):** The system shall not leave any form's interpreter
@@ -147,39 +149,69 @@ pair is exactly this shape.
   `cobolt-cli/src/form_gui.rs:402`, `cobolt-compiler/src/lib.rs:3240`,
   `cobolt-ide/src/runner.rs:673`.
 
-## 7. Open questions
-
-Resolve before `/plan`.
+## 7. Questions — all settled
 
 - **Q1 — While form B is stopped, what does form A's window do with input?**
-  Today `debug_link::PAUSED` is a single process-wide `AtomicBool`
-  (`debug_link.rs:59`) consulted at four render sites
-  (`host.rs:3044`, `:3226`, `:3503`, `:4541`), so *every* window goes inert when
-  *any* stop happens. Options: (a) keep that — the application is stopped, all
-  of it; (b) per-form pause — only the stopped form ignores input, the others
-  stay live; (c) per-form, but a modal child's caller stays blocked anyway
-  because it already is. **(a) is the least work and arguably the most honest;
-  (b) is what "the other form stays in its wait state" could be read to mean.**
-- **Q2 — What is "the focused form" for a SideMenu pane occupant?** An occupant
-  has no OS window of its own (`host.rs:3265-3269`); the focus belongs to the
-  shell. Is the *active occupant* (`host.rs:2528`) the debuggee whenever the
-  shell has focus?
-- **Q3 — One listing that switches, or a tab per form?** R4 says the panel
-  switches. A tab strip would let the developer read the caller while the child
-  is stopped, at the cost of a new UI surface (a non-goal as written).
-- **Q4 — Is `Only my code` per form?** Its user-line set is computed once for
-  the launched form (`app.rs:2388-2392`). Per-form is the consistent answer, but
-  it means shipping a scope per debuggee.
-- **Q5 — Do watches survive a switch?** A watch naming `WS-RESULT` in the caller
-  is meaningless while the child is stopped. Keep and show as unavailable, or
-  keep a watch list per form?
-- **Q6 — What identifies a form on the wire?** The supervisor's handle
-  (`ROOT_HANDLE` / child handles), the form object name, or the generated
-  `.cbl` path. The handle is what the host already keys on; the path is what
-  the IDE needs. One of them travels and the other is looked up — which way?
-- **Q7 — Is the compiled binary in this change or a follow-up?** AC7 says it is
-  in. The parity rule says it must be. Confirm, because it is a third host to
-  wire and test.
+  **SETTLED (operator, 2026-09-19): the application is stopped, all of it —
+  keep the current behaviour.** `debug_link::PAUSED` stays one process-wide
+  `AtomicBool` (`debug_link.rs:59`), consulted at the same four render sites
+  (`host.rs:3044`, `:3226`, `:3503`, `:4541`); every window goes inert on any
+  stop, as it does today. Nothing in this change makes pause per-form, and
+  §8's obstacle 6 is therefore **not** an obstacle — it is the specified
+  behaviour.
+
+- **Q2 — What is "the focused form", and how does focus reach the debug
+  link?** **SETTLED: it does not have to, because the routing already exists.**
+  Each form body owns its **own** event channel — `FormBody::ev_tx`
+  (`host.rs:721`), created per instance in `build_form_instance`
+  (`host.rs:3358`) and sent to only by that body's `forward_interaction`
+  (`host.rs:1213`). A click on form B therefore reaches B's interpreter and no
+  other, while A's interpreter stays blocked inside `COBOL-WAIT-EVENT` — which
+  is precisely the wait state the requirement describes. R7 is satisfied by
+  construction today.
+
+  So the debugger does **not** track OS focus. It follows **whichever
+  interpreter stops**, which is the same thing from the developer's chair: the
+  form they are working in is the one running handlers, so it is the one that
+  hits their breakpoints. A SideMenu pane occupant needs no special answer for
+  the same reason — it has its own body and its own channel, whatever the OS
+  thinks the focused window is. §8's obstacle 10 leaves the critical path
+  entirely.
+
+- **Q3 — One listing that switches, or a tab per form?** **SETTLED: one
+  listing that switches**, per R4 and the "no new debugger UI" non-goal. The
+  breadcrumb already names the file being shown, so which form is current stays
+  visible; a tab strip can be revisited if reading two forms at once turns out
+  to matter.
+
+- **Q4 — Is `Only my code` per form?** **SETTLED: yes.** The toggle stays one
+  switch the developer flips, but the *user-line set* it resolves against is
+  the stopped form's own — computed from that form's source map, exactly as
+  `app.rs:2388-2392` computes it for the launched form today. Anything else
+  would make stepping in form B obey form A's line numbers, which is the same
+  collision R5 removes from breakpoints.
+
+- **Q5 — Do watches survive a switch?** **SETTLED: one watch list per session,
+  and a watch that does not resolve in the current form shows as
+  unavailable.** The panel already carries a per-watch error slot
+  (`Watch::error`, cleared at every stop, `debugger.rs:1243-1246`), so this
+  needs no new UI. Dropping watches on a switch would lose the developer's
+  work; a second list per form would multiply state for no stated benefit.
+
+- **Q6 — What identifies a form on the wire?** **SETTLED: the supervisor
+  handle travels; the IDE resolves it once.** The handle (`ROOT_HANDLE` and
+  the child handles) is what the host, the supervisor and `set_form_host`
+  already key on, so it is free and unambiguous at the runtime end. It means
+  nothing to the IDE, so each debuggee announces itself once as it attaches —
+  handle plus form object name — and the IDE maps that to the form's generated
+  `.cbl` through the existing `.cfrm` → `.cbl` rule (`app.rs:6558`), cached in
+  the index §8's obstacle 9 calls for. Commands carry the handle back.
+
+- **Q7 — Is the compiled binary in this change?** **SETTLED: yes**, per AC7 and
+  the `interpreter-binary-parity` rule (operator ruling, 2026-09-07). Three
+  hosts wire debug independently — `cobolt-cli/src/form_gui.rs:402`,
+  `cobolt-compiler/src/lib.rs:3240`, `cobolt-ide/src/runner.rs:673` — and the
+  binary is the one that ships. All three land together.
 
 ## 8. What the code says today
 
@@ -211,7 +243,9 @@ suggestions for how to answer them.
    `DebugUserScope` (`:335`) are process-wide bare line numbers — with several
    forms in one process, identical line numbers collide. R5 is a data-model
    change, not a filter.
-6. **`PAUSED` is process-wide** — see Q1.
+6. **`PAUSED` is process-wide** (`debug_link.rs:59`) — and **stays that way**
+   by ruling (Q1). Listed here because it is load-bearing, not because it is
+   an obstacle: a stop freezes every window, which is the specified behaviour.
 7. **The panel assumes one source for the whole session.** `set_source`
    (`debugger.rs:1145`) clears the dock, the folds and the breakpoint set, and
    is documented "at session start"; `apply_event` (`:1217`) writes any stop's
@@ -226,10 +260,14 @@ suggestions for how to answer them.
 9. **The `.cfrm` ↔ `.cbl` reverse map is a linear recompute.**
    `designer_idx_for_generated` (`app.rs:6540`) and `form_for_generated`
    (`:6548`) scan and compare on every call; a per-stop lookup wants an index.
-10. **Focus exists in the host but reaches nothing.** Per-viewport focus is
-    readable (`host.rs:3539`, `:4111`) and the root body already tracks
-    `focused_actual` to raise COBOL `onGotFocus`/`onLostFocus`
-    (`host.rs:4111-4114`); the interpreter can *command* focus
-    (`FormHost::FocusWindow`, `form_host.rs:145`) but never reads it, and
-    nothing in `debug_link.rs` mentions focus, handles or viewports. R7 needs a
-    path from the host's focus to the debug link that does not exist yet.
+10. **Focus exists in the host but reaches nothing — and need not.**
+    Per-viewport focus is readable (`host.rs:3539`, `:4111`), the root body
+    tracks `focused_actual` to raise COBOL `onGotFocus`/`onLostFocus`
+    (`host.rs:4111-4114`), and the interpreter can *command* focus
+    (`FormHost::FocusWindow`, `form_host.rs:145`) but never reads it; nothing
+    in `debug_link.rs` mentions focus, handles or viewports. **Off the critical
+    path** (Q2): event delivery is already per form body
+    (`host.rs:721`, `:1213`, `:3358`), so the debugger follows the interpreter
+    that *stops* rather than the window that has focus. Recorded so a later
+    reader does not go looking for a focus signal the design deliberately does
+    not use.

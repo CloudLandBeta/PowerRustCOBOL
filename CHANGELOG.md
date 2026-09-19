@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.92] — 2026-09-19
+
+### Spec 061 clarified — every question settled, ready for `/plan`
+
+The operator settled the one that shaped the rest: **while any form is
+stopped, the whole application is stopped** — the process-wide `PAUSED` flag
+stays exactly as it is, and per-form pause is not in this change. Answering
+it exposed a second simplification: **the debugger never needs to know which
+window has focus.** Every form body already owns its own event channel
+(`FormBody::ev_tx`, created per instance in `build_form_instance` and sent to
+only by that body's `forward_interaction`), so a click on form B reaches B's
+interpreter and no other while A's stays blocked in `COBOL-WAIT-EVENT` — the
+"wait state" requirement holds today, by construction. The debugger therefore
+follows whichever interpreter *stops*, and the host's focus signal leaves the
+critical path. The remaining five questions are settled with their reasons:
+one listing that switches (no new UI), `Only my code` resolved against the
+stopped form's own user lines, one watch list with unresolvable watches shown
+unavailable, the supervisor handle as the wire identity with a one-time
+announcement mapping it to the form's generated `.cbl`, and the compiled
+binary in scope per `interpreter-binary-parity`. No code has moved.
+
 ## [PowerRustCOBOL 1.70.91] — 2026-09-19
 
 ### Spec 061 — debugging an application, not a form (requirements only)
