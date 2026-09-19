@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.100] — 2026-09-19
+
+### Spec 061 T10–T12 — two forms stopped at once, plus the Guide and its strings
+
+**More than one form can be stopped.** A Timer keeps ticking while the
+application is paused — `onTick` is one of the two events that still flow —
+so a second form can reach a breakpoint of its own while the first sits at
+one. The session now tracks which forms are stopped: the panel shows the
+most recent, and when the developer continues that one it brings up another
+that is still waiting, instead of leaving its stop invisible and the session
+looking hung. Continuing one form no longer claims the application has
+resumed while another is stopped, which would have greyed out the very
+controls needed for it. Three tests pin the bookkeeping — the fall-back, a
+resume in a form nobody is watching, and a form that stops twice appearing
+once.
+
+**The Developer's Guide** §19 gains *Debugging an application of several
+forms*: that a breakpoint belongs to a file, that stopping stops the whole
+application, that a form only produces events while you work in it, that two
+can be stopped at once, that *Only my code* reads each form's own lines, and
+that a form the debugger cannot place is reported rather than shown against
+somebody else's listing. Its translations were already deleted at 1.70.77,
+so GOLDEN RULE #8 leaves nothing further to remove.
+
+**Two new `Tr` keys in all six languages** for the Output panel's notices
+about a form that cannot be placed — they were English literals when first
+written.
+
 ## [PowerRustCOBOL 1.70.99] — 2026-09-19
 
 ### Spec 061 T9 — the debugger follows the program into whichever form stops

@@ -324,6 +324,38 @@ fn debug_should_follow(shown_handle: &str, handle: &str, is_stop: bool) -> bool 
     is_stop && shown_handle != handle
 }
 
+/// Fold one stop-or-resume into the set of stopped debuggees, and say which
+/// form should now be **shown** — `None` meaning "leave the listing alone".
+///
+/// Pure, so the rule can be tested without a running session. `stopped` is
+/// ordered oldest-first; the most recent stop is what the developer is put
+/// in front of, and the ones behind it are what the panel falls back to as
+/// each is continued.
+fn debug_next_shown(
+    stopped: &mut Vec<String>,
+    shown_handle: &str,
+    handle: &str,
+    is_stop: bool,
+    is_resume: bool,
+) -> Option<String> {
+    if is_stop {
+        stopped.retain(|h| h != handle);
+        stopped.push(handle.to_owned());
+        // The stop itself already brought this form's listing up.
+        return None;
+    }
+    if is_resume {
+        stopped.retain(|h| h != handle);
+        if shown_handle == handle {
+            // The form on screen went on its way. If another is still
+            // stopped, show it — otherwise its stop is invisible and the
+            // session looks hung.
+            return stopped.last().cloned();
+        }
+    }
+    None
+}
+
 /// One form taking part in a debug session (spec 061).
 ///
 /// A debuggee is a form's program: it reports stops against its own generated
@@ -610,6 +642,12 @@ pub struct CoboltApp {
     /// The handle whose listing the panel is showing — and therefore the
     /// debuggee every toolbar command is addressed to.
     debug_shown_handle: String,
+    /// Handles currently stopped, oldest first. More than one is reachable:
+    /// `onTick` still flows while the application is paused, so a Timer in a
+    /// second form can hit a breakpoint while the first sits at one. The
+    /// panel shows the most recent, and falls back to the rest as each is
+    /// continued — a stop nobody is showing looks like a hang.
+    debug_stopped: Vec<String>,
     /// Form-object name → its `.cfrm`, built once per session. A debuggee
     /// announces itself by form name; the IDE needs the file.
     debug_form_index: std::collections::HashMap<String, PathBuf>,
@@ -1876,6 +1914,7 @@ impl CoboltApp {
             debug_owner_form: None,
             debug_forms: std::collections::HashMap::new(),
             debug_shown_handle: cobolt_runtime::form_host::ROOT_HANDLE.to_owned(),
+            debug_stopped: Vec::new(),
             debug_form_index: std::collections::HashMap::new(),
             debug_external: false,
             debug_sent_breakpoints: std::collections::HashSet::new(),
@@ -3212,19 +3251,19 @@ impl CoboltApp {
         let Some(cfrm) = self.debug_form_index.get(&key).cloned() else {
             // Nothing to show it against. Say so and leave the listing where
             // it is — showing the wrong file's line would be worse.
-            self.output.push_status(format!(
-                "debug: the application opened a form called {form_object}, which \
-                 no .cfrm in this project names — its stops cannot be shown."
-            ));
+            let tr = self.lang.tr();
+            self.output.push_status(
+                tr.status_debug_form_unresolved.replace("{form}", form_object),
+            );
             return;
         };
         let generated = self.generated_cbl_path(&cfrm);
         let Ok(source) = std::fs::read_to_string(&generated) else {
-            self.output.push_status(format!(
-                "debug: {} has not been generated yet — {form_object}'s stops \
-                 cannot be shown.",
-                generated.display()
-            ));
+            let tr = self.lang.tr();
+            self.output.push_status(
+                tr.status_debug_form_not_generated
+                    .replace("{form}", form_object),
+            );
             return;
         };
         // This file's own gutter marks, minus any inside an `EXEC RUST` block:
@@ -3301,6 +3340,35 @@ impl CoboltApp {
             self.editor.debug_line = None;
         }
         Some(path)
+    }
+
+    /// Keep track of which forms are stopped, and fall back to one that
+    /// still is when the form on screen is continued (spec 061).
+    fn debug_track_stop(&mut self, handle: &str, is_stop: bool, is_resume: bool) {
+        let next = debug_next_shown(
+            &mut self.debug_stopped,
+            &self.debug_shown_handle,
+            handle,
+            is_stop,
+            is_resume,
+        );
+        if let Some(next) = next {
+            let path = self
+                .debug_forms
+                .get(&next)
+                .map(|form| form.generated.display().to_string());
+            if let Some(path) = path {
+                if self.debugger.show_source(&path) {
+                    self.debug_shown_handle = next;
+                    self.editor.debug_line = None;
+                }
+            }
+        }
+        // Continuing one form does not resume the application while another
+        // is still sitting at a breakpoint.
+        if is_resume && !self.debug_stopped.is_empty() {
+            self.debugger.note_another_form_is_stopped();
+        }
     }
 
     fn sync_breakpoints_to_debuggee(&mut self) {
@@ -14969,6 +15037,16 @@ impl eframe::App for CoboltApp {
                             self.debug_forms.remove(&handle);
                         }
                         cobolt_runtime::DebugWire::Event { handle, event } => {
+                            // Noted before the event is consumed, applied
+                            // after: a resume may hand the panel to another
+                            // form that is still stopped.
+                            let is_stop = matches!(
+                                event,
+                                cobolt_runtime::DebugEvent::Stopped { .. }
+                                    | cobolt_runtime::DebugEvent::Paused { .. }
+                            );
+                            let is_resume =
+                                matches!(event, cobolt_runtime::DebugEvent::Resumed);
                             match self.debug_follow(&handle, &event) {
                                 // Stops land on that form's own listing, and
                                 // the panel has just switched to it if needed.
@@ -14991,6 +15069,7 @@ impl eframe::App for CoboltApp {
                                     }
                                 }
                             }
+                            self.debug_track_stop(&handle, is_stop, is_resume);
                         }
                     }
                 }
@@ -19173,6 +19252,64 @@ mod debug_gate_tests {
         assert!(!stamped(""), "never built");
         assert!(!stamped("1.60.29"), "built by another version");
         assert!(stamped(crate::version::VERSION), "built by this one");
+    }
+}
+
+#[cfg(test)]
+mod debug_multi_stop_tests {
+    use super::debug_next_shown;
+
+    fn v(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    /// **Two forms can be stopped at once.** `onTick` still flows while the
+    /// application is paused, so a Timer in the called form can reach a
+    /// breakpoint while the caller is sitting at one. The panel shows the
+    /// most recent stop, and when that form is continued it falls back to
+    /// the one still stopped — a stop nobody is showing looks like a hang.
+    #[test]
+    fn continuing_one_form_falls_back_to_another_that_is_still_stopped() {
+        let mut stopped = Vec::new();
+
+        // The caller stops, then the called form does.
+        assert_eq!(debug_next_shown(&mut stopped, "W0", "W0", true, false), None);
+        assert_eq!(debug_next_shown(&mut stopped, "W0", "W1", true, false), None);
+        assert_eq!(stopped, v(&["W0", "W1"]), "oldest first");
+
+        // The developer continues the called form, which is the one on
+        // screen. The caller is still stopped, so the panel goes back to it.
+        assert_eq!(
+            debug_next_shown(&mut stopped, "W1", "W1", false, true),
+            Some("W0".to_owned())
+        );
+        assert_eq!(stopped, v(&["W0"]));
+
+        // Continuing the last one leaves nothing to fall back to.
+        assert_eq!(debug_next_shown(&mut stopped, "W0", "W0", false, true), None);
+        assert!(stopped.is_empty());
+    }
+
+    /// A form resuming in the background does not move the developer.
+    #[test]
+    fn a_resume_elsewhere_leaves_the_listing_alone() {
+        let mut stopped = v(&["W0", "W1"]);
+        assert_eq!(
+            debug_next_shown(&mut stopped, "W1", "W0", false, true),
+            None,
+            "the caller resumed while the developer is reading the called form"
+        );
+        assert_eq!(stopped, v(&["W1"]), "but it is no longer stopped");
+    }
+
+    /// Stopping twice in the same form does not enter it twice — otherwise
+    /// continuing once would leave a phantom stop behind.
+    #[test]
+    fn a_form_appears_once_however_often_it_stops() {
+        let mut stopped = Vec::new();
+        debug_next_shown(&mut stopped, "W0", "W1", true, false);
+        debug_next_shown(&mut stopped, "W1", "W1", true, false);
+        assert_eq!(stopped, v(&["W1"]));
     }
 }
 

@@ -8173,6 +8173,46 @@ launch, with the debugger attached to its window.
 > loop straight away, and no handler is ever dispatched — so a breakpoint inside
 > one is never passed, however correctly it is set.
 
+### Debugging an application of several forms
+
+An application is rarely one form. When your main form opens another — a
+child window, a modal `OpenFormSync`, or a form shown in a **SideMenu**
+content pane — that form runs **its own program**, and the debugger follows
+you into it.
+
+You do nothing to arrange this. Put a breakpoint in the called form's
+generated program, start the session from the form you press **Debug** on,
+and work the application as you normally would. When the called form's
+handler reaches your breakpoint, the debugger brings up **that form's**
+code, positioned on your line, with its own breakpoints and its own folds.
+The caller's listing is not lost — step back into it later, or continue out
+of the child, and it is exactly as you left it. Continue, the steps and
+Pause always act on the form you are looking at.
+
+A few things follow from each form having its own program, and they are
+worth knowing:
+
+- **A breakpoint belongs to a file.** Line 42 in two forms' generated
+  programs is two different breakpoints. Setting one in the caller never
+  stops the called form, and vice versa.
+- **Stopping stops the whole application.** Every window goes quiet — none
+  of them takes a click — until you continue. That is deliberate: what has
+  stopped is your program, and your program is all of them.
+- **A form only produces events while you are working in it.** The others
+  sit inside `COBOL-WAIT-EVENT`, waiting, exactly as they do when you are
+  not debugging.
+- **Two forms can be stopped at once.** A Timer keeps ticking while the
+  application is paused, so a second form can reach a breakpoint of its own
+  while the first is stopped. The debugger shows the most recent, and when
+  you continue it, brings up the one still waiting.
+- **Only my code** is one switch, but it reads each form's own lines — so
+  stepping through the called form follows *its* handlers, not the caller's.
+
+> ⚠️ **A form the debugger cannot place.** If a form's `.cfrm` is not in the
+> open project, or its program has not been generated yet, the debugger says
+> so in the Output panel and leaves the listing where it is. It will not show
+> you another file's line and call it that form's.
+
 > 📷 **Screenshot needed — `debugger.png`.** A debug session paused on a
 > breakpoint, with the variable-watch panel populated.
 

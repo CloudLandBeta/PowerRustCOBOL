@@ -1,8 +1,8 @@
 # Tasks — Debugging an application, not a form
 
-- **Status:** in progress — T1–T9 done (T5/T6 absorbed by T3). As of 1.70.99
-  the debugger follows the program into any form. Next: T10, then docs.
-  **AC1–AC4 want the operator's manual walk** against PowerDemo3's
+- **Status:** T1–T12 done (T5/T6 absorbed by T3); T13's sweep is the last
+  step. As of 1.70.100 the debugger follows the program into any form.
+  **AC1–AC4 and AC8 want the operator's manual walk** against PowerDemo3's
   caller/called pair — they are behaviour no unit test reaches.
 - **Plan:** ./plan.md   **Date:** 2026-09-19
 - **Branch:** `debug` (operator, 2026-09-19), worked in
@@ -204,7 +204,7 @@ green *unchanged*, never edited to fit).
 
 ## Stage E — the edge the plan found (plan S8)
 
-- [ ] **T10 — More than one debuggee stopped at once** (R6)
+- [x] **T10 — More than one debuggee stopped at once** (R6)
   - Files: `crates/cobolt-ide/src/app.rs`
   - Do: `onTick` flows while the application is paused
     (`host.rs:1387`), so a Timer in form B can hit a breakpoint while form A
@@ -217,7 +217,7 @@ green *unchanged*, never edited to fit).
 
 ## Stage F — finish
 
-- [ ] **T11 — Docs** (spec §6)
+- [x] **T11 — Docs** (spec §6)
   - Files: `docs/developers-guide-en.md` §19 *Debugging*; delete
     `developers-guide-{es,pt,fr,jp,cn}.md`
   - Do: a passage on debugging an application of several forms — a breakpoint
@@ -230,7 +230,7 @@ green *unchanged*, never edited to fit).
     language guard red, everything else green; `iconv -f UTF-8 -t UTF-8` on
     the edited file.
 
-- [ ] **T12 — i18n** (spec §6)
+- [x] **T12 — i18n** (spec §6)
   - Files: `crates/cobolt-ide/src/i18n.rs`
   - Do: expected to be **nothing** — the breadcrumb already names the file
     being shown. If T9's unresolvable-handle notice needs words, it is a `Tr`

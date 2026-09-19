@@ -165,6 +165,12 @@ pub struct Tr {
     pub status_exec_rust_building_debug: &'static str,
     /// Refusal for a breakpoint set on a line inside an EXEC RUST block.
     pub status_exec_rust_bp_in_block: &'static str,
+    /// A form joined the debug session under a name no form in the open
+    /// project carries, so its stops have no listing to land on. `{form}`.
+    pub status_debug_form_unresolved: &'static str,
+    /// A form joined the debug session but its program has not been
+    /// generated, so there is nothing to show its stops against. `{form}`.
+    pub status_debug_form_not_generated: &'static str,
     pub status_exec_rust_toolchain_missing: &'static str,
     pub status_exec_rust_block_error: &'static str,
     /// Confirmation before deleting a common procedure. `{name}` is the
@@ -1826,6 +1832,8 @@ const EN: Tr = Tr {
     status_exec_rust_build_failed: "❌ The build failed, so the program was not started. See the errors above.",
     status_exec_rust_building_debug: "── This program contains EXEC RUST, so it is built before debugging — the blocks run for real, and a block is one step. ──",
     status_exec_rust_bp_in_block: "A breakpoint cannot go inside an EXEC RUST block: the block is one step, and its lines are native code compiled before the program ran. Set it on the EXEC RUST line, or on the next COBOL sentence.",
+    status_debug_form_unresolved: "Debug: the application opened a form named {form}, which no form in this project carries — its stops cannot be shown.",
+    status_debug_form_not_generated: "Debug: the program for {form} has not been generated yet — its stops cannot be shown.",
     status_exec_rust_toolchain_missing: "The Rust toolchain is required to build a program with EXEC RUST. Install it from https://rustup.rs — only building needs it, not the binary you produce.",
     status_exec_rust_block_error: "EXEC RUST error",
     proc_delete_confirm_title: "Delete this procedure?",
@@ -3163,6 +3171,8 @@ const ES: Tr = Tr {
     status_exec_rust_build_failed: "❌ La compilación falló, por lo que el programa no se inició. Consulte los errores anteriores.",
     status_exec_rust_building_debug: "── Este programa contiene EXEC RUST, así que se compila antes de depurar: los bloques se ejecutan de verdad y un bloque es un solo paso. ──",
     status_exec_rust_bp_in_block: "No se puede poner un punto de interrupción dentro de un bloque EXEC RUST: el bloque es un solo paso y sus líneas son código nativo compilado antes de ejecutar el programa. Póngalo en la línea EXEC RUST o en la siguiente sentencia COBOL.",
+    status_debug_form_unresolved: "Depuración: la aplicación abrió un formulario llamado {form}, que ningún formulario de este proyecto lleva por nombre; no se pueden mostrar sus paradas.",
+    status_debug_form_not_generated: "Depuración: el programa de {form} todavía no se ha generado; no se pueden mostrar sus paradas.",
     status_exec_rust_toolchain_missing: "Se necesita la cadena de herramientas de Rust para compilar un programa con EXEC RUST. Instálela desde https://rustup.rs: solo hace falta para compilar, no para el binario que produzca.",
     status_exec_rust_block_error: "Error de EXEC RUST",
     proc_delete_confirm_title: "¿Eliminar este procedimiento?",
@@ -4501,6 +4511,8 @@ const PT: Tr = Tr {
     status_exec_rust_build_failed: "❌ A compilação falhou, então o programa não foi iniciado. Veja os erros acima.",
     status_exec_rust_building_debug: "── Este programa contém EXEC RUST, por isso é compilado antes de depurar: os blocos executam de verdade e um bloco é um único passo. ──",
     status_exec_rust_bp_in_block: "Não é possível colocar um ponto de interrupção dentro de um bloco EXEC RUST: o bloco é um único passo e as suas linhas são código nativo compilado antes de o programa executar. Coloque-o na linha EXEC RUST ou na próxima sentença COBOL.",
+    status_debug_form_unresolved: "Depuração: o aplicativo abriu um formulário chamado {form}, que nenhum formulário deste projeto tem como nome; não é possível mostrar suas paradas.",
+    status_debug_form_not_generated: "Depuração: o programa de {form} ainda não foi gerado; não é possível mostrar suas paradas.",
     status_exec_rust_toolchain_missing: "O conjunto de ferramentas Rust é necessário para compilar um programa com EXEC RUST. Instale-o em https://rustup.rs — só a compilação precisa dele, não o binário que você produz.",
     status_exec_rust_block_error: "Erro de EXEC RUST",
     proc_delete_confirm_title: "Excluir este procedimento?",
@@ -5839,6 +5851,8 @@ const JA: Tr = Tr {
     status_exec_rust_build_failed: "❌ ビルドに失敗したため、プログラムは起動していません。上のエラーを確認してください。",
     status_exec_rust_building_debug: "── このプログラムには EXEC RUST が含まれるため、デバッグ前にビルドします。ブロックは実際に実行され、1 ブロックは 1 ステップです。 ──",
     status_exec_rust_bp_in_block: "EXEC RUST ブロックの内部にはブレークポイントを設定できません。ブロックは 1 ステップであり、その各行はプログラム実行前にコンパイルされたネイティブコードです。EXEC RUST の行か、次の COBOL 文に設定してください。",
+    status_debug_form_unresolved: "デバッグ: アプリケーションが {form} という名前のフォームを開きましたが、このプロジェクトにその名前のフォームはありません。停止位置を表示できません。",
+    status_debug_form_not_generated: "デバッグ: {form} のプログラムはまだ生成されていません。停止位置を表示できません。",
     status_exec_rust_toolchain_missing: "EXEC RUST を含むプログラムのビルドには Rust ツールチェーンが必要です。https://rustup.rs から導入してください — 必要なのはビルド時だけで、生成されたバイナリには不要です。",
     status_exec_rust_block_error: "EXEC RUST エラー",
     proc_delete_confirm_title: "この手続きを削除しますか？",
@@ -7176,6 +7190,8 @@ const ZH: Tr = Tr {
     status_exec_rust_build_failed: "❌ 编译失败，程序未启动。请查看上面的错误。",
     status_exec_rust_building_debug: "── 本程序包含 EXEC RUST，因此在调试前先进行编译：块会真实执行，且一个块算作一步。 ──",
     status_exec_rust_bp_in_block: "断点不能设在 EXEC RUST 块内部：该块算作一步，其各行是在程序运行前就已编译的本机代码。请设在 EXEC RUST 那一行，或下一条 COBOL 语句上。",
+    status_debug_form_unresolved: "调试：应用程序打开了名为 {form} 的窗体，但本项目中没有同名窗体，无法显示它的停止位置。",
+    status_debug_form_not_generated: "调试：{form} 的程序尚未生成，无法显示它的停止位置。",
     status_exec_rust_toolchain_missing: "编译包含 EXEC RUST 的程序需要 Rust 工具链。请从 https://rustup.rs 安装 — 只有编译需要它，生成的二进制文件不需要。",
     status_exec_rust_block_error: "EXEC RUST 错误",
     proc_delete_confirm_title: "删除此过程？",
@@ -8521,6 +8537,8 @@ const FR: Tr = Tr {
     status_exec_rust_build_failed: "❌ La compilation a échoué, le programme n'a pas démarré. Consultez les erreurs ci-dessus.",
     status_exec_rust_building_debug: "── Ce programme contient EXEC RUST : il est compilé avant le débogage — les blocs s'exécutent réellement et un bloc constitue une seule étape. ──",
     status_exec_rust_bp_in_block: "Un point d'arrêt ne peut pas être placé à l'intérieur d'un bloc EXEC RUST : le bloc constitue une seule étape et ses lignes sont du code natif compilé avant l'exécution du programme. Placez-le sur la ligne EXEC RUST ou sur la sentence COBOL suivante.",
+    status_debug_form_unresolved: "Débogage : l'application a ouvert un formulaire nommé {form}, qu'aucun formulaire de ce projet ne porte ; ses arrêts ne peuvent pas être affichés.",
+    status_debug_form_not_generated: "Débogage : le programme de {form} n'a pas encore été généré ; ses arrêts ne peuvent pas être affichés.",
     status_exec_rust_toolchain_missing: "La chaîne d'outils Rust est nécessaire pour compiler un programme contenant EXEC RUST. Installez-la depuis https://rustup.rs — seule la compilation en a besoin, pas le binaire produit.",
     status_exec_rust_block_error: "Erreur EXEC RUST",
     proc_delete_confirm_title: "Supprimer cette procédure ?",

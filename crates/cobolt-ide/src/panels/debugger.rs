@@ -1264,6 +1264,20 @@ impl DebuggerPanel {
         true
     }
 
+    /// The form on screen resumed, but **another one is still stopped**, so
+    /// the session has not resumed (spec 061).
+    ///
+    /// A `Resumed` clears `is_paused`, which is right when there is one
+    /// debuggee. With several — a Timer in a second form can reach a
+    /// breakpoint while the first is stopped, because `onTick` still flows
+    /// while the application is paused — continuing one form must not make
+    /// the toolbar claim the program is running and grey out the controls
+    /// the developer needs for the form that is still sitting at a
+    /// breakpoint.
+    pub fn note_another_form_is_stopped(&mut self) {
+        self.is_paused = true;
+    }
+
     /// Sync the live breakpoint set from the editor gutter.
     pub fn set_breakpoints(&mut self, bps: &HashSet<u32>) {
         self.breakpoints = bps.clone();
