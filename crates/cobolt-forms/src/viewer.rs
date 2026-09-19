@@ -993,6 +993,732 @@ pub fn decode_image(bytes: &[u8]) -> Result<DecodedImage, String> {
     })
 }
 
+// ── Navigation: zoom, cards, filmstrip, scrolling (T12) ─────────────────
+//
+// R11–R15, R33–R33.3 and R14–R14.4 are all *arithmetic* — how far a key
+// moves the page, where a card grid reflows to, what a thrown page does
+// next. Every bit of it lives here as plain functions and value types over
+// numbers the caller supplies, with **time passed in as an explicit `dt`**
+// rather than read from a clock. That is what lets a test hold an arrow key
+// for two simulated seconds in a tight loop with no sleeping (this
+// project's "measured completion signal, never a sleep-and-hope" rule), and
+// what keeps this module `egui`-free while `paint.rs` draws and `render.rs`
+// reads the real input.
+//
+// The scroll mechanics reproduce `cobolt-ide`'s Documentation viewer
+// (`panels/doc_viewer.rs`) exactly, as spec.md §9 requires — the *algorithm*
+// and its measured constants, not shared code: `cobolt-ide` is a binary
+// crate with no `lib` target, so nothing here can call into it even in
+// principle.
+
+/// A view's two mutually exclusive modes (R14). `Cards` **replaces** the
+/// document with a reflowing grid of one card per page — it never sits
+/// beside it, which is the filmstrip's job (R14.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ViewMode {
+    #[default]
+    Full,
+    Cards,
+}
+
+impl ViewMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "Full",
+            Self::Cards => "Cards",
+        }
+    }
+
+    /// The lenient `DataGridGridLineStyle` idiom again — anything
+    /// unrecognized reads as `Full`, the mode a freshly-dropped Viewer is
+    /// seeded with, so a typo in a COBOL `SET-PROPERTY` shows the document
+    /// rather than an empty grid.
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "cards" | "card" => Self::Cards,
+            _ => Self::Full,
+        }
+    }
+}
+
+impl std::fmt::Display for ViewMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+// ── Zoom (R11–R13, R14.1/R14.2) ─────────────────────────────────────────
+
+/// R12's cap — 16×, in the percent unit every `Zoom` property already uses.
+pub const ZOOM_MAX_PCT: i64 = 1600;
+/// R14.2's "legible minimum" end of the slider's range.
+pub const ZOOM_MIN_PCT: i64 = 25;
+/// What R13's Esc returns to.
+pub const ZOOM_DEFAULT_PCT: i64 = 100;
+/// One zoom step — a double-click (R12) or one wheel notch (R11). A 25 %
+/// ratio, so reaching the 16× cap from 100 % takes thirteen steps rather
+/// than arriving there on the first double-click.
+pub const ZOOM_STEP_RATIO: f64 = 1.25;
+
+pub fn clamp_zoom(pct: i64) -> i64 {
+    pct.clamp(ZOOM_MIN_PCT, ZOOM_MAX_PCT)
+}
+
+/// One step in. Always advances by at least 1 % so a low zoom cannot get
+/// stuck on integer rounding, and never past R12's cap.
+pub fn zoom_in_step(pct: i64) -> i64 {
+    let stepped = ((pct as f64) * ZOOM_STEP_RATIO).round() as i64;
+    clamp_zoom(stepped.max(pct + 1))
+}
+
+/// One step out, the exact inverse ratio, never below the legible minimum.
+pub fn zoom_out_step(pct: i64) -> i64 {
+    let stepped = ((pct as f64) / ZOOM_STEP_RATIO).round() as i64;
+    clamp_zoom(stepped.min(pct - 1))
+}
+
+/// `notches` wheel notches at once — positive zooms in. Fractional notches
+/// (a trackpad's continuous scroll) are honoured rather than rounded away,
+/// which is what makes a pinch feel continuous instead of stepped.
+pub fn zoom_by_notches(pct: i64, notches: f32) -> i64 {
+    if notches == 0.0 {
+        return clamp_zoom(pct);
+    }
+    let scaled = (pct as f64) * ZOOM_STEP_RATIO.powf(notches as f64);
+    let rounded = scaled.round() as i64;
+    // Same anti-stall guard as the single-step helpers: at 25 % a tenth of a
+    // notch would otherwise round back to where it started forever.
+    let moved = if rounded == pct {
+        if notches > 0.0 {
+            pct + 1
+        } else {
+            pct - 1
+        }
+    } else {
+        rounded
+    };
+    clamp_zoom(moved)
+}
+
+/// R11: the scroll offset that keeps the document point currently under the
+/// pointer exactly under it after the zoom changes.
+///
+/// `offset` and `cursor_from_top` are both in painted points at the *old*
+/// zoom, measured down from the content area's top edge. The document
+/// coordinate under the pointer is `(offset + cursor_from_top) / old`; hold
+/// that constant across the change and the new offset falls out directly.
+pub fn zoom_anchored_offset(offset: f32, cursor_from_top: f32, old_pct: i64, new_pct: i64) -> f32 {
+    if old_pct <= 0 {
+        return offset;
+    }
+    let ratio = new_pct as f32 / old_pct as f32;
+    ((offset + cursor_from_top) * ratio - cursor_from_top).max(0.0)
+}
+
+// ── Card grid (R14/R14.1, AC19) ─────────────────────────────────────────
+
+/// The narrowest a page card is drawn, at `CardSize` 0 %.
+pub const CARD_MIN_WIDTH: f32 = 72.0;
+/// The widest, at `CardSize` 100 % — "fewer, bigger cards per row" (R14.1).
+pub const CARD_MAX_WIDTH: f32 = 320.0;
+/// The gutter between cards, and around the grid's own edge.
+pub const CARD_GAP: f32 = 12.0;
+/// A card's height as a multiple of its width — ISO A4 portrait (1:√2),
+/// the shape a paginated document's page already has under `Print`/`Page`.
+pub const CARD_ASPECT: f32 = 1.414;
+
+/// Where a `Cards`-mode grid reflowed to.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CardGrid {
+    pub cols: usize,
+    pub rows: usize,
+    pub card_w: f32,
+    pub card_h: f32,
+}
+
+impl CardGrid {
+    /// The grid's full painted height, however far it overflows the view —
+    /// what a `Cards`-mode view scrolls against.
+    pub fn content_height(&self) -> f32 {
+        if self.rows == 0 {
+            return 0.0;
+        }
+        CARD_GAP + self.rows as f32 * (self.card_h + CARD_GAP)
+    }
+
+    /// The top-left corner of card `i`, relative to the grid's own origin.
+    pub fn card_origin(&self, i: usize) -> (f32, f32) {
+        let col = if self.cols == 0 { 0 } else { i % self.cols };
+        let row = if self.cols == 0 { 0 } else { i / self.cols };
+        (
+            CARD_GAP + col as f32 * (self.card_w + CARD_GAP),
+            CARD_GAP + row as f32 * (self.card_h + CARD_GAP),
+        )
+    }
+}
+
+/// AC19: the row **and** column counts are a function of the card size and
+/// **the view's own width** — never the window, the screen, or anything
+/// else the control cannot see. `page_count` is not a third independent
+/// input: with one card per page and the columns already fixed by width,
+/// the row count is just `ceil(pages / cols)`.
+pub fn card_grid(view_width: f32, card_size_pct: i64, page_count: usize) -> CardGrid {
+    let t = (card_size_pct.clamp(0, 100) as f32) / 100.0;
+    let card_w = CARD_MIN_WIDTH + t * (CARD_MAX_WIDTH - CARD_MIN_WIDTH);
+    let card_h = (card_w * CARD_ASPECT).round();
+    let usable = (view_width - CARD_GAP).max(0.0);
+    let cols = ((usable / (card_w + CARD_GAP)).floor() as usize).max(1);
+    let rows = page_count.div_ceil(cols);
+    CardGrid { cols, rows, card_w: card_w.round(), card_h }
+}
+
+// ── The one slider per view (R14.1/R14.2) ───────────────────────────────
+
+/// Which of a view's two remembered values R14.1's single bottom-right
+/// slider is driving right now, and the range it spans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SliderTarget {
+    /// The **view-prefixed suffix** of the property — `"Zoom"` or
+    /// `"CardSize"`, which the caller prefixes with `View1`/`View2`.
+    pub property: &'static str,
+    pub min: i64,
+    pub max: i64,
+}
+
+pub fn slider_target(mode: ViewMode) -> SliderTarget {
+    match mode {
+        ViewMode::Full => SliderTarget { property: "Zoom", min: ZOOM_MIN_PCT, max: ZOOM_MAX_PCT },
+        ViewMode::Cards => SliderTarget { property: "CardSize", min: 0, max: 100 },
+    }
+}
+
+/// The slider's handle position (0…1) for whichever value `mode` drives.
+///
+/// `Zoom` is placed on a **log** scale: its range spans six octaves
+/// (25 %…1600 %), and a linear handle would bunch everything below 400 % into
+/// the first quarter of the track. `CardSize` is already a percentage of the
+/// thing it sizes, so it maps straight through.
+pub fn slider_position(mode: ViewMode, zoom_pct: i64, card_size_pct: i64) -> f32 {
+    match mode {
+        ViewMode::Full => {
+            let z = clamp_zoom(zoom_pct) as f32;
+            let lo = ZOOM_MIN_PCT as f32;
+            let hi = ZOOM_MAX_PCT as f32;
+            ((z / lo).ln() / (hi / lo).ln()).clamp(0.0, 1.0)
+        }
+        ViewMode::Cards => (card_size_pct.clamp(0, 100) as f32) / 100.0,
+    }
+}
+
+/// R14.2 made structural rather than remembered: dragging the slider to `t`
+/// returns the `(zoom, card_size)` pair with **only the value the active mode
+/// drives** changed. Switching modes cannot disturb the other value because
+/// nothing here ever writes it.
+pub fn apply_slider(mode: ViewMode, t: f32, zoom_pct: i64, card_size_pct: i64) -> (i64, i64) {
+    let t = t.clamp(0.0, 1.0);
+    match mode {
+        ViewMode::Full => {
+            let lo = ZOOM_MIN_PCT as f32;
+            let hi = ZOOM_MAX_PCT as f32;
+            (clamp_zoom((lo * (hi / lo).powf(t)).round() as i64), card_size_pct)
+        }
+        ViewMode::Cards => (zoom_pct, (t * 100.0).round() as i64),
+    }
+}
+
+// ── Filmstrip (R14.3/R14.4) ─────────────────────────────────────────────
+
+/// The rail's width the first time a view opens it.
+pub const FILMSTRIP_DEFAULT_WIDTH: f32 = 128.0;
+/// The narrowest a rail is kept at while still open.
+pub const FILMSTRIP_MIN_WIDTH: f32 = 64.0;
+/// The widest the splitter will let it grow.
+pub const FILMSTRIP_MAX_WIDTH: f32 = 320.0;
+/// R14.4's second close gesture: drag the splitter this close to the view's
+/// left edge and the filmstrip closes rather than shrinking further — the
+/// same gesture that resizes it, taken to its limit.
+pub const FILMSTRIP_CLOSE_WIDTH: f32 = 40.0;
+
+/// What a filmstrip splitter drag to `width` should do: `Some(kept width)`
+/// while it is still a resize, `None` once it has been taken to the view's
+/// left edge and the rail should close (R14.4).
+pub fn filmstrip_width_after_drag(width: f32) -> Option<f32> {
+    if width < FILMSTRIP_CLOSE_WIDTH {
+        None
+    } else {
+        Some(width.clamp(FILMSTRIP_MIN_WIDTH, FILMSTRIP_MAX_WIDTH))
+    }
+}
+
+// ── Chrome geometry (R14.1, R14.3, R15, R16) ────────────────────────────
+
+/// A rectangle in the same absolute screen points `egui::Rect` uses, spelled
+/// without depending on `egui` so this geometry stays testable from the pure
+/// half of the crate. `paint.rs` converts at the boundary.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewRect {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+}
+
+impl ViewRect {
+    pub fn new(x: f32, y: f32, w: f32, h: f32) -> Self {
+        Self { x, y, w: w.max(0.0), h: h.max(0.0) }
+    }
+    pub fn right(&self) -> f32 {
+        self.x + self.w
+    }
+    pub fn bottom(&self) -> f32 {
+        self.y + self.h
+    }
+    pub fn contains(&self, px: f32, py: f32) -> bool {
+        px >= self.x && px <= self.right() && py >= self.y && py <= self.bottom()
+    }
+}
+
+/// The toolbar band's height (R16) — reserved here so R15's hide/restore is
+/// a geometry fact both surfaces agree on before T13 paints anything into it.
+pub const TOOLBAR_HEIGHT: f32 = 34.0;
+/// The height of the strip R14.1's slider sits in, directly below the
+/// content.
+pub const SLIDER_STRIP_HEIGHT: f32 = 22.0;
+/// The slider's own painted width inside that strip, right-aligned.
+pub const SLIDER_WIDTH: f32 = 140.0;
+/// The inset from the view's right edge and from the strip's edges.
+pub const SLIDER_MARGIN: f32 = 8.0;
+
+/// What a single view is currently showing, as far as its chrome cares.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChromeOpts {
+    /// R15 — fullscreen hides the toolbar entirely.
+    pub fullscreen: bool,
+    /// `Layout = Streamed` (§8.8) — one content pane, no chrome at all.
+    /// Honoured here from the start so T35 is a paint change, not a second
+    /// geometry model that could disagree with this one.
+    pub streamed: bool,
+    /// `Some(width)` while this view's filmstrip is open (R14.3).
+    pub filmstrip: Option<f32>,
+}
+
+impl Default for ChromeOpts {
+    fn default() -> Self {
+        Self { fullscreen: false, streamed: false, filmstrip: None }
+    }
+}
+
+/// Where each piece of a view's chrome lands inside `bounds`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ChromeLayout {
+    /// The toolbar band — `None` under fullscreen (R15) or `Streamed`.
+    pub toolbar: Option<ViewRect>,
+    /// The page-thumbnail rail, docked to the **content's** left edge
+    /// (R14.3), not the control's.
+    pub filmstrip: Option<ViewRect>,
+    /// What is left for the document (or the card grid).
+    pub content: ViewRect,
+    /// R14.1's one slider per view, bottom-right, directly below that
+    /// view's own content. Zero-sized under `Streamed`, which has no
+    /// slider to place.
+    pub slider: ViewRect,
+}
+
+/// Splits a view's rect into toolbar / filmstrip / content / slider, in that
+/// docking order. One function, used by every surface — so "fullscreen hides
+/// the toolbar" is one fact, checked once (AC5), not a condition repeated at
+/// each call site.
+pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
+    if opts.streamed {
+        return ChromeLayout {
+            toolbar: None,
+            filmstrip: None,
+            content: bounds,
+            slider: ViewRect::new(bounds.x, bounds.bottom(), 0.0, 0.0),
+        };
+    }
+
+    let mut y = bounds.y;
+    let mut remaining_h = bounds.h;
+
+    let toolbar = if opts.fullscreen || remaining_h < TOOLBAR_HEIGHT * 2.0 {
+        None
+    } else {
+        let r = ViewRect::new(bounds.x, y, bounds.w, TOOLBAR_HEIGHT);
+        y += TOOLBAR_HEIGHT;
+        remaining_h -= TOOLBAR_HEIGHT;
+        Some(r)
+    };
+
+    let slider_h = if remaining_h > SLIDER_STRIP_HEIGHT * 2.0 { SLIDER_STRIP_HEIGHT } else { 0.0 };
+    let body_h = (remaining_h - slider_h).max(0.0);
+
+    let (filmstrip, content) = match opts.filmstrip {
+        Some(w) if w > 0.0 && bounds.w > w + FILMSTRIP_MIN_WIDTH => {
+            let w = w.clamp(FILMSTRIP_MIN_WIDTH, FILMSTRIP_MAX_WIDTH).min(bounds.w * 0.5);
+            (
+                Some(ViewRect::new(bounds.x, y, w, body_h)),
+                ViewRect::new(bounds.x + w, y, bounds.w - w, body_h),
+            )
+        }
+        _ => (None, ViewRect::new(bounds.x, y, bounds.w, body_h)),
+    };
+
+    // Directly below *that view's own content* (R14.1) — so in split view it
+    // follows the content's left edge past the filmstrip, rather than
+    // spanning the whole control.
+    let slider = ViewRect::new(
+        (content.right() - SLIDER_MARGIN - SLIDER_WIDTH).max(content.x),
+        content.bottom() + (slider_h - 10.0).max(0.0) * 0.5,
+        SLIDER_WIDTH.min(content.w),
+        if slider_h > 0.0 { 10.0 } else { 0.0 },
+    );
+
+    ChromeLayout { toolbar, filmstrip, content, slider }
+}
+
+// ── Scrolling (R33–R33.3, AC31, AC32) ───────────────────────────────────
+//
+// The constants below are `doc_viewer.rs`'s own, name for name and value for
+// value. Changing one here without changing it there makes the two viewers
+// behave differently under the same gesture, which is precisely what
+// spec.md §9 set out to avoid.
+
+/// One line, as a multiple of `FontSize` (R33).
+pub const SCROLL_LINE_FACTOR: f32 = 1.6;
+/// Points per second a held scroll key moves the document before the ramp.
+pub const KEY_BASE_SPEED: f32 = 320.0;
+/// The ramp's ceiling: four times the starting pace (R33).
+pub const KEY_MAX_FACTOR: f32 = 4.0;
+/// Seconds of holding it takes to reach [`KEY_MAX_FACTOR`].
+pub const KEY_ACCEL_TIME: f32 = 2.0;
+/// A held key only starts moving continuously after this long, so a tap
+/// always reads as a tap rather than a flicker of fast scroll (R33).
+pub const KEY_REPEAT_DELAY: f32 = 0.25;
+/// Below this speed a glide stops rather than creeping, in points/second.
+pub const THROW_STOP_SPEED: f32 = 20.0;
+/// Constant friction, in points per second squared (R33.2 — *constant*, so a
+/// fast throw travels further and takes longer, both ending at exactly zero).
+pub const THROW_FRICTION: f32 = 1000.0;
+/// How much of the drag's tail a throw's speed is measured over (R33.2's
+/// "last ~0.12 s"), in seconds.
+pub const THROW_SAMPLE_SECS: f64 = 0.12;
+
+/// One line's travel for `font_size` (R33).
+pub fn line_height(font_size: f32) -> f32 {
+    (font_size * SCROLL_LINE_FACTOR).max(1.0)
+}
+
+/// R33.1: Page Up/Down move a viewport minus two lines, so context carries
+/// across the jump.
+pub fn page_step(viewport_h: f32, line: f32) -> f32 {
+    (viewport_h - line * 2.0).max(line)
+}
+
+/// Speed multiplier for a scroll key held `held` seconds: `None` while it is
+/// still a tap, then `1.0` rising to [`KEY_MAX_FACTOR`] over
+/// [`KEY_ACCEL_TIME`] and never past it.
+pub fn key_accel_factor(held: f32) -> Option<f32> {
+    if held <= KEY_REPEAT_DELAY {
+        return None;
+    }
+    let ramp = (held - KEY_REPEAT_DELAY) / KEY_ACCEL_TIME;
+    Some((1.0 + ramp * (KEY_MAX_FACTOR - 1.0)).min(KEY_MAX_FACTOR))
+}
+
+/// How fast the page was moving when it was let go, in points per second,
+/// measured across the drag's own tail samples — oldest to newest.
+///
+/// A hand that slowed to a stop before releasing throws nothing (R33.2),
+/// because the oldest and newest samples in the window are then at the same
+/// place. Positive means the pointer was moving **down**, which scrolls the
+/// content back toward the start.
+pub fn throw_speed(samples: &[(f64, f32)]) -> f32 {
+    let (Some((t0, y0)), Some((t1, y1))) = (samples.first(), samples.last()) else {
+        return 0.0;
+    };
+    let dt = (t1 - t0) as f32;
+    if dt <= 0.0 {
+        return 0.0;
+    }
+    (y1 - y0) / dt
+}
+
+/// Which scroll keys are down this frame (R33/R33.1). Held and tapped are
+/// separate signals on purpose: the tap fires once on the press, the hold
+/// ramps, and a single press produces both — exactly one line immediately,
+/// then nothing until [`KEY_REPEAT_DELAY`] has passed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyScrollInput {
+    pub down_held: bool,
+    pub up_held: bool,
+    pub down_tap: bool,
+    pub up_tap: bool,
+    pub page_down: bool,
+    pub page_up: bool,
+    pub home: bool,
+    pub end: bool,
+}
+
+impl KeyScrollInput {
+    pub fn any(&self) -> bool {
+        self.down_held
+            || self.up_held
+            || self.down_tap
+            || self.up_tap
+            || self.page_down
+            || self.page_up
+            || self.home
+            || self.end
+    }
+}
+
+/// A grab in flight: where the pointer has been during this drag, and when.
+///
+/// Tracked here rather than read back from the pointer at release time —
+/// `doc_viewer.rs` learned that the hard way: the pointer's own velocity
+/// belongs to the pointer, so releasing anywhere but over the content read
+/// back as zero and the page stopped dead instead of gliding.
+#[derive(Debug, Clone, Default)]
+struct Grab {
+    samples: Vec<(f64, f32)>,
+    last_y: f32,
+}
+
+/// One view's live scroll state — position, limit, and whatever gesture is
+/// currently moving it. Driven entirely by explicit `dt`/`time` arguments,
+/// so a test runs two seconds of held key in a loop that takes microseconds.
+#[derive(Debug, Clone, Default)]
+pub struct ScrollKinetics {
+    offset: f32,
+    max: f32,
+    key_hold: f32,
+    keys_down: bool,
+    glide: f32,
+    grab: Option<Grab>,
+    /// Set by anything that moved `offset`; cleared by [`Self::take_settled`]
+    /// once nothing is moving it any more. This is what makes R32's
+    /// `onScrolled` fire on the rest, never on a glide frame.
+    pending_settle: bool,
+}
+
+impl ScrollKinetics {
+    pub fn offset(&self) -> f32 {
+        self.offset
+    }
+
+    pub fn max(&self) -> f32 {
+        self.max
+    }
+
+    pub fn glide_speed(&self) -> f32 {
+        self.glide
+    }
+
+    pub fn is_gliding(&self) -> bool {
+        self.glide != 0.0
+    }
+
+    pub fn is_grabbed(&self) -> bool {
+        self.grab.is_some()
+    }
+
+    /// True while any gesture is still moving the content — a held key, a
+    /// drag, or a glide.
+    pub fn is_moving(&self) -> bool {
+        self.keys_down || self.glide != 0.0 || self.grab.is_some()
+    }
+
+    /// The scrollable range, recomputed each frame from the laid-out content
+    /// height against the viewport. Shrinking it pulls the offset back in
+    /// rather than leaving the view parked past the end.
+    pub fn set_max(&mut self, max: f32) {
+        self.max = max.max(0.0);
+        let clamped = self.offset.clamp(0.0, self.max);
+        if clamped != self.offset {
+            self.offset = clamped;
+            self.pending_settle = true;
+        }
+    }
+
+    /// Move to an absolute offset — a programmatic change (COBOL writing
+    /// `ScrollPosition`), a filmstrip click, a Find match scrolled into view.
+    pub fn set_offset(&mut self, offset: f32) {
+        let next = offset.clamp(0.0, self.max);
+        if next != self.offset {
+            self.offset = next;
+            self.pending_settle = true;
+        }
+    }
+
+    /// Adopt an offset without treating it as a movement to report — used
+    /// when re-seeding from stored state at the start of a frame.
+    pub fn adopt_offset(&mut self, offset: f32) {
+        self.offset = offset.clamp(0.0, self.max);
+    }
+
+    fn shift(&mut self, delta: f32) {
+        if delta == 0.0 {
+            return;
+        }
+        let next = (self.offset + delta).clamp(0.0, self.max);
+        if next != self.offset {
+            self.offset = next;
+            self.pending_settle = true;
+        }
+    }
+
+    /// R33/R33.1. `line` is [`line_height`] for the view's font size and
+    /// `viewport_h` its content height; `dt` is the frame's elapsed time,
+    /// clamped by the caller the same way `doc_viewer.rs` clamps it.
+    pub fn apply_keys(&mut self, input: &KeyScrollInput, dt: f32, line: f32, viewport_h: f32) {
+        self.keys_down = input.down_held || input.up_held;
+
+        if input.home {
+            self.set_offset(0.0);
+            self.key_hold = 0.0;
+            return;
+        }
+        if input.end {
+            self.set_offset(self.max);
+            self.key_hold = 0.0;
+            return;
+        }
+
+        let mut delta = 0.0;
+        if input.down_tap {
+            delta += line;
+        }
+        if input.up_tap {
+            delta -= line;
+        }
+        if self.keys_down {
+            self.key_hold += dt;
+            if let Some(factor) = key_accel_factor(self.key_hold) {
+                let step = KEY_BASE_SPEED * factor * dt;
+                if input.down_held {
+                    delta += step;
+                }
+                if input.up_held {
+                    delta -= step;
+                }
+            }
+        } else {
+            self.key_hold = 0.0;
+        }
+        let page = page_step(viewport_h, line);
+        if input.page_down {
+            delta += page;
+        }
+        if input.page_up {
+            delta -= page;
+        }
+        self.shift(delta);
+    }
+
+    /// How long the current key hold has lasted — what AC31's three-point
+    /// speed report is measured against.
+    pub fn key_hold(&self) -> f32 {
+        self.key_hold
+    }
+
+    /// A press over the content takes hold of it, **and stops whatever glide
+    /// was still running** (R33.2's "catching a moving page").
+    pub fn press(&mut self, time: f64, y: f32) {
+        self.glide = 0.0;
+        self.grab = Some(Grab { samples: vec![(time, y)], last_y: y });
+    }
+
+    /// The drag itself: the content follows the pointer 1:1 (R33.2), and the
+    /// tail of the gesture is remembered for the throw.
+    pub fn drag(&mut self, time: f64, y: f32) {
+        let Some(grab) = self.grab.as_mut() else { return };
+        let delta = y - grab.last_y;
+        grab.last_y = y;
+        grab.samples.push((time, y));
+        grab.samples.retain(|(s, _)| time - *s <= THROW_SAMPLE_SECS);
+        // Dragging the pointer DOWN pulls the content back toward the start.
+        self.shift(-delta);
+    }
+
+    /// Let go — anywhere. What happens next is decided by how the hand was
+    /// moving, never by where it stopped (R33.2).
+    pub fn release(&mut self) {
+        let Some(grab) = self.grab.take() else { return };
+        self.glide = throw_speed(&grab.samples);
+    }
+
+    /// One frame of the glide, under constant friction, ending at exactly
+    /// zero or exactly at a scroll limit — never on a fixed-duration ease
+    /// (R33.2/AC32).
+    pub fn glide_tick(&mut self, dt: f32) {
+        if self.grab.is_some() || self.glide == 0.0 {
+            return;
+        }
+        let friction = THROW_FRICTION * dt;
+        if friction >= self.glide.abs() || self.glide.abs() < THROW_STOP_SPEED {
+            self.glide = 0.0;
+            return;
+        }
+        self.glide -= friction * self.glide.signum();
+        let before = self.offset;
+        self.shift(-self.glide * dt);
+        if self.offset == before {
+            // Ran into an end: the throw is spent.
+            self.glide = 0.0;
+        }
+    }
+
+    /// True exactly once, on the frame the content comes to rest after
+    /// moving — R32's `onScrolled` moment, and never a glide frame.
+    pub fn take_settled(&mut self) -> bool {
+        if self.pending_settle && !self.is_moving() {
+            self.pending_settle = false;
+            return true;
+        }
+        false
+    }
+}
+
+/// Fires once a value has stopped changing.
+///
+/// R32's table says `onZoomChanged` and `onCardSizeChanged` fire when the
+/// value **settles** — so one wheel gesture or one slider drag raises one
+/// event, not one per notch or one per frame. The caller says whether the
+/// input driving the value is still happening; the settle is everything
+/// else.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettleWatch<T> {
+    current: T,
+    reported: T,
+    changing: bool,
+}
+
+impl<T: Copy + PartialEq> SettleWatch<T> {
+    pub fn new(initial: T) -> Self {
+        Self { current: initial, reported: initial, changing: false }
+    }
+
+    /// This frame's value, and whether the gesture driving it is still live.
+    pub fn observe(&mut self, value: T, still_changing: bool) {
+        self.current = value;
+        self.changing = still_changing;
+    }
+
+    /// True exactly once per settled change.
+    pub fn take_settled(&mut self) -> bool {
+        if !self.changing && self.current != self.reported {
+            self.reported = self.current;
+            return true;
+        }
+        false
+    }
+
+    pub fn current(&self) -> T {
+        self.current
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1555,5 +2281,523 @@ mod tests {
             println!("malformed bytes -> {result:?}");
             assert!(result.is_err());
         }
+    }
+}
+
+/// Spec 058 T12 — navigation: zoom (R11–R13), the card grid and its slider
+/// (R14–R14.2), the filmstrip (R14.3/R14.4), chrome geometry under
+/// fullscreen (R15), and scrolling (R33–R33.3). Every test here reports the
+/// numbers it measured, per this project's standing "quantify what you
+/// exercised" rule — a bare pass would not tell a reader whether a held key
+/// actually accelerated or merely moved.
+#[cfg(test)]
+mod nav_tests {
+    use super::*;
+
+    const DT: f32 = 1.0 / 60.0;
+
+    // ── Zoom (R11–R13, AC4) ─────────────────────────────────────────────
+
+    #[test]
+    fn double_click_zoom_climbs_in_steps_and_stops_at_sixteen_times() {
+        let mut z = ZOOM_DEFAULT_PCT;
+        let mut ladder = vec![z];
+        for _ in 0..40 {
+            z = zoom_in_step(z);
+            ladder.push(z);
+        }
+        println!("double-click ladder from 100 %: {ladder:?}");
+        println!("cap reached after {} steps", ladder.iter().position(|&v| v == ZOOM_MAX_PCT).unwrap());
+        assert_eq!(z, ZOOM_MAX_PCT, "R12: zoom must stop at exactly 16x (1600 %)");
+        assert_eq!(zoom_in_step(ZOOM_MAX_PCT), ZOOM_MAX_PCT, "already at the cap: no further movement");
+        assert!(ladder.windows(2).take(10).all(|w| w[1] > w[0]), "each step must actually zoom in");
+    }
+
+    #[test]
+    fn zooming_out_stops_at_the_legible_minimum_and_never_stalls() {
+        let mut z = ZOOM_DEFAULT_PCT;
+        let mut steps = 0;
+        while z > ZOOM_MIN_PCT && steps < 200 {
+            let next = zoom_out_step(z);
+            assert!(next < z, "every step out must move: {z} -> {next}");
+            z = next;
+            steps += 1;
+        }
+        println!("zoom-out from 100 % reached {z} % in {steps} steps (floor {ZOOM_MIN_PCT} %)");
+        assert_eq!(z, ZOOM_MIN_PCT);
+        assert_eq!(zoom_out_step(ZOOM_MIN_PCT), ZOOM_MIN_PCT);
+    }
+
+    #[test]
+    fn wheel_zoom_keeps_the_document_point_under_the_pointer_fixed() {
+        // The pointer sits 200 pt below the content's top edge, with the view
+        // already scrolled 400 pt down.
+        let (offset, cursor) = (400.0f32, 200.0f32);
+        let old = 100;
+        let new = zoom_by_notches(old, 3.0);
+        let moved = zoom_anchored_offset(offset, cursor, old, new);
+        let doc_before = (offset + cursor) / old as f32;
+        let doc_after = (moved + cursor) / new as f32;
+        println!(
+            "zoom {old} % -> {new} %: offset {offset} -> {moved:.2}; \
+             document point under the pointer {doc_before:.4} -> {doc_after:.4}"
+        );
+        assert!(new > old, "three notches in must zoom in");
+        assert!(
+            (doc_before - doc_after).abs() < 1e-3,
+            "R11: the point under the pointer must not move (was {doc_before}, now {doc_after})"
+        );
+    }
+
+    #[test]
+    fn a_fractional_wheel_notch_still_moves_the_zoom() {
+        let stepped = zoom_by_notches(ZOOM_MIN_PCT, 0.02);
+        println!("a 0.02-notch trackpad nudge at the {ZOOM_MIN_PCT} % floor -> {stepped} %");
+        assert!(stepped > ZOOM_MIN_PCT, "a tiny notch must not round away to a stall");
+    }
+
+    // ── Card grid + the one slider (R14–R14.2, AC19) ────────────────────
+
+    #[test]
+    fn the_card_grid_reflows_to_the_views_own_width() {
+        let pages = 37;
+        let size = 40;
+        let mut report = Vec::new();
+        for width in [260.0f32, 420.0, 700.0, 1100.0] {
+            let g = card_grid(width, size, pages);
+            report.push((width, g.cols, g.rows));
+            println!(
+                "view {width:>6.0} pt wide, CardSize {size} % -> {} cols x {} rows \
+                 (card {:.0}x{:.0}, content {:.0} pt tall)",
+                g.cols, g.rows, g.card_w, g.card_h, g.content_height()
+            );
+        }
+        let cols: Vec<usize> = report.iter().map(|r| r.1).collect();
+        assert!(cols.windows(2).all(|w| w[1] >= w[0]), "a wider view never holds fewer columns");
+        assert!(cols[3] > cols[0], "AC19: resizing the VIEW must change the column count");
+        for (_, cols, rows) in &report {
+            assert_eq!(*rows, pages.div_ceil(*cols), "rows follow from columns, one card per page");
+        }
+    }
+
+    #[test]
+    fn a_bigger_card_size_means_fewer_bigger_cards_per_row() {
+        let width = 900.0;
+        let pages = 24;
+        let mut prev: Option<(usize, f32)> = None;
+        for size in [0, 25, 50, 75, 100] {
+            let g = card_grid(width, size, pages);
+            println!(
+                "CardSize {size:>3} % -> card {:.0} pt wide, {} cols x {} rows",
+                g.card_w, g.cols, g.rows
+            );
+            if let Some((pc, pw)) = prev {
+                assert!(g.card_w > pw, "a larger CardSize must draw a larger card");
+                assert!(g.cols <= pc, "R14.1: larger cards mean fewer per row, never more");
+            }
+            prev = Some((g.cols, g.card_w));
+        }
+    }
+
+    #[test]
+    fn switching_view_mode_never_touches_the_other_modes_slider_value() {
+        // A view reading at 250 % that has also browsed cards at 80 %.
+        let (mut zoom, mut cards) = (250i64, 80i64);
+
+        // Drag the slider in Cards mode: only CardSize moves.
+        let (z2, c2) = apply_slider(ViewMode::Cards, 0.25, zoom, cards);
+        println!("Cards-mode drag to 25 %: Zoom {zoom} -> {z2}, CardSize {cards} -> {c2}");
+        assert_eq!(z2, zoom, "R14.2: the Cards slider must not touch Zoom");
+        assert_eq!(c2, 25);
+        zoom = z2;
+        cards = c2;
+
+        // Switch to Full and drag: only Zoom moves, and CardSize is still 25.
+        let (z3, c3) = apply_slider(ViewMode::Full, 1.0, zoom, cards);
+        println!("Full-mode drag to the top: Zoom {zoom} -> {z3}, CardSize {cards} -> {c3}");
+        assert_eq!(c3, cards, "R14.2: the Full slider must not touch CardSize");
+        assert_eq!(z3, ZOOM_MAX_PCT);
+
+        // And coming back to Cards shows the size it was left at.
+        let handle = slider_position(ViewMode::Cards, z3, c3);
+        println!("returning to Cards: handle at {handle:.3} (CardSize {c3} %)");
+        assert!((handle - 0.25).abs() < 1e-6, "the remembered card size must come back");
+    }
+
+    #[test]
+    fn the_slider_reports_the_property_its_mode_drives() {
+        for mode in [ViewMode::Full, ViewMode::Cards] {
+            let t = slider_target(mode);
+            println!("{mode} mode -> slider drives {} over {}..={}", t.property, t.min, t.max);
+        }
+        assert_eq!(slider_target(ViewMode::Full).property, "Zoom");
+        assert_eq!(slider_target(ViewMode::Cards).property, "CardSize");
+        assert_eq!(ViewMode::from_str("cards"), ViewMode::Cards);
+        assert_eq!(ViewMode::from_str("nonsense"), ViewMode::Full, "an unknown value shows the document");
+    }
+
+    #[test]
+    fn the_zoom_sliders_round_trip_is_stable_across_its_whole_range() {
+        let mut worst = 0.0f32;
+        for pct in [25, 50, 100, 200, 400, 800, 1600] {
+            let t = slider_position(ViewMode::Full, pct, 50);
+            let (back, _) = apply_slider(ViewMode::Full, t, pct, 50);
+            let err = (back - pct).abs() as f32 / pct as f32;
+            worst = worst.max(err);
+            println!("Zoom {pct:>4} % -> handle {t:.4} -> {back:>4} % (error {:.3} %)", err * 100.0);
+        }
+        assert!(worst < 0.01, "the log-scale handle must round-trip within 1 %, worst was {worst}");
+    }
+
+    // ── Filmstrip (R14.3/R14.4, AC19) ───────────────────────────────────
+
+    #[test]
+    fn dragging_the_filmstrip_splitter_to_the_left_edge_closes_it() {
+        let mut report = Vec::new();
+        for w in [300.0f32, 128.0, 64.0, 41.0, 39.0, 4.0, 0.0] {
+            let r = filmstrip_width_after_drag(w);
+            report.push((w, r));
+            println!("splitter dragged to {w:>5.0} pt -> {}", match r {
+                Some(kept) => format!("still open at {kept:.0} pt"),
+                None => "CLOSED (R14.4)".to_string(),
+            });
+        }
+        assert!(report[..4].iter().all(|(_, r)| r.is_some()), "above the close threshold it resizes");
+        assert!(report[4..].iter().all(|(_, r)| r.is_none()), "at the view's left edge it closes");
+        assert_eq!(filmstrip_width_after_drag(1000.0), Some(FILMSTRIP_MAX_WIDTH), "clamped, never unbounded");
+    }
+
+    // ── Chrome geometry, fullscreen (R15, R16, AC5) ─────────────────────
+
+    #[test]
+    fn entering_fullscreen_hides_the_toolbar_and_gives_its_height_to_the_content() {
+        let bounds = ViewRect::new(0.0, 0.0, 800.0, 600.0);
+        let windowed = chrome_layout(bounds, &ChromeOpts::default());
+        let full = chrome_layout(bounds, &ChromeOpts { fullscreen: true, ..Default::default() });
+        println!(
+            "windowed: toolbar {:?}, content {:.0} pt tall; fullscreen: toolbar {:?}, content {:.0} pt tall",
+            windowed.toolbar.map(|t| t.h),
+            windowed.content.h,
+            full.toolbar.map(|t| t.h),
+            full.content.h
+        );
+        assert!(windowed.toolbar.is_some(), "AC5: the toolbar shows when not fullscreen");
+        assert!(full.toolbar.is_none(), "AC5: entering fullscreen hides the toolbar");
+        assert_eq!(
+            full.content.h - windowed.content.h,
+            TOOLBAR_HEIGHT,
+            "the hidden toolbar's height must go to the content, not be lost"
+        );
+    }
+
+    #[test]
+    fn the_slider_sits_bottom_right_directly_below_that_views_own_content() {
+        let bounds = ViewRect::new(100.0, 50.0, 800.0, 600.0);
+        let open = chrome_layout(
+            bounds,
+            &ChromeOpts { filmstrip: Some(FILMSTRIP_DEFAULT_WIDTH), ..Default::default() },
+        );
+        let strip = open.filmstrip.expect("the filmstrip must be placed when open");
+        println!(
+            "filmstrip x={:.0} w={:.0}; content x={:.0} w={:.0}; slider x={:.0} (content right {:.0})",
+            strip.x, strip.w, open.content.x, open.content.w, open.slider.x, open.content.right()
+        );
+        assert_eq!(strip.x, bounds.x, "R14.3: the rail docks to the view's left edge");
+        assert_eq!(open.content.x, strip.right(), "the content starts where the rail ends");
+        assert!(open.slider.x > open.content.x, "R14.1: bottom-RIGHT of the content");
+        assert!(open.slider.right() <= open.content.right(), "the slider stays inside its own content column");
+        assert!(open.slider.y >= open.content.bottom(), "R14.1: directly BELOW the content");
+    }
+
+    #[test]
+    fn streamed_layout_reserves_no_chrome_at_all() {
+        let bounds = ViewRect::new(0.0, 0.0, 800.0, 600.0);
+        let s = chrome_layout(bounds, &ChromeOpts { streamed: true, filmstrip: Some(200.0), ..Default::default() });
+        println!(
+            "Streamed: toolbar {:?}, filmstrip {:?}, content {:?}",
+            s.toolbar.is_some(),
+            s.filmstrip.is_some(),
+            (s.content.w, s.content.h)
+        );
+        assert!(s.toolbar.is_none() && s.filmstrip.is_none(), "§8.8: no chrome, whatever was showing before");
+        assert_eq!(s.content, bounds, "the whole rect is the one content pane");
+    }
+
+    // ── Scrolling: keys (R33/R33.1, AC31) ───────────────────────────────
+
+    fn fresh(max: f32) -> ScrollKinetics {
+        let mut k = ScrollKinetics::default();
+        k.set_max(max);
+        k.take_settled();
+        k
+    }
+
+    /// Runs `secs` of a held ArrowDown and reports the average speed over
+    /// the run, in points per second.
+    fn hold_and_measure(kin: &mut ScrollKinetics, secs: f32, line: f32, viewport: f32) -> f32 {
+        let held = KeyScrollInput { down_held: true, ..Default::default() };
+        let before = kin.offset();
+        let mut t = 0.0;
+        while t < secs {
+            kin.apply_keys(&held, DT, line, viewport);
+            t += DT;
+        }
+        (kin.offset() - before) / t
+    }
+
+    #[test]
+    fn a_held_arrow_key_starts_at_a_tap_and_winds_up_to_four_times_base() {
+        let line = line_height(14.0);
+        let viewport = 600.0;
+        let mut kin = fresh(1_000_000.0);
+
+        // The tap — one line, on the press frame, before any ramp exists.
+        let tap = KeyScrollInput { down_tap: true, down_held: true, ..Default::default() };
+        kin.apply_keys(&tap, DT, line, viewport);
+        let tap_move = kin.offset();
+
+        // 0 -> 0.25 s: still inside the repeat delay, so nothing but the tap.
+        let during_delay = hold_and_measure(&mut kin, KEY_REPEAT_DELAY - DT, line, viewport);
+        // Wind up to ~1 s held, then measure over the next 0.2 s.
+        let to_one_second = 1.0 - kin.key_hold();
+        hold_and_measure(&mut kin, to_one_second, line, viewport);
+        let at_1s = hold_and_measure(&mut kin, 0.2, line, viewport);
+        // Wind past the 2 s ramp, then measure at the ceiling.
+        let to_ceiling = 2.6 - kin.key_hold();
+        hold_and_measure(&mut kin, to_ceiling, line, viewport);
+        let at_ceiling = hold_and_measure(&mut kin, 0.2, line, viewport);
+
+        println!("AC31, measured at three points (FontSize 14 -> one line = {line:.1} pt):");
+        println!("  tap                : {tap_move:.1} pt moved on the press frame");
+        println!("  held  < 0.25 s     : {during_delay:.1} pt/s (the repeat delay)");
+        println!("  held ~= 1.0 s      : {at_1s:.1} pt/s");
+        println!("  held >= 2.0 s      : {at_ceiling:.1} pt/s (ceiling = {} pt/s)", KEY_BASE_SPEED * KEY_MAX_FACTOR);
+
+        assert!((tap_move - line).abs() < 1e-3, "a tap moves exactly one line");
+        assert!(during_delay < 1.0, "nothing moves during the repeat delay, measured {during_delay}");
+        assert!(at_1s > KEY_BASE_SPEED, "by 1 s the ramp is above the base pace");
+        assert!(at_ceiling > at_1s, "AC31: measurably faster by 2 s in");
+        let ceiling = KEY_BASE_SPEED * KEY_MAX_FACTOR;
+        assert!(
+            (at_ceiling - ceiling).abs() / ceiling < 0.02,
+            "the ramp caps at 4x base ({ceiling} pt/s), measured {at_ceiling}"
+        );
+    }
+
+    #[test]
+    fn page_and_home_and_end_move_by_the_documented_amounts() {
+        let line = line_height(16.0);
+        let viewport = 500.0;
+        let expected_page = page_step(viewport, line);
+        let mut kin = fresh(10_000.0);
+
+        kin.apply_keys(&KeyScrollInput { page_down: true, ..Default::default() }, DT, line, viewport);
+        let after_pgdn = kin.offset();
+        kin.apply_keys(&KeyScrollInput { page_up: true, ..Default::default() }, DT, line, viewport);
+        let after_pgup = kin.offset();
+        kin.apply_keys(&KeyScrollInput { end: true, ..Default::default() }, DT, line, viewport);
+        let after_end = kin.offset();
+        kin.apply_keys(&KeyScrollInput { home: true, ..Default::default() }, DT, line, viewport);
+        let after_home = kin.offset();
+
+        println!(
+            "R33.1 (viewport {viewport} pt, line {line:.1} pt, page step {expected_page:.1} pt): \
+             PageDown -> {after_pgdn:.1}, PageUp -> {after_pgup:.1}, End -> {after_end:.1}, Home -> {after_home:.1}"
+        );
+        assert!((after_pgdn - expected_page).abs() < 1e-3, "a viewport minus two lines");
+        assert_eq!(after_pgup, 0.0, "PageUp returns the same distance");
+        assert_eq!(after_end, kin.max(), "End jumps to the bottom");
+        assert_eq!(after_home, 0.0, "Home jumps to the top");
+    }
+
+    #[test]
+    fn a_shrinking_viewport_pulls_the_offset_back_inside_the_new_limit() {
+        let mut kin = fresh(5000.0);
+        kin.set_offset(4800.0);
+        kin.set_max(1000.0);
+        println!("max 5000 -> 1000 with the view parked at 4800: offset is now {:.0}", kin.offset());
+        assert_eq!(kin.offset(), 1000.0, "never left parked past the end");
+    }
+
+    // ── Scrolling: drag and throw (R33.2, AC32) ─────────────────────────
+
+    /// A drag that moves the pointer `dy` points per frame for `frames`
+    /// frames, then releases. Returns the glide speed it was let go at.
+    fn drag_and_release(kin: &mut ScrollKinetics, dy: f32, frames: usize) -> f32 {
+        let mut t = 0.0f64;
+        let mut y = 500.0f32;
+        kin.press(t, y);
+        for _ in 0..frames {
+            t += DT as f64;
+            y += dy;
+            kin.drag(t, y);
+        }
+        kin.release();
+        kin.glide_speed()
+    }
+
+    /// Runs a glide to a stop, reporting `(frames, distance travelled)`.
+    fn glide_to_rest(kin: &mut ScrollKinetics) -> (usize, f32) {
+        let start = kin.offset();
+        let mut frames = 0;
+        while kin.is_gliding() && frames < 10_000 {
+            kin.glide_tick(DT);
+            frames += 1;
+        }
+        (frames, (kin.offset() - start).abs())
+    }
+
+    #[test]
+    fn a_drag_pans_the_content_one_to_one_with_the_pointer() {
+        let mut kin = fresh(10_000.0);
+        kin.press(0.0, 500.0);
+        kin.drag(DT as f64, 460.0); // pointer moved 40 pt UP
+        kin.drag(2.0 * DT as f64, 430.0); // another 30 pt UP
+        println!("pointer moved 70 pt up in two frames -> offset {:.1}", kin.offset());
+        assert!((kin.offset() - 70.0).abs() < 1e-3, "R33.2: 1:1 with the pointer");
+        kin.release();
+    }
+
+    #[test]
+    fn a_throw_decelerates_under_constant_friction_to_exactly_zero() {
+        let mut gentle = fresh(1_000_000.0);
+        let gentle_v = drag_and_release(&mut gentle, -6.0, 12);
+        let (gentle_frames, gentle_dist) = glide_to_rest(&mut gentle);
+
+        let mut fast = fresh(1_000_000.0);
+        let fast_v = drag_and_release(&mut fast, -24.0, 12);
+        let (fast_frames, fast_dist) = glide_to_rest(&mut fast);
+
+        println!("AC32, constant friction {THROW_FRICTION} pt/s^2:");
+        println!(
+            "  gentle throw: released at {:.0} pt/s -> {gentle_frames} frames ({:.2} s), travelled {gentle_dist:.0} pt",
+            gentle_v.abs(),
+            gentle_frames as f32 * DT
+        );
+        println!(
+            "  fast   throw: released at {:.0} pt/s -> {fast_frames} frames ({:.2} s), travelled {fast_dist:.0} pt",
+            fast_v.abs(),
+            fast_frames as f32 * DT
+        );
+        assert!(fast_v.abs() > gentle_v.abs(), "a faster hand throws harder");
+        assert!(fast_dist > gentle_dist, "AC32: a fast throw travels further");
+        assert!(fast_frames > gentle_frames, "AC32: and takes longer — not a fixed-duration ease");
+        assert_eq!(fast.glide_speed(), 0.0, "AC32: it ends at exactly zero velocity");
+        assert_eq!(gentle.glide_speed(), 0.0);
+    }
+
+    #[test]
+    fn a_throw_that_runs_into_the_end_stops_exactly_at_the_limit() {
+        let mut kin = fresh(300.0);
+        let v = drag_and_release(&mut kin, -40.0, 12);
+        let (frames, dist) = glide_to_rest(&mut kin);
+        println!(
+            "thrown at {:.0} pt/s against a {:.0} pt range: stopped after {frames} frames at offset {:.1} (travelled {dist:.0})",
+            v.abs(),
+            kin.max(),
+            kin.offset()
+        );
+        assert_eq!(kin.offset(), kin.max(), "AC32: exactly at the scroll limit");
+        assert_eq!(kin.glide_speed(), 0.0, "and the throw is spent, not still pushing");
+    }
+
+    #[test]
+    fn a_drag_that_stopped_before_release_throws_nothing() {
+        let mut kin = fresh(10_000.0);
+        let mut t = 0.0f64;
+        kin.press(t, 500.0);
+        // Move, then hold still for longer than the sample window.
+        for i in 1..=10 {
+            t += DT as f64;
+            kin.drag(t, 500.0 - i as f32 * 10.0);
+        }
+        let moved_to = kin.offset();
+        for _ in 0..12 {
+            t += DT as f64;
+            kin.drag(t, 400.0);
+        }
+        kin.release();
+        println!(
+            "dragged to offset {moved_to:.0}, then held still for {:.2} s before releasing -> glide {:.1} pt/s",
+            12.0 * DT,
+            kin.glide_speed()
+        );
+        assert_eq!(kin.glide_speed(), 0.0, "AC32: letting go of a stopped page throws nothing");
+    }
+
+    #[test]
+    fn a_press_during_a_glide_stops_it_at_once() {
+        let mut kin = fresh(1_000_000.0);
+        let v = drag_and_release(&mut kin, -24.0, 12);
+        for _ in 0..5 {
+            kin.glide_tick(DT);
+        }
+        let mid = kin.glide_speed();
+        kin.press(1.0, 200.0);
+        println!(
+            "released at {:.0} pt/s, still gliding at {:.0} pt/s after 5 frames; after a new press: {:.0} pt/s",
+            v.abs(),
+            mid.abs(),
+            kin.glide_speed().abs()
+        );
+        assert!(mid.abs() > 0.0, "the glide must actually have been running");
+        assert_eq!(kin.glide_speed(), 0.0, "AC32: catching a moving page stops it immediately");
+    }
+
+    // ── Settle events (R32) ─────────────────────────────────────────────
+
+    #[test]
+    fn onscrolled_settles_once_per_rest_never_on_a_glide_frame() {
+        let mut kin = fresh(1_000_000.0);
+        drag_and_release(&mut kin, -24.0, 12);
+        // The rest arrives on the frame the glide itself ends, so "was it
+        // still gliding *after* this tick" is what tells a mid-glide settle
+        // from the at-rest one — not whether the loop is still running.
+        let (mut mid_glide, mut at_rest, mut frames) = (0, 0, 0);
+        loop {
+            kin.glide_tick(DT);
+            frames += 1;
+            let still_gliding = kin.is_gliding();
+            if kin.take_settled() {
+                if still_gliding {
+                    mid_glide += 1;
+                } else {
+                    at_rest += 1;
+                }
+            }
+            if !still_gliding || frames >= 10_000 {
+                break;
+            }
+        }
+        println!("glide ran {frames} frames: {mid_glide} settle(s) mid-glide, {at_rest} at rest");
+        assert_eq!(mid_glide, 0, "R32: onScrolled never fires mid-glide");
+        assert_eq!(at_rest, 1, "R32: it fires once, when the content comes to rest");
+        assert!(!kin.take_settled(), "and not again on any later frame");
+    }
+
+    #[test]
+    fn settle_watch_reports_one_event_per_gesture_not_one_per_notch() {
+        let mut watch = SettleWatch::new(100i64);
+        let mut zoom = 100i64;
+        let mut fired = 0;
+        // A wheel gesture: five notches over five frames, still active.
+        for _ in 0..5 {
+            zoom = zoom_by_notches(zoom, 1.0);
+            watch.observe(zoom, true);
+            if watch.take_settled() {
+                fired += 1;
+            }
+        }
+        println!("five wheel notches to {zoom} %: {fired} event(s) so far");
+        assert_eq!(fired, 0, "R32: nothing fires while the gesture is still running");
+        // The gesture ends.
+        watch.observe(zoom, false);
+        assert!(watch.take_settled(), "R32: one event when it settles");
+        assert!(!watch.take_settled(), "and only one");
+        // A later, programmatic change settles immediately (no gesture).
+        watch.observe(ZOOM_DEFAULT_PCT, false);
+        let programmatic = watch.take_settled();
+        println!("programmatic reset to {ZOOM_DEFAULT_PCT} %: fired = {programmatic}");
+        assert!(programmatic, "R32: a programmatic change settles at once");
     }
 }

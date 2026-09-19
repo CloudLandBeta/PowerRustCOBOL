@@ -1,5 +1,33 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.85] — 2026-09-19
+
+### The Viewer knows how to zoom, reflow cards and throw a page
+
+Spec 058 T12, first half: the Viewer control's whole navigation model, as
+pure arithmetic in `cobolt-forms`. Zoom steps on a 1.25 ratio and stops at
+exactly 16x (R12), and a wheel notch keeps the document point under the
+pointer fixed (R11). `Cards` mode's grid reflows its rows **and** columns
+from the card size and **the view's own width** — never the window or the
+screen (R14, AC19) — and the one bottom-right slider per view drives `Zoom`
+in `Full` mode and `CardSize` in `Cards` mode without either mode ever
+disturbing the other's remembered value (R14.1/R14.2). The filmstrip closes
+when its splitter is dragged to the view's left edge (R14.4), and entering
+fullscreen hands the toolbar's height to the content (R15, AC5).
+
+Scrolling reproduces the IDE's own Documentation viewer, constant for
+constant: a tap moves one line, a held arrow key ramps from its base pace to
+a 4x ceiling over two seconds after a short delay, Page Up/Down move a
+viewport minus two lines, and a thrown page decelerates under **constant**
+friction — so a fast throw travels further and takes longer, both ending at
+exactly zero or exactly at the scroll limit (R33-R33.2, AC31/AC32). Time is
+passed in as an explicit `dt` rather than read from a clock, so the tests
+measure two seconds of held key in microseconds instead of sleeping.
+
+23 new tests, each reporting what it measured; the `cobolt-forms` suite is
+852 green. Painting and input wiring are the task's second half and are not
+in this commit.
+
 ## [PowerRustCOBOL 1.70.84] — 2026-09-19
 
 ### A chart's frame border has a transparency of its own
