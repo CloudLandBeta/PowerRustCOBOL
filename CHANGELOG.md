@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.85] — 2026-09-19
+
+### A chart's border is the last thing painted on its frame
+
+`BorderColor` changed nothing on a chart, and a gradient border showed its
+two colours only in the blur outside the frame (operator, 2026-09-19, with a
+screenshot of a white border rendering blue). 1.70.81 replaced the fixed
+1 px line charts used to draw with the real border — but a *second* fixed
+line, stroked at the very end of the chart painter (grey under glass, the
+old blue without), had survived, and at the default width of 1 px it sat
+exactly on top of the border just painted: the developer's colour and the
+whole gradient ring were drawn and then covered. That trailing outline is
+gone; the frame belongs to the border properties alone. A paint regression
+holds that the topmost paint on the frame is the developer's own border —
+its colour when plain, the gradient ring when enabled, nothing at all under
+`BorderStyle None` — with the glass theme on and off.
+
 ## [PowerRustCOBOL 1.70.84] — 2026-09-19
 
 ### A chart's frame border has a transparency of its own

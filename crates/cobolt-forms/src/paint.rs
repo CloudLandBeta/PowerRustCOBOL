@@ -8671,7 +8671,10 @@ fn premultiplied_at(c: Color32, alpha: f32) -> Color32 {
 /// `-Direction`) and a soft **blur** outward (`BorderBlur`, px). Drawn at the
 /// INHERITED alpha `a`, never at the face's: the border is part of what keeps
 /// a see-through chart readable. Charts used to draw a fixed 1 px line in a
-/// fixed blue and ignore all three border properties (operator, 2026-09-19).
+/// fixed blue and ignore all three border properties (operator, 2026-09-19) —
+/// and a second such line, stroked after this frame at the end of
+/// `draw_chart_preview`, survived that change and covered the frame until
+/// 1.70.85. Nothing is painted over the frame now; a test holds that.
 ///
 /// The gradient border is a ring mesh between the frame's outer outline and
 /// the same outline `width` further in, every vertex coloured by where it
@@ -9755,27 +9758,13 @@ pub fn draw_chart_preview(
         );
     }
 
-    if !hide_bg {
-        let outline = if glass {
-            Color32::from_rgba_premultiplied(170, 170, 170, (170.0 * alpha_mul) as u8)
-        } else {
-            Color32::from_rgba_premultiplied(60, 80, 160, a)
-        };
-        let outline_rect = debug_frame(
-            frame_painter,
-            control_rect,
-            rounding,
-            4,
-            "CHART_OUTLINE",
-            chart_diag,
-        );
-        frame_painter.rect_stroke(
-            outline_rect,
-            rounding,
-            Stroke::new(1.0, outline),
-            egui::StrokeKind::Middle,
-        );
-    }
+    // No trailing outline. A fixed 1 px line — grey under glass, blue without —
+    // used to be stroked here, LAST, over the frame `draw_chart_border` had
+    // already painted: at the default width it covered the developer's
+    // `BorderColor` and the whole gradient ring, so only the blur outside the
+    // frame ever showed their colours (operator, 2026-09-19: "border color
+    // property does not affect the actual border color"). The frame is the
+    // border properties' alone; the last paint on it is theirs.
 }
 
 /// Unified corner radius (px) for a control's rounded fill/border and content
@@ -16566,6 +16555,98 @@ slice = [4, 4, 4, 4]
     /// line in a fixed blue and ignore every border property (operator,
     /// 2026-09-19: "border style needs border size with gradients and blur").
     #[test]
+    /// The LAST full-size paint on a chart's frame is the developer's own
+    /// border — its colour when plain, its gradient ring when enabled. A
+    /// fixed 1 px outline used to be stroked over the frame after the border
+    /// (grey under glass, blue without), so at the default width
+    /// `BorderColor` changed nothing and the gradient showed only in the blur
+    /// outside the frame (operator, 2026-09-19).
+    #[test]
+    fn nothing_is_painted_over_a_charts_border() {
+        #[derive(Debug, PartialEq)]
+        enum Top {
+            Stroke(Color32),
+            Gradient(usize),
+            Nothing,
+        }
+        let topmost = |glass_on: bool, props: &[(&str, PropValue)]| -> Top {
+            let ctx = egui::Context::default();
+            if glass_on {
+                set_surface_theme(&ctx, glass());
+            }
+            let mut c = Control::new("CH", CT::LineChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            for (k, v) in props {
+                c.set_prop(*k, v.clone());
+            }
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, glass_on, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let frame = Rect::from_min_size(Pos2::ZERO, Vec2::new(420.0, 260.0));
+            let mut top = Top::Nothing;
+            fn walk(s: &egui::Shape, frame: Rect, top: &mut Top) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, frame, top)),
+                    // A stroke ON the frame itself — not a blur ring outside it.
+                    egui::Shape::Rect(r)
+                        if (r.rect.min.distance(frame.min) < 0.05)
+                            && (r.rect.max.distance(frame.max) < 0.05)
+                            && r.stroke.width > 0.0
+                            && r.stroke.color.a() > 0 =>
+                    {
+                        *top = Top::Stroke(r.stroke.color);
+                    }
+                    egui::Shape::Mesh(m) if m.vertices.len() >= 8 => {
+                        let mut cols: Vec<Color32> = m.vertices.iter().map(|v| v.color).collect();
+                        cols.sort_by_key(|c| c.to_array());
+                        cols.dedup();
+                        *top = Top::Gradient(cols.len());
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, frame, &mut top);
+            }
+            top
+        };
+
+        let white = [("BorderColor", PropValue::String("#FFFFFF".into()))];
+        for glass_on in [true, false] {
+            assert_eq!(
+                topmost(glass_on, &white),
+                Top::Stroke(Color32::WHITE),
+                "glass={glass_on}: the last paint on the frame must be the developer's white border"
+            );
+        }
+        let gradient = [
+            ("BorderGradientEnabled", PropValue::Bool(true)),
+            ("BorderGradientStartColor", PropValue::String("#FF0000".into())),
+            ("BorderGradientEndColor", PropValue::String("#00FF00".into())),
+            ("BorderBlur", PropValue::Int(8)),
+        ];
+        for glass_on in [true, false] {
+            match topmost(glass_on, &gradient) {
+                Top::Gradient(n) if n >= 8 => {}
+                other => panic!(
+                    "glass={glass_on}: the gradient ring must be the last paint on the frame, got {other:?}"
+                ),
+            }
+        }
+        let none = [("BorderStyle", PropValue::String("None".into()))];
+        for glass_on in [true, false] {
+            assert_eq!(
+                topmost(glass_on, &none),
+                Top::Nothing,
+                "glass={glass_on}: BorderStyle None leaves no line on the frame at all"
+            );
+        }
+    }
+
+    #[test]
     fn chart_border_honours_style_gradient_and_blur() {
         struct Painted {
             /// Full-size stroked rects (the frame border and any blur rings).
@@ -19434,15 +19515,22 @@ mod elegance_baseline_tests {
         // carries the colour its band carried, and
         // `the_mesh_cannot_shift_a_pixel_a_display_could_show` pins the largest
         // possible difference at 1/255.
+        //
+        // **−6 on every row, 1.70.85.** The fixed 1 px outline every chart
+        // stroked LAST over its frame — on top of the border the properties
+        // had just painted, which is why `BorderColor` and the gradient never
+        // showed — is gone. The fixture holds one chart of each of the six
+        // types, one leaf each, so the move is exactly 6 and the same 6 under
+        // both themes and all four styles: six controls, not the seam.
         let expected: [(&str, GS, usize); 8] = [
-            ("liquid-glass", GS::Classic, 651),
-            ("asset-pack", GS::Classic, 661),
-            ("liquid-glass", GS::Enhanced, 751),
-            ("asset-pack", GS::Enhanced, 735),
-            ("liquid-glass", GS::Neumorphic, 641),
-            ("asset-pack", GS::Neumorphic, 657),
-            ("liquid-glass", GS::NeumorphicDark, 641),
-            ("asset-pack", GS::NeumorphicDark, 657),
+            ("liquid-glass", GS::Classic, 645),
+            ("asset-pack", GS::Classic, 655),
+            ("liquid-glass", GS::Enhanced, 745),
+            ("asset-pack", GS::Enhanced, 729),
+            ("liquid-glass", GS::Neumorphic, 635),
+            ("asset-pack", GS::Neumorphic, 651),
+            ("liquid-glass", GS::NeumorphicDark, 635),
+            ("asset-pack", GS::NeumorphicDark, 651),
         ];
         for (theme, gs, want) in expected {
             let got = rows
