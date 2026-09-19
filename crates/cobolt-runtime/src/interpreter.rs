@@ -1414,6 +1414,20 @@ enum WaitOutcome {
 }
 
 /// Tree-walking COBOL interpreter.
+/// Spec 058 R19/R20/R18 — which OS handoff a Viewer reported back on.
+///
+/// Print, Share and Save As are the three actions this control cannot
+/// resolve by itself: the host performs them and only the OS dialog knows
+/// whether the user went through with it, which is why their events arrive
+/// through [`Interpreter::report_viewer_os_outcome`] instead of being raised
+/// from a flag here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewerOsAction {
+    Print,
+    Share,
+    Save,
+}
+
 pub struct Interpreter {
     /// The parsed program (retained for metadata access).
     pub program: Program,
@@ -1573,6 +1587,12 @@ pub struct Interpreter {
     /// say 'onResponse will fire'. It never did").
     control_ids: std::collections::HashMap<String, String>,
     async_dispatch_queue: std::collections::VecDeque<(String, String)>,
+    /// Spec 058 R1 — bytes a `LoadBytes` call supplied, per Viewer control.
+    ///
+    /// Beside the object rather than in a property: a control property is a
+    /// `String`, and R18's byte-identical Save As cannot survive a round
+    /// trip through one for anything that is not text.
+    viewer_bytes: std::collections::HashMap<String, Vec<u8>>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
     /// Receives `DebugCmd` from the IDE debugger panel (Continue, StepOver, Pause).
@@ -1952,6 +1972,7 @@ impl Interpreter {
             async_generations: HashMap::new(),
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
+            viewer_bytes: std::collections::HashMap::new(),
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -11969,6 +11990,131 @@ impl Interpreter {
             // it will read the (just-set or prior) count from dims.
             let _ = self.refresh_control_array_binding(obj);
         }
+        // Spec 058 R3/R4/R6 — a Viewer's `Source` is what STARTS a load, so
+        // writing it is what raises onLoadProgress/onLoaded, or onError.
+        //
+        // This runs on the INTERPRETER's thread, which is not the UI thread:
+        // `form_runtime.rs`, `rcrun run-form` and the compiled binary all run
+        // the interpreter in a thread of its own, so indexing a large
+        // document here never stalls a paint (R5). R5.1's per-instance
+        // decode thread is a separate concern, in the host.
+        if prop.eq_ignore_ascii_case("Source") && self.is_viewer(obj) {
+            self.viewer_open_source(&obj.to_string(), &val);
+        }
+    }
+
+    /// Spec 058 — is `obj` a Viewer control?
+    fn is_viewer(&self, obj: &str) -> bool {
+        self.object_class(obj).is_some_and(|c| c.eq_ignore_ascii_case("Viewer"))
+    }
+
+    /// How often a load reports progress, in percent (R6).
+    ///
+    /// The indexer itself reports every whole percent; forwarding all 101 of
+    /// them would put a hundred events on the dispatch queue for one `MOVE`,
+    /// and a COBOL handler cannot use that resolution for anything. Every
+    /// tenth percent, plus a guaranteed final 100, is a progress bar a
+    /// developer can actually drive.
+    const VIEWER_PROGRESS_STEP: i64 = 10;
+
+    /// Open the document `source` names, reporting it the way R3/R4/R6 say.
+    ///
+    /// On success `Format` carries R3's resolved format, `Progress` reaches
+    /// 100 and `onLoaded` is queued. On failure `LastError` carries R4's
+    /// message, `onError` is queued, and **the previously loaded document is
+    /// left displayed** — `Source` is put back to whatever last loaded, so
+    /// every surface goes on painting the document that is actually there
+    /// rather than a name that failed.
+    fn viewer_open_source(&mut self, obj: &str, source: &str) {
+        use cobolt_forms::viewer::{open_document, DocumentSource};
+
+        let path = source.trim().to_string();
+        if path.is_empty() {
+            // Clearing the source is not a failed load.
+            self.obj_set(obj, "Format", String::new());
+            self.obj_set(obj, "Progress", "0".into());
+            return;
+        }
+        let resolved = cobolt_forms::assets::resolve(&path);
+        let src = DocumentSource::Path(resolved.to_string_lossy().into_owned());
+
+        let mut ticks: Vec<i64> = Vec::new();
+        let mut last_step = -1i64;
+        let result = open_document(&src, |pct| {
+            let step = pct / Self::VIEWER_PROGRESS_STEP;
+            if step != last_step {
+                last_step = step;
+                ticks.push(pct);
+            }
+        });
+        for pct in ticks {
+            self.obj_set(obj, "Progress", pct.to_string());
+            self.queue_control_event(obj, "onLoadProgress");
+        }
+
+        match result {
+            Ok(index) => {
+                self.obj_set(obj, "Format", index.format.as_str().to_string());
+                self.obj_set(obj, "Progress", "100".into());
+                self.obj_set(obj, "LastError", String::new());
+                self.obj_set(obj, "_LoadedSource", path);
+                self.obj_set(obj, "_PageCount", index.page_count().to_string());
+                self.queue_control_event(obj, "onLoaded");
+            }
+            Err(e) => {
+                self.obj_set(obj, "LastError", e.to_message());
+                // R4: the failed name must not replace the document on
+                // screen. Written straight to the registry — `obj_set` would
+                // re-enter this hook and try to load it all over again.
+                let previous = self.obj_get(obj, "_LoadedSource");
+                let canon = self.canonical_prop_name(obj, "Source");
+                self.objects.set_property(obj, &canon, previous);
+                self.queue_control_event(obj, "onError");
+            }
+        }
+    }
+
+    /// Spec 058 R32 — the OS reported back on a Print / Share / Save As
+    /// handoff.
+    ///
+    /// These three are the only events this control cannot raise from a flag
+    /// of its own: only the OS dialog knows whether the user went through
+    /// with it. The host performs the handoff (`RenderOutput::toolbar_actions`
+    /// carries the request) and calls this with what it was told.
+    pub fn report_viewer_os_outcome(&mut self, ctrl: &str, action: ViewerOsAction, completed: bool) {
+        let event = match (action, completed) {
+            (ViewerOsAction::Print, true) => "onPrintComplete",
+            (ViewerOsAction::Print, false) => "onPrintCancelled",
+            (ViewerOsAction::Share, true) => "onShareComplete",
+            (ViewerOsAction::Share, false) => "onShareCancelled",
+            (ViewerOsAction::Save, true) => "onSaveComplete",
+            (ViewerOsAction::Save, false) => "onSaveCancelled",
+        };
+        self.queue_control_event(ctrl, event);
+    }
+
+    /// Spec 058 R18 — write the document's ORIGINAL bytes to `path`,
+    /// unmodified, and never a rendered or re-encoded one.
+    ///
+    /// A `Source`-loaded document is copied byte for byte from the file it
+    /// came from, which is what makes AC6 true by construction rather than
+    /// by a re-encoder being careful. A `LoadBytes` document writes the
+    /// bytes COBOL supplied.
+    fn viewer_save_as(&mut self, obj: &str, path: &str) -> Result<(), String> {
+        let dest = path.trim();
+        if dest.is_empty() {
+            return Err("no destination path".to_string());
+        }
+        let source = self.obj_get(obj, "Source");
+        let bytes: Vec<u8> = if !source.trim().is_empty() {
+            let resolved = cobolt_forms::assets::resolve(source.trim());
+            std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?
+        } else if let Some(b) = self.viewer_bytes.get(obj) {
+            b.clone()
+        } else {
+            return Err("no document loaded".to_string());
+        };
+        std::fs::write(dest, &bytes).map_err(|e| format!("could not write document: {e}"))
     }
 
     /// Whether `obj` names a TOOLBAR BUTTON — an object the host seeded under a
@@ -13202,6 +13348,72 @@ impl Interpreter {
             "DISMISSALL" => {
                 let n = parse_i(self.obj_get(obj, "_DismissAllSnackbar")) + 1;
                 self.obj_set(obj, "_DismissAllSnackbar", n.to_string());
+                none
+            }
+            // ── Viewer (spec 058) ──
+            "LOADBYTES" => {
+                // R1's byte-buffer load. The bytes live beside the object
+                // rather than in a property: a property is a `String`, and a
+                // PDF put through one would not come back byte for byte,
+                // which R18's Save As depends on.
+                // NOT `arg(0)`: that helper trims, and for every other
+                // method that is right — a COBOL `PIC X(80)` holding a path
+                // arrives padded with spaces. Here the argument IS the
+                // payload, so a trim would silently drop a document's
+                // leading indent or its final newline (caught by
+                // `loadbytes_resolves_a_format_and_save_as_writes_those_bytes_back`,
+                // which compares the written bytes against what it supplied).
+                //
+                // ⚠️ A COBOL item is still fixed-length: `PIC X(100)` holding
+                // 42 characters delivers 100, padded. That is the developer's
+                // to size, not something this method can guess at.
+                let data = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                let bytes = data.clone().into_bytes();
+                let format = cobolt_forms::viewer::detect_format(None, &bytes);
+                self.viewer_bytes.insert(obj.to_string(), bytes);
+                match format {
+                    Some(f) => {
+                        self.obj_set(obj, "Format", f.as_str().to_string());
+                        self.obj_set(obj, "Progress", "100".into());
+                        self.obj_set(obj, "LastError", String::new());
+                        self.queue_control_event(obj, "onLoaded");
+                    }
+                    None => {
+                        self.obj_set(
+                            obj,
+                            "LastError",
+                            cobolt_forms::viewer::ViewerLoadError::UnsupportedFormat.to_message(),
+                        );
+                        self.queue_control_event(obj, "onError");
+                    }
+                }
+                none
+            }
+            // R18: always the given path — R18.1's proposed default filename
+            // is the interactive dialog's convenience, never this method's
+            // contract (plan.md §3).
+            "SAVEAS" => {
+                match self.viewer_save_as(obj, &arg(0)) {
+                    Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
+                    Err(e) => {
+                        self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onError");
+                    }
+                }
+                none
+            }
+            // R19/R20: the OS does the printing and the sharing. The request
+            // is left for the host to pick up; the Complete/Cancelled event
+            // comes back through `report_viewer_os_outcome`, because only the
+            // OS dialog knows which of the two happened.
+            "PRINT" => {
+                let n = parse_i(self.obj_get(obj, "_PrintRequest")) + 1;
+                self.obj_set(obj, "_PrintRequest", n.to_string());
+                none
+            }
+            "SHARE" => {
+                let n = parse_i(self.obj_get(obj, "_ShareRequest")) + 1;
+                self.obj_set(obj, "_ShareRequest", n.to_string());
                 none
             }
             // ── Timer ──
@@ -16231,6 +16443,10 @@ fn is_known_method(name: &str) -> bool {
         // so `SNACK-1::AddButton("id=undo")` would silently mean "element … of
         // AddButton" rather than a call.
             | "SHOW" | "DISMISSALL" | "ADDBUTTON" | "ADD-BUTTON"
+        // Viewer (058) — same rule as Snackbar's above: an unlisted name
+        // parses its parens as a collection subscript, so `VWR-1::Print()`
+        // would silently mean "element … of Print".
+            | "LOADBYTES" | "SAVEAS" | "PRINT" | "SHARE"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
@@ -16550,6 +16766,252 @@ mod tests {
     use cobolt_ast::expr::{CmpOp, Literal};
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
+
+    // ── Viewer (spec 058 T13): Save As, the OS handoffs, and loading ─────
+    //
+    // R18's byte-identical Save As, R19/R20's Print and Share handoffs, and
+    // R3/R4/R6's load reporting. Each test prints what it measured — the
+    // byte counts it compared, which events it saw, in which order.
+
+    /// An interpreter with one Viewer control carrying `props`.
+    fn viewer_interp(props: &[(&str, &str)]) -> Interpreter {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. VIEWER-T13.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "VWR-1".to_owned(),
+            "Viewer".to_owned(),
+            props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>(),
+        )]);
+        interp
+    }
+
+    /// Every event queued for `ctrl` so far, in order.
+    fn queued_for(interp: &Interpreter, ctrl: &str) -> Vec<String> {
+        interp
+            .async_dispatch_queue
+            .iter()
+            .filter(|(c, _)| c == ctrl)
+            .map(|(_, e)| e.clone())
+            .collect()
+    }
+
+    /// **AC6** — "Save As produces a file byte-identical to the source
+    /// (asserted by comparing bytes, not by opening the result)."
+    ///
+    /// The fixture is deliberately BINARY, with bytes no text encoder would
+    /// round-trip: a re-encode would be visible as a length or content
+    /// difference rather than having to be taken on trust.
+    #[test]
+    fn viewer_save_as_writes_the_source_bytes_unmodified() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("original.bin");
+        let mut original: Vec<u8> = b"%PDF-1.7\n".to_vec();
+        original.extend((0u16..512).map(|b| (b % 256) as u8));
+        original.extend(b"\n%%EOF\n");
+        std::fs::write(&src_path, &original).unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let dest = dir.path().join("copy.bin");
+        let res = interp.exec_method(
+            "VWR-1",
+            "SAVEAS",
+            &[CobolValue::from_str(dest.to_str().unwrap(), 260)],
+        );
+        let _ = res;
+
+        let written = std::fs::read(&dest).expect("Save As must have written the file");
+        println!(
+            "AC6: source {} bytes, saved {} bytes, identical = {}",
+            original.len(),
+            written.len(),
+            written == original
+        );
+        assert_eq!(written.len(), original.len(), "a re-encode would change the length");
+        assert_eq!(written, original, "AC6: byte-for-byte, never a rendered or re-encoded document");
+        assert_eq!(
+            queued_for(&interp, "VWR-1"),
+            vec!["onSaveComplete".to_string()],
+            "a successful write reports onSaveComplete and nothing else"
+        );
+    }
+
+    /// plan.md §3's scope note: `SaveAs(path)` from COBOL **always** uses the
+    /// path it was given. R18.1's proposed default filename is specifically
+    /// the interactive dialog's convenience, not this method's contract.
+    #[test]
+    fn viewer_save_as_always_uses_the_given_path_with_no_defaulting() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("notes.txt");
+        std::fs::write(&src_path, b"Quarterly sales report for the north region").unwrap();
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+
+        // A name with no extension at all, and nothing like the R18.1
+        // proposal ("Quarterly-sales-report.txt") the dialog would offer.
+        let dest = dir.path().join("whatever-i-asked-for");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+
+        let listing: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect();
+        println!("after SaveAs(\"whatever-i-asked-for\") the folder holds {listing:?}");
+        assert!(dest.exists(), "the given path is the path written");
+        assert!(
+            !listing.iter().any(|n| n.starts_with("Quarterly-sales-report")),
+            "the method must NOT apply the dialog's proposed name"
+        );
+    }
+
+    /// R18's failure path: nothing to save is an `onError`, never a silent
+    /// no-op, and never a half-written file.
+    #[test]
+    fn viewer_save_as_with_nothing_loaded_reports_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut interp = viewer_interp(&[]);
+        let dest = dir.path().join("nothing.txt");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+        let events = queued_for(&interp, "VWR-1");
+        println!("SaveAs with no document -> events {events:?}, LastError {:?}", interp.obj_get("VWR-1", "LastError"));
+        assert_eq!(events, vec!["onError".to_string()]);
+        assert!(!dest.exists(), "nothing is written when there is nothing to write");
+    }
+
+    // The three Complete/Cancelled pairs, one test each — R32's own wording
+    // is that only the OS dialog knows which happened, so each pair is
+    // driven from a simulated outcome rather than assumed symmetric with
+    // its neighbours.
+
+    #[test]
+    fn viewer_print_reports_complete_and_cancelled_separately() {
+        let mut interp = viewer_interp(&[]);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, true);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, false);
+        let events = queued_for(&interp, "VWR-1");
+        println!("Print outcomes (completed, then cancelled) -> {events:?}");
+        assert_eq!(events, vec!["onPrintComplete".to_string(), "onPrintCancelled".to_string()]);
+    }
+
+    #[test]
+    fn viewer_share_reports_complete_and_cancelled_separately() {
+        let mut interp = viewer_interp(&[]);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, false);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, true);
+        let events = queued_for(&interp, "VWR-1");
+        println!("Share outcomes (cancelled, then completed) -> {events:?}");
+        assert_eq!(events, vec!["onShareCancelled".to_string(), "onShareComplete".to_string()]);
+    }
+
+    #[test]
+    fn viewer_save_reports_complete_and_cancelled_separately() {
+        let mut interp = viewer_interp(&[]);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Save, true);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Save, false);
+        let events = queued_for(&interp, "VWR-1");
+        println!("Save As outcomes (completed, then cancelled) -> {events:?}");
+        assert_eq!(events, vec!["onSaveComplete".to_string(), "onSaveCancelled".to_string()]);
+    }
+
+    /// R19/R20: `Print()`/`Share()` leave a request for the host and raise
+    /// nothing themselves — the event waits for what the OS reports back.
+    #[test]
+    fn viewer_print_and_share_leave_a_request_for_the_host_and_fire_nothing_yet() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "PRINT", &[]);
+        interp.exec_method("VWR-1", "PRINT", &[]);
+        interp.exec_method("VWR-1", "SHARE", &[]);
+        let (p, sh) = (interp.obj_get("VWR-1", "_PrintRequest"), interp.obj_get("VWR-1", "_ShareRequest"));
+        let events = queued_for(&interp, "VWR-1");
+        println!("two Print() and one Share() -> _PrintRequest={p:?}, _ShareRequest={sh:?}, events {events:?}");
+        assert_eq!(p, "2", "each call is its own request, never coalesced");
+        assert_eq!(sh, "1");
+        assert!(events.is_empty(), "R32: the event waits for the OS, it is not faked from a local flag");
+    }
+
+    // ── R3/R4/R6: loading reports itself to COBOL ───────────────────────
+
+    /// R6 — "while a document is opening, raise `onLoadProgress` with a
+    /// 0-100 `Progress`, and `onLoaded` on completion"; R3 — `Format` carries
+    /// the resolved format.
+    #[test]
+    fn setting_a_viewers_source_reports_progress_then_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report.txt");
+        // Big enough that the indexer reports progress more than once.
+        std::fs::write(&path, "x".repeat(400_000)).unwrap();
+
+        let mut interp = viewer_interp(&[]);
+        interp.obj_set("VWR-1", "Source", path.to_string_lossy().into_owned());
+
+        let events = queued_for(&interp, "VWR-1");
+        let progress_count = events.iter().filter(|e| *e == "onLoadProgress").count();
+        println!(
+            "loading a {} byte document -> {progress_count} onLoadProgress event(s), then {:?}",
+            400_000,
+            events.last()
+        );
+        println!("Format={:?}, Progress={:?}, LastError={:?}",
+            interp.obj_get("VWR-1", "Format"),
+            interp.obj_get("VWR-1", "Progress"),
+            interp.obj_get("VWR-1", "LastError"));
+        assert!(progress_count >= 2, "R6: progress must actually be reported, got {progress_count}");
+        assert!(progress_count <= 11, "and throttled, not one event per percent: got {progress_count}");
+        assert_eq!(events.last(), Some(&"onLoaded".to_string()), "R6: onLoaded comes last");
+        assert_eq!(interp.obj_get("VWR-1", "Format"), "Text", "R3: the resolved format");
+        assert_eq!(interp.obj_get("VWR-1", "Progress"), "100");
+        assert_eq!(interp.obj_get("VWR-1", "LastError"), "");
+    }
+
+    /// **R4** — "when a document cannot be opened or its format is
+    /// unsupported, raise `onError` with `LastError` set, and **leave any
+    /// previously loaded document displayed**."
+    #[test]
+    fn an_unsupported_source_raises_onerror_and_leaves_the_previous_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.txt");
+        std::fs::write(&good, b"a readable document\n").unwrap();
+        let bad = dir.path().join("mystery.bin");
+        std::fs::write(&bad, (0..256u16).map(|b| (b % 256) as u8).collect::<Vec<u8>>()).unwrap();
+
+        let mut interp = viewer_interp(&[]);
+        interp.obj_set("VWR-1", "Source", good.to_string_lossy().into_owned());
+        let after_good = interp.obj_get("VWR-1", "Source");
+        interp.obj_set("VWR-1", "Source", bad.to_string_lossy().into_owned());
+        let after_bad = interp.obj_get("VWR-1", "Source");
+
+        let events = queued_for(&interp, "VWR-1");
+        println!("events in order: {events:?}");
+        println!("Source after the good load: {:?}", std::path::Path::new(&after_good).file_name());
+        println!("Source after the bad  load: {:?}", std::path::Path::new(&after_bad).file_name());
+        println!("LastError: {:?}", interp.obj_get("VWR-1", "LastError"));
+        assert_eq!(events.last(), Some(&"onError".to_string()));
+        assert!(!interp.obj_get("VWR-1", "LastError").is_empty(), "R4: LastError must be set");
+        assert_eq!(after_bad, after_good, "R4: the previously loaded document stays displayed");
+    }
+
+    /// R1's byte-buffer load, and R18 saving those bytes back out.
+    #[test]
+    fn loadbytes_resolves_a_format_and_save_as_writes_those_bytes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut interp = viewer_interp(&[]);
+        let body = "# Release Notes\n\nEverything that changed.\n";
+        interp.exec_method("VWR-1", "LOADBYTES", &[CobolValue::from_str(body, body.len())]);
+        println!("LoadBytes -> Format={:?}, events {:?}", interp.obj_get("VWR-1", "Format"), queued_for(&interp, "VWR-1"));
+        assert_eq!(interp.obj_get("VWR-1", "Format"), "Markdown", "R3: content-first resolution");
+
+        let dest = dir.path().join("out.md");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+        let written = std::fs::read(&dest).unwrap();
+        println!("SaveAs wrote {} bytes (supplied {})", written.len(), body.len());
+        assert_eq!(written, body.as_bytes(), "R18: the bytes COBOL supplied, unmodified");
+    }
 
     // ── RestClient: the control's own configuration reaches the request ──────
     //

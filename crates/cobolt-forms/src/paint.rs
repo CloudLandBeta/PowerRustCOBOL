@@ -8389,6 +8389,11 @@ pub(crate) struct ViewerPaintState<'a> {
     pub card_size_pct: i64,
     pub filmstrip: Option<f32>,
     pub fullscreen: bool,
+    /// `SplitMode != None` — the Split button's pressed state. Split view
+    /// itself is T16; the toolbar has to report the state either way.
+    pub split: bool,
+    /// The Find bar's open state (T15) — same reason.
+    pub find_open: bool,
     pub page_count: usize,
     /// 0-based, unlike the COBOL-facing `Page` property, which is 1-based.
     pub current_page: usize,
@@ -8447,6 +8452,8 @@ impl<'a> ViewerPaintState<'a> {
                     }
                 }),
             fullscreen: boolean("Fullscreen"),
+            split: !text("SplitMode").unwrap_or_else(|| "None".into()).trim().eq_ignore_ascii_case("None"),
+            find_open: boolean("View1FindOpen"),
             page_count: 1,
             current_page: (int("View1Page", 1).max(1) - 1) as usize,
             page_preview: None,
@@ -8480,6 +8487,10 @@ pub(crate) struct ViewerPaintResult {
     pub strip_hits: Vec<(usize, egui::Rect)>,
     /// The filmstrip's own right-hand splitter (R14.4's resize/close grip).
     pub splitter: Option<egui::Rect>,
+    /// `(action, rect)` for every toolbar button actually drawn (R16). The
+    /// engine paints them; `render.rs` senses them and hangs each one's
+    /// tooltip off its rect (R17/AC10).
+    pub toolbar_hits: Vec<(crate::viewer::ToolbarAction, egui::Rect)>,
 }
 
 impl Default for ViewerPaintResult {
@@ -8493,6 +8504,7 @@ impl Default for ViewerPaintResult {
             card_hits: Vec::new(),
             strip_hits: Vec::new(),
             splitter: None,
+            toolbar_hits: Vec::new(),
         }
     }
 }
@@ -8556,7 +8568,8 @@ pub(crate) fn draw_viewer(
     };
 
     if let Some(band) = chrome.toolbar {
-        draw_viewer_toolbar_band(painter, egui_rect_of(band), surface, ink, a);
+        result.toolbar_hits =
+            draw_viewer_toolbar_band(painter, egui_rect_of(band), st, surface, ink, a);
     }
     if let Some(strip) = chrome.filmstrip {
         let strip_rect = egui_rect_of(strip);
@@ -8653,10 +8666,22 @@ pub(crate) fn draw_viewer(
     result
 }
 
-/// R16's toolbar band. T12 reserves and paints the strip itself — the band
-/// and its separator — so R15's hide/restore is real and testable now; T13
-/// fills it with the hand-drawn painter icons and their tooltips.
-fn draw_viewer_toolbar_band(painter: &egui::Painter, rect: egui::Rect, surface: Color32, ink: Color32, a: u8) {
+/// R16's toolbar band and its buttons.
+///
+/// Every icon is a catalogue vector (R17: painter-drawn, never a glyph and
+/// never a bitmap). A button whose state is *on* — the active `ViewMode`, an
+/// open filmstrip, fullscreen, split, an open Find bar — is drawn pressed,
+/// so the toolbar reports the view's state rather than only commanding it.
+fn draw_viewer_toolbar_band(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    st: &ViewerPaintState<'_>,
+    surface: Color32,
+    ink: Color32,
+    a: u8,
+) -> Vec<(crate::viewer::ToolbarAction, egui::Rect)> {
+    use crate::viewer::ToolbarAction as TA;
+
     let band = lerp_color(surface, ink, 0.06);
     painter.rect_filled(
         rect,
@@ -8668,6 +8693,28 @@ fn draw_viewer_toolbar_band(painter: &egui::Painter, rect: egui::Rect, surface: 
         [egui::pos2(rect.min.x, rect.max.y - 0.5), egui::pos2(rect.max.x, rect.max.y - 0.5)],
         Stroke::new(1.0, line),
     );
+
+    let pressed_fill = Color32::from_rgba_premultiplied(70, 130, 220, (a as u32 / 3) as u8);
+    let icon_ink = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), a);
+    let mut hits = Vec::new();
+    for (action, slot) in crate::viewer::toolbar_slots(view_rect_of(rect)) {
+        let r = egui_rect_of(slot);
+        let on = match action {
+            TA::ViewFull => st.view_mode == crate::viewer::ViewMode::Full,
+            TA::ViewCards => st.view_mode == crate::viewer::ViewMode::Cards,
+            TA::Filmstrip => st.filmstrip.is_some(),
+            TA::Fullscreen => st.fullscreen,
+            TA::Split => st.split,
+            TA::Find => st.find_open,
+            _ => false,
+        };
+        if on {
+            painter.rect_filled(r, egui::CornerRadius::same(4), pressed_fill);
+        }
+        crate::icons::draw_menu_icon(painter, r.shrink(4.0), action.icon(), icon_ink);
+        hits.push((action, r));
+    }
+    hits
 }
 
 /// R14.3's page-thumbnail rail, docked to the content's left edge. Only the
@@ -15920,6 +15967,8 @@ mod theme_render_tests {
             card_size_pct: 55,
             filmstrip: None,
             fullscreen: false,
+            split: false,
+            find_open: false,
             page_count: 1,
             current_page: 0,
             page_preview: None,

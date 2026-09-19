@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.87] — 2026-09-19
+
+### The Viewer gets its toolbar, and can save, print and share
+
+Spec 058 T13. Twelve buttons across the top of a Viewer — layout, the two
+view modes, two font sizes, the filmstrip, split, Find, fullscreen, Print,
+Share and Save As — each a hand-drawn vector icon with its own tooltip, and
+each showing pressed when the state it names is on. Zoom and card size are
+deliberately absent: the one bottom-right slider per view is their only
+control.
+
+Only two new icons were needed. The catalogue already published a magnifier,
+a layout glyph, thumbnails, a card grid and a document page, so `font-smaller`
+and `font-larger` are the additions — a letterform plus a sign, kept
+deliberately unlike `zoom-in`/`zoom-out`, because a Viewer's `FontSize` and
+its `Zoom` are independent and their buttons must not be confusable.
+
+Save As writes the document's **original bytes, unmodified** — a copy, never
+a re-encode — and from COBOL always writes to the path it was given. For a
+document loaded from a byte buffer with no filename to inherit, the save
+dialog proposes the first three words of its text plus the extension its
+format calls for, falls back to a generic name when there is no text to read,
+and restores the right extension at save time whatever the user typed. Print
+and Share hand the document to the operating system; their Complete and
+Cancelled events come back from what the OS actually reported, because only
+its dialog knows whether the user went through with it.
+
+Loading now reports itself to COBOL. Writing a Viewer's `Source` opens the
+document on the interpreter's own thread, raises `onLoadProgress` as it goes
+and `onLoaded` when it finishes, with `Format` carrying the format it
+resolved. A document that cannot be opened sets `LastError`, raises `onError`
+and **leaves the previously loaded document displayed** — the failed name does
+not replace what is on screen.
+
+`LoadBytes` reads its argument untrimmed. The shared argument helper trims,
+which is right for a padded `PIC X(80)` holding a path and silently ate a
+document's final newline when the argument was the document itself.
+
+cobolt-forms 1003 passed, cobolt-runtime 914 passed, cobolt-form-host 124
+passed; 0 failed anywhere.
+
 ## [PowerRustCOBOL 1.70.86] — 2026-09-19
 
 ### The Viewer can be zoomed, thrown, browsed as cards and put fullscreen

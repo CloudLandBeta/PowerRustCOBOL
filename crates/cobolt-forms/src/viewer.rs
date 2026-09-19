@@ -1377,6 +1377,270 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     ChromeLayout { toolbar, filmstrip, content, slider }
 }
 
+// ── The toolbar (T13: R16, R17, AC10) ───────────────────────────────────
+
+/// Everything R16 puts on the toolbar, in the order it is drawn.
+///
+/// **Zoom and card size are deliberately absent** — R14.1's one
+/// bottom-right slider per view is their only control, "unified rather than
+/// duplicated in the toolbar too" (R16's own wording).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolbarAction {
+    /// Cycles `Layout` through `Raw` → `Web` → `Print` → `Page`.
+    CycleLayout,
+    ViewFull,
+    ViewCards,
+    FontSmaller,
+    FontLarger,
+    Filmstrip,
+    Fullscreen,
+    Split,
+    Find,
+    Print,
+    Share,
+    SaveAs,
+}
+
+impl ToolbarAction {
+    /// A stable name — this is what a host sees in
+    /// `RenderOutput::toolbar_actions`, so it never changes.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CycleLayout => "layout",
+            Self::ViewFull => "view-full",
+            Self::ViewCards => "view-cards",
+            Self::FontSmaller => "font-smaller",
+            Self::FontLarger => "font-larger",
+            Self::Filmstrip => "filmstrip",
+            Self::Fullscreen => "fullscreen",
+            Self::Split => "split",
+            Self::Find => "find",
+            Self::Print => "print",
+            Self::Share => "share",
+            Self::SaveAs => "save-as",
+        }
+    }
+
+    /// The catalogue icon that draws it (R17: painter-drawn vectors, never a
+    /// glyph or a bitmap — `icons.rs` has no raster asset anywhere).
+    ///
+    /// Every one of these already existed. plan.md §2 expected to have to
+    /// author a Find glyph and to "verify layout-switcher/font-size/
+    /// filmstrip icons exist or author them"; measured against the
+    /// catalogue, `magnifier`, `layout-dashboard`, `type-text` and
+    /// `thumbnails` all do, and `grid-view` is already exactly a card grid.
+    /// Drawing near-duplicates of those would have grown a 600-icon set for
+    /// nothing.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::CycleLayout => "layout-dashboard",
+            Self::ViewFull => "doc-text",
+            Self::ViewCards => "grid-view",
+            Self::FontSmaller => "font-smaller",
+            Self::FontLarger => "font-larger",
+            Self::Filmstrip => "thumbnails",
+            Self::Fullscreen => "fullscreen",
+            Self::Split => "split-view",
+            Self::Find => "magnifier",
+            Self::Print => "printer",
+            Self::Share => "share",
+            Self::SaveAs => "doc-save-as",
+        }
+    }
+
+    /// R17: "each shall carry its function name as a tooltip". English is
+    /// what this crate ships — it has no `Tr` table of its own and cannot
+    /// reach `cobolt-ide`'s (a binary crate) — so a host with translations
+    /// installs them through [`set_toolbar_tooltips`]. The DataGrid's own
+    /// "Export CSV" tooltip set that precedent; this at least has a seam.
+    pub fn default_tooltip(self) -> &'static str {
+        match self {
+            Self::CycleLayout => "Layout",
+            Self::ViewFull => "Show the document",
+            Self::ViewCards => "Show page cards",
+            Self::FontSmaller => "Smaller text",
+            Self::FontLarger => "Larger text",
+            Self::Filmstrip => "Page thumbnails",
+            Self::Fullscreen => "Fullscreen",
+            Self::Split => "Split view",
+            Self::Find => "Find",
+            Self::Print => "Print",
+            Self::Share => "Share",
+            Self::SaveAs => "Save As",
+        }
+    }
+
+    /// Lenient parse of [`Self::as_str`], for a host reading an action back.
+    pub fn from_str(s: &str) -> Option<Self> {
+        TOOLBAR_ITEMS.iter().copied().find(|a| a.as_str() == s.trim().to_ascii_lowercase())
+    }
+}
+
+/// R16's toolbar, in painted order.
+pub const TOOLBAR_ITEMS: &[ToolbarAction] = &[
+    ToolbarAction::CycleLayout,
+    ToolbarAction::ViewFull,
+    ToolbarAction::ViewCards,
+    ToolbarAction::FontSmaller,
+    ToolbarAction::FontLarger,
+    ToolbarAction::Filmstrip,
+    ToolbarAction::Split,
+    ToolbarAction::Find,
+    ToolbarAction::Fullscreen,
+    ToolbarAction::Print,
+    ToolbarAction::Share,
+    ToolbarAction::SaveAs,
+];
+
+/// One toolbar button's painted size, and the gap between two of them.
+pub const TOOLBAR_BUTTON: f32 = 26.0;
+pub const TOOLBAR_GAP: f32 = 4.0;
+/// The inset from the band's own left and right edges.
+pub const TOOLBAR_PAD: f32 = 6.0;
+
+thread_local! {
+    /// Translated tooltips, when a host has any. A thread-local because egui
+    /// renders on one thread — the same shape `theme::set_active()` already
+    /// uses to publish the active editor palette into the painter.
+    static TOOLBAR_TOOLTIPS: std::cell::RefCell<Vec<(ToolbarAction, String)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Install translated toolbar tooltips for this thread. An action left out
+/// keeps its English [`ToolbarAction::default_tooltip`]; an empty table
+/// restores English for all of them.
+pub fn set_toolbar_tooltips(table: &[(ToolbarAction, String)]) {
+    TOOLBAR_TOOLTIPS.with(|t| *t.borrow_mut() = table.to_vec());
+}
+
+/// The tooltip to show for `action` — the host's translation if one was
+/// installed, otherwise this crate's English.
+pub fn toolbar_tooltip(action: ToolbarAction) -> String {
+    TOOLBAR_TOOLTIPS.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(a, _)| *a == action)
+            .map(|(_, s)| s.clone())
+            .unwrap_or_else(|| action.default_tooltip().to_owned())
+    })
+}
+
+/// Where each toolbar button lands inside `band`, left to right. Buttons
+/// past the band's width are **dropped rather than squeezed** — a control
+/// too narrow for its whole toolbar shows the leading actions at full size,
+/// which reads, instead of twelve unrecognisable slivers.
+pub fn toolbar_slots(band: ViewRect) -> Vec<(ToolbarAction, ViewRect)> {
+    let y = band.y + (band.h - TOOLBAR_BUTTON).max(0.0) * 0.5;
+    let mut x = band.x + TOOLBAR_PAD;
+    let mut out = Vec::new();
+    for action in TOOLBAR_ITEMS {
+        if x + TOOLBAR_BUTTON > band.right() - TOOLBAR_PAD {
+            break;
+        }
+        out.push((*action, ViewRect::new(x, y, TOOLBAR_BUTTON, TOOLBAR_BUTTON.min(band.h))));
+        x += TOOLBAR_BUTTON + TOOLBAR_GAP;
+    }
+    out
+}
+
+/// The next `Layout` R16's layout button moves to. `Streamed` is **not** in
+/// the cycle: it is a mode the developer chooses for a whole conversation
+/// surface (§8.8), not something a user toggles past on the way to `Page`.
+pub fn next_layout(current: &str) -> &'static str {
+    match current.trim() {
+        "Raw" => "Web",
+        "Web" => "Print",
+        "Print" => "Page",
+        "Page" => "Raw",
+        // Anything else (including `Streamed`) leaves the cycle where a
+        // reader would expect to start.
+        _ => "Web",
+    }
+}
+
+/// R10's `FontSize` steps, in points. A short explicit ladder rather than a
+/// multiplier: the sizes a reader actually wants are not a geometric series,
+/// and every step must land on a whole point.
+pub const FONT_SIZES: &[i64] = &[8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 40, 48];
+
+pub fn font_size_step(current: i64, larger: bool) -> i64 {
+    if larger {
+        FONT_SIZES.iter().copied().find(|&s| s > current).unwrap_or(*FONT_SIZES.last().unwrap())
+    } else {
+        FONT_SIZES.iter().copied().rev().find(|&s| s < current).unwrap_or(FONT_SIZES[0])
+    }
+}
+
+// ── Save As naming (T13: R18, R18.1, AC20) ──────────────────────────────
+
+/// The filename extension a resolved format saves under (R18.1).
+pub fn extension_for(format: ViewerFormat) -> &'static str {
+    match format {
+        ViewerFormat::Text => "txt",
+        ViewerFormat::Markdown => "md",
+        ViewerFormat::Image => "png",
+        ViewerFormat::Pdf => "pdf",
+        ViewerFormat::HtmlSubset => "html",
+    }
+}
+
+/// The base name R18.1 falls back to for a document with no extractable
+/// text — an image, say.
+pub const DEFAULT_SAVE_BASE: &str = "document";
+
+/// R18.1: the filename Save As proposes for a `LoadBytes` document that has
+/// no source path to name it after — "the document's first three words of
+/// extracted text, joined, plus the extension matching the resolved
+/// `Format`", falling back to a generic base name when there is no text.
+///
+/// Words are taken from the text the document itself yields, with anything
+/// a filesystem would object to (or a leading dot) removed. A document whose
+/// "text" turns out to be only punctuation therefore takes the fallback too,
+/// rather than proposing a name made of hyphens.
+pub fn default_save_name(format: ViewerFormat, extracted_text: Option<&str>) -> String {
+    let words: Vec<String> = extracted_text
+        .unwrap_or("")
+        .split_whitespace()
+        .map(|w| {
+            w.chars()
+                .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_'))
+                .collect::<String>()
+        })
+        // A run of punctuation is not a word. `-` and `_` survive the filter
+        // above because they belong INSIDE a word ("2026-0417"), but a token
+        // made of nothing else would propose a filename of hyphens — worse
+        // than the generic fallback this then takes instead.
+        .filter(|w| w.chars().any(char::is_alphanumeric))
+        .take(3)
+        .collect();
+    let base = if words.is_empty() { DEFAULT_SAVE_BASE.to_owned() } else { words.join("-") };
+    format!("{base}.{}", extension_for(format))
+}
+
+/// R18.1's last clause: "if the edited name is missing its extension, the
+/// control shall append the correct one when writing the file regardless of
+/// what the user typed."
+///
+/// A name that already ends in the right extension is left exactly as it is;
+/// one that ends in a *different* one keeps it and gains the right one —
+/// renaming `report.pdf` to `report.txt` behind the user's back would be a
+/// lie about what the bytes are (R18 writes the original bytes unmodified).
+pub fn ensure_extension(name: &str, format: ViewerFormat) -> String {
+    let want = extension_for(format);
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return format!("{DEFAULT_SAVE_BASE}.{want}");
+    }
+    let has_it = trimmed
+        .rsplit_once('.')
+        .is_some_and(|(base, ext)| !base.is_empty() && ext.eq_ignore_ascii_case(want));
+    if has_it {
+        trimmed.to_owned()
+    } else {
+        format!("{trimmed}.{want}")
+    }
+}
+
 // ── Scrolling (R33–R33.3, AC31, AC32) ───────────────────────────────────
 //
 // The constants below are `doc_viewer.rs`'s own, name for name and value for
@@ -2799,5 +3063,201 @@ mod nav_tests {
         let programmatic = watch.take_settled();
         println!("programmatic reset to {ZOOM_DEFAULT_PCT} %: fired = {programmatic}");
         assert!(programmatic, "R32: a programmatic change settles at once");
+    }
+}
+
+/// Spec 058 T13 — the toolbar (R16/R17, AC10) and Save As naming (R18.1,
+/// AC20). Every test reports the table it checked, so a reader finishes
+/// knowing WHICH buttons and WHICH proposed names were exercised, not only
+/// that a count matched.
+#[cfg(test)]
+mod toolbar_tests {
+    use super::*;
+
+    /// Every icon name published in the catalogue, flattened.
+    fn catalogue() -> std::collections::BTreeSet<&'static str> {
+        crate::icons::MENU_ICON_CATEGORIES
+            .iter()
+            .flat_map(|(_, names)| names.iter().copied())
+            .collect()
+    }
+
+    /// **AC10** — "every toolbar icon is painter-drawn and carries a
+    /// tooltip." Both halves, for every R16 item: the icon name must be one
+    /// the catalogue actually publishes (so it draws rather than silently
+    /// painting nothing), and the tooltip must be real text.
+    #[test]
+    fn every_toolbar_item_has_a_catalogue_icon_and_a_tooltip() {
+        let known = catalogue();
+        println!("R16's toolbar, in painted order:");
+        for action in TOOLBAR_ITEMS {
+            let icon = action.icon();
+            let tip = action.default_tooltip();
+            println!("  {:<13} icon={icon:<18} tooltip={tip:?}", action.as_str());
+            assert!(known.contains(icon), "{} names an icon the catalogue does not publish: {icon}", action.as_str());
+            assert!(!tip.trim().is_empty(), "{} has no tooltip (AC10)", action.as_str());
+        }
+        println!("{} buttons, all painter-drawn, all with tooltips", TOOLBAR_ITEMS.len());
+        assert_eq!(TOOLBAR_ITEMS.len(), 12, "R16's list: layout, 2 view modes, 2 font sizes, filmstrip, split, find, fullscreen, print, share, save-as");
+    }
+
+    /// R16's own wording: "Zoom and card size are **not** toolbar items" —
+    /// R14.1's single bottom-right slider is their only control.
+    #[test]
+    fn zoom_and_card_size_are_not_on_the_toolbar() {
+        let icons: Vec<&str> = TOOLBAR_ITEMS.iter().map(|a| a.icon()).collect();
+        println!("toolbar icons: {icons:?}");
+        assert!(!icons.contains(&"zoom-in") && !icons.contains(&"zoom-out"), "R16: zoom is the slider's, not the toolbar's");
+    }
+
+    #[test]
+    fn every_action_round_trips_through_its_stable_name() {
+        for action in TOOLBAR_ITEMS {
+            let back = ToolbarAction::from_str(action.as_str());
+            println!("{:?} -> {:?} -> {back:?}", action, action.as_str());
+            assert_eq!(back, Some(*action));
+        }
+        assert_eq!(ToolbarAction::from_str("no-such-button"), None);
+    }
+
+    #[test]
+    fn a_narrow_toolbar_drops_buttons_rather_than_squeezing_them() {
+        let mut report = Vec::new();
+        for w in [1000.0f32, 400.0, 200.0, 90.0, 20.0] {
+            let slots = toolbar_slots(ViewRect::new(0.0, 0.0, w, TOOLBAR_HEIGHT));
+            let widths: Vec<f32> = slots.iter().map(|(_, r)| r.w).collect();
+            println!("band {w:>6.0} pt -> {} button(s), widths {widths:?}", slots.len());
+            assert!(widths.iter().all(|&x| (x - TOOLBAR_BUTTON).abs() < 0.01), "a drawn button is always full size");
+            report.push(slots.len());
+        }
+        assert_eq!(report[0], TOOLBAR_ITEMS.len(), "a wide band shows every button");
+        assert!(report.windows(2).all(|w| w[1] <= w[0]), "a narrower band never shows more");
+        assert_eq!(*report.last().unwrap(), 0, "a band too narrow for even one button shows none");
+    }
+
+    #[test]
+    fn the_layout_button_cycles_the_four_document_layouts() {
+        let mut seen = vec!["Raw".to_string()];
+        let mut cur = "Raw".to_string();
+        for _ in 0..4 {
+            cur = next_layout(&cur).to_string();
+            seen.push(cur.clone());
+        }
+        println!("layout cycle: {}", seen.join(" -> "));
+        assert_eq!(seen, ["Raw", "Web", "Print", "Page", "Raw"], "R7's four document layouts, in order");
+        println!("from Streamed -> {}", next_layout("Streamed"));
+        assert_eq!(next_layout("Streamed"), "Web", "§8.8's Streamed is a developer's choice, not a stop on the cycle");
+    }
+
+    #[test]
+    fn font_size_steps_through_the_ladder_and_stops_at_both_ends() {
+        let mut up = vec![14i64];
+        let mut v = 14;
+        for _ in 0..20 {
+            v = font_size_step(v, true);
+            up.push(v);
+        }
+        let mut down = vec![14i64];
+        v = 14;
+        for _ in 0..20 {
+            v = font_size_step(v, false);
+            down.push(v);
+        }
+        println!("larger  from 14: {:?}", up);
+        println!("smaller from 14: {:?}", down);
+        assert_eq!(*up.last().unwrap(), *FONT_SIZES.last().unwrap(), "stops at the top of the ladder");
+        assert_eq!(*down.last().unwrap(), FONT_SIZES[0], "and at the bottom");
+        assert!(up.windows(2).all(|w| w[1] >= w[0]) && down.windows(2).all(|w| w[1] <= w[0]));
+    }
+
+    #[test]
+    fn an_installed_tooltip_table_replaces_the_english_one() {
+        assert_eq!(toolbar_tooltip(ToolbarAction::Print), "Print", "English is what this crate ships");
+        set_toolbar_tooltips(&[(ToolbarAction::Print, "Imprimir".to_string())]);
+        let translated = toolbar_tooltip(ToolbarAction::Print);
+        let untouched = toolbar_tooltip(ToolbarAction::Share);
+        println!("after installing a table: Print={translated:?}, Share={untouched:?}");
+        assert_eq!(translated, "Imprimir");
+        assert_eq!(untouched, "Share", "an action left out of the table keeps its English");
+        set_toolbar_tooltips(&[]);
+        assert_eq!(toolbar_tooltip(ToolbarAction::Print), "Print", "an empty table restores English");
+    }
+
+    // ── R18.1 / AC20: the proposed Save As filename ─────────────────────
+
+    /// **AC20**, first clause — "the document's first three words plus the
+    /// extension matching its `Format`".
+    #[test]
+    fn a_loadbytes_document_is_named_after_its_first_three_words() {
+        let cases: &[(ViewerFormat, &str, &str)] = &[
+            (ViewerFormat::Text, "Quarterly sales report for the north region", "Quarterly-sales-report.txt"),
+            (ViewerFormat::Markdown, "# Release Notes\n\nEverything that changed.", "Release-Notes-Everything.md"),
+            (ViewerFormat::Pdf, "INVOICE 2026-0417 Acme Industrial", "INVOICE-2026-0417-Acme.pdf"),
+            (ViewerFormat::HtmlSubset, "   leading   whitespace   only   ", "leading-whitespace-only.html"),
+        ];
+        for (format, text, want) in cases {
+            let got = default_save_name(*format, Some(text));
+            println!("{format} + {:?} -> proposed {got:?}", &text[..text.len().min(38)]);
+            assert_eq!(&got, want);
+        }
+    }
+
+    /// **AC20**, second clause — "an image or other textless document falls
+    /// back to a generic name plus the correct extension."
+    #[test]
+    fn a_textless_document_falls_back_to_a_generic_name() {
+        let cases: &[(ViewerFormat, Option<&str>, &str)] = &[
+            (ViewerFormat::Image, None, "document.png"),
+            (ViewerFormat::Image, Some("   "), "document.png"),
+            // Punctuation is not a word: a name made of hyphens would be
+            // worse than the generic one.
+            (ViewerFormat::Pdf, Some("... --- ???"), "document.pdf"),
+            (ViewerFormat::Text, Some(""), "document.txt"),
+        ];
+        for (format, text, want) in cases {
+            let got = default_save_name(*format, *text);
+            println!("{format} + {text:?} -> proposed {got:?}");
+            assert_eq!(&got, want);
+        }
+    }
+
+    /// **AC20**, third clause — "the user can edit the name, and the correct
+    /// extension is restored at save time even if the user deletes it."
+    #[test]
+    fn the_correct_extension_is_restored_whatever_the_user_typed() {
+        let cases: &[(&str, ViewerFormat, &str)] = &[
+            ("my report", ViewerFormat::Pdf, "my report.pdf"),
+            ("my report.pdf", ViewerFormat::Pdf, "my report.pdf"),
+            ("MY REPORT.PDF", ViewerFormat::Pdf, "MY REPORT.PDF"),
+            // A different extension is KEPT and the right one added: silently
+            // renaming .pdf to .txt would misdescribe bytes R18 writes
+            // unmodified.
+            ("archive.txt", ViewerFormat::Pdf, "archive.txt.pdf"),
+            ("", ViewerFormat::Markdown, "document.md"),
+            ("   ", ViewerFormat::Image, "document.png"),
+            (".hidden", ViewerFormat::Text, ".hidden.txt"),
+        ];
+        for (typed, format, want) in cases {
+            let got = ensure_extension(typed, *format);
+            println!("user typed {typed:?} ({format}) -> saved as {got:?}");
+            assert_eq!(&got, want);
+        }
+    }
+
+    #[test]
+    fn every_format_has_its_own_extension() {
+        let all = [
+            ViewerFormat::Text,
+            ViewerFormat::Markdown,
+            ViewerFormat::Image,
+            ViewerFormat::Pdf,
+            ViewerFormat::HtmlSubset,
+        ];
+        let exts: Vec<&str> = all.iter().map(|f| extension_for(*f)).collect();
+        for (f, e) in all.iter().zip(&exts) {
+            println!("{f} saves as .{e}");
+        }
+        let unique: std::collections::BTreeSet<&&str> = exts.iter().collect();
+        assert_eq!(unique.len(), exts.len(), "two formats sharing an extension would misname one of them");
     }
 }

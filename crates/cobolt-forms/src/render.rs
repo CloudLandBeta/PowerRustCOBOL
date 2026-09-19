@@ -3890,6 +3890,13 @@ struct ViewerLive {
     full: SharedValue<bool>,
     strip: SharedValue<Option<f32>>,
     page: SharedValue<usize>,
+    font: SharedValue<i64>,
+    split: SharedValue<bool>,
+    find: SharedValue<bool>,
+    /// `Layout` is a String, so it gets `SharedValue`'s two fields by hand
+    /// rather than the generic (which needs `Copy`).
+    layout_seen: String,
+    layout_own: String,
     /// What this engine last pushed, so a COBOL write is told apart from its
     /// own echo arriving a frame later.
     pushed_scroll: i64,
@@ -3916,6 +3923,11 @@ impl ViewerLive {
             full: SharedValue::new(st.fullscreen),
             strip: SharedValue::new(st.filmstrip),
             page: SharedValue::new(st.current_page),
+            font: SharedValue::new(st.font_size.round() as i64),
+            split: SharedValue::new(st.split),
+            find: SharedValue::new(st.find_open),
+            layout_seen: st.layout.clone(),
+            layout_own: st.layout.clone(),
             pushed_scroll: st.scroll.round() as i64,
             last_layout: None,
             last_mode: None,
@@ -4028,9 +4040,70 @@ fn viewer_interactive(
     let mut fullscreen = live.full.resolve(st.fullscreen);
     let mut filmstrip = live.strip.resolve(st.filmstrip);
     let mut page = live.page.resolve(st.current_page).min(page_count.saturating_sub(1));
+    let mut font_size = live.font.resolve(st.font_size.round() as i64);
+    let mut split = live.split.resolve(st.split);
+    let mut find_open = live.find.resolve(st.find_open);
+    if st.layout != live.layout_seen {
+        live.layout_own = st.layout.clone();
+    }
+    live.layout_seen = st.layout.clone();
+    let mut layout_name = live.layout_own.clone();
     let mut zoom_active = false;
     let mut card_active = false;
     let over_content = pointer.is_some_and(|p| content_rect.contains(p));
+
+    // ── R16/R17: the toolbar. Sensed before the paint so a press acts on
+    // the frame it happened, and each button carries its own tooltip
+    // (AC10) — hung off the button's rect, never the control's.
+    let toolbar_slots = chrome
+        .toolbar
+        .map(vw::toolbar_slots)
+        .unwrap_or_default();
+    let mut toolbar_busy = false;
+    for (action, slot) in &toolbar_slots {
+        let r = to_rect(*slot);
+        let br = ui
+            .interact(r, ctrl_id.with(("viewer-tb", action.as_str())), Sense::click())
+            .on_hover_text(vw::toolbar_tooltip(*action));
+        if br.is_pointer_button_down_on() || br.hovered() {
+            toolbar_busy = true;
+        }
+        if !(enabled && br.clicked()) {
+            continue;
+        }
+        match action {
+            vw::ToolbarAction::CycleLayout => layout_name = vw::next_layout(&layout_name).to_owned(),
+            vw::ToolbarAction::ViewFull => view_mode = vw::ViewMode::Full,
+            vw::ToolbarAction::ViewCards => view_mode = vw::ViewMode::Cards,
+            vw::ToolbarAction::FontSmaller => font_size = vw::font_size_step(font_size, false),
+            vw::ToolbarAction::FontLarger => font_size = vw::font_size_step(font_size, true),
+            vw::ToolbarAction::Filmstrip => {
+                filmstrip = match filmstrip {
+                    Some(_) => None,
+                    None => Some(vw::FILMSTRIP_DEFAULT_WIDTH),
+                }
+            }
+            vw::ToolbarAction::Fullscreen => fullscreen = !fullscreen,
+            // T16 grows the second viewport; the property and its event are
+            // R16/R32's and belong with the button that drives them, so the
+            // button is never a control that does nothing.
+            vw::ToolbarAction::Split => split = !split,
+            // Likewise T15 builds the Find bar itself.
+            vw::ToolbarAction::Find => find_open = !find_open,
+            // R19/R20/R18: the OS does the deed. `cobolt-forms` knows the
+            // button was pressed and takes no dependency on a print panel,
+            // a share sheet or a save dialog to find that out — the same
+            // division of labour `toolbar_actions` already carries for
+            // ToolBar and `file_picker_requests` for FileDropZone.
+            vw::ToolbarAction::Print | vw::ToolbarAction::Share | vw::ToolbarAction::SaveAs => {
+                out.toolbar_actions.push((
+                    id.to_string(),
+                    action.as_str().to_string(),
+                    action.as_str().to_string(),
+                ));
+            }
+        }
+    }
 
     // ── R14.1: the one slider per view ──────────────────────────────────
     let slider_resp = (!streamed && slider_rect.width() > 1.0)
@@ -4117,7 +4190,7 @@ fn viewer_interactive(
             live.scroll.apply_keys(&vw::KeyScrollInput::default(), dt, 1.0, chrome.content.h);
         }
 
-        let gesture_elsewhere = slider_busy || grip_busy;
+        let gesture_elsewhere = slider_busy || grip_busy || toolbar_busy;
         match (live.scroll.is_grabbed(), primary_down && !gesture_elsewhere) {
             (false, true) => {
                 if let Some(p) = pointer.filter(|p| content_rect.contains(*p)) {
@@ -4164,6 +4237,10 @@ fn viewer_interactive(
     st.fullscreen = fullscreen;
     st.filmstrip = filmstrip;
     st.current_page = page;
+    st.font_size = font_size.max(4) as f32;
+    st.layout = layout_name.clone();
+    st.split = split;
+    st.find_open = find_open;
     st.scroll = live.scroll.offset();
     let preview = |p: usize| crate::paint::viewer_page_preview(ui.ctx(), &source, p);
     st.page_preview = Some(&preview);
@@ -4210,6 +4287,21 @@ fn viewer_interactive(
     if live.page.diverged(page) {
         push("View1Page", (page + 1).to_string());
     }
+    if live.font.diverged(font_size) {
+        push("FontSize", font_size.to_string());
+    }
+    if layout_name != live.layout_seen {
+        push("Layout", layout_name.clone());
+    }
+    if live.split.diverged(split) {
+        // T16 gives the second view its own content; `LeftRight` is the
+        // side-by-side arrangement R21 names first.
+        push("SplitMode", if split { "LeftRight".into() } else { "None".to_string() });
+    }
+    if live.find.diverged(find_open) {
+        push("View1FindOpen", find_open.to_string());
+        push("FindOpen", find_open.to_string());
+    }
     let offset = live.scroll.offset().round() as i64;
     if offset != live.pushed_scroll {
         push("View1ScrollPosition", offset.to_string());
@@ -4222,6 +4314,21 @@ fn viewer_interactive(
     live.full.own = fullscreen;
     live.strip.own = filmstrip;
     live.page.own = page;
+    live.font.own = font_size;
+    let split_changed = live.split.diverged(split) || live.split.own != split;
+    let find_changed = live.find.diverged(find_open) || live.find.own != find_open;
+    live.split.own = split;
+    live.find.own = find_open;
+    live.layout_own = layout_name.clone();
+    if split_changed && want("onSplitModeChanged") {
+        out.events.push(UiEvent::ev(id, "onSplitModeChanged"));
+    }
+    if find_changed {
+        let ev = if find_open { "onFindOpened" } else { "onFindClosed" };
+        if want(ev) {
+            out.events.push(UiEvent::ev(id, ev));
+        }
+    }
 
     live.zoom_watch.observe(zoom, zoom_active);
     if live.zoom_watch.take_settled() && want("onZoomChanged") {

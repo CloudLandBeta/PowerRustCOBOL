@@ -274,7 +274,7 @@ not a claim about what §8.1 means architecturally.
   - **Not yet painted, by design:** the toolbar band is reserved and drawn but
     **empty** — its icons, tooltips and actions are T13's whole subject.
 
-- [ ] **T13 — Toolbar chrome and actions: Save As, Share, Print** (R16–R20,
+- [x] **T13 — Toolbar chrome and actions: Save As, Share, Print** (R16–R20,
       R18.1, R32, AC6, AC10, AC20)
   - Files: `crates/cobolt-forms/src/paint.rs` (toolbar), `src/viewer.rs`,
         `crates/cobolt-runtime/src/interpreter.rs` (`"SAVEAS"`, `"PRINT"`,
@@ -306,6 +306,54 @@ not a claim about what §8.1 means architecturally.
         `LoadBytes` text doc and an image (fallback case), reporting the
         proposed name each time (**AC20**). Every toolbar icon has a tooltip
         (**AC10**).
+
+  - **DONE — 2026-09-19 (1.70.87).** Twelve toolbar buttons
+    (`viewer::TOOLBAR_ITEMS`), each with a catalogue icon and a tooltip,
+    painted by `paint::draw_viewer_toolbar_band` and sensed in
+    `render::viewer_interactive`. R18's Save As, R19/R20's Print and Share
+    handoffs and R18.1's proposed filename all landed; the interpreter gained
+    `LoadBytes`, `SaveAs`, `Print` and `Share`.
+  - **Icon finding — plan.md §2 was wrong, and the catalogue is the authority.**
+    §2 expected to author a Find/magnifying-glass glyph and to "verify
+    layout-switcher/font-size/filmstrip icons exist or author them". Measured:
+    `magnifier`, `layout-dashboard`, `thumbnails`, `grid-view` and `doc-text`
+    all already exist, so **only two new icons were drawn** — `font-smaller`
+    and `font-larger` (a letterform plus a sign; `zoom-in`/`zoom-out` already
+    mean *Zoom* on this control, and R10 keeps FontSize and Zoom independent,
+    so the two must not look alike). Authoring near-duplicates of five
+    existing icons would have grown a 600-icon set for nothing.
+  - **Tooltips: English in the engine, with a seam.** spec §7 asks for a `Tr`
+    field per tooltip, but `cobolt-forms` has no i18n table and cannot reach
+    `cobolt-ide`'s (a binary crate) — the DataGrid's own hardcoded
+    `"Export CSV"` is the standing precedent. So the engine ships English and
+    `viewer::set_toolbar_tooltips` installs a translated table per thread
+    (the shape `theme::set_active()` already uses). **T33 supplies the six
+    languages and calls it.**
+  - **Two buttons landed ahead of their own tasks, deliberately:** `Split`
+    toggles `SplitMode` and raises `onSplitModeChanged`, `Find` toggles
+    `FindOpen` and raises `onFindOpened`/`onFindClosed`. Both properties and
+    both events are R16/R32's, not T15's or T16's; wiring them here means the
+    toolbar never shows a button that does nothing. T15 adds the Find *bar*
+    and T16 the second *viewport*.
+  - **The deferred R4/R6 COBOL dispatch was folded in here**, as the brief
+    directed. Writing a Viewer's `Source` now opens the document on the
+    **interpreter's** thread (not the UI thread — `form_runtime.rs`, `rcrun
+    run-form` and the compiled binary all run it separately), reports
+    `onLoadProgress` every tenth percent, then `onLoaded` with `Format` and
+    `Progress` set. A failure sets `LastError`, raises `onError` and **puts
+    `Source` back to the last document that loaded**, which is how R4's
+    "leave any previously loaded document displayed" becomes true rather than
+    merely intended.
+  - **Print/Share/SaveAs events come from the OS, never from a flag.**
+    `Interpreter::report_viewer_os_outcome(ctrl, ViewerOsAction, completed)`
+    is the one door those six events come through, because only the OS dialog
+    knows whether the user went through with it. Three tests, one per pair.
+  - **Finding: `arg(0)` trims, and for `LoadBytes` that is wrong.** The shared
+    method-argument helper trims — right for a padded `PIC X(80)` path, fatal
+    for a byte payload, where it silently ate a document's final newline.
+    `LoadBytes` reads the argument untrimmed. A COBOL item is still
+    fixed-length, so `PIC X(100)` holding 42 characters delivers 100 padded;
+    that is the developer's to size and is documented at the call site.
 
 ## Stage D — Search (built against Wave 1's extracted text)
 
