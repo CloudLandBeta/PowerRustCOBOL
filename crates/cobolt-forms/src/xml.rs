@@ -795,6 +795,37 @@ fn seed_missing_props(form: &mut Form) {
                     }
                 }
             }
+            // A chart's frame border arrived at 1.70.81 — style, width, colour,
+            // the chart-only gradient and blur. Every chart on an existing
+            // form reached the pane without a single one of them, so
+            // `border_rows` (a row only for a key that is present) and the
+            // gradient colour rows hid, while the painter drew its fallback
+            // line — "charts missing properties: Border size, Border color,
+            // gradient start/end" (operator screenshot, 2026-09-19). The same
+            // values `Control::new` seeds, so a chart saved before 1.70.81
+            // backfills identically to one just dropped.
+            ControlType::BarChart
+            | ControlType::LineChart
+            | ControlType::PieChart
+            | ControlType::AreaChart
+            | ControlType::ScatterChart
+            | ControlType::DonutChart => {
+                let defaults: &[(&str, PropValue)] = &[
+                    ("BorderStyle", PropValue::String("Single".into())),
+                    ("BorderWidth", PropValue::Int(1)),
+                    ("BorderColor", PropValue::String("#3C50A0".into())),
+                    ("BorderGradientEnabled", PropValue::Bool(false)),
+                    ("BorderGradientStartColor", PropValue::String("#3C50A0".into())),
+                    ("BorderGradientEndColor", PropValue::String("#8FB4FF".into())),
+                    ("BorderGradientDirection", PropValue::String("South".into())),
+                    ("BorderBlur", PropValue::Int(0)),
+                ];
+                for (key, value) in defaults {
+                    if c.get_prop(key).is_none() {
+                        c.set_prop(*key, value.clone());
+                    }
+                }
+            }
             ControlType::MenuBar => {
                 let defaults: &[(&str, &str)] = &[
                     ("BackgroundColor", "#00000000"),
@@ -1850,6 +1881,52 @@ Actor Caption:string</Property>
         assert_eq!(advanced.columns.len(), 2);
         assert_eq!(advanced.columns[0].title, "Actor Id");
         assert_eq!(advanced.columns[1].source_name, "Actor Caption");
+    }
+
+    /// A chart saved before 1.70.81 carries none of its frame-border keys,
+    /// and the pane shows a border row only for a key that is present — so
+    /// the operator saw BorderStyle, the gradient tick and the blur, but no
+    /// width, no colour and no gradient colours (screenshot, 2026-09-19).
+    /// On load the chart gains every key `Control::new` seeds, and a value
+    /// the developer already chose is never overwritten.
+    #[test]
+    fn chart_cfrm_from_before_the_frame_border_gains_every_border_key_on_load() {
+        let xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="MAIN-FORM" title="Main" width="800" height="600" background="#FFFFFF">
+  <Control id="Panel-1" type="Panel" x="0" y="0" w="600" h="400" tab-order="0" z-order="0" visible="true" enabled="true">
+  </Control>
+  <Control id="Chart-1" type="BarChart" x="10" y="10" w="420" h="260" tab-order="0" z-order="1" visible="true" enabled="true" parent="Panel-1">
+    <Property name="Title">Sales</Property>
+    <Property name="BorderBlur">12</Property>
+  </Control>
+</Form>"##;
+        let loaded = load_form_from_str(xml).expect("load legacy chart form");
+        let chart = loaded.find_control("Chart-1").expect("chart");
+        for (key, expect) in [
+            ("BorderStyle", "Single"),
+            ("BorderColor", "#3C50A0"),
+            ("BorderGradientStartColor", "#3C50A0"),
+            ("BorderGradientEndColor", "#8FB4FF"),
+            ("BorderGradientDirection", "South"),
+        ] {
+            assert_eq!(
+                chart.get_prop(key).map(PropValue::as_str),
+                Some(expect),
+                "a pre-1.70.81 chart (nested in a container) must gain {key} on load"
+            );
+        }
+        assert_eq!(chart.get_prop("BorderWidth").map(|v| v.as_i64()), Some(1));
+        assert_eq!(
+            chart.get_prop("BorderGradientEnabled").map(|v| v.as_bool()),
+            Some(false)
+        );
+        // The one the developer already set stays exactly as written.
+        assert_eq!(
+            chart.get_prop("BorderBlur").map(|v| v.as_i64()),
+            Some(12),
+            "an explicit value is never overwritten by the backfill"
+        );
+        println!("legacy chart: 8 border keys present after load, BorderBlur kept at 12");
     }
 
     /// A checkbox saved before the border keys existed carries none of them,

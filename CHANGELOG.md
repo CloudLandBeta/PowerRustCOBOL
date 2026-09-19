@@ -1,5 +1,22 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.83] — 2026-09-19
+
+### An existing chart now shows its border rows — width, colour, gradient colours
+
+1.70.81 seeded the chart frame's border keys in `Control::new`, which never
+runs for a control loaded from a `.cfrm`. Every chart on an existing form
+therefore reached the Properties pane without them, and the pane shows a
+border row only for a key that is present: the operator saw `BorderStyle`,
+the gradient tick, its direction and the blur, but no Border width, no
+Border color and no gradient start/end colours (screenshot, 2026-09-19),
+while the painter quietly drew its fallback line. The loader's
+`seed_missing_props` — the pass that already backfills a Switch, a CheckBox,
+a Splitter and a DataGrid saved before their keys existed — now backfills
+the six chart types with the same values `Control::new` seeds, including a
+chart nested in a container (the flatten runs first). A value the developer
+already chose is never overwritten; a loader test proves both.
+
 ## [PowerRustCOBOL 1.70.82] — 2026-09-19
 
 ### IntelliSense knows `me::` and `super::` — the real surface, from the crates that own it
