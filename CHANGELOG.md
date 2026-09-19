@@ -1,5 +1,26 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.91] — 2026-09-19
+
+### Spec 061 — debugging an application, not a form (requirements only)
+
+`specs/061-multi-form-debugging/spec.md`. Since spec 051 an application is
+several forms, each running its own generated program in its own
+interpreter, but `rcrun run-form --debug` attaches the debug channels to the
+**root** interpreter and to nothing else: a breakpoint in a called form is
+never reached, and the panel goes on showing the first form's listing. The
+spec states what "the debugger follows the application" requires — ten
+numbered requirements, eight acceptance criteria measured against
+PowerDemo3's caller/called pair, and §8, the ten structural obstacles read
+out of the code with their anchors (no debuggee identity anywhere in the
+`DebugCmd`/`DebugEvent` protocol; child interpreters built with no debug
+plumbing at all; a `Receiver<DebugCmd>` that is moved, not shared; one
+process-wide `PAUSED` flag; breakpoints as bare line numbers that collide
+across forms; a panel whose `set_source` is destructive and whose
+`apply_event` never asks whose stop it was). Seven open questions wait on
+`/clarify`; no code has moved. Classified a **fix** by operator ruling —
+the debugger already claims to debug the developer's application.
+
 ## [PowerRustCOBOL 1.70.90] — 2026-09-19
 
 ### The debugger toolbar no longer strobes while animating; Pause stops the animation
