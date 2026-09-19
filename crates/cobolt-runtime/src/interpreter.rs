@@ -11998,8 +11998,82 @@ impl Interpreter {
         // the interpreter in a thread of its own, so indexing a large
         // document here never stalls a paint (R5). R5.1's per-instance
         // decode thread is a separate concern, in the host.
-        if prop.eq_ignore_ascii_case("Source") && self.is_viewer(obj) {
-            self.viewer_open_source(&obj.to_string(), &val);
+        if self.is_viewer(obj) {
+            if prop.eq_ignore_ascii_case("Source") {
+                self.viewer_open_source(&obj.to_string(), &val);
+            }
+            self.viewer_mirror_alias(&obj.to_string(), prop, &val);
+        }
+    }
+
+    /// Spec 058 plan §3/§4 — the unprefixed property names are **aliases**
+    /// onto `View1*`, the single canonical store for one view's state.
+    ///
+    /// A COBOL program may write either spelling; both must then read back
+    /// the same, or R31's "no Find capability reachable only by mouse"
+    /// becomes "reachable, but only if you guessed the right of two names".
+    fn viewer_mirror_alias(&mut self, obj: &str, prop: &str, val: &str) {
+        const ALIASED: &[&str] = &[
+            "Source",
+            "Page",
+            "Zoom",
+            "ViewMode",
+            "CardSize",
+            "ShowFilmstrip",
+            "ScrollPosition",
+            "SearchText",
+            "SearchCaseSensitive",
+            "SearchHighlightEnabled",
+            "SearchCurrentMatch",
+            "SearchMatchCount",
+            "FindOpen",
+        ];
+        let other = if let Some(rest) = prop.strip_prefix("View1") {
+            if !ALIASED.iter().any(|a| a.eq_ignore_ascii_case(rest)) {
+                return;
+            }
+            rest.to_string()
+        } else if ALIASED.iter().any(|a| a.eq_ignore_ascii_case(prop)) {
+            format!("View1{prop}")
+        } else {
+            return;
+        };
+        // The equality check is what ends the recursion: the mirrored write
+        // comes straight back here, finds the two already agreeing, and
+        // stops.
+        if self.obj_get(obj, &other) != val {
+            self.obj_set(obj, &other, val.to_string());
+        }
+    }
+
+    /// Read one of a Viewer's view properties under **either** spelling.
+    ///
+    /// `seed_objects` writes the designed properties straight into the
+    /// registry, so a form that designed `View1SearchMatchCount` never went
+    /// through [`Self::viewer_mirror_alias`] and the short name is empty.
+    /// Preferring the canonical `View1*` and falling back to the alias makes
+    /// a read correct however the value arrived.
+    fn viewer_prop(&self, obj: &str, name: &str) -> String {
+        let prefixed = self.obj_get(obj, &format!("View1{name}"));
+        if prefixed.is_empty() {
+            self.obj_get(obj, name)
+        } else {
+            prefixed
+        }
+    }
+
+    /// Spec 058 R28/R31 — move Find to the next or previous match, wrapping.
+    ///
+    /// The **match count is the view's**, not the interpreter's: the engine
+    /// is what knows which text is on screen, and it publishes the total as
+    /// `SearchMatchCount`. One authority, read from a property a COBOL
+    /// program can see for itself.
+    fn viewer_step_find(&mut self, obj: &str, forward: bool) {
+        let as_index = |v: String| v.trim().parse::<i64>().unwrap_or(0).max(0) as usize;
+        let total = as_index(self.viewer_prop(obj, "SearchMatchCount"));
+        let current = as_index(self.viewer_prop(obj, "SearchCurrentMatch"));
+        if let Some(next) = cobolt_forms::viewer::step_match(current, total, forward) {
+            self.obj_set(obj, "View1SearchCurrentMatch", next.to_string());
         }
     }
 
@@ -13414,6 +13488,38 @@ impl Interpreter {
             "SHARE" => {
                 let n = parse_i(self.obj_get(obj, "_ShareRequest")) + 1;
                 self.obj_set(obj, "_ShareRequest", n.to_string());
+                none
+            }
+            "FINDNEXT" | "FIND-NEXT" => {
+                self.viewer_step_find(obj, true);
+                none
+            }
+            "FINDPREVIOUS" | "FIND-PREVIOUS" => {
+                self.viewer_step_find(obj, false);
+                none
+            }
+            // R26/R31: opening and closing Find from COBOL, with the same
+            // events the toolbar button raises.
+            "FIND" => {
+                if !args.is_empty() {
+                    self.obj_set(obj, "View1SearchText", arg(0));
+                    self.obj_set(obj, "View1SearchCurrentMatch", "0".into());
+                }
+                // `canonical_prop_value` normalises a boolean to
+                // "true"/"false", so comparing against "1" here matched
+                // nothing and raised onFindOpened on EVERY call — caught by
+                // `find_and_findclose_open_the_bar_and_fire_once_each`.
+                if !truthy(&self.viewer_prop(obj, "FindOpen")) {
+                    self.obj_set(obj, "View1FindOpen", "1".into());
+                    self.queue_control_event(obj, "onFindOpened");
+                }
+                none
+            }
+            "FINDCLOSE" | "FIND-CLOSE" => {
+                if truthy(&self.viewer_prop(obj, "FindOpen")) {
+                    self.obj_set(obj, "View1FindOpen", "0".into());
+                    self.queue_control_event(obj, "onFindClosed");
+                }
                 none
             }
             // ── Timer ──
@@ -16447,6 +16553,8 @@ fn is_known_method(name: &str) -> bool {
         // parses its parens as a collection subscript, so `VWR-1::Print()`
         // would silently mean "element … of Print".
             | "LOADBYTES" | "SAVEAS" | "PRINT" | "SHARE"
+            | "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS"
+            | "FINDCLOSE" | "FIND-CLOSE"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
@@ -17011,6 +17119,100 @@ MAIN.
         let written = std::fs::read(&dest).unwrap();
         println!("SaveAs wrote {} bytes (supplied {})", written.len(), body.len());
         assert_eq!(written, body.as_bytes(), "R18: the bytes COBOL supplied, unmodified");
+    }
+
+    // ── Viewer Find (spec 058 T15): the COBOL surface, R31/AC24 ─────────
+
+    /// **AC24**, properties — "search text, case sensitivity, highlight
+    /// toggle, and match count/index all round-trip through the COBOL API."
+    ///
+    /// Both spellings are checked in both directions: plan.md §3 makes the
+    /// unprefixed names aliases onto `View1*`, and an alias a program can
+    /// write but not read back would satisfy R31 only on paper.
+    #[test]
+    fn every_search_property_round_trips_through_either_spelling() {
+        // The written value and what it reads back as: the runtime
+        // canonicalises a boolean property to "true"/"false", so a program
+        // that writes 1 reads back "true". That is the registry's rule for
+        // every control, not something Find gets to opt out of.
+        let pairs: &[(&str, &str, &str)] = &[
+            ("SearchText", "invoice", "invoice"),
+            ("SearchCaseSensitive", "1", "true"),
+            ("SearchHighlightEnabled", "0", "false"),
+            ("SearchCurrentMatch", "3", "3"),
+            ("SearchMatchCount", "9", "9"),
+            ("FindOpen", "1", "true"),
+        ];
+        for (name, value, reads_as) in pairs {
+            // Write the SHORT name, read the prefixed one.
+            let mut interp = viewer_interp(&[]);
+            interp.obj_set("VWR-1", name, value.to_string());
+            let prefixed = interp.obj_get("VWR-1", &format!("View1{name}"));
+            let short = interp.obj_get("VWR-1", name);
+            println!("wrote {name}={value:?} -> {name}={short:?}, View1{name}={prefixed:?}");
+            assert_eq!(short, *reads_as, "{name} must read back what was written");
+            assert_eq!(prefixed, *reads_as, "R31: the View1 spelling must agree");
+
+            // And the other way round.
+            let mut interp = viewer_interp(&[]);
+            interp.obj_set("VWR-1", &format!("View1{name}"), value.to_string());
+            let short = interp.obj_get("VWR-1", name);
+            println!("wrote View1{name}={value:?} -> {name}={short:?}");
+            assert_eq!(short, *reads_as, "R31: the short spelling must agree");
+        }
+    }
+
+    /// **AC24**, methods — "Find, Next and Previous are all COBOL-callable",
+    /// and Next/Previous wrap (R28).
+    #[test]
+    fn findnext_and_findprevious_wrap_from_cobol() {
+        let mut interp = viewer_interp(&[("View1SearchMatchCount", "3")]);
+        let mut forward = Vec::new();
+        for _ in 0..5 {
+            interp.exec_method("VWR-1", "FINDNEXT", &[]);
+            forward.push(interp.obj_get("VWR-1", "SearchCurrentMatch"));
+        }
+        let mut backward = Vec::new();
+        for _ in 0..3 {
+            interp.exec_method("VWR-1", "FINDPREVIOUS", &[]);
+            backward.push(interp.obj_get("VWR-1", "SearchCurrentMatch"));
+        }
+        println!("3 matches — FindNext x5  -> {forward:?}");
+        println!("            FindPrevious x3 -> {backward:?}");
+        assert_eq!(forward, ["1", "2", "0", "1", "2"], "R28: wraps past the last");
+        assert_eq!(backward, ["1", "0", "2"], "R28: and past the first");
+    }
+
+    /// R26.1 from COBOL's side: with nothing to find, Next is a no-op rather
+    /// than an error or a fabricated index.
+    #[test]
+    fn findnext_with_no_matches_does_nothing_at_all() {
+        let mut interp = viewer_interp(&[("View1SearchMatchCount", "0")]);
+        interp.exec_method("VWR-1", "FINDNEXT", &[]);
+        interp.exec_method("VWR-1", "FINDPREVIOUS", &[]);
+        let current = interp.obj_get("VWR-1", "SearchCurrentMatch");
+        println!("0 matches — FindNext then FindPrevious -> SearchCurrentMatch {current:?}");
+        assert!(current.is_empty() || current == "0", "R26.1: nowhere to go, cleanly");
+    }
+
+    /// R26/R31 — Find opens and closes from COBOL, raising its events once
+    /// each, and `Find(text)` seeds the query.
+    #[test]
+    fn find_and_findclose_open_the_bar_and_fire_once_each() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "FIND", &[CobolValue::from_str("invoice", 7)]);
+        interp.exec_method("VWR-1", "FIND", &[]); // already open: no second event
+        let after_open = queued_for(&interp, "VWR-1");
+        interp.exec_method("VWR-1", "FINDCLOSE", &[]);
+        interp.exec_method("VWR-1", "FINDCLOSE", &[]); // already closed
+        let all = queued_for(&interp, "VWR-1");
+        println!("Find(\"invoice\") twice -> {after_open:?}");
+        println!("then FindClose twice -> {all:?}");
+        println!("SearchText={:?}, FindOpen={:?}", interp.obj_get("VWR-1", "SearchText"), interp.obj_get("VWR-1", "FindOpen"));
+        assert_eq!(after_open, vec!["onFindOpened".to_string()], "opened once, not twice");
+        assert_eq!(all, vec!["onFindOpened".to_string(), "onFindClosed".to_string()]);
+        assert_eq!(interp.obj_get("VWR-1", "SearchText"), "invoice", "Find(text) seeds the query");
+        assert_eq!(interp.obj_get("VWR-1", "View1SearchText"), "invoice", "through both spellings");
     }
 
     // ── RestClient: the control's own configuration reaches the request ──────

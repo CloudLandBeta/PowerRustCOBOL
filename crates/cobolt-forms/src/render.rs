@@ -3823,15 +3823,6 @@ fn push_toggle_events(out: &mut RenderOutput, id: &str, checked: bool) {
         .push(UiEvent::with_value(id, "onCheckedChanged", &checked.to_string()));
 }
 
-/// Spec 058 T12 — a Viewer's live navigation state, kept between frames.
-///
-/// Only the **transient** parts live here: the scroll kinematics mid-glide,
-/// the settle watches, and the previous values change-events compare
-/// against. Every value a COBOL program can read — `Zoom`, `CardSize`,
-/// `ViewMode`, `ScrollPosition`, `Fullscreen`, `ShowFilmstrip` — is written
-/// back through `RenderOutput::prop_updates`, the channel this engine
-/// already uses, so nothing a program is entitled to see is hidden in
-/// egui's memory (R22).
 /// One value both this engine and a COBOL program may write.
 ///
 /// The **property wins whenever it differs from what it said last frame** —
@@ -3880,6 +3871,12 @@ impl<T: Copy + PartialEq> SharedValue<T> {
 /// transient parts: the scroll kinematics mid-glide, the settle watches, and
 /// the previous values change-events compare against.
 #[derive(Clone)]
+struct StringValue {
+    seen: String,
+    own: String,
+}
+
+#[derive(Clone)]
 struct ViewerLive {
     scroll: crate::viewer::ScrollKinetics,
     zoom_watch: crate::viewer::SettleWatch<i64>,
@@ -3897,6 +3894,12 @@ struct ViewerLive {
     /// rather than the generic (which needs `Copy`).
     layout_seen: String,
     layout_own: String,
+    /// Same, for the Find query (R26).
+    find_text: StringValue,
+    find_case: SharedValue<bool>,
+    find_highlight: SharedValue<bool>,
+    find_current: SharedValue<usize>,
+    pushed_total: usize,
     /// What this engine last pushed, so a COBOL write is told apart from its
     /// own echo arriving a frame later.
     pushed_scroll: i64,
@@ -3928,6 +3931,11 @@ impl ViewerLive {
             find: SharedValue::new(st.find_open),
             layout_seen: st.layout.clone(),
             layout_own: st.layout.clone(),
+            find_text: StringValue { seen: st.find_text.clone(), own: st.find_text.clone() },
+            find_case: SharedValue::new(st.find_case_sensitive),
+            find_highlight: SharedValue::new(st.find_highlight),
+            find_current: SharedValue::new(st.find_current),
+            pushed_total: st.find_total,
             pushed_scroll: st.scroll.round() as i64,
             last_layout: None,
             last_mode: None,
@@ -3989,7 +3997,7 @@ fn viewer_interactive(
     let streamed = st.layout == "Streamed";
     let chrome = vw::chrome_layout(
         vw::ViewRect::new(screen.min.x, screen.min.y, screen.width(), screen.height()),
-        &vw::ChromeOpts { fullscreen: st.fullscreen, streamed, filmstrip: st.filmstrip },
+        &vw::ChromeOpts { fullscreen: st.fullscreen, streamed, filmstrip: st.filmstrip, find_open: st.find_open },
     );
     let to_rect = |r: vw::ViewRect| {
         Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
@@ -4105,6 +4113,151 @@ fn viewer_interactive(
         }
     }
 
+    // ── R26–R30: the Find bar ───────────────────────────────────────────
+    //
+    // The query field is painted, not an `egui::TextEdit`: the whole Viewer
+    // is drawn by the shared engine so the designer canvas and the running
+    // form cannot diverge (AC11), and a hosted widget exists on only one of
+    // them. Typing is therefore read straight off the event stream while the
+    // field holds focus — which is also what makes AC31's "never while the
+    // Find input has the caret" true, since focus then belongs to the
+    // field's own id and not the control's.
+    let mut find_text = live.find_text.own.clone();
+    if st.find_text != live.find_text.seen {
+        find_text = st.find_text.clone();
+    }
+    live.find_text.seen = st.find_text.clone();
+    let mut find_case = live.find_case.resolve(st.find_case_sensitive);
+    let mut find_highlight = live.find_highlight.resolve(st.find_highlight);
+    let mut find_current = live.find_current.resolve(st.find_current);
+    // The total is what THIS engine measured last frame, not what the
+    // property says: Next/Previous must work whether or not the host echoed
+    // `SearchMatchCount` back. `pushed_total` is seeded from the property,
+    // so a designed value is still honoured on the first frame.
+    let find_total = live.pushed_total;
+
+    let field_id = ctrl_id.with("viewer-find-field");
+    let field_focused = ui.ctx().memory(|m| m.focused()) == Some(field_id);
+    let mut find_busy = false;
+
+    if enabled && !streamed {
+        // R26: Ctrl+F / Cmd+F opens the bar and puts the caret in it.
+        let open_shortcut = ui.input_mut(|i| {
+            i.consume_key(egui::Modifiers::COMMAND, egui::Key::F)
+        });
+        if open_shortcut && (resp.hovered() || resp.has_focus() || field_focused) {
+            find_open = true;
+            ui.ctx().memory_mut(|m| m.request_focus(field_id));
+        }
+    }
+
+    if find_open && !streamed {
+        for (control, slot) in chrome.find_bar.map(vw::find_slots).unwrap_or_default() {
+            let r = to_rect(slot);
+            let sense = if control == vw::FindControl::Field {
+                Sense::click()
+            } else {
+                Sense::click()
+            };
+            let br = ui
+                .interact(r, ctrl_id.with(("viewer-find", control.as_str())), sense)
+                .on_hover_text(control.default_tooltip());
+            if br.hovered() || br.is_pointer_button_down_on() {
+                find_busy = true;
+            }
+            if !(enabled && br.clicked()) {
+                continue;
+            }
+            match control {
+                vw::FindControl::Field => ui.ctx().memory_mut(|m| m.request_focus(field_id)),
+                vw::FindControl::Previous => {
+                    if let Some(n) = vw::step_match(find_current, find_total, false) {
+                        find_current = n;
+                    }
+                }
+                vw::FindControl::Next => {
+                    if let Some(n) = vw::step_match(find_current, find_total, true) {
+                        find_current = n;
+                    }
+                }
+                // R27/R29: both toggles change the answer WITHOUT the query
+                // being retyped, and without disturbing where Next is.
+                vw::FindControl::CaseSensitive => find_case = !find_case,
+                vw::FindControl::Highlight => find_highlight = !find_highlight,
+                vw::FindControl::Counter => {}
+                vw::FindControl::Close => find_open = false,
+            }
+        }
+
+        if enabled {
+            // R28: F3 / Shift+F3 anywhere on the control, Enter / Shift+Enter
+            // while the field has the caret.
+            // Shift is read off the KEY EVENT, never `InputState::modifiers`.
+            // That field is the modifier state the platform last reported,
+            // which is not necessarily the one that accompanied this press —
+            // this project has been caught by the same distinction before
+            // (`consume_key` ignoring an extra Shift). Matching the event's
+            // own modifiers is the fix that holds.
+            let (f3, shift_f3, enter, shift_enter, backspace, typed) = ui.input(|i| {
+                let key_with = |key: egui::Key, shift: bool| {
+                    i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key { key: k, pressed: true, modifiers, .. }
+                                if *k == key && modifiers.shift == shift
+                        )
+                    })
+                };
+                (
+                    key_with(egui::Key::F3, false),
+                    key_with(egui::Key::F3, true),
+                    key_with(egui::Key::Enter, false),
+                    key_with(egui::Key::Enter, true),
+                    i.key_pressed(egui::Key::Backspace),
+                    i.events
+                        .iter()
+                        .filter_map(|e| match e {
+                            egui::Event::Text(t) => Some(t.clone()),
+                            _ => None,
+                        })
+                        .collect::<String>(),
+                )
+            });
+            let forward = f3 || (enter && field_focused);
+            let back = shift_f3 || (shift_enter && field_focused);
+            if forward || back {
+                if let Some(n) = vw::step_match(find_current, find_total, forward) {
+                    find_current = n;
+                }
+            }
+            if field_focused {
+                if backspace {
+                    find_text.pop();
+                }
+                if !typed.is_empty() {
+                    find_text.push_str(&typed);
+                }
+            }
+        }
+    }
+
+    // R26: "Esc closes it and takes priority over R13's Zoom/fullscreen Esc
+    // behaviour while the bar is open" — so this runs BEFORE R13's own Esc,
+    // and swallows the key when it acts.
+    let mut esc = esc;
+    if enabled && esc && find_open {
+        find_open = false;
+        esc = false;
+    }
+    if !find_open && field_focused {
+        ui.ctx().memory_mut(|m| m.surrender_focus(field_id));
+    }
+    // A changed query always restarts at the first match: leaving the index
+    // where it was would point into a match list that no longer exists.
+    if find_text != live.find_text.own || find_case != live.find_case.seen {
+        find_current = 0;
+    }
+
     // ── R14.1: the one slider per view ──────────────────────────────────
     let slider_resp = (!streamed && slider_rect.width() > 1.0)
         .then(|| ui.interact(slider_rect, ctrl_id.with("viewer-slider"), Sense::click_and_drag()));
@@ -4190,7 +4343,7 @@ fn viewer_interactive(
             live.scroll.apply_keys(&vw::KeyScrollInput::default(), dt, 1.0, chrome.content.h);
         }
 
-        let gesture_elsewhere = slider_busy || grip_busy || toolbar_busy;
+        let gesture_elsewhere = slider_busy || grip_busy || toolbar_busy || find_busy;
         match (live.scroll.is_grabbed(), primary_down && !gesture_elsewhere) {
             (false, true) => {
                 if let Some(p) = pointer.filter(|p| content_rect.contains(*p)) {
@@ -4241,6 +4394,11 @@ fn viewer_interactive(
     st.layout = layout_name.clone();
     st.split = split;
     st.find_open = find_open;
+    st.find_text = find_text.clone();
+    st.find_case_sensitive = find_case;
+    st.find_highlight = find_highlight;
+    st.find_current = find_current;
+    st.find_total = find_total;
     st.scroll = live.scroll.offset();
     let preview = |p: usize| crate::paint::viewer_page_preview(ui.ctx(), &source, p);
     st.page_preview = Some(&preview);
@@ -4302,6 +4460,24 @@ fn viewer_interactive(
         push("View1FindOpen", find_open.to_string());
         push("FindOpen", find_open.to_string());
     }
+    // R31: no Find capability reachable only by mouse — every one of these
+    // is a property a COBOL program reads back and can write.
+    if find_text != live.find_text.seen {
+        push("View1SearchText", find_text.clone());
+        push("SearchText", find_text.clone());
+    }
+    if live.find_case.diverged(find_case) {
+        push("View1SearchCaseSensitive", find_case.to_string());
+        push("SearchCaseSensitive", find_case.to_string());
+    }
+    if live.find_highlight.diverged(find_highlight) {
+        push("View1SearchHighlightEnabled", find_highlight.to_string());
+        push("SearchHighlightEnabled", find_highlight.to_string());
+    }
+    if live.find_current.diverged(find_current) {
+        push("View1SearchCurrentMatch", find_current.to_string());
+        push("SearchCurrentMatch", find_current.to_string());
+    }
     let offset = live.scroll.offset().round() as i64;
     if offset != live.pushed_scroll {
         push("View1ScrollPosition", offset.to_string());
@@ -4320,6 +4496,28 @@ fn viewer_interactive(
     live.split.own = split;
     live.find.own = find_open;
     live.layout_own = layout_name.clone();
+    live.find_text.own = find_text.clone();
+    live.find_case.own = find_case;
+    live.find_highlight.own = find_highlight;
+    // R30: the total is what the paint just measured over the text on
+    // screen. Clamp the current index into it so the counter can never read
+    // "7 / 3" after a query narrowed the list.
+    let measured_total = painted.find_total;
+    if measured_total != live.pushed_total {
+        push("View1SearchMatchCount", measured_total.to_string());
+        push("SearchMatchCount", measured_total.to_string());
+        live.pushed_total = measured_total;
+    }
+    if measured_total == 0 && find_current != 0 {
+        find_current = 0;
+        push("View1SearchCurrentMatch", "0".to_string());
+        push("SearchCurrentMatch", "0".to_string());
+    } else if measured_total > 0 && find_current >= measured_total {
+        find_current = measured_total - 1;
+        push("View1SearchCurrentMatch", find_current.to_string());
+        push("SearchCurrentMatch", find_current.to_string());
+    }
+    live.find_current.own = find_current;
     if split_changed && want("onSplitModeChanged") {
         out.events.push(UiEvent::ev(id, "onSplitModeChanged"));
     }
@@ -10857,7 +11055,18 @@ mod tests {
             });
         }
 
-        fn frame(&self, time: f64, evs: Vec<egui::Event>) -> (RenderOutput, Vec<egui::Shape>) {
+        /// What the control's property says now — after every
+        /// `prop_update` the engine asked for has been applied, the way a
+        /// real host applies them between frames.
+        fn prop(&self, key: &str) -> String {
+            self.controls[0].get_prop(key).map(|v| v.to_xml_string()).unwrap_or_default()
+        }
+
+        /// One frame, then **apply what the engine asked for** — without
+        /// that, the harness models a host that ignores `prop_updates`,
+        /// which no real one does, and every test reads a control frozen at
+        /// its designed state.
+        fn frame(&mut self, time: f64, evs: Vec<egui::Event>) -> (RenderOutput, Vec<egui::Shape>) {
             let mut input = egui::RawInput::default();
             input.time = Some(time);
             input.events = evs;
@@ -10880,7 +11089,13 @@ mod tests {
             });
             out.textures_delta.clear();
             let shapes = out.shapes.into_iter().map(|cs| cs.shape).collect();
-            (captured.expect("render_form ran"), shapes)
+            let captured = captured.expect("render_form ran");
+            for (id, key, val) in &captured.prop_updates {
+                if &self.controls[0].id == id {
+                    self.controls[0].set_prop(key.clone(), PropValue::String(val.clone()));
+                }
+            }
+            (captured, shapes)
         }
     }
 
@@ -10970,7 +11185,7 @@ mod tests {
                 ("View1CardSize", PropValue::Int(20)),
                 ("Layout", PropValue::String("Web".into())),
             ];
-            let h = ViewerHarness::new(form, w, 400, &owned);
+            let mut h = ViewerHarness::new(form, w, 400, &owned);
             h.frame(0.0, vec![]);
             let (_, shapes) = h.frame(0.05, vec![]);
             first_row_columns(&shapes)
@@ -11007,7 +11222,7 @@ mod tests {
             modifiers: Default::default(),
         };
         let double_click_from = |start: i64| -> Vec<String> {
-            let h = ViewerHarness::new(
+            let mut h = ViewerHarness::new(
                 Vec2::new(500.0, 500.0),
                 400,
                 400,
@@ -11091,7 +11306,7 @@ mod tests {
             modifiers: Default::default(),
         };
         let run = |steal_focus: bool| -> Vec<String> {
-            let h = ViewerHarness::new(
+            let mut h = ViewerHarness::new(
                 Vec2::new(500.0, 400.0),
                 400,
                 300,
@@ -11159,6 +11374,247 @@ mod tests {
             event_names(&out).contains(&"onFilmstripToggled".to_string()),
             "R32: closing the rail is reported"
         );
+    }
+
+    // ── Spec 058 T15: the Find bar, through the real engine ─────────────
+
+    /// The marker rects R29 paints under matched text. Matched by colour:
+    /// the highlight is the only thing on a Viewer painted in amber.
+    fn highlight_rects(shapes: &[egui::Shape]) -> Vec<egui::Rect> {
+        fn walk(s: &egui::Shape, into: &mut Vec<egui::Rect>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                egui::Shape::Rect(r) => {
+                    let f = r.fill;
+                    if f.r() > 180 && (120..190).contains(&f.g()) && f.b() < 60 {
+                        into.push(r.rect);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for s in shapes {
+            walk(s, &mut out);
+        }
+        out
+    }
+
+    /// A Viewer showing `text`, with the Find bar already open on `query`.
+    fn find_harness(dir: &tempfile::TempDir, text: &str, query: &str, case: bool) -> ViewerHarness {
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, text).unwrap();
+        ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560.0 as i32,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String(query.into())),
+                ("View1SearchCaseSensitive", PropValue::Bool(case)),
+            ],
+        )
+    }
+
+    const FIND_DOC: &str = "COBOL is not cobol, and Cobol is neither.\nA COBOL program in cobol stays COBOL.\n";
+
+    /// **AC22** — typing highlights every match and the counter updates live.
+    #[test]
+    fn typing_in_the_find_bar_highlights_matches_and_updates_the_counter() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = find_harness(&dir, FIND_DOC, "cobol", false);
+        h.frame(0.0, vec![]);
+        let (_, shapes) = h.frame(0.02, vec![]);
+        let marks = highlight_rects(&shapes);
+        // Read the PROPERTY, not one frame's write list: the engine pushes a
+        // changed total once and the harness applies it, exactly as a host
+        // does, so a later frame correctly has nothing to say about it.
+        let total = h.prop("SearchMatchCount");
+        println!(
+            "query \"cobol\" (case-insensitive) over {:?}...: {} highlight rect(s), SearchMatchCount = {total:?}",
+            &FIND_DOC[..24],
+            marks.len()
+        );
+        assert_eq!(marks.len(), 6, "R29: every match is marked");
+        assert_eq!(total, "6", "R30: the total is published for the counter");
+    }
+
+    /// **AC23**, first half — the case toggle changes which matches are
+    /// found, **without the query being retyped**.
+    #[test]
+    fn toggling_case_sensitivity_changes_the_count_without_retyping() {
+        let dir = tempfile::tempdir().unwrap();
+        let counts = |case: bool| -> (usize, String) {
+            let mut h = find_harness(&dir, FIND_DOC, "COBOL", case);
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.02, vec![]);
+            (highlight_rects(&shapes).len(), h.prop("SearchMatchCount"))
+        };
+        let (off_marks, off_total) = counts(false);
+        let (on_marks, on_total) = counts(true);
+        println!("query \"COBOL\", case OFF -> {off_marks} marks, total {off_total:?}");
+        println!("query \"COBOL\", case ON  -> {on_marks} marks, total {on_total:?}");
+        assert_eq!(off_marks, 6);
+        assert_eq!(on_marks, 3, "AC23: the toggle alone changes the answer");
+        assert_eq!(off_total, "6");
+        assert_eq!(on_total, "3");
+    }
+
+    /// **AC23**, second half — turning highlighting off stops the marks but
+    /// breaks neither the count nor Next/Previous.
+    #[test]
+    fn turning_highlighting_off_keeps_the_count_and_navigation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String("cobol".into())),
+                ("View1SearchHighlightEnabled", PropValue::Bool(false)),
+            ],
+        );
+        h.frame(0.0, vec![]);
+        let (_, shapes) = h.frame(0.02, vec![]);
+        let marks = highlight_rects(&shapes);
+        let total = h.prop("SearchMatchCount");
+        println!("highlight OFF -> {} mark(s), SearchMatchCount = {total:?}", marks.len());
+        assert!(marks.is_empty(), "R29: nothing is marked when highlighting is off");
+        assert_eq!(total, "6", "AC23: the count is unaffected");
+
+        // And Next still moves.
+        let bar_y = 34.0 + 15.0; // toolbar band, then the middle of the bar
+        let next_x = 4.0 + 180.0 + 4.0 + 22.0 + 4.0 + 11.0;
+        let at = egui::Pos2::new(next_x, bar_y);
+        h.frame(0.04, vec![egui::Event::PointerMoved(at)]);
+        h.frame(0.06, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        let (after, _) = h.frame(0.08, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        let moved = writes_of(&after, "SearchCurrentMatch");
+        println!("Next clicked with highlighting off -> SearchCurrentMatch {moved:?}");
+        assert_eq!(moved, vec!["1".to_string()], "AC23: navigation still works");
+    }
+
+    /// **AC22**, wraparound — F3 walks forward past the last match and back
+    /// round to the first; Shift+F3 the other way.
+    #[test]
+    fn f3_and_shift_f3_wrap_at_both_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = find_harness(&dir, FIND_DOC, "COBOL", true); // 3 matches
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![]);
+        let f3 = |shift: bool| egui::Event::Key {
+            key: egui::Key::F3,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: if shift { egui::Modifiers::SHIFT } else { Default::default() },
+        };
+        let mut forward = Vec::new();
+        for i in 0..5 {
+            let (out, _) = h.frame(0.1 + i as f64 * 0.02, vec![f3(false)]);
+            forward.extend(writes_of(&out, "SearchCurrentMatch"));
+        }
+        let mut backward = Vec::new();
+        for i in 0..3 {
+            let (out, _) = h.frame(0.3 + i as f64 * 0.02, vec![f3(true)]);
+            backward.extend(writes_of(&out, "SearchCurrentMatch"));
+        }
+        println!("3 matches — F3 x5 -> {forward:?}");
+        println!("           Shift+F3 x3 -> {backward:?}");
+        assert_eq!(forward, ["1", "2", "0", "1", "2"], "R28: wraps past the last");
+        assert_eq!(backward, ["1", "0", "2"], "R28: and past the first");
+    }
+
+    /// **R26** — "`Esc` closes it and takes priority over R13's Zoom/
+    /// fullscreen Esc behaviour while the bar is open."
+    #[test]
+    fn esc_closes_find_before_it_touches_zoom_or_fullscreen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1Zoom", PropValue::Int(250)),
+                ("Zoom", PropValue::Int(250)),
+            ],
+        );
+        let centre = egui::Pos2::new(280.0, 250.0);
+        let esc = || egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(centre)]);
+        let (first, _) = h.frame(0.04, vec![esc()]);
+        println!("first Esc  -> FindOpen {:?}, Zoom {:?}", writes_of(&first, "FindOpen"), writes_of(&first, "Zoom"));
+        assert_eq!(writes_of(&first, "FindOpen"), vec!["false".to_string()], "R26: Find closes");
+        assert!(writes_of(&first, "Zoom").is_empty(), "R26: and Zoom is NOT touched by that same Esc");
+
+        let (second, _) = h.frame(0.06, vec![esc()]);
+        println!("second Esc -> Zoom {:?}", writes_of(&second, "Zoom"));
+        assert_eq!(writes_of(&second, "Zoom"), vec!["100".to_string()], "R13 resumes once the bar is closed");
+    }
+
+    /// R32 — opening and closing the bar fires the matching event exactly
+    /// once each.
+    #[test]
+    fn opening_and_closing_the_find_bar_fires_each_event_exactly_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+            ],
+        );
+        h.bind("onFindOpened");
+        h.bind("onFindClosed");
+        let centre = egui::Pos2::new(280.0, 250.0);
+        let ctrl_f = || egui::Event::Key {
+            key: egui::Key::F,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        };
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(centre)]);
+        let (opened, _) = h.frame(0.04, vec![ctrl_f()]);
+        let mut opens = event_names(&opened).iter().filter(|e| *e == "onFindOpened").count();
+        for i in 0..3 {
+            let (quiet, _) = h.frame(0.1 + i as f64 * 0.02, vec![]);
+            opens += event_names(&quiet).iter().filter(|e| *e == "onFindOpened").count();
+        }
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let (closed, _) = h.frame(0.2, vec![esc]);
+        let mut closes = event_names(&closed).iter().filter(|e| *e == "onFindClosed").count();
+        for i in 0..3 {
+            let (quiet, _) = h.frame(0.3 + i as f64 * 0.02, vec![]);
+            closes += event_names(&quiet).iter().filter(|e| *e == "onFindClosed").count();
+        }
+        println!("Ctrl+F then Esc, with three quiet frames after each -> {opens} onFindOpened, {closes} onFindClosed");
+        assert_eq!(opens, 1, "R32: opened exactly once");
+        assert_eq!(closes, 1, "R32: and closed exactly once");
     }
 
     /// **A MenuBar with ShadowEnabled off casts no shadow.**

@@ -8081,6 +8081,18 @@ pub(crate) fn viewer_page_preview(ctx: &egui::Context, source: &str, page: usize
     Some(snippet)
 }
 
+/// The text Find searches for a resolved page (R26.1). An image has none,
+/// which is what makes the Find bar report `0 / 0` for one rather than
+/// raising.
+fn content_searchable_text(content: &ViewerPageContent) -> Option<String> {
+    use crate::viewer::SearchableText;
+    match content {
+        ViewerPageContent::Text(t) => Some(t.clone()),
+        ViewerPageContent::Markdown { doc, .. } => doc.searchable_text(),
+        ViewerPageContent::Image(_) => None,
+    }
+}
+
 #[derive(Clone, Copy)]
 struct BlockPaintCtx {
     font_size: f32,
@@ -8392,8 +8404,19 @@ pub(crate) struct ViewerPaintState<'a> {
     /// `SplitMode != None` — the Split button's pressed state. Split view
     /// itself is T16; the toolbar has to report the state either way.
     pub split: bool,
-    /// The Find bar's open state (T15) — same reason.
+    /// The Find bar's open state (R26).
     pub find_open: bool,
+    /// R26/R27/R29/R30 — the Find bar's own state, per view.
+    pub find_text: String,
+    pub find_case_sensitive: bool,
+    pub find_highlight: bool,
+    /// 0-based index of the match in view (R30's "current").
+    pub find_current: usize,
+    /// R30's "total". Seeded from the property the previous frame's paint
+    /// wrote back — the bar is drawn before the content is measured, so the
+    /// counter is one frame behind a *change of query*, which no reader can
+    /// see, and never wrong about a settled one.
+    pub find_total: usize,
     pub page_count: usize,
     /// 0-based, unlike the COBOL-facing `Page` property, which is 1-based.
     pub current_page: usize,
@@ -8454,6 +8477,14 @@ impl<'a> ViewerPaintState<'a> {
             fullscreen: boolean("Fullscreen"),
             split: !text("SplitMode").unwrap_or_else(|| "None".into()).trim().eq_ignore_ascii_case("None"),
             find_open: boolean("View1FindOpen"),
+            find_text: text("View1SearchText").unwrap_or_default(),
+            find_case_sensitive: boolean("View1SearchCaseSensitive"),
+            find_highlight: ctrl
+                .get_prop("View1SearchHighlightEnabled")
+                .map(|v| v.as_bool())
+                .unwrap_or(true),
+            find_current: int("View1SearchCurrentMatch", 0).max(0) as usize,
+            find_total: int("View1SearchMatchCount", 0).max(0) as usize,
             page_count: 1,
             current_page: (int("View1Page", 1).max(1) - 1) as usize,
             page_preview: None,
@@ -8491,6 +8522,11 @@ pub(crate) struct ViewerPaintResult {
     /// engine paints them; `render.rs` senses them and hangs each one's
     /// tooltip off its rect (R17/AC10).
     pub toolbar_hits: Vec<(crate::viewer::ToolbarAction, egui::Rect)>,
+    /// `(control, rect)` for every Find-bar control drawn (R26).
+    pub find_hits: Vec<(crate::viewer::FindControl, egui::Rect)>,
+    /// How many matches the text on screen holds (R30's "total"), computed
+    /// by the paint because the paint is what knows which text is showing.
+    pub find_total: usize,
 }
 
 impl Default for ViewerPaintResult {
@@ -8505,6 +8541,8 @@ impl Default for ViewerPaintResult {
             strip_hits: Vec::new(),
             splitter: None,
             toolbar_hits: Vec::new(),
+            find_hits: Vec::new(),
+            find_total: 0,
         }
     }
 }
@@ -8559,6 +8597,7 @@ pub(crate) fn draw_viewer(
             fullscreen: st.fullscreen,
             streamed: st.is_streamed(),
             filmstrip: st.filmstrip,
+            find_open: st.find_open,
         },
     );
     let mut result = ViewerPaintResult {
@@ -8570,6 +8609,9 @@ pub(crate) fn draw_viewer(
     if let Some(band) = chrome.toolbar {
         result.toolbar_hits =
             draw_viewer_toolbar_band(painter, egui_rect_of(band), st, surface, ink, a);
+    }
+    if let Some(bar) = chrome.find_bar {
+        result.find_hits = draw_viewer_find_bar(painter, egui_rect_of(bar), st, surface, ink, a);
     }
     if let Some(strip) = chrome.filmstrip {
         let strip_rect = egui_rect_of(strip);
@@ -8647,7 +8689,16 @@ pub(crate) fn draw_viewer(
         job.append(raw_text, 0.0, egui::TextFormat { font_id: egui::FontId::monospace(font_size), color: ink, ..Default::default() });
         let galley = clip.layout_job(job);
         result.content_height = galley.size().y + 2.0 * VIEWER_TEXT_INSET;
-        clip.galley(egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top), galley, ink);
+        let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
+        // R29: the highlights go UNDER the glyphs, so the text stays the
+        // thing being read rather than being tinted by its own marker.
+        let spans =
+            crate::viewer::find_matches(raw_text, &st.find_text, st.find_case_sensitive);
+        result.find_total = spans.len();
+        if st.find_highlight && !spans.is_empty() {
+            draw_viewer_find_highlights(&clip, &galley, origin, &spans, st.find_current, a);
+        }
+        clip.galley(origin, galley, ink);
     } else {
         let blocks = blocks.unwrap();
         let inner_width = (content_rect.width() - 2.0 * VIEWER_TEXT_INSET).max(20.0);
@@ -8655,6 +8706,19 @@ pub(crate) fn draw_viewer(
         let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
         result.content_height =
             paint_blocks(&clip, &block_ctx, blocks, origin) + 2.0 * VIEWER_TEXT_INSET;
+        // The COUNT is honest for a formatted document — it is computed from
+        // exactly the prose a reader sees (`SearchableText`), so R30's
+        // counter and R28's Next/Previous both work here.
+        //
+        // ⚠️ The coloured OVERLAY is not painted on this path yet: a
+        // formatted document is many galleys, and mapping a global span into
+        // the right one needs a running text offset threaded through
+        // `paint_block`. Recorded as a known gap rather than half-done —
+        // see tasks.md under T15.
+        if let Some(text) = content_searchable_text(content) {
+            result.find_total =
+                crate::viewer::find_matches(&text, &st.find_text, st.find_case_sensitive).len();
+        }
     }
 
     if paged {
@@ -8715,6 +8779,144 @@ fn draw_viewer_toolbar_band(
         hits.push((action, r));
     }
     hits
+}
+
+/// R26's Find bar: the query field, Previous/Next, the live counter
+/// (R30), the case-sensitivity and highlight toggles (R27/R29) and Close.
+///
+/// The two toggles draw pressed when they are on, the same way the
+/// toolbar's do — a toggle that does not show its own state is a toggle a
+/// reader has to remember.
+fn draw_viewer_find_bar(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    st: &ViewerPaintState<'_>,
+    surface: Color32,
+    ink: Color32,
+    a: u8,
+) -> Vec<(crate::viewer::FindControl, egui::Rect)> {
+    use crate::viewer::FindControl as FC;
+
+    let band = lerp_color(surface, ink, 0.1);
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::ZERO,
+        Color32::from_rgba_premultiplied(band.r(), band.g(), band.b(), a),
+    );
+    let line = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 5) as u8);
+    painter.line_segment(
+        [egui::pos2(rect.min.x, rect.max.y - 0.5), egui::pos2(rect.max.x, rect.max.y - 0.5)],
+        Stroke::new(1.0, line),
+    );
+
+    let icon_ink = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), a);
+    let muted = muted_ink(surface, ink);
+    let pressed_fill = Color32::from_rgba_premultiplied(70, 130, 220, (a as u32 / 3) as u8);
+    let mut hits = Vec::new();
+    for (control, slot) in crate::viewer::find_slots(view_rect_of(rect)) {
+        let r = egui_rect_of(slot);
+        match control {
+            FC::Field => {
+                painter.rect_filled(
+                    r,
+                    egui::CornerRadius::same(3),
+                    Color32::from_rgba_premultiplied(surface.r(), surface.g(), surface.b(), a),
+                );
+                painter.rect_stroke(
+                    r,
+                    egui::CornerRadius::same(3),
+                    Stroke::new(1.0, line),
+                    egui::StrokeKind::Middle,
+                );
+                let (text, colour) = if st.find_text.is_empty() {
+                    (FC::Field.default_tooltip().to_string(), muted)
+                } else {
+                    (st.find_text.clone(), icon_ink)
+                };
+                painter.text(
+                    egui::pos2(r.min.x + 6.0, r.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    text,
+                    egui::FontId::proportional(12.0),
+                    colour,
+                );
+            }
+            FC::Counter => {
+                painter.text(
+                    egui::pos2(r.center().x, r.center().y),
+                    egui::Align2::CENTER_CENTER,
+                    crate::viewer::find_counter_text(st.find_current, st.find_total),
+                    egui::FontId::proportional(11.0),
+                    Color32::from_rgba_premultiplied(muted.r(), muted.g(), muted.b(), a),
+                );
+            }
+            _ => {
+                let on = match control {
+                    FC::CaseSensitive => st.find_case_sensitive,
+                    FC::Highlight => st.find_highlight,
+                    _ => false,
+                };
+                if on {
+                    painter.rect_filled(r, egui::CornerRadius::same(4), pressed_fill);
+                }
+                if let Some(icon) = control.icon() {
+                    crate::icons::draw_menu_icon(painter, r.shrink(3.0), icon, icon_ink);
+                }
+            }
+        }
+        hits.push((control, r));
+    }
+    hits
+}
+
+/// R29: paint every match, with the current one visually distinguished.
+///
+/// The highlights are drawn from the galley's own glyph positions, so they
+/// land exactly under the characters that matched however the text wrapped
+/// — deriving them from a second layout pass would drift the moment either
+/// side changed.
+fn draw_viewer_find_highlights(
+    painter: &egui::Painter,
+    galley: &egui::Galley,
+    origin: egui::Pos2,
+    spans: &[crate::viewer::TextSpan],
+    current: usize,
+    a: u8,
+) {
+    let others = Color32::from_rgba_premultiplied(200, 170, 40, (a as u32 * 2 / 5) as u8);
+    let active = Color32::from_rgba_premultiplied(230, 140, 20, (a as u32 * 4 / 5) as u8);
+    for (i, span) in spans.iter().enumerate() {
+        // `CCursor` counts CHARACTERS; a `TextSpan` is bytes — so the
+        // conversion is a char count over the prefix, never `span.start`
+        // used directly, which would land mid-glyph on any non-ASCII text.
+        let text = &galley.job.text;
+        let ccur = |byte: usize| {
+            egui::text::CCursor::new(text[..byte.min(text.len())].chars().count())
+        };
+        let from = galley.pos_from_cursor(ccur(span.start));
+        let to = galley.pos_from_cursor(ccur(span.end));
+        let colour = if i == current { active } else { others };
+        if (from.min.y - to.min.y).abs() < 0.5 {
+            // One line: a single rect from the first glyph to the last.
+            let r = egui::Rect::from_min_max(
+                origin + from.min.to_vec2(),
+                origin + egui::vec2(to.max.x, from.max.y),
+            );
+            painter.rect_filled(r, egui::CornerRadius::same(2), colour);
+        } else {
+            // Wrapped: mark both ends rather than inventing the middle.
+            painter.rect_filled(
+                egui::Rect::from_min_max(origin + from.min.to_vec2(), origin + from.max.to_vec2()),
+                egui::CornerRadius::same(2),
+                colour,
+            );
+            painter.rect_filled(
+                egui::Rect::from_min_max(origin + to.min.to_vec2(), origin + to.max.to_vec2()),
+                egui::CornerRadius::same(2),
+                colour,
+            );
+        }
+    }
 }
 
 /// R14.3's page-thumbnail rail, docked to the content's left edge. Only the
@@ -15969,6 +16171,11 @@ mod theme_render_tests {
             fullscreen: false,
             split: false,
             find_open: false,
+            find_text: String::new(),
+            find_case_sensitive: false,
+            find_highlight: true,
+            find_current: 0,
+            find_total: 0,
             page_count: 1,
             current_page: 0,
             page_preview: None,

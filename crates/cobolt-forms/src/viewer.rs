@@ -1300,11 +1300,14 @@ pub struct ChromeOpts {
     pub streamed: bool,
     /// `Some(width)` while this view's filmstrip is open (R14.3).
     pub filmstrip: Option<f32>,
+    /// R26 — the Find bar is open, so it takes a band of its own between
+    /// the toolbar and the content.
+    pub find_open: bool,
 }
 
 impl Default for ChromeOpts {
     fn default() -> Self {
-        Self { fullscreen: false, streamed: false, filmstrip: None }
+        Self { fullscreen: false, streamed: false, filmstrip: None, find_open: false }
     }
 }
 
@@ -1313,6 +1316,9 @@ impl Default for ChromeOpts {
 pub struct ChromeLayout {
     /// The toolbar band — `None` under fullscreen (R15) or `Streamed`.
     pub toolbar: Option<ViewRect>,
+    /// The Find bar (R26) — `None` when closed, and always `None` under
+    /// `Streamed`, which shows no Find chrome at all (§8.8/AC25).
+    pub find_bar: Option<ViewRect>,
     /// The page-thumbnail rail, docked to the **content's** left edge
     /// (R14.3), not the control's.
     pub filmstrip: Option<ViewRect>,
@@ -1332,6 +1338,7 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     if opts.streamed {
         return ChromeLayout {
             toolbar: None,
+            find_bar: None,
             filmstrip: None,
             content: bounds,
             slider: ViewRect::new(bounds.x, bounds.bottom(), 0.0, 0.0),
@@ -1348,6 +1355,18 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
         y += TOOLBAR_HEIGHT;
         remaining_h -= TOOLBAR_HEIGHT;
         Some(r)
+    };
+
+    // R26: the bar sits under the toolbar, above the content — and stays
+    // put when the toolbar is hidden by fullscreen, because Find is a
+    // reader's tool, not part of the chrome R15 takes away.
+    let find_bar = if opts.find_open && remaining_h > FIND_BAR_HEIGHT * 2.0 {
+        let r = ViewRect::new(bounds.x, y, bounds.w, FIND_BAR_HEIGHT);
+        y += FIND_BAR_HEIGHT;
+        remaining_h -= FIND_BAR_HEIGHT;
+        Some(r)
+    } else {
+        None
     };
 
     let slider_h = if remaining_h > SLIDER_STRIP_HEIGHT * 2.0 { SLIDER_STRIP_HEIGHT } else { 0.0 };
@@ -1374,7 +1393,302 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
         if slider_h > 0.0 { 10.0 } else { 0.0 },
     );
 
-    ChromeLayout { toolbar, filmstrip, content, slider }
+    ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
+}
+
+// ── Find: match computation (T14: R26.1, R27) ───────────────────────────
+//
+// The whole of Find's *searching* is this one pure function over a string.
+// Nothing here knows which format produced the text — that is the point:
+// once a format can say what its text is ([`SearchableText`]), Find works on
+// it with no per-format branch, which is why T18 (PDF) and T21 (HTML) are
+// expected to need no change here at all.
+//
+// Modeled on `cobolt-ide`'s `code_search.rs::find_matches()` and
+// reimplemented rather than shared: that file is inside a binary crate.
+
+/// One match, as byte offsets into the text that was searched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextSpan {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl TextSpan {
+    pub fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+    pub fn is_empty(&self) -> bool {
+        self.end <= self.start
+    }
+}
+
+/// R26/R27: every occurrence of `needle` in `haystack`, in order.
+///
+/// **Case-insensitive search never lowercases the haystack.** Lowercasing
+/// can change a string's byte length (`İ` becomes two chars), which would
+/// put every span it returns at the wrong offset — and a span at the wrong
+/// offset highlights the wrong words. Instead the haystack is walked as a
+/// stream of lowercase characters, each remembering the byte range of the
+/// *source* character it came from, so a span always names real bytes of the
+/// original text.
+///
+/// Overlapping occurrences are not reported: `"aa"` in `"aaa"` is one match
+/// followed by a leftover, the way every editor's Find counts, because Next
+/// walks occurrences a reader can see.
+///
+/// An empty needle, or empty text, is **zero matches and never an error** —
+/// which is exactly R26.1's rule for a format with no extractable text (an
+/// image), with no special case needed to implement it.
+pub fn find_matches(haystack: &str, needle: &str, case_sensitive: bool) -> Vec<TextSpan> {
+    let mut out = Vec::new();
+    if needle.is_empty() || haystack.is_empty() {
+        return out;
+    }
+
+    if case_sensitive {
+        let mut from = 0usize;
+        while let Some(i) = haystack[from..].find(needle) {
+            let start = from + i;
+            let end = start + needle.len();
+            out.push(TextSpan { start, end });
+            from = end;
+        }
+        return out;
+    }
+
+    // (lowercase char, byte start of its SOURCE char, byte end of it)
+    let hay: Vec<(char, usize, usize)> = haystack
+        .char_indices()
+        .flat_map(|(i, c)| {
+            let end = i + c.len_utf8();
+            c.to_lowercase().map(move |lc| (lc, i, end))
+        })
+        .collect();
+    let want: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
+    if want.is_empty() || hay.len() < want.len() {
+        return out;
+    }
+
+    let mut k = 0usize;
+    while k + want.len() <= hay.len() {
+        if (0..want.len()).all(|j| hay[k + j].0 == want[j]) {
+            out.push(TextSpan { start: hay[k].1, end: hay[k + want.len() - 1].2 });
+            k += want.len();
+        } else {
+            k += 1;
+        }
+    }
+    out
+}
+
+/// Which match Next/Previous moves to (R28), wrapping past the last/first.
+///
+/// `current` is the 0-based index of the match in view; `total` is how many
+/// there are. With no matches at all there is nowhere to go, so the answer
+/// is `None` rather than a fabricated index.
+pub fn step_match(current: usize, total: usize, forward: bool) -> Option<usize> {
+    if total == 0 {
+        return None;
+    }
+    Some(if forward {
+        (current + 1) % total
+    } else {
+        (current + total - 1) % total
+    })
+}
+
+// ── The Find bar (T15: R26, R28–R31, AC22–AC24) ─────────────────────────
+
+/// The bar's own height, under the toolbar and above the content.
+pub const FIND_BAR_HEIGHT: f32 = 30.0;
+/// The query field's width inside it.
+pub const FIND_FIELD_WIDTH: f32 = 180.0;
+/// A Find-bar button's painted size (the same square the toolbar uses).
+pub const FIND_BUTTON: f32 = 22.0;
+pub const FIND_GAP: f32 = 4.0;
+
+/// One control on the Find bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FindControl {
+    /// The query field — the only one that is not a button.
+    Field,
+    Previous,
+    Next,
+    CaseSensitive,
+    Highlight,
+    /// The live "current of total" counter (R30).
+    Counter,
+    Close,
+}
+
+impl FindControl {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Field => "find-field",
+            Self::Previous => "find-previous",
+            Self::Next => "find-next",
+            Self::CaseSensitive => "find-case",
+            Self::Highlight => "find-highlight",
+            Self::Counter => "find-counter",
+            Self::Close => "find-close",
+        }
+    }
+
+    /// `None` for the two that are not icon buttons.
+    pub fn icon(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Field | Self::Counter => return None,
+            Self::Previous => "chevron-up",
+            Self::Next => "chevron-down",
+            Self::CaseSensitive => "case-sensitive",
+            Self::Highlight => "highlighter",
+            Self::Close => "x-mark",
+        })
+    }
+
+    /// R17's rule reaches the Find bar too: every button carries its
+    /// function as a tooltip.
+    pub fn default_tooltip(self) -> &'static str {
+        match self {
+            Self::Field => "Find in document",
+            Self::Previous => "Previous match",
+            Self::Next => "Next match",
+            Self::CaseSensitive => "Match case",
+            Self::Highlight => "Highlight all matches",
+            Self::Counter => "Matches",
+            Self::Close => "Close Find",
+        }
+    }
+}
+
+/// The Find bar's controls, in painted order.
+pub const FIND_CONTROLS: &[FindControl] = &[
+    FindControl::Field,
+    FindControl::Previous,
+    FindControl::Next,
+    FindControl::Counter,
+    FindControl::CaseSensitive,
+    FindControl::Highlight,
+    FindControl::Close,
+];
+
+/// Where each Find-bar control lands inside `bar`, left to right, with the
+/// Close button pinned to the right edge — the one place a reader expects
+/// to find it however wide the control is.
+pub fn find_slots(bar: ViewRect) -> Vec<(FindControl, ViewRect)> {
+    let mid = |h: f32| bar.y + (bar.h - h).max(0.0) * 0.5;
+    let mut out = Vec::new();
+    let close = ViewRect::new(
+        (bar.right() - FIND_GAP - FIND_BUTTON).max(bar.x),
+        mid(FIND_BUTTON),
+        FIND_BUTTON,
+        FIND_BUTTON,
+    );
+    let mut x = bar.x + FIND_GAP;
+    let limit = close.x - FIND_GAP;
+    for control in FIND_CONTROLS {
+        if *control == FindControl::Close {
+            continue;
+        }
+        let w = match control {
+            FindControl::Field => FIND_FIELD_WIDTH.min((limit - x).max(0.0)),
+            FindControl::Counter => 64.0,
+            _ => FIND_BUTTON,
+        };
+        if w <= 1.0 || x + w > limit {
+            break;
+        }
+        let h = if *control == FindControl::Field { FIND_BUTTON } else { FIND_BUTTON };
+        out.push((*control, ViewRect::new(x, mid(h), w, h)));
+        x += w + FIND_GAP;
+    }
+    out.push((FindControl::Close, close));
+    out
+}
+
+/// R30's live counter text — "current of total", and an honest `0 / 0` when
+/// there is nothing to step through rather than a hidden or blank field.
+pub fn find_counter_text(current: usize, total: usize) -> String {
+    if total == 0 {
+        "0 / 0".to_string()
+    } else {
+        format!("{} / {}", current + 1, total)
+    }
+}
+
+/// What a document offers Find to search (R26.1).
+///
+/// A format that has no text at all answers `None`, which
+/// [`find_matches`] turns into zero matches — the Find bar then reports
+/// "0 of 0" rather than raising, exactly as R26.1 requires.
+pub trait SearchableText {
+    fn searchable_text(&self) -> Option<String>;
+}
+
+impl SearchableText for MarkdownDocument {
+    /// The prose a reader actually sees, not the Markdown source: searching
+    /// a rendered document for "Release Notes" must find the heading whether
+    /// or not its source line began with `#`.
+    fn searchable_text(&self) -> Option<String> {
+        let mut out = String::new();
+        fn inlines(v: &[Inline], out: &mut String) {
+            for i in v {
+                match i {
+                    Inline::Text { text, .. } => out.push_str(text),
+                    Inline::Image { alt, .. } => out.push_str(alt),
+                    Inline::Break { .. } => out.push(' '),
+                    Inline::FootnoteRef { .. } => {}
+                }
+            }
+        }
+        fn cells(v: &[Vec<Inline>], out: &mut String) {
+            for c in v {
+                inlines(c, out);
+                out.push('\t');
+            }
+        }
+        fn walk(blocks: &[Block], out: &mut String) {
+            for b in blocks {
+                match b {
+                    Block::Heading { content, .. } | Block::Paragraph { content } => {
+                        inlines(content, out);
+                        out.push('\n');
+                    }
+                    Block::CodeBlock { text, .. } => {
+                        out.push_str(text);
+                        out.push('\n');
+                    }
+                    Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } => {
+                        walk(blocks, out)
+                    }
+                    Block::List { items, .. } => {
+                        for item in items {
+                            walk(&item.blocks, out);
+                        }
+                    }
+                    Block::Table { header, rows, .. } => {
+                        cells(header, out);
+                        out.push('\n');
+                        for row in rows {
+                            cells(row, out);
+                            out.push('\n');
+                        }
+                    }
+                    // Inert by design (see `Block::RawHtml`) — and a reader
+                    // does not see its tags, so Find must not match them.
+                    Block::RawHtml(_) => {}
+                    Block::ThematicBreak => out.push('\n'),
+                }
+            }
+        }
+        walk(&self.blocks, &mut out);
+        if out.trim().is_empty() {
+            None
+        } else {
+            Some(out)
+        }
+    }
 }
 
 // ── The toolbar (T13: R16, R17, AC10) ───────────────────────────────────
@@ -3259,5 +3573,147 @@ mod toolbar_tests {
         }
         let unique: std::collections::BTreeSet<&&str> = exts.iter().collect();
         assert_eq!(unique.len(), exts.len(), "two formats sharing an extension would misname one of them");
+    }
+}
+
+/// Spec 058 T14 — Find's match computation (R26.1, R27, R28). Pure string
+/// work: no format knows about it, and no format needs a branch in it.
+#[cfg(test)]
+mod find_tests {
+    use super::*;
+
+    const DOC: &str = "COBOL is not cobol, and Cobol is neither. \
+                       A COBOL program written in cobol stays COBOL.";
+
+    /// R27: "the case-sensitivity toggle changes which matches are found
+    /// (e.g. 'COBOL' vs. 'cobol') without retyping the search text."
+    #[test]
+    fn case_sensitivity_changes_which_matches_are_found() {
+        let sensitive = find_matches(DOC, "COBOL", true);
+        let insensitive = find_matches(DOC, "COBOL", false);
+        let text_of = |spans: &[TextSpan]| -> Vec<&str> {
+            spans.iter().map(|s| &DOC[s.start..s.end]).collect()
+        };
+        println!("query \"COBOL\" over {} bytes:", DOC.len());
+        println!("  case-sensitive   : {} match(es) {:?}", sensitive.len(), text_of(&sensitive));
+        println!("  case-insensitive : {} match(es) {:?}", insensitive.len(), text_of(&insensitive));
+        assert_eq!(sensitive.len(), 3, "only the upper-case spellings");
+        assert_eq!(insensitive.len(), 6, "every spelling");
+        assert!(text_of(&sensitive).iter().all(|t| *t == "COBOL"));
+        assert!(insensitive.len() > sensitive.len(), "R27: the toggle must change the answer");
+        // Every span must name real bytes of the ORIGINAL text.
+        for s in &insensitive {
+            assert!(DOC[s.start..s.end].eq_ignore_ascii_case("COBOL"), "span {s:?} names {:?}", &DOC[s.start..s.end]);
+        }
+    }
+
+    /// The reason case-insensitive search does not lowercase the haystack:
+    /// lowercasing can change byte lengths, and every span after the change
+    /// would then point one byte off — highlighting `STANBUL ` instead of
+    /// `ISTANBUL`.
+    ///
+    /// `İ` (U+0130) is the classic case: it is **two** bytes, and Rust
+    /// lowercases it to `i` + a combining dot, which is **three**. This
+    /// asserts the exact byte offsets, because "two matches" alone would
+    /// pass even with every one of them misplaced.
+    ///
+    /// It also records the honest limit: `İstanbul` does **not** match
+    /// `istanbul`, here or under `str::to_lowercase`, because full case
+    /// folding is not simple lowercasing. Find behaves exactly as Rust's own
+    /// case conversion does, rather than inventing a third answer.
+    #[test]
+    fn spans_stay_correct_when_lowercasing_changes_a_strings_length() {
+        let text = "İstanbul and ISTANBUL and istanbul";
+        let spans = find_matches(text, "istanbul", false);
+        let found: Vec<(usize, usize, &str)> =
+            spans.iter().map(|s| (s.start, s.end, &text[s.start..s.end])).collect();
+        println!("{text:?} ({} bytes) searched for \"istanbul\":", text.len());
+        for (a, b, t) in &found {
+            println!("  bytes {a}..{b} = {t:?}");
+        }
+        println!("  for contrast, to_lowercase() gives {:?} ({} bytes)", text.to_lowercase(), text.to_lowercase().len());
+
+        assert_eq!(spans.len(), 2, "İ does not case-fold to i, in Rust or here");
+        // The load-bearing assertion: exact offsets into the ORIGINAL text.
+        // Lowercasing the haystack first would report 15 and 28.
+        assert_eq!(found[0], (14, 22, "ISTANBUL"));
+        assert_eq!(found[1], (27, 35, "istanbul"));
+        for s in &spans {
+            assert!(text.is_char_boundary(s.start) && text.is_char_boundary(s.end));
+        }
+    }
+
+    /// **R26.1** — "a format with no extractable text (for example, a
+    /// standalone image) has no matches; the Find bar reports zero results
+    /// rather than raising an error."
+    #[test]
+    fn a_textless_document_reports_zero_matches_and_never_an_error() {
+        let image_has_no_text: Option<String> = None;
+        let haystack = image_has_no_text.clone().unwrap_or_default();
+        let matches = find_matches(&haystack, "anything", false);
+        println!("an image's searchable text is {image_has_no_text:?} -> {} match(es)", matches.len());
+        assert!(matches.is_empty(), "R26.1: zero results, cleanly");
+        // And the degenerate queries, which must behave the same way.
+        assert!(find_matches("some real text", "", false).is_empty(), "an empty query matches nothing");
+        assert!(find_matches("", "", true).is_empty());
+    }
+
+    #[test]
+    fn overlapping_occurrences_are_counted_the_way_an_editor_counts_them() {
+        let spans = find_matches("aaaa", "aa", true);
+        println!("\"aa\" in \"aaaa\" -> {} match(es) at {:?}", spans.len(), spans);
+        assert_eq!(spans.len(), 2, "two non-overlapping matches, not three overlapping ones");
+        assert_eq!(spans[0], TextSpan { start: 0, end: 2 });
+        assert_eq!(spans[1], TextSpan { start: 2, end: 4 });
+    }
+
+    /// **R28** — Next/Previous wrap past the last/first match.
+    #[test]
+    fn next_and_previous_wrap_at_both_ends() {
+        let total = 4;
+        let forward: Vec<usize> = (0..6)
+            .scan(0usize, |cur, _| {
+                *cur = step_match(*cur, total, true).unwrap();
+                Some(*cur)
+            })
+            .collect();
+        let backward: Vec<usize> = (0..6)
+            .scan(0usize, |cur, _| {
+                *cur = step_match(*cur, total, false).unwrap();
+                Some(*cur)
+            })
+            .collect();
+        println!("{total} matches — Next from 0: {forward:?}");
+        println!("{total} matches — Previous from 0: {backward:?}");
+        assert_eq!(forward, [1, 2, 3, 0, 1, 2], "R28: wraps past the last");
+        assert_eq!(backward, [3, 2, 1, 0, 3, 2], "R28: and past the first");
+        assert_eq!(step_match(0, 0, true), None, "nowhere to go with no matches");
+    }
+
+    /// Find searches the prose a reader sees, not the Markdown source: a
+    /// heading is findable whether or not its line began with `#`.
+    #[test]
+    fn markdown_is_searched_as_the_reader_sees_it() {
+        let doc = parse_markdown(
+            "# Release Notes\n\nA **bold** claim about `code`.\n\n\
+             | Item | Qty |\n|---|---|\n| Widget | 12 |\n\n<div>hidden markup</div>\n",
+        );
+        let text = doc.searchable_text().expect("this document has prose");
+        println!("searchable text ({} bytes): {:?}", text.len(), text.replace('\n', "\\n"));
+        for needle in ["Release Notes", "bold", "code", "Widget", "12"] {
+            let n = find_matches(&text, needle, false).len();
+            println!("  {needle:?} -> {n} match(es)");
+            assert_eq!(n, 1, "{needle:?} must be findable in the rendered prose");
+        }
+        assert!(find_matches(&text, "#", true).is_empty(), "the reader never sees the heading marker");
+        assert!(find_matches(&text, "<div>", false).is_empty(), "nor inert raw markup");
+        assert!(find_matches(&text, "hidden markup", false).is_empty());
+    }
+
+    #[test]
+    fn a_document_with_no_prose_at_all_offers_no_searchable_text() {
+        let empty = parse_markdown("");
+        println!("an empty Markdown document -> searchable_text = {:?}", empty.searchable_text());
+        assert!(empty.searchable_text().is_none(), "R26.1's own case, from the other direction");
     }
 }

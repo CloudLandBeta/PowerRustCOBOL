@@ -357,7 +357,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage D — Search (built against Wave 1's extracted text)
 
-- [ ] **T14 — Find match-computation** (R26.1, R27)
+- [x] **T14 — Find match-computation** (R26.1, R27)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: a pure function — case-sensitive/insensitive substring matching over a
         format's extracted text, returning spans — modeled on
@@ -367,7 +367,7 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-forms` — case on/off reports different match
         counts for the same query; a textless format reports zero cleanly.
 
-- [ ] **T15 — Find bar: navigation, highlighting, COBOL surface** (R26, R28–R31,
+- [x] **T15 — Find bar: navigation, highlighting, COBOL surface** (R26, R28–R31,
       R32, AC22, AC23, AC24)
   - Files: `crates/cobolt-forms/src/paint.rs` (the bar), `src/viewer.rs` (state:
         `find_idx`/`find_total`/active-match handoff, modeled on
@@ -388,6 +388,54 @@ not a claim about what §8.1 means architecturally.
         the count (**AC23**); opening/closing the bar fires the matching event
         exactly once each. `cargo test -p cobolt-runtime` — every Search
         property/method round-trips from COBOL (**AC24**).
+
+  - **DONE — 2026-09-19 (1.70.88).** `viewer::find_matches` is the whole of
+    Find's searching: one pure function no format knows about, which is why
+    T18 (PDF) and T21 (HTML) should need no change in it. The bar itself is
+    `paint::draw_viewer_find_bar` + the Find block in
+    `render::viewer_interactive`; the COBOL surface is `Find`, `FindNext`,
+    `FindPrevious`, `FindClose` and the whole `Search*` property group.
+  - **One new icon:** `case-sensitive` (a capital A beside a lowercase a —
+    the two letterforms *are* the distinction). plan.md §2 also expected to
+    author a Find glyph; `magnifier` already existed, so it was reused.
+  - **Case-insensitive search never lowercases the haystack.** Lowercasing
+    changes byte lengths (`İ` is two bytes and lowercases to three), which
+    would put every span after it one byte off — highlighting `STANBUL `
+    instead of `ISTANBUL`. The haystack is walked as a stream of lowercase
+    characters, each remembering its **source** char's byte range. The test
+    asserts exact offsets, because "two matches" would pass with both of
+    them misplaced.
+  - **⚠️ Known gap — highlights are painted on the single-galley path only.**
+    A plain-`Text` document in any layout, and any document under `Raw`, gets
+    R29's coloured overlay. A **formatted Markdown** document is many
+    galleys, and mapping a global span into the right one needs a running
+    text offset threaded through `paint_block`; the **count and
+    Next/Previous work correctly there** (both come from
+    `SearchableText`, the prose a reader actually sees), only the overlay is
+    missing. Recorded rather than half-done. **T22 is the natural place to
+    close it** — it already re-runs Stage D's tests against an HTML-subset
+    document, which is exactly when the blocks path matters.
+  - **Three engine bugs the tests caught, all worth remembering:**
+    1. **Change-detection must compare against LAST FRAME's value, not the
+       property.** `diverged()` stays true forever against a host that has
+       not echoed `prop_updates` back, so one Ctrl+F raised **four**
+       `onFindOpened` events.
+    2. **The match total is the engine's own measurement**, not a property
+       round trip. Routed through `SearchMatchCount` alone, Next/Previous did
+       nothing until the host echoed the count back.
+    3. **Shift comes from the key EVENT, never `InputState::modifiers`** —
+       that field is the platform's last reported state, not the one that
+       accompanied this press, so Shift+F3 stepped *forward*. The same
+       distinction that bit `consume_key` before.
+  - **Two runtime findings:** `canonical_prop_value` normalises a boolean to
+    `"true"`/`"false"`, so comparing `FindOpen` against `"1"` matched nothing
+    and raised `onFindOpened` on every call; and `seed_objects` writes
+    designed properties straight into the registry, bypassing the alias
+    mirror, so a read must prefer `View1*` and fall back to the short name
+    (`Interpreter::viewer_prop`).
+  - **The test harness now applies `prop_updates`**, the way a real host
+    does. Without that it modelled a host that ignores them — which no host
+    does — and every engine test read a control frozen at its designed state.
 
 ## Stage E — Split view (depends on Search)
 

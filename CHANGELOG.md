@@ -1,5 +1,38 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.88] — 2026-09-19
+
+### The Viewer can be searched, from the keyboard or from COBOL
+
+Spec 058 T14 and T15. `Ctrl+F` (`Cmd+F`) opens a Find bar under the toolbar:
+a query field, Previous and Next, a live "current of total" counter, a
+case-sensitivity toggle, a highlight toggle and Close. Every match is marked,
+with the current one picked out; `F3` and `Shift+F3` walk them, wrapping past
+both ends; `Esc` closes the bar and **takes priority over** its usual job of
+returning the zoom to 100 %, so one key does the nearer thing first.
+
+Everything Find can do, COBOL can do: `Find`, `FindNext`, `FindPrevious` and
+`FindClose` are callable, and the search text, case sensitivity, highlight
+toggle, current match and match count are all ordinary properties that read
+back what was written — under either the plain name or the `View1` one, which
+are now kept in step for every per-view property.
+
+A format with no text to search — a standalone image — reports no matches
+rather than an error. Searching a formatted document searches the prose a
+reader actually sees: a heading is findable whether or not its source line
+began with a `#`, and inert raw markup is not.
+
+Case-insensitive search never lowercases the document. Lowercasing can change
+a string's byte length, and every highlight after such a character would then
+sit one byte to the left — marking `STANBUL ` instead of `ISTANBUL`. The
+search walks lowercase characters while remembering where each came from, so
+a highlight always lands on the text that matched.
+
+One new icon: a capital A beside a lowercase a, for the case toggle.
+
+cobolt-forms 1016 passed, cobolt-runtime 918 passed, cobolt-form-host 124
+passed; 0 failed anywhere.
+
 ## [PowerRustCOBOL 1.70.87] — 2026-09-19
 
 ### The Viewer gets its toolbar, and can save, print and share
