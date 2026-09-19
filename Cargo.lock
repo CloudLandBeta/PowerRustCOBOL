@@ -1377,11 +1377,8 @@ dependencies = [
  "egui",
  "egui_extras",
  "image 0.25.10",
- "objc2 0.6.4",
- "objc2-app-kit 0.3.2",
  "pollster 0.3.0",
  "pretty_assertions",
- "raw-window-handle",
  "rfd",
  "serde_json",
 ]
