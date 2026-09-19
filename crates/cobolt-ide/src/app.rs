@@ -305,6 +305,41 @@ struct StaleBuildPrompt {
 /// to agree: 1.60.30 wired Build to the plain incremental path, which leaves
 /// the version stamp untouched, so Run then asked for the very full build the
 /// developer had just waited through — the project was built twice.
+/// How a form's name is keyed when matching a debuggee to its `.cfrm`.
+///
+/// One spelling on purpose: the index is built from every form's `name` and
+/// the lookup comes from what the debuggee announced, and a COBOL word
+/// reaches the runtime upper-cased. Two spellings of this would match in
+/// testing and miss on the first form someone named in mixed case.
+fn debug_form_key(form_name: &str) -> String {
+    form_name.trim().to_ascii_uppercase()
+}
+
+/// Should a stop from `handle` switch the panel to that form's listing?
+///
+/// Only a **stop** moves the listing — output and answers belong to the
+/// session wherever it is looking — and only when the form that stopped is
+/// not already the one on screen.
+fn debug_should_follow(shown_handle: &str, handle: &str, is_stop: bool) -> bool {
+    is_stop && shown_handle != handle
+}
+
+/// One form taking part in a debug session (spec 061).
+///
+/// A debuggee is a form's program: it reports stops against its own generated
+/// `.cbl`, carries its own breakpoints — line 42 in two forms is two
+/// breakpoints — and its own set of lines the developer actually wrote.
+struct DebugForm {
+    /// The generated `.cbl` this debuggee's stops are reported against.
+    generated: PathBuf,
+    /// Lines of that file holding the developer's own handler and procedure
+    /// bodies, for *Only my code*.
+    user_lines: std::collections::HashSet<u32>,
+    /// The breakpoint set last sent to this debuggee, so an unchanged set is
+    /// not re-sent on every keystroke.
+    sent_breakpoints: std::collections::HashSet<u32>,
+}
+
 /// Parse one outbound `@DBG` payload from a debuggee.
 ///
 /// Newest form first: the [`DebugWire`] envelope, which says which form in
@@ -567,6 +602,17 @@ pub struct CoboltApp {
     /// inside THAT designer viewport (in front of it), not the main IDE
     /// window. `None` = session started from the code editor.
     debug_owner_form: Option<PathBuf>,
+    /// Every form taking part in the session, by supervisor handle
+    /// (`W0` the root, `W1`… the forms it opens). Spec 061: an application is
+    /// several forms, and the debugger follows the program into whichever one
+    /// stops.
+    debug_forms: std::collections::HashMap<String, DebugForm>,
+    /// The handle whose listing the panel is showing — and therefore the
+    /// debuggee every toolbar command is addressed to.
+    debug_shown_handle: String,
+    /// Form-object name → its `.cfrm`, built once per session. A debuggee
+    /// announces itself by form name; the IDE needs the file.
+    debug_form_index: std::collections::HashMap<String, PathBuf>,
     /// True when the active debug session controls an external
     /// `rcrun run-form --debug` process (over `@DBG` stdin/stdout lines)
     /// instead of the in-IDE `DebugRunner` thread.
@@ -1828,6 +1874,9 @@ impl CoboltApp {
             debugger: DebuggerPanel::new(),
             debug_active: false,
             debug_owner_form: None,
+            debug_forms: std::collections::HashMap::new(),
+            debug_shown_handle: cobolt_runtime::form_host::ROOT_HANDLE.to_owned(),
+            debug_form_index: std::collections::HashMap::new(),
             debug_external: false,
             debug_sent_breakpoints: std::collections::HashSet::new(),
             debug_auto_stop_lines: std::collections::HashSet::new(),
@@ -2417,6 +2466,20 @@ impl CoboltApp {
         self.debug_active = true;
         self.debug_external = true;
         self.debug_owner_form = Some(form_path.to_path_buf());
+        // 061 — the session's roster starts with the form the developer
+        // pressed Debug on. Every other form registers itself as the
+        // application opens it.
+        self.debug_forms.clear();
+        self.debug_form_index.clear();
+        self.debug_shown_handle = cobolt_runtime::form_host::ROOT_HANDLE.to_owned();
+        self.debug_forms.insert(
+            cobolt_runtime::form_host::ROOT_HANDLE.to_owned(),
+            DebugForm {
+                generated: cbl_path.to_path_buf(),
+                user_lines: self.debug_user_lines.iter().copied().collect(),
+                sent_breakpoints: self.debug_sent_breakpoints.clone(),
+            },
+        );
         self.debugger_vp_sized = false; // fresh window → default size
         self.output.push_status(notice.to_owned());
     }
@@ -3105,6 +3168,141 @@ impl CoboltApp {
     /// nothing else, and the program ran straight past it. The set is small and
     /// the comparison is a `HashSet` equality, so a per-frame check costs
     /// nothing and there is no way to forget a path that mutates it.
+    /// The external process this debug session is driving, if any.
+    fn debug_run(&self) -> Option<&crate::form_runtime::ExternalFormRun> {
+        let owner = self.debug_owner_form.as_ref()?;
+        self.external_runs
+            .iter()
+            .find(|r| r.debug && r.form_path == *owner)
+    }
+
+    /// Map every form in the project from its form-object name — what a
+    /// debuggee announces itself by — to its `.cfrm`. Built once per session
+    /// so a form opening at run time costs no scan.
+    fn debug_build_form_index(&mut self) {
+        let Some(dir) = self.project_dir() else {
+            return;
+        };
+        let forms: Vec<String> = self
+            .cobolt_project
+            .as_ref()
+            .map(|p| p.files.forms.clone())
+            .unwrap_or_default();
+        for rel in forms {
+            let abs = dir.join(&rel);
+            if let Ok(form) = cobolt_forms::load_form(&abs) {
+                self.debug_form_index
+                    .insert(debug_form_key(&form.name), abs);
+            }
+        }
+    }
+
+    /// A form the running application just opened has joined the session
+    /// (spec 061): work out which file its stops belong to, load that listing
+    /// ready for the moment it stops, and send it **its own** breakpoints and
+    /// user-code scope.
+    fn debug_child_attached(&mut self, handle: &str, form_object: &str) {
+        if self.debug_forms.contains_key(handle) {
+            return;
+        }
+        if self.debug_form_index.is_empty() {
+            self.debug_build_form_index();
+        }
+        let key = debug_form_key(form_object);
+        let Some(cfrm) = self.debug_form_index.get(&key).cloned() else {
+            // Nothing to show it against. Say so and leave the listing where
+            // it is — showing the wrong file's line would be worse.
+            self.output.push_status(format!(
+                "debug: the application opened a form called {form_object}, which \
+                 no .cfrm in this project names — its stops cannot be shown."
+            ));
+            return;
+        };
+        let generated = self.generated_cbl_path(&cfrm);
+        let Ok(source) = std::fs::read_to_string(&generated) else {
+            self.output.push_status(format!(
+                "debug: {} has not been generated yet — {form_object}'s stops \
+                 cannot be shown.",
+                generated.display()
+            ));
+            return;
+        };
+        // This file's own gutter marks, minus any inside an `EXEC RUST` block:
+        // a block is one step, and in a built binary its lines are native code
+        // compiled before the program ran.
+        let blocks = crate::exec_rust_run::block_line_ranges(&source);
+        let mut bp_lines: Vec<u32> = self
+            .editor
+            .breakpoints_for(&generated)
+            .into_iter()
+            .filter(|l| !crate::exec_rust_run::line_is_inside_block(&blocks, *l))
+            .collect();
+        // …plus the marks set in the event editor, translated through this
+        // form's OWN source map, and the lines that map calls the developer's.
+        let mut user_lines: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        if let Ok(form) = cobolt_forms::load_form(&cfrm) {
+            let (_gen, source_map) = cobolt_codegen::generate_with_map(&form);
+            for line in self.handler_breakpoint_gen_lines(&cfrm, &source_map) {
+                if !bp_lines.contains(&line) {
+                    bp_lines.push(line);
+                }
+            }
+            user_lines = source_map
+                .user_body_ranges()
+                .into_iter()
+                .flat_map(|(from, to)| from..=to)
+                .collect();
+        }
+        let bp_set: std::collections::HashSet<u32> = bp_lines.iter().copied().collect();
+        self.debugger
+            .add_source(&generated.display().to_string(), &source, &bp_set);
+
+        let only_user_code = self.debugger.only_user_code;
+        let scope_lines: Vec<u32> = user_lines.iter().copied().collect();
+        if let Some(run) = self.debug_run() {
+            run.send_debug_to(
+                Some(handle),
+                &cobolt_runtime::RemoteDebugCmd::SetBreakpoints(bp_lines),
+            );
+            run.send_debug_to(
+                Some(handle),
+                &cobolt_runtime::RemoteDebugCmd::SetUserScope {
+                    user_only: only_user_code,
+                    user_lines: scope_lines,
+                },
+            );
+        }
+        self.debug_forms.insert(
+            handle.to_owned(),
+            DebugForm {
+                generated,
+                user_lines,
+                sent_breakpoints: bp_set,
+            },
+        );
+    }
+
+    /// Which file an event belongs to — and, when it is a **stop** in a form
+    /// that is not the one on screen, switch the panel to that form first.
+    ///
+    /// This is what "the debugger follows the program" is: the developer
+    /// clicks a button on the called form, its handler hits their breakpoint,
+    /// and the listing in front of them is the called form's.
+    fn debug_follow(&mut self, handle: &str, ev: &cobolt_runtime::DebugEvent) -> Option<String> {
+        let path = self.debug_forms.get(handle)?.generated.display().to_string();
+        let is_stop = matches!(
+            ev,
+            cobolt_runtime::DebugEvent::Stopped { .. } | cobolt_runtime::DebugEvent::Paused { .. }
+        );
+        if debug_should_follow(&self.debug_shown_handle, handle, is_stop)
+            && self.debugger.show_source(&path)
+        {
+            self.debug_shown_handle = handle.to_owned();
+            self.editor.debug_line = None;
+        }
+        Some(path)
+    }
+
     fn sync_breakpoints_to_debuggee(&mut self) {
         if !self.debug_active {
             return;
@@ -3124,7 +3322,14 @@ impl CoboltApp {
         // breakpoint). Recomputed each frame while armed, so a form edited mid
         // session still stops on the right first line; empty once disarmed.
         let mut auto_stop: Vec<u32> = Vec::new();
-        if let Some(form_path) = self.debug_owner_form.clone() {
+        // Both of the things below belong to the form the session STARTED on:
+        // the auto-stops were armed for it, and the handler-editor marks are
+        // translated through its source map. Neither means anything against
+        // another form's generated file — sending them would ask a child to
+        // stop on line numbers that are the caller's — so they are folded in
+        // only while the root's listing is the one being synced (061).
+        let is_root = self.debug_shown_handle == cobolt_runtime::form_host::ROOT_HANDLE;
+        if let Some(form_path) = self.debug_owner_form.clone().filter(|_| is_root) {
             if let Some(form) = self
                 .designers
                 .iter()
@@ -3157,8 +3362,19 @@ impl CoboltApp {
             }
         }
         let sent_set: std::collections::HashSet<u32> = sent_lines.iter().copied().collect();
-        if sent_set == self.debug_sent_breakpoints {
+        // Compared against what THIS form was last sent, not against one set
+        // for the process: line 42 in two forms is two breakpoints, and a
+        // switch between listings would otherwise look like a change to both.
+        let target = self.debug_shown_handle.clone();
+        let unchanged = match self.debug_forms.get(&target) {
+            Some(form) => form.sent_breakpoints == sent_set,
+            None => sent_set == self.debug_sent_breakpoints,
+        };
+        if unchanged {
             return;
+        }
+        if let Some(form) = self.debug_forms.get_mut(&target) {
+            form.sent_breakpoints = sent_set.clone();
         }
         self.debug_sent_breakpoints = sent_set.clone();
         if self.debug_external {
@@ -3169,7 +3385,7 @@ impl CoboltApp {
                 .iter_mut()
                 .find(|r| r.debug && owner.as_ref() == Some(&r.form_path))
             {
-                run.send_debug(&RemoteDebugCmd::SetBreakpoints(sent_lines));
+                run.send_debug_to(Some(&target), &RemoteDebugCmd::SetBreakpoints(sent_lines));
             }
         } else if let Ok(mut guard) = self.debug_runner.breakpoints.lock() {
             *guard = sent_set;
@@ -3238,23 +3454,37 @@ impl CoboltApp {
             return;
         }
         self.debug_sent_user_only = Some(want);
-        let lines = self.debug_user_lines.clone();
         if self.debug_external {
             use cobolt_runtime::RemoteDebugCmd;
+            // EVERY form in the session, each with its OWN user lines: the
+            // toggle is one switch the developer flips, but the lines it
+            // resolves against belong to the form being stepped (061 Q4).
+            // Sending one form's lines to another would have stepping in the
+            // child obey the caller's line numbers.
+            let per_form: Vec<(String, Vec<u32>)> = self
+                .debug_forms
+                .iter()
+                .map(|(handle, form)| (handle.clone(), form.user_lines.iter().copied().collect()))
+                .collect();
             let owner = self.debug_owner_form.clone();
             if let Some(run) = self
                 .external_runs
                 .iter_mut()
                 .find(|r| r.debug && owner.as_ref() == Some(&r.form_path))
             {
-                run.send_debug(&RemoteDebugCmd::SetUserScope {
-                    user_only: want,
-                    user_lines: lines,
-                });
+                for (handle, user_lines) in per_form {
+                    run.send_debug_to(
+                        Some(&handle),
+                        &RemoteDebugCmd::SetUserScope {
+                            user_only: want,
+                            user_lines,
+                        },
+                    );
+                }
             }
         } else if let Ok(mut guard) = self.debug_runner.user_scope.lock() {
             guard.user_only = want;
-            guard.user_lines = lines.into_iter().collect();
+            guard.user_lines = self.debug_user_lines.iter().copied().collect();
         }
     }
 
@@ -3291,6 +3521,10 @@ impl CoboltApp {
             // stdin lines; Stop kills the process (form window closes too).
             use cobolt_runtime::RemoteDebugCmd;
             let owner = self.debug_owner_form.clone();
+            // 061 — a command acts on the form the developer is LOOKING at.
+            // The process may hold several debuggees; addressing them all, or
+            // the root by default, would step a form nobody is watching.
+            let target = self.debug_shown_handle.clone();
             let run = self
                 .external_runs
                 .iter_mut()
@@ -3313,38 +3547,38 @@ impl CoboltApp {
                 }
                 DebugAction::Continue => {
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Continue));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::Continue));
                     }
                 }
                 DebugAction::StepOver => {
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepOver));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::StepOver));
                     }
                 }
                 DebugAction::StepIn => {
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepIn));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::StepIn));
                     }
                 }
                 DebugAction::StepOut => {
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::StepOut));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::StepOut));
                     }
                 }
                 DebugAction::Query(id, query) => {
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Query { id, query }));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::Query { id, query }));
                     }
                 }
                 DebugAction::RunToCursor(line) => {
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::RunToCursor { line }));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::RunToCursor { line }));
                     }
                 }
                 DebugAction::Pause => {
                     self.debugger.center_current_line_next_frame();
                     if let Some(run) = run {
-                        run.send_debug(&RemoteDebugCmd::Cmd(DebugCmd::Pause));
+                        run.send_debug_to(Some(&target), &RemoteDebugCmd::Cmd(DebugCmd::Pause));
                     }
                 }
                 // Handled above, before the session split.
@@ -14722,26 +14956,42 @@ impl eframe::App for CoboltApp {
                         continue;
                     }
                     match wire {
-                        cobolt_runtime::DebugWire::Event { handle, event } => {
-                            // Until the panel can hold more than one listing,
-                            // only the ROOT form's stops are shown. A child
-                            // form's interpreter is attached and running, but
-                            // its breakpoint set is its own and empty until
-                            // the IDE sends it one, so it never stops and this
-                            // drops nothing a developer asked for.
-                            if handle == cobolt_runtime::form_host::ROOT_HANDLE {
-                                // `None`: one debuggee is being shown, and it
-                                // is the one on screen. Once stops are
-                                // followed into other forms, the event names
-                                // the file it belongs to.
-                                self.debugger.apply_event(None, event);
-                                applied = true;
+                        // A form the application opened has joined the
+                        // session. The root announces itself too, and is
+                        // already registered by the attach that started the
+                        // session.
+                        cobolt_runtime::DebugWire::Attached { handle, form } => {
+                            if handle != cobolt_runtime::form_host::ROOT_HANDLE {
+                                self.debug_child_attached(&handle, &form);
                             }
                         }
-                        // The session's roster. Acted on once the panel can
-                        // follow a stop into another form's source.
-                        cobolt_runtime::DebugWire::Attached { .. }
-                        | cobolt_runtime::DebugWire::Detached { .. } => {}
+                        cobolt_runtime::DebugWire::Detached { handle } => {
+                            self.debug_forms.remove(&handle);
+                        }
+                        cobolt_runtime::DebugWire::Event { handle, event } => {
+                            match self.debug_follow(&handle, &event) {
+                                // Stops land on that form's own listing, and
+                                // the panel has just switched to it if needed.
+                                Some(path) => {
+                                    self.debugger.apply_event(Some(&path), event);
+                                    applied = true;
+                                }
+                                // A form with no listing of its own: its
+                                // output and answers still belong to the
+                                // session, but a stop has nowhere to land and
+                                // must not move whatever IS on screen.
+                                None => {
+                                    if !matches!(
+                                        event,
+                                        cobolt_runtime::DebugEvent::Stopped { .. }
+                                            | cobolt_runtime::DebugEvent::Paused { .. }
+                                    ) {
+                                        self.debugger.apply_event(None, event);
+                                        applied = true;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 if applied {
@@ -18923,6 +19173,40 @@ mod debug_gate_tests {
         assert!(!stamped(""), "never built");
         assert!(!stamped("1.60.29"), "built by another version");
         assert!(stamped(crate::version::VERSION), "built by this one");
+    }
+}
+
+#[cfg(test)]
+mod debug_routing_tests {
+    use super::{debug_form_key, debug_should_follow};
+
+    /// The index and the lookup must agree on how a form's name is keyed. A
+    /// debuggee announces the name the runtime saw — upper-cased, because a
+    /// COBOL word reaches it that way — while the `.cfrm` carries whatever
+    /// the developer typed.
+    #[test]
+    fn a_form_is_keyed_the_same_however_it_was_typed() {
+        assert_eq!(debug_form_key("  Called-Form  "), "CALLED-FORM");
+        assert_eq!(debug_form_key("CALLED-FORM"), debug_form_key("called-form"));
+    }
+
+    /// Only a stop moves the listing, and only into a form that is not
+    /// already on screen.
+    #[test]
+    fn the_panel_follows_a_stop_into_another_form_and_nothing_else() {
+        assert!(
+            debug_should_follow("W0", "W1", true),
+            "a stop in the called form brings its listing up"
+        );
+        assert!(
+            !debug_should_follow("W1", "W1", true),
+            "a stop in the form already shown changes no listing"
+        );
+        assert!(
+            !debug_should_follow("W0", "W1", false),
+            "output from another form does not drag the developer away from \
+             the code they are reading"
+        );
     }
 }
 

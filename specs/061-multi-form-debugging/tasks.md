@@ -1,7 +1,9 @@
 # Tasks — Debugging an application, not a form
 
-- **Status:** in progress — T1–T4, T7 done; debugging works again as of
-  1.70.97 (root form only, exactly as before). Next: T8.
+- **Status:** in progress — T1–T9 done (T5/T6 absorbed by T3). As of 1.70.99
+  the debugger follows the program into any form. Next: T10, then docs.
+  **AC1–AC4 want the operator's manual walk** against PowerDemo3's
+  caller/called pair — they are behaviour no unit test reaches.
 - **Plan:** ./plan.md   **Date:** 2026-09-19
 - **Branch:** `debug` (operator, 2026-09-19), worked in
   `.claude/worktrees/debug` because the shared checkout is on `features`
@@ -126,7 +128,10 @@ green *unchanged*, never edited to fit).
 
 ## Stage C — the hosts (plan S3, S4)
 
-- [ ] **T5 — `rcrun run-form --debug` uses the router** (R1, AC7 sibling)
+- [x] **T5 — `rcrun run-form --debug` uses the router** (R1, AC7 sibling) —
+      **absorbed by T3, no code needed.** `rcrun` already calls
+      `stdio_debug_wiring()` under `--debug`, and that is what makes the
+      router active, so its children register themselves.
   - Files: `crates/cobolt-cli/src/form_gui.rs`
   - Do: under `--debug` build `DebugRouter::stdio()`, register the root as
     `ROOT_HANDLE` with the form object name, and pass
@@ -137,7 +142,9 @@ green *unchanged*, never edited to fit).
     continue, stop).
   - **Does not ship alone** — see the shipping constraint above.
 
-- [ ] **T6 — The compiled binary does the same** (AC7)
+- [x] **T6 — The compiled binary does the same** (AC7) — **absorbed by T3,
+      no code needed**, for the same reason, which is also why the parity
+      trap of wiring three hosts separately cannot arise here.
   - Files: `crates/cobolt-compiler/src/lib.rs` (`run_form_app`)
   - Do: mirror T5 exactly — the third host, and the one the developer ships
     (`interpreter-binary-parity`).
@@ -174,7 +181,7 @@ green *unchanged*, never edited to fit).
     non-active source does **not** write its line into the displayed listing.
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide -- debugger`.
 
-- [ ] **T9 — Address by handle; follow a stop into another form** (R3, R5, R6)
+- [x] **T9 — Address by handle; follow a stop into another form** (R3, R5, R6)
   - Files: `crates/cobolt-ide/src/app.rs`
   - Do: add `debug_forms: HashMap<String, DebugForm>` (plan §3.4). At session
     attach, build the form-object → `.cfrm` map once from the project's forms

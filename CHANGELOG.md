@@ -1,5 +1,46 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.99] — 2026-09-19
+
+### Spec 061 T9 — the debugger follows the program into whichever form stops
+
+The session now has a **roster**: every form taking part, by supervisor
+handle, with the generated `.cbl` its stops are reported against, the lines
+of that file the developer actually wrote, and the breakpoint set it was
+last sent. The root joins it when Debug starts; every other form joins as
+the application opens it.
+
+- **A form that opens announces itself**, and the IDE resolves its name to
+  its `.cfrm` (through an index built once per session), loads that
+  listing ready for the moment it stops, and sends it **its own**
+  breakpoints — its gutter marks plus its event-editor marks translated
+  through *its* source map — and its own user-code scope.
+- **A stop switches the listing.** Click a button on the called form, its
+  handler hits your breakpoint, and the code in front of you is the called
+  form's — with its breakpoints and folds, and without losing the caller's.
+  Output and answers never drag you away from the code you are reading.
+- **Commands act on the form you are looking at**, not on the root: Continue,
+  the three steps, Run-to-Cursor, Pause and a data query all carry the shown
+  form's handle.
+- **Breakpoints are compared per form**, so line 42 in two forms is two
+  breakpoints and switching listings is not mistaken for a change to both.
+  The auto-stops and the handler-editor translation are folded in only for
+  the form the session started on — they are its line numbers, and asking a
+  child to stop on them would stop it in the wrong places.
+- **Toggling *Only my code* re-pushes to every form**, each with its own
+  lines, so stepping in the child obeys the child's.
+- A form whose `.cfrm` cannot be found, or whose program has not been
+  generated, is **reported and left alone**: the listing on screen never
+  moves to show the wrong file's line.
+
+Two rules are extracted so they cannot drift: `debug_form_key` (the index and
+the lookup key a form's name identically) and `debug_should_follow` (only a
+stop moves the listing, and only into a form not already shown). Both tested,
+alongside the panel's own switching tests.
+
+**AC1–AC4 are behaviour no unit test reaches** and want a manual walk against
+PowerDemo3's `call-form-demo` / `called-form-demo` pair.
+
 ## [PowerRustCOBOL 1.70.98] — 2026-09-19
 
 ### Spec 061 T8 — the debugger panel can hold a listing per form

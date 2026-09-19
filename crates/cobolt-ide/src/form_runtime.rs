@@ -535,10 +535,21 @@ impl ExternalFormRun {
     /// Send a debug command to the process as an `@DBG <json>` stdin line
     /// (debug mode only; silently ignored otherwise).
     pub fn send_debug(&self, cmd: &cobolt_runtime::RemoteDebugCmd) {
+        self.send_debug_to(None, cmd)
+    }
+
+    /// Send a command to **one** of the forms in the debuggee process
+    /// (spec 061). `target` is a supervisor handle; `None` means the root
+    /// form, which is what every caller predating multi-form debugging meant.
+    pub fn send_debug_to(&self, target: Option<&str>, cmd: &cobolt_runtime::RemoteDebugCmd) {
         let Some(stdin) = &self.child_stdin else {
             return;
         };
-        let Ok(json) = serde_json::to_string(cmd) else {
+        let msg = cobolt_runtime::RemoteDebugMsg {
+            target: target.map(str::to_owned),
+            cmd: cmd.clone(),
+        };
+        let Ok(json) = serde_json::to_string(&msg) else {
             return;
         };
         if let Ok(mut guard) = stdin.lock() {
