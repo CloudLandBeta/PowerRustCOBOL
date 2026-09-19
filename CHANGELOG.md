@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.91] — 2026-09-19
+
+### A Markdown document's Mermaid diagrams are drawn, not listed
+
+Spec 058 T20. A fenced ```mermaid block inside a Markdown document the Viewer
+is showing is now drawn as a diagram rather than printed as source. Flowcharts
+(`flowchart` and its older `graph` spelling, in every direction) and sequence
+diagrams are what the control draws — measured at 403×112 and 450×265 pixels
+for the test's own examples.
+
+A diagram type the control does not publish — class, state, gantt — is
+**refused by name**, with the reason and the diagram's own source shown in its
+place. It is neither half-drawn nor silently left blank, so a developer whose
+class diagram did not appear learns why from the control itself. (The
+underlying renderer can in fact draw those three; the Viewer draws what its
+documentation promises, and widening that promise is a decision, not an
+accident.)
+
+A diagram's labels are part of what Find searches, so looking for a node by
+name finds it.
+
+Drawing costs no new dependency: the diagram becomes an SVG, and SVG is a
+format this control already rasterises.
+
+cobolt-forms 1042 passed, 0 failed.
+
 ## [PowerRustCOBOL 1.70.90] — 2026-09-19
 
 ### The Viewer opens PDFs — and saves them back untouched

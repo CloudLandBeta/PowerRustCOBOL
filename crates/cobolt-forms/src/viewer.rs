@@ -577,6 +577,10 @@ pub enum Block {
     List { ordered: bool, start: Option<u64>, items: Vec<ListItem> },
     Table { alignments: Vec<TableAlignment>, header: Vec<Vec<Inline>>, rows: Vec<Vec<Vec<Inline>>> },
     ThematicBreak,
+    /// A ```` ```mermaid ```` fence (T20). Its own block rather than a
+    /// `CodeBlock` with a language, so the painter never has to sniff a
+    /// fence's language to know whether to draw a diagram or a listing.
+    Mermaid { source: String },
     FootnoteDefinition { label: String, blocks: Vec<Block> },
     /// Raw HTML the source embedded, carried through verbatim — nothing is
     /// silently dropped. Actually *rendering* HTML is a different format's
@@ -607,6 +611,7 @@ impl MarkdownDocument {
                     Block::List { .. } => "List",
                     Block::Table { .. } => "Table",
                     Block::ThematicBreak => "ThematicBreak",
+                    Block::Mermaid { .. } => "Mermaid",
                     Block::FootnoteDefinition { .. } => "FootnoteDefinition",
                     Block::RawHtml(_) => "RawHtml",
                 };
@@ -664,7 +669,10 @@ impl MarkdownDocument {
                             walk_cells(row, out);
                         }
                     }
-                    Block::CodeBlock { .. } | Block::ThematicBreak | Block::RawHtml(_) => {}
+                    Block::CodeBlock { .. }
+                    | Block::ThematicBreak
+                    | Block::Mermaid { .. }
+                    | Block::RawHtml(_) => {}
                 }
             }
         }
@@ -814,7 +822,15 @@ pub fn parse_markdown(text: &str) -> MarkdownDocument {
                 }
                 TagEnd::CodeBlock => {
                     if let Some(Frame::CodeBlock { language, text }) = stack.pop() {
-                        push_block(&mut stack, &mut doc_blocks, Block::CodeBlock { language, text });
+                        let is_mermaid = language
+                            .as_deref()
+                            .is_some_and(|l| l.trim().eq_ignore_ascii_case("mermaid"));
+                        let block = if is_mermaid {
+                            Block::Mermaid { source: text }
+                        } else {
+                            Block::CodeBlock { language, text }
+                        };
+                        push_block(&mut stack, &mut doc_blocks, block);
                     }
                 }
                 TagEnd::HtmlBlock => {
@@ -1453,6 +1469,79 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
 }
 
+// ── Mermaid subset (T20: R7, AC2) ───────────────────────────────────────
+//
+// §3's contract: "**Subset we implement**: flowchart and sequence diagrams";
+// **not delivered** — class/state/gantt/ER/journey, and exact upstream
+// layout.
+//
+// ⚠️ **The library can draw more than the contract promises.**
+// `mermaid-rs-renderer 0.2` also renders class, state and gantt diagrams.
+// This control renders only what §3 published, and *refuses the rest
+// visibly* rather than silently ignoring them (T20's own Verify) — AC2's
+// rule is that nothing is over- or under-delivered against that table. If
+// the operator wants the wider set, §3 is the thing to widen; the code is
+// two lines behind it.
+
+/// Which kind of diagram a ```` ```mermaid ```` block holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MermaidKind {
+    Flowchart,
+    Sequence,
+    /// A real Mermaid diagram type this control does not publish (§3) —
+    /// carried by name so the reason can be shown rather than swallowed.
+    Unsupported(String),
+}
+
+impl MermaidKind {
+    pub fn is_supported(&self) -> bool {
+        !matches!(self, Self::Unsupported(_))
+    }
+}
+
+/// Read a diagram's kind from its first meaningful line — the same place
+/// Mermaid itself declares it.
+pub fn mermaid_kind(source: &str) -> MermaidKind {
+    let first = source
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty() && !l.starts_with("%%"))
+        .unwrap_or("");
+    let word = first.split([' ', '\t', ';']).next().unwrap_or("").trim();
+    match word.to_ascii_lowercase().as_str() {
+        // `graph` is Mermaid's older spelling of `flowchart`.
+        "flowchart" | "graph" => MermaidKind::Flowchart,
+        "sequencediagram" => MermaidKind::Sequence,
+        "" => MermaidKind::Unsupported("empty".to_string()),
+        other => MermaidKind::Unsupported(other.to_string()),
+    }
+}
+
+/// Render a supported diagram to SVG.
+///
+/// An unsupported kind is an `Err` naming it, **never** a silent blank: the
+/// caller shows the reason beside the source, so a developer whose class
+/// diagram did not draw learns why from the control rather than from this
+/// spec.
+pub fn render_mermaid_svg(source: &str) -> Result<String, String> {
+    match mermaid_kind(source) {
+        MermaidKind::Flowchart | MermaidKind::Sequence => {
+            mermaid_rs_renderer::render(source).map_err(|e| e.to_string())
+        }
+        MermaidKind::Unsupported(kind) => Err(format!(
+            "Mermaid '{kind}' diagrams are not supported — this Viewer draws flowchart and sequence diagrams"
+        )),
+    }
+}
+
+/// Render a supported diagram to pixels, through the same `resvg` path an
+/// SVG document already takes (§3's own note: no new raster dependency).
+#[cfg(feature = "render")]
+pub fn render_mermaid(source: &str) -> Result<DecodedImage, String> {
+    let svg = render_mermaid_svg(source)?;
+    decode_image(svg.as_bytes())
+}
+
 // ── PDF (T18: R7, R9, AC2) ──────────────────────────────────────────────
 //
 // §3's contract for this format, verbatim: **delivered** — text and basic
@@ -2037,6 +2126,15 @@ impl SearchableText for MarkdownDocument {
                     }
                     Block::CodeBlock { text, .. } => {
                         out.push_str(text);
+                        out.push('\n');
+                    }
+                    // A diagram's LABELS are what a reader sees, and its
+                    // source is where they are written — so searching a
+                    // guide for a node's name finds it. The layout
+                    // keywords come along; that is the honest trade against
+                    // parsing the diagram a second time just for Find.
+                    Block::Mermaid { source } => {
+                        out.push_str(source);
                         out.push('\n');
                     }
                     Block::BlockQuote { blocks } | Block::FootnoteDefinition { blocks, .. } => {
@@ -4414,5 +4512,113 @@ mod pdf_tests {
         assert_eq!(index.format, ViewerFormat::Pdf, "R3: resolved from %PDF- content");
         assert_eq!(index.page_count(), 4);
         assert_eq!(progress.last().copied(), Some(100), "R6 reaches 100");
+    }
+}
+
+/// Spec 058 T20 — the Mermaid subset (R7, AC2). §3 promises **flowchart and
+/// sequence** diagrams and nothing else; these tests report the pixel
+/// dimensions actually produced, and confirm the excluded kinds are
+/// *refused by name* rather than silently ignored.
+#[cfg(test)]
+mod mermaid_tests {
+    use super::*;
+
+    const FLOWCHART: &str = "flowchart LR\n  A[Start] --> B{Check}\n  B -->|yes| C[Done]\n  B -->|no| A\n";
+    const SEQUENCE: &str = "sequenceDiagram\n  participant Form\n  participant Runtime\n  Form->>Runtime: onClick\n  Runtime-->>Form: StateUpdate\n";
+
+    #[test]
+    fn a_fenced_mermaid_block_becomes_a_diagram_not_a_code_listing() {
+        let doc = parse_markdown(&format!(
+            "# Pipeline\n\n```mermaid\n{FLOWCHART}```\n\n```rust\nlet x = 1;\n```\n"
+        ));
+        let counts = doc.count_by_kind();
+        println!("blocks: {counts:?}");
+        assert_eq!(counts.get("Mermaid"), Some(&1), "the mermaid fence is a diagram");
+        assert_eq!(counts.get("CodeBlock"), Some(&1), "and an ordinary fence is still a listing");
+        let found = doc.blocks.iter().any(|b| matches!(b, Block::Mermaid { source } if source.contains("flowchart")));
+        assert!(found, "the diagram carries its own source");
+    }
+
+    #[test]
+    fn the_language_tag_is_matched_case_insensitively() {
+        for tag in ["mermaid", "Mermaid", "MERMAID", " mermaid "] {
+            let doc = parse_markdown(&format!("```{tag}\n{FLOWCHART}```\n"));
+            let n = *doc.count_by_kind().get("Mermaid").unwrap_or(&0);
+            println!("fence language {tag:?} -> {n} diagram(s)");
+            assert_eq!(n, 1, "a fence tagged {tag:?} is a diagram");
+        }
+    }
+
+    #[test]
+    fn the_two_supported_kinds_are_recognised_and_the_rest_are_named() {
+        let cases: &[(&str, MermaidKind)] = &[
+            ("flowchart LR\n A-->B", MermaidKind::Flowchart),
+            ("graph TD\n A-->B", MermaidKind::Flowchart),
+            ("  flowchart TB; A-->B", MermaidKind::Flowchart),
+            ("%% a comment\nsequenceDiagram\n A->>B: hi", MermaidKind::Sequence),
+            ("classDiagram\n A <|-- B", MermaidKind::Unsupported("classdiagram".into())),
+            ("stateDiagram-v2\n [*] --> S", MermaidKind::Unsupported("statediagram-v2".into())),
+            ("gantt\n title X", MermaidKind::Unsupported("gantt".into())),
+            ("", MermaidKind::Unsupported("empty".into())),
+        ];
+        for (src, want) in cases {
+            let got = mermaid_kind(src);
+            println!("{:?}... -> {got:?} (supported: {})", &src[..src.len().min(22)], got.is_supported());
+            assert_eq!(&got, want);
+        }
+    }
+
+    #[cfg(feature = "render")]
+    #[test]
+    fn a_flowchart_and_a_sequence_diagram_both_render_to_real_pixels() {
+        for (name, src) in [("flowchart", FLOWCHART), ("sequenceDiagram", SEQUENCE)] {
+            let svg = render_mermaid_svg(src)
+                .unwrap_or_else(|e| panic!("§3 promises {name} diagrams, and this one failed: {e}"));
+            let img = render_mermaid(src).expect("and it must rasterise");
+            println!(
+                "{name}: {} bytes of SVG -> {}x{} px, {} frame(s)",
+                svg.len(),
+                img.width,
+                img.height,
+                img.frame_count()
+            );
+            assert!(svg.contains("<svg"), "a real SVG document");
+            assert!(img.width > 20 && img.height > 20, "{name} must produce a real drawing, got {}x{}", img.width, img.height);
+            assert_eq!(img.frame_count(), 1, "a diagram is a still image");
+            assert_eq!(img.frames[0].rgba.len(), (img.width * img.height * 4) as usize);
+        }
+    }
+
+    /// **T20's own Verify** — "a `class`/`state`/`gantt` block is confirmed
+    /// **not** attempted, not silently ignored."
+    ///
+    /// ⚠️ Recorded finding: `mermaid-rs-renderer 0.2` *can* draw all three.
+    /// This control draws only what §3 published, and says so by name — the
+    /// alternative would over-deliver against the table AC2 checks against.
+    #[test]
+    fn the_diagram_kinds_section_three_excludes_are_refused_by_name() {
+        for (kind, src) in [
+            ("class", "classDiagram\n  Account <|-- Savings\n"),
+            ("state", "stateDiagram-v2\n  [*] --> Open\n"),
+            ("gantt", "gantt\n  title Release\n  section A\n  Task :a1, 2026-09-01, 3d\n"),
+        ] {
+            let err = render_mermaid_svg(src)
+                .expect_err("§3 does not publish this diagram type");
+            println!("{kind} diagram -> refused: {err}");
+            assert!(err.contains(kind), "the refusal must NAME the kind, got {err:?}");
+            assert!(
+                err.contains("flowchart") && err.contains("sequence"),
+                "and say what IS supported, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_diagrams_labels_are_findable() {
+        let doc = parse_markdown(&format!("```mermaid\n{SEQUENCE}```\n"));
+        let text = doc.searchable_text().expect("a diagram's source is text");
+        let hits = find_matches(&text, "StateUpdate", false);
+        println!("searching a sequence diagram for \"StateUpdate\" -> {} hit(s)", hits.len());
+        assert_eq!(hits.len(), 1, "a diagram's labels are part of what a reader can find");
     }
 }

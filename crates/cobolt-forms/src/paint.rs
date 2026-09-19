@@ -8136,6 +8136,35 @@ fn content_searchable_text(content: &ViewerPageContent) -> Option<String> {
     }
 }
 
+/// Rasterize a Mermaid diagram once and keep its texture, keyed by the
+/// diagram's own source — the same memoize-in-`ctx.memory()` shape
+/// `viewer_first_page_content` uses, for the same reason: a paint must not
+/// re-run a layout engine every frame.
+fn viewer_mermaid_image(
+    ctx: &egui::Context,
+    source: &str,
+) -> Result<(f32, f32, egui::TextureId), String> {
+    let id = egui::Id::new(("viewer-mermaid", source));
+    if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Result<(f32, f32, egui::TextureId), String>>(id)) {
+        return hit;
+    }
+    let result = (|| {
+        let img = crate::viewer::render_mermaid(source)?;
+        let frame = img.frames.first().ok_or_else(|| "empty diagram".to_string())?;
+        let colour = egui::ColorImage::from_rgba_unmultiplied(
+            [img.width as usize, img.height as usize],
+            &frame.rgba,
+        );
+        let handle = ctx.load_texture("viewer-mermaid", colour, egui::TextureOptions::LINEAR);
+        let out = (img.width as f32, img.height as f32, handle.id());
+        // The handle must outlive this call or egui frees the texture.
+        ctx.memory_mut(|m| m.data.insert_temp(id.with("tex"), handle));
+        Ok(out)
+    })();
+    ctx.memory_mut(|m| m.data.insert_temp(id, result.clone()));
+    result
+}
+
 #[derive(Clone, Copy)]
 struct BlockPaintCtx {
     font_size: f32,
@@ -8288,6 +8317,52 @@ fn paint_block(painter: &egui::Painter, ctx: &BlockPaintCtx, block: &crate::view
             painter.rect_filled(bg_rect, 4.0, Color32::from_rgba_premultiplied(ctx.code_color.r(), ctx.code_color.g(), ctx.code_color.b(), 20));
             painter.galley(pos + egui::vec2(VIEWER_CODE_PADDING, VIEWER_CODE_PADDING), galley, ctx.code_color);
             h
+        }
+        // T20: a diagram, drawn through the same `resvg` path an SVG
+        // document takes. An UNSUPPORTED kind shows its reason and its own
+        // source, because a blank space where a diagram should be tells a
+        // developer nothing (T20's "not attempted, not silently ignored").
+        Block::Mermaid { source } => {
+            let rendered = viewer_mermaid_image(painter.ctx(), source);
+            match rendered {
+                Ok(handle) => {
+                    let (w, h, tex) = handle;
+                    // Fitted to the column, never enlarged past its own
+                    // size: an upscaled vector drawing is a blurry one.
+                    let scale = (ctx.width / w).min(1.0);
+                    let size = egui::vec2(w * scale, h * scale);
+                    painter.image(
+                        tex,
+                        egui::Rect::from_min_size(pos, size),
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                    size.y
+                }
+                Err(reason) => {
+                    let mut job = egui::text::LayoutJob::default();
+                    job.wrap.max_width = (ctx.width - 2.0 * VIEWER_CODE_PADDING).max(10.0);
+                    job.append(
+                        &format!("{reason}\n\n{source}"),
+                        0.0,
+                        egui::TextFormat {
+                            font_id: egui::FontId::monospace(ctx.font_size * 0.92),
+                            color: ctx.code_color,
+                            ..Default::default()
+                        },
+                    );
+                    let galley = painter.layout_job(job);
+                    let h = galley.rect.height() + 2.0 * VIEWER_CODE_PADDING;
+                    let bg = egui::Rect::from_min_size(pos, egui::vec2(ctx.width, h));
+                    painter.rect_filled(
+                        bg,
+                        4.0,
+                        Color32::from_rgba_premultiplied(ctx.code_color.r(), ctx.code_color.g(), ctx.code_color.b(), 20),
+                    );
+                    painter.galley(pos + egui::vec2(VIEWER_CODE_PADDING, VIEWER_CODE_PADDING), galley, ctx.code_color);
+                    h
+                }
+            }
         }
         Block::BlockQuote { blocks } => {
             let inner_ctx = BlockPaintCtx { width: (ctx.width - VIEWER_QUOTE_INDENT).max(20.0), ..*ctx };

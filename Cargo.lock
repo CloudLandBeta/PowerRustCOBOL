@@ -1415,6 +1415,7 @@ dependencies = [
  "image 0.25.10",
  "indexmap",
  "lopdf",
+ "mermaid-rs-renderer",
  "native-tls",
  "pretty_assertions",
  "pulldown-cmark 0.12.2",

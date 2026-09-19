@@ -564,7 +564,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage G — Mermaid subset (fidelity wave 3 — after PDF, per spec.md's order)
 
-- [ ] **T20 — Mermaid flowchart + sequence, inside fenced Markdown blocks**
+- [x] **T20 — Mermaid flowchart + sequence, inside fenced Markdown blocks**
       (R7, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml`
         (`mermaid-rs-renderer`, matching `cobolt-ide`'s pin)
@@ -576,6 +576,27 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-forms` — a flowchart and a sequence diagram
         both render, reporting produced pixel dimensions; a `class`/`state`/
         `gantt` block is confirmed **not** attempted, not silently ignored.
+
+  - **DONE — 2026-09-19 (1.70.91).** A ```` ```mermaid ```` fence is now its
+    own `Block::Mermaid` (not a `CodeBlock` with a language), so the painter
+    never sniffs a fence's language to know whether to draw a diagram or a
+    listing. Rendering goes diagram source → `mermaid-rs-renderer` → SVG →
+    the **existing** `resvg` path an SVG document already takes, so no new
+    raster dependency (§3's own note). Measured: a flowchart renders 403×112
+    px, a sequence diagram 450×265 px.
+  - **⚠️ Finding for the operator: the library draws more than §3 promises.**
+    `mermaid-rs-renderer 0.2` also renders **class, state and gantt**
+    diagrams. §3's contract is "flowchart and sequence" with
+    class/state/gantt/ER/journey on the not-delivered side, and AC2's rule
+    is that nothing is over- or under-delivered against that table — so this
+    control **refuses the others by name** ("Mermaid 'classdiagram' diagrams
+    are not supported — this Viewer draws flowchart and sequence diagrams")
+    and shows that reason beside the diagram's own source, which is T20's
+    "not attempted, not silently ignored". **If the operator wants the wider
+    set, §3 is the thing to widen — the code is two match arms behind it.**
+  - A diagram's source is part of its searchable text, so a node's label is
+    findable. The layout keywords come along with it; that is the honest
+    trade against parsing the diagram a second time just for Find.
 
 ## Stage H — HTML subset (fidelity wave 4)
 

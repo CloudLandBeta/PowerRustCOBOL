@@ -38,6 +38,11 @@ pulldown-cmark = { version = "0.12", default-features = false }
 # `default-features = false` drops `chrono` and the `pom` parser: the reader
 # uses the `nom` one, and nothing here needs a PDF's creation date.
 lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] }
+# The Viewer's Mermaid subset (spec 058, T20). Pure Rust: diagram source in,
+# SVG out — `resvg`, already here behind `render`, turns that into pixels.
+# Version matched to cobolt-ide's own pin so the two never resolve to
+# different releases.
+mermaid-rs-renderer = "0.2"
 egui        = { version = "0.36", optional = true }
 fontdb      = { version = "0.23", optional = true }
 # Validate font faces with the SAME parser egui/epaint >=0.34 uses (skrifa),
