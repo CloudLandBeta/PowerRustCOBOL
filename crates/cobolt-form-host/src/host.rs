@@ -2247,6 +2247,15 @@ impl FormBody {
                 .show(panel_ui, |ui| {
                     if blocked {
                         ui.disable();
+                        // `disable()` also multiplied the painter's opacity by
+                        // `disabled_alpha` (0.5) — and a ContentPane occupant
+                        // inherits the shell's own halving on top of that, so
+                        // a blocked form drew at a quarter of its designed
+                        // strength and read as "greyed" whatever
+                        // ModalOverlayStyle said. The form keeps exactly the
+                        // transparency it was designed with; the overlay
+                        // below is the ONLY dimming (operator, 2026-09-19).
+                        ui.set_opacity(1.0);
                     }
                     ui.style_mut().spacing.scroll = egui::style::ScrollStyle::floating();
                     egui::ScrollArea::both()
@@ -2275,7 +2284,7 @@ impl FormBody {
             if blocked {
                 let fill = match self.modal_overlay_style {
                     cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
-                        egui::Color32::from_white_alpha(70)
+                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)
                     }
                     cobolt_forms::model::ModalOverlayStyle::Greyed => {
                         egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
@@ -4561,6 +4570,9 @@ impl FormHost {
                 .show(root_ui, |ui| {
                     if root_blocked {
                         ui.disable();
+                        // Same as `child_frame`: the form keeps its designed
+                        // transparency; only the overlay dims.
+                        ui.set_opacity(1.0);
                     }
                     // 049 R12/R13/R41 — Pane mode: the PANE paints the form's
                     // backdrop, sized to the pane, OUTSIDE the scroll area.
@@ -4670,7 +4682,7 @@ impl FormHost {
             if root_blocked {
                 let fill = match self.root.modal_overlay_style {
                     cobolt_forms::model::ModalOverlayStyle::SemiTransparent => {
-                        egui::Color32::from_white_alpha(70)
+                        egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)
                     }
                     cobolt_forms::model::ModalOverlayStyle::Greyed => {
                         egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150)
@@ -6579,7 +6591,7 @@ mod parity {
 
         let semi = painted_with(cobolt_forms::model::ModalOverlayStyle::SemiTransparent);
         assert!(
-            semi.contains(&egui::Color32::from_white_alpha(70)),
+            semi.contains(&egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)),
             "SemiTransparent must paint its own overlay fill: {semi:?}"
         );
         let grey = painted_with(cobolt_forms::model::ModalOverlayStyle::Greyed);
@@ -6716,7 +6728,7 @@ mod parity {
 
         let semi = painted_with(cobolt_forms::model::ModalOverlayStyle::SemiTransparent);
         assert!(
-            semi.contains(&egui::Color32::from_white_alpha(70)),
+            semi.contains(&egui::Color32::from_rgba_unmultiplied(60, 60, 64, 64)),
             "an occupant's SemiTransparent must paint its own overlay fill at FULL \
              strength even under the shell's disabled root Ui: {semi:?}"
         );

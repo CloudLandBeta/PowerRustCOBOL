@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.73] — 2026-09-19
+
+### A blocked form keeps its designed transparency; only the overlay dims
+
+`ui.disable()` — how a modal-blocked form refuses input — also multiplies the
+painter's opacity by egui's `disabled_alpha` (0.5), and a ContentPane occupant
+inherits the shell's own halving on top of that. So a blocked form's whole
+face drew at a quarter of its designed strength and read as "greyed" whatever
+`ModalOverlayStyle` said — with `SemiTransparent` selected, the operator still
+saw a greyed form (2026-09-19). Both paint sites now reset the opacity to 1
+right after `disable()`: the form keeps exactly the transparency it was
+designed with, input stays refused, and the overlay is the only dimming.
+
+The overlay itself is now one grey layer in two strengths, rather than a white
+wash versus a grey one: `SemiTransparent` = grey at 25 % opacity,
+`Greyed` = the same grey at ~60 % (unchanged). Two constants in `host.rs` if
+the strengths want tuning.
+
 ## [PowerRustCOBOL 1.70.72] — 2026-09-19
 
 ### A click on a modal-blocked form still reached its handler — queued, then replayed

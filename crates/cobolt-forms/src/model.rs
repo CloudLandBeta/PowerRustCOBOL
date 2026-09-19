@@ -6802,11 +6802,12 @@ impl FormFormat {
 /// already gave every blocked form before this property existed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ModalOverlayStyle {
-    /// A light wash over the whole form — it reads as faded, not obscured.
+    /// A light grey layer (25 % opaque) over the whole form — the form keeps
+    /// exactly the transparency it was designed with; only this layer dims.
     #[default]
     SemiTransparent,
-    /// A darker, more opaque wash — the classic dimmed/greyed-out modal
-    /// backdrop.
+    /// The same grey layer, heavier (~60 % opaque) — the classic dimmed /
+    /// greyed-out modal backdrop.
     Greyed,
 }
 
