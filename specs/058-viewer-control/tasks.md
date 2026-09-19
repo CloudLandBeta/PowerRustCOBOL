@@ -937,7 +937,7 @@ order.)*
     and `Viewer` went into `render::self_clipping_type`'s exclusion list
     there. Re-run and green.
 
-- [ ] **T32 — System KB** (steering: hard constraint)
+- [x] **T32 — System KB** (steering: hard constraint)
   - Files: `crates/cobolt-compiler/src/lib.rs` (all four doc tables),
         `assets/knowledge/chunked.data`
   - Do: property/method/event entries for Viewer — **all** of it: the static-
@@ -952,6 +952,25 @@ order.)*
         including at least one R32 event and one §8.8 method so the expanded
         surface isn't silently under-published); `cargo test -p cobolt-ide
         --bins prebuilt_chunked_kb` green.
+
+  - **DONE — 2026-09-19 (1.70.96).** All four `cobolt-compiler` doc tables
+    carry the Viewer: `control_purpose` (including §3's fidelity boundary in
+    the developer's own words — a developer must learn what a format does
+    NOT deliver from the control's documentation, not from the spec),
+    `property_reference` (16 entries), `event_reference` (22 events) and
+    `control_method_docs` (17 methods), plus a `## Viewer (spec 058)`
+    section in `methods_reference_doc`.
+  - **`chunked.data` actually changed**, which is the proof the right file
+    was edited: `8807ac46…` → `7e036aed…`, 1700 records from 8 documents.
+    `prebuilt_chunked_kb_matches_the_published_documentation` is green — and
+    it had been **red before this work started**, for
+    `Knowledge Base/form_designer_controls.md`, so regenerating here fixed a
+    staleness that predates spec 058.
+  - New test `spec_058_viewer_is_fully_published_in_the_system_kb`, on
+    spec 039's template plus what its own comment asks for: the needles
+    cover the **whole** surface — at least one R32 event and at least one
+    §8.8 conversation method — so a section copied from another control
+    could not pass it.
 
 - [ ] **T33 — Docs & i18n**
   - Files: `docs/developers-guide-en.md` (a `### Viewer` subsection in §8 "The

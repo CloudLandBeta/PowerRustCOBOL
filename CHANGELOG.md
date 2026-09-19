@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.96] — 2026-09-19
+
+### The AI knows about the Viewer
+
+Spec 058 T32. The System Knowledge Base now carries the whole control: what
+it is for, all sixteen of its property groups, all twenty-two of its events
+and all seventeen of its methods, in both published references. Grace and the
+specialists can therefore write a Viewer into a form without inventing a
+property that does not exist.
+
+The entry says plainly what each format does **not** deliver, as well as what
+it does — that a PDF gives its text and page geometry but not a faithful
+raster of a complex page, that Mermaid means flowcharts and sequence diagrams
+and that anything else is refused by name, that the HTML mode is a subset and
+emphatically not a browser. A developer should learn a boundary from the
+control's own documentation rather than from a specification.
+
+Regenerating the knowledge store also cleared a staleness that predated this
+work: the shipped store had been out of date for the control reference.
+
 ## [PowerRustCOBOL 1.70.95] — 2026-09-19
 
 ### A Viewer is editable in the designer, and paints the same everywhere
