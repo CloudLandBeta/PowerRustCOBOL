@@ -8152,7 +8152,9 @@ Select a Generated Code item and press **Debug** to start a session. You get:
 - **Animate**, which steps for you at the speed on the slider — and stops
   the moment a step lands on a **breakpoint**: the toggle switches itself
   off and the program waits for you, exactly as it would have had you been
-  stepping by hand.
+  stepping by hand. **Pause** stops an animation at any moment, and stays
+  clickable throughout one; press **Animate** again to carry on, or take
+  over by hand with **Step Into** / **Step Over**.
 
 During a session a *Stop Debug* control appears; otherwise debugging starts from
 the toolbar **Debug** button (to the right of **Run**). In a project the

@@ -1,5 +1,23 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.90] — 2026-09-19
+
+### The debugger toolbar no longer strobes while animating; Pause stops the animation
+
+Every button in the debugger toolbar was gated on `is_paused`, and while
+**Animate** runs that flag flips at the animation's own rate — stopped
+between one step and the next, running during one. So the whole toolbar
+blinked enabled/disabled several times a second, and **Pause**, the one
+control that stops an animation, was unclickable exactly half the time
+(operator, 2026-09-19: "pause is switching enabled/disabled all the time
+while animating"). While Animate is on, Pause and the stopped-program
+controls (Continue, the three steps) now all stay live. Pressing **Pause**
+ends the animation and leaves the program stopped where it is; pressing
+**Animate** again resumes stepping from there, and **Step Into** / **Step
+Over** take over by hand. **Continue** ends an animation too — it means run,
+not keep stepping. Two panel tests pin the availability rules and the
+pause-then-resume cycle.
+
 ## [PowerRustCOBOL 1.70.89] — 2026-09-19
 
 ### Debugger: Pause reaches an idle form, and Animate stops at a breakpoint

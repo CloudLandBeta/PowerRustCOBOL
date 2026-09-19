@@ -1672,7 +1672,9 @@ impl DebuggerPanel {
             // toolbar up with the code panel below it (PANE_PAD).
             ui.spacing_mut().item_spacing.x = 4.0;
             ui.add_space(PANE_PAD);
-            let paused = self.is_paused;
+            // NOT `is_paused`: while Animate runs, that flag flips at the
+            // animation's rate and every button gated on it strobed with it.
+            let paused = self.stopped_controls_available();
 
             if tool_icon(ui, "stop", true, false, Some(Color32::from_rgb(220, 80, 80)), tr.dbg_stop)
                 .clicked()
@@ -1688,6 +1690,9 @@ impl DebuggerPanel {
             {
                 action = Some(DebugAction::Continue);
                 self.is_paused = false;
+                // Continue means RUN, so it ends an animation rather than
+                // leaving it armed to resume at the next stop.
+                self.animate = false;
                 self.last_animate_step = None;
             }
 
@@ -1723,8 +1728,8 @@ impl DebuggerPanel {
             }
 
             // Pause sits immediately LEFT of Go-to-current-line (operator).
-            if tool_icon(ui, "pause", !paused, false, None, tr.dbg_pause).clicked() {
-                self.center_current_line_next_frame();
+            if tool_icon(ui, "pause", self.pause_available(), false, None, tr.dbg_pause).clicked() {
+                self.on_pause_pressed();
                 action = Some(DebugAction::Pause);
             }
 
@@ -1927,6 +1932,38 @@ impl DebuggerPanel {
     fn should_center_current_line(&self) -> bool {
         self.current_line > 0
             && (self.force_center_current || self.current_line != self.last_scrolled_line)
+    }
+
+    /// Is **Pause** clickable?
+    ///
+    /// While the program runs, yes — that is what it is for. And whenever
+    /// **Animate** is on, always: between one animated step and the next the
+    /// panel is *stopped*, so gating Pause on "running" made it strobe
+    /// enabled/disabled at the animation's own rate, and the developer could
+    /// not reliably click the one control that stops the thing
+    /// (operator, 2026-09-19).
+    pub(crate) fn pause_available(&self) -> bool {
+        !self.is_paused || self.animate
+    }
+
+    /// Are the stopped-program controls — Continue and the three steps —
+    /// clickable?
+    ///
+    /// While stopped, yes. While animating, yes and for the same reason: they
+    /// strobed with `is_paused` exactly as Pause did, and taking over from an
+    /// animation with a step is how a developer says "I will drive from
+    /// here".
+    pub(crate) fn stopped_controls_available(&self) -> bool {
+        self.is_paused || self.animate
+    }
+
+    /// The developer pressed **Pause**: any animation is over and the program
+    /// stops where it is, waiting for them. Animate is re-armed by pressing
+    /// it again; a step takes over by hand.
+    pub(crate) fn on_pause_pressed(&mut self) {
+        self.animate = false;
+        self.last_animate_step = None;
+        self.center_current_line_next_frame();
     }
 
     fn maybe_animate_step(&mut self, ctx: &Context) -> Option<DebugAction> {
@@ -4454,6 +4491,79 @@ mod animate_breakpoint_tests {
         p.apply_event(stopped(10, StopReason::Step));
         assert!(!p.animate, "a step landing on a marked line is a breakpoint to the developer");
         assert!(p.last_animate_step.is_none(), "the timer is reset with the toggle");
+    }
+}
+
+#[cfg(test)]
+mod animate_control_tests {
+    use super::*;
+
+    /// While Animate runs, `is_paused` flips at the animation's own rate —
+    /// stopped between steps, running during one. Every button gated on it
+    /// strobed with it, Pause above all: the developer could not reliably
+    /// click the one control that stops the animation (operator,
+    /// 2026-09-19). Animating, both sides of the toolbar stay live.
+    #[test]
+    fn the_toolbar_does_not_strobe_while_animating() {
+        let mut p = DebuggerPanel::new();
+
+        // Running, not animating: Pause is live, the steps are not.
+        p.is_paused = false;
+        p.animate = false;
+        assert!(p.pause_available(), "a running program can be paused");
+        assert!(!p.stopped_controls_available(), "a running program cannot be stepped");
+
+        // Stopped, not animating: the reverse.
+        p.is_paused = true;
+        assert!(!p.pause_available(), "a stopped program has nothing to pause");
+        assert!(p.stopped_controls_available(), "a stopped program can be stepped");
+
+        // Animating: both stay live whichever way `is_paused` happens to be
+        // flipped at the instant the frame is painted.
+        p.animate = true;
+        for paused in [true, false] {
+            p.is_paused = paused;
+            assert!(
+                p.pause_available(),
+                "Pause must stay clickable while animating (is_paused={paused})"
+            );
+            assert!(
+                p.stopped_controls_available(),
+                "the steps must stay clickable while animating (is_paused={paused})"
+            );
+        }
+    }
+
+    /// Pause ends the animation; pressing Animate again resumes stepping from
+    /// wherever the program stopped.
+    #[test]
+    fn pause_ends_the_animation_and_animate_resumes_it() {
+        let ctx = egui::Context::default();
+        let mut p = DebuggerPanel::new();
+        p.is_paused = true;
+        p.animate = true;
+
+        assert!(
+            matches!(p.maybe_animate_step(&ctx), Some(DebugAction::StepOver)),
+            "an armed animation steps on its first tick"
+        );
+
+        // The developer presses Pause.
+        p.is_paused = true;
+        p.on_pause_pressed();
+        assert!(!p.animate, "Pause ends the animation");
+        assert!(p.last_animate_step.is_none(), "and resets its timer");
+        assert!(
+            p.maybe_animate_step(&ctx).is_none(),
+            "a paused animation issues no further steps"
+        );
+
+        // Pressing Animate again resumes it.
+        p.animate = true;
+        assert!(
+            matches!(p.maybe_animate_step(&ctx), Some(DebugAction::StepOver)),
+            "Animate pressed again resumes stepping"
+        );
     }
 }
 
