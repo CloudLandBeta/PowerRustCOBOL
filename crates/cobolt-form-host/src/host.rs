@@ -834,6 +834,7 @@ impl FormBody {
         ui: &mut egui::Ui,
         band: egui::Rect,
         behind: egui::Color32,
+        blocked: bool,
     ) {
         if self.footer_ids.is_empty() || band.width() < 1.0 || band.height() < 1.0 {
             return;
@@ -917,8 +918,7 @@ impl FormBody {
             pre_focus,
             Some(footer_id_scope()),
         );
-        self.forward_interaction(&out.prop_updates, out.events);
-
+        self.forward_interaction(&out.prop_updates, out.events, blocked);
     }
 
     // ── Snackbar (spec 055) ─────────────────────────────────────────────────
@@ -1277,8 +1277,31 @@ impl FormBody {
         &mut self,
         prop_updates: &[(String, String, String)],
         events: Vec<cobolt_forms::render::UiEvent>,
+        // 051 R19/R28 — this form is waiting on a modal child (or the
+        // debugger). `ui.disable()` already refuses input to egui WIDGETS,
+        // but the engine detects a control's click from RAW pointer state
+        // and rect containment (`render.rs`, "One press, one click"), which
+        // `disable()` does not touch — so a click on a blocked form still
+        // produced an `onClick`, which queued on the interpreter's event
+        // channel while it sat inside `OpenFormSync`, and replayed the moment
+        // the modal closed: every click on the caller's "open" button while
+        // the modal was up opened it once more (operator, 2026-09-19). A
+        // blocked form takes NO operator input; only the non-interaction
+        // events keep flowing.
+        blocked: bool,
     ) -> bool {
         let mut sent = false;
+        let (prop_updates, events): (&[(String, String, String)], Vec<_>) = if blocked {
+            (
+                &[],
+                events
+                    .into_iter()
+                    .filter(|ev| Self::event_flows_while_blocked(&ev.event))
+                    .collect(),
+            )
+        } else {
+            (prop_updates, events)
+        };
         // Live values first, so a handler woken by the event that follows reads the
         // value that caused it.
         for (id, key, val) in prop_updates {
@@ -1334,6 +1357,15 @@ impl FormBody {
             sent = true;
         }
         sent
+    }
+
+    /// The events a BLOCKED form still forwards: the ones no operator action
+    /// produced. `onLoad` fires once per control and would otherwise be lost
+    /// for good; `onTick` is a Timer's clock, and a handler parked in
+    /// `OpenFormSync` sees the backlog coalesced anyway. Everything else is a
+    /// mouse or keyboard acting on a form that is not taking input.
+    fn event_flows_while_blocked(event: &str) -> bool {
+        event.eq_ignore_ascii_case("onLoad") || event.eq_ignore_ascii_case("onTick")
     }
 
     /// Everything one frame's interaction asks of the PLATFORM rather than of the
@@ -2110,6 +2142,8 @@ impl FormBody {
                 event: if collapsed { "onMenuOpen" } else { "onMenuClose" }.to_owned(),
                 value: None,
             }],
+            // `update_children` only calls this while NOT blocked.
+            false,
         );
     }
 
@@ -2322,7 +2356,7 @@ impl FormBody {
 
             // Live values to the interpreter, then the events — with the
             // timer-tick backlog coalescing. Shared with the root's path.
-            if self.forward_interaction(&output.prop_updates, output.events) {
+            if self.forward_interaction(&output.prop_updates, output.events, blocked) {
                 platform_acted = true;
             }
 
@@ -2957,7 +2991,10 @@ impl FormHost {
         band: egui::Rect,
         behind: egui::Color32,
     ) {
-        self.root.draw_side_menu_footer(ui, band, behind);
+        // The rail's footer is part of the same face the shell disables while
+        // a modal child lives; its buttons must not queue clicks either.
+        let blocked = crate::debug_link::is_paused() || self.root_modal_blocked();
+        self.root.draw_side_menu_footer(ui, band, behind, blocked);
     }
 
     pub fn show_occupant(&mut self, form_object: Option<&str>) {
@@ -4709,7 +4746,7 @@ impl FormHost {
             // with the child-window path.
             if self
                 .root
-                .forward_interaction(&output.prop_updates, output.events)
+                .forward_interaction(&output.prop_updates, output.events, root_blocked)
             {
                 interacted = true;
             }
@@ -6829,6 +6866,158 @@ mod parity {
         );
     }
 
+    /// 051 R19/R28 — a click on a form BLOCKED by its own modal child must
+    /// reach no handler. `ui.disable()` refuses input to egui widgets, but the
+    /// engine detects a control's click from RAW pointer state (`render.rs`,
+    /// "One press, one click"), which `disable()` never touched: the `onClick`
+    /// was still emitted, queued on the interpreter's event channel while it
+    /// sat inside `OpenFormSync`, and replayed the moment the modal closed —
+    /// each click on the caller's "open" button while the modal was up opened
+    /// it once more (operator, 2026-09-19). The same press is driven twice:
+    /// once blocked (nothing may arrive), once released (exactly one arrives —
+    /// so the silence was the block, not a dead pipe).
+    #[test]
+    fn a_click_on_a_blocked_form_reaches_no_handler() {
+        let form = cobolt_forms::Form::new("MAIN", "Main", 320, 200);
+        let mut btn =
+            cobolt_forms::Control::new("Btn-Open", cobolt_forms::ControlType::Button, 10, 10);
+        btn.rect = cobolt_forms::model::Rect::new(10, 10, 80, 30);
+        btn.ensure_event("onClick");
+        let (ev_tx, ev_rx) = mpsc::channel();
+        let (input_tx, _input_rx) = mpsc::channel();
+        let (_state_tx, state_rx) = mpsc::channel();
+        let (_display_tx, display_rx) = mpsc::channel();
+        let (_form_req_tx, form_req_rx) = mpsc::channel();
+        let (closed_tx, _closed_rx) = mpsc::channel();
+        let (mut host, _form) = FormHost::new(FormHostConfig {
+            form,
+            flat: vec![btn],
+            state: HashMap::new(),
+            ev_tx,
+            input_tx,
+            state_rx,
+            display_rx,
+            pending: Arc::new(AtomicUsize::new(0)),
+            finished: Arc::new(AtomicBool::new(false)),
+            form_req_rx,
+            closed_tx,
+            form_req_tx: _form_req_tx.clone(),
+            form_source: None,
+            child_theme: None,
+            child_interpreter_setup: None,
+            shared_rust_bridge: None,
+            fx_entrance: FxSpec::default(),
+            fx_exit: FxSpec::default(),
+            fx_restore: false,
+            theme_pack: None,
+            surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+            icon_path: None,
+            title_fallback: String::new(),
+            hooks: Box::new(NoHooks),
+            surface: Surface::Window,
+        });
+        let pipes = Pipes {
+            ev_rx,
+            _input_rx,
+            _state_tx,
+            _display_tx,
+            finished: Arc::new(AtomicBool::new(false)),
+            _form_req_tx,
+            _closed_rx,
+        };
+        let ctx = egui::Context::default();
+
+        // Past the entrance window, like `one_click_sends_one_onclick`.
+        let _ = frame(&mut host, &ctx, raw());
+        std::thread::sleep(Duration::from_millis(500));
+        for _ in 0..2 {
+            let _ = frame(&mut host, &ctx, raw());
+        }
+        let _ = drain_events(&pipes);
+
+        // Register a modal child of the ROOT directly with the supervisor —
+        // `root_modal_blocked` only cares that one is registered.
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        let _ = host.supervisor.handle_request(
+            cobolt_runtime::form_host::FormRequest::OpenForm {
+                caller: cobolt_runtime::form_host::ROOT_HANDLE.into(),
+                form_id: "CHILD".into(),
+                sync: true,
+                window_state: None,
+                x: None,
+                y: None,
+                width: None,
+                height: None,
+                modal: true,
+                reply: reply_tx,
+            },
+        );
+        assert!(host.root_modal_blocked(), "the registered modal must block the root");
+
+        let press = |host: &mut FormHost| {
+            let at = egui::pos2(30.0, 20.0);
+            let mut down = raw();
+            down.events = vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ];
+            let _ = frame(host, &ctx, down);
+            let mut up = raw();
+            up.events = vec![egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: Default::default(),
+            }];
+            let _ = frame(host, &ctx, up);
+            for _ in 0..3 {
+                let _ = frame(host, &ctx, raw());
+            }
+        };
+        let clicks = |evs: &[(String, String)]| {
+            evs.iter()
+                .filter(|(_, e)| e.eq_ignore_ascii_case("onClick"))
+                .count()
+        };
+
+        press(&mut host);
+        let blocked_evs = drain_events(&pipes);
+        assert_eq!(
+            clicks(&blocked_evs),
+            0,
+            "a click on a modal-blocked form must reach no handler; got {blocked_evs:?}"
+        );
+
+        // Release the block through the ordinary close path and repeat the
+        // identical press: now exactly one onClick must arrive.
+        let modal = host
+            .supervisor
+            .modal_children_of(cobolt_runtime::form_host::ROOT_HANDLE)
+            .into_iter()
+            .next()
+            .expect("the modal child is registered");
+        host.supervisor.try_close(&modal);
+        assert!(!host.root_modal_blocked(), "closing the modal releases the root");
+        let _ = drain_events(&pipes);
+        press(&mut host);
+        let free_evs = drain_events(&pipes);
+        assert_eq!(
+            clicks(&free_evs),
+            1,
+            "the same press on the released form must send exactly one onClick; got {free_evs:?}"
+        );
+        println!(
+            "blocked form: {} onClick forwarded; released form: {} onClick forwarded",
+            clicks(&blocked_evs),
+            clicks(&free_evs)
+        );
+    }
+
     /// An OBSERVER event fires when the INTERPRETER changes a value, on the ROOT
     /// form — the one `rcrun run-form` shows.
     ///
@@ -6996,7 +7185,7 @@ mod parity {
         for outstanding in [0usize, 1, 2, FormBody::TICK_COALESCE_BACKLOG - 1] {
             body_pending.store(outstanding, Ordering::Relaxed);
             let _ = drain(&ev_rx);
-            body.forward_interaction(&[], vec![tick()]);
+            body.forward_interaction(&[], vec![tick()], false);
             assert_eq!(
                 drain(&ev_rx),
                 vec!["onTick".to_owned()],
@@ -7007,7 +7196,7 @@ mod parity {
         // Genuinely behind: the tick is coalesced away, which is the rule's point.
         body_pending.store(FormBody::TICK_COALESCE_BACKLOG, Ordering::Relaxed);
         let _ = drain(&ev_rx);
-        body.forward_interaction(&[], vec![tick()]);
+        body.forward_interaction(&[], vec![tick()], false);
         assert!(
             drain(&ev_rx).is_empty(),
             "a handler {} events behind must not be given more ticks",
@@ -7024,6 +7213,7 @@ mod parity {
                 event: "onClick".to_owned(),
                 value: None,
             }],
+            false,
         );
         assert_eq!(
             drain(&ev_rx),

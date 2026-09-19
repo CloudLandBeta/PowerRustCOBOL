@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.72] — 2026-09-19
+
+### A click on a modal-blocked form still reached its handler — queued, then replayed
+
+While a modal child is open, the caller's face is disabled (`ui.disable()`)
+and overlaid, and that does refuse input to egui *widgets*. But the engine
+detects a control's click from RAW pointer state and rect containment
+(`render.rs`, "One press, one click"), which `disable()` never touched — so
+a click on a blocked control still produced its `onClick`. The caller's
+interpreter was sitting inside `OpenFormSync` at the time, so the event
+queued on its channel and replayed the moment the modal closed: each click
+on the caller's "open" button while the modal was up opened it once more,
+and the operator had to dismiss the dialog as many times as they had clicked
+plus one (PowerDemo3's Call Form demo, 2026-09-19). The same held for a form
+stopped in the debugger, whose queued clicks arrived in a burst on Continue.
+
+`forward_interaction` — the one door every surface's interaction goes
+through (root form, child window, ContentPane occupant, the rail's footer)
+— now takes the form's `blocked` state and, while blocked, forwards no
+operator input at all: no live-value updates, and only the events no mouse
+or keyboard produced (`onLoad`, so a control's one-shot is never lost, and a
+Timer's `onTick`). New regression `a_click_on_a_blocked_form_reaches_no_handler`
+drives the identical press twice — blocked, nothing arrives; released,
+exactly one `onClick` does — so the silence is provably the block and not a
+dead pipe.
+
 ## [PowerRustCOBOL 1.70.71] — 2026-09-19
 
 ### `ModalOverlayStyle` painted at half strength under the sidebar — and the native click-through "fix" is withdrawn
