@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.94] — 2026-09-19
+
+### Streamed layout, and a conversation history the developer drives
+
+Spec 058 Stage J. `Layout` set to `Streamed` gives a Viewer one content pane
+and nothing else — no toolbar, no Find bar, no thumbnails, no filmstrip,
+whatever was showing before — and what it shows is the conversation rather
+than a document. Measured with every piece of chrome switched on: the four
+document layouts each paint 171 chrome shapes and `Streamed` paints none.
+
+Managing conversations is the developer's own UI, wired to four things the
+control provides. `NewConversation()` files the open conversation away and
+clears the pane; called on a pane that is already empty it does nothing at all,
+so a history list never fills with blanks. `SelectConversation(id)` files the
+open one away, takes the chosen one out of history, clears the pane and says
+so — which is the host's cue to start sending that conversation's content
+back. `RegisterConversation(id, title)` seeds an entry left over from an
+earlier run, and `HistoryList` reads the whole list back as `id|title`, one
+per line.
+
+**History holds an id and a title, and nothing else.** There is no field for
+content to hide in, so selecting a past conversation cannot repaint anything
+from a cache — it always asks the host. That is what keeps a session that runs
+all day from growing without limit. Ten entries are kept; an eleventh evicts
+the oldest. An entry titles itself from its conversation's own first line,
+because a list of "Conversation 1 to 10" tells a reader nothing.
+
+The pane is cleared **before** either event is raised, so a COBOL handler
+bound to one of them sees an empty pane rather than the conversation that was
+just filed away.
+
+cobolt-forms 1069 passed, cobolt-runtime 934 passed, cobolt-form-host 133
+passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.93] — 2026-09-19
 
 ### A Viewer can host a live chatbot conversation

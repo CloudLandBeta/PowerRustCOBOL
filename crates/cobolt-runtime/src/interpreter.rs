@@ -1596,6 +1596,9 @@ pub struct Interpreter {
     /// the engine is told is the assembled stream (`_ConversationHtml`),
     /// republished whenever it changes.
     viewer_conversations: std::collections::HashMap<String, cobolt_forms::viewer::Conversation>,
+    /// Spec 058 §8.8 — each Streamed Viewer's conversation history: ids and
+    /// titles, **never** content.
+    viewer_history: std::collections::HashMap<String, cobolt_forms::viewer::ConversationHistory>,
     /// Spec 058 R1 — bytes a `LoadBytes` call supplied, per Viewer control.
     ///
     /// Beside the object rather than in a property: a control property is a
@@ -1983,6 +1986,7 @@ impl Interpreter {
             async_dispatch_queue: std::collections::VecDeque::new(),
             viewer_bytes: std::collections::HashMap::new(),
             viewer_conversations: std::collections::HashMap::new(),
+            viewer_history: std::collections::HashMap::new(),
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -12180,6 +12184,25 @@ impl Interpreter {
         conv
     }
 
+    /// Republish the stream WITHOUT `onContentRendered` — clearing a pane
+    /// is not content arriving, and §8.2 item 6's event is specifically
+    /// about newly appended content finishing its layout.
+    fn viewer_publish_conversation_quietly(&mut self, obj: &str) {
+        let (html, empty) = {
+            let conv = self.viewer_conversation(obj);
+            (conv.to_html(), conv.is_empty())
+        };
+        self.obj_set(obj, "_ConversationHtml", html);
+        self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
+    }
+
+    /// A control event carrying a value — §8.8's `onConversationSelected`
+    /// is the first Viewer event that has one.
+    fn queue_control_event_with(&mut self, obj: &str, event: &str, value: &str) {
+        self.obj_set(obj, "ConversationId", value.to_string());
+        self.queue_control_event(obj, event);
+    }
+
     /// Publish what the engine paints, and raise §8.2 item 6's event.
     ///
     /// `onContentRendered` fires **after the layout pass**, not after the
@@ -12194,6 +12217,49 @@ impl Interpreter {
         self.obj_set(obj, "_ConversationHtml", html);
         self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
         self.queue_control_event(obj, "onContentRendered");
+    }
+
+    /// Spec 058 §8.8 — archive whatever is open, then clear the pane.
+    ///
+    /// **A no-op on an already-empty pane** (AC26): archiving nothing would
+    /// put a spurious entry in a list the developer's own UI enumerates.
+    /// The title is the conversation's own first line, trimmed — a history
+    /// list of "Conversation 1..10" tells a reader nothing.
+    fn viewer_archive_current(&mut self, obj: &str) {
+        let (has_content, title, id) = {
+            let conv = self.viewer_conversation(obj);
+            let text = conv.text();
+            let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
+            let title: String = first.chars().take(60).collect();
+            (
+                !conv.is_empty(),
+                if title.is_empty() { "Conversation".to_string() } else { title },
+                conv.current_message_id().unwrap_or("").to_string(),
+            )
+        };
+        if !has_content {
+            return;
+        }
+        let current = self.obj_get(obj, "ConversationId");
+        let entry_id = if current.trim().is_empty() {
+            if id.is_empty() { "conversation".to_string() } else { id }
+        } else {
+            current
+        };
+        let history = self.viewer_history.entry(obj.to_string()).or_default();
+        history.push(cobolt_forms::viewer::ConversationEntry { id: entry_id, title });
+        self.viewer_publish_history(obj);
+    }
+
+    /// §8.8's `HistoryList` — republished whenever it changes, so a COBOL
+    /// program reads it as an ordinary property.
+    fn viewer_publish_history(&mut self, obj: &str) {
+        let list = self
+            .viewer_history
+            .get(obj)
+            .map(|h| h.to_list())
+            .unwrap_or_default();
+        self.obj_set(obj, "HistoryList", list);
     }
 
     /// Spec 058 R32 — the OS reported back on a Print / Share / Save As
@@ -13580,6 +13646,54 @@ impl Interpreter {
                     self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
                     self.queue_control_event(obj, "onError");
                 }
+                none
+            }
+            // ── §8.8's conversation management ──
+            //
+            // The ORDER matters and is tested: the pane is cleared FIRST,
+            // then the event is raised, so a handler bound to either event
+            // sees an empty pane and never stale content.
+            "NEWCONVERSATION" | "NEW-CONVERSATION" => {
+                let was_empty = self.viewer_conversation(obj).is_empty();
+                self.viewer_archive_current(obj);
+                if was_empty {
+                    // AC26: no history entry, and no event.
+                    none
+                } else {
+                    self.viewer_conversation(obj).clear();
+                    self.obj_set(obj, "ConversationId", String::new());
+                    self.viewer_publish_conversation_quietly(obj);
+                    self.queue_control_event(obj, "onConversationCreated");
+                    none
+                }
+            }
+            "SELECTCONVERSATION" | "SELECT-CONVERSATION" => {
+                let id = arg(0);
+                self.viewer_archive_current(obj);
+                // The selected entry leaves history and becomes current.
+                if let Some(h) = self.viewer_history.get_mut(obj) {
+                    h.take(&id);
+                }
+                self.viewer_publish_history(obj);
+                self.viewer_conversation(obj).clear();
+                self.obj_set(obj, "ConversationId", id.clone());
+                self.viewer_publish_conversation_quietly(obj);
+                // §8.8: this is the signal telling the host to start calling
+                // the append methods. The control never restores content
+                // from a cache of its own — there is no cache to restore
+                // from, by design.
+                self.queue_control_event_with(obj, "onConversationSelected", &id);
+                none
+            }
+            "REGISTERCONVERSATION" | "REGISTER-CONVERSATION" => {
+                let id = arg(0);
+                let title = arg(1);
+                let history = self.viewer_history.entry(obj.to_string()).or_default();
+                history.push(cobolt_forms::viewer::ConversationEntry {
+                    id,
+                    title: if title.trim().is_empty() { "Conversation".into() } else { title },
+                });
+                self.viewer_publish_history(obj);
                 none
             }
             // §8.4's "Jump to latest", COBOL-callable — R22's "no viewer
@@ -16661,6 +16775,9 @@ fn is_known_method(name: &str) -> bool {
             | "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN"
             | "APPENDRAW" | "APPEND-RAW" | "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE"
             | "JUMPTOLATEST" | "JUMP-TO-LATEST"
+            | "NEWCONVERSATION" | "NEW-CONVERSATION"
+            | "SELECTCONVERSATION" | "SELECT-CONVERSATION"
+            | "REGISTERCONVERSATION" | "REGISTER-CONVERSATION"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
@@ -17417,6 +17534,185 @@ MAIN.
         println!("RenderAsHtml=true,  AppendHtml({html:?}) -> {rendered:?}");
         assert!(!rendered.contains("<b>"), "the tag is markup here, not text");
         assert!(rendered.contains("bold"));
+    }
+
+    // ── Viewer conversation management (spec 058 T36/T37): §8.8 ─────────
+
+    fn append_raw(interp: &mut Interpreter, text: &str) {
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(text, text.len())]);
+    }
+
+    /// **AC26** — "`NewConversation()` archives a non-empty pane into
+    /// history, clears it, and raises `onConversationCreated`; calling it on
+    /// an empty pane raises no event and creates no history entry."
+    ///
+    /// Both branches, reported separately, because assuming the empty one
+    /// behaves like the other is exactly how a spurious history entry gets
+    /// in.
+    #[test]
+    fn new_conversation_reports_its_two_branches_differently() {
+        // Branch 1 — an EMPTY pane.
+        let mut empty = viewer_interp(&[]);
+        empty.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let empty_events = queued_for(&empty, "VWR-1");
+        let empty_history = empty.obj_get("VWR-1", "HistoryList");
+        println!("NewConversation() on an EMPTY pane -> events {empty_events:?}, history {empty_history:?}");
+        assert!(empty_events.is_empty(), "AC26: no event");
+        assert!(empty_history.is_empty(), "AC26: and no history entry");
+
+        // Branch 2 — a pane with content.
+        let mut full = viewer_interp(&[]);
+        append_raw(&mut full, "Quarterly figures please");
+        let before = queued_for(&full, "VWR-1").len();
+        full.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let new_events: Vec<String> = queued_for(&full, "VWR-1").split_off(before);
+        let history = full.obj_get("VWR-1", "HistoryList");
+        let pane_empty = full.obj_get("VWR-1", "_ConversationEmpty");
+        println!("NewConversation() on a FULL pane  -> events {new_events:?}");
+        println!("  history now {history:?}, pane empty = {pane_empty:?}");
+        assert_eq!(new_events, vec!["onConversationCreated".to_string()], "AC26: exactly one event");
+        assert_eq!(pane_empty, "1", "AC26: the pane is cleared");
+        assert!(history.contains("Quarterly figures please"), "AC26: archived under its own first line");
+        assert!(full.viewer_conversation("VWR-1").is_empty());
+    }
+
+    /// **AC27** — "`SelectConversation(id)` archives the currently-open
+    /// conversation, removes the selected id from history, clears the pane,
+    /// and raises `onConversationSelected(id)` — the control never repaints
+    /// content from anywhere but a subsequent host-supplied append call."
+    #[test]
+    fn select_conversation_swaps_current_into_history_and_takes_the_selected_one_out() {
+        let mut interp = viewer_interp(&[]);
+        // Seed a past conversation the host remembers from an earlier run.
+        interp.exec_method(
+            "VWR-1",
+            "REGISTERCONVERSATION",
+            &[CobolValue::from_str("chat-7", 6), CobolValue::from_str("Payroll questions", 17)],
+        );
+        append_raw(&mut interp, "Today's thread");
+        interp.obj_set("VWR-1", "ConversationId", "chat-9".into());
+
+        let before = queued_for(&interp, "VWR-1").len();
+        interp.exec_method("VWR-1", "SELECTCONVERSATION", &[CobolValue::from_str("chat-7", 6)]);
+        let events: Vec<String> = queued_for(&interp, "VWR-1").split_off(before);
+        let history = interp.obj_get("VWR-1", "HistoryList");
+
+        println!("history after selecting chat-7:\n{history}");
+        println!("events {events:?}, ConversationId {:?}", interp.obj_get("VWR-1", "ConversationId"));
+        println!("pane empty = {:?}", interp.obj_get("VWR-1", "_ConversationEmpty"));
+        assert!(history.contains("chat-9|Today's thread"), "AC27: the open one was archived");
+        assert!(!history.contains("chat-7"), "AC27: the selected one LEFT history");
+        assert_eq!(events, vec!["onConversationSelected".to_string()]);
+        assert_eq!(interp.obj_get("VWR-1", "ConversationId"), "chat-7", "carrying the id");
+        assert_eq!(interp.obj_get("VWR-1", "_ConversationEmpty"), "1", "AC27: the pane is cleared");
+        assert!(
+            interp.obj_get("VWR-1", "_ConversationHtml").is_empty(),
+            "AC27: nothing was restored from a cache — there is no cache"
+        );
+    }
+
+    /// **T37** — the clear happens, *then* the event: a handler bound to
+    /// either one sees an empty pane, never stale content.
+    #[test]
+    fn the_pane_is_cleared_before_either_conversation_event_is_raised() {
+        for method in ["NEWCONVERSATION", "SELECTCONVERSATION"] {
+            let mut interp = viewer_interp(&[]);
+            append_raw(&mut interp, "stale content");
+            let args: Vec<CobolValue> = if method == "SELECTCONVERSATION" {
+                vec![CobolValue::from_str("other", 5)]
+            } else {
+                vec![]
+            };
+            let before = queued_for(&interp, "VWR-1").len();
+            interp.exec_method("VWR-1", method, &args);
+            let events: Vec<String> = queued_for(&interp, "VWR-1").split_off(before);
+            // The pane state a handler would observe, at the moment the
+            // event is sitting in the queue waiting to be dispatched.
+            let html = interp.obj_get("VWR-1", "_ConversationHtml");
+            println!("{method} -> events {events:?}, pane html {html:?}");
+            assert_eq!(events.len(), 1, "one event");
+            assert!(html.is_empty(), "T37: the pane is already empty when the event fires");
+            assert!(!html.contains("stale content"));
+        }
+    }
+
+    /// **AC28** — "history never exceeds 10 entries; archiving or
+    /// registering an 11th evicts the oldest, verified by id."
+    #[test]
+    fn history_never_exceeds_ten_and_evicts_the_oldest_by_id() {
+        let mut interp = viewer_interp(&[]);
+        for i in 0..12 {
+            interp.exec_method(
+                "VWR-1",
+                "REGISTERCONVERSATION",
+                &[
+                    CobolValue::from_str(&format!("chat-{i}"), 8),
+                    CobolValue::from_str(&format!("Thread {i}"), 9),
+                ],
+            );
+        }
+        let list = interp.obj_get("VWR-1", "HistoryList");
+        let ids: Vec<&str> = list.lines().filter_map(|l| l.split('|').next()).collect();
+        println!("12 registered -> {} kept: {ids:?}", ids.len());
+        assert_eq!(ids.len(), 10, "AC28: never more than ten");
+        assert!(!list.contains("chat-0|") && !list.contains("chat-1|"), "AC28: the two oldest went");
+        assert_eq!(ids.first(), Some(&"chat-2"), "and the rest kept their order");
+        assert_eq!(ids.last(), Some(&"chat-11"));
+    }
+
+    /// **AC29** — "`HistoryList` lists every current entry as `id|title`,
+    /// one per line, staying in sync after every archive, selection and
+    /// eviction."
+    #[test]
+    fn historylist_stays_in_sync_through_archive_selection_and_eviction() {
+        let mut interp = viewer_interp(&[]);
+        let register = |i: &mut Interpreter, id: &str, title: &str| {
+            i.exec_method(
+                "VWR-1",
+                "REGISTERCONVERSATION",
+                &[CobolValue::from_str(id, id.len()), CobolValue::from_str(title, title.len())],
+            );
+        };
+        register(&mut interp, "a", "Alpha");
+        register(&mut interp, "b", "Beta");
+        println!("after two registers:\n{}", interp.obj_get("VWR-1", "HistoryList"));
+        assert_eq!(interp.obj_get("VWR-1", "HistoryList"), "a|Alpha\nb|Beta", "AC29's exact format");
+
+        // An archive adds one.
+        append_raw(&mut interp, "Live thread");
+        interp.obj_set("VWR-1", "ConversationId", "c".into());
+        interp.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        println!("after archiving the live one:\n{}", interp.obj_get("VWR-1", "HistoryList"));
+        assert_eq!(interp.obj_get("VWR-1", "HistoryList"), "a|Alpha\nb|Beta\nc|Live thread");
+
+        // A selection removes one.
+        interp.exec_method("VWR-1", "SELECTCONVERSATION", &[CobolValue::from_str("b", 1)]);
+        let after = interp.obj_get("VWR-1", "HistoryList");
+        println!("after selecting b:\n{after}");
+        assert_eq!(after, "a|Alpha\nc|Live thread", "AC29: in sync after a selection too");
+    }
+
+    /// §8.8's own rule, in one line: history holds an id and a title, and
+    /// **never** a conversation's content.
+    #[test]
+    fn history_never_holds_a_conversations_content() {
+        let mut interp = viewer_interp(&[]);
+        let secret = "the body of this conversation must never be in history";
+        append_raw(&mut interp, secret);
+        interp.obj_set("VWR-1", "ConversationId", "c1".into());
+        interp.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let list = interp.obj_get("VWR-1", "HistoryList");
+        println!("history: {list:?}");
+        assert!(list.starts_with("c1|"), "an id and a title");
+        // The title IS the first line, by design — what must not be there is
+        // everything else.
+        append_raw(&mut interp, "second thread with more lines\nand a second line of it");
+        interp.obj_set("VWR-1", "ConversationId", "c2".into());
+        interp.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let list = interp.obj_get("VWR-1", "HistoryList");
+        println!("history: {list:?}");
+        assert!(!list.contains("and a second line of it"), "§8.8: content is not stored");
+        assert!(list.lines().count() == 2, "one line per entry, whatever the conversation held");
     }
 
     // ── Viewer PDF (spec 058 T19): AC6, where re-encoding would tempt ───

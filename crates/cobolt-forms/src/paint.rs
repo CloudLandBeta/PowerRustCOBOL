@@ -8065,6 +8065,35 @@ pub(crate) fn viewer_first_page_content(
     Some(arc)
 }
 
+/// T35 — the conversation a `Streamed`-layout Viewer is showing.
+///
+/// The interpreter owns the conversation (only it receives the appends) and
+/// publishes the assembled stream as `_ConversationHtml`; this parses it
+/// into the shared layout model, memoized **by that string**, so the parse
+/// runs once per append rather than once per frame.
+///
+/// ⚠️ Known cost, recorded rather than hidden: the model appends
+/// incrementally (`viewer::Conversation`, measured at one layout pass per
+/// append), while this bridge re-parses the whole stream whenever it
+/// changes. Bounded, but not incremental — closing it is the same
+/// `ViewerSession` plumbing R5.1 is waiting on.
+pub(crate) fn viewer_conversation_content(
+    ctx: &egui::Context,
+    html: &str,
+) -> Option<Arc<ViewerPageContent>> {
+    if html.trim().is_empty() {
+        return None;
+    }
+    let id = egui::Id::new(("viewer-conversation", html));
+    if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<ViewerPageContent>>(id)) {
+        return Some(hit);
+    }
+    let doc = crate::viewer::parse_html(html);
+    let arc = Arc::new(ViewerPageContent::Markdown { raw: html.to_string(), doc });
+    ctx.memory_mut(|m| m.data.insert_temp(id, arc.clone()));
+    Some(arc)
+}
+
 /// How many pages `source` has (T12: the card grid's and the filmstrip's
 /// own denominator). Only the page **index** is memoized — offsets, never
 /// content — so this costs one sequential pass once and nothing thereafter,
@@ -8543,6 +8572,9 @@ pub(crate) struct ViewerPaintState<'a> {
     pub find_highlight: bool,
     /// 0-based index of the match in view (R30's "current").
     pub find_current: usize,
+    /// T35 — the assembled conversation stream a `Streamed` layout paints
+    /// instead of a document.
+    pub conversation_html: String,
     /// R30's "total". Seeded from the property the previous frame's paint
     /// wrote back — the bar is drawn before the content is measured, so the
     /// counter is one frame behind a *change of query*, which no reader can
@@ -8629,6 +8661,7 @@ impl<'a> ViewerPaintState<'a> {
                 .unwrap_or(true),
             find_current: int(&v("SearchCurrentMatch"), 0).max(0) as usize,
             find_total: int(&v("SearchMatchCount"), 0).max(0) as usize,
+            conversation_html: text("_ConversationHtml").unwrap_or_default(),
             page_count: 1,
             current_page: (int(&v("Page"), 1).max(1) - 1) as usize,
             page_preview: None,
@@ -8781,7 +8814,18 @@ pub(crate) fn draw_viewer(
         return result;
     }
 
-    let Some(content) = st.content else {
+    // §8.8/AC25: `Streamed` shows ONE content pane and no chrome at all —
+    // `chrome_layout` has already declined to place any — and what it shows
+    // is the conversation, not a document.
+    let streamed_doc;
+    let content = if st.is_streamed() {
+        streamed_doc = viewer_conversation_content(ctx, &st.conversation_html);
+        streamed_doc.as_deref()
+    } else {
+        st.content
+    };
+
+    let Some(content) = content else {
         painter.text(
             view_rect.center(),
             egui::Align2::CENTER_CENTER,
@@ -16386,6 +16430,7 @@ mod theme_render_tests {
             find_highlight: true,
             find_current: 0,
             find_total: 0,
+            conversation_html: String::new(),
             page_count: 1,
             current_page: 0,
             page_preview: None,
@@ -16409,6 +16454,97 @@ mod theme_render_tests {
         // document would produce one) must be dropped, not applied.
         full.textures_delta.clear();
         full.shapes.into_iter().map(|cs| cs.shape).collect()
+    }
+
+    /// **Spec 058 T35 / AC25** — "Streamed layout shows exactly one content
+    /// pane with **no** toolbar, Find bar, thumbnail or filmstrip chrome,
+    /// regardless of what chrome the previous `Layout` had shown."
+    ///
+    /// Asserted by counting the chrome each layout paints, with every other
+    /// `Layout` value alongside for contrast — a zero that no other value
+    /// produces is a zero that means something.
+    #[test]
+    fn streamed_layout_draws_a_single_pane_and_nothing_else() {
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(500.0, 360.0));
+        // Every piece of chrome turned ON, so `Streamed` has something to
+        // refuse rather than something that was never there.
+        let chrome_shapes = |layout: &str| -> (usize, usize) {
+            let ctx = egui::Context::default();
+            let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+            let content = ViewerPageContent::Text("A document with some words.".into());
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(600.0, 420.0)));
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let mut st = test_viewer_state(&content, layout, 14.0);
+                    st.filmstrip = Some(crate::viewer::FILMSTRIP_DEFAULT_WIDTH);
+                    st.find_open = true;
+                    st.page_count = 8;
+                    st.conversation_html = "<p>hello from the conversation</p>".into();
+                    draw_viewer(&painter, rect, &ctrl, &st);
+                });
+            });
+            full.textures_delta.clear();
+            let shapes: Vec<egui::Shape> = full.shapes.into_iter().map(|cs| cs.shape).collect();
+            // Chrome is what is painted OUTSIDE this layout's own content
+            // rect — which is the honest discriminator, because `Streamed`'s
+            // content legitimately occupies the whole control and would be
+            // mistaken for a toolbar by any position-based rule.
+            let chrome_geom = crate::viewer::chrome_layout(
+                crate::viewer::ViewRect::new(rect.min.x, rect.min.y, rect.width(), rect.height()),
+                &crate::viewer::ChromeOpts {
+                    fullscreen: false,
+                    streamed: layout == "Streamed",
+                    filmstrip: Some(crate::viewer::FILMSTRIP_DEFAULT_WIDTH),
+                    find_open: true,
+                },
+            );
+            let content_rect = egui::Rect::from_min_size(
+                Pos2::new(chrome_geom.content.x, chrome_geom.content.y),
+                Vec2::new(chrome_geom.content.w, chrome_geom.content.h),
+            );
+            fn walk(s: &egui::Shape, content: egui::Rect, chrome: &mut usize, total: &mut usize) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, content, chrome, total)),
+                    other => {
+                        *total += 1;
+                        let b = other.visual_bounding_rect();
+                        if !b.is_finite() {
+                            return;
+                        }
+                        // Entirely outside the content = chrome.
+                        if !content.expand(1.0).contains_rect(b) && !content.intersects(b) {
+                            *chrome += 1;
+                        }
+                    }
+                }
+            }
+            let (mut chrome, mut total) = (0usize, 0usize);
+            for s in &shapes {
+                walk(s, content_rect, &mut chrome, &mut total);
+            }
+            (chrome, total)
+        };
+
+        println!("AC25 — chrome shapes painted, with every chrome switch ON:");
+        let mut others = Vec::new();
+        for layout in ["Raw", "Web", "Print", "Page"] {
+            let (chrome, total) = chrome_shapes(layout);
+            println!("  {layout:<9} {chrome:>3} chrome of {total:>3} shapes");
+            others.push((layout, chrome));
+        }
+        let (streamed_chrome, streamed_total) = chrome_shapes("Streamed");
+        println!("  {:<9} {streamed_chrome:>3} chrome of {streamed_total:>3} shapes", "Streamed");
+
+        assert_eq!(streamed_chrome, 0, "AC25: Streamed paints NO chrome");
+        assert!(streamed_total > 0, "but it does paint its one content pane");
+        for (layout, chrome) in &others {
+            assert!(
+                *chrome > 0,
+                "{layout} must paint chrome, or Streamed's zero proves nothing"
+            );
+        }
     }
 
     /// Spec 058 T12/AC5 — the toolbar is a painted band, and fullscreen

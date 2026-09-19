@@ -1765,6 +1765,84 @@ fn layout_chunk(mode: AppendMode, content: &str) -> Vec<Block> {
     }
 }
 
+// ── Conversation history (T36: §8.8, AC26–AC29) ─────────────────────────
+
+/// History holds at most this many entries (§8.8); past it, the oldest is
+/// evicted.
+pub const HISTORY_CAP: usize = 10;
+
+/// One history entry — **an id and a title, never a conversation's
+/// content** (§8.8, plan.md §3/§4).
+///
+/// That is the whole design: selecting a past conversation is always a
+/// fresh request back to the host (`onConversationSelected`), never a cache
+/// restore, which is what keeps a long Streamed-layout session's memory
+/// bounded the same way the page cache bounds one large document (R2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationEntry {
+    pub id: String,
+    pub title: String,
+}
+
+/// §8.8's history: up to [`HISTORY_CAP`] entries, oldest evicted first.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConversationHistory {
+    entries: std::collections::VecDeque<ConversationEntry>,
+}
+
+impl ConversationHistory {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn ids(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.id.clone()).collect()
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.entries.iter().any(|e| e.id == id)
+    }
+
+    /// Add an entry, evicting the oldest past the cap. Returns the evicted
+    /// id, if one went.
+    ///
+    /// An id already in history is **moved**, not duplicated: archiving a
+    /// conversation twice must not put it in the list twice.
+    pub fn push(&mut self, entry: ConversationEntry) -> Option<String> {
+        self.entries.retain(|e| e.id != entry.id);
+        self.entries.push_back(entry);
+        if self.entries.len() > HISTORY_CAP {
+            return self.entries.pop_front().map(|e| e.id);
+        }
+        None
+    }
+
+    /// Take an entry out — §8.8's `SelectConversation` removes the selected
+    /// id from history as it becomes current.
+    pub fn take(&mut self, id: &str) -> Option<ConversationEntry> {
+        let i = self.entries.iter().position(|e| e.id == id)?;
+        self.entries.remove(i)
+    }
+
+    /// §8.8's `HistoryList` — "one entry per line as `id|title`", the same
+    /// multi-line-list convention `Buttons` already uses on Snackbar.
+    pub fn to_list(&self) -> String {
+        self.entries
+            .iter()
+            .map(|e| format!("{}|{}", e.id, e.title))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
 // ── Auto-follow and the new-content indicator (T24/T25: §8.3, §8.4) ─────
 
 /// §8.3's threshold — "a small threshold (**24–32 px**) should be used so

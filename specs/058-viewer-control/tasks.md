@@ -781,7 +781,7 @@ stage — the same out-of-sequence pattern this project's specs already use
 Stage I's append machinery existing and belongs right after it in reading
 order.)*
 
-- [ ] **T35 — `Layout = Streamed`: one pane, no chrome** (R7, §8.8, AC25)
+- [x] **T35 — `Layout = Streamed`: one pane, no chrome** (R7, §8.8, AC25)
   - Files: `crates/cobolt-forms/src/paint.rs`
   - Do: the fifth `Layout` value paints only the conversation content — no
         toolbar, Find bar, thumbnail or filmstrip chrome, regardless of what
@@ -792,7 +792,7 @@ order.)*
         shape count under `Streamed` compared against every other `Layout`
         value, asserting zero chrome shapes (**AC25**).
 
-- [ ] **T36 — Conversation management: `NewConversation`, `SelectConversation`,
+- [x] **T36 — Conversation management: `NewConversation`, `SelectConversation`,
       `RegisterConversation`, `HistoryList`** (§8.8, AC26, AC27, AC28, AC29)
   - Files: `crates/cobolt-form-host/src/viewer_session.rs` (`history:
         VecDeque<HistoryEntry>`, capped at 10, id+title only — **never**
@@ -816,7 +816,7 @@ order.)*
         (**AC26**); `HistoryList` matches the live entry set after every
         archive/select/evict (**AC29**).
 
-- [ ] **T37 — The three conversation events** (§8.8, R32)
+- [x] **T37 — The three conversation events** (§8.8, R32)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`,
         `crates/cobolt-forms/src/model.rs` (`SUPPORTED_EVENTS`)
   - Do: `onConversationCreated` on `NewConversation()`;
@@ -828,6 +828,37 @@ order.)*
         payload and in the right order relative to the pane-clear each method
         performs (clear happens, *then* the event — a handler bound to either
         event sees an empty pane, never stale content).
+
+  - **Stage J DONE — 2026-09-19 (1.70.94).** `Streamed` paints the
+    conversation instead of a document, through `chrome_layout`'s existing
+    refusal to place any chrome. **AC25 measured:** with every chrome switch
+    turned ON, `Raw`/`Web`/`Print`/`Page` each paint 171 chrome shapes and
+    `Streamed` paints **0** — a zero that means something because the others
+    are not zero.
+  - **The AC25 test's first classifier was wrong, and the fix is worth
+    keeping in mind:** chrome was classified by POSITION (anything in the
+    top band or the left rail), which mistook `Streamed`'s own content — it
+    legitimately starts at the top — for a toolbar. The honest discriminator
+    is each layout's **own content rect** from `chrome_layout`: chrome is
+    what falls outside it.
+  - **History is one model in `cobolt-forms`** (`ConversationHistory`,
+    `ConversationEntry`, `HISTORY_CAP`), used by **both** the interpreter and
+    `viewer_session` — T36 has to satisfy tests in two crates, and two
+    implementations of one rule is how they drift. `viewer_session` now
+    `pub use`s the type rather than declaring its own.
+  - **§8.8's memory rule is structural**: a `ConversationEntry` has an id and
+    a title and **no third field**, so a selection has nothing to restore
+    even if someone tried. The test serialises the whole entry to prove it.
+  - **Ordering, tested: the pane is cleared, *then* the event fires.** A
+    handler bound to `onConversationCreated` or `onConversationSelected`
+    sees an empty pane, never stale content — asserted for both methods.
+    Clearing republishes the stream **without** `onContentRendered`, since
+    §8.2 item 6's event is about newly appended content finishing layout,
+    not about a pane emptying.
+  - An archive titles itself from the conversation's **own first line**,
+    trimmed to 60 characters: a history list of "Conversation 1…10" tells a
+    reader nothing. Re-archiving an id **moves** it rather than duplicating
+    it.
 
 ## Stage K — surfaces, parity, docs, KB, finalize
 

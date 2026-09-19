@@ -247,15 +247,12 @@ impl DocumentRegistry {
 /// (`onConversationSelected`) rather than restoring anything cached here,
 /// which is what keeps a long Streamed-layout session's memory bounded the
 /// same way [`BoundedPageCache`] bounds a single large document.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HistoryEntry {
-    pub id: String,
-    pub title: String,
-}
-
-/// History holds at most this many entries (spec 058 §8.8); past it, the
-/// oldest is evicted.
-pub const HISTORY_CAP: usize = 10;
+///
+/// The type and the cap are `cobolt-forms`' own, so the host and the
+/// interpreter cannot disagree about what history means or how big it gets
+/// — T36 has to satisfy tests in both crates, and two implementations of
+/// one rule is how they drift.
+pub use cobolt_forms::viewer::{ConversationEntry as HistoryEntry, HISTORY_CAP};
 
 /// One Viewer control instance's live state: its dedicated background
 /// thread, the channel pair to talk to it, its bounded decode cache, up to
@@ -270,7 +267,7 @@ pub struct ViewerSession {
     pub views: [ViewState; 2],
     /// R21.1's "attach, don't reload", shared by both views.
     pub documents: DocumentRegistry,
-    history: VecDeque<HistoryEntry>,
+    history: cobolt_forms::viewer::ConversationHistory,
 }
 
 /// The default decode-cache budget: how many pages stay resident at once.
@@ -319,7 +316,7 @@ impl ViewerSession {
             cache: BoundedPageCache::new(DEFAULT_CACHE_BUDGET),
             views: [ViewState::default(), ViewState::default()],
             documents: DocumentRegistry::new(),
-            history: VecDeque::new(),
+            history: cobolt_forms::viewer::ConversationHistory::new(),
         }
     }
 
@@ -409,37 +406,53 @@ impl ViewerSession {
     /// (`NewConversation()`/`SelectConversation(id)`, wired in a later task)
     /// decides what "current" means; this method's only job is the history
     /// side-effect and its bound.
-    pub fn archive_current(&mut self, has_content: bool, entry: HistoryEntry) {
+    pub fn archive_current(&mut self, has_content: bool, entry: HistoryEntry) -> Option<String> {
         if !has_content {
-            return;
+            return None;
         }
-        self.history.push_back(entry);
-        while self.history.len() > HISTORY_CAP {
-            self.history.pop_front();
+        self.history.push(entry)
+    }
+
+    /// §8.8's `SelectConversation(id)`: the currently open conversation is
+    /// archived exactly as `NewConversation()` does it, and the named entry
+    /// is **removed from history** as it becomes current.
+    ///
+    /// Returns the entry that was selected, if history held it. **No
+    /// content is read back from anywhere** — there is none to read: an
+    /// entry is an id and a title, and the pane is refilled only by the
+    /// host's own subsequent append calls.
+    pub fn select_conversation(
+        &mut self,
+        id: &str,
+        current: Option<HistoryEntry>,
+    ) -> Option<HistoryEntry> {
+        if let Some(open) = current {
+            self.history.push(open);
         }
+        self.history.take(id)
+    }
+
+    /// §8.8's `HistoryList`, one `id|title` per line.
+    pub fn history_list(&self) -> String {
+        self.history.to_list()
+    }
+
+    /// Every current entry's id, oldest first.
+    pub fn history_ids(&self) -> Vec<String> {
+        self.history.ids()
     }
 
     /// Seeds a shell entry (`RegisterConversation`, §8.8) with no content —
     /// content is only ever fetched on selection, never held here.
-    pub fn register_history_entry(&mut self, entry: HistoryEntry) {
-        self.history.push_back(entry);
-        while self.history.len() > HISTORY_CAP {
-            self.history.pop_front();
-        }
+    pub fn register_history_entry(&mut self, entry: HistoryEntry) -> Option<String> {
+        self.history.push(entry)
     }
 
     /// Removes and returns the entry with `id`, for `SelectConversation(id)`
     /// to promote to "current" — removed, not merely found, because a
     /// selected entry is no longer history, it is the open conversation.
     pub fn take_history_entry(&mut self, id: &str) -> Option<HistoryEntry> {
-        let pos = self.history.iter().position(|e| e.id == id)?;
-        self.history.remove(pos)
-    }
-
-    /// Every current entry, oldest first — the source `HistoryList` (the
-    /// `id|title` multi-line property) reads from.
-    pub fn history_entries(&self) -> impl Iterator<Item = &HistoryEntry> {
-        self.history.iter()
+        self.history.take(id)
     }
 
     pub fn history_len(&self) -> usize {
@@ -573,7 +586,7 @@ mod tests {
                 title: format!("Conversation {i}"),
             });
         }
-        let ids: Vec<String> = session.history_entries().map(|e| e.id.clone()).collect();
+        let ids: Vec<String> = session.history_ids();
         println!("history after 12 registrations, cap {HISTORY_CAP}: {ids:?}");
         assert_eq!(session.history_len(), HISTORY_CAP);
         assert_eq!(ids.first().map(String::as_str), Some("conv-2"), "conv-0 and conv-1 must be evicted");
@@ -746,5 +759,96 @@ mod split_view_tests {
         assert_eq!((session.views[0].page, session.views[0].zoom), (1, 100));
         assert_eq!((session.views[1].page, session.views[1].zoom), (87, 250));
         assert_eq!(session.documents.decode_count(), 1, "one decode, two viewports");
+    }
+}
+
+/// Spec 058 T36 — §8.8's conversation history, at the host's own level
+/// (AC27, AC28). The interpreter has its own tests for the COBOL surface;
+/// these are the two plan.md §6 names, asserting the *rules* rather than
+/// the plumbing.
+#[cfg(test)]
+mod conversation_history_tests {
+    use super::*;
+
+    fn entry(id: &str, title: &str) -> HistoryEntry {
+        HistoryEntry { id: id.to_string(), title: title.to_string() }
+    }
+
+    /// **AC28** — "history never exceeds 10 entries; archiving or
+    /// registering an 11th evicts the oldest, verified by id."
+    #[test]
+    fn history_never_exceeds_ten_and_evicts_the_oldest() {
+        let mut session = ViewerSession::new("VWR-1");
+        let mut evicted = Vec::new();
+        for i in 0..12 {
+            if let Some(gone) = session.register_history_entry(entry(&format!("c{i}"), &format!("Thread {i}"))) {
+                evicted.push(gone);
+            }
+        }
+        let ids = session.history_ids();
+        println!("12 archived -> {} kept: {ids:?}", ids.len());
+        println!("evicted, in order: {evicted:?}");
+        assert_eq!(session.history_len(), HISTORY_CAP, "AC28: never more than {HISTORY_CAP}");
+        assert_eq!(evicted, vec!["c0".to_string(), "c1".to_string()], "AC28: the OLDEST, by id");
+        assert_eq!(ids.first().map(String::as_str), Some("c2"));
+        assert_eq!(ids.last().map(String::as_str), Some("c11"));
+        println!("HistoryList:\n{}", session.history_list());
+        assert_eq!(session.history_list().lines().count(), HISTORY_CAP, "one id|title per line");
+    }
+
+    /// **AC27** — "`SelectConversation(id)` archives the currently-open
+    /// conversation, removes the selected id from history... the control
+    /// never repaints content from anywhere but a subsequent host-supplied
+    /// append call."
+    ///
+    /// The last clause is the one worth proving structurally: a
+    /// `HistoryEntry` has **no content field at all**, so there is nothing
+    /// for a selection to restore even if someone tried.
+    #[test]
+    fn select_conversation_swaps_current_and_history_without_touching_content() {
+        let mut session = ViewerSession::new("VWR-1");
+        session.register_history_entry(entry("older", "An older thread"));
+        session.register_history_entry(entry("target", "The one being opened"));
+
+        let selected = session.select_conversation("target", Some(entry("open-now", "What was on screen")));
+        let ids = session.history_ids();
+        println!("selected {:?}", selected.as_ref().map(|e| (&e.id, &e.title)));
+        println!("history now {ids:?}");
+        assert_eq!(selected.as_ref().map(|e| e.id.as_str()), Some("target"), "the entry comes back");
+        assert!(!ids.contains(&"target".to_string()), "AC27: and LEAVES history");
+        assert!(ids.contains(&"open-now".to_string()), "AC27: what was open is archived");
+        assert_eq!(ids, ["older".to_string(), "open-now".to_string()]);
+
+        // §8.8's memory rule, made structural: an entry is an id and a
+        // title, and there is no third field for content to hide in.
+        let e = selected.unwrap();
+        let round_trip = format!("{}|{}", e.id, e.title);
+        println!("the whole entry, serialised: {round_trip:?}");
+        assert_eq!(round_trip, "target|The one being opened");
+    }
+
+    #[test]
+    fn archiving_the_same_conversation_twice_moves_it_rather_than_duplicating_it() {
+        let mut session = ViewerSession::new("VWR-1");
+        session.register_history_entry(entry("a", "Alpha"));
+        session.register_history_entry(entry("b", "Beta"));
+        session.register_history_entry(entry("a", "Alpha, continued"));
+        let ids = session.history_ids();
+        println!("after re-archiving 'a': {ids:?}\n{}", session.history_list());
+        assert_eq!(ids, ["b".to_string(), "a".to_string()], "moved to the end, not duplicated");
+        assert!(session.history_list().contains("a|Alpha, continued"), "with its newer title");
+    }
+
+    /// AC26's own clause at this level: archiving an EMPTY pane creates no
+    /// entry.
+    #[test]
+    fn an_empty_pane_is_never_archived() {
+        let mut session = ViewerSession::new("VWR-1");
+        let evicted = session.archive_current(false, entry("nothing", "Nothing here"));
+        println!("archive_current(has_content: false) -> evicted {evicted:?}, history {}", session.history_len());
+        assert!(evicted.is_none());
+        assert_eq!(session.history_len(), 0, "AC26: no spurious entry");
+        session.archive_current(true, entry("real", "Real content"));
+        assert_eq!(session.history_len(), 1, "and a real one is archived");
     }
 }
