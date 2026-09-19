@@ -1,5 +1,25 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.86] — 2026-09-19
+
+### A chart's face takes the developer's background gradient — and the theme's card until they colour it
+
+Two defects in one painter (operator, 2026-09-19: "the gradient backcolor
+does not work. 0% of transparency gives a white background"). The
+`BackgroundGradient*` keys are seeded on every control and the Properties
+pane offered them on a chart, but only the generic frame ever read them, and
+a chart paints its own face and never reaches it — so a black→navy gradient
+set on a chart changed nothing. And that face read `BackgroundColor` raw: the
+universal `#F0F0F0` seed, which every other control filters out to take the
+theme's card, was painted as a real colour, so every chart nobody had
+coloured showed a light grey slab. The chart painter now resolves its face
+the way the generic frame does (`user_background_color`, the theme's card as
+the fallback) and, with the gradient enabled, paints the shared
+eight-direction gradient mesh in place of the flat fill, at the chart's own
+`Transparency`; the chart's ink is then resolved against the gradient's
+middle colour. A paint regression covers the uncoloured face, a chosen
+colour, the gradient at 0 and at 50 % transparency.
+
 ## [PowerRustCOBOL 1.70.85] — 2026-09-19
 
 ### A chart's border is the last thing painted on its frame

@@ -1771,7 +1771,11 @@ fill and border frame are not drawn, so only the chart content (grid, axes,
 labels, data) shows — letting the chart sit transparently on the form.
 Short of hiding it, a chart's **Transparency** fades its background *only* —
 the data marks, axes, legend and frame stay solid, so a see-through chart is
-still readable. Its frame is a real border like any other control's
+still readable. That background is the form theme's card until you pick a
+**BackgroundColor**, and it takes the same **Background gradient** every
+control offers (tick it, then start colour, end colour and a compass
+direction) — the gradient fades with the chart's Transparency exactly as a
+flat colour does. Its frame is a real border like any other control's
 (**BorderStyle**, **BorderWidth**, **BorderColor**, following **CornerRadius**),
 with two chart-only extras in the Properties pane: tick **Border gradient**
 to run the frame from a start colour to an end colour along a compass

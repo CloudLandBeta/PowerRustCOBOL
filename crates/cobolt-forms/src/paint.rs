@@ -8896,10 +8896,45 @@ pub fn draw_chart_preview(
     } else {
         Color32::from_rgb(15, 20, 45)
     };
-    let face = ctrl
-        .get_prop("BackgroundColor")
-        .map(|v| parse_color(v.as_str()))
-        .unwrap_or(default_face);
+    // `user_background_color`, not the raw property: every control is seeded
+    // with the universal `#F0F0F0` sentinel, which the generic frame filters
+    // out so an uncoloured control takes the theme's card. Charts read the
+    // property raw, so every chart nobody had coloured painted that light
+    // grey over the theme's face — the "white background" the operator saw at
+    // 0 % transparency (2026-09-19).
+    let mut face = user_background_color(ctrl).unwrap_or(default_face);
+    // The developer's background GRADIENT, when enabled. The keys are seeded
+    // on every control, and the Properties pane offered them on a chart, but
+    // only the generic frame ever read them — and a chart paints its own face
+    // and never reaches it, so the gradient moved nothing (operator,
+    // 2026-09-19). Same wall `paint_background_gradient` documents for the
+    // other custom painters; drawn here directly so the face alpha (the
+    // chart's own `Transparency`) is folded in properly premultiplied.
+    let background_gradient = ctrl
+        .get_prop("BackgroundGradientEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(false)
+        .then(|| {
+            let colour = |key: &str| {
+                ctrl.get_prop(key)
+                    .map(|v| parse_color(v.as_str()))
+                    .unwrap_or(face)
+            };
+            let dir = ctrl
+                .get_prop("BackgroundGradientDirection")
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|| "South".into());
+            (
+                colour("BackgroundGradientStartColor"),
+                colour("BackgroundGradientEndColor"),
+                dir,
+            )
+        });
+    if let Some((start, end, _)) = &background_gradient {
+        // What the chart's ink is resolved against: the gradient's middle,
+        // not a face that is never painted.
+        face = lerp_color(*start, *end, 0.5);
+    }
     // The face is the ONLY thing the chart's own `Transparency` reaches: the
     // data marks, captions, legend and border stay at the inherited alpha,
     // so a see-through chart still reads (operator, 2026-09-19).
@@ -8933,7 +8968,18 @@ pub fn draw_chart_preview(
             );
         }
         let face_rect = debug_frame(painter, control_rect, rounding, 1, "CHART_FACE", chart_diag);
-        painter.rect_filled(face_rect, rounding, bg);
+        if let Some((start, end, dir)) = &background_gradient {
+            let k = face_a as f32 / 255.0;
+            painter.add(egui::Shape::mesh(background_gradient_mesh(
+                face_rect,
+                premultiplied_at(*start, k),
+                premultiplied_at(*end, k),
+                dir,
+                rounding,
+            )));
+        } else {
+            painter.rect_filled(face_rect, rounding, bg);
+        }
         if glass && is_neumorphic {
             draw_neumorphic_overlay_shadow_only(painter, face_rect, rounding, alpha_mul);
         }
@@ -16555,6 +16601,100 @@ slice = [4, 4, 4, 4]
     /// line in a fixed blue and ignore every border property (operator,
     /// 2026-09-19: "border style needs border size with gradients and blur").
     #[test]
+    /// A chart's face is the theme's card until the developer colours it, and
+    /// their background GRADIENT when they enable one — at the chart's own
+    /// `Transparency`. It used to take the universal `#F0F0F0` seed as a real
+    /// colour (a light grey slab on every uncoloured chart, "white at 0 %")
+    /// and never read the gradient keys the pane offered (operator,
+    /// 2026-09-19, screenshot: a black→navy gradient set, a light face shown).
+    #[test]
+    fn chart_face_is_the_cards_until_coloured_and_takes_the_developers_gradient() {
+        struct Face {
+            /// The full-size flat fill, if one was painted.
+            flat: Option<Color32>,
+            /// Distinct vertex colours of a full-width mesh, and its max alpha.
+            mesh: Option<(usize, u8)>,
+        }
+        let paint = |props: &[(&str, PropValue)]| -> Face {
+            let ctx = egui::Context::default();
+            set_surface_theme(&ctx, glass());
+            let mut c = Control::new("CH", CT::BarChart, 0, 0);
+            c.rect = crate::model::Rect::new(0, 0, 420, 260);
+            for (k, v) in props {
+                c.set_prop(*k, v.clone());
+            }
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0)));
+            let mut full = ctx.run_ui(input, |ui| {
+                draw_control(ui.painter(), Pos2::ZERO, &c, false, true, 1.0, 1.0, None);
+            });
+            full.textures_delta.clear();
+            let mut out = Face { flat: None, mesh: None };
+            fn walk(s: &egui::Shape, out: &mut Face) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) if r.rect.width() >= 400.0 && r.fill.a() > 0 => {
+                        out.flat = Some(r.fill);
+                    }
+                    egui::Shape::Mesh(m) => {
+                        let bounds = m.calc_bounds();
+                        if bounds.width() >= 400.0 && bounds.height() >= 240.0 {
+                            let mut cols: Vec<Color32> =
+                                m.vertices.iter().map(|v| v.color).collect();
+                            cols.sort_by_key(|c| c.to_array());
+                            cols.dedup();
+                            let a = cols.iter().map(|c| c.a()).max().unwrap_or(0);
+                            out.mesh = Some((cols.len(), a));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut out);
+            }
+            out
+        };
+
+        // Untouched: the seed is not a colour, so the face is the theme's
+        // card — anything but the sentinel — and no full-size mesh is drawn.
+        let fresh = paint(&[]);
+        let sentinel = parse_color(crate::model::DEFAULT_BACKGROUND_COLOR);
+        assert!(
+            fresh.flat.is_some_and(|c| c.to_opaque() != sentinel),
+            "an uncoloured chart must not paint the #F0F0F0 seed as its face, got {:?}",
+            fresh.flat
+        );
+        assert!(fresh.mesh.is_none(), "no gradient enabled, no face mesh");
+
+        // The developer's own colour is honoured as before.
+        let navy = paint(&[("BackgroundColor", PropValue::String("#001B2F".into()))]);
+        assert_eq!(navy.flat.map(|c| c.to_opaque()), Some(Color32::from_rgb(0, 0x1B, 0x2F)));
+
+        // A gradient replaces the flat fill with a full-size mesh of many
+        // colours, at full alpha when the chart is opaque…
+        let gradient = [
+            ("BackgroundGradientEnabled", PropValue::Bool(true)),
+            ("BackgroundGradientStartColor", PropValue::String("#010101".into())),
+            ("BackgroundGradientEndColor", PropValue::String("#001B2F".into())),
+            ("BackgroundGradientDirection", PropValue::String("South".into())),
+        ];
+        let g = paint(&gradient);
+        assert!(g.flat.is_none(), "a gradient face paints no flat fill, got {:?}", g.flat);
+        let (colours, alpha) = g.mesh.expect("a gradient face is a full-size mesh");
+        assert!(colours >= 2, "a black→navy gradient carries more than one colour, got {colours}");
+        assert_eq!(alpha, 255, "opaque chart: the gradient is painted at full alpha");
+
+        // …and at the chart's own Transparency when it is see-through.
+        let mut faded = gradient.to_vec();
+        faded.push(("Transparency", PropValue::Int(50)));
+        let (_, alpha) = paint(&faded).mesh.expect("still a mesh when faded");
+        assert!(
+            (120..=135).contains(&alpha),
+            "Transparency 50 halves the gradient's alpha, got {alpha}"
+        );
+    }
+
     /// The LAST full-size paint on a chart's frame is the developer's own
     /// border — its colour when plain, its gradient ring when enabled. A
     /// fixed 1 px outline used to be stroked over the frame after the border
