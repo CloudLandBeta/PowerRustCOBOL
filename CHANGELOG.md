@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.93] — 2026-09-19
+
+### Spec 061 plan — identity lives in the router, so the runtime does not change
+
+`specs/061-multi-form-debugging/plan.md`. The spec's ten obstacles reduce to
+one question — where debuggee identity lives — and answering it in the
+**router** rather than in the protocol collapses most of the rest. A new
+`DebugRouter` in `cobolt-form-host::debug_link` hands out the
+`(Receiver<DebugCmd>, Sender<DebugEvent>, Breakpoints, DebugUserScope)` tuple
+**once per debuggee**, delivers each inbound command to that debuggee's own
+channel — so no `Receiver` is ever shared and a misrouted command is
+impossible by construction rather than by care — and stamps each debuggee's
+handle onto its outgoing events. `cobolt-runtime` is therefore untouched:
+`DebugCmd`, `DebugEvent` and `attach_debug_channels` were already
+per-interpreter; what was missing was a second caller and someone to keep the
+names straight. Each registration mints its own breakpoint set, which is what
+stops line 42 in two forms from being one breakpoint. `FormHostConfig` gains
+a one-shot `child_debug` hook (deliberately not the existing
+`child_interpreter_setup`, whose `Fn(&mut Interpreter)` shape would hand the
+same `Receiver` to two children); `rcrun` and the compiled binary both pass
+it. On the IDE side the panel gains per-source state so switching listings
+loses neither file's breakpoints nor the session's dock and watches, and the
+latent defect where every debugged run's events merge into one panel is
+fixed on the way. Nine ordered steps, with the three that must land together
+called out. No code has moved.
+
 ## [PowerRustCOBOL 1.70.92] — 2026-09-19
 
 ### Spec 061 clarified — every question settled, ready for `/plan`
