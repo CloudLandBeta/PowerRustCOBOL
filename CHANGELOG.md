@@ -1,5 +1,39 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.98] — 2026-09-19
+
+### Spec 058 complete: the Viewer control
+
+The last of the thirty-seven tasks. A Viewer now opens plain text, Markdown
+with diagrams in it, every common image format, PDFs and HTML pages; lays them
+out four ways; zooms, scrolls and throws; finds text; shows two documents at
+once or one document twice; saves, prints and shares through the operating
+system; and — set to its fifth layout — hosts a live chatbot conversation that
+your own COBOL appends to. Every one of those is reachable from COBOL: there
+is no capability in this control that only a mouse can get at.
+
+Finishing it meant writing the one test whose whole job is to check that every
+event fires when the documentation says it does — and that test immediately
+earned its place by finding two defects. A document that failed to open raised
+its error event **twice**, because the two spellings of its source property
+were copying each other in a circle; and a property written under its short
+name could read back differently from the same property written under its long
+one. Both fixed.
+
+Two known gaps are recorded rather than quietly left: the per-control decode
+thread is built and tested but not yet on the drawing path (the decode that
+runs instead is bounded, reading only page offsets and only the pages actually
+shown), and the coloured Find highlight is drawn on plain documents but not yet
+on formatted ones, where the count and the Next/Previous navigation are already
+correct.
+
+Across the whole workspace: cobolt-forms 1072 passed, cobolt-runtime 936,
+cobolt-ide 1215, cobolt-form-host 133, cobolt-compiler 132, cobolt-codegen 67.
+Two failures, both predating this work and neither belonging to it — the
+documentation language-coverage guard, which is the expected signal while
+translations await their regeneration, and an external-crates test that builds
+against the network.
+
 ## [PowerRustCOBOL 1.70.97] — 2026-09-19
 
 ### The Developer's Guide explains the Viewer

@@ -1028,7 +1028,7 @@ order.)*
     `cobolt-forms` keeps its own English fallback, because a compiled COBOL
     binary has no `Tr` table at all.
 
-- [ ] **T34 — Finalize**
+- [x] **T34 — Finalize**
   - Do: bump `z` in `version.rs` **once** for the whole feature + one
         `CHANGELOG.md` entry.
   - Verify: `cargo test -p cobolt-forms --features render --no-fail-fast`,
@@ -1051,12 +1051,82 @@ order.)*
         events actually reach a bound COBOL handler; design-canvas vs.
         running-form parity; corner rendering on every surface.
 
+  - **DONE — 2026-09-19 (1.70.98).** The full sweep, every `test result:`
+    line read, never grepped for failures:
+
+    | Crate | Binaries | Passed | Failed |
+    |---|---|---|---|
+    | cobolt-forms (`--features render`) | 43 | 1072 | 0 |
+    | cobolt-runtime | 113 | 936 | 0 |
+    | cobolt-form-host | 3 | 133 | 0 |
+    | cobolt-codegen | 5 | 67 | 0 |
+    | cobolt-compiler | 3 | 132 | **1** |
+    | cobolt-ide (`--bins`) | 1 | 1215 | **1** |
+
+  - **The two failures are both pre-existing and neither is spec 058's.**
+    - `cobolt-ide::docs_embed::every_document_ships_in_every_language` —
+      "Portuguese fell back to English for developers-guide-en.md,
+      indexed-redb-engine-en.md". `docs/` on this branch holds **only** `-en`
+      files; `git diff ca0ea64..HEAD` touches nothing under `docs/` but the
+      English Guide. This is **exactly** the red plan.md §2 predicted for
+      GOLDEN RULE #8's regeneration cycle, and it was red before this work
+      started.
+    - `cobolt-compiler::external_crates_build_run_manifest_and_determinism` —
+      "csv missing from lock". A spec 044 end-to-end test that builds a real
+      Cargo project in a shared `$TMPDIR` and vendors crates from the
+      registry. Environmental, per this project's own standing rule about
+      live-network failures; nothing in spec 058 touches it.
+  - **AC30's named test now exists, in both halves**, because it did not
+    before and T34's checklist is the only thing that would have noticed:
+    `every_event_in_r32s_table_fires_at_its_documented_moment` in
+    `cobolt-forms` (nine gesture-driven events, one table row each, PASS/FAIL
+    reported by name) and the same name in `cobolt-runtime` (fourteen
+    method- and load-driven events, plus a row proving a control that is
+    only **read** raises nothing at all).
+  - **Writing it found two real defects**, which is the argument for having
+    written it:
+    1. **`onError` fired TWICE for one failed load.** The `View1*` alias
+       mirror re-entered the load hook. Fixed with a re-entrancy guard, and
+       a failed load now leaves **both** spellings of `Source` pointing at
+       the document still on screen (R4) rather than having the mirror undo
+       the restore.
+    2. **The unprefixed alias kept a raw value where its `View1*` twin was
+       canonicalised** — `SearchCaseSensitive` read back `1` while
+       `View1SearchCaseSensitive` read `true`. The alias now adopts the
+       canonical spelling's settled value.
+  - Two test-side findings worth keeping: **R15 hides the fullscreen button
+    in fullscreen**, so `onFullscreenExited` must be reached with `Esc` (a
+    second click is impossible, and the first draft of the test tried it);
+    and **a key must be RELEASED** for `onScrolled` to fire, because the
+    event is about the content coming to *rest* and egui holds a key down
+    until a release arrives.
+  - **NIST is not required**, as the task says: every Viewer method is
+    ordinary method dispatch and nothing here touched the interpreter's
+    grammar. Re-confirmed — the parser and lexer are untouched by this
+    feature.
+
 ## Done criteria
 
 All 32 acceptance criteria in `spec.md` (AC1–AC11, AC19–AC24, AC30–AC32 from
 §6; AC12–AC18, AC25–AC29 from §8.7) are checked, every suite green, docs and
 KB updated, and the change sits in feature commit(s) on `features` (do **not**
 commit or push unless the operator asks).
+
+> **Still open for the operator, recorded rather than quietly dropped:**
+> 1. **R5.1's background thread is not wired into the render path.**
+>    `ViewerSession` exists, is tested, and owns a named thread per control
+>    and a bounded page cache — but both surfaces still use `paint`'s
+>    synchronous, memoized decode. That decode IS bounded (page offsets only,
+>    and only the pages a card grid or filmstrip actually shows), so nothing
+>    is unbounded; what is missing is the off-thread hop for the very first
+>    index of a very large document. The intended shape is written down under
+>    T12. It is one plumbing change through `cobolt-form-host`'s frame loop
+>    and a defaulted `FormState` hook.
+> 2. **R29's coloured highlight overlay is painted on the single-galley path
+>    only** — see T15. Counting and Next/Previous are correct everywhere;
+>    the overlay is missing on a *formatted* Markdown or HTML document.
+> 3. **The manual pass below is the operator's**, per this project's standing
+>    "never drive the application" rule.
 
 **Coverage map** — AC1 T7/T34 · AC2 T9/T10/T18/T20/T21 · AC3 T11 · AC4 T12 ·
 AC5 T12 · AC6 T13/T19 · AC7 T15/T16/T28 · AC8 T16/T17 · AC9 T6 · AC10 T3/T13 ·

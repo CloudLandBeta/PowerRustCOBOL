@@ -11883,6 +11883,242 @@ mod tests {
         assert_eq!(fired, 1, "R32: exactly once");
     }
 
+    /// **Spec 058 AC30, the engine's half** — "every event in R32's table
+    /// fires at its documented moment and never at another one, verified
+    /// per event, not by sampling a few."
+    ///
+    /// One table-driven test rather than a function per event (plan.md §5's
+    /// own mitigation): sixteen near-identical hand-written tests is exactly
+    /// where one gets silently skipped, and **the table is then the single
+    /// place a missing case would have to hide**. A row reports pass or fail
+    /// by name, so a gap is visible rather than inferred from an absent
+    /// test function.
+    ///
+    /// The interpreter's half — the load, OS-handoff and conversation
+    /// events — is `cobolt-runtime`'s test of the same name.
+    #[test]
+    fn every_event_in_r32s_table_fires_at_its_documented_moment() {
+        /// The centre of toolbar button `i`, in the control's own space.
+        fn toolbar_button(i: usize) -> egui::Pos2 {
+            egui::Pos2::new(
+                crate::viewer::TOOLBAR_PAD
+                    + i as f32 * (crate::viewer::TOOLBAR_BUTTON + crate::viewer::TOOLBAR_GAP)
+                    + crate::viewer::TOOLBAR_BUTTON / 2.0,
+                crate::viewer::TOOLBAR_HEIGHT / 2.0,
+            )
+        }
+        fn press(pos: egui::Pos2, down: bool) -> egui::Event {
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: down,
+                modifiers: Default::default(),
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, "A document with several words in it.\n").unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        // (event, the button that triggers it, how many clicks to get there)
+        let rows: &[(&str, usize, usize)] = &[
+            ("onLayoutChanged", 0, 1),      // the layout cycler
+            ("onViewModeChanged", 2, 1),    // "show page cards"
+            ("onFilmstripToggled", 5, 1),
+            ("onSplitModeChanged", 6, 1),
+            ("onFindOpened", 7, 1),
+            ("onFullscreenEntered", 8, 1),
+        ];
+
+        let mut failures: Vec<String> = Vec::new();
+        println!("AC30 (engine half) — one row per event in R32's table:");
+        for (event, button, clicks) in rows {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                ],
+            );
+            h.bind(event);
+            let at = toolbar_button(*button);
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![egui::Event::PointerMoved(at)]);
+            let mut fired = 0usize;
+            let mut t = 0.04;
+            for _ in 0..*clicks {
+                h.frame(t, vec![press(at, true)]);
+                let (out, _) = h.frame(t + 0.02, vec![press(at, false)]);
+                fired += event_names(&out).iter().filter(|e| *e == event).count();
+                t += 0.1;
+            }
+            // Quiet frames afterwards must add nothing: an event that keeps
+            // firing is as wrong as one that never does.
+            let mut after_quiet = 0usize;
+            for i in 0..3 {
+                let (quiet, _) = h.frame(t + 0.02 * i as f64, vec![]);
+                after_quiet += event_names(&quiet).iter().filter(|e| *e == event).count();
+            }
+            let ok = fired == 1 && after_quiet == 0;
+            println!(
+                "  {:<22} button {button:>2} x{clicks} -> fired {fired}, then {after_quiet} on quiet frames   {}",
+                event,
+                if ok { "PASS" } else { "FAIL" }
+            );
+            if !ok {
+                failures.push(format!("{event} (fired {fired}, {after_quiet} afterwards)"));
+            }
+        }
+
+        // `onFullscreenExited` cannot be a second click on the same
+        // button: **R15 hides the toolbar in fullscreen**, so the button is
+        // not there to click. Esc is the documented way out (R13), and this
+        // is the row that says so.
+        {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                    ("Fullscreen", PropValue::Bool(true)),
+                ],
+            );
+            h.bind("onFullscreenExited");
+            let centre = egui::Pos2::new(350.0, 250.0);
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![egui::Event::PointerMoved(centre)]);
+            let (out, _) = h.frame(
+                0.04,
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+            );
+            let mut fired = event_names(&out).iter().filter(|e| *e == "onFullscreenExited").count();
+            for i in 0..3 {
+                let (quiet, _) = h.frame(0.1 + 0.02 * i as f64, vec![]);
+                fired += event_names(&quiet).iter().filter(|e| *e == "onFullscreenExited").count();
+            }
+            let ok = fired == 1;
+            println!("  {:<22} Esc               -> fired {fired}   {}", "onFullscreenExited", if ok { "PASS" } else { "FAIL" });
+            if !ok {
+                failures.push(format!("onFullscreenExited (fired {fired})"));
+            }
+        }
+
+        // `onCardSizeChanged` needs the slider, not a button: it settles
+        // when the drag ends, which is a different documented moment.
+        {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                    ("View1ViewMode", PropValue::String("Cards".into())),
+                ],
+            );
+            h.bind("onCardSizeChanged");
+            h.frame(0.0, vec![]);
+            let (_, _) = h.frame(0.02, vec![]);
+            // The slider sits bottom-right of the content; drag its middle.
+            let chrome = crate::viewer::chrome_layout(
+                crate::viewer::ViewRect::new(0.0, 0.0, 700.0, 440.0),
+                &crate::viewer::ChromeOpts::default(),
+            );
+            let track = chrome.slider;
+            let start = egui::Pos2::new(track.x + track.w * 0.5, track.y + track.h * 0.5);
+            let end = egui::Pos2::new(track.x + track.w * 0.9, start.y);
+            h.frame(0.04, vec![egui::Event::PointerMoved(start)]);
+            h.frame(0.06, vec![press(start, true)]);
+            h.frame(0.08, vec![egui::Event::PointerMoved(end)]);
+            let (released, _) = h.frame(0.10, vec![press(end, false)]);
+            let mut fired = event_names(&released).iter().filter(|e| *e == "onCardSizeChanged").count();
+            for i in 0..3 {
+                let (quiet, _) = h.frame(0.2 + 0.02 * i as f64, vec![]);
+                fired += event_names(&quiet).iter().filter(|e| *e == "onCardSizeChanged").count();
+            }
+            let ok = fired == 1;
+            println!("  {:<22} slider drag       -> fired {fired}   {}", "onCardSizeChanged", if ok { "PASS" } else { "FAIL" });
+            if !ok {
+                failures.push(format!("onCardSizeChanged (fired {fired})"));
+            }
+        }
+
+        // `onScrolled` settles when the content comes to rest.
+        {
+            let long = dir.path().join("long.txt");
+            std::fs::write(&long, (0..400).map(|i| format!("line {i}\n")).collect::<String>()).unwrap();
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(long.to_string_lossy().into_owned())),
+                    ("View1Source", PropValue::String(long.to_string_lossy().into_owned())),
+                    ("Layout", PropValue::String("Raw".into())),
+                ],
+            );
+            h.bind("onScrolled");
+            // THREE warm-up frames, not two. A view's scroll limit comes
+            // from what the paint measured, which the input pass reads back
+            // the frame after — so frame 1 paints, frame 2 measures, and
+            // only from frame 3 is there a range for a key to move within.
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![]);
+            h.frame(0.03, vec![]);
+            let arrow = egui::Event::Key {
+                key: egui::Key::ArrowDown,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let release = egui::Event::Key {
+                key: egui::Key::ArrowDown,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let (out, _) = h.frame(0.04, vec![arrow]);
+            let mut fired = event_names(&out).iter().filter(|e| *e == "onScrolled").count();
+            // The key has to be RELEASED. egui holds a key down until a
+            // release arrives, and `onScrolled` fires when the content comes
+            // to REST — a key still down is not rest. Forgetting the release
+            // is a test artefact; the model is right to wait.
+            let (released, _) = h.frame(0.06, vec![release]);
+            fired += event_names(&released).iter().filter(|e| *e == "onScrolled").count();
+            for i in 0..3 {
+                let (quiet, _) = h.frame(0.1 + 0.02 * i as f64, vec![]);
+                fired += event_names(&quiet).iter().filter(|e| *e == "onScrolled").count();
+            }
+            let ok = fired == 1;
+            println!(
+                "    (moved to ScrollPosition {})",
+                h.prop("ScrollPosition")
+            );
+            println!("  {:<22} one arrow tap     -> fired {fired}   {}", "onScrolled", if ok { "PASS" } else { "FAIL" });
+            if !ok {
+                failures.push(format!("onScrolled (fired {fired})"));
+            }
+        }
+
+        assert!(failures.is_empty(), "AC30: these events did not fire at their documented moment: {failures:?}");
+    }
+
     /// **A MenuBar with ShadowEnabled off casts no shadow.**
     ///
     /// `draw_glass_neumorphic` reads its shadow settings from the egui temp

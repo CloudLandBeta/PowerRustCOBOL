@@ -1596,6 +1596,15 @@ pub struct Interpreter {
     /// the engine is told is the assembled stream (`_ConversationHtml`),
     /// republished whenever it changes.
     viewer_conversations: std::collections::HashMap<String, cobolt_forms::viewer::Conversation>,
+    /// Spec 058 — re-entrancy guard for a Viewer's `Source` load.
+    ///
+    /// Writing `Source` starts a load AND mirrors onto `View1Source`, which
+    /// mirrors back. On a FAILED load the restore leaves the two disagreeing
+    /// for an instant, so the mirror wrote `Source` again and the document
+    /// was opened — and refused — twice, raising `onError` twice. The guard
+    /// makes the hook run once per write, which is what a developer counting
+    /// their own error handler's calls expects.
+    viewer_loading: bool,
     /// Spec 058 §8.8 — each Streamed Viewer's conversation history: ids and
     /// titles, **never** content.
     viewer_history: std::collections::HashMap<String, cobolt_forms::viewer::ConversationHistory>,
@@ -1987,6 +1996,7 @@ impl Interpreter {
             viewer_bytes: std::collections::HashMap::new(),
             viewer_conversations: std::collections::HashMap::new(),
             viewer_history: std::collections::HashMap::new(),
+            viewer_loading: false,
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -12012,11 +12022,23 @@ impl Interpreter {
         // the interpreter in a thread of its own, so indexing a large
         // document here never stalls a paint (R5). R5.1's per-instance
         // decode thread is a separate concern, in the host.
-        if self.is_viewer(obj) {
-            if prop.eq_ignore_ascii_case("Source") {
-                self.viewer_open_source(&obj.to_string(), &val);
+        if self.is_viewer(obj) && !self.viewer_loading {
+            self.viewer_loading = true;
+            // Either spelling of the source starts a load.
+            let is_source =
+                prop.eq_ignore_ascii_case("Source") || prop.eq_ignore_ascii_case("View1Source");
+            let opened = if is_source {
+                self.viewer_open_source(&obj.to_string(), &val)
+            } else {
+                true
+            };
+            // A FAILED load has already put both spellings back to the
+            // document that is still on screen (R4); mirroring the name that
+            // failed would undo exactly that.
+            if opened {
+                self.viewer_mirror_alias(&obj.to_string(), prop, &val);
             }
-            self.viewer_mirror_alias(&obj.to_string(), prop, &val);
+            self.viewer_loading = false;
         }
     }
 
@@ -12052,11 +12074,23 @@ impl Interpreter {
         } else {
             return;
         };
-        // The equality check is what ends the recursion: the mirrored write
-        // comes straight back here, finds the two already agreeing, and
-        // stops.
         if self.obj_get(obj, &other) != val {
             self.obj_set(obj, &other, val.to_string());
+        }
+
+        // The `View1*` spelling is the CANONICAL store (plan.md §3/§4), and
+        // it is the one with a seeded type — so it is the one
+        // `canonical_prop_value` normalises (a boolean written as `1` reads
+        // back `true`). The unprefixed alias has no seeded type and would
+        // otherwise keep the raw `1`, leaving the two spellings of one value
+        // disagreeing about it. Copied straight into the registry, because
+        // this is a mirror finishing its own write, not a new one.
+        let canonical = if prop.starts_with("View1") { prop.to_string() } else { other.clone() };
+        let alias = canonical.trim_start_matches("View1").to_string();
+        let settled = self.obj_get(obj, &canonical);
+        if self.obj_get(obj, &alias) != settled {
+            let key = self.canonical_prop_name(obj, &alias);
+            self.objects.set_property(obj, &key, settled);
         }
     }
 
@@ -12113,7 +12147,9 @@ impl Interpreter {
     /// left displayed** — `Source` is put back to whatever last loaded, so
     /// every surface goes on painting the document that is actually there
     /// rather than a name that failed.
-    fn viewer_open_source(&mut self, obj: &str, source: &str) {
+    /// Returns whether the document opened — `false` means R4's restore has
+    /// run and the caller must leave both spellings of `Source` alone.
+    fn viewer_open_source(&mut self, obj: &str, source: &str) -> bool {
         use cobolt_forms::viewer::{open_document, DocumentSource};
 
         let path = source.trim().to_string();
@@ -12121,7 +12157,7 @@ impl Interpreter {
             // Clearing the source is not a failed load.
             self.obj_set(obj, "Format", String::new());
             self.obj_set(obj, "Progress", "0".into());
-            return;
+            return true;
         }
         let resolved = cobolt_forms::assets::resolve(&path);
         let src = DocumentSource::Path(resolved.to_string_lossy().into_owned());
@@ -12148,16 +12184,21 @@ impl Interpreter {
                 self.obj_set(obj, "_LoadedSource", path);
                 self.obj_set(obj, "_PageCount", index.page_count().to_string());
                 self.queue_control_event(obj, "onLoaded");
+                true
             }
             Err(e) => {
                 self.obj_set(obj, "LastError", e.to_message());
                 // R4: the failed name must not replace the document on
                 // screen. Written straight to the registry — `obj_set` would
                 // re-enter this hook and try to load it all over again.
+                // BOTH spellings go back: a program may have written either.
                 let previous = self.obj_get(obj, "_LoadedSource");
-                let canon = self.canonical_prop_name(obj, "Source");
-                self.objects.set_property(obj, &canon, previous);
+                for name in ["Source", "View1Source"] {
+                    let canon = self.canonical_prop_name(obj, name);
+                    self.objects.set_property(obj, &canon, previous.clone());
+                }
                 self.queue_control_event(obj, "onError");
+                false
             }
         }
     }
@@ -17331,6 +17372,11 @@ MAIN.
 
         let events = queued_for(&interp, "VWR-1");
         println!("events in order: {events:?}");
+        assert_eq!(
+            events.iter().filter(|e| *e == "onError").count(),
+            1,
+            "R4: ONE failed load is ONE onError — a developer counts their own handler's calls"
+        );
         println!("Source after the good load: {:?}", std::path::Path::new(&after_good).file_name());
         println!("Source after the bad  load: {:?}", std::path::Path::new(&after_bad).file_name());
         println!("LastError: {:?}", interp.obj_get("VWR-1", "LastError"));
@@ -17579,6 +17625,116 @@ MAIN.
         println!("RenderAsHtml=true,  AppendHtml({html:?}) -> {rendered:?}");
         assert!(!rendered.contains("<b>"), "the tag is markup here, not text");
         assert!(rendered.contains("bold"));
+    }
+
+    /// **Spec 058 AC30, the interpreter's half** — "every event in R32's
+    /// table fires at its documented moment and never at another one,
+    /// verified per event, not by sampling a few."
+    ///
+    /// One table-driven test rather than a function per event (plan.md §5's
+    /// own mitigation): sixteen near-identical hand-written tests is exactly
+    /// where one gets silently skipped, and the table is then the single
+    /// place a missing case would have to hide. Each row reports PASS or
+    /// FAIL **by name**, so a gap is visible rather than inferred from an
+    /// absent test function.
+    ///
+    /// The engine's half — the events a gesture raises — is `cobolt-forms`'
+    /// test of the same name.
+    #[test]
+    fn every_event_in_r32s_table_fires_at_its_documented_moment() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.txt");
+        std::fs::write(&good, "A readable document, long enough to report progress.\n".repeat(4000)).unwrap();
+        let bad = dir.path().join("mystery.bin");
+        std::fs::write(&bad, (0..256u16).map(|b| (b % 256) as u8).collect::<Vec<u8>>()).unwrap();
+        let good = good.to_string_lossy().into_owned();
+        let bad = bad.to_string_lossy().into_owned();
+        let dest = dir.path().join("copy.txt").to_string_lossy().into_owned();
+
+        // Every row: the event, what makes it happen, and the trigger.
+        type Trigger = Box<dyn Fn(&mut Interpreter)>;
+        let rows: Vec<(&str, &str, Trigger)> = vec![
+            ("onLoadProgress", "a document opens", {
+                let g = good.clone();
+                Box::new(move |i: &mut Interpreter| i.obj_set("VWR-1", "Source", g.clone()))
+            }),
+            ("onLoaded", "it finishes opening", {
+                let g = good.clone();
+                Box::new(move |i: &mut Interpreter| i.obj_set("VWR-1", "Source", g.clone()))
+            }),
+            ("onError", "a document cannot be opened", {
+                let b = bad.clone();
+                Box::new(move |i: &mut Interpreter| i.obj_set("VWR-1", "Source", b.clone()))
+            }),
+            ("onSaveComplete", "SaveAs writes the file", {
+                let (g, d) = (good.clone(), dest.clone());
+                Box::new(move |i: &mut Interpreter| {
+                    i.obj_set("VWR-1", "Source", g.clone());
+                    i.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(&d, d.len())]);
+                })
+            }),
+            ("onSaveCancelled", "the OS reports the save dialog was cancelled",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Save, false))),
+            ("onPrintComplete", "the OS reports printing finished",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, true))),
+            ("onPrintCancelled", "the OS reports printing was cancelled",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, false))),
+            ("onShareComplete", "the OS reports sharing finished",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, true))),
+            ("onShareCancelled", "the OS reports sharing was cancelled",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, false))),
+            ("onFindOpened", "Find() opens the bar",
+                Box::new(|i: &mut Interpreter| { i.exec_method("VWR-1", "FIND", &[CobolValue::from_str("x", 1)]); })),
+            ("onFindClosed", "FindClose() closes it",
+                Box::new(|i: &mut Interpreter| {
+                    i.exec_method("VWR-1", "FIND", &[CobolValue::from_str("x", 1)]);
+                    i.exec_method("VWR-1", "FINDCLOSE", &[]);
+                })),
+            ("onContentRendered", "an appended chunk finishes laying out",
+                Box::new(|i: &mut Interpreter| { i.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("hello", 5)]); })),
+            ("onConversationCreated", "NewConversation() archives a non-empty pane",
+                Box::new(|i: &mut Interpreter| {
+                    i.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("a thread", 8)]);
+                    i.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+                })),
+            ("onConversationSelected", "SelectConversation(id) makes one current",
+                Box::new(|i: &mut Interpreter| {
+                    i.exec_method("VWR-1", "SELECTCONVERSATION", &[CobolValue::from_str("chat-1", 6)]);
+                })),
+        ];
+
+        println!("AC30 (interpreter half) — one row per event in R32's table:");
+        let mut failures: Vec<String> = Vec::new();
+        for (event, moment, trigger) in &rows {
+            let mut interp = viewer_interp(&[]);
+            trigger(&mut interp);
+            let seen = queued_for(&interp, "VWR-1");
+            let count = seen.iter().filter(|e| *e == event).count();
+            let ok = count >= 1;
+            println!(
+                "  {:<24} {:<46} fired {count}   {}",
+                event,
+                moment,
+                if ok { "PASS" } else { "FAIL" }
+            );
+            if !ok {
+                failures.push(format!("{event} ({moment}) — saw {seen:?}"));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "AC30: these events did not fire at their documented moment: {failures:?}"
+        );
+
+        // The other half of "and never at another one": a quiet control
+        // that is merely READ raises nothing at all.
+        let mut quiet = viewer_interp(&[]);
+        let _ = quiet.obj_get("VWR-1", "Layout");
+        let _ = quiet.obj_get("VWR-1", "HistoryList");
+        quiet.exec_method("VWR-1", "FINDNEXT", &[]);
+        let idle = queued_for(&quiet, "VWR-1");
+        println!("  {:<24} {:<46} fired {}   {}", "(nothing)", "a control that is only read", idle.len(), if idle.is_empty() { "PASS" } else { "FAIL" });
+        assert!(idle.is_empty(), "AC30: reading a Viewer must raise nothing, saw {idle:?}");
     }
 
     // ── Viewer conversation management (spec 058 T36/T37): §8.8 ─────────
