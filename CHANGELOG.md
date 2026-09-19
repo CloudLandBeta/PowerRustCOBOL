@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.101] — 2026-09-19
+
+### The macOS .dmg no longer fails the build by succeeding
+
+The macOS x86_64 job died packaging 1.70.100, after the image was built,
+mounted and laid out: six "failed" detaches, then
+`hdiutil: detach failed - No such file or directory`. That last message is
+the diagnosis — ENOENT, nothing left to detach. The volume had already gone.
+
+The retry loop could not tell **"still busy"** from **"already gone"**: a
+detach that ejects the volume but returns non-zero looks exactly like one
+that failed, and every attempt after it fails too, because the mount point
+no longer exists. So the loop exhausted itself on a volume that was already
+detached, forced a detach on a path that was not there, and `set -e` ended
+the job — with a `.dmg` that was, in fact, ready to convert.
+
+Both places now ask the filesystem instead of trusting the exit status: the
+loop stops as soon as the mount point is gone, and a forced detach that
+errors is only a failure if the volume is **still mounted** — in which case
+the step refuses to convert a live image and says so. Nothing about the
+happy path changes, and a genuinely stuck volume still fails loudly.
+
 ## [PowerRustCOBOL 1.70.100] — 2026-09-19
 
 ### Spec 061 T10–T12 — two forms stopped at once, plus the Guide and its strings

@@ -814,9 +814,23 @@ jobs:
           # `couldn't eject "disk2" - Resource busy`, which is a race, not a
           # fault: retry, and only then force. Forcing first would risk
           # detaching before the layout has been flushed to the image.
+          # A detach that ejected the volume but still returned non-zero is
+          # indistinguishable from one that failed — and every attempt after it
+          # fails too, with ENOENT, because the mount point is already gone.
+          # That is how the macOS x86_64 job died on 2026-09-19, packaging
+          # 1.70.100: the layout applied, then six "failures", then the forced
+          # detach below reporting `hdiutil: detach failed - No such file or
+          # directory` as the job's last word — ENOENT, i.e. nothing left to
+          # detach. So ask the filesystem whether the volume is still there
+          # rather than trusting the exit status.
           for attempt in 1 2 3 4 5 6; do
             if hdiutil detach "$mnt" >/dev/null 2>&1; then
               echo "detached on attempt $attempt"
+              mnt=""
+              break
+            fi
+            if [ ! -d "$mnt" ]; then
+              echo "already detached (gone by attempt $attempt)"
               mnt=""
               break
             fi
@@ -824,7 +838,16 @@ jobs:
           done
           if [ -n "$mnt" ]; then
             echo "::warning::volume still busy after 18s; forcing the detach"
-            hdiutil detach "$mnt" -force
+            if ! hdiutil detach "$mnt" -force; then
+              # Same question again: only a volume that is STILL mounted is a
+              # real failure. Anything else is the race, and the image is
+              # ready to convert.
+              if [ -d "$mnt" ]; then
+                echo "::error::$mnt is still mounted; refusing to convert a live image"
+                exit 1
+              fi
+              echo "the force reported an error but the volume is gone; continuing"
+            fi
           fi
           hdiutil convert "dist/_rw.dmg" -format UDZO -ov -o "dist/${PKG}.dmg"
           rm -f "dist/_rw.dmg"
