@@ -305,12 +305,22 @@ struct StaleBuildPrompt {
 /// to agree: 1.60.30 wired Build to the plain incremental path, which leaves
 /// the version stamp untouched, so Run then asked for the very full build the
 /// developer had just waited through — the project was built twice.
-/// Whether Debug is available: a COBOL source is open in the editor (the
-/// file it debugs), or a project is open and compilable (its MAIN form is
-/// what it debugs then — the same form Run launches). The menu and the
-/// toolbar both read this one answer.
-fn debug_gate(has_source: bool, has_project: bool, compilable: bool) -> bool {
-    has_source || (has_project && compilable)
+/// Whether Debug is available. With a project open: only once that project
+/// has been BUILT by the running PowerRustCOBOL — its build stamp is present
+/// and current — whatever is or is not open in the editor (operator ruling,
+/// 2026-09-19: "the debug button should only be enabled after a build").
+/// Only a full build stamps, and the Build button is a full build exactly
+/// when the stamp is missing or stale, so a current stamp means a build has
+/// finished under this IDE; it is persisted, so it survives a restart. With
+/// no project, a lone open COBOL source is debuggable as it always was — there
+/// is no project build for it to wait on. The menu and the toolbar both read
+/// this one answer.
+fn debug_gate(has_source: bool, has_project: bool, built_by_this_version: bool) -> bool {
+    if has_project {
+        built_by_this_version
+    } else {
+        has_source
+    }
 }
 
 fn build_needs_full(
@@ -13920,9 +13930,22 @@ impl eframe::App for CoboltApp {
         // Then it gated on the open source alone, so a developer who had just
         // built the project with no tab open found Run live and Debug grey
         // (operator, 2026-09-19: "after a build, the debug button in the IDE
-        // should be enabled").
+        // should be enabled") — and the ruling that followed the same day
+        // makes the build the condition: in a project, Debug is live only
+        // after a build by this version (`debug_gate`).
+        let menu_built = self.cobolt_project.as_ref().is_some_and(|p| {
+            p.project.has_recorded_build()
+                && !p.project.build_is_stale_for(crate::version::VERSION)
+        });
         let menu_debuggable =
-            debug_gate(self.editor.active_source().is_some(), has_project, menu_compilable);
+            debug_gate(self.editor.active_source().is_some(), has_project, menu_built);
+        // Why Debug is grey, when it is: a project waits for its build; a lone
+        // file waits to be opened.
+        let menu_debug_hint = if has_project {
+            tr.tb_debug_needs_build
+        } else {
+            tr.tb_debug_hint
+        };
         egui::Panel::top("menu_bar").show(root_ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr.menu_file, |ui| {
@@ -13988,7 +14011,7 @@ impl eframe::App for CoboltApp {
                             egui::Button::new(tr.tb_debug),
                         );
                         if !menu_debuggable {
-                            dbg.clone().on_hover_text(tr.tb_debug_hint);
+                            dbg.clone().on_hover_text(menu_debug_hint);
                         }
                         if dbg.clicked() {
                             self.do_debug();
@@ -14088,6 +14111,7 @@ impl eframe::App for CoboltApp {
         // pulldown and the toolbar can never disagree about what is available.
         let compilable = menu_compilable;
         let debuggable = menu_debuggable;
+        let debug_hint = menu_debug_hint;
         // "Active" = a project is open or a file is being edited. Gates Save /
         // Check (toolbar) and the Run / View menus.
         let has_active = self.cobolt_project.is_some() || self.editor.active_source().is_some();
@@ -14102,6 +14126,7 @@ impl eframe::App for CoboltApp {
             &mut self.lang,
             compilable,
             debuggable,
+            debug_hint,
             has_active,
             has_unsaved,
             self.pending_build_rx.is_some(),
@@ -18812,17 +18837,34 @@ mod form_delete_routing_tests {
 mod debug_gate_tests {
     use super::debug_gate;
 
-    /// Debug is live whenever Run is: an open source debugs that file; a
-    /// compilable project with nothing open debugs its main form. It used to
-    /// need the open source alone, so a project just built with no tab open
-    /// could be run but not debugged (operator, 2026-09-19).
+    /// In a project, Debug is live only after a build by this version — with
+    /// or without a tab open (operator ruling, 2026-09-19). A lone COBOL file
+    /// outside any project is debuggable as it always was.
     #[test]
-    fn debug_is_live_for_a_compilable_project_with_nothing_open() {
+    fn debug_waits_for_the_projects_build() {
         assert!(debug_gate(false, true, true), "built project, no tab: Debug is live");
-        assert!(debug_gate(true, false, false), "a lone COBOL file: Debug is live");
-        assert!(debug_gate(true, true, false), "an open source wins even in an empty project");
-        assert!(!debug_gate(false, true, false), "a project with no form or program: nothing to debug");
+        assert!(debug_gate(true, true, true), "built project, tab open: Debug is live");
+        assert!(!debug_gate(false, true, false), "unbuilt project, no tab: grey");
+        assert!(!debug_gate(true, true, false), "unbuilt project: an open source does not bypass the build");
+        assert!(debug_gate(true, false, false), "a lone COBOL file, no project: Debug is live");
         assert!(!debug_gate(false, false, false), "nothing open at all: grey");
+    }
+
+    /// The stamp predicate the gate is fed: present AND from the running
+    /// version. A never-built project and one built by another version both
+    /// leave Debug grey; a build by this IDE turns it on.
+    #[test]
+    fn the_stamp_counts_only_when_it_is_this_versions() {
+        use crate::project_model::CoboltProject;
+        let stamped = |v: &str| -> bool {
+            let mut p = CoboltProject::new("Demo.project", "main.cbl");
+            p.project.built_with_version = v.to_owned();
+            p.project.has_recorded_build()
+                && !p.project.build_is_stale_for(crate::version::VERSION)
+        };
+        assert!(!stamped(""), "never built");
+        assert!(!stamped("1.60.29"), "built by another version");
+        assert!(stamped(crate::version::VERSION), "built by this one");
     }
 }
 

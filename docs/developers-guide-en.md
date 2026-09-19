@@ -8147,11 +8147,13 @@ Select a Generated Code item and press **Debug** to start a session. You get:
   generated line still stops there, because setting it was your decision.
 
 During a session a *Stop Debug* control appears; otherwise debugging starts from
-the toolbar **Debug** button (to the right of **Run**). The button is live
-whenever **Run** is: with a COBOL file open in the editor it debugs that file;
-with nothing open — right after a **Build**, say — it debugs the project's
-**main form**, exactly the form **Run** would launch, with the debugger
-attached to its window.
+the toolbar **Debug** button (to the right of **Run**). In a project the
+button comes alive **after a Build** — once the project has been built by the
+PowerRustCOBOL you are running (the tooltip says so while it is grey; a
+project built by an older version needs a fresh Build first). From then on,
+with a COBOL file open in the editor it debugs that file; with nothing open
+it debugs the project's **main form**, exactly the form **Run** would
+launch, with the debugger attached to its window.
 
 > ⚠️ **To stop inside an event handler, debug the form — not its generated
 > `.cbl`.** Pressing **Debug** on a form launches it as a real window, so its

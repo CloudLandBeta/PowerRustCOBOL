@@ -214,6 +214,9 @@ pub struct Tr {
     /// Disabled-Build tooltip — a build is already running.
     pub tb_build_busy: &'static str,
     pub tb_debug_hint: &'static str,
+    /// Why Debug is greyed in a project: it has not been built by this
+    /// PowerRustCOBOL yet (operator ruling, 2026-09-19).
+    pub tb_debug_needs_build: &'static str,
     /// Disabled-Save tooltip — the project has nothing unsaved.
     pub tb_nothing_to_save: &'static str,
     pub tb_settings: &'static str,
@@ -1860,6 +1863,7 @@ const EN: Tr = Tr {
     tb_need_program: "Add a COBOL program or a form first",
     tb_build_busy: "A build is already running",
     tb_debug_hint: "Open a COBOL file to debug",
+    tb_debug_needs_build: "Build the project to enable Debug",
     tb_nothing_to_save: "Nothing to save — the project has no unsaved changes",
     tb_settings: "Appearance settings (theme & background)",
     recover_title: "Recover unsaved work?",
@@ -3196,6 +3200,7 @@ const ES: Tr = Tr {
     tb_need_program: "Agregue un programa COBOL o un formulario",
     tb_build_busy: "Ya hay una compilación en curso",
     tb_debug_hint: "Abra un archivo COBOL para depurar",
+    tb_debug_needs_build: "Compile el proyecto para habilitar Depurar",
     tb_nothing_to_save: "No hay nada que guardar: el proyecto no tiene cambios sin guardar",
     tb_settings: "Ajustes de apariencia (tema y fondo)",
     recover_title: "¿Recuperar el trabajo sin guardar?",
@@ -4533,6 +4538,7 @@ const PT: Tr = Tr {
     tb_need_program: "Adicione um programa COBOL ou um formulário",
     tb_build_busy: "Já há uma compilação em andamento",
     tb_debug_hint: "Abra um arquivo COBOL para depurar",
+    tb_debug_needs_build: "Compile o projeto para habilitar Depurar",
     tb_nothing_to_save: "Nada para salvar — o projeto não tem alterações pendentes",
     tb_settings: "Configurações de aparência (tema e fundo)",
     recover_title: "Recuperar o trabalho não salvo?",
@@ -5870,6 +5876,7 @@ const JA: Tr = Tr {
     tb_need_program: "COBOLプログラムかフォームを追加してください",
     tb_build_busy: "ビルドは既に実行中です",
     tb_debug_hint: "デバッグする COBOL ファイルを開いてください",
+    tb_debug_needs_build: "デバッグを有効にするにはプロジェクトをビルドしてください",
     tb_nothing_to_save: "保存する変更はありません",
     tb_settings: "外観設定（テーマと背景）",
     recover_title: "保存されていない作業を復元しますか？",
@@ -7206,6 +7213,7 @@ const ZH: Tr = Tr {
     tb_need_program: "请先添加一个 COBOL 程序或窗体",
     tb_build_busy: "已有一个编译正在进行",
     tb_debug_hint: "请打开一个 COBOL 文件进行调试",
+    tb_debug_needs_build: "请先构建项目以启用调试",
     tb_nothing_to_save: "没有需要保存的更改",
     tb_settings: "外观设置（主题与背景）",
     recover_title: "要恢复未保存的工作吗？",
@@ -8550,6 +8558,7 @@ const FR: Tr = Tr {
     tb_need_program: "Ajoutez d'abord un programme COBOL ou un formulaire",
     tb_build_busy: "Une compilation est déjà en cours",
     tb_debug_hint: "Ouvrez un fichier COBOL pour déboguer",
+    tb_debug_needs_build: "Compilez le projet pour activer Déboguer",
     tb_nothing_to_save: "Rien à enregistrer — le projet n'a aucune modification en attente",
     tb_settings: "Paramètres d'apparence (thème et arrière-plan)",
     recover_title: "Récupérer le travail non enregistré ?",

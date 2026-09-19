@@ -26,6 +26,9 @@ pub fn show(
     lang: &mut Language,
     compilable: bool,
     debuggable: bool,
+    // `debug_hint`: why Debug is greyed when it is — the project has not been
+    // built yet, or no COBOL file is open. Chosen by the app, which knows which.
+    debug_hint: &'static str,
     // `has_active`: true when there is an active project or open file — gates Save/Check.
     has_active: bool,
     // `has_unsaved`: true when a form designer, an editor tab, or the Settings
@@ -122,7 +125,7 @@ pub fn show(
                 run_resp.on_hover_text(tr.tb_need_program);
             }
 
-            // ── Debug (right of Run; enabled when a Generated Code item is selected) ─
+            // ── Debug (right of Run; in a project, enabled once it has been built) ─
             let dbg_resp = ui.add_enabled(
                 !busy && debuggable,
                 Button::new(RichText::new(tr.tb_debug).color(if busy || !debuggable {
@@ -136,7 +139,7 @@ pub fn show(
             }
             crate::theme::flash_on_click(ui, &dbg_resp);
             if !debuggable {
-                dbg_resp.on_hover_text(tr.tb_debug_hint);
+                dbg_resp.on_hover_text(debug_hint);
             }
 
             // ── Stop ─────────────────────────────────────────────────────────

@@ -1,5 +1,24 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.88] — 2026-09-19
+
+### In a project, Debug is enabled only after a build
+
+Operator ruling (2026-09-19), settling the assumption 1.70.87 flagged:
+"the debug button should only be enabled after a build". With a project
+open, the toolbar's **Debug** (and the Run menu's) is live only once the
+project carries a build stamp from the running PowerRustCOBOL —
+`built_with_version` present and current — whatever is or is not open in the
+editor; only a full build stamps, and the Build button is a full build
+exactly when the stamp is missing or stale, so a current stamp means a build
+finished under this IDE, and it persists across restarts. A project built by
+another version shows Debug grey until it is built again. While grey, the
+tooltip now says why: **Build the project to enable Debug** (a new `Tr` key
+in six languages) — the old "Open a COBOL file to debug" remains for a lone
+file outside any project, which keeps its gate. What Debug launches is
+unchanged from 1.70.87. Unit tests pin the gate and the stamp predicate; the
+Guide's Debugging chapter says when the button is live.
+
 ## [PowerRustCOBOL 1.70.87] — 2026-09-19
 
 ### Debug is live whenever Run is — with no source open it debugs the main form
