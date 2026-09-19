@@ -2259,7 +2259,7 @@ impl Interpreter {
             message: "window supervisor is gone".into(),
         })?;
         // Modal Sync blocks HERE until the child closes (R28).
-        match rrx.recv() {
+        let result = match rrx.recv() {
             Ok(Some(handle)) => {
                 let n = handle.len();
                 Ok(CobolValue::from_str(&handle, n))
@@ -2268,7 +2268,21 @@ impl Interpreter {
             Err(_) => Err(RuntimeError::General {
                 message: "window supervisor dropped the reply".into(),
             }),
-        }
+        };
+        // A closing SYNC child's `SUPER::"SetProperty"` writes queue on this
+        // interpreter's `input_rx` (`HostAction::SetFormProperty`, host.rs) —
+        // ordinarily only folded into `self.objects` by `drain_input` right
+        // before a `COBOL-WAIT-EVENT` dispatch. Without this, the very next
+        // statement after `OpenFormSync` returns — `ME::"GetProperty"`, read
+        // synchronously from `self.objects` — sees whatever was there BEFORE
+        // the child ran, not what it just published: the property the
+        // operator just set in the dialog silently failed to appear in the
+        // caller (PowerDemo3's Call Form demo, 2026-09-19). Draining here,
+        // the moment control resumes, makes an immediate read see it. A
+        // no-op for Async (nothing to wait for) and for a sync open with
+        // nothing published.
+        self.drain_input();
+        result
     }
 
     /// 049 — push one own-form property to the supervisor so `super::X` /

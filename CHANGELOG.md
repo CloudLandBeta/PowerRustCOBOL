@@ -1,5 +1,29 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.69] — 2026-09-19
+
+### An immediate `ME::"GetProperty"` right after `OpenFormSync` returns saw a stale value
+
+`SUPER::"SetProperty"` on a closing modal child queues a `StateUpdate` on the
+caller's own `input_rx` (`HostAction::SetFormProperty`, `cobolt-form-host`);
+that queue is folded into the interpreter's readable object registry only by
+`Interpreter::drain_input`, and in production `drain_input` ran from exactly
+one place: right before dispatching a `COBOL-WAIT-EVENT`-triggered handler.
+`OpenFormSync` blocks the caller's own thread until the child closes
+(`open_form_via_supervisor`, a literal `rrx.recv()`) and then simply resumes
+the very next statement — no `WAIT-EVENT` in between. So `ME::"GetProperty"`
+called as the statement immediately after `OpenFormSync` read `self.objects`
+before that queued write had ever been drained: the property the operator
+had just set in the closing dialog silently failed to appear in the caller.
+
+This is exactly PowerDemo3's Call Form demo report (2026-09-19): the result
+label never updated when the read was moved out of a polling Timer and
+placed directly after `OpenFormSync`, which is the more natural, idiomatic
+place to put it. `open_form_via_supervisor` now calls `self.drain_input()`
+itself the moment `OpenFormSync` resumes, so an immediate read sees what the
+child just published — no polling required. A no-op for Async opens and for
+a sync open that published nothing.
+
 ## [PowerRustCOBOL 1.70.68] — 2026-09-18
 
 ### A modal child's caller could still be raised and clicked through ("click-through")

@@ -6522,6 +6522,131 @@ mod parity {
         println!("051 — SemiTransparent and Greyed each paint their own, distinct overlay fill");
     }
 
+    /// 051 R19/R28 — the SAME check as `modal_overlay_style_changes_the_painted_fill`,
+    /// but for a form loaded as a ContentPane OCCUPANT (PowerDemo3's Call Form
+    /// demo: `CALL-FORM-DEMO` is opened via the sidebar, not run as its own
+    /// window) — the previous test only ever drove `Surface::Window`, so it
+    /// never actually exercised `child_frame`'s occupant branch at all
+    /// (operator report, 2026-09-19: "the caller is set to Greyed... it
+    /// becomes semi-transparent instead").
+    #[test]
+    fn modal_overlay_style_changes_the_painted_fill_for_an_occupant() {
+        fn program_from(src: &str) -> cobolt_ast::program::Program {
+            cobolt_parser::parse(cobolt_lexer::tokenize(src, cobolt_lexer::SourceFormat::Free))
+                .program
+                .expect("parses")
+        }
+        fn painted_with(style: cobolt_forms::model::ModalOverlayStyle) -> Vec<egui::Color32> {
+            let form = cobolt_forms::Form::new("SHELL", "Shell", 640, 480);
+            let (ev_tx, _ev_rx) = mpsc::channel();
+            let (input_tx, _input_rx) = mpsc::channel();
+            let (_state_tx, state_rx) = mpsc::channel();
+            let (_display_tx, display_rx) = mpsc::channel();
+            let (form_req_tx, form_req_rx) = mpsc::channel();
+            let (closed_tx, _closed_rx) = mpsc::channel();
+            let source: Option<FormSource> = Some(Box::new(move |id: &str| {
+                if id.eq_ignore_ascii_case("CALLER") {
+                    let mut form = cobolt_forms::Form::new("CALLER", "Caller", 320, 200);
+                    form.modal_overlay_style = style;
+                    Ok((form, program_from(
+                        "IDENTIFICATION DIVISION.\nPROGRAM-ID. CALLER.\n\
+                         DATA DIVISION.\nWORKING-STORAGE SECTION.\n\
+                         01 EVT PIC X(30).\n01 CTL PIC X(30).\n\
+                         PROCEDURE DIVISION.\n    \
+                         CALL \"COBOL-WAIT-EVENT\" USING EVT CTL.\n",
+                    )))
+                } else {
+                    Err(format!("no form named '{id}'"))
+                }
+            }));
+            let (mut host, _form) = FormHost::new(FormHostConfig {
+                form,
+                flat: Vec::new(),
+                state: HashMap::new(),
+                ev_tx,
+                input_tx,
+                state_rx,
+                display_rx,
+                pending: Arc::new(AtomicUsize::new(0)),
+                finished: Arc::new(AtomicBool::new(false)),
+                form_req_rx,
+                closed_tx,
+                form_req_tx: form_req_tx.clone(),
+                form_source: source,
+                child_theme: None,
+                child_interpreter_setup: None,
+                shared_rust_bridge: None,
+                fx_entrance: cobolt_forms::window_fx::FxSpec::default(),
+                fx_exit: cobolt_forms::window_fx::FxSpec::default(),
+                fx_restore: false,
+                theme_pack: None,
+                surface_theme: cobolt_forms::surface_theme::liquid_glass(),
+                icon_path: None,
+                title_fallback: String::new(),
+                hooks: Box::new(NoHooks),
+                surface: Surface::Window,
+            });
+
+            host.ensure_occupant("CALLER").expect("occupant builds");
+            host.show_occupant(Some("CALLER"));
+            let (reply_tx, _reply_rx) = mpsc::channel();
+            let _ = host.supervisor.handle_request(
+                cobolt_runtime::form_host::FormRequest::OpenForm {
+                    caller: host.occupants.get("CALLER").unwrap().handle.clone(),
+                    form_id: "CHILD".into(),
+                    sync: true,
+                    window_state: None,
+                    x: None,
+                    y: None,
+                    width: None,
+                    height: None,
+                    modal: true,
+                    reply: reply_tx,
+                },
+            );
+            assert!(host.root_modal_blocked(), "the registered modal must block the occupant");
+
+            let ctx = egui::Context::default();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(640.0, 480.0),
+            ));
+            let mut full = ctx.run_ui(input, |root_ui| host.ui_impl(root_ui));
+            full.textures_delta.clear();
+
+            fn walk(s: &egui::Shape, out: &mut Vec<egui::Color32>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Rect(r) => out.push(r.fill),
+                    _ => {}
+                }
+            }
+            let mut fills = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut fills);
+            }
+            fills
+        }
+
+        let semi = painted_with(cobolt_forms::model::ModalOverlayStyle::SemiTransparent);
+        assert!(
+            semi.contains(&egui::Color32::from_white_alpha(70)),
+            "an occupant's SemiTransparent must paint its own overlay fill: {semi:?}"
+        );
+        let grey = painted_with(cobolt_forms::model::ModalOverlayStyle::Greyed);
+        let grey_fill = egui::Color32::from_rgba_unmultiplied(60, 60, 64, 150);
+        assert!(
+            grey.contains(&grey_fill),
+            "an occupant's Greyed must paint its own, DIFFERENT overlay fill: {grey:?}"
+        );
+        assert!(
+            !semi.contains(&grey_fill),
+            "an occupant's SemiTransparent must not ALSO paint Greyed's fill: {semi:?}"
+        );
+        println!("051 — an occupant's SemiTransparent and Greyed each paint their own, distinct overlay fill");
+    }
+
     /// One headless frame; returns the ROOT viewport's commands.
     fn frame(app: &mut FormHost, ctx: &egui::Context, input: egui::RawInput) -> Vec<egui::ViewportCommand> {
         let mut full = ctx.run_ui(input, |root_ui| app.ui_impl(root_ui));
