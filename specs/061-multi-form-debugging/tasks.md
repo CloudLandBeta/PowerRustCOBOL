@@ -1,6 +1,7 @@
 # Tasks — Debugging an application, not a form
 
-- **Status:** in progress — Stage A done (1.70.95)
+- **Status:** in progress — T1–T4, T7 done; debugging works again as of
+  1.70.97 (root form only, exactly as before). Next: T8.
 - **Plan:** ./plan.md   **Date:** 2026-09-19
 - **Branch:** `debug` (operator, 2026-09-19), worked in
   `.claude/worktrees/debug` because the shared checkout is on `features`
@@ -31,6 +32,16 @@ green *unchanged*, never edited to fit).
 > existing one and setting `StepMode::Run`. The plan predicted no runtime
 > change; the prediction was wrong, not the rule. Everything else in
 > `cobolt-runtime` stays untouched.
+>
+> ⚠️ **And once more at T7, for a different reason: the envelopes moved
+> there** (1.70.97). `DebugWire` and `RemoteDebugMsg` were defined in
+> `debug_link.rs`, which is in a crate the IDE depends on only as a
+> **dev-dependency** — a deliberate boundary (`cobolt-ide/Cargo.toml`: "The
+> IDE itself is not a form host and takes no runtime dependency on it"). The
+> file's own rule says where they belong: "The switch itself is part of the
+> PROTOCOL, so it lives with the protocol — `cobolt_runtime::debugger` —
+> where the IDE … and this crate can both see one spelling of the name."
+> They are types, not behaviour; `debug_link` re-exports them.
 >
 > **Shipping constraint (plan §8):** T1–T4 and T6 are inert on their own and
 > may be pushed singly. **T5 and T7–T11 are one behavioural change** — between
@@ -136,7 +147,7 @@ green *unchanged*, never edited to fit).
 
 ## Stage D — the IDE follows the program (plan S5–S7)
 
-- [ ] **T7 — Read the envelope, per run** (R2; fixes the latent merge)
+- [x] **T7 — Read the envelope, per run** (R2; fixes the latent merge)
   - Files: `crates/cobolt-ide/src/app.rs` (the `@DBG` route, `app.rs:14638-14652`)
   - Do: parse `DebugWire`, falling back to a bare `DebugEvent` (treated as
     `ROOT_HANDLE`) so a half-updated pair degrades to single-form debugging.

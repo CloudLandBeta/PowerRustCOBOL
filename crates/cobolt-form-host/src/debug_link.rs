@@ -28,7 +28,6 @@ use cobolt_runtime::{
     new_breakpoints, new_user_scope, Breakpoints, DebugCmd, DebugEvent, DebugUserScope,
     RemoteDebugCmd,
 };
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -99,34 +98,12 @@ fn resumes(cmd: &DebugCmd) -> bool {
 // someone to keep the names straight. `cobolt-runtime` is untouched by all of
 // this — if a change here seems to need one there, the design has drifted.
 
-/// One `@DBG` line, **outbound**. The router stamps the handle; the
-/// interpreter that produced the event knows nothing about it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DebugWire {
-    /// A debuggee joined the session. `handle` is its supervisor handle
-    /// (`W0` is the root form, `W1`… the forms it opens) and `form` its
-    /// form-object name — which is what lets the IDE find the `.cfrm`, and
-    /// through it the generated `.cbl` this debuggee's stops are reported
-    /// against.
-    Attached { handle: String, form: String },
-    /// Its interpreter has finished: the window closed, or the program ended.
-    Detached { handle: String },
-    /// Anything the interpreter emitted.
-    Event { handle: String, event: DebugEvent },
-}
-
-/// One `@DBG` line, **inbound**.
-///
-/// `target: None` means the root debuggee, and [`parse_inbound`] also still
-/// accepts a bare [`RemoteDebugCmd`] — so a session driven by an IDE that
-/// knows nothing of handles degrades to debugging the root form rather than
-/// failing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemoteDebugMsg {
-    #[serde(default)]
-    pub target: Option<String>,
-    pub cmd: RemoteDebugCmd,
-}
+// The envelopes are part of the PROTOCOL, so — like `DebugCmd`, `DebugEvent`
+// and the session switch above — they live in `cobolt_runtime::debugger`,
+// where the IDE (which writes one and reads the other) and this crate can
+// both see one spelling. They were defined here first, which put them in a
+// crate the IDE deliberately does not depend on at run time.
+pub use cobolt_runtime::{DebugWire, RemoteDebugMsg};
 
 /// Parse one inbound `@DBG` payload, newest form first.
 ///

@@ -167,6 +167,45 @@ pub enum RemoteDebugCmd {
     },
 }
 
+/// One inbound `@DBG` line, addressed to **one debuggee** (spec 061).
+///
+/// Since spec 051 an application is several forms, each running its own
+/// program in its own interpreter, and any of them may be under the
+/// debugger. `target` names which — a supervisor handle, `W0` for the root
+/// form and `W1`… for the forms it opens.
+///
+/// `None` means the root, so a line sent by an IDE that knows nothing of
+/// handles keeps exactly the meaning it had when a session had one form in
+/// it. For the same reason the debuggee still accepts a bare
+/// [`RemoteDebugCmd`]: a mismatched pair degrades to single-form debugging
+/// rather than failing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoteDebugMsg {
+    #[serde(default)]
+    pub target: Option<String>,
+    pub cmd: RemoteDebugCmd,
+}
+
+/// One outbound `@DBG` line, stamped with the debuggee it came from
+/// (spec 061).
+///
+/// The debuggee's router adds the handle; the interpreter that produced the
+/// event knows nothing about it, which is what keeps [`DebugEvent`] and
+/// [`DebugCmd`] per-interpreter and free of addressing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DebugWire {
+    /// A debuggee joined the session. `handle` is its supervisor handle and
+    /// `form` its form-object name — which is what lets the IDE find the
+    /// `.cfrm`, and through it the generated `.cbl` this debuggee's stops
+    /// are reported against. The root form announces an empty `form`: the
+    /// IDE launched it and already knows which file it is.
+    Attached { handle: String, form: String },
+    /// Its interpreter has finished: the window closed, or the program ended.
+    Detached { handle: String },
+    /// Anything the interpreter emitted.
+    Event { handle: String, event: DebugEvent },
+}
+
 // ── Events (interpreter → IDE) ────────────────────────────────────────────────
 
 /// A snapshot of one data-item's current value.

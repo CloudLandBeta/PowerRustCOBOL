@@ -1,5 +1,30 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.97] — 2026-09-19
+
+### Spec 061 T7 — the IDE reads the envelope, and stops merging debug runs
+
+Debugging works again: the IDE parses the `DebugWire` envelope, with a bare
+`DebugEvent` still accepted and read as the root form's, so a mismatched
+IDE/debuggee pair degrades to single-form debugging rather than failing.
+
+**The latent defect is fixed on the way.** Every external run's `@DBG`
+events were merged into one vector and fed to the one panel, with no record
+of which run they came from — so two debugged runs would have written each
+other's line numbers into each other's listing. Each entry now carries its
+run, and only the run that *owns* the session drives the panel.
+
+Until the panel can hold more than one listing (T8), only the root form's
+stops are shown. That drops nothing a developer asked for: a child form's
+interpreter is attached and running, but its breakpoint set is its own and
+stays empty until the IDE sends it one, so it never stops.
+
+**The envelope types moved to `cobolt_runtime::debugger`.** They were
+defined in `cobolt-form-host`, which the IDE depends on only as a
+dev-dependency — a deliberate boundary — while the file's own rule says the
+protocol lives with the protocol, "where the IDE … and this crate can both
+see one spelling of the name". Types only; `debug_link` re-exports them.
+
 ## [PowerRustCOBOL 1.70.96] — 2026-09-19
 
 ### Spec 061 S2 — a form opened at run time joins the debug session

@@ -76,8 +76,8 @@ pub use debug_session::{
 };
 pub use debugger::{
     debug_session_requested, new_breakpoint_specs, new_breakpoints, BreakpointSpec, BreakpointSpecs, OutputChannel, new_user_scope, Breakpoints, DebugAnswer, DebugCmd,
-    DebugEvent, DebugQuery, DebugUserScope, RemoteDebugCmd, ScopeInfo, SpecialValue, UserScope,
-    VarInfo, VarSnapshot, DEBUG_SESSION_ENV,
+    DebugEvent, DebugQuery, DebugUserScope, DebugWire, RemoteDebugCmd, RemoteDebugMsg, ScopeInfo,
+    SpecialValue, UserScope, VarInfo, VarSnapshot, DEBUG_SESSION_ENV,
 };
 pub use environment::{new_external_store, CobolEnvironment, ExternalStore};
 pub use error::RuntimeError;

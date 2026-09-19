@@ -29,9 +29,8 @@ cobolt-forms   = { path = "../cobolt-forms", features = ["render"] }
 cobolt-runtime = { path = "../cobolt-runtime", default-features = false }
 cobolt-media   = { path = "../cobolt-media" }
 
-# The `@DBG` debug link (debug_link.rs) is a JSON line protocol. Its own
-# envelope types — which debuggee a line belongs to — are derived here (061).
-serde          = { workspace = true, features = ["derive"] }
+# The `@DBG` debug link (debug_link.rs) is a JSON line protocol. Its types
+# are `cobolt_runtime::debugger`'s, so only the codec is needed here.
 serde_json     = "1"
 
 egui        = "0.36"

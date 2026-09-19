@@ -305,6 +305,29 @@ struct StaleBuildPrompt {
 /// to agree: 1.60.30 wired Build to the plain incremental path, which leaves
 /// the version stamp untouched, so Run then asked for the very full build the
 /// developer had just waited through — the project was built twice.
+/// Parse one outbound `@DBG` payload from a debuggee.
+///
+/// Newest form first: the [`DebugWire`] envelope, which says which form in
+/// that process produced the line. A bare [`DebugEvent`] — what a debuggee
+/// predating spec 061 sends — is still accepted and read as the root form's,
+/// so a mismatched pair degrades to single-form debugging rather than
+/// failing. The two can never be confused: they are both externally-tagged
+/// enums and share no variant name.
+///
+/// [`DebugWire`]: cobolt_runtime::DebugWire
+/// [`DebugEvent`]: cobolt_runtime::DebugEvent
+fn parse_debug_line(json: &str) -> Option<cobolt_runtime::DebugWire> {
+    if let Ok(wire) = serde_json::from_str::<cobolt_runtime::DebugWire>(json) {
+        return Some(wire);
+    }
+    serde_json::from_str::<cobolt_runtime::DebugEvent>(json)
+        .ok()
+        .map(|event| cobolt_runtime::DebugWire::Event {
+            handle: cobolt_runtime::form_host::ROOT_HANDLE.to_owned(),
+            event,
+        })
+}
+
 /// Whether Debug is available. With a project open: only once that project
 /// has been BUILT by the running PowerRustCOBOL — its build stamp is present
 /// and current — whatever is or is not open in the editor (operator ruling,
@@ -14629,21 +14652,24 @@ impl eframe::App for CoboltApp {
         // panel. Reap exited processes, surfacing a failure exit in a modal.
         {
             let mut ext_error: Option<String> = None;
-            let mut dbg_events: Vec<cobolt_runtime::DebugEvent> = Vec::new();
+            // 061 — each line carries WHICH form in that process produced it,
+            // and each entry carries WHICH run it came from. Both were lost
+            // before: every debugged run's events were merged into one vec and
+            // fed to the one panel, so two debug sessions at once would have
+            // written each other's line numbers into each other's listing.
+            let mut dbg_events: Vec<(std::path::PathBuf, cobolt_runtime::DebugWire)> = Vec::new();
             let mut route =
                 |run: &crate::form_runtime::ExternalFormRun,
                  output: &mut crate::panels::output::OutputPanel,
-                 dbg_events: &mut Vec<cobolt_runtime::DebugEvent>| {
+                 dbg_events: &mut Vec<(std::path::PathBuf, cobolt_runtime::DebugWire)>| {
                     for line in run.drain_output() {
                         match line.strip_prefix("@DBG ") {
-                            Some(json) if run.debug => {
-                                match serde_json::from_str::<cobolt_runtime::DebugEvent>(json) {
-                                    Ok(ev) => dbg_events.push(ev),
-                                    Err(e) => {
-                                        output.push_status(format!("debug: bad @DBG event: {e}"))
-                                    }
+                            Some(json) if run.debug => match parse_debug_line(json) {
+                                Some(wire) => dbg_events.push((run.form_path.clone(), wire)),
+                                None => {
+                                    output.push_status(format!("debug: bad @DBG line: {json}"));
                                 }
-                            }
+                            },
                             _ => output.push_line(line),
                         }
                     }
@@ -14685,10 +14711,38 @@ impl eframe::App for CoboltApp {
                 }
             }
             if !dbg_events.is_empty() {
-                for ev in dbg_events {
-                    self.debugger.apply_event(ev);
+                // Only the run that OWNS the session drives the panel. Another
+                // debugged run's events are not this session's business, and
+                // writing them into this listing is how the wrong file's line
+                // gets highlighted.
+                let owner = self.debug_owner_form.clone();
+                let mut applied = false;
+                for (from, wire) in dbg_events {
+                    if owner.as_ref().is_some_and(|o| *o != from) {
+                        continue;
+                    }
+                    match wire {
+                        cobolt_runtime::DebugWire::Event { handle, event } => {
+                            // Until the panel can hold more than one listing,
+                            // only the ROOT form's stops are shown. A child
+                            // form's interpreter is attached and running, but
+                            // its breakpoint set is its own and empty until
+                            // the IDE sends it one, so it never stops and this
+                            // drops nothing a developer asked for.
+                            if handle == cobolt_runtime::form_host::ROOT_HANDLE {
+                                self.debugger.apply_event(event);
+                                applied = true;
+                            }
+                        }
+                        // The session's roster. Acted on once the panel can
+                        // follow a stop into another form's source.
+                        cobolt_runtime::DebugWire::Attached { .. }
+                        | cobolt_runtime::DebugWire::Detached { .. } => {}
+                    }
                 }
-                ctx.request_repaint();
+                if applied {
+                    ctx.request_repaint();
+                }
             }
             if let Some(err) = ext_error {
                 self.set_form_error(err);
@@ -18865,6 +18919,43 @@ mod debug_gate_tests {
         assert!(!stamped(""), "never built");
         assert!(!stamped("1.60.29"), "built by another version");
         assert!(stamped(crate::version::VERSION), "built by this one");
+    }
+}
+
+#[cfg(test)]
+mod debug_wire_tests {
+    use super::parse_debug_line;
+    use cobolt_runtime::{DebugEvent, DebugWire};
+
+    /// A debuggee says which of its forms produced each line; one that
+    /// predates spec 061 says nothing, and is read as the root form — the
+    /// only form such a debuggee can report on.
+    #[test]
+    fn an_envelope_and_a_bare_event_both_parse() {
+        let envelope = serde_json::to_string(&DebugWire::Event {
+            handle: "W1".into(),
+            event: DebugEvent::Resumed,
+        })
+        .unwrap();
+        match parse_debug_line(&envelope) {
+            Some(DebugWire::Event { handle, .. }) => assert_eq!(handle, "W1"),
+            other => panic!("expected the envelope, got {other:?}"),
+        }
+
+        let bare = serde_json::to_string(&DebugEvent::Resumed).unwrap();
+        match parse_debug_line(&bare) {
+            Some(DebugWire::Event { handle, .. }) => assert_eq!(
+                handle,
+                cobolt_runtime::form_host::ROOT_HANDLE,
+                "a bare event is the root form's"
+            ),
+            other => panic!("expected the bare-event fallback, got {other:?}"),
+        }
+
+        assert!(
+            parse_debug_line("{not json").is_none(),
+            "a line that is neither is reported, not silently dropped"
+        );
     }
 }
 
