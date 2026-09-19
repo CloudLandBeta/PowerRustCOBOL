@@ -1587,6 +1587,15 @@ pub struct Interpreter {
     /// say 'onResponse will fire'. It never did").
     control_ids: std::collections::HashMap<String, String>,
     async_dispatch_queue: std::collections::VecDeque<(String, String)>,
+    /// Spec 058 §8 — the conversation a Streamed-layout Viewer is showing,
+    /// per control.
+    ///
+    /// Held here rather than in a property because a conversation is a
+    /// *structure*, not a string: §8.2 item 5 forbids rebuilding it on
+    /// every append, and only a real model can append incrementally. What
+    /// the engine is told is the assembled stream (`_ConversationHtml`),
+    /// republished whenever it changes.
+    viewer_conversations: std::collections::HashMap<String, cobolt_forms::viewer::Conversation>,
     /// Spec 058 R1 — bytes a `LoadBytes` call supplied, per Viewer control.
     ///
     /// Beside the object rather than in a property: a control property is a
@@ -1973,6 +1982,7 @@ impl Interpreter {
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
             viewer_bytes: std::collections::HashMap::new(),
+            viewer_conversations: std::collections::HashMap::new(),
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -12148,6 +12158,44 @@ impl Interpreter {
         }
     }
 
+    /// Spec 058 §8 — this control's conversation, created on first use.
+    fn viewer_conversation(&mut self, obj: &str) -> &mut cobolt_forms::viewer::Conversation {
+        let render_as_html = self
+            .objects
+            .get_property(obj, "RenderAsHtml")
+            .map(|v| {
+                let t = v.to_string();
+                let t = t.trim();
+                !(t.is_empty() || t == "0" || t.eq_ignore_ascii_case("false"))
+            })
+            .unwrap_or(true);
+        let conv = self
+            .viewer_conversations
+            .entry(obj.to_string())
+            .or_insert_with(cobolt_forms::viewer::Conversation::new);
+        // §8.1's blanket override is a PROPERTY, so it can change between
+        // appends; the conversation reads it each time rather than
+        // remembering whatever it was when the first chunk arrived.
+        conv.set_render_as_html(render_as_html);
+        conv
+    }
+
+    /// Publish what the engine paints, and raise §8.2 item 6's event.
+    ///
+    /// `onContentRendered` fires **after the layout pass**, not after the
+    /// data was accepted — which here is literal: `Conversation::append`
+    /// computes the new chunk's layout before returning, so this line runs
+    /// after it by construction.
+    fn viewer_publish_conversation(&mut self, obj: &str) {
+        let (html, empty) = {
+            let conv = self.viewer_conversation(obj);
+            (conv.to_html(), conv.is_empty())
+        };
+        self.obj_set(obj, "_ConversationHtml", html);
+        self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
+        self.queue_control_event(obj, "onContentRendered");
+    }
+
     /// Spec 058 R32 — the OS reported back on a Print / Share / Save As
     /// handoff.
     ///
@@ -13488,6 +13536,60 @@ impl Interpreter {
             "SHARE" => {
                 let n = parse_i(self.obj_get(obj, "_ShareRequest")) + 1;
                 self.obj_set(obj, "_ShareRequest", n.to_string());
+                none
+            }
+            // ── §8.2's append surface ──
+            //
+            // The mode is SPECIFIED per call and never inferred from the
+            // content (§8.5): a chunk sent as Raw stays raw even when it is
+            // valid markup.
+            "APPENDHTML" | "APPEND-HTML" => {
+                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                self.viewer_conversation(obj)
+                    .append(cobolt_forms::viewer::AppendMode::Html, &content);
+                self.viewer_publish_conversation(obj);
+                none
+            }
+            "APPENDMARKDOWN" | "APPEND-MARKDOWN" => {
+                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                self.viewer_conversation(obj)
+                    .append(cobolt_forms::viewer::AppendMode::Markdown, &content);
+                self.viewer_publish_conversation(obj);
+                none
+            }
+            "APPENDRAW" | "APPEND-RAW" => {
+                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                self.viewer_conversation(obj)
+                    .append(cobolt_forms::viewer::AppendMode::Raw, &content);
+                self.viewer_publish_conversation(obj);
+                none
+            }
+            // `AppendToMessage(messageId, content, mode)` — mode last, as
+            // §8.2 spells it.
+            "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE" => {
+                let id = arg(0);
+                let content = args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
+                let mode = cobolt_forms::viewer::AppendMode::from_str(&arg(2));
+                let extended = self.viewer_conversation(obj).append_to_message(&id, mode, &content);
+                if extended {
+                    self.viewer_publish_conversation(obj);
+                } else {
+                    // A streamed chunk for a message that never started is a
+                    // caller error worth reporting, not something to
+                    // silently mint a new message for.
+                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
+                    self.queue_control_event(obj, "onError");
+                }
+                none
+            }
+            // §8.4's "Jump to latest", COBOL-callable — R22's "no viewer
+            // capability reachable only by mouse" reaches the conversation
+            // surface too. The VIEWPORT is the engine's (it is the only
+            // side that knows how tall the content is), so this leaves a
+            // request the way Print and Share do.
+            "JUMPTOLATEST" | "JUMP-TO-LATEST" => {
+                let n = parse_i(self.obj_get(obj, "_JumpToLatest")) + 1;
+                self.obj_set(obj, "_JumpToLatest", n.to_string());
                 none
             }
             "FINDNEXT" | "FIND-NEXT" => {
@@ -16555,6 +16657,10 @@ fn is_known_method(name: &str) -> bool {
             | "LOADBYTES" | "SAVEAS" | "PRINT" | "SHARE"
             | "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS"
             | "FINDCLOSE" | "FIND-CLOSE"
+        // Viewer conversation mode (058 §8)
+            | "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN"
+            | "APPENDRAW" | "APPEND-RAW" | "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE"
+            | "JUMPTOLATEST" | "JUMP-TO-LATEST"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
@@ -17119,6 +17225,198 @@ MAIN.
         let written = std::fs::read(&dest).unwrap();
         println!("SaveAs wrote {} bytes (supplied {})", written.len(), body.len());
         assert_eq!(written, body.as_bytes(), "R18: the bytes COBOL supplied, unmodified");
+    }
+
+    // ── Viewer conversation mode (spec 058 T23): §8.2, AC12/13/16/17 ────
+
+    /// **AC12** — "HTML content can be appended and rendered correctly;
+    /// Markdown is converted before insertion." **AC13** — "raw content is
+    /// displayed literally and never interpreted as markup."
+    #[test]
+    fn html_markdown_and_raw_each_land_as_their_own_mode() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDHTML", &[CobolValue::from_str("<h2>Heading</h2>", 16)]);
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("## Also a heading", 17)]);
+        let raw = "<script>alert('x')</script>";
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(raw, raw.len())]);
+
+        let conv = interp.viewer_conversation("VWR-1");
+        println!("{} message(s):", conv.messages.len());
+        for m in &conv.messages {
+            println!("  {} [{}] -> {} block(s): {:?}", m.id, m.chunks[0].mode.as_str(), m.blocks.len(),
+                m.blocks.iter().map(|b| match b {
+                    cobolt_forms::viewer::Block::Heading { level, .. } => format!("Heading{level}"),
+                    cobolt_forms::viewer::Block::CodeBlock { .. } => "CodeBlock".into(),
+                    other => format!("{other:?}").split_whitespace().next().unwrap().to_string(),
+                }).collect::<Vec<_>>());
+        }
+        assert_eq!(conv.messages.len(), 3, "three appends, three messages");
+        assert!(
+            matches!(conv.messages[0].blocks.first(), Some(cobolt_forms::viewer::Block::Heading { level: 2, .. })),
+            "AC12: HTML renders as HTML"
+        );
+        assert!(
+            matches!(conv.messages[1].blocks.first(), Some(cobolt_forms::viewer::Block::Heading { level: 2, .. })),
+            "AC12: Markdown becomes the same heading"
+        );
+        // AC13: the raw chunk is a literal block, and its markup survives.
+        let text = conv.text();
+        println!("conversation text: {text:?}");
+        assert!(text.contains("<script>alert('x')</script>"), "AC13: shown literally, got {text:?}");
+        assert_eq!(interp.obj_get("VWR-1", "_ConversationEmpty"), "0");
+    }
+
+    /// **AC13**'s whitespace clause — "whitespace preserved".
+    #[test]
+    fn raw_content_keeps_its_whitespace_exactly() {
+        let mut interp = viewer_interp(&[]);
+        let raw = "  indented\n\n\tand tabbed   \n";
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(raw, raw.len())]);
+        let stored = &interp.viewer_conversation("VWR-1").messages[0].chunks[0].content;
+        println!("appended {raw:?}\n   stored {stored:?}");
+        assert_eq!(stored, raw, "AC13: not a character of whitespace lost");
+    }
+
+    /// **AC16** — "streamed chunks extend an existing chatbot message
+    /// (`append_to_message`), and content stays in correct arrival order",
+    /// under interleaved calls.
+    #[test]
+    fn streamed_chunks_extend_their_own_message_in_arrival_order() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("A:", 2)]);
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("B:", 2)]);
+        let ids: Vec<String> =
+            interp.viewer_conversation("VWR-1").messages.iter().map(|m| m.id.clone()).collect();
+        println!("two messages: {ids:?}");
+
+        // Interleave: A gets 1 and 3, B gets 2 and 4.
+        let extend = |interp: &mut Interpreter, id: &str, text: &str| {
+            interp.exec_method(
+                "VWR-1",
+                "APPENDTOMESSAGE",
+                &[
+                    CobolValue::from_str(id, id.len()),
+                    CobolValue::from_str(text, text.len()),
+                    CobolValue::from_str("Raw", 3),
+                ],
+            );
+        };
+        extend(&mut interp, &ids[0], " one");
+        extend(&mut interp, &ids[1], " two");
+        extend(&mut interp, &ids[0], " three");
+        extend(&mut interp, &ids[1], " four");
+
+        let conv = interp.viewer_conversation("VWR-1");
+        let a = conv.messages[0].chunks.iter().map(|c| c.content.as_str()).collect::<String>();
+        let b = conv.messages[1].chunks.iter().map(|c| c.content.as_str()).collect::<String>();
+        println!("message {} -> {a:?}", ids[0]);
+        println!("message {} -> {b:?}", ids[1]);
+        assert_eq!(a, "A: one three", "AC16: each chunk extended the RIGHT message, in order");
+        assert_eq!(b, "B: two four");
+        assert_eq!(conv.messages.len(), 2, "and no extra message was minted");
+    }
+
+    /// §8.2's error path: a chunk for a message that never started is
+    /// reported, never silently turned into a new message.
+    #[test]
+    fn a_chunk_for_an_unknown_message_is_reported_rather_than_invented() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("hello", 5)]);
+        let before = interp.viewer_conversation("VWR-1").messages.len();
+        interp.exec_method(
+            "VWR-1",
+            "APPENDTOMESSAGE",
+            &[
+                CobolValue::from_str("no-such-id", 10),
+                CobolValue::from_str("orphan", 6),
+                CobolValue::from_str("Raw", 3),
+            ],
+        );
+        let after = interp.viewer_conversation("VWR-1").messages.len();
+        let events = queued_for(&interp, "VWR-1");
+        println!("{before} message(s) before, {after} after; events {events:?}");
+        println!("LastError: {:?}", interp.obj_get("VWR-1", "LastError"));
+        assert_eq!(after, before, "no message was invented");
+        assert_eq!(events.last(), Some(&"onError".to_string()));
+        assert!(interp.obj_get("VWR-1", "LastError").contains("no-such-id"));
+    }
+
+    /// **AC17** — "appending content does not clear the conversation... and
+    /// does not rebuild/reparse the whole conversation."
+    ///
+    /// The second half is the measurable one: `relayouts` counts messages
+    /// laid out, so a rebuild shows up as a jump rather than a +1.
+    #[test]
+    fn appending_never_rebuilds_the_conversation() {
+        let mut interp = viewer_interp(&[]);
+        for i in 0..20 {
+            let s = format!("message {i}");
+            interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(&s, s.len())]);
+        }
+        let after_twenty = interp.viewer_conversation("VWR-1").relayouts();
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("one more", 8)]);
+        let after_twentyone = interp.viewer_conversation("VWR-1").relayouts();
+        let messages = interp.viewer_conversation("VWR-1").messages.len();
+        println!(
+            "{messages} messages: {after_twenty} layouts after 20 appends, {after_twentyone} after 21 \
+             (a rebuild would have cost {})",
+            after_twenty + messages
+        );
+        assert_eq!(after_twenty, 20, "one layout per append, never the stream");
+        assert_eq!(after_twentyone - after_twenty, 1, "AC17: the 21st append lays out ONE message");
+        assert_eq!(messages, 21, "and nothing was cleared");
+        assert!(interp.viewer_conversation("VWR-1").text().contains("message 0"), "the first is still there");
+    }
+
+    /// §8.2 item 6 — `onContentRendered` fires **after the layout pass**,
+    /// ordered against a layout-completion marker rather than a timer.
+    #[test]
+    fn oncontentrendered_fires_after_the_layout_not_after_the_accept() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("# Title", 7)]);
+        let events = queued_for(&interp, "VWR-1");
+        let conv = interp.viewer_conversation("VWR-1");
+        let laid_out = conv.relayouts();
+        let blocks = conv.messages[0].blocks.len();
+        println!(
+            "after one append: {laid_out} layout pass(es), {blocks} block(s) ready, events {events:?}"
+        );
+        assert_eq!(events, vec!["onContentRendered".to_string()], "exactly one, for the one chunk");
+        assert_eq!(laid_out, 1, "the layout had already run when the event was queued");
+        assert!(blocks > 0, "and produced real content — not merely accepted data");
+    }
+
+    /// §8.4 from COBOL: `JumpToLatest()` leaves a request for the surface
+    /// that owns the viewport, and each call is its own.
+    #[test]
+    fn jump_to_latest_is_callable_from_cobol() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "JUMPTOLATEST", &[]);
+        interp.exec_method("VWR-1", "JUMPTOLATEST", &[]);
+        let requests = interp.obj_get("VWR-1", "_JumpToLatest");
+        println!("two JumpToLatest() calls -> _JumpToLatest = {requests:?}");
+        assert_eq!(requests, "2", "R22: reachable from COBOL, and never coalesced");
+    }
+
+    /// **AC14 / plan.md §7's flagged reading, confirmed here rather than
+    /// after the fact:** `RenderAsHtml = false` forces Raw **even for an
+    /// explicit `AppendHtml` call**.
+    #[test]
+    fn render_as_html_false_forces_raw_whatever_mode_was_called() {
+        let mut interp = viewer_interp(&[("RenderAsHtml", "0")]);
+        let html = "<b>bold</b>";
+        interp.exec_method("VWR-1", "APPENDHTML", &[CobolValue::from_str(html, html.len())]);
+        let text = interp.viewer_conversation("VWR-1").text();
+        println!("RenderAsHtml=false, AppendHtml({html:?}) -> {text:?}");
+        assert!(text.contains("<b>bold</b>"), "AC14: shown literally, not rendered");
+
+        // And with the override on, the same call renders.
+        let mut on = viewer_interp(&[("RenderAsHtml", "1")]);
+        on.exec_method("VWR-1", "APPENDHTML", &[CobolValue::from_str(html, html.len())]);
+        let rendered = on.viewer_conversation("VWR-1").text();
+        println!("RenderAsHtml=true,  AppendHtml({html:?}) -> {rendered:?}");
+        assert!(!rendered.contains("<b>"), "the tag is markup here, not text");
+        assert!(rendered.contains("bold"));
     }
 
     // ── Viewer PDF (spec 058 T19): AC6, where re-encoding would tempt ───

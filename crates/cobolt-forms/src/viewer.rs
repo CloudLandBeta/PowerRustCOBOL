@@ -1491,6 +1491,371 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     ChromeLayout { toolbar, find_bar, filmstrip, content, slider }
 }
 
+// ── Conversation mode (T23: §8.1, §8.2, AC12, AC13, AC16, AC17) ─────────
+//
+// §8 drives the same control as an **append-only, self-following
+// conversation surface**. The rule that shapes everything here is §8.2
+// item 5: "Avoid rebuilding or reparsing the entire conversation." So an
+// append lays out **only the chunk that arrived**, and extending a message
+// re-lays-out **only that message** — never the stream. [`Conversation::
+// relayouts`] counts it, so T27's performance claim is a measurement.
+//
+// **Storage stays native, per chunk.** tasks.md's preamble describes a
+// conversation as "an assembled stream of heterogeneous chunks" whose
+// substrate for stitching is HTML. Applied one level down — which is
+// plan.md §3's own rule — each chunk keeps **its own** form (HTML text,
+// Markdown text, or raw literal text) together with the mode it arrived
+// in, and the stream is assembled from them on demand
+// ([`Conversation::to_html`]). Converting Markdown to HTML on arrival
+// would throw away the source for nothing: the layout is derived from the
+// chunk either way, and a Markdown→HTML serializer is pure loss.
+
+/// How an appended chunk is to be treated (§8.1). **Specified per append,
+/// never inferred from the content** (§8.5): content received as `Raw`
+/// stays raw even if it contains valid markup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AppendMode {
+    Html,
+    Markdown,
+    #[default]
+    Raw,
+}
+
+impl AppendMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Html => "Html",
+            Self::Markdown => "Markdown",
+            Self::Raw => "Raw",
+        }
+    }
+
+    /// Lenient, and **`Raw` is the fallback** — the safe reading of an
+    /// unrecognised mode is "show it, do not interpret it".
+    pub fn from_str(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "html" => Self::Html,
+            "markdown" | "md" => Self::Markdown,
+            _ => Self::Raw,
+        }
+    }
+}
+
+/// One chunk exactly as it arrived (§8.5: "the rendering mode must be
+/// specified for each append operation rather than inferred").
+#[derive(Debug, Clone, PartialEq)]
+pub struct MessageChunk {
+    pub mode: AppendMode,
+    pub content: String,
+}
+
+/// One conversation message, identified by a **stable id** (§8.6) so
+/// streamed chunks can extend it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationMessage {
+    pub id: String,
+    /// Every chunk this message is made of, in arrival order.
+    pub chunks: Vec<MessageChunk>,
+    /// The derived layout for this message alone.
+    pub blocks: Vec<Block>,
+    /// How many of `blocks` the LAST chunk produced. A streamed chunk that
+    /// merges into that chunk re-lays-out only those, never the message's
+    /// whole history — the difference between "append to a message" and
+    /// "rebuild a message" (§8.2 item 5).
+    last_chunk_block_count: usize,
+}
+
+/// An append-only conversation (§8).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Conversation {
+    pub messages: Vec<ConversationMessage>,
+    /// §8.1/§8.4's blanket override (plan.md §7's flagged reading, and T25's
+    /// to confirm): **when false, every append behaves as `Raw`** whichever
+    /// mode was actually called, as a safety guarantee for a program
+    /// showing untrusted content. Default true.
+    render_as_html: bool,
+    /// Messages laid out since this conversation was created — the number
+    /// §8.2 item 5 and T27 are actually about. An append that rebuilt the
+    /// stream would show up here as a jump, not as a +1.
+    relayouts: usize,
+    auto_id: u64,
+}
+
+impl Conversation {
+    pub fn new() -> Self {
+        Self { messages: Vec::new(), render_as_html: true, relayouts: 0, auto_id: 0 }
+    }
+
+    pub fn render_as_html(&self) -> bool {
+        self.render_as_html
+    }
+
+    /// §8.1/§8.4: turning this off makes every subsequent append `Raw`.
+    /// Content already appended is **not** reinterpreted — §8.1's own words,
+    /// "the viewer must not automatically reinterpret the accumulated raw
+    /// content as HTML unless explicitly requested".
+    pub fn set_render_as_html(&mut self, on: bool) {
+        self.render_as_html = on;
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+
+    pub fn relayouts(&self) -> usize {
+        self.relayouts
+    }
+
+    pub fn clear(&mut self) {
+        self.messages.clear();
+    }
+
+    /// §8.6's "support pruning or virtualisation if conversation size
+    /// becomes excessive."
+    ///
+    /// Pruning, not virtualisation: a conversation surface's memory has to
+    /// be bounded by something the developer chooses, and the oldest
+    /// messages are the ones a reader has already scrolled past. Returns
+    /// how many were dropped. A ceiling of `0` means "never prune".
+    pub fn prune_to(&mut self, ceiling: usize) -> usize {
+        if ceiling == 0 || self.messages.len() <= ceiling {
+            return 0;
+        }
+        let excess = self.messages.len() - ceiling;
+        self.messages.drain(..excess);
+        excess
+    }
+
+    /// The id of the message a streamed reply is currently extending — the
+    /// last one — so a host that lost track can ask instead of guessing.
+    pub fn current_message_id(&self) -> Option<&str> {
+        self.messages.last().map(|m| m.id.as_str())
+    }
+
+    /// The mode an append actually uses, after §8.1's override.
+    fn effective_mode(&self, requested: AppendMode) -> AppendMode {
+        if self.render_as_html {
+            requested
+        } else {
+            AppendMode::Raw
+        }
+    }
+
+    /// Append a new message and return its id (§8.2). The id is generated
+    /// here when the caller does not supply one, and is **stable** for the
+    /// life of the conversation.
+    pub fn append(&mut self, mode: AppendMode, content: &str) -> String {
+        self.auto_id += 1;
+        let id = format!("m{}", self.auto_id);
+        self.append_with_id(&id, mode, content);
+        id
+    }
+
+    /// Append a new message under a caller-chosen id.
+    pub fn append_with_id(&mut self, id: &str, mode: AppendMode, content: &str) {
+        let mode = self.effective_mode(mode);
+        let blocks = layout_chunk(mode, content);
+        self.relayouts += 1;
+        self.messages.push(ConversationMessage {
+            id: id.to_string(),
+            chunks: vec![MessageChunk { mode, content: content.to_string() }],
+            last_chunk_block_count: blocks.len(),
+            blocks,
+        });
+    }
+
+    /// §8.2's `append_to_message` — extend an existing message by id.
+    ///
+    /// Returns `false` when no message carries that id: a streamed chunk for
+    /// a message that never started is a caller error worth reporting, not
+    /// something to silently mint a new message for.
+    ///
+    /// Only **this message** is laid out again, and only its newly appended
+    /// chunk is parsed — the rest of the conversation is not touched, which
+    /// is §8.2 item 5 in one line.
+    pub fn append_to_message(&mut self, id: &str, mode: AppendMode, content: &str) -> bool {
+        let mode = self.effective_mode(mode);
+        let Some(msg) = self.messages.iter_mut().find(|m| m.id == id) else {
+            return false;
+        };
+        // Consecutive chunks of the SAME mode are merged before layout, so
+        // a token-at-a-time stream does not end up as a thousand one-word
+        // paragraphs (§8.6's batching, made structural).
+        let new_blocks = match msg.chunks.last_mut() {
+            Some(last) if last.mode == mode => {
+                last.content.push_str(content);
+                let merged = last.content.clone();
+                Some((true, layout_chunk(mode, &merged)))
+            }
+            _ => {
+                msg.chunks.push(MessageChunk { mode, content: content.to_string() });
+                Some((false, layout_chunk(mode, content)))
+            }
+        };
+        if let Some((merged, blocks)) = new_blocks {
+            if merged {
+                // Re-lay-out just the tail chunk this message ends with.
+                let keep = msg
+                    .blocks
+                    .len()
+                    .saturating_sub(msg.last_chunk_block_count);
+                msg.blocks.truncate(keep);
+            }
+            msg.last_chunk_block_count = blocks.len();
+            msg.blocks.extend(blocks);
+        }
+        self.relayouts += 1;
+        true
+    }
+
+    /// Every message's text, in arrival order — what Find searches and what
+    /// a "is this conversation empty" check reads.
+    pub fn text(&self) -> String {
+        self.messages
+            .iter()
+            .map(|m| LayoutDocument { blocks: m.blocks.clone() }.searchable_text().unwrap_or_default())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The assembled HTML stream (tasks.md's preamble) — built on demand
+    /// from chunks that each kept their own form, never held as a second
+    /// copy that could drift from them.
+    pub fn to_html(&self) -> String {
+        let mut out = String::new();
+        for msg in &self.messages {
+            out.push_str(&format!("<div data-message=\"{}\">", escape_html(&msg.id)));
+            for chunk in &msg.chunks {
+                match chunk.mode {
+                    AppendMode::Html => out.push_str(&chunk.content),
+                    // Markdown's own text is kept verbatim inside a marked
+                    // element: converting it here would make this method the
+                    // second place that decides what Markdown means.
+                    AppendMode::Markdown => out.push_str(&format!(
+                        "<div data-markdown=\"1\">{}</div>",
+                        escape_html(&chunk.content)
+                    )),
+                    AppendMode::Raw => {
+                        out.push_str(&format!("<pre>{}</pre>", escape_html(&chunk.content)))
+                    }
+                }
+            }
+            out.push_str("</div>");
+        }
+        out
+    }
+
+    /// All of this conversation's blocks, in order — what the painter draws.
+    pub fn blocks(&self) -> Vec<Block> {
+        self.messages.iter().flat_map(|m| m.blocks.clone()).collect()
+    }
+}
+
+/// One chunk's derived layout, in the mode it arrived as.
+fn layout_chunk(mode: AppendMode, content: &str) -> Vec<Block> {
+    match mode {
+        AppendMode::Html => parse_html(content).blocks,
+        AppendMode::Markdown => parse_markdown(content).blocks,
+        // §8.1/§8.5: raw is "inserted as an escaped text node or inside an
+        // appropriate element such as `<pre>`". A `CodeBlock` IS this
+        // model's `<pre>`: monospace, whitespace preserved, and — because
+        // it is never parsed — markup inside it is displayed, not
+        // interpreted, however valid it is.
+        AppendMode::Raw => vec![Block::CodeBlock { language: None, text: content.to_string() }],
+    }
+}
+
+// ── Auto-follow and the new-content indicator (T24/T25: §8.3, §8.4) ─────
+
+/// §8.3's threshold — "a small threshold (**24–32 px**) should be used so
+/// that minor rounding or layout differences do not incorrectly disable
+/// automatic scrolling." The middle of that range.
+pub const AUTO_FOLLOW_THRESHOLD: f32 = 28.0;
+
+/// §8.3's auto-follow and §8.4's new-content indicator, as one state
+/// machine — they are two faces of the same question ("is the reader at the
+/// end?"), and splitting them is how they drift apart.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AutoFollow {
+    active: bool,
+    pending: bool,
+}
+
+impl Default for AutoFollow {
+    fn default() -> Self {
+        // A conversation starts at its end, because it starts empty.
+        Self { active: true, pending: false }
+    }
+}
+
+impl AutoFollow {
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// §8.4 — content arrived while the reader was not at the end, so the
+    /// "Jump to latest" affordance should be showing.
+    pub fn has_pending(&self) -> bool {
+        self.pending
+    }
+
+    /// Observe the viewport **before** the append (§8.3's own emphasis: "the
+    /// decision must be based on the scroll position before the new content
+    /// changes the document height").
+    ///
+    /// This is also how §8.3's "automatic following **resumes** as soon as
+    /// the user manually returns to the end" happens: returning to the end
+    /// is simply an observation that finds them there.
+    pub fn observe(&mut self, offset: f32, max: f32) {
+        let at_end = (max - offset) <= AUTO_FOLLOW_THRESHOLD;
+        self.active = at_end;
+        if at_end {
+            self.pending = false;
+        }
+    }
+
+    /// The viewport offset after the document's height changed — an append,
+    /// or a late layout change such as an image finishing its decode
+    /// (§8.3's last paragraph, AC18).
+    ///
+    /// Pinned to the new end while following; otherwise the reader's
+    /// position is preserved exactly, clamped only by the new limit.
+    pub fn after_height_change(&mut self, offset: f32, new_max: f32) -> f32 {
+        if self.active {
+            new_max.max(0.0)
+        } else {
+            // Content arrived somewhere the reader cannot see it.
+            self.pending = true;
+            offset.clamp(0.0, new_max.max(0.0))
+        }
+    }
+
+    /// §8.4's "Jump to latest": scroll to the end, clear the indicator, and
+    /// re-enable automatic following — all three, in that order.
+    pub fn jump_to_latest(&mut self, max: f32) -> f32 {
+        self.active = true;
+        self.pending = false;
+        max.max(0.0)
+    }
+}
+
+/// §8.5's escaping, for [`Conversation::to_html`] and for any caller that
+/// needs a literal string to survive an HTML context.
+pub fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 // ── HTML subset (T21: R7, AC2) ──────────────────────────────────────────
 //
 // §3's contract: "**Subset renderer**: block/inline layout, common
@@ -1517,7 +1882,24 @@ pub type LayoutDocument = MarkdownDocument;
 /// Elements whose CONTENT must never be rendered — script and style are not
 /// prose, and showing their source would be worse than dropping it. (§8.5's
 /// sanitisation rests on the same list, from the other direction.)
-const HTML_DROPPED: &[&str] = &["script", "style", "head", "title", "meta", "link", "noscript"];
+const HTML_DROPPED: &[&str] = &[
+    "script", "style", "head", "title", "meta", "link", "noscript", "iframe", "object", "embed",
+    "applet", "frame", "frameset", "form", "input", "button", "textarea", "select",
+];
+
+/// §8.5 — inline event handlers.
+///
+/// They are neutralised **structurally** rather than by stripping: this
+/// walker reads only `href`, `src`, `alt`, `title`, `color`, `style` and
+/// `start`, so an `onclick` (or any other `on*`) is never looked at and can
+/// never reach anything that could run it. [`html_has_event_handler`] exists
+/// so a test can prove that, and so a future attribute reader cannot quietly
+/// widen the surface without this rule noticing.
+pub fn html_has_event_handler(tag_attributes: &[(&str, &str)]) -> bool {
+    tag_attributes
+        .iter()
+        .any(|(k, _)| k.trim().to_ascii_lowercase().starts_with("on"))
+}
 
 /// Parse an HTML document into the shared layout model (R7, §3's subset).
 ///
@@ -1610,7 +1992,14 @@ impl HtmlWalker<'_, '_> {
             "em" | "i" => styled.emphasis = true,
             "s" | "del" | "strike" => styled.strikethrough = true,
             "code" | "kbd" | "samp" | "tt" => styled.code = true,
-            "a" => styled.link = Self::attr(tag, "href").or_else(|| style.link.clone()),
+            // §8.5: an unsafe scheme is dropped, so the text stays and
+            // only its link goes — a `javascript:` anchor becomes plain
+            // words rather than a live one or a hole in the prose.
+            "a" => {
+                styled.link = Self::attr(tag, "href")
+                    .filter(|h| is_safe_url(h))
+                    .or_else(|| style.link.clone())
+            }
             _ => {}
         }
         if let Some(colour) = html_colour(tag) {
@@ -1620,9 +2009,11 @@ impl HtmlWalker<'_, '_> {
         match name.as_str() {
             "br" => self.inline.push(Inline::Break { hard: true }),
             "img" => {
-                let src = Self::attr(tag, "src").unwrap_or_default();
+                let src = Self::attr(tag, "src").filter(|s| is_safe_url(s)).unwrap_or_default();
                 let alt = Self::attr(tag, "alt").unwrap_or_default();
                 let title = Self::attr(tag, "title");
+                // §8.5: an image whose source was refused keeps its ALT
+                // text — a reader learns what was meant to be there.
                 self.inline.push(Inline::Image { alt, src, title });
             }
             "hr" => {
@@ -1802,6 +2193,36 @@ fn html_colour(tag: &tl::HTMLTag<'_>) -> Option<String> {
         }
     }
     None
+}
+
+/// §8.5 — URL schemes that must never survive into rendered content.
+///
+/// `javascript:` and `vbscript:` execute. `data:` can carry a whole HTML
+/// document, so it is refused **except** for an image, which is the one
+/// form of it a document legitimately embeds and which this renderer
+/// decodes as pixels rather than as markup.
+pub fn is_safe_url(url: &str) -> bool {
+    let trimmed = url.trim();
+    // A scheme cannot contain whitespace, and a colon after a `/`, `?` or
+    // `#` is part of a path, not a scheme — so only the leading run counts.
+    let scheme_end = trimmed.find(|c| c == ':' || c == '/' || c == '?' || c == '#');
+    let Some(i) = scheme_end else { return true };
+    if trimmed.as_bytes()[i] != b':' {
+        return true; // a relative URL: no scheme at all
+    }
+    // Control characters and whitespace inside a scheme are an obfuscation
+    // trick (`java\nscript:`), so they are stripped before the comparison
+    // rather than making the scheme "unrecognised" and therefore allowed.
+    let scheme: String = trimmed[..i]
+        .chars()
+        .filter(|c| !c.is_whitespace() && !c.is_control())
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match scheme.as_str() {
+        "javascript" | "vbscript" | "file" => false,
+        "data" => trimmed[i + 1..].to_ascii_lowercase().starts_with("image/"),
+        _ => true,
+    }
 }
 
 /// The handful of entities a subset renderer must not show raw. Numeric
@@ -5244,5 +5665,332 @@ mod html_tests {
         assert!(proposed.ends_with(".html"), "R18.1: the extension follows the format");
         assert!(proposed.starts_with("Quarterly-Report"), "and the name its first words, got {proposed}");
         assert_eq!(ensure_extension("my page", ViewerFormat::HtmlSubset), "my page.html");
+    }
+}
+
+/// Spec 058 T24–T27 — auto-follow (§8.3/AC15/AC18), the new-content
+/// indicator (§8.4/AC14), sanitisation (§8.5) and §8.6's performance rules.
+#[cfg(test)]
+mod conversation_tests {
+    use super::*;
+
+    // ── T24: auto-follow (§8.3, AC15, AC18) ─────────────────────────────
+
+    /// **AC15** — "the viewport follows new content only when it was
+    /// already showing the end; it stays stable when the user is reading
+    /// older content"; the decision uses the **pre-append** position and the
+    /// 24–32 px threshold.
+    #[test]
+    fn at_end_and_scrolled_up_answer_the_same_append_differently() {
+        // The same document, the same append, two readers.
+        let (max_before, max_after) = (1000.0f32, 1400.0f32);
+        let mut following = AutoFollow::default();
+        following.observe(max_before - 5.0, max_before); // 5 px from the end
+        let followed = following.after_height_change(max_before - 5.0, max_after);
+
+        let mut reading = AutoFollow::default();
+        reading.observe(300.0, max_before); // well up the conversation
+        let stayed = reading.after_height_change(300.0, max_after);
+
+        println!("AC15, one append of 400 pt (threshold {AUTO_FOLLOW_THRESHOLD} pt):");
+        println!("  reader 5 pt from the end  -> offset {} -> {followed} (pinned)", max_before - 5.0);
+        println!("  reader 300 pt up          -> offset 300 -> {stayed} (left alone)");
+        assert!(following.is_active() && followed == max_after, "pinned to the NEW end");
+        assert!(!reading.is_active() && stayed == 300.0, "AC15: not moved a pixel");
+        assert_ne!(followed, stayed, "AC15: the same append, two different answers");
+    }
+
+    #[test]
+    fn the_threshold_is_the_one_section_eight_three_asks_for() {
+        let max = 1000.0f32;
+        for gap in [0.0f32, 10.0, 24.0, 28.0, 29.0, 40.0, 200.0] {
+            let mut f = AutoFollow::default();
+            f.observe(max - gap, max);
+            println!("{gap:>5.0} pt from the end -> following = {}", f.is_active());
+            assert_eq!(f.is_active(), gap <= AUTO_FOLLOW_THRESHOLD);
+        }
+        assert!((24.0..=32.0).contains(&AUTO_FOLLOW_THRESHOLD), "§8.3 asks for 24-32 px");
+    }
+
+    #[test]
+    fn following_resumes_the_moment_the_reader_returns_to_the_end() {
+        let max = 1000.0f32;
+        let mut f = AutoFollow::default();
+        f.observe(200.0, max);
+        assert!(!f.is_active(), "scrolled up: not following");
+        f.after_height_change(200.0, 1200.0);
+        assert!(f.has_pending(), "§8.4: content arrived out of sight");
+        // The reader scrolls back down.
+        f.observe(1200.0, 1200.0);
+        println!("after scrolling back to the end: following = {}, pending = {}", f.is_active(), f.has_pending());
+        assert!(f.is_active(), "§8.3: following resumes");
+        assert!(!f.has_pending(), "and the indicator clears itself");
+    }
+
+    /// **AC18** — "late layout changes (images or fonts loading) keep the
+    /// viewport pinned to the end when auto-follow is active and otherwise
+    /// preserve the user's reading position."
+    #[test]
+    fn a_late_image_decode_pins_only_when_following() {
+        // An image finishes decoding and the document grows by 300 pt.
+        let mut following = AutoFollow::default();
+        following.observe(1000.0, 1000.0);
+        let pinned = following.after_height_change(1000.0, 1300.0);
+
+        let mut reading = AutoFollow::default();
+        reading.observe(420.0, 1000.0);
+        let held = reading.after_height_change(420.0, 1300.0);
+
+        println!("AC18, a late decode adding 300 pt:");
+        println!("  following -> {pinned} (the new end)");
+        println!("  reading   -> {held} (unchanged)");
+        assert_eq!(pinned, 1300.0);
+        assert_eq!(held, 420.0, "AC18: the reader's place is not disturbed by a late layout");
+    }
+
+    // ── T25: the new-content indicator (§8.4, AC14) ─────────────────────
+
+    /// **§8.4** — activating the indicator must do all three things:
+    /// scroll to the end, clear itself, and re-enable automatic following.
+    #[test]
+    fn jump_to_latest_scrolls_clears_and_re_enables_following() {
+        let mut f = AutoFollow::default();
+        f.observe(100.0, 900.0);
+        f.after_height_change(100.0, 1500.0);
+        println!("before: following={}, pending={}", f.is_active(), f.has_pending());
+        assert!(f.has_pending() && !f.is_active());
+
+        let offset = f.jump_to_latest(1500.0);
+        println!("after \"Jump to latest\": offset={offset}, following={}, pending={}", f.is_active(), f.has_pending());
+        assert_eq!(offset, 1500.0, "1. scrolled to the end");
+        assert!(!f.has_pending(), "2. the indicator cleared itself");
+        assert!(f.is_active(), "3. automatic following is back on");
+    }
+
+    #[test]
+    fn nothing_is_pending_for_a_reader_who_is_already_at_the_end() {
+        let mut f = AutoFollow::default();
+        f.observe(800.0, 800.0);
+        f.after_height_change(800.0, 1100.0);
+        println!("a reader at the end, after an append: pending = {}", f.has_pending());
+        assert!(!f.has_pending(), "§8.4's indicator is for content you CANNOT see");
+    }
+
+    /// **AC14** at the model level — `RenderAsHtml = false` makes every
+    /// append Raw, and content already appended is **not** reinterpreted
+    /// when it is turned back on (§8.1's own wording).
+    #[test]
+    fn render_as_html_governs_arriving_content_only() {
+        let mut conv = Conversation::new();
+        conv.set_render_as_html(false);
+        conv.append(AppendMode::Html, "<b>one</b>");
+        conv.append(AppendMode::Markdown, "**two**");
+        conv.set_render_as_html(true);
+        conv.append(AppendMode::Html, "<b>three</b>");
+
+        let modes: Vec<&str> = conv.messages.iter().map(|m| m.chunks[0].mode.as_str()).collect();
+        let text = conv.text();
+        println!("modes as stored: {modes:?}");
+        println!("text: {text:?}");
+        assert_eq!(modes, ["Raw", "Raw", "Html"], "AC14: the override forces Raw, per call");
+        assert!(text.contains("<b>one</b>"), "content appended while off stays literal");
+        assert!(text.contains("**two**"), "and so does the Markdown");
+        assert!(!text.contains("<b>three</b>"), "while what arrived after renders");
+    }
+
+    // ── T26: sanitisation (§8.5) ────────────────────────────────────────
+
+    /// **§8.5** — "scripts, inline event handlers, unsafe URLs and other
+    /// executable content must not run." Each rule is reported by name, so
+    /// a reader of the output knows which one caught which case.
+    #[test]
+    fn every_unsafe_html_fragment_is_neutralised_and_the_rule_is_named() {
+        let cases: &[(&str, &str, &str)] = &[
+            ("script element", "<p>ok</p><script>alert(1)</script>", "alert"),
+            ("noscript element", "<noscript>alert(2)</noscript>", "alert"),
+            ("iframe element", "<iframe src=\"http://evil\"></iframe>", "evil"),
+            ("object element", "<object data=\"x.swf\"></object>", "x.swf"),
+            ("stylesheet", "<style>body{background:url(javascript:1)}</style>", "javascript"),
+            ("form controls", "<form><input value=\"steal\"><button>go</button></form>", "steal"),
+        ];
+        for (rule, html, must_not_appear) in cases {
+            let text = parse_html(html).searchable_text().unwrap_or_default();
+            println!("{rule:>17}: {html}\n{:>19} -> {:?}", "", text.trim());
+            assert!(
+                !text.contains(must_not_appear),
+                "§8.5: the {rule} rule must have caught {must_not_appear:?}, got {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unsafe_url_is_refused_and_a_safe_one_is_kept() {
+        let cases: &[(&str, bool)] = &[
+            ("https://example.com/report", true),
+            ("http://example.com", true),
+            ("/relative/path", true),
+            ("report.pdf", true),
+            ("mailto:someone@example.com", true),
+            ("#anchor", true),
+            ("data:image/png;base64,AAAA", true),
+            ("javascript:alert(1)", false),
+            ("JavaScript:alert(1)", false),
+            ("java\nscript:alert(1)", false),
+            ("  javascript:alert(1)", false),
+            ("vbscript:msgbox", false),
+            ("data:text/html,<script>alert(1)</script>", false),
+            ("file:///etc/passwd", false),
+        ];
+        for (url, safe) in cases {
+            let got = is_safe_url(url);
+            println!("{:>44} -> {}", format!("{url:?}"), if got { "kept" } else { "REFUSED" });
+            assert_eq!(got, *safe, "{url:?}");
+        }
+    }
+
+    #[test]
+    fn a_javascript_link_loses_its_link_and_keeps_its_words() {
+        let doc = parse_html(r#"<p><a href="javascript:steal()">Click me</a> and <a href="/ok">this</a></p>"#);
+        let runs: Vec<(String, Option<String>)> = doc
+            .blocks
+            .iter()
+            .flat_map(|b| match b {
+                Block::Paragraph { content } => content.clone(),
+                _ => vec![],
+            })
+            .filter_map(|i| match i {
+                Inline::Text { text, style } if !text.trim().is_empty() => Some((text, style.link)),
+                _ => None,
+            })
+            .collect();
+        for (text, link) in &runs {
+            println!("{:>12} -> link {link:?}", format!("{text:?}"));
+        }
+        assert_eq!(runs[0].0.trim(), "Click me");
+        assert_eq!(runs[0].1, None, "§8.5: the unsafe link is dropped");
+        assert_eq!(runs.last().unwrap().1.as_deref(), Some("/ok"), "a safe one is kept");
+    }
+
+    #[test]
+    fn an_inline_event_handler_can_never_be_read_by_this_walker() {
+        let doc = parse_html(r#"<p onclick="steal()" onmouseover="also()">visible words</p>"#);
+        let text = doc.searchable_text().unwrap_or_default();
+        println!("a paragraph with two handlers -> {:?}", text.trim());
+        assert_eq!(text.trim(), "visible words", "the content survives, the handlers do not exist");
+        assert!(!text.contains("steal") && !text.contains("also"));
+        // The rule the walker relies on, asserted so a future attribute
+        // reader cannot quietly widen the surface.
+        assert!(html_has_event_handler(&[("onclick", "x")]));
+        assert!(html_has_event_handler(&[("href", "/a"), ("ONMOUSEOVER", "y")]));
+        assert!(!html_has_event_handler(&[("href", "/a"), ("alt", "b")]));
+    }
+
+    #[test]
+    fn a_raw_chunk_containing_a_script_is_displayed_not_run() {
+        let mut conv = Conversation::new();
+        conv.append(AppendMode::Raw, "<script>alert('hi')</script>");
+        let text = conv.text();
+        println!("raw chunk -> {text:?}");
+        assert!(text.contains("<script>alert('hi')</script>"), "AC13: the literal text");
+        assert!(
+            matches!(conv.messages[0].blocks.first(), Some(Block::CodeBlock { .. })),
+            "raw lands in this model's <pre>, which is never parsed"
+        );
+        // And the assembled HTML escapes it, so it cannot become markup
+        // wherever that stream is used.
+        let html = conv.to_html();
+        println!("assembled -> {html}");
+        assert!(html.contains("&lt;script&gt;"), "§8.5: escaped in the stream too");
+        assert!(!html.contains("<script>"));
+    }
+
+    // ── T27: performance (§8.6) ─────────────────────────────────────────
+
+    /// **§8.6 / AC17** — "appending to a long, pre-built conversation
+    /// reports the time spent laying out old vs. new content; old content's
+    /// layout-recompute cost should be ~zero, not proportional to
+    /// conversation length."
+    #[test]
+    fn appending_to_a_long_conversation_costs_one_layout_not_a_rebuild() {
+        let mut conv = Conversation::new();
+        for i in 0..2000 {
+            conv.append(AppendMode::Raw, &format!("message {i}"));
+        }
+        let built = conv.relayouts();
+        let blocks_before = conv.blocks().len();
+
+        let before = std::time::Instant::now();
+        conv.append(AppendMode::Raw, "one more");
+        let elapsed = before.elapsed();
+        let after = conv.relayouts();
+
+        println!("§8.6, measured:");
+        println!("  building 2000 messages: {built} layout pass(es), {blocks_before} blocks");
+        println!("  the 2001st append     : {} layout pass(es), {:?}", after - built, elapsed);
+        println!(
+            "  a rebuild would have cost {} passes instead of {}",
+            conv.messages.len(),
+            after - built
+        );
+        assert_eq!(built, 2000, "one pass per message, never the stream");
+        assert_eq!(after - built, 1, "AC17: the 2001st append lays out ONE message");
+        assert_eq!(conv.blocks().len(), blocks_before + 1);
+    }
+
+    /// §8.6's batching, made structural: consecutive chunks of the same
+    /// mode are merged, so a token-at-a-time stream does not end up as a
+    /// thousand one-word paragraphs.
+    #[test]
+    fn a_token_at_a_time_stream_merges_into_one_chunk() {
+        let mut conv = Conversation::new();
+        let id = conv.append(AppendMode::Raw, "The");
+        for word in [" quick", " brown", " fox", " jumps"] {
+            assert!(conv.append_to_message(&id, AppendMode::Raw, word));
+        }
+        let msg = &conv.messages[0];
+        println!(
+            "5 streamed tokens -> {} chunk(s), {} block(s), text {:?}",
+            msg.chunks.len(),
+            msg.blocks.len(),
+            conv.text().trim()
+        );
+        assert_eq!(msg.chunks.len(), 1, "§8.6: batched into one");
+        assert_eq!(msg.blocks.len(), 1, "and one block, not five");
+        assert!(conv.text().contains("The quick brown fox jumps"), "in arrival order");
+    }
+
+    #[test]
+    fn a_mode_change_mid_message_starts_a_new_chunk_rather_than_merging() {
+        let mut conv = Conversation::new();
+        let id = conv.append(AppendMode::Raw, "literal ");
+        conv.append_to_message(&id, AppendMode::Markdown, "**then markdown**");
+        let msg = &conv.messages[0];
+        println!(
+            "modes in one message: {:?}",
+            msg.chunks.iter().map(|c| c.mode.as_str()).collect::<Vec<_>>()
+        );
+        assert_eq!(msg.chunks.len(), 2, "§8.5: each chunk keeps the mode it arrived in");
+        assert_eq!(msg.chunks[0].mode, AppendMode::Raw);
+        assert_eq!(msg.chunks[1].mode, AppendMode::Markdown);
+    }
+
+    #[test]
+    fn message_ids_stay_stable_across_appends_and_pruning() {
+        let mut conv = Conversation::new();
+        let ids: Vec<String> = (0..5).map(|i| conv.append(AppendMode::Raw, &format!("m{i}"))).collect();
+        for id in &ids {
+            conv.append_to_message(id, AppendMode::Raw, "!");
+        }
+        let after_appends: Vec<String> = conv.messages.iter().map(|m| m.id.clone()).collect();
+        let dropped = conv.prune_to(3);
+        let after_prune: Vec<String> = conv.messages.iter().map(|m| m.id.clone()).collect();
+        println!("ids minted   {ids:?}");
+        println!("after appends {after_appends:?}");
+        println!("pruned to 3: dropped {dropped}, kept {after_prune:?}");
+        assert_eq!(after_appends, ids, "§8.6: ids are stable across appends");
+        assert_eq!(dropped, 2, "the two OLDEST go");
+        assert_eq!(after_prune, ids[2..], "and the newest keep their own ids");
+        assert_eq!(conv.prune_to(0), 0, "a ceiling of 0 never prunes");
+        assert_eq!(conv.prune_to(100), 0, "nor does one above the size");
     }
 }

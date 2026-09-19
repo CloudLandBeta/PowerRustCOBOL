@@ -662,7 +662,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage I — Conversation mode (§8, sequenced last — reuses Stage H's HTML layer)
 
-- [ ] **T23 — `append_html`/`append_markdown`/`append_raw`/`append_to_message`**
+- [x] **T23 — `append_html`/`append_markdown`/`append_raw`/`append_to_message`**
       (§8.1, §8.2, R32, AC12, AC13, AC16, AC17)
   - Files: `crates/cobolt-forms/src/viewer.rs` (append-only incremental layout-
         model update — **not** a full rebuild each call, the actual point of
@@ -684,7 +684,7 @@ not a claim about what §8.1 means architecturally.
         `onContentRendered` fires strictly after the layout pass, verified by
         ordering it against a layout-completion marker, not a timer.
 
-- [ ] **T24 — Auto-follow scrolling** (§8.3, AC15, AC18)
+- [x] **T24 — Auto-follow scrolling** (§8.3, AC15, AC18)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: capture the **pre-append** scroll-at-end state with a 24–32px
         threshold; pin to the new end only if it was already there; never move
@@ -697,7 +697,7 @@ not a claim about what §8.1 means architecturally.
         scrolled up leaves their position untouched, but pins to the end when
         they were following (**AC18**).
 
-- [ ] **T25 — New-content indicator, and the `RenderAsHtml` override** (§8.1,
+- [x] **T25 — New-content indicator, and the `RenderAsHtml` override** (§8.1,
       §8.4, AC14)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: a non-intrusive indicator when content arrives off-screen; activating
@@ -711,7 +711,7 @@ not a claim about what §8.1 means architecturally.
         three things in order; `RenderAsHtml = false` forces Raw behaviour even
         for an explicit `append_html` call (**AC14**).
 
-- [ ] **T26 — Sanitisation** (§8.5)
+- [x] **T26 — Sanitisation** (§8.5)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: strip scripts, inline event handlers and unsafe URL schemes from HTML/
         Markdown-derived content before it's appended; Raw's escaping (T23)
@@ -720,7 +720,7 @@ not a claim about what §8.1 means architecturally.
         (script tags, `onclick=`, `javascript:` URLs) each confirmed stripped
         or neutralised, reporting which rule caught each case.
 
-- [ ] **T27 — Performance: batching, incremental layout, stable ids** (§8.6)
+- [x] **T27 — Performance: batching, incremental layout, stable ids** (§8.6)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: coalesce rapid successive appends within a frame; the layout model
         only re-lays-out the newly appended tail, not the whole conversation
@@ -732,6 +732,46 @@ not a claim about what §8.1 means architecturally.
         — old content's layout-recompute cost should be ~zero, not
         proportional to conversation length (this project's quantify-
         performance rule, applied to §8.6's own requirement).
+
+  - **Stage I DONE — 2026-09-19 (1.70.93).** `viewer::Conversation` is the
+    model: messages with stable ids, each made of chunks that keep **the
+    mode they arrived in**, with layout derived per chunk. The interpreter
+    owns one per control and exposes `AppendHtml`, `AppendMarkdown`,
+    `AppendRaw`, `AppendToMessage(id, content, mode)` and `JumpToLatest`.
+  - **Storage stays native, per chunk — a deviation from this file's own
+    preamble, and a deliberate one.** The preamble says a conversation's
+    substrate for stitching is HTML. Applied one level down (plan.md §3's
+    actual rule) each chunk keeps its own form — HTML text, Markdown text,
+    or raw literal text — and `Conversation::to_html()` assembles the stream
+    **on demand** rather than holding a second copy that could drift.
+    Converting Markdown to HTML on arrival would discard the source for
+    nothing: the layout is derived from the chunk either way, and a
+    Markdown→HTML serializer is pure loss.
+  - **§8.2 item 5 is measured, not asserted.** `Conversation::relayouts()`
+    counts messages laid out. Building 2000 messages costs 2000 passes; the
+    2001st append costs **1 pass in 833 ns**, where a rebuild would have
+    cost 2001. Consecutive same-mode chunks merge before layout, so a
+    token-at-a-time stream is one chunk and one block, not five hundred.
+  - **Auto-follow and the indicator are one state machine** (`AutoFollow`) —
+    they are two faces of the same question ("is the reader at the end?"),
+    and splitting them is how they drift apart. Threshold 28 px, inside
+    §8.3's 24–32. The same append pins a reader 5 px from the end to 1400
+    and leaves a reader 300 px up at exactly 300.
+  - **§8.5's inline handlers are neutralised structurally**, not stripped:
+    the HTML walker reads only `href`, `src`, `alt`, `title`, `color`,
+    `style` and `start`, so an `on*` attribute is never looked at.
+    `html_has_event_handler` exists so a test can prove that rule, and so a
+    future attribute reader cannot quietly widen the surface without it
+    noticing. `iframe`/`object`/`embed`/`form` and friends join
+    `script`/`style` on the dropped list; an unsafe URL scheme
+    (`javascript:`, `vbscript:`, `file:`, `data:` other than an image)
+    loses the LINK and keeps the words.
+  - **⚠️ The engine-side incremental path is the deferred host-session work.**
+    The interpreter publishes `_ConversationHtml` (the assembled stream) for
+    the painter, which T35 memoize-parses by that string. That is one parse
+    per *append*, not per frame — bounded, but not the incremental path the
+    model itself implements. Closing it is the same `ViewerSession`
+    plumbing R5.1 is waiting on (see T12's note).
 
 ## Stage J — Streamed layout and conversation management (§8.8)
 

@@ -1,5 +1,42 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.93] — 2026-09-19
+
+### A Viewer can host a live chatbot conversation
+
+Spec 058 Stage I. A COBOL program can now build a conversation in a Viewer
+piece by piece: `AppendHtml`, `AppendMarkdown` and `AppendRaw` each add a
+message, and `AppendToMessage` extends one already on screen by its own stable
+id — which is what a streamed reply arriving a token at a time needs.
+
+**The mode is stated per append and never guessed from the content.** Content
+sent as raw stays raw even when it is perfectly good markup, so a program
+showing text from somewhere it does not control can say so once and be
+believed. `RenderAsHtml` set to false makes *every* append raw whatever was
+called, and content already on screen is never reinterpreted when it is turned
+back on.
+
+**Appending does not rebuild the conversation.** Adding a message to a
+two-thousand-message conversation lays out that one message — measured at one
+layout pass in 833 ns, against the two thousand and one a rebuild would cost.
+Consecutive chunks in the same mode are merged before layout, so a reply
+arriving word by word is one block rather than five hundred.
+
+**The viewport follows new content only when the reader is already at the
+end.** A reader five points from the bottom is carried along; a reader three
+hundred points up is not moved by so much as a pixel, and a "jump to latest"
+affordance appears instead. It clears itself, scrolls to the end and turns
+following back on — all three — when used, and following resumes by itself the
+moment the reader scrolls back down. A late layout change, such as an image
+finishing its decode, obeys the same rule rather than yanking the page.
+
+Scripts, stylesheets, frames, embedded objects and form controls are dropped
+with their contents. Inline event handlers cannot run because nothing ever
+reads them. A link to `javascript:`, `vbscript:`, `file:` or a `data:` URL
+that is not an image loses its link and keeps its words.
+
+cobolt-forms 1068 passed, cobolt-runtime 928 passed; 0 failed.
+
 ## [PowerRustCOBOL 1.70.92] — 2026-09-19
 
 ### The Viewer reads HTML — as a subset, and it says so
