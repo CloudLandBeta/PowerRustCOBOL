@@ -32,6 +32,59 @@ pub enum Language {
 }
 
 impl Language {
+    /// Spec 058 T33 — the Viewer's toolbar and Find-bar tooltips, in this
+    /// language.
+    ///
+    /// A **table** rather than nineteen `Tr` fields: the strings belong to
+    /// a control's own chrome and are consumed by one caller
+    /// (`cobolt_forms::viewer::set_toolbar_tooltips`), not sprinkled
+    /// through the IDE's panels. The six-language rule is unchanged — every
+    /// language supplies every entry, and
+    /// `viewer_tooltips_are_translated_in_every_language` proves it.
+    ///
+    /// `cobolt-forms` ships the English text itself and falls back to it,
+    /// because a compiled COBOL binary has no `Tr` table at all; this is
+    /// what the IDE installs on top.
+    pub fn viewer_tooltips(self) -> Vec<(cobolt_forms::viewer::ToolbarAction, String)> {
+        use cobolt_forms::viewer::ToolbarAction as TA;
+        let t: [&str; 12] = match self {
+            Language::English => [
+                "Layout", "Show the document", "Show page cards", "Smaller text",
+                "Larger text", "Page thumbnails", "Split view", "Find", "Fullscreen",
+                "Print", "Share", "Save As",
+            ],
+            Language::Portuguese => [
+                "Layout", "Mostrar o documento", "Mostrar cartões de página", "Texto menor",
+                "Texto maior", "Miniaturas de páginas", "Visualização dividida", "Localizar",
+                "Tela cheia", "Imprimir", "Compartilhar", "Salvar como",
+            ],
+            Language::Spanish => [
+                "Diseño", "Mostrar el documento", "Mostrar tarjetas de página", "Texto más pequeño",
+                "Texto más grande", "Miniaturas de páginas", "Vista dividida", "Buscar",
+                "Pantalla completa", "Imprimir", "Compartir", "Guardar como",
+            ],
+            Language::French => [
+                "Mise en page", "Afficher le document", "Afficher les vignettes de page",
+                "Texte plus petit", "Texte plus grand", "Miniatures de pages", "Vue partagée",
+                "Rechercher", "Plein écran", "Imprimer", "Partager", "Enregistrer sous",
+            ],
+            Language::Japanese => [
+                "レイアウト", "ドキュメントを表示", "ページカードを表示", "文字を小さく",
+                "文字を大きく", "ページのサムネイル", "分割表示", "検索", "全画面表示",
+                "印刷", "共有", "名前を付けて保存",
+            ],
+            Language::Chinese => [
+                "布局", "显示文档", "显示页面卡片", "缩小文字", "放大文字", "页面缩略图",
+                "拆分视图", "查找", "全屏", "打印", "共享", "另存为",
+            ],
+        };
+        let actions = [
+            TA::CycleLayout, TA::ViewFull, TA::ViewCards, TA::FontSmaller, TA::FontLarger,
+            TA::Filmstrip, TA::Split, TA::Find, TA::Fullscreen, TA::Print, TA::Share, TA::SaveAs,
+        ];
+        actions.iter().copied().zip(t.iter().map(|s| (*s).to_string())).collect()
+    }
+
     /// All variants in display order.
     pub const ALL: &'static [Language] = &[
         Language::English,
@@ -10125,6 +10178,63 @@ mod i18n_tests {
                     "{lang:?}/{name}: unexpected placeholder in {label:?}"
                 );
             }
+        }
+    }
+}
+
+/// Spec 058 T33 — the Viewer's tooltips exist, and differ, in all six
+/// languages.
+#[cfg(test)]
+mod viewer_tooltip_tests {
+    use super::*;
+
+    #[test]
+    fn viewer_tooltips_are_translated_in_every_language() {
+        let english = Language::English.viewer_tooltips();
+        assert_eq!(english.len(), 12, "R16's twelve toolbar buttons");
+
+        for lang in Language::ALL {
+            let table = lang.viewer_tooltips();
+            println!(
+                "{:<12} {} tooltip(s), e.g. Print = {:?}",
+                format!("{lang:?}"),
+                table.len(),
+                table.iter().find(|(a, _)| *a == cobolt_forms::viewer::ToolbarAction::Print).map(|(_, t)| t)
+            );
+            assert_eq!(table.len(), english.len(), "{lang:?} must supply every tooltip");
+            for (action, text) in &table {
+                assert!(!text.trim().is_empty(), "{lang:?}/{action:?} has no text");
+            }
+            // The same actions, in the same order, so a zip can never
+            // silently pair a label with the wrong button.
+            let actions: Vec<_> = table.iter().map(|(a, _)| *a).collect();
+            let want: Vec<_> = english.iter().map(|(a, _)| *a).collect();
+            assert_eq!(actions, want, "{lang:?} lists the actions in a different order");
+        }
+    }
+
+    /// A translation that is silently English is worse than a missing one
+    /// (GOLDEN RULE #8's own wording). Every non-English language must
+    /// actually differ.
+    #[test]
+    fn no_language_quietly_ships_the_english_strings() {
+        let english = Language::English.viewer_tooltips();
+        for lang in Language::ALL.iter().filter(|l| **l != Language::English) {
+            let table = lang.viewer_tooltips();
+            let same: Vec<&str> = table
+                .iter()
+                .zip(english.iter())
+                .filter(|((_, t), (_, e))| t == e)
+                .map(|((a, _), _)| a.as_str())
+                .collect();
+            println!("{lang:?}: {} of {} identical to English {same:?}", same.len(), english.len());
+            // "Layout" is genuinely the same word in Portuguese, and that
+            // is a translation decision, not an omission — so the bar is
+            // that a language must be MOSTLY its own.
+            assert!(
+                same.len() * 4 <= english.len(),
+                "{lang:?} looks untranslated: {same:?}"
+            );
         }
     }
 }

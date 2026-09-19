@@ -1,5 +1,27 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.97] — 2026-09-19
+
+### The Developer's Guide explains the Viewer
+
+Spec 058 T33. The guide gains a Viewer section written for a developer coming
+from PowerCOBOL or isCOBOL: what it replaces (an OLE container or an embedded
+preview — with no container to register and no second process to fail), how to
+open a document by path or from bytes, what **each format actually gives you
+and what it does not**, the layouts, everything about getting around it, Find,
+two documents side by side, saving and printing, and the conversation surface —
+including a worked minimal chatbot form built from a Viewer, a list and two
+buttons, because that is the one part a reader has no prior instinct for.
+
+Writing it found a real gap in the control. The streaming example needed the
+id of the message an append had just created, and the append methods returned
+nothing — which would have left "extend that message" unusable unless the
+program invented ids of its own. `AppendHtml`, `AppendMarkdown` and
+`AppendRaw` now hand back the new message's id.
+
+The Viewer's toolbar tooltips are translated into all six languages, and a
+test refuses to let any of them quietly ship the English text.
+
 ## [PowerRustCOBOL 1.70.96] — 2026-09-19
 
 ### The AI knows about the Viewer

@@ -13611,24 +13611,36 @@ impl Interpreter {
             // valid markup.
             "APPENDHTML" | "APPEND-HTML" => {
                 let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                self.viewer_conversation(obj)
+                // RETURNS the new message's id, so the caller can extend
+                // it with `AppendToMessage` as a streamed reply arrives —
+                // without an id the streaming half of §8.2 is unusable.
+                let new_id = self
+                    .viewer_conversation(obj)
                     .append(cobolt_forms::viewer::AppendMode::Html, &content);
                 self.viewer_publish_conversation(obj);
-                none
+                val(new_id)
             }
             "APPENDMARKDOWN" | "APPEND-MARKDOWN" => {
                 let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                self.viewer_conversation(obj)
+                // RETURNS the new message's id, so the caller can extend
+                // it with `AppendToMessage` as a streamed reply arrives —
+                // without an id the streaming half of §8.2 is unusable.
+                let new_id = self
+                    .viewer_conversation(obj)
                     .append(cobolt_forms::viewer::AppendMode::Markdown, &content);
                 self.viewer_publish_conversation(obj);
-                none
+                val(new_id)
             }
             "APPENDRAW" | "APPEND-RAW" => {
                 let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
-                self.viewer_conversation(obj)
+                // RETURNS the new message's id, so the caller can extend
+                // it with `AppendToMessage` as a streamed reply arrives —
+                // without an id the streaming half of §8.2 is unusable.
+                let new_id = self
+                    .viewer_conversation(obj)
                     .append(cobolt_forms::viewer::AppendMode::Raw, &content);
                 self.viewer_publish_conversation(obj);
-                none
+                val(new_id)
             }
             // `AppendToMessage(messageId, content, mode)` — mode last, as
             // §8.2 spells it.
@@ -17501,6 +17513,39 @@ MAIN.
         assert_eq!(events, vec!["onContentRendered".to_string()], "exactly one, for the one chunk");
         assert_eq!(laid_out, 1, "the layout had already run when the event was queued");
         assert!(blocks > 0, "and produced real content — not merely accepted data");
+    }
+
+    /// §8.2 in practice: an append must hand back the message's id, or the
+    /// streaming half of the API — `AppendToMessage` — has nothing to aim
+    /// at. Documented in the Guide, so it is asserted here.
+    #[test]
+    fn an_append_returns_the_new_messages_id_so_it_can_be_extended() {
+        let mut interp = viewer_interp(&[]);
+        let first = interp
+            .exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("**Assistant:**", 14)])
+            .as_display_string();
+        let second = interp
+            .exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("second", 6)])
+            .as_display_string();
+        println!("two appends returned ids {first:?} and {second:?}");
+        assert!(!first.trim().is_empty(), "the id must be real");
+        assert_ne!(first, second, "each message gets its own id");
+
+        // And that id is the one `AppendToMessage` extends.
+        let extended = interp.exec_method(
+            "VWR-1",
+            "APPENDTOMESSAGE",
+            &[
+                CobolValue::from_str(first.trim(), first.trim().len()),
+                CobolValue::from_str(" ...thinking", 12),
+                CobolValue::from_str("Raw", 3),
+            ],
+        );
+        let _ = extended;
+        let text = interp.viewer_conversation("VWR-1").text();
+        println!("conversation text: {text:?}");
+        assert!(text.contains("...thinking"), "the returned id extended the right message");
+        assert!(!queued_for(&interp, "VWR-1").contains(&"onError".to_string()), "and was accepted");
     }
 
     /// §8.4 from COBOL: `JumpToLatest()` leaves a request for the surface

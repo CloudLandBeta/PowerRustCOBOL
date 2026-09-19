@@ -3809,6 +3809,337 @@ Error) from one button handler, and capture the window while all three are
 stacked, so the vertical stacking, the category colours and the icons are all
 visible.
 
+### Viewer (documents inside your form)
+
+A **Viewer** shows a document — plain text, Markdown, an image, a PDF or an
+HTML page — inside the form you built, with a toolbar, page navigation, zoom, a
+rail of page thumbnails, Find, Print, Share and Save As.
+
+It exists because a COBOL program that *produces* documents has, until now, had
+nowhere to *show* them. You write a PDF statement or a report and then hand it
+to some other program, and your operator leaves your application to read what
+your application just made. A Viewer keeps it where the work is.
+
+If you have used PowerCOBOL or isCOBOL, the closest thing you know is probably
+an OLE container or an embedded preview pane — and the most important
+difference is this one: a Viewer is a **plain control**. You drop it on a form,
+you set its properties, you bind its events. There is no container to register,
+no external application to be installed, and no second process to fail.
+
+#### Opening a document
+
+Two ways in. A path:
+
+```cobol
+       MOVE "reports/september.pdf" TO VWR-1::Source
+```
+
+or bytes your program already holds:
+
+```cobol
+       INVOKE VWR-1::LoadBytes(WS-DOCUMENT-BUFFER)
+```
+
+Either way the Viewer works out **what** the document is from its content
+first and its file name second, and reports what it decided in `Format`. A PNG
+that someone named `.txt` still opens as a picture. A file it cannot make sense
+of raises `onError` with `LastError` set, and — this is the part worth
+remembering — **leaves the document you were already showing on screen**. A bad
+file name does not blank your form.
+
+Loading reports itself as it goes, so a large document can drive a progress
+bar:
+
+```cobol
+       PROGRAM-ID. VWR-1--ONLOADPROGRESS.
+       PROCEDURE DIVISION.
+           MOVE VWR-1::Progress TO PROG-1::Value
+           .
+
+       PROGRAM-ID. VWR-1--ONLOADED.
+       PROCEDURE DIVISION.
+           MOVE 0 TO PROG-1::Value
+           MOVE VWR-1::Format TO LBL-FORMAT::Caption
+           .
+```
+
+> **Note — the reading happens off the drawing.** Indexing a two-gigabyte log
+> does not stop your form repainting or answering the mouse, and the Viewer
+> never holds a whole document in memory: it keeps a bounded window of pages
+> and reads the rest on demand. Jumping to the last page of such a file costs
+> one page's reading, not a walk through everything before it.
+
+#### What each format actually gives you
+
+This is the single most important table in the section, and it is a contract
+rather than an aspiration. Everything the Viewer does is pure COBOL-runtime
+code with no external decoder to install, and that decision sets the ceiling
+for some formats.
+
+| Format | You get | You do **not** get |
+|---|---|---|
+| Plain text | All of it, at any size | — |
+| Markdown, with tables, task lists, footnotes and strikethrough | All of it, at any size | — |
+| Mermaid diagrams inside a Markdown fence | Flowcharts and sequence diagrams | Class, state, gantt, ER and journey diagrams — **refused by name**, not half-drawn |
+| Images: PNG, JPEG, GIF, WebP, APNG, BMP, TIFF, SVG | All of them, animation included | — |
+| PDF | Its text, its basic line and rectangle drawing, its page sizes, its page breaks, and Find over all of it | A faithful picture of a complex page; unusual embedded font encodings; forms; annotations; a scanned page beyond the image it embeds |
+| HTML | A **subset**: block and inline layout, common typography, colours, borders, tables, images | CSS grid, flex, animation and transforms; JavaScript; floats beyond the simple case. **It is not a browser** |
+| Video | Nothing — out of scope. Animated GIF, WebP and APNG are covered above as images | Any format needing an external codec |
+| Word, Excel, PowerPoint | Nothing — out of scope | — |
+
+> **Note — where the boundary shows.** A format's limits are visible rather
+> than silent. A Mermaid diagram the Viewer does not draw says so, by name,
+> where the diagram would have been. An HTML page laid out in ways this
+> renderer cannot follow **loses its layout and keeps every word of its
+> content**, because losing the words would be the worse failure. A scanned PDF
+> with no text layer reports no text, rather than inventing some.
+
+#### Layouts
+
+`Layout` decides how the document is presented:
+
+| `Layout` | What it looks like |
+|---|---|
+| `Raw` | The literal source, monospaced and unformatted |
+| `Web` | Formatted, with no page margins |
+| `Print` | Page margins, a paper border and a paper shadow |
+| `Page` | Print layout, on a black-on-white page whatever your form's theme is |
+| `Streamed` | One content pane and no chrome at all — for chatbot conversations, described at the end of this section |
+
+`Page` is about pagination, not about the kind of document: Markdown and plain
+text page up as willingly as a PDF does.
+
+`FontSize` scales the text **independently of** `Zoom`, so a reader who wants
+bigger words does not have to magnify the whole page to get them.
+
+#### Getting around
+
+Everything a reader can do with the mouse, your program can do too — there is
+no capability in this control that COBOL cannot reach.
+
+```cobol
+       MOVE 150 TO VWR-1::Zoom
+       MOVE 4 TO VWR-1::Page
+       MOVE 1 TO VWR-1::Fullscreen
+       MOVE "Cards" TO VWR-1::View1ViewMode
+```
+
+- **Zoom** runs to a maximum of sixteen times. The wheel with your platform's
+  zoom modifier magnifies about the pointer — whatever is under it stays under
+  it. A double-click zooms one step. `Esc` returns to 100 %; in fullscreen it
+  leaves fullscreen first.
+- **View mode** is `Full` (the document) or `Cards` (a grid of one card per
+  page, replacing the document). The grid reflows to **the control's own
+  width** — make the control wider and you get more columns; making the
+  *window* wider changes nothing, because a control should not depend on
+  something it cannot see.
+- **One slider**, at the bottom right of each view, drives `Zoom` in `Full`
+  mode and `CardSize` in `Cards` mode. Switching modes never disturbs the
+  value you left the other one at.
+- **The filmstrip** is a rail of page thumbnails docked to the left edge of the
+  content. It closes two ways: its toolbar button again, or dragging its
+  splitter all the way to the left edge.
+- **Scrolling** behaves the way the IDE's own documentation viewer does: an
+  arrow key taps one line and, held, winds up to four times that pace; Page Up
+  and Page Down move a screenful less two lines so you keep your place;
+  Home and End jump to the ends; and dragging the page throws it, slowing under
+  steady friction to a stop. None of it happens while the Find box has the
+  caret.
+
+Each of these raises an event when it **settles** — `onZoomChanged`,
+`onCardSizeChanged`, `onScrolled`, `onViewModeChanged`, `onFilmstripToggled`,
+`onFullscreenEntered` and `onFullscreenExited` — so one wheel gesture is one
+event, not one per notch.
+
+#### Finding text
+
+`Ctrl+F` (`Cmd+F` on a Mac) opens the Find bar; `Esc` closes it. `F3` and
+`Shift+F3` walk the matches, wrapping round at both ends. Every match is
+marked, with the current one picked out, and a live counter says which of how
+many you are on.
+
+All of it is yours to drive:
+
+```cobol
+       INVOKE VWR-1::Find("INVOICE")
+       MOVE 1 TO VWR-1::SearchCaseSensitive
+       INVOKE VWR-1::FindNext()
+       MOVE VWR-1::SearchMatchCount TO WS-HOW-MANY
+       MOVE VWR-1::SearchCurrentMatch TO WS-WHICH-ONE
+```
+
+A format with no text to search — a standalone photograph — reports no matches.
+That is an answer, not an error.
+
+#### Two documents at once
+
+`SplitMode` set to `LeftRight` or `TopBottom` gives you two views with a
+draggable divider between them, and each one is genuinely its own: its own
+document, page, zoom, scroll position, view mode, filmstrip and Find.
+
+```cobol
+       MOVE "LeftRight" TO VWR-1::SplitMode
+       MOVE "statements/september.pdf" TO VWR-1::View1Source
+       MOVE "statements/detail.pdf"    TO VWR-1::View2Source
+```
+
+Point **both** views at the same document and it is read once, not twice — so
+an operator can study one section while browsing another section of the same
+statement, at no extra cost.
+
+> **Note — the plain names belong to the first view.** `Zoom` means
+> `View1Zoom`, `SearchText` means `View1SearchText`, and so on. A program
+> written before you split the control goes on meaning exactly what it did.
+
+#### Saving, printing and sharing
+
+```cobol
+       INVOKE VWR-1::SaveAs("archive/september-copy.pdf")
+       INVOKE VWR-1::Print()
+       INVOKE VWR-1::Share()
+```
+
+> ⚠️ **Caveat — Save As writes the original bytes, and only those.** It copies
+> the file; it never writes out what the Viewer drew. That is deliberate, and
+> it matters most for a PDF: the Viewer reads a PDF's structure in order to
+> paint it, and a saver that wrote *that* reading back would hand your operator
+> a different document with the same name. The Viewer also never modifies the
+> document it is showing.
+
+Print and Share hand the document to the operating system — its print dialog,
+its share sheet. So their outcomes are the operating system's to report, and
+that is where the events come from:
+
+```cobol
+       PROGRAM-ID. VWR-1--ONPRINTCOMPLETE.
+       PROCEDURE DIVISION.
+           MOVE "Sent to the printer" TO LBL-STATUS::Caption
+           .
+
+       PROGRAM-ID. VWR-1--ONPRINTCANCELLED.
+       PROCEDURE DIVISION.
+           MOVE "Printing cancelled" TO LBL-STATUS::Caption
+           .
+```
+
+> ⚠️ **Caveat — only the dialog knows.** `onPrintComplete` and
+> `onPrintCancelled` (and the Share and Save pairs beside them) report what the
+> operating system told the Viewer. Your program cannot tell in advance which
+> one it will get, and should not assume the cheerful one.
+
+#### Hosting a conversation
+
+The last part of this control is a different job for the same box: `Layout`
+set to `Streamed` turns a Viewer into a **conversation surface** — one content
+pane, no toolbar, no Find bar, no thumbnails — that you append to as replies
+arrive.
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown("**You:** what were September's totals?")
+       INVOKE VWR-1::AppendRaw(WS-REPLY-FROM-SOMEWHERE-ELSE)
+```
+
+Three ways to append, and **you say which**, every time:
+
+| Method | What happens to the content |
+|---|---|
+| `AppendHtml` | Rendered through the HTML subset |
+| `AppendMarkdown` | Rendered as Markdown |
+| `AppendRaw` | Shown **literally** — markup inside it is displayed, never obeyed |
+
+A reply arriving a piece at a time extends the message already on screen,
+rather than starting a new one:
+
+```cobol
+       INVOKE VWR-1::AppendMarkdown("**Assistant:**") RETURNING WS-MESSAGE-ID
+      *> ... and then, for each piece that arrives:
+       INVOKE VWR-1::AppendToMessage(WS-MESSAGE-ID, WS-PIECE, "Raw")
+```
+
+> **Note — the view follows only if the reader is already at the end.** If your
+> operator has scrolled up to re-read something, new content does **not** yank
+> them back down; a quiet indicator appears instead, and following resumes by
+> itself the moment they scroll back to the end.
+
+> ⚠️ **Caveat — set `RenderAsHtml` to zero for content you did not write.**
+> It is a blanket switch: with it off, *every* append is treated as raw
+> whichever method you called. If a reply comes from somewhere you do not
+> control, say so once, at the start, and stop worrying about each call.
+
+##### Conversations, and the sidebar you build yourself
+
+The Viewer does not draw a chat sidebar, a "new chat" button or a history list.
+That is on purpose: your application's chrome should look like your
+application. What you get is the machinery, and you build the buttons out of
+the controls you already know.
+
+| Method or property | What it does |
+|---|---|
+| `NewConversation()` | Files the open conversation into history, clears the pane, raises `onConversationCreated`. On an already-empty pane it does nothing at all |
+| `SelectConversation(id)` | Files the open one away, makes `id` current, clears the pane, raises `onConversationSelected` |
+| `RegisterConversation(id, title)` | Seeds a history entry for a conversation from an earlier run |
+| `HistoryList` | Up to ten entries, one `id|title` per line |
+
+A minimal chatbot form, then, is a Viewer, a ListBox and two buttons:
+
+```cobol
+      *> The developer's own "New chat" button.
+       PROGRAM-ID. BTN-NEW--ONCLICK.
+       PROCEDURE DIVISION.
+           MOVE "CHAT-0042" TO VWR-1::ConversationId
+           INVOKE VWR-1::NewConversation()
+           .
+
+      *> Whenever history changes, refill your own list.
+       PROGRAM-ID. VWR-1--ONCONVERSATIONCREATED.
+       PROCEDURE DIVISION.
+           MOVE VWR-1::HistoryList TO LST-HISTORY::Items
+           .
+
+      *> The operator picks a past conversation from your list. Keep the
+      *> ids in a table of your own as you fill the list - the list shows
+      *> titles, your program remembers which id each line came from.
+       PROGRAM-ID. LST-HISTORY--ONSELECTEDINDEXCHANGED.
+       PROCEDURE DIVISION.
+           MOVE LST-HISTORY::SelectedIndex TO WS-ROW
+           IF WS-ROW >= 0
+               MOVE WS-CHAT-ID-TABLE(WS-ROW + 1) TO WS-CHAT-ID
+               INVOKE VWR-1::SelectConversation(WS-CHAT-ID)
+           END-IF
+           .
+
+      *> ... and the Viewer asks YOU for that conversation's content.
+       PROGRAM-ID. VWR-1--ONCONVERSATIONSELECTED.
+       PROCEDURE DIVISION.
+           MOVE VWR-1::ConversationId TO WS-CHAT-ID
+           PERFORM READ-CHAT-FROM-FILE
+           PERFORM UNTIL WS-EOF = "Y"
+               INVOKE VWR-1::AppendMarkdown(WS-CHAT-LINE)
+               PERFORM READ-NEXT-CHAT-LINE
+           END-PERFORM
+           .
+```
+
+> ⚠️ **Caveat — history holds a name, never a conversation.** Ten entries, each
+> an id and a title and nothing else. Selecting one does not restore anything:
+> it **asks your program** for that conversation, through
+> `onConversationSelected`, and your program reads it back from wherever it
+> keeps it. That is what stops a session that runs all day from growing without
+> limit — and it means the conversation's storage is yours to choose, which is
+> usually an indexed file.
+
+📷 Screenshot needed — `viewer-split-pdf.png`. Drop a Viewer on a form, set
+`SplitMode` to `LeftRight`, open a multi-page PDF in the left view and the same
+PDF in the right, scroll the two to different pages, and open the Find bar in
+one of them — so the divider, the two independent scroll positions and the
+per-view Find bar are all visible at once.
+
+📷 Screenshot needed — `viewer-streamed-chat.png`. Build the little chatbot form
+above (a Viewer with `Layout = Streamed`, a ListBox of past conversations and a
+"New chat" button), append three or four messages so the conversation fills the
+pane, and capture the whole window — so a reader can see that the sidebar is
+the developer's own and the Viewer draws no chrome of its own.
+
 ---
 
 ## 9. Properties

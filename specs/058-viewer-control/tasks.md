@@ -972,7 +972,7 @@ order.)*
     §8.8 conversation method — so a section copied from another control
     could not pass it.
 
-- [ ] **T33 — Docs & i18n**
+- [x] **T33 — Docs & i18n**
   - Files: `docs/developers-guide-en.md` (a `### Viewer` subsection in §8 "The
         control catalogue," alongside `### Snackbar (transient notifications)`
         at line 3518 — COBOL examples only, no Rust, Notes + ⚠️ Caveats for the
@@ -990,6 +990,43 @@ order.)*
         chase.
   - Verify: `cargo test -p cobolt-ide i18n`; the guide passes
         `iconv -f UTF-8 -t UTF-8` with zero double-encoded bytes.
+
+  - **DONE — 2026-09-19 (1.70.97).** `docs/developers-guide-en.md` gains
+    `### Viewer (documents inside your form)` before §9, written for a
+    PowerCOBOL/isCOBOL reader: what a Viewer is *instead of* (an OLE
+    container or an embedded preview, with no container to register and no
+    second process to fail), §3's fidelity table in the developer's own
+    terms with a **You do not get** column, every navigation and Find
+    affordance, split view, Save As/Print/Share, and the Streamed
+    conversation surface with a **worked minimal chatbot form** — a Viewer, a
+    ListBox and two buttons, since that is the one part of this material a
+    reader has no prior instinct for. COBOL examples and prose only; the
+    word "Rust" does not appear in the section. Two screenshot placeholders,
+    each saying exactly what to capture. UTF-8 clean, zero double-encoded
+    bytes.
+  - **GOLDEN RULE #8: nothing to delete.** The five translations of the
+    Guide **do not exist on this branch** — `docs/` holds only `-en` files.
+    `every_document_ships_in_every_language` was therefore **already red
+    before this work began** (verified: `git diff ca0ea64..HEAD` touches no
+    file under `docs/`), which is precisely the expected signal plan.md §2
+    predicted for the regeneration cycle.
+  - **The Guide found a real API gap while being written.** The streaming
+    example needed the id of the message an append created, and the append
+    methods returned nothing — which would have left `AppendToMessage`
+    unusable without the caller inventing ids. `AppendHtml`/`AppendMarkdown`/
+    `AppendRaw` now **return the new message's id**, with a test. A second
+    example used `SelectedItem`, which no ListBox has; rewritten to
+    `SelectedIndex` against the program's own table, which is what a COBOL
+    developer would really write.
+  - **i18n:** six new `Tr` section headers (T28) plus `Language::
+    viewer_tooltips()` — R16's twelve toolbar tooltips in all six languages,
+    installed into the render engine each frame by `app.rs` the same way
+    `theme::set_active` publishes the palette. A **table**, not nineteen
+    `Tr` fields: these belong to a control's chrome and have exactly one
+    consumer. Two tests: every language supplies every tooltip in the same
+    order, and **no language quietly ships the English strings**.
+    `cobolt-forms` keeps its own English fallback, because a compiled COBOL
+    binary has no `Tr` table at all.
 
 - [ ] **T34 — Finalize**
   - Do: bump `z` in `version.rs` **once** for the whole feature + one
