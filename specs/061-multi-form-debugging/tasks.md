@@ -158,7 +158,7 @@ green *unchanged*, never edited to fit).
   - Verify: `cargo test -p cobolt-ide --bin cobolt-ide --no-fail-fast`; a
     single-form session still stops, steps and finishes.
 
-- [ ] **T8 — The panel switches listings without losing anything** (R3, R4)
+- [x] **T8 — The panel switches listings without losing anything** (R3, R4)
   - Files: `crates/cobolt-ide/src/panels/debugger.rs`
   - Do: add `sources: HashMap<String, SourceEntry>` (plan §3.4) with
     `add_source(path, text, bps)` / `show_source(path)` / `has_source(path)`;

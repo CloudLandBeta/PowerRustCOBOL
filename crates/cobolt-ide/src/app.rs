@@ -14730,7 +14730,11 @@ impl eframe::App for CoboltApp {
                             // the IDE sends it one, so it never stops and this
                             // drops nothing a developer asked for.
                             if handle == cobolt_runtime::form_host::ROOT_HANDLE {
-                                self.debugger.apply_event(event);
+                                // `None`: one debuggee is being shown, and it
+                                // is the one on screen. Once stops are
+                                // followed into other forms, the event names
+                                // the file it belongs to.
+                                self.debugger.apply_event(None, event);
                                 applied = true;
                             }
                         }

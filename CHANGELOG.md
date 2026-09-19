@@ -1,5 +1,32 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.98] — 2026-09-19
+
+### Spec 061 T8 — the debugger panel can hold a listing per form
+
+The panel kept one listing for a whole session, and `set_source` — which
+*starts* a session — was the only way to change it, clearing the
+investigation dock on the way. Following the program into a second form
+through that would have cost the developer their dock, their folds and the
+first file's breakpoints.
+
+It now keeps a `SourceEntry` per generated `.cbl` — lines, breakpoints,
+folds, the opened runs and the line that file is stopped at — with
+`add_source` / `show_source` / `has_source` to move between them.
+`show_source` stashes what is on screen and reads the other back, so each
+file's marks survive a switch, while the session's dock, watch list, font
+size and *Only my code* are untouched. `set_source` is now that pair with a
+cleared roster, so a session still starts exactly as it did. Search hits and
+the selection are deliberately dropped on a switch: they are positions in
+text that is no longer on screen.
+
+`apply_event` now names the file an event came from, and refuses to write a
+stop's line into a listing that is not that file's — a guard behind the
+host, which switches first, rather than the mechanism. Three tests: a switch
+away and back keeps each file's breakpoints and folds and leaves the session
+alone, a stop in another form does not move this listing, and asking for a
+listing nobody loaded is refused rather than blanking the pane.
+
 ## [PowerRustCOBOL 1.70.97] — 2026-09-19
 
 ### Spec 061 T7 — the IDE reads the envelope, and stops merging debug runs

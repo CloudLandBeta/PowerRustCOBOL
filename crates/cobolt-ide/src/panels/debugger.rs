@@ -66,6 +66,29 @@ pub struct Watch {
     pub error: Option<String>,
 }
 
+/// One form's listing, kept while another form's is on screen (spec 061).
+///
+/// Since spec 051 an application is several forms, each with its own
+/// generated `.cbl`, and the debugger follows the program into whichever one
+/// stops. Everything here is **per file** and must survive a switch: a
+/// breakpoint belongs to the program it was set in, and so do the folds
+/// computed from that text and the place the developer had scrolled to.
+///
+/// What is NOT here is per *session* — the investigation dock, the watch
+/// list, the font size, `only_user_code` — and is untouched when the panel
+/// changes listings.
+#[derive(Default)]
+struct SourceEntry {
+    lines: Vec<String>,
+    breakpoints: HashSet<u32>,
+    hidden: Vec<HiddenRun>,
+    expanded_runs: HashSet<u32>,
+    /// Where this form last stopped, so returning to it shows the line it is
+    /// stopped on rather than wherever the other form was.
+    current_line: u32,
+    last_scrolled_line: u32,
+}
+
 // ── DebugAction ───────────────────────────────────────────────────────────────
 
 /// Action requested by the debug window in a single frame.
@@ -915,6 +938,11 @@ pub struct DebuggerPanel {
     source_lines: Vec<String>,
     source_path: String,
     breakpoints: HashSet<u32>,
+    /// Every form's listing this session has seen, the one on screen
+    /// included — it is stashed here on the way out and read back on the way
+    /// in, so switching loses neither file's breakpoints nor its folds
+    /// (spec 061 R4).
+    sources: HashMap<String, SourceEntry>,
     /// A line the developer asked to clear from the Breakpoints list this frame
     /// (its ✕ button). Drained by `split_body` into a `ToggleBreakpoint`, the
     /// same action a gutter click raises, so removal and the gutter share one
@@ -1118,6 +1146,7 @@ impl DebuggerPanel {
             expanded_runs: HashSet::new(),
             hide_empty_blocks: true,
             hide_generated: true,
+            sources: HashMap::new(),
         }
     }
 
@@ -1142,6 +1171,11 @@ impl DebuggerPanel {
     }
 
     /// Supply the COBOL source text and initial breakpoint set at session start.
+    ///
+    /// Starts the session: the dock's clock, and a roster of listings holding
+    /// just this one. Use [`Self::add_source`] / [`Self::show_source`] to
+    /// follow the program into another form **within** a session — they keep
+    /// what this one deliberately throws away.
     pub fn set_source(&mut self, path: String, source: &str, bps: &HashSet<u32>) {
         // A new session: the dock's clock starts here. `session_started` is the
         // monotonic base every `at_ms` measures from; `session_started_wall` is
@@ -1150,11 +1184,84 @@ impl DebuggerPanel {
         self.session_started = Some(Instant::now());
         self.session_started_wall = Some(chrono::Local::now());
         self.dock.clear();
-        self.source_path = path;
-        self.source_lines = source.lines().map(|l| l.to_owned()).collect();
-        self.hidden = folds(&self.source_lines, self.hide_empty_blocks, self.hide_generated);
-        self.expanded_runs.clear();
-        self.breakpoints = bps.clone();
+        self.sources.clear();
+        self.source_path = String::new();
+        self.add_source(&path, source, bps);
+        self.show_source(&path);
+    }
+
+    /// Is this form's listing already loaded?
+    pub fn has_source(&self, path: &str) -> bool {
+        self.sources.contains_key(path)
+    }
+
+    /// Load one form's listing into the session, without showing it.
+    ///
+    /// Idempotent in the way that matters: re-adding a file the developer has
+    /// been working in would discard their folds, so an existing entry keeps
+    /// its fold state and only takes the new text and breakpoints.
+    pub fn add_source(&mut self, path: &str, source: &str, bps: &HashSet<u32>) {
+        let lines: Vec<String> = source.lines().map(|l| l.to_owned()).collect();
+        let hidden = folds(&lines, self.hide_empty_blocks, self.hide_generated);
+        let entry = self.sources.entry(path.to_owned()).or_default();
+        entry.lines = lines;
+        entry.hidden = hidden;
+        entry.breakpoints = bps.clone();
+        // If it is the listing on screen, the live fields are the truth.
+        if self.source_path == path {
+            self.source_lines = entry.lines.clone();
+            self.hidden = entry.hidden.clone();
+            self.breakpoints = entry.breakpoints.clone();
+        }
+    }
+
+    /// Show a listing already added, keeping everything the one being left
+    /// had. Returns false — and changes nothing — if it was never added.
+    ///
+    /// This is what lets the debugger follow the program into another form:
+    /// the session's dock, watches and toolbar state are untouched, and each
+    /// file's breakpoints, folds and stopped line come back exactly as they
+    /// were. `set_source` cannot express this — it *starts* a session, and
+    /// clears the dock to do it.
+    pub fn show_source(&mut self, path: &str) -> bool {
+        if !self.sources.contains_key(path) {
+            return false;
+        }
+        if self.source_path == path {
+            return true;
+        }
+        // Stash what is on screen…
+        if let Some(cur) = self.sources.get_mut(&self.source_path) {
+            cur.lines = std::mem::take(&mut self.source_lines);
+            cur.breakpoints = std::mem::take(&mut self.breakpoints);
+            cur.hidden = std::mem::take(&mut self.hidden);
+            cur.expanded_runs = std::mem::take(&mut self.expanded_runs);
+            cur.current_line = self.current_line;
+            cur.last_scrolled_line = self.last_scrolled_line;
+        }
+        // …and read the other back.
+        let Some(next) = self.sources.get(path) else {
+            return false;
+        };
+        self.source_lines = next.lines.clone();
+        self.breakpoints = next.breakpoints.clone();
+        self.hidden = next.hidden.clone();
+        self.expanded_runs = next.expanded_runs.clone();
+        self.current_line = next.current_line;
+        self.last_scrolled_line = next.last_scrolled_line;
+        self.source_path = path.to_owned();
+        // View state that does not travel: a search and a selection are
+        // positions in the text that was on screen, and mean nothing in this
+        // one. Run-to-Cursor's target goes with them.
+        self.find_hits.clear();
+        self.find_at = 0;
+        self.find_built_for.clear();
+        self.current_find_line = None;
+        self.sel_anchor = None;
+        self.sel_cursor = None;
+        self.cursor_line = None;
+        self.force_center_current = true;
+        true
     }
 
     /// Sync the live breakpoint set from the editor gutter.
@@ -1214,7 +1321,23 @@ impl DebuggerPanel {
 
     /// Apply one interpreter event to the panel state. Shared by the in-IDE
     /// `DebugRunner` path and the remote (`rcrun run-form --debug`) path.
-    pub fn apply_event(&mut self, ev: DebugEvent) {
+    /// `source` is the generated `.cbl` the event came from, or `None` for a
+    /// session with one debuggee (the in-IDE console debugger).
+    ///
+    /// A stop belongs to ONE form's listing, and its line number means
+    /// nothing against any other — writing it in is exactly how the wrong
+    /// file gets a highlight. The host switches listings before applying, so
+    /// this is a guard rather than a filter; everything else (output, an
+    /// answer, `Finished`) belongs to the session and is applied whatever is
+    /// on screen.
+    pub fn apply_event(&mut self, source: Option<&str>, ev: DebugEvent) {
+        if let Some(src) = source {
+            if src != self.source_path
+                && matches!(ev, DebugEvent::Stopped { .. } | DebugEvent::Paused { .. })
+            {
+                return;
+            }
+        }
         match ev {
             // The stop's *reason* and the logical stack. It arrives just before
             // the `Paused` snapshot below, so both are applied for one stop.
@@ -1399,7 +1522,7 @@ impl DebuggerPanel {
         let mut dirty = false;
         for ev in runner.drain_events() {
             dirty = true;
-            self.apply_event(ev);
+            self.apply_event(None, ev);
         }
         for msg in runner.drain_run() {
             dirty = true;
@@ -4479,18 +4602,132 @@ mod animate_breakpoint_tests {
 
         // A plain step on an unmarked line keeps animating.
         p.animate = true;
-        p.apply_event(stopped(11, StopReason::Step));
+        p.apply_event(None, stopped(11, StopReason::Step));
         assert!(p.animate, "a step on a line without a breakpoint keeps animating");
 
         // The interpreter's own verdict.
-        p.apply_event(stopped(12, StopReason::Breakpoint(vec![12])));
+        p.apply_event(None, stopped(12, StopReason::Breakpoint(vec![12])));
         assert!(!p.animate, "a breakpoint stop switches Animate off");
 
         // The panel's own set, even when the stop was reported as a step.
         p.animate = true;
-        p.apply_event(stopped(10, StopReason::Step));
+        p.apply_event(None, stopped(10, StopReason::Step));
         assert!(!p.animate, "a step landing on a marked line is a breakpoint to the developer");
         assert!(p.last_animate_step.is_none(), "the timer is reset with the toggle");
+    }
+}
+
+#[cfg(test)]
+mod source_switch_tests {
+    use super::*;
+
+    const CALLER: &str = "/p/generated/call-form-demo.cbl";
+    const CALLED: &str = "/p/generated/called-form-demo.cbl";
+    /// Two listings whose line numbers overlap — which is the whole point:
+    /// line 3 exists in both, and belongs to whichever form it was set in.
+    const SRC: &str = "IDENTIFICATION DIVISION.\nPROGRAM-ID. X.\nPROCEDURE DIVISION.\nMAIN.\n    STOP RUN.\n";
+
+    fn bps(lines: &[u32]) -> HashSet<u32> {
+        lines.iter().copied().collect()
+    }
+
+    /// **Following the program into another form loses nothing.**
+    ///
+    /// Each file keeps its own breakpoints and folds, and the session — its
+    /// investigation dock and watch list — is not disturbed by a switch.
+    /// `set_source` cannot do this: it *starts* a session, and clears the
+    /// dock to do it.
+    #[test]
+    fn switching_listings_keeps_each_files_marks_and_the_session() {
+        let mut p = DebuggerPanel::new();
+        p.set_source(CALLER.to_owned(), SRC, &bps(&[3]));
+        p.set_watches(&["WS-RESULT".to_owned()]);
+        p.dock.push(DockLine {
+            channel: cobolt_runtime::OutputChannel::Console,
+            text: "a line the developer wants to keep".to_owned(),
+            at_ms: 0,
+        });
+        // The developer opens a fold in the caller.
+        p.expanded_runs.insert(1);
+
+        // The program stops in the called form, so the panel follows it.
+        p.add_source(CALLED, SRC, &bps(&[5]));
+        assert!(p.show_source(CALLED), "the listing was added, so it shows");
+        assert_eq!(p.source_path, CALLED);
+        assert_eq!(
+            p.breakpoints,
+            bps(&[5]),
+            "the called form's breakpoints are its own"
+        );
+        assert!(
+            p.expanded_runs.is_empty(),
+            "and so are its folds — the caller's opened run is not this file's"
+        );
+
+        // …and back.
+        assert!(p.show_source(CALLER));
+        assert_eq!(
+            p.breakpoints,
+            bps(&[3]),
+            "the caller's breakpoints came back untouched"
+        );
+        assert!(
+            p.expanded_runs.contains(&1),
+            "and the fold the developer had opened"
+        );
+
+        // The session itself never noticed.
+        assert_eq!(p.dock.len(), 1, "the investigation dock survives a switch");
+        assert_eq!(p.watches.len(), 1, "and so does the watch list");
+        assert_eq!(p.watches[0].expression, "WS-RESULT");
+    }
+
+    /// A stop in a form that is not on screen must not write its line into
+    /// the listing that is. The host switches first, so this is the guard
+    /// behind that, not the mechanism.
+    #[test]
+    fn a_stop_in_another_form_does_not_move_this_listing() {
+        let mut p = DebuggerPanel::new();
+        p.set_source(CALLER.to_owned(), SRC, &bps(&[]));
+        p.apply_event(
+            Some(CALLER),
+            DebugEvent::Stopped {
+                line: 4,
+                col: 1,
+                paragraph: String::new(),
+                reason: StopReason::Step,
+                frames: Vec::new(),
+            },
+        );
+        assert_eq!(p.current_line, 4, "this form's stop is shown");
+
+        p.apply_event(
+            Some(CALLED),
+            DebugEvent::Stopped {
+                line: 2,
+                col: 1,
+                paragraph: String::new(),
+                reason: StopReason::Breakpoint(vec![2]),
+                frames: Vec::new(),
+            },
+        );
+        assert_eq!(
+            p.current_line, 4,
+            "a stop in a form that is not on screen must not move the \
+             highlight in the one that is"
+        );
+    }
+
+    /// Asking for a listing nobody loaded changes nothing — the panel keeps
+    /// showing what it has rather than blanking.
+    #[test]
+    fn showing_an_unknown_listing_is_refused_and_harmless() {
+        let mut p = DebuggerPanel::new();
+        p.set_source(CALLER.to_owned(), SRC, &bps(&[3]));
+        assert!(!p.show_source("/p/generated/never-loaded.cbl"));
+        assert_eq!(p.source_path, CALLER);
+        assert_eq!(p.breakpoints, bps(&[3]));
+        assert!(p.has_source(CALLER) && !p.has_source("/p/generated/never-loaded.cbl"));
     }
 }
 
