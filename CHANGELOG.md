@@ -1,5 +1,28 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.82] — 2026-09-19
+
+### IntelliSense knows `me::` and `super::` — the real surface, from the crates that own it
+
+Typing `me::` offered nothing: the editor knew a form only under the id
+`self`, which no COBOL line ever types, and the entry it kept was hand-written
+— `Close` beside `OpenForm`, `Alert`, `Minimize`, `Restore`, `Maximize`, and
+properties `TitleBar`, `border`, `icon` — most of which the runtime does not
+dispatch, while the methods it does (`OpenFormSync` / `OpenFormAsync`,
+`Focus` / `SetFocus`, `SetWindowState`, `SetFullScreen`, `SetTitleVisible`,
+`GetProperty` / `SetProperty`, `SuperHandle`, `GetFormState`,
+`SetBreadcrumbDetail` / `ClearBreadcrumbDetail`) were missing (operator,
+2026-09-19: "intellisense does not list me::close()").
+
+The surface now has one home: `cobolt_runtime::form_host::FORM_METHODS`,
+and a runtime test proves every name on it is one the supervisor really
+dispatches (or one of the two `OpenForm` requests). The editor builds its
+`me` and `super` entries from that list and from the semantic checker's
+`UNIVERSAL_FORM_PROPS`, and a window inherits none of the control-only
+methods (`MoveTo`, `Show`). An editor test checks `me::` and `super::` offer
+every window method and universal property, nothing invented, and that
+`me::clo` completes to `Close`.
+
 ## [PowerRustCOBOL 1.70.81] — 2026-09-19
 
 ### A chart's frame is a real border — with a gradient and a blur of its own

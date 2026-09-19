@@ -317,6 +317,11 @@ const UNIVERSAL_NONVISUAL: &[Method] = &[
 /// completion. Returns an owned vec so universal + specific can be merged.
 fn methods_for_type(ctrl_type: &str) -> Vec<Method> {
     let (base, specific): (&[Method], &[Method]) = match ctrl_type {
+        // A form receiver (`me`, `super`) is a window, not a control: it has
+        // none of the universal control methods (no `MoveTo`, no `Show`); its
+        // whole surface is `FORM_METHODS`, carried as the entry's
+        // `extra_methods` — see `form_receiver_known_control`.
+        "Form" => (&[], &[]),
         "Button" => (
             UNIVERSAL_VISUAL,
             &[
@@ -1055,30 +1060,36 @@ pub fn build_known_controls(form: &cobolt_forms::Form) -> Vec<KnownControl> {
     }
     collect_toolbar_buttons(&form.controls, &mut list);
 
-    list.push(KnownControl {
-        id: "self".to_string(),
-        ctrl_type: "Form".to_string(),
-        properties: vec![
-            "X".into(),
-            "Y".into(),
-            "Width".into(),
-            "Height".into(),
-            "Title".into(),
-            "TitleBar".into(),
-            "border".into(),
-            "icon".into(),
-        ],
-        extra_methods: vec![
-            "Close".into(),
-            "OpenForm".into(),
-            "Alert".into(),
-            "Minimize".into(),
-            "Restore".into(),
-            "Maximize".into(),
-        ],
-    });
+    // The form receivers. This was one entry under the id `self` — a name no
+    // COBOL line ever types — carrying a hand-written surface (`OpenForm`,
+    // `Alert`, `Minimize`, `TitleBar`, `border`, `icon`) that the runtime does
+    // not have, so `me::` and `super::` offered nothing and what they would
+    // have offered was half invented (operator, 2026-09-19). Both are now
+    // built from the runtime's own lists: `FORM_METHODS` (each name proven
+    // dispatched by a runtime test) and the universal form properties the
+    // semantic checker accepts on a bare `me::X`.
+    list.push(form_receiver_known_control("me"));
+    list.push(form_receiver_known_control("super"));
 
     list
+}
+
+/// The IntelliSense entry for a form receiver (`me`, `super`): the universal
+/// form properties and the window-method surface, from the crates that own
+/// them — never a copy.
+pub fn form_receiver_known_control(id: &str) -> KnownControl {
+    KnownControl {
+        id: id.to_string(),
+        ctrl_type: "Form".to_string(),
+        properties: cobolt_semantic::resolver::UNIVERSAL_FORM_PROPS
+            .iter()
+            .map(|p| (*p).to_string())
+            .collect(),
+        extra_methods: cobolt_runtime::form_host::FORM_METHODS
+            .iter()
+            .map(|(m, _)| (*m).to_string())
+            .collect(),
+    }
 }
 
 /// Collect the form's global data-item names (from the WORKING-STORAGE source the
@@ -6244,6 +6255,50 @@ END-EVALUATE
         assert_eq!(
             ctx("           DISPLAY Grid::Rows(0)::Val").unwrap().2,
             "Val"
+        );
+    }
+
+    /// `me::` and `super::` offer the whole window surface — every method in
+    /// the runtime's `FORM_METHODS` and every universal form property — and
+    /// nothing a window does not have. IntelliSense used to know a form only
+    /// as `self` (a name no line ever types) with a hand-written list that
+    /// lacked `Close`'s real company and carried methods the runtime does not
+    /// dispatch (operator, 2026-09-19: "intellisense does not list me::close()").
+    #[test]
+    fn me_and_super_offer_every_window_method_and_universal_property() {
+        for id in ["me", "super"] {
+            let known = form_receiver_known_control(id);
+            let items = member_completions(&known, "");
+            let labels: Vec<String> = items.iter().map(|i| i.label.clone()).collect();
+            for (m, _) in cobolt_runtime::form_host::FORM_METHODS {
+                assert!(
+                    items.iter().any(|i| i.label == *m && i.kind == AcKind::Method),
+                    "{id}:: must offer method {m}; got {labels:?}"
+                );
+            }
+            for p in cobolt_semantic::resolver::UNIVERSAL_FORM_PROPS {
+                assert!(
+                    items.iter().any(|i| i.label == *p && i.kind == AcKind::Property),
+                    "{id}:: must offer property {p}; got {labels:?}"
+                );
+            }
+            for bogus in ["MoveTo", "Show", "OpenForm", "Alert", "Minimize", "TitleBar"] {
+                assert!(
+                    !labels.iter().any(|l| l == bogus),
+                    "{id}:: must not offer {bogus}, which a window does not have"
+                );
+            }
+            // The prefix filter reaches the one the operator typed.
+            let close = member_completions(&known, "clo");
+            assert!(
+                close.iter().any(|i| i.label == "Close" && i.kind == AcKind::Method),
+                "{id}::clo must complete to Close"
+            );
+        }
+        println!(
+            "me/super: {} methods + {} properties offered, none invented",
+            cobolt_runtime::form_host::FORM_METHODS.len(),
+            cobolt_semantic::resolver::UNIVERSAL_FORM_PROPS.len()
         );
     }
 

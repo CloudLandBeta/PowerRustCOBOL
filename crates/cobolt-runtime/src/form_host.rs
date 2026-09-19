@@ -56,6 +56,32 @@ pub fn designer_form() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// The window-method surface of the form receivers — `me::`, `super::`, and
+/// a windowHandler variable — as `(name, one-line description)`: every
+/// method the supervisor dispatches (`handle_method`) plus the two the
+/// interpreter turns into an `OpenForm` request. **The single list.** The
+/// IDE's IntelliSense builds its `me`/`super` member popup from it, and a
+/// test here proves each name is really accepted — the popup used to carry a
+/// hand-written list (`Close`, `OpenForm`, `Alert`, `Minimize`, …) under an
+/// id nothing ever typed (`self`), so `me::` offered nothing at all and what
+/// it would have offered was half invented (operator, 2026-09-19).
+pub const FORM_METHODS: &[(&str, &str)] = &[
+    ("Close", "Close this form (a Waiting FormState vetoes it)"),
+    ("Focus", "Bring the window to the front (restores a minimized one first)"),
+    ("SetFocus", "Same as Focus"),
+    ("OpenFormSync", "Open a form modally; returns its windowHandler when it closes"),
+    ("OpenFormAsync", "Open a form beside this one; returns its windowHandler at once"),
+    ("SetWindowState", "\"Normal\" | \"Minimized\" | \"Maximized\""),
+    ("SetFullScreen", "\"true\" | \"false\""),
+    ("SetTitleVisible", "\"true\" | \"false\""),
+    ("GetProperty", "Read a form property by name"),
+    ("SetProperty", "Write a form property by name"),
+    ("SuperHandle", "The windowHandler of the form that opened this one"),
+    ("GetFormState", "\"Ready\" | \"Waiting\""),
+    ("SetBreadcrumbDetail", "Set this form's breadcrumb detail text (shell)"),
+    ("ClearBreadcrumbDetail", "Clear this form's breadcrumb detail text (shell)"),
+];
+
 /// A request from an interpreter thread to the window supervisor.
 #[derive(Debug)]
 pub enum FormRequest {
@@ -909,6 +935,65 @@ mod tests {
         let acts = sup.try_close(&parent);
         assert_eq!(closed(&acts), vec![child.clone(), parent.clone()]);
         println!("waiting child vetoed caller; ready → cascade child-then-caller");
+    }
+
+    /// `FORM_METHODS` is the surface the IDE's IntelliSense offers on `me::`
+    /// and `super::`, so every name on it must be one the runtime really
+    /// dispatches: the supervisor must not answer "has no method" for any of
+    /// them on a live window handle, and the two it does not handle itself
+    /// (`OpenFormSync` / `OpenFormAsync`) must be the ones the interpreter
+    /// turns into an `OpenForm` request. Add a method to one side only and
+    /// this is what goes red.
+    #[test]
+    fn every_form_method_the_ide_offers_is_one_the_runtime_dispatches() {
+        let mut sup = FormSupervisor::new("MAIN-FORM", "MAIN-FORM");
+        let (child, _) = open(&mut sup, ROOT_HANDLE, "CHILD", false, false);
+        let child = child.unwrap();
+        let mut checked = 0usize;
+        for (name, _) in FORM_METHODS {
+            if crate::interpreter::Interpreter::method_returns_window_handle(name) {
+                // Interpreter-side: an OpenForm request, never a HandleMethod.
+                assert!(
+                    name.eq_ignore_ascii_case("OpenFormSync")
+                        || name.eq_ignore_ascii_case("OpenFormAsync"),
+                    "{name} is neither dispatched by the supervisor nor an OpenForm"
+                );
+                checked += 1;
+                continue;
+            }
+            // A fresh child per call: Close would otherwise take the handle
+            // away from the names after it.
+            let (h, _) = open(&mut sup, ROOT_HANDLE, "CHILD", false, false);
+            let h = h.unwrap_or_else(|| child.clone());
+            let (tx, rx) = std::sync::mpsc::channel();
+            let args: Vec<String> = match name.to_ascii_uppercase().as_str() {
+                "SETWINDOWSTATE" => vec!["Normal".into()],
+                "SETFULLSCREEN" | "SETTITLEVISIBLE" => vec!["false".into()],
+                "GETPROPERTY" => vec!["Title".into()],
+                "SETPROPERTY" => vec!["Title".into(), "x".into()],
+                "SETBREADCRUMBDETAIL" => vec!["detail".into()],
+                _ => vec![],
+            };
+            let _ = sup.handle_request(FormRequest::HandleMethod {
+                handle: h.clone(),
+                method: (*name).into(),
+                args,
+                reply: tx,
+            });
+            let reply = rx.try_recv().expect("the supervisor replies inline");
+            if let Err(msg) = &reply {
+                assert!(
+                    !msg.contains("has no method"),
+                    "`{name}` is offered by IntelliSense but the supervisor does not know it: {msg}"
+                );
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, FORM_METHODS.len());
+        println!(
+            "FORM_METHODS: {} names, every one dispatched by the supervisor or an OpenForm",
+            checked
+        );
     }
 
     /// R26 (revised, operator ruling 2026-09-19) — an Async child closes WITH
