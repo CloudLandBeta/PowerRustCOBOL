@@ -3394,6 +3394,33 @@ impl Interpreter {
         )];
     }
 
+    /// Join a debug session **already running**, instead of paused at the
+    /// first statement.
+    ///
+    /// [`Self::attach_debug_channels`] starts a program stopped, which is
+    /// right for the one the developer pressed Debug on: the IDE expects that
+    /// first stop and drives the session from it.
+    ///
+    /// It is wrong for a form the application OPENS while the session is
+    /// already live (spec 061) — a child window, a modal child, a SideMenu
+    /// pane occupant. Such a form's program should simply run, and stop only
+    /// where the developer put a breakpoint. Starting it paused would halt
+    /// the whole application every time any form opened, at a line nobody
+    /// asked about, and — until the IDE learns to address a second debuggee —
+    /// with nobody able to resume it.
+    ///
+    /// The only difference is the initial step mode; everything else is
+    /// [`Self::attach_debug_channels`].
+    pub fn attach_debug_channels_running(
+        &mut self,
+        debug_cmd_rx: mpsc::Receiver<crate::debugger::DebugCmd>,
+        debug_event_tx: mpsc::Sender<crate::debugger::DebugEvent>,
+        breakpoints: crate::debugger::Breakpoints,
+    ) {
+        self.attach_debug_channels(debug_cmd_rx, debug_event_tx, breakpoints);
+        self.debug_step = crate::debug_session::StepMode::Run;
+    }
+
     /// The logical COBOL depth: 0 in the program body, one more per out-of-line
     /// PERFORM, CALL or event handler entered.
     fn debug_depth(&self) -> usize {

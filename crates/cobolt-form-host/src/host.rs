@@ -3384,6 +3384,19 @@ impl FormHost {
             let setup = self.child_interpreter_setup.clone();
             let bridge = self.shared_rust_bridge.clone();
             let err_tx = display_tx.clone();
+            // 061 — when this process is being debugged, the form it is about
+            // to open joins the session too: its own command channel, its own
+            // breakpoints, its own "only my code" scope, under its own
+            // supervisor handle. Registered HERE rather than in the thread so
+            // the `Attached` announcement reaches the IDE before anything this
+            // child emits. `None` in an ordinary run, where this costs one
+            // atomic load.
+            //
+            // One function, every path: a child window (`spawn_child`), a
+            // modal child and a SideMenu pane occupant (`ensure_occupant`) all
+            // build through here, so none of them can be forgotten.
+            let debug_wiring = crate::debug_link::active_router()
+                .map(|router| router.register(&handle, &form_object));
             std::thread::spawn(move || {
                 // 051 Q1 — one object bridge per process, adopted from
                 // construction: seeding this form's own EXEC RUST objects into
@@ -3400,6 +3413,14 @@ impl FormHost {
                 interp.set_form_host(req_tx, &handle, &form_object, closed_rx);
                 if let Some(sh) = &super_handle {
                     interp.set_super_form(sh);
+                }
+                // …**running**, never paused at its own first statement: this
+                // form is not the one the developer pressed Debug on. It runs
+                // and stops where they put a breakpoint. Starting it paused
+                // would halt the application every time any form opened.
+                if let Some((cmd_rx, ev_tx, bps, scope)) = debug_wiring {
+                    interp.attach_debug_channels_running(cmd_rx, ev_tx, bps);
+                    interp.set_debug_user_scope(scope);
                 }
                 if let Some(setup) = setup {
                     setup(&mut interp);
@@ -7396,6 +7417,50 @@ mod parity {
         assert!(set.contains(&motion_key("BTN-GO", "onpointermove")));
         assert!(!set.contains(&motion_key("Btn-Go", "onClick")));
         assert_eq!(set.len(), 2);
+    }
+
+    /// **A form's events reach only that form's interpreter** (spec 061 R7).
+    ///
+    /// Every form body owns its own event channel, which is why a click on
+    /// one form reaches that form's program and no other — and why the form
+    /// the developer is *not* working in sits in its wait state inside
+    /// `COBOL-WAIT-EVENT`, receiving nothing, until they come back to it.
+    ///
+    /// That behaviour predates spec 061 and nothing in it changes: this guard
+    /// exists so the wait-state requirement cannot be broken quietly, by
+    /// routing interaction through a shared or root channel on the way to
+    /// making the debugger follow the program.
+    ///
+    /// (`timer_body` is reused for both: what is under test is which channel
+    /// receives, not what the form contains.)
+    #[test]
+    fn a_forms_events_reach_only_that_forms_interpreter() {
+        let (a_tx, a_rx) = mpsc::channel::<FormEvent>();
+        let (b_tx, b_rx) = mpsc::channel::<FormEvent>();
+        let (in_tx, _in_rx) = mpsc::channel::<StateUpdate>();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let mut clicked = timer_body(a_tx, in_tx.clone(), Arc::clone(&pending));
+        let _waiting = timer_body(b_tx, in_tx, Arc::clone(&pending));
+
+        clicked.forward_interaction(
+            &[],
+            vec![cobolt_forms::render::UiEvent {
+                ctrl_id: "BTN".to_owned(),
+                event: "onClick".to_owned(),
+                value: None,
+            }],
+            false,
+        );
+
+        assert!(
+            a_rx.try_recv().is_ok(),
+            "the form the click happened on receives it"
+        );
+        assert!(
+            b_rx.try_recv().is_err(),
+            "the other form receives NOTHING — it is waiting, and a click on \
+             a different window is not its event"
+        );
     }
 
     /// A body with one Timer, wired to test channels.

@@ -142,6 +142,22 @@ fn parse_inbound(json: &str) -> Option<RemoteDebugMsg> {
         .map(|cmd| RemoteDebugMsg { target: None, cmd })
 }
 
+/// The one router this process's `@DBG` link is fanned out from, once
+/// [`DebugRouter::stdio`] has claimed stdin. Empty in a normal run.
+static STDIO_ROUTER: OnceLock<Arc<DebugRouter>> = OnceLock::new();
+
+/// Is this process being debugged, and if so, who fans the link out?
+///
+/// Process-wide for the same reason [`PAUSED`] is: a debug session IS the
+/// process. That is what lets a form opened at run time join the session on
+/// its own — the host asks this, and registers the child if the answer is
+/// `Some` — instead of every form host threading a hook down to
+/// `build_form_instance` through a config field that thirty-odd construction
+/// sites would have to name.
+pub fn active_router() -> Option<Arc<DebugRouter>> {
+    STDIO_ROUTER.get().map(Arc::clone)
+}
+
 /// One debuggee's end of the session.
 struct Debuggee {
     cmd_tx: Sender<DebugCmd>,
@@ -189,8 +205,7 @@ impl DebugRouter {
     ///
     /// Call this only when a session was actually asked for: it takes stdin.
     pub fn stdio() -> Arc<Self> {
-        static STDIO: OnceLock<Arc<DebugRouter>> = OnceLock::new();
-        Arc::clone(STDIO.get_or_init(|| {
+        Arc::clone(STDIO_ROUTER.get_or_init(|| {
             let (out_tx, out_rx) = mpsc::channel::<DebugWire>();
             let router = DebugRouter::new(out_tx);
 

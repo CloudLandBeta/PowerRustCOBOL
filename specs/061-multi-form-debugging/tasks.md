@@ -19,6 +19,19 @@ green *unchanged*, never edited to fit).
 > (plan §1). The one exception is a genuine bug found on the way, which is its
 > own commit.
 >
+> ⚠️ **The rule was invoked once, at T3, and the answer was to edit it**
+> (1.70.96). `attach_debug_channels` sets `StepMode::Into`, so a program
+> joining a session **starts paused at its first statement** — right for the
+> form the developer pressed Debug on, wrong for one the application opens
+> while the session is live: the application would halt every time any form
+> opened, at a line nobody asked about, with nobody able to resume it. The
+> runtime could express "start paused" and had no way to say "start running",
+> and a child form is the first caller that needs it, so
+> `attach_debug_channels_running` was added — four lines, delegating to the
+> existing one and setting `StepMode::Run`. The plan predicted no runtime
+> change; the prediction was wrong, not the rule. Everything else in
+> `cobolt-runtime` stays untouched.
+>
 > **Shipping constraint (plan §8):** T1–T4 and T6 are inert on their own and
 > may be pushed singly. **T5 and T7–T11 are one behavioural change** — between
 > them the debugger reports stops against the wrong listing, so they land
@@ -66,7 +79,17 @@ green *unchanged*, never edited to fit).
 
 ## Stage B — children can be debugged (plan S2)
 
-- [ ] **T3 — `FormHostConfig::child_debug`** (R1)
+- [x] **T3 — children join the session** (R1) — *done differently from the
+      plan: no `FormHostConfig` field.* The hook would have had to be named at
+      **35** construction sites, every one of them a test that has nothing to
+      do with debugging. A debug session is already process-wide (one stdio
+      link, one router, one `PAUSED`), so `build_form_instance` simply asks
+      `debug_link::active_router()` and registers the child when the answer is
+      `Some`. Same one-shot registration, same single call site covering child
+      windows, modal children and pane occupants; a normal run pays one atomic
+      load. **This also absorbs T5 and T6**: `rcrun` and the compiled binary
+      already call `stdio_debug_wiring()`, which is what makes the router
+      active, so neither host needs a line changed.
   - Files: `crates/cobolt-form-host/src/host.rs`
   - Do: add the field from plan §3.3, defaulted `None` at **every** existing
     construction site (`host.rs` tests, `shell.rs` tests, `form_gui.rs:611`,
@@ -82,7 +105,7 @@ green *unchanged*, never edited to fit).
     hook `None` the spawned thread does exactly what it does today (diff the
     function and confirm the only new code is inside `if let Some`).
 
-- [ ] **T4 — Guard: event delivery stays per form** (R7)
+- [x] **T4 — Guard: event delivery stays per form** (R7)
   - Files: `crates/cobolt-form-host/src/host.rs` (`#[cfg(test)]`)
   - Do: assert that a click forwarded to a child body's `forward_interaction`
     reaches **that body's** `ev_tx` and that the root's channel stays empty.

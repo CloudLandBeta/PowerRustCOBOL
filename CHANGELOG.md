@@ -1,5 +1,44 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.96] — 2026-09-19
+
+### Spec 061 S2 — a form opened at run time joins the debug session
+
+`build_form_instance` — the one function behind a child window, a modal
+child and a SideMenu pane occupant — now asks `debug_link::active_router()`
+and, when this process is being debugged, registers the form it is about to
+open: its own command channel, its own breakpoints, its own *Only my code*
+scope, under its own supervisor handle. A normal run pays one atomic load.
+
+Done without the `FormHostConfig` field the plan called for: that hook would
+have had to be named at **35** construction sites, every one a test with
+nothing to do with debugging. A debug session is already process-wide — one
+stdio link, one router, one `PAUSED` — so asking the process is both smaller
+and more honest. It also absorbs two later steps: `rcrun` and the compiled
+binary already call `stdio_debug_wiring()`, which is what makes the router
+active, so neither host needed a line changed and the parity trap of wiring
+three hosts separately does not arise.
+
+**One `cobolt-runtime` addition, against the plan's prediction.**
+`attach_debug_channels` sets `StepMode::Into`, so a program joining a session
+starts **paused at its first statement**. That is right for the form the
+developer pressed Debug on and wrong for one the application opens while the
+session is live: the application would halt every time any form opened, at a
+line nobody asked about. The runtime could say "start paused" and had no way
+to say "start running"; `attach_debug_channels_running` adds it in four
+lines, delegating to the existing call and setting `StepMode::Run`. Three
+runtime tests measure the pair against one program: a plain attach stops at
+the first statement, a running attach stops nowhere without a breakpoint,
+and still stops at one.
+
+A form-host guard test also pins the behaviour the wait-state requirement
+rests on and which nothing here changes: a click forwarded to one form's
+body reaches that form's channel and **not** another's.
+
+⚠️ **The `debug` branch is mid-flight.** The outbound `@DBG` format is now
+the `DebugWire` envelope, which the IDE does not yet parse — debugging is
+restored when the IDE side lands (T7).
+
 ## [PowerRustCOBOL 1.70.95] — 2026-09-19
 
 ### Spec 061 S1 — the debug router (inert; nothing behaves differently yet)
