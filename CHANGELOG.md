@@ -1,5 +1,31 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.75] — 2026-09-19
+
+### PowerDemo3's indexedfile-form follows the project's GLOBAL standard
+
+Step 2/3 of the undeclared-identifier work — and a change of plan, on
+evidence. The proposal was to make the analyser treat a form's own DATA
+DIVISION items as visible to its `COMMON` handler programs, mirroring the
+runtime's shared environment. But the analyser's strictness is a deliberate,
+tested project standard (`test_global_scope::an_item_that_is_not_global_stays_private_to_its_program`;
+the agent prompt's `01 MC-APPLICATION-DATA GLOBAL.`): a handler reaches
+form-level data only through `GLOBAL`. So the analyser stays as it is, and
+the demo is brought up to the standard instead — no analyser change, no
+codegen change.
+
+The form's remaining 16 undeclared names were two things. `01 WS-FS PIC XX`
+lacked `GLOBAL`. And its file section read `FD MENU-FILE.` followed by
+`RECORD CONTAINS 424 CHARACTERS.` as a **separate sentence** — non-standard
+COBOL: the FD parser stops at the first period, the stray sentence then
+derails the record entries ("unexpected token in DATA DIVISION"), and
+`MENU-RECORD` with its `NUMERO`/`TITULO`/`PRECO` fields existed for nobody,
+so `GLOBAL` on the FD could not have helped. Now `01 WS-FS GLOBAL PIC XX …`
+and `FD MENU-FILE IS GLOBAL RECORD CONTAINS 424 CHARACTERS.` (one sentence).
+Regenerated, all 44 PowerDemo3 forms carry zero undeclared names; a probe
+confirmed the check still flags a genuinely undeclared name in a nested
+program, so zero means zero.
+
 ## [PowerRustCOBOL 1.70.74] — 2026-09-19
 
 ### Codegen declared the items its own facades use — sometimes; now always

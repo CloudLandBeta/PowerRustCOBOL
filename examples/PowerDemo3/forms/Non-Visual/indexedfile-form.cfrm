@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Form name="INDEXEDFILE-FORM" title="IndexedFile - a keyed file as a first-class resource" width="1000" height="660" background="#20242CFF" transparency="0" grid-size="8" snap-to-grid="true" target="Custom" theme="elegance" form-format="Both">
-  <working-storage><![CDATA[       01 WS-FS PIC XX VALUE "00".
+  <working-storage><![CDATA[       01 WS-FS GLOBAL PIC XX VALUE "00".
 ]]></working-storage>
   <repository><![CDATA[           CLASS RUST-BOOL IS "Rust.bool"
            CLASS RUST-CHAR IS "Rust.char"
@@ -57,7 +57,7 @@
                FILE STATUS IS WS-FS
                STORAGE MODE IS DISK.
 ]]></file-control>
-  <file-section><![CDATA[       FD  MENU-FILE.
+  <file-section><![CDATA[       FD  MENU-FILE IS GLOBAL
            RECORD CONTAINS 424 CHARACTERS.
            01 MENU-RECORD.
                05 NUMERO PIC 99.
