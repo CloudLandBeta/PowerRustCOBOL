@@ -852,6 +852,14 @@ pub fn self_clipping_type(ct: &ControlType) -> bool {
     //                  (up to 303 px with the Neumorphic halo);
     //   ToolBar      — with a background colour or border, the live bar paints
     //                  its own face past the arc (93 px).
+    //   Viewer       — measured 2026-09-19 (spec 058 T12, 1.70.86): the
+    //                  toolbar band, the filmstrip rail and a card face are
+    //                  all square-cornered and reach the control's own corners
+    //                  (113 px). Viewer stayed inside the arc while T11 painted
+    //                  nothing but a clipped text galley; adding R14/R15/R16's
+    //                  chrome is what changed the measurement, and the harness
+    //                  is what said so — T31's job, answered where the paint
+    //                  that earned it landed rather than guessed at in advance.
     !matches!(
         ct,
         ControlType::DataGrid
@@ -859,6 +867,7 @@ pub fn self_clipping_type(ct: &ControlType) -> bool {
             | ControlType::Maps
             | ControlType::TabControl
             | ControlType::ToolBar
+            | ControlType::Viewer
             | ControlType::Custom { .. }
     )
 }
@@ -3812,6 +3821,447 @@ fn push_toggle_events(out: &mut RenderOutput, id: &str, checked: bool) {
     ));
     out.events
         .push(UiEvent::with_value(id, "onCheckedChanged", &checked.to_string()));
+}
+
+/// Spec 058 T12 — a Viewer's live navigation state, kept between frames.
+///
+/// Only the **transient** parts live here: the scroll kinematics mid-glide,
+/// the settle watches, and the previous values change-events compare
+/// against. Every value a COBOL program can read — `Zoom`, `CardSize`,
+/// `ViewMode`, `ScrollPosition`, `Fullscreen`, `ShowFilmstrip` — is written
+/// back through `RenderOutput::prop_updates`, the channel this engine
+/// already uses, so nothing a program is entitled to see is hidden in
+/// egui's memory (R22).
+/// One value both this engine and a COBOL program may write.
+///
+/// The **property wins whenever it differs from what it said last frame** —
+/// that is a real write by the program, the designer, or a host applying
+/// someone else's change. Otherwise the engine's own live value stands.
+///
+/// Without this, a gesture is silently undone one frame later by any host
+/// that has not yet echoed `prop_updates` back onto the control — and the
+/// value then flips between the two, which made `onZoomChanged` fire twice
+/// for one double-click until a test caught it.
+#[derive(Clone, Copy)]
+struct SharedValue<T> {
+    seen: T,
+    own: T,
+}
+
+impl<T: Copy + PartialEq> SharedValue<T> {
+    fn new(v: T) -> Self {
+        Self { seen: v, own: v }
+    }
+
+    /// Reconcile against this frame's property value and return the value to
+    /// use.
+    fn resolve(&mut self, prop: T) -> T {
+        if prop != self.seen {
+            self.own = prop;
+        }
+        self.seen = prop;
+        self.own
+    }
+
+    /// True when the engine's value is no longer what the property holds —
+    /// exactly when a write-back is owed.
+    fn diverged(&self, v: T) -> bool {
+        v != self.seen
+    }
+}
+
+/// Spec 058 T12 — a Viewer's live navigation state, kept between frames.
+///
+/// Every value a COBOL program can read — `Zoom`, `CardSize`, `ViewMode`,
+/// `ScrollPosition`, `Fullscreen`, `ShowFilmstrip` — is still written back
+/// through `RenderOutput::prop_updates`, the channel this engine already
+/// uses, so nothing a program is entitled to see is hidden here (R22).
+/// What this holds is the engine's *side* of each of those, plus the purely
+/// transient parts: the scroll kinematics mid-glide, the settle watches, and
+/// the previous values change-events compare against.
+#[derive(Clone)]
+struct ViewerLive {
+    scroll: crate::viewer::ScrollKinetics,
+    zoom_watch: crate::viewer::SettleWatch<i64>,
+    card_watch: crate::viewer::SettleWatch<i64>,
+    zoom: SharedValue<i64>,
+    card: SharedValue<i64>,
+    mode: SharedValue<crate::viewer::ViewMode>,
+    full: SharedValue<bool>,
+    strip: SharedValue<Option<f32>>,
+    page: SharedValue<usize>,
+    /// What this engine last pushed, so a COBOL write is told apart from its
+    /// own echo arriving a frame later.
+    pushed_scroll: i64,
+    /// `None` until the first frame has been seen: a change event must never
+    /// fire for a value merely *observed* for the first time, because there
+    /// is nothing yet for it to have changed from.
+    last_layout: Option<String>,
+    last_mode: Option<crate::viewer::ViewMode>,
+    last_fullscreen: Option<bool>,
+    last_filmstrip: Option<bool>,
+}
+
+impl ViewerLive {
+    /// Seeded from the control's own designed state on the frame it is first
+    /// seen, so nothing fires for a value that was simply designed that way.
+    fn seed(st: &crate::paint::ViewerPaintState<'_>) -> Self {
+        Self {
+            scroll: crate::viewer::ScrollKinetics::default(),
+            zoom_watch: crate::viewer::SettleWatch::new(st.zoom_pct),
+            card_watch: crate::viewer::SettleWatch::new(st.card_size_pct),
+            zoom: SharedValue::new(st.zoom_pct),
+            card: SharedValue::new(st.card_size_pct),
+            mode: SharedValue::new(st.view_mode),
+            full: SharedValue::new(st.fullscreen),
+            strip: SharedValue::new(st.filmstrip),
+            page: SharedValue::new(st.current_page),
+            pushed_scroll: st.scroll.round() as i64,
+            last_layout: None,
+            last_mode: None,
+            last_fullscreen: None,
+            last_filmstrip: None,
+        }
+    }
+}
+
+/// Spec 058 T12 — the Viewer's interactive surface: wheel and double-click
+/// zoom (R11/R12), Esc (R13), the per-view `ViewMode` slider (R14.1), the
+/// filmstrip and its splitter (R14.3/R14.4), fullscreen (R15) and the whole
+/// of R33's scrolling, then one call into the same `paint::draw_viewer` the
+/// design canvas uses (AC11).
+///
+/// Gestures are told apart by **geometry**, not by egui's widget ordering:
+/// the slider track and the filmstrip grip are computed first, and a press
+/// inside either never also grabs the page. Relying on z-order here would
+/// make "drag the slider" and "throw the document" the same gesture on any
+/// frame the ordering changed.
+#[allow(clippy::too_many_arguments)]
+fn viewer_interactive(
+    ui: &mut egui::Ui,
+    painter: &egui::Painter,
+    screen: Rect,
+    ctrl: &Control,
+    ctrl_id: egui::Id,
+    id: &str,
+    alpha: f32,
+    enabled: bool,
+    bound: &[&str],
+    out: &mut RenderOutput,
+) {
+    use crate::viewer as vw;
+    use egui::Sense;
+
+    let want = |e: &str| bound.contains(&e);
+    let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let source = source.trim().to_owned();
+    let content = crate::paint::viewer_first_page_content(ui.ctx(), &ctrl.id, &source);
+    let page_count = crate::paint::viewer_page_spans(ui.ctx(), &source).max(1);
+
+    let mut st = crate::paint::ViewerPaintState::from_control(ctrl, content.as_deref(), alpha);
+    st.page_count = page_count;
+
+    let live_id = ctrl_id.with("viewer-live");
+    let mut live: ViewerLive = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<ViewerLive>(live_id))
+        .unwrap_or_else(|| ViewerLive::seed(&st));
+
+    // A COBOL write to `ScrollPosition` outranks our own remembered offset;
+    // our own echo (the value we pushed last frame) does not.
+    let prop_scroll = st.scroll.round() as i64;
+    if prop_scroll != live.pushed_scroll {
+        live.scroll.set_offset(prop_scroll as f32);
+    }
+
+    let streamed = st.layout == "Streamed";
+    let chrome = vw::chrome_layout(
+        vw::ViewRect::new(screen.min.x, screen.min.y, screen.width(), screen.height()),
+        &vw::ChromeOpts { fullscreen: st.fullscreen, streamed, filmstrip: st.filmstrip },
+    );
+    let to_rect = |r: vw::ViewRect| {
+        Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
+    };
+    let content_rect = to_rect(chrome.content);
+    // Grab targets, computed before any interaction so a press can be
+    // attributed to exactly one of them.
+    let slider_rect = to_rect(chrome.slider).expand2(Vec2::new(6.0, 8.0));
+    let grip_rect = chrome.filmstrip.map(|s| {
+        Rect::from_min_max(pos2(s.right() - 4.0, s.y), pos2(s.right() + 4.0, s.bottom()))
+    });
+
+    let resp = ui.interact(screen, ctrl_id, Sense::click_and_drag());
+    focus_keyboard_events(ui, &resp, id, out, bound);
+
+    let (dt, now, pointer, primary_down, wheel, command, esc, keys) = ui.input(|i| {
+        (
+            i.stable_dt.min(0.1),
+            i.time,
+            i.pointer.latest_pos(),
+            i.pointer.primary_down(),
+            i.smooth_scroll_delta.y,
+            i.modifiers.command,
+            i.key_pressed(egui::Key::Escape),
+            vw::KeyScrollInput {
+                down_held: i.key_down(egui::Key::ArrowDown),
+                up_held: i.key_down(egui::Key::ArrowUp),
+                down_tap: i.key_pressed(egui::Key::ArrowDown),
+                up_tap: i.key_pressed(egui::Key::ArrowUp),
+                page_down: i.key_pressed(egui::Key::PageDown),
+                page_up: i.key_pressed(egui::Key::PageUp),
+                home: i.key_pressed(egui::Key::Home),
+                end: i.key_pressed(egui::Key::End),
+            },
+        )
+    });
+    // R33: never while another control — the Find input, for instance —
+    // holds the caret.
+    let focus = ui.ctx().memory(|m| m.focused());
+    let keyboard_free = focus.is_none() || focus == Some(ctrl_id);
+
+    // The engine's own values, reconciled against this frame's properties —
+    // see [`SharedValue`] for why a gesture must survive a host that has not
+    // echoed the last write back yet.
+    let mut zoom = live.zoom.resolve(st.zoom_pct);
+    let mut card_size = live.card.resolve(st.card_size_pct);
+    let mut view_mode = live.mode.resolve(st.view_mode);
+    let mut fullscreen = live.full.resolve(st.fullscreen);
+    let mut filmstrip = live.strip.resolve(st.filmstrip);
+    let mut page = live.page.resolve(st.current_page).min(page_count.saturating_sub(1));
+    let mut zoom_active = false;
+    let mut card_active = false;
+    let over_content = pointer.is_some_and(|p| content_rect.contains(p));
+
+    // ── R14.1: the one slider per view ──────────────────────────────────
+    let slider_resp = (!streamed && slider_rect.width() > 1.0)
+        .then(|| ui.interact(slider_rect, ctrl_id.with("viewer-slider"), Sense::click_and_drag()));
+    let slider_busy = slider_resp.as_ref().is_some_and(|r| r.dragged() || r.is_pointer_button_down_on());
+    if enabled {
+        if let Some(r) = slider_resp.as_ref() {
+            if r.dragged() || r.clicked() {
+                if let Some(p) = pointer {
+                    let track = to_rect(chrome.slider);
+                    let t = ((p.x - track.min.x) / track.width().max(1.0)).clamp(0.0, 1.0);
+                    let (z, c) = vw::apply_slider(view_mode, t, zoom, card_size);
+                    zoom = z;
+                    card_size = c;
+                }
+            }
+            // Still dragging means "not settled yet" — R32's own wording,
+            // and what keeps one drag to one event rather than sixty.
+            match view_mode {
+                vw::ViewMode::Full => zoom_active |= r.dragged(),
+                vw::ViewMode::Cards => card_active |= r.dragged(),
+            }
+        }
+    }
+
+    // ── R14.4: the filmstrip's splitter resizes it, or closes it ────────
+    let grip_resp = grip_rect
+        .map(|g| ui.interact(g, ctrl_id.with("viewer-strip-grip"), Sense::click_and_drag()));
+    let grip_busy = grip_resp.as_ref().is_some_and(|r| r.dragged() || r.is_pointer_button_down_on());
+    if enabled {
+        if let Some(r) = grip_resp.as_ref() {
+            if r.dragged() {
+                if let Some(p) = pointer {
+                    filmstrip = vw::filmstrip_width_after_drag(p.x - screen.min.x);
+                }
+            }
+        }
+    }
+
+    if enabled && !streamed {
+        // ── R11: wheel with the zoom modifier, about the pointer ────────
+        if resp.hovered() && command && wheel != 0.0 {
+            // egui reports a scroll delta in points; one notch is ~50 of
+            // them on every platform this runs on.
+            let new_zoom = vw::zoom_by_notches(zoom, wheel / 50.0);
+            if new_zoom != zoom {
+                if let Some(p) = pointer {
+                    let cursor = (p.y - content_rect.min.y).max(0.0);
+                    let anchored =
+                        vw::zoom_anchored_offset(live.scroll.offset(), cursor, zoom, new_zoom);
+                    live.scroll.set_offset(anchored);
+                }
+                zoom = new_zoom;
+            }
+            zoom_active = true;
+        } else if resp.hovered() && wheel != 0.0 {
+            // Plain wheel scrolls, in both view modes.
+            live.scroll.set_offset(live.scroll.offset() - wheel);
+        }
+
+        // ── R12: double-click zooms in one step, capped at 16x ──────────
+        if resp.double_clicked() && over_content {
+            zoom = vw::zoom_in_step(zoom);
+        }
+
+        // ── R13: Esc leaves fullscreen first, then returns to 100 % ─────
+        if esc && (resp.has_focus() || resp.hovered()) {
+            if fullscreen {
+                fullscreen = false;
+            } else {
+                zoom = vw::ZOOM_DEFAULT_PCT;
+            }
+        }
+    }
+
+    // ── R33/R33.1/R33.2: keys, drag and throw — `Full` mode only ────────
+    if enabled && !streamed && view_mode == vw::ViewMode::Full {
+        if keyboard_free && keys.any() {
+            let line = vw::line_height(st.font_size);
+            live.scroll.apply_keys(&keys, dt, line, chrome.content.h);
+        } else {
+            // Re-arm the ramp: a key released, or focus taken by another
+            // control, must not leave the hold time banked for next time.
+            live.scroll.apply_keys(&vw::KeyScrollInput::default(), dt, 1.0, chrome.content.h);
+        }
+
+        let gesture_elsewhere = slider_busy || grip_busy;
+        match (live.scroll.is_grabbed(), primary_down && !gesture_elsewhere) {
+            (false, true) => {
+                if let Some(p) = pointer.filter(|p| content_rect.contains(*p)) {
+                    live.scroll.press(now, p.y);
+                }
+            }
+            (true, true) => {
+                if let Some(p) = pointer {
+                    live.scroll.drag(now, p.y);
+                }
+            }
+            // Let go — anywhere. What happens next is decided by how the
+            // hand was moving, never by where it stopped (R33.2).
+            (true, false) => live.scroll.release(),
+            (false, false) => {}
+        }
+        live.scroll.glide_tick(dt);
+    }
+
+    // ── A card or a thumbnail click selects that page ───────────────────
+    let card_grid = vw::card_grid(chrome.content.w, card_size, page_count);
+    if enabled && resp.clicked() && !slider_busy && !grip_busy {
+        if let Some(p) = pointer {
+            if view_mode == vw::ViewMode::Cards && content_rect.contains(p) {
+                let local = p - content_rect.min;
+                let col = ((local.x - vw::CARD_GAP) / (card_grid.card_w + vw::CARD_GAP)).floor();
+                let row = ((local.y + live.scroll.offset() - vw::CARD_GAP)
+                    / (card_grid.card_h + vw::CARD_GAP))
+                    .floor();
+                if col >= 0.0 && row >= 0.0 && card_grid.cols > 0 {
+                    let hit = row as usize * card_grid.cols + col as usize;
+                    if hit < page_count && (col as usize) < card_grid.cols {
+                        page = hit;
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Paint, through the same entry point the design canvas uses ──────
+    st.zoom_pct = zoom;
+    st.card_size_pct = card_size;
+    st.view_mode = view_mode;
+    st.fullscreen = fullscreen;
+    st.filmstrip = filmstrip;
+    st.current_page = page;
+    st.scroll = live.scroll.offset();
+    let preview = |p: usize| crate::paint::viewer_page_preview(ui.ctx(), &source, p);
+    st.page_preview = Some(&preview);
+    let painted = crate::paint::draw_viewer(painter, screen, ctrl, &st);
+
+    // A thumbnail click needs the rects the paint just produced — the strip
+    // has no scroll model of its own, so its rows are wherever it drew them.
+    if enabled && resp.clicked() && !grip_busy {
+        if let Some(p) = pointer {
+            if let Some((hit, _)) = painted.strip_hits.iter().find(|(_, r)| r.contains(p)) {
+                page = *hit;
+            }
+        }
+    }
+
+    // R33: the scrollable range is what the paint measured, against this
+    // view's own content height.
+    live.scroll.set_max((painted.content_height - chrome.content.h).max(0.0));
+
+    // ── Write back every COBOL-visible value, then raise R32's events ───
+    let mut push = |key: &str, val: String| {
+        out.prop_updates.push((id.to_string(), key.to_string(), val));
+    };
+    let strip_on = filmstrip.is_some();
+    if live.zoom.diverged(zoom) {
+        push("View1Zoom", zoom.to_string());
+        push("Zoom", zoom.to_string());
+    }
+    if live.card.diverged(card_size) {
+        push("View1CardSize", card_size.to_string());
+    }
+    if live.mode.diverged(view_mode) {
+        push("View1ViewMode", view_mode.as_str().to_string());
+    }
+    if live.full.diverged(fullscreen) {
+        push("Fullscreen", fullscreen.to_string());
+    }
+    if live.strip.diverged(filmstrip) {
+        push("View1ShowFilmstrip", strip_on.to_string());
+        if let Some(w) = filmstrip {
+            push("View1FilmstripWidth", (w.round() as i64).to_string());
+        }
+    }
+    if live.page.diverged(page) {
+        push("View1Page", (page + 1).to_string());
+    }
+    let offset = live.scroll.offset().round() as i64;
+    if offset != live.pushed_scroll {
+        push("View1ScrollPosition", offset.to_string());
+        push("ScrollPosition", offset.to_string());
+        live.pushed_scroll = offset;
+    }
+    live.zoom.own = zoom;
+    live.card.own = card_size;
+    live.mode.own = view_mode;
+    live.full.own = fullscreen;
+    live.strip.own = filmstrip;
+    live.page.own = page;
+
+    live.zoom_watch.observe(zoom, zoom_active);
+    if live.zoom_watch.take_settled() && want("onZoomChanged") {
+        out.events.push(UiEvent::ev(id, "onZoomChanged"));
+    }
+    live.card_watch.observe(card_size, card_active);
+    if live.card_watch.take_settled() && want("onCardSizeChanged") {
+        out.events.push(UiEvent::ev(id, "onCardSizeChanged"));
+    }
+    if live.scroll.take_settled() && want("onScrolled") {
+        out.events.push(UiEvent::ev(id, "onScrolled"));
+    }
+    if live.last_layout.as_deref().is_some_and(|p| p != st.layout) && want("onLayoutChanged") {
+        out.events.push(UiEvent::ev(id, "onLayoutChanged"));
+    }
+    live.last_layout = Some(st.layout.clone());
+    if live.last_mode.is_some_and(|p| p != view_mode) && want("onViewModeChanged") {
+        out.events.push(UiEvent::ev(id, "onViewModeChanged"));
+    }
+    live.last_mode = Some(view_mode);
+    if live.last_filmstrip.is_some_and(|p| p != strip_on) && want("onFilmstripToggled") {
+        out.events.push(UiEvent::ev(id, "onFilmstripToggled"));
+    }
+    live.last_filmstrip = Some(strip_on);
+    if let Some(prev) = live.last_fullscreen {
+        if prev != fullscreen {
+            let ev = if fullscreen { "onFullscreenEntered" } else { "onFullscreenExited" };
+            if want(ev) {
+                out.events.push(UiEvent::ev(id, ev));
+            }
+        }
+    }
+    live.last_fullscreen = Some(fullscreen);
+
+    // A held key and a glide produce no input events of their own; ask for
+    // the frames they need to keep moving.
+    if live.scroll.is_moving() {
+        ui.ctx().request_repaint();
+    }
+    ui.ctx().memory_mut(|m| m.data.insert_temp(live_id, live));
 }
 
 fn focus_keyboard_events(
@@ -10078,34 +10528,7 @@ fn render_interactive(
         // carry it — one step earlier than the Snackbar/WebSearch/IndexedFile
         // lesson above, same shape.
         CT::Viewer => {
-            let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
-            let layout = ctrl.get_prop("Layout").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Page".into());
-            let font_size = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(14) as f32;
-
-            // R32: fire once per actual change, never on the first frame a
-            // value is merely observed (there is nothing to compare against
-            // yet, so nothing has "changed").
-            let layout_mem = ctrl_id.with("viewer-last-layout");
-            let prev_layout = ui.ctx().memory(|m| m.data.get_temp::<String>(layout_mem));
-            if prev_layout.as_deref().is_some_and(|p| p != layout) {
-                out.events.push(UiEvent::ev(id, "onLayoutChanged"));
-            }
-            ui.ctx().memory_mut(|m| m.data.insert_temp(layout_mem, layout.clone()));
-
-            let content = paint::viewer_first_page_content(ui.ctx(), &ctrl.id, source.trim());
-            paint::draw_viewer(&painter, screen, ctrl, content.as_deref(), layout.trim(), font_size.max(4.0), alpha);
-
-            let resp = ui.interact(screen, ctrl_id, Sense::click());
-            focus_keyboard_events(ui, &resp, id, out, &bound);
-            if resp.clicked() {
-                let mem = ctrl_id.with("viewer-click-count");
-                let n = ui
-                    .ctx()
-                    .memory(|m| m.data.get_temp::<u32>(mem))
-                    .unwrap_or(0)
-                    + 1;
-                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, n));
-            }
+            viewer_interactive(ui, &painter, screen, ctrl, ctrl_id, id, alpha, enabled, &bound, out);
         }
 
         _ => {
@@ -10212,23 +10635,33 @@ mod tests {
         fills
     }
 
-    /// Spec 058 T4 — `ControlType::Viewer` gets its OWN `render_interactive`
-    /// arm, not the generic wildcard fallback (`paint::draw_control` alone,
-    /// with no per-type behaviour). A paint-diff can't prove that — the
-    /// wildcard paints the same face — so this simulates a real press then
-    /// release on the control and asserts the arm's own click-tracking
-    /// fired, which only runs from inside the dedicated `CT::Viewer` arm.
+    /// Spec 058 T4/T12 — `ControlType::Viewer` gets its OWN
+    /// `render_interactive` arm, not the generic wildcard fallback
+    /// (`paint::draw_control` alone, with no per-type behaviour). A
+    /// paint-diff can't prove that — the wildcard paints the same face — so
+    /// this drives a real interaction and asserts a real state change came
+    /// back out.
+    ///
+    /// The observable is R13's Esc: a Viewer sitting at 250 % returns to
+    /// 100 % and reports it through `prop_updates`, the channel COBOL reads
+    /// the value back from. T4 originally asserted a click counter kept in
+    /// egui's memory; T12 replaced that placeholder with the real navigation
+    /// wiring, so the proof moved with it — and got stronger, since a
+    /// property write is something a program can actually see.
     #[test]
-    fn a_click_on_the_viewer_reaches_its_own_arm_not_the_wildcard() {
-        let viewer = ctrl("VWR-1", ControlType::Viewer, 0, 0, 400, 300);
+    fn an_interaction_with_the_viewer_reaches_its_own_arm_not_the_wildcard() {
+        let mut viewer = ctrl("VWR-1", ControlType::Viewer, 0, 0, 400, 300);
+        viewer.set_prop("View1Zoom", PropValue::Int(250));
+        viewer.set_prop("Zoom", PropValue::Int(250));
         let controls = vec![viewer];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
 
-        let run = |time: f64, evs: Vec<egui::Event>| {
+        let run = |time: f64, evs: Vec<egui::Event>| -> Vec<(String, String, String)> {
             let mut input = egui::RawInput::default();
             input.time = Some(time);
             input.events = evs;
+            let mut updates = Vec::new();
             let mut out = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
@@ -10242,38 +10675,382 @@ mod tests {
                             active_tabs: &active,
                             backdrop: Default::default(),
                         };
-                        let _ = render_form(ui, &rin);
+                        updates = render_form(ui, &rin).prop_updates;
                     });
             });
             out.textures_delta.clear();
+            updates
         };
 
-        let click_count = || {
-            let id = rt_id_in(None, "VWR-1").with("viewer-click-count");
-            ctx.memory(|m| m.data.get_temp::<u32>(id)).unwrap_or(0)
+        let zoom_writes = |ups: &[(String, String, String)]| -> Vec<String> {
+            ups.iter()
+                .filter(|(id, key, _)| id == "VWR-1" && key == "Zoom")
+                .map(|(_, _, v)| v.clone())
+                .collect()
         };
 
         let center = egui::Pos2::new(200.0, 150.0);
-        let button = |pressed| egui::Event::PointerButton {
+        run(0.0, vec![]); // first frame lays the control out
+        let hovered = run(0.05, vec![egui::Event::PointerMoved(center)]);
+        println!("frame 2 (hover only): Zoom writes {:?}", zoom_writes(&hovered));
+        assert!(zoom_writes(&hovered).is_empty(), "hovering alone must change nothing");
+
+        let after_esc = run(
+            0.10,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        let writes = zoom_writes(&after_esc);
+        println!("after Esc over the control: Zoom writes {writes:?}");
+        assert_eq!(
+            writes,
+            vec!["100".to_string()],
+            "R13: Esc returns Zoom to 100 %, and the dedicated Viewer arm — \
+             not the wildcard fallback — is what reports it"
+        );
+    }
+
+    // ── Spec 058 T12: navigation, driven through the real engine ────────
+    //
+    // The pure arithmetic is covered in `viewer::nav_tests`. These are the
+    // WIRING: that a gesture reaches the model, that the result comes back
+    // out through `prop_updates`/`events`, and — for AC19's sharpest clause
+    // — that the card grid answers to the CONTROL's width and to nothing
+    // else.
+
+    /// A Viewer control with the given designed size and property overrides,
+    /// rendered for `frames` frames; returns the last frame's
+    /// `(prop_updates, events)` plus the shapes it painted.
+    struct ViewerHarness {
+        ctx: egui::Context,
+        controls: Vec<Control>,
+        active: ActiveTabs,
+        form: Vec2,
+    }
+
+    impl ViewerHarness {
+        fn new(form: Vec2, w: i32, h: i32, props: &[(&str, PropValue)]) -> Self {
+            let mut v = ctrl("VWR-1", ControlType::Viewer, 0, 0, w, h);
+            for (k, val) in props {
+                v.set_prop(*k, val.clone());
+            }
+            Self { ctx: egui::Context::default(), controls: vec![v], active: ActiveTabs::new(), form }
+        }
+
+        fn bind(&mut self, event: &str) {
+            self.controls[0].events.push(crate::model::EventBinding {
+                event: event.to_string(),
+                paragraph: format!("VWR-1--{}", event.to_uppercase()),
+                code: String::new(),
+            });
+        }
+
+        fn frame(&self, time: f64, evs: Vec<egui::Event>) -> (RenderOutput, Vec<egui::Shape>) {
+            let mut input = egui::RawInput::default();
+            input.time = Some(time);
+            input.events = evs;
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, self.form + Vec2::new(40.0, 40.0)));
+            let mut captured: Option<RenderOutput> = None;
+            let mut out = self.ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &self.controls,
+                        state: &DesignedVisibility,
+                        form_size: self.form,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &self.active,
+                        backdrop: Default::default(),
+                    };
+                    captured = Some(render_form(ui, &rin));
+                });
+            });
+            out.textures_delta.clear();
+            let shapes = out.shapes.into_iter().map(|cs| cs.shape).collect();
+            (captured.expect("render_form ran"), shapes)
+        }
+    }
+
+    fn writes_of(out: &RenderOutput, key: &str) -> Vec<String> {
+        out.prop_updates
+            .iter()
+            .filter(|(_, k, _)| k == key)
+            .map(|(_, _, v)| v.clone())
+            .collect()
+    }
+
+    fn event_names(out: &RenderOutput) -> Vec<String> {
+        out.events.iter().map(|e| e.event.clone()).collect()
+    }
+
+    /// Every page-number label a Viewer painted this frame, as `(x, y)`.
+    /// Card and thumbnail faces both carry one, so counting them counts the
+    /// faces without guessing at rect sizes.
+    fn page_labels(shapes: &[egui::Shape]) -> Vec<(f32, f32)> {
+        fn walk(s: &egui::Shape, into: &mut Vec<(f32, f32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                egui::Shape::Text(t) => {
+                    if t.galley.job.text.trim().parse::<usize>().is_ok() {
+                        into.push((t.pos.x, t.pos.y));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for s in shapes {
+            walk(s, &mut out);
+        }
+        out
+    }
+
+    /// Columns in the first row of cards: the labels sharing the topmost y.
+    fn first_row_columns(shapes: &[egui::Shape]) -> usize {
+        let labels = page_labels(shapes);
+        let Some(top) = labels.iter().map(|(_, y)| *y).fold(None, |acc: Option<f32>, y| {
+            Some(acc.map_or(y, |a| a.min(y)))
+        }) else {
+            return 0;
+        };
+        labels.iter().filter(|(_, y)| (y - top).abs() < 1.0).count()
+    }
+
+    /// A temp text file of `pages` form-feed-separated pages.
+    fn paged_text_file(dir: &tempfile::TempDir, pages: usize) -> String {
+        use std::io::Write;
+        let path = dir.path().join("paged.txt");
+        let mut f = std::fs::File::create(&path).unwrap();
+        for i in 0..pages {
+            write!(f, "Page number {}\nsome body text\n", i + 1).unwrap();
+            if i + 1 < pages {
+                f.write_all(&[crate::viewer::FORM_FEED]).unwrap();
+            }
+        }
+        path.to_string_lossy().into_owned()
+    }
+
+    /// A temp text file of one page holding `lines` lines.
+    fn long_text_file(dir: &tempfile::TempDir, lines: usize) -> String {
+        use std::io::Write;
+        let path = dir.path().join("long.txt");
+        let mut f = std::fs::File::create(&path).unwrap();
+        for i in 0..lines {
+            writeln!(f, "line {i:04} of a document long enough to scroll").unwrap();
+        }
+        path.to_string_lossy().into_owned()
+    }
+
+    /// **AC19's sharpest clause.** The card grid's column count is a
+    /// function of the CONTROL's own width — "resizing the *control*, not
+    /// the window, changes the count." Both halves are asserted: a narrower
+    /// control reflows, and a bigger *window* around the same control does
+    /// not.
+    #[test]
+    fn the_card_grid_answers_to_the_controls_width_and_to_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = paged_text_file(&dir, 12);
+        let build = |form: Vec2, w: i32| {
+            let owned: Vec<(&str, PropValue)> = vec![
+                ("Source", PropValue::String(source.clone())),
+                ("View1ViewMode", PropValue::String("Cards".into())),
+                ("View1CardSize", PropValue::Int(20)),
+                ("Layout", PropValue::String("Web".into())),
+            ];
+            let h = ViewerHarness::new(form, w, 400, &owned);
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.05, vec![]);
+            first_row_columns(&shapes)
+        };
+
+        let wide_control = build(Vec2::new(900.0, 700.0), 760);
+        let narrow_control = build(Vec2::new(900.0, 700.0), 300);
+        let same_control_bigger_window = build(Vec2::new(1500.0, 1100.0), 760);
+
+        println!("AC19 — cards in the first row:");
+        println!("  control 760 pt wide, window  900x700 -> {wide_control} columns");
+        println!("  control 300 pt wide, window  900x700 -> {narrow_control} columns");
+        println!("  control 760 pt wide, window 1500x1100 -> {same_control_bigger_window} columns");
+        assert!(wide_control > 0, "the grid must actually have painted cards");
+        assert!(
+            narrow_control < wide_control,
+            "resizing the CONTROL must change the column count"
+        );
+        assert_eq!(
+            same_control_bigger_window, wide_control,
+            "AC19: resizing anything but the control must NOT change it"
+        );
+    }
+
+    /// R12/AC4 through the engine: a double-click zooms in one step, and a
+    /// Viewer already at the cap does not move.
+    #[test]
+    fn a_double_click_zooms_the_viewer_one_step_and_the_cap_holds() {
+        let center = egui::Pos2::new(200.0, 200.0);
+        let click = |pressed| egui::Event::PointerButton {
             pos: center,
             button: egui::PointerButton::Primary,
             pressed,
             modifiers: Default::default(),
         };
+        let double_click_from = |start: i64| -> Vec<String> {
+            let h = ViewerHarness::new(
+                Vec2::new(500.0, 500.0),
+                400,
+                400,
+                &[
+                    ("View1Zoom", PropValue::Int(start)),
+                    ("Zoom", PropValue::Int(start)),
+                    ("Layout", PropValue::String("Web".into())),
+                ],
+            );
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![egui::Event::PointerMoved(center)]);
+            h.frame(0.04, vec![click(true)]);
+            h.frame(0.06, vec![click(false)]);
+            h.frame(0.08, vec![click(true)]);
+            let (out, _) = h.frame(0.10, vec![click(false)]);
+            writes_of(&out, "Zoom")
+        };
 
-        run(0.0, vec![]); // first frame lays the control out
-        assert_eq!(click_count(), 0, "no click yet");
+        let from_100 = double_click_from(100);
+        let from_cap = double_click_from(crate::viewer::ZOOM_MAX_PCT);
+        println!("double-click from 100 % -> Zoom writes {from_100:?}");
+        println!("double-click from {} % -> Zoom writes {from_cap:?}", crate::viewer::ZOOM_MAX_PCT);
+        assert_eq!(from_100, vec!["125".to_string()], "R12: one step in");
+        assert!(
+            from_cap.is_empty() || from_cap == vec!["1600".to_string()],
+            "AC4: a Viewer at 16x does not zoom further, it reports {from_cap:?}"
+        );
+    }
 
-        run(0.05, vec![egui::Event::PointerMoved(center)]);
-        run(0.10, vec![button(true)]);
-        assert_eq!(click_count(), 0, "a press alone is not a click");
+    /// R32: one gesture, one event. A double-click settles once, so exactly
+    /// one `onZoomChanged` reaches a bound handler — not one per frame the
+    /// value was merely observed at.
+    #[test]
+    fn one_zoom_gesture_raises_exactly_one_onzoomchanged() {
+        let center = egui::Pos2::new(200.0, 200.0);
+        let click = |pressed| egui::Event::PointerButton {
+            pos: center,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let mut h = ViewerHarness::new(
+            Vec2::new(500.0, 500.0),
+            400,
+            400,
+            &[("Layout", PropValue::String("Web".into()))],
+        );
+        h.bind("onZoomChanged");
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(center)]);
+        h.frame(0.04, vec![click(true)]);
+        h.frame(0.06, vec![click(false)]);
+        h.frame(0.08, vec![click(true)]);
+        let (dbl, _) = h.frame(0.10, vec![click(false)]);
+        let mut fired = event_names(&dbl).iter().filter(|e| *e == "onZoomChanged").count();
+        // Four quiet frames afterwards must add nothing.
+        for i in 0..4 {
+            let (quiet, _) = h.frame(0.2 + i as f64 * 0.02, vec![]);
+            fired += event_names(&quiet).iter().filter(|e| *e == "onZoomChanged").count();
+        }
+        println!("one double-click plus four quiet frames -> {fired} onZoomChanged event(s)");
+        assert_eq!(fired, 1, "R32: fires once when the value settles, never per frame");
+    }
 
-        run(0.15, vec![button(false)]);
-        assert_eq!(
-            click_count(),
-            1,
-            "release completes the click, and the dedicated Viewer arm — \
-             not the wildcard fallback — is what records it"
+    /// AC31's last clause: none of R33's scrolling fires while another
+    /// control holds the caret. The gate is checked directly — focus is
+    /// given to an unrelated id and the arrow key must reach nothing.
+    #[test]
+    fn arrow_keys_do_not_scroll_the_viewer_while_another_control_holds_focus() {
+        let dir = tempfile::tempdir().unwrap();
+        // One long page, deliberately: the scroll range is what a page's own
+        // content overflows the viewport by, so a file of forty SHORT pages
+        // would give the first page nothing to scroll and the test would
+        // pass for the wrong reason.
+        let source = long_text_file(&dir, 400);
+        let arrow = || egui::Event::Key {
+            key: egui::Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        let run = |steal_focus: bool| -> Vec<String> {
+            let h = ViewerHarness::new(
+                Vec2::new(500.0, 400.0),
+                400,
+                300,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                    ("FontSize", PropValue::Int(14)),
+                ],
+            );
+            // Two quiet frames so the paint has measured a scroll range.
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![]);
+            if steal_focus {
+                let other = egui::Id::new("some-other-control");
+                h.ctx.memory_mut(|m| m.request_focus(other));
+            }
+            let (out, _) = h.frame(0.04, vec![arrow()]);
+            writes_of(&out, "ScrollPosition")
+        };
+
+        let free = run(false);
+        let stolen = run(true);
+        println!("ArrowDown with nothing focused      -> ScrollPosition writes {free:?}");
+        println!("ArrowDown while another id has focus -> ScrollPosition writes {stolen:?}");
+        assert!(!free.is_empty(), "R33: a tap must move the content when the keyboard is free");
+        assert!(stolen.is_empty(), "AC31: never while another control holds the caret");
+    }
+
+    /// R14.4 through the engine: dragging the filmstrip's splitter to the
+    /// view's left edge closes the rail — and does **not** leave `Full` mode.
+    #[test]
+    fn dragging_the_filmstrip_splitter_to_the_left_edge_closes_it() {
+        let mut h = ViewerHarness::new(
+            Vec2::new(600.0, 500.0),
+            500,
+            400,
+            &[
+                ("View1ShowFilmstrip", PropValue::Bool(true)),
+                ("Layout", PropValue::String("Web".into())),
+            ],
+        );
+        h.bind("onFilmstripToggled");
+        h.frame(0.0, vec![]);
+        // The rail opens at its default width, so its grip is there.
+        let grip_x = crate::viewer::FILMSTRIP_DEFAULT_WIDTH;
+        let at = |x: f32| egui::Pos2::new(x, 200.0);
+        h.frame(0.02, vec![egui::Event::PointerMoved(at(grip_x))]);
+        h.frame(
+            0.04,
+            vec![egui::Event::PointerButton {
+                pos: at(grip_x),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }],
+        );
+        let (out, _) = h.frame(0.06, vec![egui::Event::PointerMoved(at(6.0))]);
+        let closed = writes_of(&out, "View1ShowFilmstrip");
+        let mode = writes_of(&out, "View1ViewMode");
+        println!("splitter dragged to x=6 -> ShowFilmstrip writes {closed:?}, ViewMode writes {mode:?}");
+        println!("events: {:?}", event_names(&out));
+        assert_eq!(closed, vec!["false".to_string()], "R14.4: the rail closes at the left edge");
+        assert!(mode.is_empty(), "R14.4: and it stays in Full mode");
+        assert!(
+            event_names(&out).contains(&"onFilmstripToggled".to_string()),
+            "R32: closing the rail is reported"
         );
     }
 

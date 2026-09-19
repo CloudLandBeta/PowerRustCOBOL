@@ -5168,10 +5168,14 @@ fn draw_control_body(
         }
         CT::Viewer => {
             let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
-            let layout = ctrl.get_prop("Layout").map(|v| v.as_str().to_owned()).unwrap_or_else(|| "Page".into());
-            let font_size = ctrl.get_prop("FontSize").map(|v| v.as_i64()).unwrap_or(14) as f32;
-            let content = viewer_first_page_content(painter.ctx(), &ctrl.id, source.trim());
-            draw_viewer(painter, rect, ctrl, content.as_deref(), layout.trim(), font_size.max(4.0), face_alpha);
+            let source = source.trim();
+            let content = viewer_first_page_content(painter.ctx(), &ctrl.id, source);
+            let pages = viewer_page_spans(painter.ctx(), source);
+            let preview = |page: usize| viewer_page_preview(painter.ctx(), source, page);
+            let mut st = ViewerPaintState::from_control(ctrl, content.as_deref(), face_alpha);
+            st.page_count = pages.max(1);
+            st.page_preview = Some(&preview);
+            draw_viewer(painter, rect, ctrl, &st);
             if let Some(shadow) = regular_shadow.as_ref().filter(|shadow| shadow.overlay) {
                 draw_regular_drop_shadow(painter, shadow, face_alpha);
             }
@@ -8014,6 +8018,69 @@ pub(crate) fn viewer_first_page_content(
     Some(arc)
 }
 
+/// How many pages `source` has (T12: the card grid's and the filmstrip's
+/// own denominator). Only the page **index** is memoized — offsets, never
+/// content — so this costs one sequential pass once and nothing thereafter,
+/// which is exactly the split `viewer::index_text` was built for (R2).
+///
+/// Formats without a byte-level page index of their own report one page:
+/// Markdown and images are a single flow until a later stage paginates
+/// them, and reporting a guess would put a wrong number on every card.
+pub(crate) fn viewer_page_spans(ctx: &egui::Context, source: &str) -> usize {
+    let Some(index) = viewer_index(ctx, source) else { return 1 };
+    index.page_count().max(1)
+}
+
+fn viewer_index(ctx: &egui::Context, source: &str) -> Option<Arc<crate::viewer::DocumentIndex>> {
+    if source.trim().is_empty() {
+        return None;
+    }
+    let id = egui::Id::new(("viewer-index", source));
+    if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<crate::viewer::DocumentIndex>>(id)) {
+        return Some(hit);
+    }
+    let resolved = crate::assets::resolve(source);
+    let head = {
+        use std::io::Read;
+        let mut f = std::fs::File::open(&resolved).ok()?;
+        let mut buf = vec![0u8; 4096];
+        let n = f.read(&mut buf).ok()?;
+        buf.truncate(n);
+        buf
+    };
+    // Only a plain-text document has byte-addressable pages today.
+    if crate::viewer::detect_format(Some(source), &head)? != crate::viewer::ViewerFormat::Text {
+        return None;
+    }
+    let doc = crate::viewer::DocumentSource::Path(resolved.to_string_lossy().into_owned());
+    let index = Arc::new(crate::viewer::index_text(&doc).ok()?);
+    ctx.memory_mut(|m| m.data.insert_temp(id, index.clone()));
+    Some(index)
+}
+
+/// The first few hundred characters of one page, for a card or a thumbnail.
+///
+/// Called **only** for pages actually on screen, and it decodes exactly that
+/// one page — so a filmstrip beside a 2 GB log costs the handful of pages
+/// the rail can show, never the document (R2). The snippet itself is capped
+/// far below a page's size: a thumbnail suggests a page's shape, it is not a
+/// second place to read it.
+pub(crate) fn viewer_page_preview(ctx: &egui::Context, source: &str, page: usize) -> Option<String> {
+    const PREVIEW_CHARS: usize = 400;
+    let id = egui::Id::new(("viewer-page-preview", source, page));
+    if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<String>>(id)) {
+        return Some((*hit).clone());
+    }
+    let index = viewer_index(ctx, source)?;
+    let span = *index.pages.get(page)?;
+    let resolved = crate::assets::resolve(source);
+    let doc = crate::viewer::DocumentSource::Path(resolved.to_string_lossy().into_owned());
+    let text = crate::viewer::decode_text_page(&doc, span).ok()?;
+    let snippet: String = text.chars().take(PREVIEW_CHARS).collect();
+    ctx.memory_mut(|m| m.data.insert_temp(id, Arc::new(snippet.clone())));
+    Some(snippet)
+}
+
 #[derive(Clone, Copy)]
 struct BlockPaintCtx {
     font_size: f32,
@@ -8293,17 +8360,171 @@ fn draw_viewer_image(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, 
     draw_media_image(painter, rect, handle.id(), native, "Fit", 255, ctrl, 0.0);
 }
 
-/// Paints a Viewer control's content for one of the four non-`Streamed`
-/// layouts (R7). `content` is whatever [`viewer_first_page_content`] (or,
-/// eventually, R5.1's live session) resolved; `None` means nothing has
-/// loaded yet. `Print`/`Page` additionally get page margins, a paper border
-/// and a paper drop-shadow (R8/AC3); `Page` forces a black-on-white page
-/// body regardless of the active form theme (R7's own wording — `Page` is
-/// "print layout **plus** a black-on-white document body", so only `Page`,
-/// not `Print`, overrides the theme).
-pub fn draw_viewer(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, content: Option<&ViewerPageContent>, layout: &str, font_size: f32, alpha_mul: f32) {
+// ── T12: the state one Viewer paint needs, and what it hands back ───────
+//
+// plan.md §2 names this struct (`draw_viewer(painter, rect,
+// &ViewerPaintState, …)`) and T12 is where it earns its keep: zoom, scroll,
+// view mode, card size, filmstrip width and fullscreen would otherwise be
+// six more positional arguments on an already-long signature.
+//
+// [`ViewerPaintState::from_control`] is the ONLY place either surface reads
+// these values from, which is what keeps AC11's design-canvas/running-form
+// parity true by construction rather than by two call sites agreeing to
+// stay in step. The running form then overwrites just the fields this
+// frame's input changed, before the same paint runs.
+
+/// A page's preview text for a thumbnail or a card. Called **only** for the
+/// pages actually on screen — decoding a 2 GB log's every page to draw a
+/// filmstrip is exactly the cost R2 exists to forbid.
+pub(crate) type ViewerPagePreview<'a> = &'a dyn Fn(usize) -> Option<String>;
+
+pub(crate) struct ViewerPaintState<'a> {
+    pub content: Option<&'a ViewerPageContent>,
+    pub layout: String,
+    pub font_size: f32,
+    pub alpha_mul: f32,
+    pub zoom_pct: i64,
+    pub scroll: f32,
+    pub view_mode: crate::viewer::ViewMode,
+    pub card_size_pct: i64,
+    pub filmstrip: Option<f32>,
+    pub fullscreen: bool,
+    pub page_count: usize,
+    /// 0-based, unlike the COBOL-facing `Page` property, which is 1-based.
+    pub current_page: usize,
+    pub page_preview: Option<ViewerPagePreview<'a>>,
+}
+
+impl<'a> ViewerPaintState<'a> {
+    /// Reads every value off the control's own properties. `View1*` is the
+    /// single canonical store for a single view's state (plan.md §3/§4) —
+    /// the unprefixed `Zoom`/`ScrollPosition` names are aliases onto it, and
+    /// are honoured here when a caller wrote them instead.
+    pub(crate) fn from_control(
+        ctrl: &Control,
+        content: Option<&'a ViewerPageContent>,
+        alpha_mul: f32,
+    ) -> Self {
+        let int = |name: &str, fallback: i64| -> i64 {
+            ctrl.get_prop(name).map(|v| v.as_i64()).unwrap_or(fallback)
+        };
+        let boolean =
+            |name: &str| -> bool { ctrl.get_prop(name).map(|v| v.as_bool()).unwrap_or(false) };
+        let text = |name: &str| -> Option<String> {
+            ctrl.get_prop(name).map(|v| v.as_str().to_owned()).filter(|s| !s.trim().is_empty())
+        };
+
+        // An alias wins only when the canonical per-view value is still at
+        // its seeded default — so a COBOL program that writes the short name
+        // is heard, without a stale alias overriding a real per-view write.
+        let mut zoom = int("View1Zoom", crate::viewer::ZOOM_DEFAULT_PCT);
+        if zoom == crate::viewer::ZOOM_DEFAULT_PCT {
+            zoom = int("Zoom", crate::viewer::ZOOM_DEFAULT_PCT);
+        }
+        let mut scroll = int("View1ScrollPosition", 0);
+        if scroll == 0 {
+            scroll = int("ScrollPosition", 0);
+        }
+
+        Self {
+            content,
+            layout: text("Layout").unwrap_or_else(|| "Page".into()).trim().to_owned(),
+            font_size: (int("FontSize", 14) as f32).max(4.0),
+            alpha_mul,
+            zoom_pct: crate::viewer::clamp_zoom(zoom),
+            scroll: scroll.max(0) as f32,
+            view_mode: crate::viewer::ViewMode::from_str(
+                &text("View1ViewMode").unwrap_or_else(|| "Full".into()),
+            ),
+            card_size_pct: int("View1CardSize", 55).clamp(0, 100),
+            filmstrip: boolean("View1ShowFilmstrip")
+                .then(|| int("View1FilmstripWidth", 0))
+                .map(|w| {
+                    if w <= 0 {
+                        crate::viewer::FILMSTRIP_DEFAULT_WIDTH
+                    } else {
+                        w as f32
+                    }
+                }),
+            fullscreen: boolean("Fullscreen"),
+            page_count: 1,
+            current_page: (int("View1Page", 1).max(1) - 1) as usize,
+            page_preview: None,
+        }
+    }
+
+    fn is_streamed(&self) -> bool {
+        self.layout == "Streamed"
+    }
+
+    /// `FontSize` scales text independently of `Zoom` (R10), so the painted
+    /// size is their product, not either one alone.
+    fn painted_font_size(&self) -> f32 {
+        (self.font_size * self.zoom_pct as f32 / 100.0).max(1.0)
+    }
+}
+
+/// What one Viewer paint measured, for the interactive surface to hit-test
+/// and to bound its scrolling with. The engine paints; `render.rs` senses.
+pub(crate) struct ViewerPaintResult {
+    /// The laid-out content's full height — what a view's scroll limit is
+    /// computed from, and the reason this function reports rather than
+    /// returning `()`.
+    pub content_height: f32,
+    pub chrome: Option<crate::viewer::ChromeLayout>,
+    /// R14.1's slider track, in screen points.
+    pub slider_track: egui::Rect,
+    /// `(page index, rect)` for every card actually drawn this frame.
+    pub card_hits: Vec<(usize, egui::Rect)>,
+    /// `(page index, rect)` for every filmstrip thumbnail actually drawn.
+    pub strip_hits: Vec<(usize, egui::Rect)>,
+    /// The filmstrip's own right-hand splitter (R14.4's resize/close grip).
+    pub splitter: Option<egui::Rect>,
+}
+
+impl Default for ViewerPaintResult {
+    fn default() -> Self {
+        Self {
+            content_height: 0.0,
+            chrome: None,
+            // `egui::Rect` has no `Default`; `NOTHING` is its own empty value
+            // and hit-tests as empty, which is what an unplaced slider is.
+            slider_track: egui::Rect::NOTHING,
+            card_hits: Vec::new(),
+            strip_hits: Vec::new(),
+            splitter: None,
+        }
+    }
+}
+
+fn view_rect_of(r: egui::Rect) -> crate::viewer::ViewRect {
+    crate::viewer::ViewRect::new(r.min.x, r.min.y, r.width(), r.height())
+}
+
+fn egui_rect_of(r: crate::viewer::ViewRect) -> egui::Rect {
+    egui::Rect::from_min_size(egui::pos2(r.x, r.y), egui::vec2(r.w, r.h))
+}
+
+/// Paints a Viewer control: its chrome (toolbar band, filmstrip rail,
+/// per-view slider — R14.1/R14.3/R15/R16) and then its content, either the
+/// document itself or `Cards` mode's reflowing grid (R14).
+///
+/// `Print`/`Page` additionally get page margins, a paper border and a paper
+/// drop-shadow (R8/AC3); `Page` forces a black-on-white page body regardless
+/// of the active form theme (R7's own wording — `Page` is "print layout
+/// **plus** a black-on-white document body", so only `Page`, not `Print`,
+/// overrides the theme). `Streamed` paints one content pane and no chrome at
+/// all (§8.8) — T35 fills in what that pane shows.
+pub(crate) fn draw_viewer(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    ctrl: &Control,
+    st: &ViewerPaintState<'_>,
+) -> ViewerPaintResult {
     let ctx = painter.ctx();
+    let alpha_mul = st.alpha_mul;
     let a = (alpha_mul.clamp(0.0, 1.0) * 255.0) as u8;
+    let layout = st.layout.as_str();
     let paged = matches!(layout, "Print" | "Page");
     let forced_paper = layout == "Page";
 
@@ -8318,24 +8539,66 @@ pub fn draw_viewer(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, co
     let link_color = Color32::from_rgb(70, 130, 220);
     let code_color = Color32::from_rgb(170, 70, 150);
 
-    let content_rect = if paged { rect.shrink(VIEWER_OUTER_GUTTER) } else { rect };
+    // R15/R16/R14.3: one geometry decision, made in the pure model, for
+    // every surface — see `viewer::chrome_layout`.
+    let chrome = crate::viewer::chrome_layout(
+        view_rect_of(rect),
+        &crate::viewer::ChromeOpts {
+            fullscreen: st.fullscreen,
+            streamed: st.is_streamed(),
+            filmstrip: st.filmstrip,
+        },
+    );
+    let mut result = ViewerPaintResult {
+        chrome: Some(chrome),
+        slider_track: egui_rect_of(chrome.slider),
+        ..Default::default()
+    };
+
+    if let Some(band) = chrome.toolbar {
+        draw_viewer_toolbar_band(painter, egui_rect_of(band), surface, ink, a);
+    }
+    if let Some(strip) = chrome.filmstrip {
+        let strip_rect = egui_rect_of(strip);
+        result.strip_hits = draw_viewer_filmstrip(painter, strip_rect, st, surface, ink, muted, a);
+        result.splitter = Some(egui::Rect::from_min_max(
+            egui::pos2(strip_rect.max.x - 3.0, strip_rect.min.y),
+            egui::pos2(strip_rect.max.x + 3.0, strip_rect.max.y),
+        ));
+    }
+
+    let view_rect = egui_rect_of(chrome.content);
+    let content_rect = if paged { view_rect.shrink(VIEWER_OUTER_GUTTER) } else { view_rect };
     let round = egui::CornerRadius::same(VIEWER_PAGE_RADIUS as u8);
 
-    let Some(content) = content else {
+    // R14: `Cards` REPLACES the document — it never sits beside it. Drawn
+    // before the "nothing loaded" bail so a card grid is still shown for a
+    // document whose pages are known but whose first page has not decoded.
+    if st.view_mode == crate::viewer::ViewMode::Cards && !st.is_streamed() {
+        let (h, hits) = draw_viewer_cards(painter, view_rect, st, surface, ink, muted, a);
+        result.content_height = h;
+        result.card_hits = hits;
+        draw_viewer_slider(painter, result.slider_track, st, ink, a);
+        return result;
+    }
+
+    let Some(content) = st.content else {
         painter.text(
-            rect.center(),
+            view_rect.center(),
             egui::Align2::CENTER_CENTER,
             "No document loaded",
             egui::FontId::proportional(13.0),
             Color32::from_rgba_premultiplied(140, 140, 140, a),
         );
-        return;
+        draw_viewer_slider(painter, result.slider_track, st, ink, a);
+        return result;
     };
 
     if let ViewerPageContent::Image(img) = content {
         let source = ctrl.get_prop("Source").map(|v| v.as_str().to_owned()).unwrap_or_default();
         draw_viewer_image(painter, content_rect, ctrl, &source, img);
-        return;
+        draw_viewer_slider(painter, result.slider_track, st, ink, a);
+        return result;
     }
 
     if paged {
@@ -8357,6 +8620,9 @@ pub fn draw_viewer(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, co
         ViewerPageContent::Image(_) => unreachable!("handled above"),
     };
 
+    let font_size = st.painted_font_size();
+    // R33: the scroll offset moves the content UP past the viewport's top.
+    let top = content_rect.min.y + VIEWER_TEXT_INSET - st.scroll;
     let clip = painter.with_clip_rect(content_rect);
     if layout == "Raw" || blocks.is_none() {
         // Raw: the literal stored text, monospace, no structure (R7) — also
@@ -8367,19 +8633,196 @@ pub fn draw_viewer(painter: &egui::Painter, rect: egui::Rect, ctrl: &Control, co
         job.wrap.break_anywhere = true;
         job.append(raw_text, 0.0, egui::TextFormat { font_id: egui::FontId::monospace(font_size), color: ink, ..Default::default() });
         let galley = clip.layout_job(job);
-        clip.galley(egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, content_rect.min.y + VIEWER_TEXT_INSET), galley, ink);
+        result.content_height = galley.size().y + 2.0 * VIEWER_TEXT_INSET;
+        clip.galley(egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top), galley, ink);
     } else {
         let blocks = blocks.unwrap();
         let inner_width = (content_rect.width() - 2.0 * VIEWER_TEXT_INSET).max(20.0);
         let block_ctx = BlockPaintCtx { font_size, text_ink: muted, strong_ink: ink, link_color, code_color, width: inner_width };
-        let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, content_rect.min.y + VIEWER_TEXT_INSET);
-        paint_blocks(&clip, &block_ctx, blocks, origin);
+        let origin = egui::pos2(content_rect.min.x + VIEWER_TEXT_INSET, top);
+        result.content_height =
+            paint_blocks(&clip, &block_ctx, blocks, origin) + 2.0 * VIEWER_TEXT_INSET;
     }
 
     if paged {
         let border = Color32::from_rgba_premultiplied(ink.r() / 2, ink.g() / 2, ink.b() / 2, (a as u32 * 3 / 4) as u8);
         painter.rect_stroke(content_rect, round, Stroke::new(1.0, border), egui::StrokeKind::Middle);
     }
+
+    draw_viewer_slider(painter, result.slider_track, st, ink, a);
+    result
+}
+
+/// R16's toolbar band. T12 reserves and paints the strip itself — the band
+/// and its separator — so R15's hide/restore is real and testable now; T13
+/// fills it with the hand-drawn painter icons and their tooltips.
+fn draw_viewer_toolbar_band(painter: &egui::Painter, rect: egui::Rect, surface: Color32, ink: Color32, a: u8) {
+    let band = lerp_color(surface, ink, 0.06);
+    painter.rect_filled(
+        rect,
+        egui::CornerRadius::ZERO,
+        Color32::from_rgba_premultiplied(band.r(), band.g(), band.b(), a),
+    );
+    let line = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 5) as u8);
+    painter.line_segment(
+        [egui::pos2(rect.min.x, rect.max.y - 0.5), egui::pos2(rect.max.x, rect.max.y - 0.5)],
+        Stroke::new(1.0, line),
+    );
+}
+
+/// R14.3's page-thumbnail rail, docked to the content's left edge. Only the
+/// thumbnails inside the rail's own visible height are drawn — and only
+/// those ask [`ViewerPaintState::page_preview`] for text, so the rail's cost
+/// is its own height, never the document's length (R2).
+fn draw_viewer_filmstrip(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    st: &ViewerPaintState<'_>,
+    surface: Color32,
+    ink: Color32,
+    muted: Color32,
+    a: u8,
+) -> Vec<(usize, egui::Rect)> {
+    let rail = lerp_color(surface, ink, 0.1);
+    painter.rect_filled(rect, egui::CornerRadius::ZERO, Color32::from_rgba_premultiplied(rail.r(), rail.g(), rail.b(), a));
+    let edge = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8);
+    painter.line_segment(
+        [egui::pos2(rect.max.x - 0.5, rect.min.y), egui::pos2(rect.max.x - 0.5, rect.max.y)],
+        Stroke::new(1.0, edge),
+    );
+
+    let pad = 8.0;
+    let thumb_w = (rect.width() - 2.0 * pad).max(8.0);
+    let thumb_h = (thumb_w * crate::viewer::CARD_ASPECT).round();
+    let step = thumb_h + pad;
+    if step <= 0.0 {
+        return Vec::new();
+    }
+    let clip = painter.with_clip_rect(rect);
+    let mut hits = Vec::new();
+    let visible = ((rect.height() / step).ceil() as usize).saturating_add(1);
+    // Keep the current page in view without a scroll model of its own: the
+    // rail starts at whichever page keeps the current one on screen.
+    let first = st.current_page.saturating_sub(visible.saturating_sub(1) / 2);
+    for slot in 0..visible {
+        let page = first + slot;
+        if page >= st.page_count.max(1) {
+            break;
+        }
+        let y = rect.min.y + pad + slot as f32 * step;
+        if y > rect.max.y {
+            break;
+        }
+        let tr = egui::Rect::from_min_size(egui::pos2(rect.min.x + pad, y), egui::vec2(thumb_w, thumb_h));
+        draw_viewer_page_face(&clip, tr, page, st, surface, ink, muted, a, page == st.current_page);
+        hits.push((page, tr));
+    }
+    hits
+}
+
+/// R14's `Cards` grid: one card per page, reflowed by
+/// [`crate::viewer::card_grid`] from the card size and **this view's own
+/// width**. Only the cards intersecting the visible rect are drawn.
+fn draw_viewer_cards(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    st: &ViewerPaintState<'_>,
+    surface: Color32,
+    ink: Color32,
+    muted: Color32,
+    a: u8,
+) -> (f32, Vec<(usize, egui::Rect)>) {
+    let pages = st.page_count.max(1);
+    let grid = crate::viewer::card_grid(rect.width(), st.card_size_pct, pages);
+    let clip = painter.with_clip_rect(rect);
+    let mut hits = Vec::new();
+    for page in 0..pages {
+        let (ox, oy) = grid.card_origin(page);
+        let card = egui::Rect::from_min_size(
+            egui::pos2(rect.min.x + ox, rect.min.y + oy - st.scroll),
+            egui::vec2(grid.card_w, grid.card_h),
+        );
+        if card.max.y < rect.min.y {
+            continue;
+        }
+        if card.min.y > rect.max.y {
+            break;
+        }
+        draw_viewer_page_face(&clip, card, page, st, surface, ink, muted, a, page == st.current_page);
+        hits.push((page, card));
+    }
+    (grid.content_height(), hits)
+}
+
+/// One page thumbnail or card: a paper face, its page number, and — only if
+/// the caller offered one — a few lines of that page's own text.
+#[allow(clippy::too_many_arguments)]
+fn draw_viewer_page_face(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    page: usize,
+    st: &ViewerPaintState<'_>,
+    surface: Color32,
+    ink: Color32,
+    muted: Color32,
+    a: u8,
+    current: bool,
+) {
+    let round = egui::CornerRadius::same(4);
+    painter.rect_filled(rect, round, Color32::from_rgba_premultiplied(surface.r(), surface.g(), surface.b(), a));
+    let stroke_a = if current { a } else { (a as u32 / 2) as u8 };
+    let border = if current {
+        Color32::from_rgba_premultiplied(70, 130, 220, stroke_a)
+    } else {
+        Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), stroke_a)
+    };
+    painter.rect_stroke(rect, round, Stroke::new(if current { 2.0 } else { 1.0 }, border), egui::StrokeKind::Middle);
+
+    if let Some(preview) = st.page_preview.and_then(|f| f(page)) {
+        let inset = 5.0;
+        let body = rect.shrink(inset);
+        // Deliberately tiny and wrapped: a thumbnail suggests a page's shape,
+        // it is not a second place to read it.
+        let size = (rect.width() / 16.0).clamp(4.0, 9.0);
+        let mut job = egui::text::LayoutJob::default();
+        job.wrap.max_width = body.width().max(4.0);
+        job.wrap.max_rows = ((body.height() - size * 2.0) / (size * 1.25)).max(1.0) as usize;
+        job.append(
+            preview.trim_start(),
+            0.0,
+            egui::TextFormat { font_id: egui::FontId::monospace(size), color: muted, ..Default::default() },
+        );
+        let clip = painter.with_clip_rect(body);
+        let galley = clip.layout_job(job);
+        clip.galley(body.min, galley, muted);
+    }
+
+    painter.text(
+        egui::pos2(rect.center().x, rect.max.y - 7.0),
+        egui::Align2::CENTER_CENTER,
+        format!("{}", page + 1),
+        egui::FontId::proportional(9.0),
+        Color32::from_rgba_premultiplied(muted.r(), muted.g(), muted.b(), a),
+    );
+}
+
+/// R14.1's one slider per view: a track with a handle, sitting bottom-right
+/// directly below that view's own content. It drives `Zoom` in `Full` mode
+/// and `CardSize` in `Cards` mode — one control, never a toolbar zoom group
+/// **and** a separate card slider (R16).
+fn draw_viewer_slider(painter: &egui::Painter, track: egui::Rect, st: &ViewerPaintState<'_>, ink: Color32, a: u8) {
+    if track.width() <= 1.0 || track.height() <= 1.0 {
+        return;
+    }
+    let mid = track.center().y;
+    let rail = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 3) as u8);
+    painter.line_segment(
+        [egui::pos2(track.min.x, mid), egui::pos2(track.max.x, mid)],
+        Stroke::new(2.0, rail),
+    );
+    let t = crate::viewer::slider_position(st.view_mode, st.zoom_pct, st.card_size_pct);
+    let cx = track.min.x + t * track.width();
+    painter.circle_filled(egui::pos2(cx, mid), 5.0, Color32::from_rgba_premultiplied(70, 130, 220, a));
 }
 
 // ── Monochrome chart palette (spec 013) ────────────────────────────────────
@@ -15457,6 +15900,32 @@ mod theme_render_tests {
     // then inspect the actual emitted `egui::Shape`s — never inferred from
     // "the code looks right."
 
+    /// A `ViewerPaintState` for a paint test: the state a freshly-dropped
+    /// Viewer has, with only the content, layout and font size the test
+    /// names. Built here rather than from a `Control` so a test can paint a
+    /// document the synchronous decode path could never reach.
+    fn test_viewer_state<'a>(
+        content: &'a ViewerPageContent,
+        layout: &str,
+        font_size: f32,
+    ) -> ViewerPaintState<'a> {
+        ViewerPaintState {
+            content: Some(content),
+            layout: layout.to_string(),
+            font_size,
+            alpha_mul: 1.0,
+            zoom_pct: crate::viewer::ZOOM_DEFAULT_PCT,
+            scroll: 0.0,
+            view_mode: crate::viewer::ViewMode::Full,
+            card_size_pct: 55,
+            filmstrip: None,
+            fullscreen: false,
+            page_count: 1,
+            current_page: 0,
+            page_preview: None,
+        }
+    }
+
     fn render_viewer_shapes(content: &ViewerPageContent, layout: &str) -> Vec<egui::Shape> {
         let ctx = egui::Context::default();
         let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
@@ -15466,7 +15935,7 @@ mod theme_render_tests {
         let mut full = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
                 let painter = ui.painter().clone();
-                draw_viewer(&painter, rect, &ctrl, Some(content), layout, 14.0, 1.0);
+                draw_viewer(&painter, rect, &ctrl, &test_viewer_state(content, layout, 14.0));
             });
         });
         // Same reason as the Switch tests above: this paints but never
@@ -15474,6 +15943,61 @@ mod theme_render_tests {
         // document would produce one) must be dropped, not applied.
         full.textures_delta.clear();
         full.shapes.into_iter().map(|cs| cs.shape).collect()
+    }
+
+    /// Spec 058 T12/AC5 — the toolbar is a painted band, and fullscreen
+    /// removes it. Checked on the SHAPES, not on the geometry helper alone:
+    /// `chrome_layout` already says the band is not placed, and this says
+    /// nothing draws it either.
+    #[test]
+    fn entering_fullscreen_removes_the_viewers_painted_toolbar_band() {
+        let content = ViewerPageContent::Text("A document.".into());
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(400.0, 300.0));
+        let band_rects = |fullscreen: bool| -> Vec<egui::Rect> {
+            let ctx = egui::Context::default();
+            let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 400.0)));
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let mut st = test_viewer_state(&content, "Web", 14.0);
+                    st.fullscreen = fullscreen;
+                    draw_viewer(&painter, rect, &ctrl, &st);
+                });
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, rect: egui::Rect, into: &mut Vec<egui::Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, rect, into)),
+                    egui::Shape::Rect(r)
+                        if r.fill.a() > 0
+                            && (r.rect.height() - crate::viewer::TOOLBAR_HEIGHT).abs() < 0.5
+                            && (r.rect.width() - rect.width()).abs() < 0.5
+                            && (r.rect.min.y - rect.min.y).abs() < 0.5 =>
+                    {
+                        into.push(r.rect)
+                    }
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, rect, &mut found);
+            }
+            found
+        };
+
+        let windowed = band_rects(false);
+        let fullscreen = band_rects(true);
+        println!(
+            "AC5 — toolbar bands painted: windowed {} {:?}, fullscreen {}",
+            windowed.len(),
+            windowed.first().map(|r| (r.width(), r.height())),
+            fullscreen.len()
+        );
+        assert_eq!(windowed.len(), 1, "the toolbar band is painted when not fullscreen");
+        assert!(fullscreen.is_empty(), "AC5: entering fullscreen paints no toolbar band");
     }
 
     fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {
@@ -15593,7 +16117,7 @@ mod theme_render_tests {
             let mut full = ctx.run_ui(input, |root| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
                     let painter = ui.painter().clone();
-                    draw_viewer(&painter, rect, &ctrl, Some(&content), "Raw", font_size, 1.0);
+                    draw_viewer(&painter, rect, &ctrl, &test_viewer_state(&content, "Raw", font_size));
                 });
             });
             full.textures_delta.clear();

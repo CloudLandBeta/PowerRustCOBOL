@@ -1,5 +1,47 @@
 # PowerRustCOBOL — Changelog
 
+## [PowerRustCOBOL 1.70.86] — 2026-09-19
+
+### The Viewer can be zoomed, thrown, browsed as cards and put fullscreen
+
+Spec 058 T12's second half wires 1.70.85's navigation model to the pixels and
+the pointer. A Viewer now paints its toolbar band, its filmstrip rail, its
+card grid and one slider per view, and answers the wheel, the keyboard and a
+grab-and-throw.
+
+`Cmd`/`Ctrl` + wheel zooms about the pointer, a double-click zooms one step to
+a 16x ceiling, and `Esc` leaves fullscreen first and returns to 100 % after.
+Entering fullscreen hands the toolbar's height to the document. `Cards` mode
+replaces the document with a grid of one card per page whose rows and columns
+follow **the control's own width** — resizing the window around it changes
+nothing. The filmstrip docks to the content's left edge and closes either from
+its button or by dragging its splitter to that edge, without leaving `Full`
+mode. Arrow keys, Page Up/Down, Home/End and a thrown page all behave exactly
+as the IDE's Documentation viewer does, and none of them fire while another
+control holds the caret.
+
+Every value the developer can see moves through the ordinary property channel,
+so COBOL reads `Zoom`, `CardSize`, `ViewMode`, `ScrollPosition`, `Fullscreen`
+and `ShowFilmstrip` back after a gesture — and `onZoomChanged`,
+`onCardSizeChanged`, `onScrolled`, `onViewModeChanged`, `onFilmstripToggled`
+and `onFullscreenEntered`/`onFullscreenExited` fire once each when the value
+**settles**, never once per wheel notch or glide frame.
+
+A card grid or a filmstrip decodes only the pages it actually shows, so a
+filmstrip beside a two-gigabyte log costs the handful of pages on the rail
+rather than the document.
+
+The rounded-corner harness went red the moment the toolbar band and the rail
+landed — measured 113 px past the arc — so `Viewer` joins `DataGrid`,
+`FileDropZone`, `Maps`, `TabControl` and `ToolBar` in the self-clipping
+exclusion list, with the measurement and its date recorded beside it. That is
+spec 057's rule working as written: the paint that earned the exclusion is
+what triggered it.
+
+Six new engine tests alongside 1.70.85's 23 model tests. `cobolt-forms` is 992
+green across 42 test binaries, 0 failed; the IDE, `rcrun` and the form host all
+build.
+
 ## [PowerRustCOBOL 1.70.85] — 2026-09-19
 
 ### The Viewer knows how to zoom, reflow cards and throw a page

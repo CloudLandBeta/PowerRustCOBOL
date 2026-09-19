@@ -184,7 +184,7 @@ not a claim about what §8.1 means architecturally.
         T30 — this is the first check, not the last); changing `Layout` fires
         `onLayoutChanged` exactly once per change.
 
-- [ ] **T12 — Navigation: zoom/card slider, ViewMode, fullscreen, filmstrip,
+- [x] **T12 — Navigation: zoom/card slider, ViewMode, fullscreen, filmstrip,
       scrolling** (R11–R15, R33–R33.3, R32, AC4, AC5, AC19, AC31, AC32)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `src/paint.rs`
   - Do: wheel-zoom about the pointer; double-click zoom to a 16× cap; Esc → 100%
@@ -233,50 +233,46 @@ not a claim about what §8.1 means architecturally.
         the limit or zero, a non-moving release throws nothing, and a press
         mid-glide stops it (**AC32**); each
         settle-event fires once per actual change, not per input tick.
-  - **⏸ PART 1 OF 2 LANDED — 2026-09-19. T12 stays UNTICKED.** The task was
-    split in half by an operator hold (another session was fixing a broken
-    GitHub build; no further work was to be stacked on an unstable base).
-    What is **done, committed and green** is T12's entire **pure model**, all
-    of it in `crates/cobolt-forms/src/viewer.rs` under
-    `// ── Navigation: zoom, cards, filmstrip, scrolling (T12) ──`, with 23
-    new tests in `mod nav_tests` (all passing; full lib suite 852/852):
-    `ViewMode`; the zoom ladder/cap/anchor (`zoom_in_step`, `zoom_out_step`,
-    `zoom_by_notches`, `zoom_anchored_offset`, `clamp_zoom`); `card_grid`/
-    `CardGrid`; `slider_target`/`slider_position`/`apply_slider` (R14.1/R14.2);
-    `filmstrip_width_after_drag` (R14.4); `ViewRect`/`ChromeOpts`/
-    `ChromeLayout`/`chrome_layout` (R15/R16, and `Streamed` honoured from the
-    start so T35 is a paint change, not a second geometry model);
-    `ScrollKinetics` + `KeyScrollInput` + `key_accel_factor`/`throw_speed`/
-    `line_height`/`page_step` (R33–R33.2, reproducing `doc_viewer.rs`'s
-    constants name-for-name); and `SettleWatch` for R32's "fires when it
-    settles".
-  - **PART 2 — where the next run resumes.** Nothing outside `viewer.rs` has
-    been touched, so `paint.rs` and `render.rs` are exactly as T11 left them.
-    Remaining: (a) refactor `paint::draw_viewer`'s parameter list into the
-    `ViewerPaintState` struct plan.md §2 already names, carrying zoom, scroll
-    offset, `ViewMode`, `CardSize`, filmstrip width and `Fullscreen`; (b) paint
-    the toolbar band (geometry only — T13 fills it with icons), the filmstrip
-    rail, the per-view slider, and the `Cards` grid, **decoding only the pages
-    a strip/grid actually shows**, never the whole document; (c) drive it from
-    `render.rs`'s `CT::Viewer` arm — wheel+modifier zoom, double-click, Esc,
-    the key/drag/throw input into `ScrollKinetics`, with the transient
-    kinematics in `ctx.memory()` and the *values* written back through
-    `RenderOutput::prop_updates` (the established channel) so COBOL reads them;
-    (d) fire `onZoomChanged`/`onCardSizeChanged`/`onScrolled`/
-    `onViewModeChanged`/`onFullscreenEntered`/`onFullscreenExited`/
-    `onFilmstripToggled` off the settle helpers.
-  - **Judgment call on the R5.1 gap, recorded so it is not re-derived.** The
-    background-thread wiring (`ViewerSession` → render path) is deliberately
-    **deferred to T16**, not done at T12: T16 is the first task whose own file
-    list already includes `viewer_session.rs` and whose AC8 decode-call
+  - **DONE — 2026-09-19, in two commits** (an operator hold split the task
+    mid-flight; the halves are 1.70.85 and 1.70.86). The pure model lives in
+    `crates/cobolt-forms/src/viewer.rs` under `// ── Navigation: zoom, cards,
+    filmstrip, scrolling (T12) ──`: `ViewMode`; the zoom ladder/cap/anchor;
+    `card_grid`; `slider_target`/`slider_position`/`apply_slider`;
+    `filmstrip_width_after_drag`; `ViewRect`/`ChromeOpts`/`ChromeLayout`/
+    `chrome_layout`; `ScrollKinetics` + `KeyScrollInput` + `key_accel_factor`/
+    `throw_speed`; and `SettleWatch`. The wiring is
+    `paint::ViewerPaintState`/`draw_viewer` (toolbar band, filmstrip rail,
+    card grid, per-view slider) and `render::viewer_interactive`.
+  - **Three decisions taken here, recorded so they are not re-derived:**
+    1. **`Streamed` is honoured by `chrome_layout` from the start**, so T35 is
+       a paint change rather than a second geometry model that could disagree
+       with this one.
+    2. **`SharedValue` reconciles the engine against COBOL.** A property write
+       that differs from last frame's wins; otherwise the engine's own live
+       value stands. Without it a gesture is undone one frame later by any
+       host that has not echoed `prop_updates` back, and the value flip-flops
+       — which made `onZoomChanged` fire twice for one double-click until
+       `one_zoom_gesture_raises_exactly_one_onzoomchanged` caught it.
+    3. **T31's corner measurement was answered here, not deferred.** T12's
+       chrome is what made Viewer paint past the arc (113 px), so
+       `a_child_at_a_rounded_corner_stays_inside_the_arc` went red the moment
+       the band and the rail landed. `render::self_clipping_type` now excludes
+       `Viewer`, with the measurement and its date in the comment. T31 is
+       therefore a re-run and a read, not new work.
+  - **The R5.1 gap stays open, deliberately, until T16.** The background
+    thread (`ViewerSession` → render path) is **not** wired: both surfaces
+    still use `paint`'s synchronous decode. T16 is the first task whose own
+    file list already includes `viewer_session.rs` and whose AC8 decode-call
     counter forces that plumbing to be real, so doing it there is one change
     instead of two. The intended shape is a defaulted `FormState` hook
-    (`fn viewer_document(&self, _base: &Control) -> Option<…> { None }`) that
-    the host overrides and the designer canvas does not — which keeps AC11
-    parity intact, since both surfaces still end at the same `draw_viewer`.
-    Until then Part 2 must keep the interim synchronous decode **bounded by
-    only ever decoding visible pages**, so a 2 GB log never costs a full index
-    on the UI thread.
+    (`fn viewer_document(&self, _base: &Control) -> Option<…> { None }`) the
+    host overrides and the designer canvas does not — which keeps AC11 parity,
+    since both surfaces still end at the same `draw_viewer`. **What T12 did do
+    is make the interim path bounded:** `paint::viewer_index` memoizes only
+    page *offsets*, and `viewer_page_preview` decodes exactly the pages a card
+    grid or a filmstrip actually shows, so neither costs the document.
+  - **Not yet painted, by design:** the toolbar band is reserved and drawn but
+    **empty** — its icons, tooltips and actions are T13's whole subject.
 
 - [ ] **T13 — Toolbar chrome and actions: Save As, Share, Print** (R16–R20,
       R18.1, R32, AC6, AC10, AC20)
@@ -606,6 +602,14 @@ order.)*
         a_child_at_a_rounded_corner_stays_inside_the_arc` green; if it reports
         Viewer painting past the arc, add the exclusion and re-run, don't
         pre-guess it in an earlier task.
+  - **Already answered at T12 (2026-09-19).** The harness went red as soon as
+    T12's toolbar band and filmstrip rail landed — measured 113 px past the
+    arc — so `Viewer` was added to `render::self_clipping_type`'s exclusion
+    list there, with the number and the date in the comment. That is this
+    task's rule working as written (measure, then act), not a pre-guess: the
+    paint that earned the exclusion is what triggered it. **T31 is now a
+    re-run and a read** — confirm the harness is still green and that the
+    allow-list still equals what it measures.
 
 - [ ] **T32 — System KB** (steering: hard constraint)
   - Files: `crates/cobolt-compiler/src/lib.rs` (all four doc tables),
