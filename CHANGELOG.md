@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.134] — 2026-09-20
+
+### Spec 062 — printing a report into a Viewer
+
+Requirements only; no code has moved.
+
+A COBOL report has two destinations today, a printer and a file, and both leave
+the developer to find the result and open it in something. Spec 062 adds a
+third: a Viewer control on the running form.
+
+```cobol
+       SELECT REPORT-FILE ASSIGN TO VIEWER "VWR-1"
+           ORGANIZATION IS MARKDOWN.
+```
+
+`FD` through `CLOSE` is ordinary COBOL. `ORGANIZATION` decides how the lines are
+read — `SEQUENTIAL` as plain text with traditional print page control,
+`MARKDOWN` and `HTML` as documents the Viewer renders. The report is backed by a
+real file, `<form-name>-<unique>.<ext>` in the OS temp directory, so Save As,
+Print, Share and search work on it with no new machinery; when that directory
+cannot be written the report is held in memory instead. It appears on `CLOSE`,
+in view 1 (operator's answers, 2026-09-20).
+
+22 requirements, 16 acceptance criteria. The survey that shaped it: `ASSIGN TO
+VIEWER` already parses, `MARKDOWN`/`HTML` need two parser arms rather than two
+lexer tokens, **`LINAGE`/`ADVANCING`/`END-OF-PAGE` are already implemented**, the
+Viewer picks its renderer from the file extension, and a Viewer session is keyed
+by path — so the feature is mostly wiring existing parts, and the spec says
+which.
+
+Flagged for `/plan` rather than decided: the `<unique>` token (no crate depends
+on `uuid` today), the exact file statuses, and whether the page-control
+diagnostic on a Markdown file is semantic or runtime. Flagged for the operator:
+`origin/features` is stale at 1.70.113 **and** checked out in another worktree,
+which has to be settled before `/implement`.
+
 ## [PowerRustCOBOL 1.70.133] — 2026-09-20
 
 ### The Viewer demo opens the file that was just dropped
