@@ -2691,6 +2691,20 @@ impl Interpreter {
     const VIEWER_SAVE_AS_REQUEST: &'static str = "_SaveAsRequest";
     const VIEWER_SAVE_AS_ANSWER: &'static str = "_SaveAsAnswer";
 
+    /// Spec 058 R19/R20 — Print and Share, in the same three pseudo-properties
+    /// each, and for the same reason: only the runtime holds the document, and
+    /// only the host can hand it to the platform.
+    ///
+    /// The REQUEST carries a path, because that is what a platform takes. A
+    /// document opened from a `Source` already has one; a `LoadBytes` document
+    /// has none, so one is written for it — the OS cannot be handed bytes.
+    const VIEWER_PRINT_ASK: &'static str = "_PrintAsk";
+    const VIEWER_PRINT_REQUEST: &'static str = "_PrintRequest";
+    const VIEWER_PRINT_ANSWER: &'static str = "_PrintAnswer";
+    const VIEWER_SHARE_ASK: &'static str = "_ShareAsk";
+    const VIEWER_SHARE_REQUEST: &'static str = "_ShareRequest";
+    const VIEWER_SHARE_ANSWER: &'static str = "_ShareAnswer";
+
     /// Drain any pending UI-driven property updates into the object registry.
     /// Called just before an event handler runs so getters see the live value.
     fn drain_input(&mut self) {
@@ -2708,6 +2722,9 @@ impl Interpreter {
         // each needs `&mut self` for the whole interpreter, not the registry.
         let mut save_asks: Vec<String> = Vec::new();
         let mut save_answers: Vec<(String, String)> = Vec::new();
+        // R19/R20's pair, in the same two shapes as Save As above.
+        let mut os_asks: Vec<(String, ViewerOsAction)> = Vec::new();
+        let mut os_answers: Vec<(String, ViewerOsAction, String)> = Vec::new();
         for upd in pending {
             let asked_for_csv = upd.prop == Self::DATAGRID_EXPORT_REQUEST
                 && !matches!(upd.value.trim(), "" | "0");
@@ -2723,6 +2740,17 @@ impl Interpreter {
             if upd.prop == Self::VIEWER_SAVE_AS_ANSWER {
                 save_answers.push((upd.ctrl_id.clone(), upd.value.clone()));
             }
+            for (ask, answer, action) in [
+                (Self::VIEWER_PRINT_ASK, Self::VIEWER_PRINT_ANSWER, ViewerOsAction::Print),
+                (Self::VIEWER_SHARE_ASK, Self::VIEWER_SHARE_ANSWER, ViewerOsAction::Share),
+            ] {
+                if upd.prop == ask && !matches!(upd.value.trim(), "" | "0") {
+                    os_asks.push((upd.ctrl_id.clone(), action));
+                }
+                if upd.prop == answer {
+                    os_answers.push((upd.ctrl_id.clone(), action, upd.value.clone()));
+                }
+            }
             self.objects
                 .set_property(&upd.ctrl_id, &upd.prop, upd.value);
         }
@@ -2736,6 +2764,69 @@ impl Interpreter {
         for (obj, path) in save_answers {
             self.run_viewer_save_as_answer(&obj, &path);
         }
+        for (obj, action) in os_asks {
+            self.ask_viewer_os(&obj, action);
+        }
+        for (obj, action, answer) in os_answers {
+            self.run_viewer_os_answer(&obj, action, &answer);
+        }
+    }
+
+    /// Ask the host to hand this document to the platform.
+    ///
+    /// The request's VALUE is a path, because a platform takes a file. A
+    /// document opened from a `Source` already has one and it is handed over
+    /// as it stands — R18's "the stored form, never a re-encode" applies here
+    /// as much as to Save As. A `LoadBytes` document has no file at all, so one
+    /// is written beside the system's temporaries under R18.1's proposed name:
+    /// the operating system cannot be handed bytes.
+    fn ask_viewer_os(&mut self, obj: &str, action: ViewerOsAction) {
+        let prop = match action {
+            ViewerOsAction::Print => Self::VIEWER_PRINT_REQUEST,
+            ViewerOsAction::Share => Self::VIEWER_SHARE_REQUEST,
+            ViewerOsAction::Save => Self::VIEWER_SAVE_AS_REQUEST,
+        };
+        let source = self.obj_get(obj, "Source");
+        let source = source.trim();
+        if !source.is_empty() {
+            let resolved = cobolt_forms::assets::resolve(source);
+            self.obj_set(obj, prop, resolved.to_string_lossy().into_owned());
+            return;
+        }
+        let Some(bytes) = self.viewer_bytes.get(obj).cloned() else {
+            self.obj_set(obj, "LastError", "no document loaded".to_string());
+            self.queue_control_event(obj, "onError");
+            return;
+        };
+        let name = self.viewer_suggested_filename(obj);
+        let path = std::env::temp_dir().join("powerrustcobol-viewer").join(name);
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        match std::fs::write(&path, &bytes) {
+            Ok(()) => self.obj_set(obj, prop, path.to_string_lossy().into_owned()),
+            Err(e) => {
+                self.obj_set(obj, "LastError", format!("could not stage the document: {e}"));
+                self.queue_control_event(obj, "onError");
+            }
+        }
+    }
+
+    /// Carry out — or abandon — the Print or Share the host just answered.
+    ///
+    /// `"1"` is a handoff the platform accepted; anything else — an empty
+    /// string, a refusal — is the Cancelled half of R32. The reason, when there
+    /// is one, has already arrived as `LastError`.
+    fn run_viewer_os_answer(&mut self, obj: &str, action: ViewerOsAction, answer: &str) {
+        let (request, answer_prop) = match action {
+            ViewerOsAction::Print => (Self::VIEWER_PRINT_REQUEST, Self::VIEWER_PRINT_ANSWER),
+            ViewerOsAction::Share => (Self::VIEWER_SHARE_REQUEST, Self::VIEWER_SHARE_ANSWER),
+            ViewerOsAction::Save => (Self::VIEWER_SAVE_AS_REQUEST, Self::VIEWER_SAVE_AS_ANSWER),
+        };
+        // Cleared either way, so the next press is a fresh request.
+        self.obj_set(obj, request, String::new());
+        self.obj_set(obj, answer_prop, String::new());
+        self.report_viewer_os_outcome(obj, action, answer.trim() == "1");
     }
 
     /// Carry out — or abandon — the Save As the host just answered.
@@ -13932,13 +14023,11 @@ impl Interpreter {
             // comes back through `report_viewer_os_outcome`, because only the
             // OS dialog knows which of the two happened.
             "PRINT" => {
-                let n = parse_i(self.obj_get(obj, "_PrintRequest")) + 1;
-                self.obj_set(obj, "_PrintRequest", n.to_string());
+                self.ask_viewer_os(obj, ViewerOsAction::Print);
                 none
             }
             "SHARE" => {
-                let n = parse_i(self.obj_get(obj, "_ShareRequest")) + 1;
-                self.obj_set(obj, "_ShareRequest", n.to_string());
+                self.ask_viewer_os(obj, ViewerOsAction::Share);
                 none
             }
             // ── §8.2's append surface ──
@@ -17587,6 +17676,100 @@ MAIN.
         );
     }
 
+    /// **R19/R20 — Print and Share reach the platform at all.**
+    ///
+    /// Both used to bump a counter nobody read: `_PrintRequest` and
+    /// `_ShareRequest` were written here and had no reader anywhere in the
+    /// workspace, so `VWR-1::Print()` did nothing and the toolbar's two
+    /// buttons did nothing (operator, 2026-09-20 — "explain again why Share is
+    /// not possible": it was never impossible, only unbuilt).
+    ///
+    /// The request's VALUE is now a path, because a platform takes a file.
+    #[test]
+    fn print_and_share_hand_the_platform_a_path_and_report_what_it_did() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("report.pdf");
+        std::fs::write(&src, b"%PDF-1.7\n%%EOF\n").unwrap();
+
+        for (method, request, action) in [
+            ("PRINT", "_PrintRequest", ViewerOsAction::Print),
+            ("SHARE", "_ShareRequest", ViewerOsAction::Share),
+        ] {
+            let mut interp = viewer_interp(&[("Source", src.to_str().unwrap())]);
+            let _ = interp.exec_method("VWR-1", method, &[]);
+            let asked = interp.obj_get("VWR-1", request);
+            println!("  {method}() asked for {asked:?}");
+            assert_eq!(
+                asked,
+                src.to_string_lossy(),
+                "{method} must hand the platform the document's own path"
+            );
+            assert!(
+                !queued_for(&interp, "VWR-1").iter().any(|e| e == "onError"),
+                "asking is not an error"
+            );
+
+            // The platform accepted it.
+            interp.run_viewer_os_answer("VWR-1", action, "1");
+            let events = queued_for(&interp, "VWR-1");
+            let complete = match action {
+                ViewerOsAction::Print => "onPrintComplete",
+                ViewerOsAction::Share => "onShareComplete",
+                ViewerOsAction::Save => unreachable!(),
+            };
+            println!("  accepted → {events:?}");
+            assert!(events.iter().any(|e| e == complete), "{method}: {events:?}");
+            assert_eq!(
+                interp.obj_get("VWR-1", request),
+                "",
+                "the request is cleared, so the next press is a fresh one"
+            );
+
+            // And a platform that refused it.
+            let mut interp = viewer_interp(&[("Source", src.to_str().unwrap())]);
+            let _ = interp.exec_method("VWR-1", method, &[]);
+            interp.run_viewer_os_answer("VWR-1", action, "");
+            let events = queued_for(&interp, "VWR-1");
+            let cancelled = match action {
+                ViewerOsAction::Print => "onPrintCancelled",
+                ViewerOsAction::Share => "onShareCancelled",
+                ViewerOsAction::Save => unreachable!(),
+            };
+            println!("  refused  → {events:?}\n");
+            assert!(events.iter().any(|e| e == cancelled), "{method}: {events:?}");
+        }
+    }
+
+    /// A `LoadBytes` document has no file, and a platform cannot be handed
+    /// bytes — so one is written out under R18.1's proposed name rather than
+    /// the request failing.
+    #[test]
+    fn a_loaded_bytes_document_is_written_out_before_it_is_handed_over() {
+        let mut interp = viewer_interp(&[]);
+        let text = "Quarterly revenue summary for the northern region.";
+        let _ = interp.exec_method(
+            "VWR-1",
+            "LOADBYTES",
+            &[CobolValue::from_str(text, text.len())],
+        );
+        let _ = interp.exec_method("VWR-1", "PRINT", &[]);
+        let asked = interp.obj_get("VWR-1", "_PrintRequest");
+        println!("  a LoadBytes document was staged at {asked:?}");
+        assert!(!asked.is_empty(), "a path must have been produced");
+        let path = std::path::Path::new(&asked);
+        assert!(path.is_file(), "and the file must actually be there: {asked}");
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            text,
+            "with the document's own bytes in it"
+        );
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            "Quarterly-revenue-summary.txt",
+            "under the name R18.1 proposes"
+        );
+    }
+
     /// R18.1 for a document that has no name at all: the first three words of
     /// its own content, plus the extension its resolved `Format` implies.
     #[test]
@@ -17688,18 +17871,55 @@ MAIN.
 
     /// R19/R20: `Print()`/`Share()` leave a request for the host and raise
     /// nothing themselves — the event waits for what the OS reports back.
+    ///
+    /// **The request used to be a counter**, and `2` after two presses was how
+    /// "each call is its own request, never coalesced" was asserted. It is a
+    /// PATH now, because a platform takes a file and a count is not one — so
+    /// two presses leave the same value, and the property can no longer carry
+    /// that meaning.
+    ///
+    /// It is still true, and still asserted: `obj_set` publishes every write
+    /// down the state channel whether or not the value changed, so a second
+    /// press is a second request arriving at the host. That is what this reads
+    /// now — the channel, which is where "a request" actually lives — rather
+    /// than a number that no longer exists.
     #[test]
     fn viewer_print_and_share_leave_a_request_for_the_host_and_fire_nothing_yet() {
-        let mut interp = viewer_interp(&[]);
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("report.pdf");
+        std::fs::write(&src, b"%PDF-1.7\n%%EOF\n").unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut interp = viewer_interp(&[("Source", src.to_str().unwrap())]);
+        interp.state_tx = Some(tx);
+
         interp.exec_method("VWR-1", "PRINT", &[]);
         interp.exec_method("VWR-1", "PRINT", &[]);
         interp.exec_method("VWR-1", "SHARE", &[]);
-        let (p, sh) = (interp.obj_get("VWR-1", "_PrintRequest"), interp.obj_get("VWR-1", "_ShareRequest"));
+
+        let sent: Vec<(String, String)> = rx
+            .try_iter()
+            .filter(|u| u.prop == "_PrintRequest" || u.prop == "_ShareRequest")
+            .map(|u| (u.prop, u.value))
+            .collect();
         let events = queued_for(&interp, "VWR-1");
-        println!("two Print() and one Share() -> _PrintRequest={p:?}, _ShareRequest={sh:?}, events {events:?}");
-        assert_eq!(p, "2", "each call is its own request, never coalesced");
-        assert_eq!(sh, "1");
-        assert!(events.is_empty(), "R32: the event waits for the OS, it is not faked from a local flag");
+        println!("two Print() and one Share() sent {} request(s):", sent.len());
+        for (prop, value) in &sent {
+            println!("  {prop} = {value:?}");
+        }
+        println!("events so far: {events:?}");
+
+        let prints = sent.iter().filter(|(p, _)| p == "_PrintRequest").count();
+        let shares = sent.iter().filter(|(p, _)| p == "_ShareRequest").count();
+        assert_eq!(prints, 2, "each call is its own request, never coalesced");
+        assert_eq!(shares, 1);
+        assert!(
+            sent.iter().all(|(_, v)| v == &src.to_string_lossy()),
+            "and each carries the document's own path: {sent:?}"
+        );
+        assert!(
+            events.is_empty(),
+            "R32: the event waits for the OS, it is not faked from a local flag"
+        );
     }
 
     // ── R3/R4/R6: loading reports itself to COBOL ───────────────────────

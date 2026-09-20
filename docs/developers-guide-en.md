@@ -4092,6 +4092,27 @@ is raised, because the operator did exactly what they meant to.
            .
 ```
 
+> **Note — what each of the three actually does, and what its events mean.**
+> A platform takes a *file*, so a document opened from a `Source` is handed
+> over as it stands, and one given to `LoadBytes` is written out first — under
+> the same proposed name Save As would offer.
+>
+> **Print** goes to the print system: `lp` on macOS and Linux, the shell's own
+> `Print` verb on Windows. A document the spooler accepts is a document
+> printing, so `onPrintComplete` means exactly that. A spooler that refuses it,
+> or a machine with no printer configured, raises `onPrintCancelled` with the
+> reason in `LastError`.
+>
+> **Share** hands the document to the platform's default opener — `open`,
+> `xdg-open`, `start`. ⚠️ **It is not the system share sheet.** macOS's
+> `NSSharingServicePicker` and the Windows share contract need native code the
+> control does not yet carry; when they arrive, `Share` will use them and
+> nothing in your program will change. `onShareComplete` today means the
+> platform accepted the document, not that anyone sent it anywhere.
+>
+> Both run off the drawing, so a slow spooler never stops your form
+> repainting.
+
 > ⚠️ **Caveat — Save As writes the original bytes, and only those.** It copies
 > the file; it never writes out what the Viewer drew. That is deliberate, and
 > it matters most for a PDF: the Viewer reads a PDF's structure in order to
@@ -4099,9 +4120,8 @@ is raised, because the operator did exactly what they meant to.
 > a different document with the same name. The Viewer also never modifies the
 > document it is showing.
 
-Print and Share hand the document to the operating system — its print dialog,
-its share sheet. So their outcomes are the operating system's to report, and
-that is where the events come from:
+Print and Share hand the document to the operating system. So their outcomes
+are the operating system's to report, and that is where the events come from:
 
 ```cobol
        PROGRAM-ID. VWR-1--ONPRINTCOMPLETE.

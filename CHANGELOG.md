@@ -8,6 +8,61 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.126] — 2026-09-20
+
+### Print and Share reach the platform at all
+
+"explain again why Share is not possible" (operator, 2026-09-20). It never was.
+`_PrintRequest` and `_ShareRequest` were written by the runtime on every
+`Print()` and `Share()` and **read by nobody**, `report_viewer_os_outcome` had
+no caller outside the file that defines it, and the toolbar's two buttons
+pushed onto `toolbar_actions` where the host parses against the ToolBar
+control's vocabulary — neither verb is in it. Three ways of doing nothing.
+
+The plumbing is Save As's, twice more: `_PrintAsk` / `_ShareAsk` from the
+toolbar, `_PrintRequest` / `_ShareRequest` from the runtime, `_PrintAnswer` /
+`_ShareAnswer` back from the host, over the state channel that already carries
+`Show()` to a Snackbar.
+
+**The request carries a path, not a count**, because a platform takes a file. A
+document opened from a `Source` is handed over as it stands; one given to
+`LoadBytes` is written out first, under the same name R18.1 proposes for Save
+As — the operating system cannot be handed bytes.
+
+### What Complete and Cancelled actually mean
+
+R32 says those events report what the platform did, so here is what this can
+observe, stated rather than implied:
+
+| | goes to | `Complete` means |
+|---|---|---|
+| **Print** | `lp` (macOS, Linux), the shell's `Print` verb (Windows) | the spooler took it, which is the document printing |
+| **Share** | `open` / `xdg-open` / `start` | the platform accepted the document |
+
+**Share is not the system share sheet**, and the Developer's Guide and the
+System KB both say so. macOS's `NSSharingServicePicker` and the Windows share
+contract need native code the control does not carry; when it does, `Share`
+will use them and nothing in a COBOL program changes. Saying "share sheet"
+today would be the kind of claim `/clarify` chose the fidelity table to avoid.
+
+Every handoff runs on a thread of its own. A print spooler can take seconds,
+and a form that stops painting while one does is the defect the non-blocking
+dialog rule exists to prevent. A refusal names the reason — and names it
+usefully: "`lp` is not installed on this machine", because "No such file or
+directory" about `lp` reads as though the DOCUMENT were missing.
+
+### A test that changed shape rather than going away
+
+`viewer_print_and_share_leave_a_request_for_the_host_and_fire_nothing_yet`
+asserted `_PrintRequest == "2"` after two presses — that was how "each call is
+its own request, never coalesced" was written while the request was a counter.
+A path cannot carry a count, so two presses now leave the same value.
+
+The fact is still true and still asserted, against the mechanism that actually
+carries it: `obj_set` publishes every write down the state channel whether or
+not the value changed, so two presses are two requests **arriving**. The test
+reads the channel now.
+
 ## [PowerRustCOBOL 1.70.125] — 2026-09-20
 
 ### A Viewer's text can be selected, and taken

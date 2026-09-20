@@ -532,6 +532,8 @@ impl FormHost {
                 parked_timer_clocks: HashMap::new(),
                 toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             pending_save_as: Vec::new(),
+            pending_os_handoff: Vec::new(),
+            os_handoff: OsHandoffChannel::default(),
                 action_notice: None,
                 last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
@@ -657,6 +659,22 @@ pub(crate) fn motion_bindings(
     out
 }
 
+/// Both ends of the channel a finished handoff reports back on.
+///
+/// One field rather than two, so a constructor cannot create a sender whose
+/// receiver was never kept — which is the whole of what a split pair invites.
+pub(crate) struct OsHandoffChannel {
+    pub tx: mpsc::Sender<(String, crate::os_handoff::Handoff, crate::os_handoff::Outcome)>,
+    pub rx: mpsc::Receiver<(String, crate::os_handoff::Handoff, crate::os_handoff::Outcome)>,
+}
+
+impl Default for OsHandoffChannel {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel();
+        Self { tx, rx }
+    }
+}
+
 pub(crate) struct FormBody {
     pub(crate) form_name: String,
     /// 049/051 — where this body's OWN breadcrumb strip put its pieces last
@@ -755,6 +773,11 @@ pub(crate) struct FormBody {
     /// Save As dialogs asked for while draining the state channel, which has no
     /// `egui::Context` — opened by `start_pending_save_as` on the same frame.
     pub(crate) pending_save_as: Vec<(String, crate::file_dialog::DialogSpec)>,
+    /// R19/R20 handoffs asked for during the same drain, started on the same
+    /// frame by `drive_viewer_os_handoffs`.
+    pub(crate) pending_os_handoff: Vec<(String, crate::os_handoff::Handoff, PathBuf)>,
+    /// Where a finished handoff reports back from its thread.
+    pub(crate) os_handoff: OsHandoffChannel,
     /// The latest platform-action outcome, shown briefly in the form window
     /// (message, is_error, egui time it appeared). A Failed print or an
     /// empty-clipboard paste used to go only to stderr — to the operator that
@@ -1096,6 +1119,70 @@ impl FormBody {
     pub(crate) fn start_pending_save_as(&mut self, ctx: &egui::Context) {
         for (id, spec) in std::mem::take(&mut self.pending_save_as) {
             crate::file_dialog::begin(ctx, &Self::viewer_save_as_key(&id), spec);
+        }
+    }
+
+    /// Spec 058 R19/R20 — the runtime asking this crate to hand a document to
+    /// the platform.
+    ///
+    /// Same division of labour as the Save As panel above, one step further
+    /// along: the runtime owns the document and has already resolved it to a
+    /// path (writing one out for a `LoadBytes` document, because a platform
+    /// takes a file), and this crate owns the platform and nothing else.
+    ///
+    /// Returns true when the write was one of those requests and must NOT be
+    /// stored as ordinary control state.
+    pub(crate) fn viewer_os_request(&mut self, ctrl_id: &str, prop: &str, value: &str) -> bool {
+        use crate::os_handoff::Handoff;
+        let what = if prop.eq_ignore_ascii_case(Handoff::Print.request_prop()) {
+            Handoff::Print
+        } else if prop.eq_ignore_ascii_case(Handoff::Share.request_prop()) {
+            Handoff::Share
+        } else {
+            return false;
+        };
+        // The runtime CLEARS the request once it has been answered, and that
+        // clear crosses the channel like any other write.
+        let path = value.trim();
+        if path.is_empty() {
+            return true;
+        }
+        self.pending_os_handoff
+            .push((ctrl_id.to_owned(), what, PathBuf::from(path)));
+        true
+    }
+
+    /// Start whatever handoffs the state drain queued, and collect the answers
+    /// to ones started earlier.
+    ///
+    /// Both here, beside the drain that raises them, because a print spooler
+    /// or a desktop opener can take seconds: the handoff is started on one
+    /// frame and answered on some later one, exactly as a native dialog is.
+    pub(crate) fn drive_viewer_os_handoffs(&mut self, ctx: &egui::Context) {
+        for (id, what, path) in std::mem::take(&mut self.pending_os_handoff) {
+            crate::os_handoff::hand_off_async(
+                what,
+                path,
+                id,
+                self.os_handoff.tx.clone(),
+                ctx.clone(),
+            );
+        }
+        while let Ok((id, what, outcome)) = self.os_handoff.rx.try_recv() {
+            // The reason FIRST, then the answer: the runtime raises the
+            // Cancelled event when it reads the answer, and a handler that
+            // reads `LastError` must find it already there.
+            if !outcome.accepted && !outcome.reason.is_empty() {
+                self.state_entry_mut(&id).set("LastError", outcome.reason.clone());
+                let _ = self
+                    .input_tx
+                    .send(StateUpdate::new(id.clone(), "LastError", outcome.reason));
+            }
+            let answer = if outcome.accepted { "1" } else { "" };
+            self.state_entry_mut(&id).set(what.answer_prop(), answer.to_owned());
+            let _ = self
+                .input_tx
+                .send(StateUpdate::new(id, what.answer_prop(), answer));
         }
     }
 
@@ -1938,6 +2025,10 @@ impl FormBody {
         if self.viewer_save_as_request(&key, &u.prop, &u.value) {
             return;
         }
+        // 058 R19/R20 — and the two that hand the document to the platform.
+        if self.viewer_os_request(&key, &u.prop, &u.value) {
+            return;
+        }
         // An OBSERVER event reports that a value is now different, whoever made it
         // different — so a Timer handler doing `MOVE 5 TO KNOB-1::Value` has to
         // fire the Knob's `onValueChanged` exactly as a drag does.
@@ -2401,6 +2492,9 @@ impl FormBody {
         // and answered on some later one.
         self.start_pending_save_as(ctx);
         self.collect_viewer_save_as();
+        // R19/R20 — the same shape: started on one frame, answered on a later
+        // one, because a print spooler takes as long as it takes.
+        self.drive_viewer_os_handoffs(ctx);
 
         // DISPLAY → stdout (the IDE's Output pane reads it there).
         {
@@ -3679,6 +3773,8 @@ impl FormHost {
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             pending_save_as: Vec::new(),
+            pending_os_handoff: Vec::new(),
+            os_handoff: OsHandoffChannel::default(),
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
@@ -7711,6 +7807,8 @@ mod parity {
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
             pending_save_as: Vec::new(),
+            pending_os_handoff: Vec::new(),
+            os_handoff: OsHandoffChannel::default(),
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),

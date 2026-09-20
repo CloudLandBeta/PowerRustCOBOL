@@ -37,6 +37,8 @@ pub mod debug_link;
 pub mod diagnostics;
 pub mod file_dialog;
 pub mod host;
+/// Handing a document to the operating system: Print and Share (R19/R20).
+pub mod os_handoff;
 pub mod seeding;
 pub mod shell;
 /// The Snackbar's live stack (spec 055) — raise, expire, hover-pause, reflow and

@@ -4404,12 +4404,19 @@ fn viewer_view_interactive(
             // a share sheet or a save dialog to find that out — the same
             // division of labour `toolbar_actions` already carries for
             // ToolBar and `file_picker_requests` for FileDropZone.
-            vw::ToolbarAction::Print | vw::ToolbarAction::Share => {
-                out.toolbar_actions.push((
-                    id.to_string(),
-                    action.as_str().to_string(),
-                    action.as_str().to_string(),
-                ));
+            // Print and Share go to the RUNTIME, for the reason Save As does:
+            // only the runtime holds the document, and a platform takes a
+            // FILE. They had been pushed onto `toolbar_actions`, where the host
+            // parses the action against the TOOLBAR control's vocabulary —
+            // neither is in it, so both buttons had been inert since they were
+            // drawn, exactly as Save As was.
+            vw::ToolbarAction::Print => {
+                out.prop_updates
+                    .push((id.to_string(), "_PrintAsk".to_string(), "1".to_string()));
+            }
+            vw::ToolbarAction::Share => {
+                out.prop_updates
+                    .push((id.to_string(), "_ShareAsk".to_string(), "1".to_string()));
             }
             // Save As goes to the RUNTIME, not straight to the host — and
             // deliberately, because the runtime is the only side that holds the
