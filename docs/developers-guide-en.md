@@ -3976,6 +3976,11 @@ no capability in this control that COBOL cannot reach.
 - **The filmstrip** is a rail of page thumbnails docked to the left edge of the
   content. It closes two ways: its toolbar button again, or dragging its
   splitter all the way to the left edge.
+- **Text wraps by the word**, at the width the layout gives it. A word too
+  long for a whole line is broken rather than allowed to overflow, and a
+  non-breaking space is never a wrapping point — which is the reason to type
+  one. Inside a fenced code block a long token is broken wherever it has to be,
+  because code carries no spaces to break at.
 - **The wheel belongs to the Viewer.** While the pointer is over the control,
   a wheel notch scrolls the document and stops there — it never also scrolls
   the form, a Panel or a GroupBox behind it, and that holds even where the

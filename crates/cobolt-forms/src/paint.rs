@@ -8425,7 +8425,18 @@ fn build_inline_job(
     use crate::viewer::Inline;
     let mut job = egui::text::LayoutJob::default();
     job.wrap.max_width = max_width.max(10.0);
-    job.wrap.break_anywhere = true;
+    // WORD wrap, not character wrap. This was `break_anywhere = true`, which
+    // ends a row wherever the row runs out of room — so a line ended "…only b"
+    // and the next began "y mouse" (operator, 2026-09-20). Prose is read by the
+    // word; only a code block, whose long tokens carry no spaces to break at,
+    // has any use for breaking mid-token.
+    //
+    // A word too long for a whole row still breaks rather than overflowing: the
+    // layouter falls back through dash and punctuation to any position when no
+    // word boundary fits. And a NON-BREAKING space is excluded from the
+    // boundaries it will use, so `10 NBSP kg` stays on one line — which is the
+    // whole reason to type one.
+    job.wrap.break_anywhere = false;
     for inline in inlines {
         match inline {
             Inline::Text { text, style } => {
@@ -17258,6 +17269,75 @@ mod theme_render_tests {
         // And the page number is still there: a miniature does not replace the
         // one thing a contact sheet must always say.
         assert!(all.contains('1'), "the card must still carry its page number");
+    }
+
+    /// Spec 058 — **prose wraps by the word**, and a non-breaking space is not
+    /// a place to wrap.
+    ///
+    /// The inline layout asked for `break_anywhere`, which ends a row wherever
+    /// the row runs out of room. A paragraph therefore read "…reachable only
+    /// b" / "y mouse." (operator screenshot, 2026-09-20). Asserted on the laid
+    /// out ROWS rather than on the flag, because the flag is not the promise —
+    /// "no word was split" is.
+    #[test]
+    fn prose_wraps_at_words_and_a_non_breaking_space_never_breaks() {
+        let ctx = egui::Context::default();
+        // A Context lays its fonts out on its first pass; laying text out on a
+        // cold one measures nothing.
+        let mut warm = ctx.run_ui(egui::RawInput::default(), |_| {});
+        warm.textures_delta.clear();
+
+        let lay = |text: &str, width: f32| -> Vec<String> {
+            let inlines = vec![crate::viewer::Inline::Text {
+                text: text.to_owned(),
+                style: crate::viewer::TextStyle::default(),
+            }];
+            let job = build_inline_job(
+                &inlines,
+                14.0,
+                Color32::BLACK,
+                Color32::BLACK,
+                VIEWER_LINK_COLOR,
+                VIEWER_CODE_COLOR,
+                width,
+            );
+            let galley = ctx.fonts_mut(|f| f.layout_job(job));
+            galley.rows.iter().map(|r| r.text().to_owned()).collect()
+        };
+
+        // The operator's own sentence, at a width that forces several rows.
+        let sentence = "Every visual state is a property, and every action is a \
+method. Nothing in the control is reachable only by mouse.";
+        let rows = lay(sentence, 220.0);
+        println!("  {} row(s) at 220 px:", rows.len());
+        for r in &rows {
+            println!("    |{}|", r.trim_end());
+        }
+        assert!(rows.len() > 2, "the width must actually force a wrap");
+
+        let mut split = Vec::new();
+        for word in sentence.split_whitespace() {
+            if !rows.iter().any(|r| r.contains(word)) {
+                split.push(word);
+            }
+        }
+        assert!(
+            split.is_empty(),
+            "these words were broken across rows: {split:?}"
+        );
+
+        // A NON-BREAKING space holds its two sides together even where an
+        // ordinary space would have been the chosen break.
+        let joined = "measured at exactly 10\u{00a0}kg before the second weighing";
+        let rows = lay(joined, 150.0);
+        println!("  {} row(s) with a non-breaking space:", rows.len());
+        for r in &rows {
+            println!("    |{}|", r.trim_end());
+        }
+        assert!(
+            rows.iter().any(|r| r.contains("10\u{00a0}kg")),
+            "a non-breaking space must not be a wrap point — rows: {rows:?}"
+        );
     }
 
     fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {

@@ -8,6 +8,26 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.115] — 2026-09-20
+
+### A Viewer's prose wraps by the word
+
+A paragraph read "…in the control is reachable only b" and then "y mouse."
+(operator screenshot, 2026-09-20). The inline layout asked for
+`break_anywhere`, which ends a row wherever the row runs out of room — correct
+for a fenced code block, whose long tokens carry no spaces to break at, and
+wrong for every sentence.
+
+Prose wraps at words now. A word too long for a whole row still breaks rather
+than overflowing, because the layouter falls back through dash and punctuation
+to any position when no word boundary fits — and a **non-breaking space** is
+excluded from the boundaries it will use, so `10\u{00a0}kg` stays on one line,
+which is the whole reason to type one. Code blocks keep breaking anywhere.
+
+Guarded by `prose_wraps_at_words_and_a_non_breaking_space_never_breaks`, which
+asserts on the laid-out ROWS rather than on the flag: the flag is not the
+promise, "no word was split" is.
+
 ## [PowerRustCOBOL 1.70.114] — 2026-09-20
 
 ### The Viewer keeps the wheel
