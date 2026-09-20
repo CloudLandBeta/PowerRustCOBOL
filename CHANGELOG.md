@@ -8,6 +8,67 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.110] — 2026-09-20
+
+### A Viewer wears one colour, and it is the one you chose
+
+A Viewer on a form showed three unrelated colours at once: a near-white toolbar
+band, a grey filmstrip rail, and a content pane in whatever the form had
+actually painted underneath. On a Neumorphic Light form, where every other
+control wears `#E8EDFE`, that read as one control disagreeing with itself
+(operator, 2026-09-20: "be consistent with the colors … the filmstrip
+background must match the background of the viewer content pane").
+
+The cause was a surface that was never the right one to ask. The chrome took
+its colour from the theme's `Card` token — the colour of a PAGE — and under the
+`Page` layout from a forced paper white, neither of which has anything to do
+with the face the form paints. The same class of bug as resolving a caption's
+ink against `fill` instead of the face the theme really lays down: ask the
+wrong surface and every colour derived from it is wrong together.
+
+There are now **two** surfaces in a Viewer's paint, and they are not
+interchangeable:
+
+| | is | governs |
+|---|---|---|
+| paper | white under `Page`, the theme's card otherwise | the page body, cards, thumbnails |
+| face | the control's own resolved background | the content pane, the filmstrip, the toolbar |
+
+The filmstrip no longer fills a rail of its own at all. A rail is a colour, and
+a colour cannot match a face that may be a gradient, a frost or a background
+image — so the control's face runs edge to edge and the only thing between the
+strip and the pane is a hairline rule, at one strength shared with the rule
+under the toolbar.
+
+**`BackgroundColor` and the background gradient now reach a Viewer**, which
+follows from the same change rather than being bolted beside it: the chrome
+asks what the face is, so setting a face moves the chrome with it. A gradient
+answers with its midpoint, which is the one honest tone for chrome sitting on
+top of a sweep.
+
+The chrome's ink is derived from that face rather than inherited from
+`ForegroundColor`. Every control is seeded with the `#FFFFFF` foreground
+sentinel and nothing under Classic/Enhanced glass can resolve it away, so a
+Viewer painted white would otherwise have got white icons on a white band.
+`ForegroundColor` still reaches the document itself, which is where prose
+lives.
+
+### A document Source can be browsed for, and cleared
+
+`Source` was a bare text field: one long string, typed blind, with no feedback
+until Run. It now carries the two affordances every other path property in the
+IDE has — **📂** opens the operating system's own chooser, **✕** clears the
+selection — on both views, because a split Viewer's second document is chosen
+the same way as its first.
+
+The picker is asynchronous, like every other file dialog in the IDE: a
+synchronous one nests the OS event loop and aborts winit.
+
+Guarded by `a_viewers_filmstrip_and_toolbar_wear_the_controls_own_face`, which
+measures the emitted shapes rather than comparing against a predicted colour —
+a test that predicted the surface would have passed throughout — and by
+`a_viewers_source_can_be_browsed_for_and_cleared`.
+
 ## [PowerRustCOBOL 1.70.109] — 2026-09-20
 
 ### A refused Build says so in a window, and offers to take you there

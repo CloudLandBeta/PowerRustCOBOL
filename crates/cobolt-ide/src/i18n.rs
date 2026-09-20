@@ -1392,6 +1392,10 @@ pub struct Tr {
     pub sec_viewer_conversation: &'static str,
     /// Hint shown beside the second view's properties.
     pub viewer_second_view_hint: &'static str,
+    /// Placeholder in a Viewer's Source field — a path or a web address.
+    pub prop_viewer_source_hint: &'static str,
+    /// Hover text on a Viewer's Source field.
+    pub prop_viewer_source_tip: &'static str,
     /// Label + format hint for the `Buttons` collection editor. The FIELD names
     /// inside it stay English — they are values COBOL compares against, not
     /// labels (the CRITICAL constraint).
@@ -2853,6 +2857,8 @@ const EN: Tr = Tr {
     sec_viewer_find: "🔎 Find",
     sec_viewer_conversation: "💬 Conversation",
     viewer_second_view_hint: "Shown because SplitMode is not None",
+    prop_viewer_source_hint: "file path or https://…",
+    prop_viewer_source_tip: "A document on disk, or a http:// / https:// address. Use 📂 to browse, ✕ to clear.",
     snackbar_buttons_label: "Buttons (one per line: id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "More than 3 buttons: only the first 3 are shown.",
     sec_columns:            "📑 Columns",
@@ -4205,6 +4211,8 @@ const ES: Tr = Tr {
     sec_viewer_find: "🔎 Buscar",
     sec_viewer_conversation: "💬 Conversación",
     viewer_second_view_hint: "Visible porque SplitMode no es None",
+    prop_viewer_source_hint: "ruta de archivo o https://…",
+    prop_viewer_source_tip: "Un documento en el disco, o una dirección http:// / https://. Use 📂 para examinar, ✕ para quitar.",
     snackbar_buttons_label: "Botones (uno por línea: id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "Más de 3 botones: solo se muestran los 3 primeros.",
     sec_columns:            "📑 Columnas",
@@ -5557,6 +5565,8 @@ const PT: Tr = Tr {
     sec_viewer_find: "🔎 Localizar",
     sec_viewer_conversation: "💬 Conversa",
     viewer_second_view_hint: "Visível porque SplitMode não é None",
+    prop_viewer_source_hint: "caminho do arquivo ou https://…",
+    prop_viewer_source_tip: "Um documento no disco, ou um endereço http:// / https://. Use 📂 para procurar, ✕ para remover.",
     snackbar_buttons_label: "Botões (um por linha: id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "Mais de 3 botões: apenas os 3 primeiros são exibidos.",
     sec_columns:            "📑 Colunas",
@@ -6908,6 +6918,8 @@ const JA: Tr = Tr {
     sec_viewer_find: "🔎 検索",
     sec_viewer_conversation: "💬 会話",
     viewer_second_view_hint: "SplitMode が None ではないため表示されています",
+    prop_viewer_source_hint: "ファイルパス または https://…",
+    prop_viewer_source_tip: "ディスク上の文書、または http:// / https:// のアドレス。📂 で参照、✕ で解除します。",
     snackbar_buttons_label: "ボタン（1行に1つ: id|text|icon|position|dismiss）",
     warn_snackbar_too_many_buttons: "ボタンが3個を超えています。最初の3個のみ表示されます。",
     sec_columns:            "📑 列",
@@ -8266,6 +8278,8 @@ const ZH: Tr = Tr {
     sec_viewer_find: "🔎 查找",
     sec_viewer_conversation: "💬 对话",
     viewer_second_view_hint: "因为 SplitMode 不是 None，所以显示",
+    prop_viewer_source_hint: "文件路径或 https://…",
+    prop_viewer_source_tip: "磁盘上的文档，或 http:// / https:// 地址。用 📂 浏览，用 ✕ 清除。",
     snackbar_buttons_label: "按钮（每行一个: id|text|icon|position|dismiss）",
     warn_snackbar_too_many_buttons: "按钮超过 3 个：仅显示前 3 个。",
     sec_columns:            "📑 列",
@@ -9619,6 +9633,8 @@ const FR: Tr = Tr {
     sec_viewer_find: "🔎 Rechercher",
     sec_viewer_conversation: "💬 Conversation",
     viewer_second_view_hint: "Affiché car SplitMode n'est pas None",
+    prop_viewer_source_hint: "chemin du fichier ou https://…",
+    prop_viewer_source_tip: "Un document sur le disque, ou une adresse http:// / https://. Utilisez 📂 pour parcourir, ✕ pour effacer.",
     snackbar_buttons_label: "Boutons (un par ligne : id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "Plus de 3 boutons : seuls les 3 premiers sont affichés.",
     sec_columns:            "📑 Colonnes",

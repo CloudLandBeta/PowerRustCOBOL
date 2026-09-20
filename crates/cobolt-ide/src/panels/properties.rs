@@ -4190,6 +4190,101 @@ impl PropertiesPanel {
         });
     }
 
+    /// A Viewer's document source: **browse**, **clear**, and a field that
+    /// takes a path *or* a URL.
+    ///
+    /// Deliberately not `image_picker_row` with a different extension list.
+    /// Two things differ and both matter: the field accepts `http(s)://`, which
+    /// must survive untouched rather than be run through `store_asset_path`
+    /// (that would turn a URL into a nonsense relative path); and a document
+    /// the developer opens is routinely *outside* the project, where
+    /// `store_asset_path` correctly returns the absolute path.
+    ///
+    /// The browse button exists because a Source the developer can only type is
+    /// a Source they get wrong: the whole property is one long string with no
+    /// feedback until Run (operator, 2026-09-20).
+    #[allow(clippy::too_many_arguments)]
+    fn document_picker_row(
+        &mut self,
+        ui: &mut Ui,
+        ctrl: &Control,
+        id: &str,
+        key: &'static str,
+        label: &str,
+        tr: &Tr,
+        action: &mut InspectorAction,
+    ) {
+        let cur = ctrl
+            .get_prop(key)
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_default();
+        // Namespaced by viewport, exactly as `image_picker_row` is: the
+        // in-window inspector and a detached Designer window must not share
+        // either the edit buffer or the dialog slot.
+        let vp = ui.ctx().viewport_id();
+        let buf_key = format!("{id}-{key}:{vp:?}");
+        let wid = egui::Id::new(&buf_key);
+        let pick_key = format!("docpick:{id}:{key}:{vp:?}");
+        let focused = ui.memory(|m| m.has_focus(wid));
+        let buf = self.text_bufs.entry(buf_key).or_insert_with(|| cur.clone());
+        if *buf != cur && !focused {
+            *buf = cur.clone();
+        }
+        property_row(ui, label, |ui| {
+            // Asynchronous picker — a synchronous dialog nests the OS event
+            // loop and aborts winit 0.30.
+            if ui
+                .button("📂")
+                .on_hover_text(tr.settings_bg_browse)
+                .clicked()
+            {
+                crate::file_dialog::open_file(
+                    ui.ctx(),
+                    &pick_key,
+                    "Documents",
+                    &[
+                        "txt", "md", "markdown", "log", "csv", "pdf", "htm", "html", "png", "jpg",
+                        "jpeg", "bmp", "gif", "webp", "svg",
+                    ],
+                );
+            }
+            if crate::file_dialog::is_open(&pick_key) {
+                ui.ctx().request_repaint();
+            }
+            if let Some(Some(p)) = crate::file_dialog::take(&pick_key) {
+                let picked = store_asset_path(&p);
+                *buf = picked.clone();
+                action
+                    .set_props
+                    .push((id.to_owned(), key.into(), PropValue::String(picked)));
+            }
+            if ui
+                .add_enabled(!cur.is_empty(), egui::Button::new("✕"))
+                .on_hover_text(tr.settings_bg_clear)
+                .clicked()
+            {
+                buf.clear();
+                action
+                    .set_props
+                    .push((id.to_owned(), key.into(), PropValue::String(String::new())));
+            }
+            if ui
+                .add(
+                    egui::TextEdit::singleline(buf)
+                        .id(wid)
+                        .hint_text(tr.prop_viewer_source_hint)
+                        .desired_width(f32::INFINITY),
+                )
+                .on_hover_text(tr.prop_viewer_source_tip)
+                .lost_focus()
+            {
+                action
+                    .set_props
+                    .push((id.to_owned(), key.into(), PropValue::String(buf.clone())));
+            }
+        });
+    }
+
     fn show_appearance_grid(
         &mut self,
         ui: &mut Ui,
@@ -7614,7 +7709,7 @@ impl PropertiesPanel {
             // second view for it to mean anything about.
             ControlType::Viewer if phase == TypeSection::Basic => {
                 section_header(ui, tr.sec_viewer_document);
-                text_prop_row(ui, id, "Source", "Source", ctrl, action, &mut self.text_bufs);
+                self.document_picker_row(ui, ctrl, id, "Source", "Source", tr, action);
                 combo_row_inline(
                     ui, id, "Format", ctrl, action,
                     &["", "Text", "Markdown", "Image", "Pdf", "HtmlSubset"],
@@ -7651,8 +7746,8 @@ impl PropertiesPanel {
                         ui, id, "SplitPercent", "Divider (%)", ctrl, action, 0..=100, None, 50,
                     );
                     ui.label(egui::RichText::new(tr.viewer_second_view_hint).small().weak());
-                    text_prop_row(
-                        ui, id, "View2Source", "View2 Source", ctrl, action, &mut self.text_bufs,
+                    self.document_picker_row(
+                        ui, ctrl, id, "View2Source", "View2 Source", tr, action,
                     );
                     int_prop_row(
                         ui, id, "View2Zoom", "View2 Zoom (%)", ctrl, action, 25..=1600, None, 100,
@@ -13685,6 +13780,38 @@ mod snackbar_colour_row_tests {
             let found = painted.iter().any(|t| t.contains(want));
             println!("  {:<20} {}", want, if found { "editable" } else { "MISSING" });
             assert!(found, "R22: {want:?} must be editable from the Properties panel");
+        }
+    }
+
+    /// **A Source the developer can only type is a Source they get wrong.**
+    ///
+    /// The whole property is one long string with no feedback until Run, so it
+    /// carries the two affordances every other path property in the IDE has:
+    /// **📂** opens the operating system's own chooser, **✕** clears the
+    /// selection (operator, 2026-09-20). Both views get them — a split Viewer's
+    /// second document is picked the same way as its first.
+    #[test]
+    fn a_viewers_source_can_be_browsed_for_and_cleared() {
+        let unsplit = Control::new("VWR-1", ControlType::Viewer, 0, 0);
+        let mut split = Control::new("VWR-1", ControlType::Viewer, 0, 0);
+        split.set_prop("SplitMode", PropValue::String("LeftRight".into()));
+
+        for (what, ctrl, wanted) in [
+            ("one view", &unsplit, 1usize),
+            ("split in two", &split, 2usize),
+        ] {
+            let painted = viewer_painted(ctrl);
+            let browse = painted.iter().filter(|t| t.contains('\u{1F4C2}')).count();
+            let clear = painted.iter().filter(|t| t.contains('\u{2715}')).count();
+            println!("  {what:<14} browse buttons: {browse}, clear buttons: {clear}");
+            assert_eq!(
+                browse, wanted,
+                "{what}: every document Source must offer a browse button"
+            );
+            assert_eq!(
+                clear, wanted,
+                "{what}: every document Source must offer a clear button"
+            );
         }
     }
 

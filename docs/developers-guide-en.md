@@ -3844,6 +3844,10 @@ or bytes your program already holds:
        INVOKE VWR-1::LoadBytes(WS-DOCUMENT-BUFFER)
 ```
 
+In the designer, `Source` is not a field you have to type into blind. It comes
+with a **📂** button that opens your operating system's own file chooser,
+and an **✕** that clears the selection.
+
 Either way the Viewer works out **what** the document is from its content
 first and its file name second, and reports what it decided in `Format`. A PNG
 that someone named `.txt` still opens as a picture. A file it cannot make sense

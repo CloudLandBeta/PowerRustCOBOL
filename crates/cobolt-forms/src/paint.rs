@@ -8010,6 +8010,15 @@ pub fn draw_animator(
 //   makes AC11's design-canvas/interactive parity check meaningful now
 //   rather than comparing real content against a placeholder.
 
+/// How strongly a rule *inside* a Viewer is inked — the line under the
+/// toolbar band, the line down the filmstrip's edge.
+///
+/// One constant for every one of them, because the operator's requirement is
+/// about the SET of them ("the lines separating the pane must be visible, but
+/// not too contrasted", 2026-09-20): two rules at two strengths is the thing
+/// being complained about, whatever either strength is.
+const VIEWER_RULE_ALPHA_DIV: u32 = 5;
+
 const VIEWER_OUTER_GUTTER: f32 = 14.0;
 const VIEWER_TEXT_INSET: f32 = 16.0;
 const VIEWER_PAGE_RADIUS: f32 = 6.0;
@@ -8958,6 +8967,52 @@ pub(crate) fn viewer_measurements(
     ctx.memory(|m| m.data.get_temp::<ViewerPaintResult>(id))
 }
 
+/// The tone the Viewer's own face actually wears — what its content pane, its
+/// filmstrip rail and its toolbar band all sit on.
+///
+/// `draw_viewer` took this from the theme's `Card` token, which is the colour
+/// of a PAGE and not of the control. So a Viewer whose face the form painted
+/// lavender came out with a near-white toolbar and a grey filmstrip: three
+/// colours in one control, none of which the developer chose (operator,
+/// 2026-09-20). It is the same class of bug as picking a caption's ink against
+/// `fill` rather than against the face the theme really paints — ask the wrong
+/// surface and every colour derived from it is wrong together.
+///
+/// Asking the question the rest of the renderer asks — `control_surface_tone`,
+/// the developer's `BackgroundColor` composited over the form's backdrop —
+/// makes the chrome match the face by construction, and makes `BackgroundColor`
+/// reach a Viewer at all.
+fn viewer_face_tone(ctx: &egui::Context, ctrl: &Control) -> Color32 {
+    // A background GRADIENT is painted by the generic face branch and
+    // `control_surface_tone` cannot see it. Its midpoint is the one honest
+    // tone for chrome that has to sit on top of the whole sweep.
+    let gradient = ctrl
+        .get_prop("BackgroundGradientEnabled")
+        .map(|v| v.as_bool())
+        .unwrap_or(false);
+    if gradient {
+        let start = ctrl
+            .get_prop("BackgroundGradientStartColor")
+            .map(|v| parse_color(v.as_str()));
+        let end = ctrl
+            .get_prop("BackgroundGradientEndColor")
+            .map(|v| parse_color(v.as_str()));
+        if let (Some(s), Some(e)) = (start, end) {
+            return lerp_color(s, e, 0.5);
+        }
+    }
+    // The backdrop the render walk published, when it published one — the
+    // designer canvas and the tests have none, and there the universal default
+    // is the same stand-in every other caller of `control_surface_tone` uses.
+    let backdrop = form_backdrop_of(ctx);
+    let under = if backdrop.a() > 0 {
+        backdrop
+    } else {
+        parse_color(crate::model::DEFAULT_BACKGROUND_COLOR)
+    };
+    control_surface_tone(ctx, ctrl, under)
+}
+
 pub(crate) fn draw_viewer(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -8971,6 +9026,15 @@ pub(crate) fn draw_viewer(
     let paged = matches!(layout, "Print" | "Page");
     let forced_paper = layout == "Page";
 
+    // TWO surfaces, and they are not interchangeable.
+    //
+    // `surface`/`ink` are the PAPER — the page body, a card, a thumbnail. Under
+    // `Page` that paper is forced white whatever the theme says (R7).
+    //
+    // `face`/`face_ink` are the CONTROL — the pane the paper sits on, the
+    // filmstrip rail beside it, the toolbar band above it. They follow the face
+    // the form actually painted, which is what keeps the chrome one colour with
+    // the content pane instead of three colours in one control.
     let (surface, ink) = if forced_paper {
         (Color32::from_gray(250), Color32::from_gray(25))
     } else {
@@ -8978,6 +9042,19 @@ pub(crate) fn draw_viewer(
         let ink = resolve_label_ink(ctx, ctrl, false, surface, Color32::from_gray(25));
         (surface, ink)
     };
+    let face = viewer_face_tone(ctx, ctrl);
+    // The chrome's ink is FURNITURE, not prose. Toolbar icons, page numbers and
+    // the rules between the panes have to stay legible on whatever face the
+    // developer chose, so they are derived from that face — the same rule
+    // `resolve_label_ink`'s own documentation cites for the map's info window:
+    // derive the ink from the resolved background, never inherit it.
+    //
+    // Inheriting is what would break here: every control is seeded with the
+    // `#FFFFFF` ForegroundColor sentinel, and under Classic/Enhanced glass
+    // nothing can resolve it away — so a Viewer the developer painted white
+    // would get white icons on a white band. `ForegroundColor` still reaches
+    // the document itself through `ink`, which is where prose lives.
+    let face_ink = crate::map_tiles::readable_ink(face);
     let muted = muted_ink(surface, ink);
     let link_color = Color32::from_rgb(70, 130, 220);
     let code_color = Color32::from_rgb(170, 70, 150);
@@ -9001,14 +9078,15 @@ pub(crate) fn draw_viewer(
 
     if let Some(band) = chrome.toolbar {
         result.toolbar_hits =
-            draw_viewer_toolbar_band(painter, egui_rect_of(band), st, surface, ink, a);
+            draw_viewer_toolbar_band(painter, egui_rect_of(band), st, face, face_ink, a);
     }
     if let Some(bar) = chrome.find_bar {
-        result.find_hits = draw_viewer_find_bar(painter, egui_rect_of(bar), st, surface, ink, a);
+        result.find_hits = draw_viewer_find_bar(painter, egui_rect_of(bar), st, face, face_ink, a);
     }
     if let Some(strip) = chrome.filmstrip {
         let strip_rect = egui_rect_of(strip);
-        result.strip_hits = draw_viewer_filmstrip(painter, strip_rect, st, surface, ink, muted, a);
+        result.strip_hits =
+            draw_viewer_filmstrip(painter, strip_rect, st, face_ink, surface, ink, muted, a);
         result.splitter = Some(egui::Rect::from_min_max(
             egui::pos2(strip_rect.max.x - 3.0, strip_rect.min.y),
             egui::pos2(strip_rect.max.x + 3.0, strip_rect.max.y),
@@ -9232,19 +9310,24 @@ fn draw_viewer_toolbar_band(
     painter: &egui::Painter,
     rect: egui::Rect,
     st: &ViewerPaintState<'_>,
-    surface: Color32,
+    face: Color32,
     ink: Color32,
     a: u8,
 ) -> Vec<(crate::viewer::ToolbarAction, egui::Rect)> {
     use crate::viewer::ToolbarAction as TA;
 
-    let band = lerp_color(surface, ink, 0.06);
+    // A toolbar IS meant to read as a band, so this one keeps a tint of its
+    // own — but the tint is now taken off the control's own face rather than
+    // off a theme token the face may have nothing to do with, so it is a
+    // shade OF the Viewer instead of a fourth colour beside it.
+    let band = lerp_color(face, ink, 0.06);
     painter.rect_filled(
         rect,
         egui::CornerRadius::ZERO,
         Color32::from_rgba_premultiplied(band.r(), band.g(), band.b(), a),
     );
-    let line = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 5) as u8);
+    let line =
+        Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / VIEWER_RULE_ALPHA_DIV) as u8);
     painter.line_segment(
         [egui::pos2(rect.min.x, rect.max.y - 0.5), egui::pos2(rect.max.x, rect.max.y - 0.5)],
         Stroke::new(1.0, line),
@@ -9283,36 +9366,43 @@ fn draw_viewer_find_bar(
     painter: &egui::Painter,
     rect: egui::Rect,
     st: &ViewerPaintState<'_>,
-    surface: Color32,
+    face: Color32,
     ink: Color32,
     a: u8,
 ) -> Vec<(crate::viewer::FindControl, egui::Rect)> {
     use crate::viewer::FindControl as FC;
 
-    let band = lerp_color(surface, ink, 0.1);
+    // One step deeper than the toolbar it sits under, off the same face: the
+    // Find bar is a band ON a band, and telling them apart is what the extra
+    // step buys.
+    let band = lerp_color(face, ink, 0.1);
     painter.rect_filled(
         rect,
         egui::CornerRadius::ZERO,
         Color32::from_rgba_premultiplied(band.r(), band.g(), band.b(), a),
     );
-    let line = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 5) as u8);
+    let line =
+        Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / VIEWER_RULE_ALPHA_DIV) as u8);
     painter.line_segment(
         [egui::pos2(rect.min.x, rect.max.y - 0.5), egui::pos2(rect.max.x, rect.max.y - 0.5)],
         Stroke::new(1.0, line),
     );
 
     let icon_ink = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), a);
-    let muted = muted_ink(surface, ink);
+    let muted = muted_ink(face, ink);
     let pressed_fill = Color32::from_rgba_premultiplied(70, 130, 220, (a as u32 / 3) as u8);
     let mut hits = Vec::new();
     for (control, slot) in crate::viewer::find_slots(view_rect_of(rect)) {
         let r = egui_rect_of(slot);
         match control {
             FC::Field => {
+                // The search field is a WELL: one step back toward the face
+                // from the band it is set into, which reads as recessed on a
+                // light theme and on a dark one alike.
                 painter.rect_filled(
                     r,
                     egui::CornerRadius::same(3),
-                    Color32::from_rgba_premultiplied(surface.r(), surface.g(), surface.b(), a),
+                    Color32::from_rgba_premultiplied(face.r(), face.g(), face.b(), a),
                 );
                 painter.rect_stroke(
                     r,
@@ -9415,18 +9505,31 @@ fn draw_viewer_find_highlights(
 /// thumbnails inside the rail's own visible height are drawn — and only
 /// those ask [`ViewerPaintState::page_preview`] for text, so the rail's cost
 /// is its own height, never the document's length (R2).
+#[allow(clippy::too_many_arguments)]
 fn draw_viewer_filmstrip(
     painter: &egui::Painter,
     rect: egui::Rect,
     st: &ViewerPaintState<'_>,
+    face_ink: Color32,
     surface: Color32,
     ink: Color32,
     muted: Color32,
     a: u8,
 ) -> Vec<(usize, egui::Rect)> {
-    let rail = lerp_color(surface, ink, 0.1);
-    painter.rect_filled(rect, egui::CornerRadius::ZERO, Color32::from_rgba_premultiplied(rail.r(), rail.g(), rail.b(), a));
-    let edge = Color32::from_rgba_premultiplied(ink.r(), ink.g(), ink.b(), (a as u32 / 4) as u8);
+    // The rail is NOT filled. It used to paint a 10 %-inked slab of its own,
+    // which is how a grey strip came to sit beside a lavender content pane —
+    // and no fill can match a face that is a gradient, a frost or a background
+    // image anyway. Painting nothing lets the control's own face run edge to
+    // edge, so the strip and the pane are the same surface by construction and
+    // the only thing between them is the rule below (operator, 2026-09-20:
+    // "the filmstrip background must match the background of the viewer
+    // content pane").
+    let edge = Color32::from_rgba_premultiplied(
+        face_ink.r(),
+        face_ink.g(),
+        face_ink.b(),
+        (a as u32 / VIEWER_RULE_ALPHA_DIV) as u8,
+    );
     painter.line_segment(
         [egui::pos2(rect.max.x - 0.5, rect.min.y), egui::pos2(rect.max.x - 0.5, rect.max.y)],
         Stroke::new(1.0, edge),
@@ -16875,6 +16978,133 @@ mod theme_render_tests {
         );
         assert_eq!(windowed.len(), 1, "the toolbar band is painted when not fullscreen");
         assert!(fullscreen.is_empty(), "AC5: entering fullscreen paints no toolbar band");
+    }
+
+    /// Spec 058 — the Viewer's chrome wears the **control's own face**, so the
+    /// filmstrip rail and the content pane are one colour and the developer's
+    /// `BackgroundColor` reaches every part of the control.
+    ///
+    /// The bug this guards (operator, 2026-09-20: "be consistent with the
+    /// colors … the filmstrip background must match the background of the
+    /// viewer content pane"): the chrome took its surface from the theme's
+    /// `Card` token, and under `Page` from a forced paper white, neither of
+    /// which is the face the form actually painted. A Viewer therefore showed
+    /// three unrelated colours — a near-white toolbar, a grey filmstrip and a
+    /// lavender pane — on a form where every other control wore one.
+    ///
+    /// Measured on the emitted shapes, never inferred: a test that compared a
+    /// colour against a PREDICTED surface would have passed all along.
+    #[test]
+    fn a_viewers_filmstrip_and_toolbar_wear_the_controls_own_face() {
+        let content = ViewerPageContent::Text("A document.".into());
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(420.0, 320.0));
+        let chrome = crate::viewer::chrome_layout(
+            crate::viewer::ViewRect::new(rect.min.x, rect.min.y, rect.width(), rect.height()),
+            &crate::viewer::ChromeOpts {
+                fullscreen: false,
+                streamed: false,
+                filmstrip: Some(crate::viewer::FILMSTRIP_DEFAULT_WIDTH),
+                find_open: false,
+            },
+        );
+        let strip = chrome.filmstrip.expect("the filmstrip was asked for");
+        let strip_rect = egui::Rect::from_min_size(
+            Pos2::new(strip.x, strip.y),
+            Vec2::new(strip.w, strip.h),
+        );
+
+        // Every filled rect this paint emits, as (rect, colour).
+        let painted = |bg: &str| -> Vec<(egui::Rect, Color32)> {
+            let ctx = egui::Context::default();
+            let mut ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+            ctrl.set_prop("BackgroundColor", crate::model::PropValue::String(bg.into()));
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 420.0)));
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE)
+                    .show_inside(root, |ui| {
+                        let painter = ui.painter().clone();
+                        // `Page` on purpose: it is the layout that forced paper
+                        // white on the chrome as well as on the page.
+                        let mut st = test_viewer_state(&content, "Page", 14.0);
+                        st.filmstrip = Some(crate::viewer::FILMSTRIP_DEFAULT_WIDTH);
+                        st.page_count = 4;
+                        draw_viewer(&painter, rect, &ctrl, &st);
+                    });
+            });
+            full.textures_delta.clear();
+            fn walk(s: &egui::Shape, into: &mut Vec<(egui::Rect, Color32)>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                    egui::Shape::Rect(r) if r.fill.a() > 0 => into.push((r.rect, r.fill)),
+                    _ => {}
+                }
+            }
+            let mut found = Vec::new();
+            for cs in &full.shapes {
+                walk(&cs.shape, &mut found);
+            }
+            found
+        };
+
+        // 1. NOTHING fills the rail. A rail slab is a colour of its own, and a
+        //    colour of its own is exactly what cannot match a face that may be
+        //    a gradient, a frost or a background image.
+        let white = painted("#FFFFFFFF");
+        let rail: Vec<_> = white
+            .iter()
+            .filter(|(r, _)| {
+                (r.width() - strip_rect.width()).abs() < 1.5
+                    && (r.height() - strip_rect.height()).abs() < 1.5
+                    && (r.min.x - strip_rect.min.x).abs() < 1.5
+            })
+            .collect();
+        println!(
+            "filmstrip rail {:.0}x{:.0} at x={:.0} — {} slab(s) filling it",
+            strip_rect.width(),
+            strip_rect.height(),
+            strip_rect.min.x,
+            rail.len()
+        );
+        assert!(
+            rail.is_empty(),
+            "the filmstrip must not fill a rail of its own — the control's face \
+             is the match; found {rail:?}"
+        );
+
+        // 2. The toolbar band FOLLOWS the face: two different backgrounds must
+        //    give two different bands. Equal bands would mean the chrome is
+        //    still being coloured by something other than the control.
+        let band_of = |shapes: &[(egui::Rect, Color32)]| -> Option<Color32> {
+            let band = chrome.toolbar.expect("the toolbar band is placed");
+            shapes
+                .iter()
+                .find(|(r, _)| {
+                    (r.width() - band.w).abs() < 1.5 && (r.height() - band.h).abs() < 1.5
+                })
+                .map(|(_, c)| *c)
+        };
+        let dark = painted("#202030FF");
+        let (light_band, dark_band) = (band_of(&white), band_of(&dark));
+        println!(
+            "toolbar band — on #FFFFFF: {light_band:?}; on #202030: {dark_band:?}"
+        );
+        let light_band = light_band.expect("a toolbar band is painted on a white Viewer");
+        let dark_band = dark_band.expect("a toolbar band is painted on a dark Viewer");
+        assert_ne!(
+            light_band, dark_band,
+            "the toolbar band must follow the control's BackgroundColor, not a \
+             theme token the face has nothing to do with"
+        );
+        // And it is a shade OF that colour, not an unrelated one: a band over a
+        // white face stays light, a band over a near-black face stays dark.
+        assert!(
+            light_band.r() > 200 && dark_band.r() < 90,
+            "the band must be a shade of the face it sits on — got {light_band:?} \
+             over white and {dark_band:?} over #202030"
+        );
     }
 
     fn count_stroked_rects(shapes: &[egui::Shape]) -> usize {
