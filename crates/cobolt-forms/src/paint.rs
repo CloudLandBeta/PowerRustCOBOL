@@ -8531,25 +8531,98 @@ struct ViewerGalleyStore {
     /// job hash → (galley, the tick it was last asked for)
     kept: HashMap<u64, (std::sync::Arc<egui::Galley>, u64)>,
     tick: u64,
+    /// The atlas every galley in `kept` was rasterised into.
+    atlas: Option<AtlasId>,
+}
+
+/// Which font atlas a laid-out galley belongs to.
+///
+/// A `Galley` addresses each of its glyphs by PIXEL inside epaint's font atlas,
+/// and that atlas is not forever. epaint rasterises a new one when the text
+/// options change — the dark/light `color_transfer_function` is one of them —
+/// when `set_fonts` installs a family, which [`crate::fonts::font_id`] does the
+/// first time a control asks for a system font, or when the atlas passes 80 %
+/// full. Its own galley cache is dropped in the same breath, so epaint is never
+/// caught holding a galley that outlived its atlas.
+///
+/// [`ViewerGalleys`] was, and every glyph it had kept went on indexing pixels
+/// that by then belonged to other glyphs — a page of gibberish, which is how
+/// the operator found it (2026-09-20, at 1.70.126).
+#[derive(Clone, Copy, PartialEq)]
+struct AtlasId {
+    /// The atlas image. Its width is fixed for the life of one atlas, and its
+    /// height DOUBLES as glyphs are added — which leaves every pixel where it
+    /// was, so a taller atlas is still the same atlas. A new one starts 32 px
+    /// tall, so a height coming DOWN is a replacement.
+    size: [usize; 2],
+    /// How much of the atlas is spoken for. Inside one atlas the allocation
+    /// cursor only travels forward and the height it is measured against is
+    /// the constant width, so this only rises: a FALL is a new atlas even when
+    /// the size happens to match.
+    fill: f32,
+    /// The text options the atlas was rasterised under — changing them is one
+    /// of the three things that asks epaint for a new atlas.
+    options: egui::epaint::TextOptions,
+    /// How many fonts and families are installed. `set_fonts` is the second,
+    /// and this catches it at the moment it lands rather than by its effect.
+    fonts: usize,
+    families: usize,
+}
+
+impl AtlasId {
+    fn read(ctx: &egui::Context) -> Self {
+        ctx.fonts(|f| Self {
+            size: f.font_image_size(),
+            fill: f.font_atlas_fill_ratio(),
+            options: *f.options(),
+            fonts: f.definitions().font_data.len(),
+            families: f.definitions().families.len(),
+        })
+    }
+
+    /// Is this the same atlas `earlier` named — grown, perhaps, but never
+    /// replaced? Anything else, including anything this cannot account for,
+    /// counts as a new atlas: dropping galleys that were still good costs one
+    /// layout, and keeping one that is not costs the page.
+    fn same_atlas_as(&self, earlier: &Self) -> bool {
+        self.options == earlier.options
+            && self.fonts == earlier.fonts
+            && self.families == earlier.families
+            && self.size[0] == earlier.size[0]
+            && self.size[1] >= earlier.size[1]
+            && self.fill >= earlier.fill
+    }
 }
 
 /// Lay `job` out, or hand back the galley from the last time it was asked for.
 ///
 /// Keyed exactly as epaint keys its own cache — the job's hash together with
-/// the pixels-per-point the galley was laid out at — so a hit is the galley
-/// that call would have produced and never a stale one.
+/// the pixels-per-point the galley was laid out at — and held only as long as
+/// the atlas those glyphs live in ([`AtlasId`]), so a hit is the galley the
+/// call would have produced and never a stale one. The guard on that promise is
+/// `a_kept_galley_never_outlives_its_font_atlas`.
 fn viewer_layout(
     painter: &egui::Painter,
     job: egui::text::LayoutJob,
 ) -> std::sync::Arc<egui::Galley> {
     let ctx = painter.ctx();
     let key = egui::epaint::util::hash((&job, egui::emath::OrderedFloat(ctx.pixels_per_point())));
+    // Read the atlas BEFORE taking the store's lock: the miss path below holds
+    // the store while it asks the context to lay a job out, and two locks taken
+    // in two orders is how a deadlock is built.
+    let atlas = AtlasId::read(ctx);
     let store = ctx.memory_mut(|m| {
         m.data
             .get_temp_mut_or_default::<ViewerGalleys>(egui::Id::new("viewer-galleys"))
             .clone()
     });
     let mut store = store.0.lock().unwrap_or_else(|e| e.into_inner());
+    if !store.atlas.is_some_and(|before| atlas.same_atlas_as(&before)) {
+        // The glyphs these galleys point at are gone. Laying the page out again
+        // is the whole cost of being wrong here; painting it is not.
+        store.kept.clear();
+    }
+    store.atlas = Some(atlas);
     store.tick = store.tick.wrapping_add(1);
     let tick = store.tick;
     if let Some((galley, last)) = store.kept.get_mut(&key) {
@@ -17846,12 +17919,22 @@ method. Nothing in the control is reachable only by mouse.";
     ///
     /// | frames | before | after |
     /// |---|---|---|
-    /// | zoom unchanged at 100 % | 1.6 ms | 2.0 ms |
-    /// | zoom unchanged at 300 % | 9.9 ms | 10.9 ms |
-    /// | zoom alternating 100/101 | **107 ms** | **17 ms** |
-    /// | a drag across the range, retracing | **160 ms** | **29 ms** |
-    /// | a drag across the range, whole | 155 ms | 92 ms |
-    /// | twenty zooms never seen before | 145 ms | 155 ms |
+    /// | zoom unchanged at 100 % | 1.6 ms | 2.1 ms |
+    /// | zoom unchanged at 300 % | 9.9 ms | 7.6 ms |
+    /// | zoom alternating 100/101 | **107 ms** | **15 ms** |
+    /// | a drag across the range, retracing | **160 ms** | **22 ms** |
+    /// | a drag across the range, whole | 155 ms | 84 ms |
+    /// | twenty zooms never seen before | 145 ms | 160 ms |
+    ///
+    /// The "after" column was re-measured at 1.70.127 and the old one is worth
+    /// saying out loud, because it was measuring a bug. It read 2.0 / 10.9 /
+    /// 17 / **29** / 92 / 155 — taken before [`AtlasId`] existed and on the
+    /// 2048-wide atlas a headless egui assumes, where epaint threw the atlas
+    /// away **eight times** during the sweep and the cache went on serving
+    /// galleys that pointed into it. Those frames were fast because they were
+    /// painting gibberish. The atlas is the GPU's max texture side in the app,
+    /// so the harness now says 8192 and the numbers above are of a Viewer
+    /// painting the page it was asked for.
     ///
     /// A **one per cent** change used to cost seventy times a frame that
     /// changes nothing, and the size barely mattered: it is the CHANGE that is
@@ -17860,12 +17943,12 @@ method. Nothing in the control is reachable only by mouse.";
     /// and coming back to a zoom was no cheaper than reaching it — which is
     /// also why snapping the slider to a ladder did nothing on its own.
     ///
-    /// Keeping the galleys makes the ladder pay: a stop already visited is six
-    /// times cheaper and a retraced drag five. The last row is the one that did
-    /// not move, and says what is left: a size seen for the FIRST time is still
-    /// a full layout of the whole document. Culling the page to the blocks on
-    /// screen is what would fix that, and it needs the heights of the blocks
-    /// above the viewport — which is a page-measurement model, not a cache.
+    /// Keeping the galleys makes the ladder pay: a stop already visited is
+    /// seven times cheaper, and so is a retraced drag. The last row is the one
+    /// that did not move, and says what is left: a size seen for the FIRST time
+    /// is still a full layout of the whole document. Culling the page to the
+    /// blocks on screen is what would fix that, and it needs the heights of the
+    /// blocks above the viewport — a page-measurement model, not a cache.
     ///
     /// No thread can fix any of it: text layout belongs to the UI thread and
     /// the galleys are wanted for the frame being painted.
@@ -17885,6 +17968,12 @@ method. Nothing in the control is reachable only by mouse.";
         let mut run = |zoom: i64| -> std::time::Duration {
             let mut input = egui::RawInput::default();
             input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0)));
+            // The font atlas is as wide as the GPU allows, and a headless egui
+            // assumes 2048 — an eighth of what a real window reports. That is
+            // not a detail here: a Viewer rasterises every block at every zoom,
+            // and a 2048-wide atlas fills up and is THROWN AWAY eight times in
+            // this measurement, which is not something the app does.
+            input.max_texture_side = Some(8192);
             let t = std::time::Instant::now();
             let mut full = ctx.run_ui(input, |root| {
                 egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
@@ -17922,6 +18011,85 @@ method. Nothing in the control is reachable only by mouse.";
         println!("  unsnapped zoom, 20 frames: {:.2} ms/frame", avg(&moving));
         println!("  slider sweep, 60 frames:   {:.2} ms/frame", avg(&sweep));
         println!("  second half of the sweep:  {:.2} ms/frame", avg(&sweep[30..]));
+    }
+
+    /// **A galley the Viewer kept may not outlive the atlas it was laid out in.**
+    ///
+    /// A `Galley` addresses each of its glyphs by PIXEL inside epaint's font
+    /// atlas, and that atlas is not forever. epaint starts a new one when the
+    /// text options change — the dark/light `color_transfer_function` is one of
+    /// them — when `set_fonts` installs a family, which `crate::fonts::font_id`
+    /// does the first time a control asks for a system font, or when the atlas
+    /// passes 80 % full. Its own galley cache is dropped in the same breath, so
+    /// epaint is never caught holding a galley that outlived its atlas.
+    /// [`ViewerGalleys`] was: every glyph it kept went on indexing pixels that
+    /// now belong to other glyphs, and the page came out as gibberish
+    /// (operator, 2026-09-20, at 1.70.126).
+    ///
+    /// The invariant is the whole of the cache's promise: **what it hands back
+    /// is what the painter would have laid out right now.**
+    #[test]
+    fn a_kept_galley_never_outlives_its_font_atlas() {
+        let ctx = egui::Context::default();
+        let job = |size: f32| {
+            let mut j = egui::text::LayoutJob::default();
+            j.append(
+                "The quick brown fox",
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::proportional(size),
+                    color: Color32::BLACK,
+                    ..Default::default()
+                },
+            );
+            j
+        };
+        // Where in the atlas the first glyph's bitmap sits.
+        let pixels = |g: &std::sync::Arc<egui::Galley>| {
+            let row = g.rows.first().expect("a row");
+            let glyph = row.row.glyphs.first().expect("a glyph");
+            (glyph.uv_rect.min, glyph.uv_rect.max)
+        };
+        let pass = |f: &mut dyn FnMut(&egui::Painter)| {
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0)));
+            let mut full = ctx.run_ui(input, |root: &mut egui::Ui| {
+                let painter = root.painter().clone();
+                f(&painter);
+            });
+            full.textures_delta.clear();
+        };
+
+        // One pass: the Viewer lays a line out and keeps it.
+        let mut before = None;
+        pass(&mut |p| before = Some(pixels(&viewer_layout(p, job(14.0)))));
+
+        // Hinting is a text option, and a text option changing is one of the
+        // three things that makes epaint throw its atlas away.
+        ctx.all_styles_mut(|s| s.visuals.text_options.font_hinting = false);
+
+        // The next pass rasterises something else FIRST, so the new atlas hands
+        // our line different pixels than the old one did. Without that, a stale
+        // galley would match by luck and the test would prove nothing.
+        let mut fresh = None;
+        let mut kept = None;
+        pass(&mut |p| {
+            let _ = p.layout_job(job(23.0));
+            fresh = Some(pixels(&p.layout_job(job(14.0))));
+            kept = Some(pixels(&viewer_layout(p, job(14.0))));
+        });
+
+        assert_ne!(
+            before, fresh,
+            "the new atlas put the glyphs where the old one had them, so this \
+             test cannot tell a kept galley from a fresh one"
+        );
+        assert_eq!(
+            kept, fresh,
+            "the Viewer handed back a galley from an atlas that no longer \
+             exists: it indexes {before:?}, the live atlas has the glyph at {fresh:?}"
+        );
     }
 
     /// Spec 058 R10/R11 — **zoom reaches an image.**

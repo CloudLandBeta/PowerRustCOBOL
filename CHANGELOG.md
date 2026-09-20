@@ -8,6 +8,50 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.127] — 2026-09-20
+
+### The Viewer paints from the atlas its galleys were laid out in
+
+"viewer is showing gibberish" (operator, 2026-09-20), and the screenshot is
+exactly that: every word a jumble of letters at the wrong sizes and weights, on
+a page whose rules, chrome and toolbar came out perfectly.
+
+A `Galley` addresses each of its glyphs by **pixel** inside epaint's font atlas,
+and that atlas is not forever. epaint rasterises a new one when the text options
+change — the dark/light `color_transfer_function` is one of them — when
+`set_fonts` installs a family, which `fonts::font_id` does the first time a
+control asks for a system font, or when the atlas passes 80 % full. It drops its
+own galley cache in the same breath, so epaint is never caught holding a galley
+that outlived its atlas. `ViewerGalleys`, added at 1.70.123 so the zoom ladder
+would pay, was: the glyphs it kept went on indexing pixels that by then belonged
+to other glyphs. Everything painted fresh was right and everything remembered
+was gibberish, which is why the toolbar above the page looked fine.
+
+The cache now records which atlas its galleys belong to and keeps them only
+while that atlas is the one underneath it. A taller atlas is the same atlas —
+epaint grows one by doubling its height, which leaves every pixel where it was —
+but a height coming back down, a fill ratio that falls, a change of text options
+or a font arriving is a new one, and the page is laid out again. Anything the
+check cannot account for counts as a new atlas: dropping galleys that were still
+good costs one layout, and keeping one that is not costs the page.
+
+`a_kept_galley_never_outlives_its_font_atlas` holds the cache to its promise —
+what it hands back is what the painter would have laid out right now. Against
+the old code it fails with the glyph 183 pixels from where the live atlas has
+it.
+
+### The zoom numbers were measured against the bug
+
+`the_cost_of_a_viewer_paint` was re-run and its table corrected. The old "after"
+column — 2.0 / 10.9 / 17 / **29** / 92 / 155 ms — was taken before that check
+existed and on the 2048-wide atlas a headless egui assumes, an eighth of what a
+real window reports. epaint threw the atlas away **eight times** during that
+sweep and the cache served 243 to 2844 dead galleys each time: those frames were
+fast because they were painting nothing real. The harness now says 8192, as a
+GPU does, and the honest numbers are 2.1 / 7.6 / 15 / **22** / 84 / 160 ms. The
+optimisation still pays — a revisited zoom and a retraced drag are both seven
+times cheaper — and the check itself costs about 3 %.
+
 ## [PowerRustCOBOL 1.70.126] — 2026-09-20
 
 ### Print and Share reach the platform at all
