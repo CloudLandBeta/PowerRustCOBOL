@@ -148,3 +148,9 @@ pub mod map_geometry;
 
 #[cfg(feature = "render")]
 pub mod map_tiles;
+
+// A Viewer `Source` that is a URL: fetched to a local file, then opened by the
+// ordinary path pipeline. Gated with `render` because it rides the same HTTP
+// client (and therefore the same TLS backend) the map tiles do.
+#[cfg(feature = "render")]
+pub mod viewer_remote;

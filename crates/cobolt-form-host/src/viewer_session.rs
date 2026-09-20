@@ -104,7 +104,12 @@ fn open_document_for_paint(
     use cobolt_forms::paint::ViewerPageContent;
     use cobolt_forms::viewer::{self, DocumentSource, ViewerFormat};
 
-    let resolved = cobolt_forms::assets::resolve(source);
+    // This runs on the document worker, which exists precisely to wait for slow
+    // I/O — so a `http(s)://` Source is downloaded HERE, synchronously, and
+    // behaves like a slow disk. Its failure travels the channel every other
+    // open failure travels, and so reaches `LastError` and `onError`.
+    let resolved = cobolt_forms::viewer_remote::local_path_blocking(source)
+        .map_err(|e| format!("could not fetch document: {e}"))?;
     let bytes = std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?;
     let head = &bytes[..bytes.len().min(4096)];
     let format = viewer::detect_format(Some(source), head)

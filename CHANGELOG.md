@@ -8,6 +8,53 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.111] — 2026-09-20
+
+### A Viewer can open a document from the web
+
+`Source` now accepts a `http://` or `https://` address as well as a path:
+
+```cobol
+       MOVE "https://example.com/handbook.md" TO VWR-1::Source
+```
+
+A URL is **not** a third kind of document. It is fetched to a local file once
+and then opened exactly like any other path, so every format, every layout and
+every page-at-a-time read work on a downloaded document without knowing where
+it came from. That shape was chosen deliberately: indexing a two-gigabyte log
+by byte range, seeking to a PDF's cross-reference table and decoding one page
+at a time all want a file, not a socket.
+
+**It is not a browser.** What comes back is bytes, put through the Viewer's own
+`detect_format`. Nothing is executed, no script runs, no sub-resource is
+followed, and an HTML address opens as the HTML subset the control supports.
+
+Every Viewer read goes through **one** funnel, `viewer_remote::local_path`, so
+"a URL is just a path once it has arrived" is true by construction rather than
+by four call sites agreeing. It has two faces, and which one a caller gets is
+decided by which thread it is on:
+
+| caller | behaviour |
+|---|---|
+| a paint | never blocks; answers *fetching*, and asks for a frame in 250 ms |
+| the document worker | blocks, because waiting for slow I/O is its whole job |
+
+Both share one cache, so whichever asks first pays. A download already on disk
+is adopted without a request at all, so reopening a form does not re-fetch
+every document in it. A partial download is written beside its destination and
+renamed, so an interrupted fetch never leaves a truncated file for the next run
+to adopt as complete.
+
+A failure — a refusal, a name that does not resolve, a document past the 256 MB
+ceiling — travels the same channel every other open failure travels, so it
+reaches `LastError` and `onError` unchanged. It is remembered for ten seconds
+and then retried: the commonest failure is a typo the developer corrects a
+second later, and a URL that stayed failed for the life of the process would
+make the control look broken after it had been fixed.
+
+The fetch rides the same HTTP client the map tiles do, which is what gives it a
+TLS backend at all — a bare agent fails every `https://` request in this build.
+
 ## [PowerRustCOBOL 1.70.110] — 2026-09-20
 
 ### A Viewer wears one colour, and it is the one you chose

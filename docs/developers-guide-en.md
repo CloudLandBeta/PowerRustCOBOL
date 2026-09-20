@@ -3832,10 +3832,16 @@ no external application to be installed, and no second process to fail.
 
 #### Opening a document
 
-Two ways in. A path:
+Three ways in. A path:
 
 ```cobol
        MOVE "reports/september.pdf" TO VWR-1::Source
+```
+
+a web address:
+
+```cobol
+       MOVE "https://example.com/handbook.md" TO VWR-1::Source
 ```
 
 or bytes your program already holds:
@@ -3845,8 +3851,25 @@ or bytes your program already holds:
 ```
 
 In the designer, `Source` is not a field you have to type into blind. It comes
-with a **📂** button that opens your operating system's own file chooser,
-and an **✕** that clears the selection.
+with a **📂** button that opens your operating system's own file chooser, and
+an **✕** that clears the selection — and it accepts a `http://` or `https://`
+address typed straight into it.
+
+> **Note — a web address is a document, not a web page.** The Viewer downloads
+> what the address returns, once, and then opens it exactly as though it were a
+> file on disk: every format, every layout and every page-at-a-time read work
+> unchanged. Nothing is executed. No script runs, no stylesheet or image the
+> page references is followed, and an HTML address opens as the HTML **subset**
+> the table below describes, not as a browser would render it. Use it to put a
+> published manual, a release note or a generated report in front of the
+> operator — not to embed a web application.
+>
+> The download happens on the same background thread the reading does, so a
+> slow server behaves like a slow disk and your form keeps repainting. The
+> document is cached, so reopening the form does not fetch it again. A server
+> that refuses, a name that does not resolve, or a document larger than 256 MB
+> raises `onError` with the reason in `LastError`, exactly as an unreadable
+> file does.
 
 Either way the Viewer works out **what** the document is from its content
 first and its file name second, and reports what it decided in `Format`. A PNG

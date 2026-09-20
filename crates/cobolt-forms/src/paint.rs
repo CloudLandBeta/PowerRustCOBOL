@@ -8096,6 +8096,25 @@ pub fn publish_viewer_document(
     }
 }
 
+/// The local file a Viewer `Source` names, keeping the UI awake while a URL is
+/// still downloading.
+///
+/// Through the ONE funnel, so a `http(s)://` Source becomes its cached download
+/// and everything downstream still sees a plain path. A URL that has not
+/// arrived yet simply has no content — the same answer these callers already
+/// give for a file they cannot read — but it will arrive on another thread,
+/// which egui has no way to know about, so a frame is asked for.
+fn viewer_local_path(ctx: &egui::Context, source: &str) -> Option<std::path::PathBuf> {
+    match crate::viewer_remote::local_path(source) {
+        crate::viewer_remote::Local::Path(p) => Some(p),
+        crate::viewer_remote::Local::Fetching => {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            None
+        }
+        crate::viewer_remote::Local::Failed(_) => None,
+    }
+}
+
 /// What a host published for `source`, if anything.
 pub(crate) fn published_viewer_document(
     ctx: &egui::Context,
@@ -8125,7 +8144,7 @@ pub(crate) fn viewer_first_page_content(
     if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<ViewerPageContent>>(id)) {
         return Some(hit);
     }
-    let resolved = crate::assets::resolve(source);
+    let resolved = viewer_local_path(ctx, source)?;
     let bytes = std::fs::read(&resolved).ok()?;
     let head = &bytes[..bytes.len().min(4096)];
     let format = crate::viewer::detect_format(Some(source), head)?;
@@ -8212,7 +8231,7 @@ fn viewer_index(ctx: &egui::Context, source: &str) -> Option<Arc<crate::viewer::
     if let Some(hit) = ctx.memory(|m| m.data.get_temp::<Arc<crate::viewer::DocumentIndex>>(id)) {
         return Some(hit);
     }
-    let resolved = crate::assets::resolve(source);
+    let resolved = viewer_local_path(ctx, source)?;
     let head = {
         use std::io::Read;
         let mut f = std::fs::File::open(&resolved).ok()?;
@@ -8246,7 +8265,7 @@ pub(crate) fn viewer_page_preview(ctx: &egui::Context, source: &str, page: usize
     }
     let index = viewer_index(ctx, source)?;
     let span = *index.pages.get(page)?;
-    let resolved = crate::assets::resolve(source);
+    let resolved = viewer_local_path(ctx, source)?;
     let doc = crate::viewer::DocumentSource::Path(resolved.to_string_lossy().into_owned());
     let text = crate::viewer::decode_text_page(&doc, span).ok()?;
     let snippet: String = text.chars().take(PREVIEW_CHARS).collect();

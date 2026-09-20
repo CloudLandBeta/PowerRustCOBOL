@@ -423,7 +423,13 @@ fn tls_connector() -> Option<std::sync::Arc<native_tls::TlsConnector>> {
 }
 
 /// The agent every tile request runs through.
-fn agent() -> ureq::Agent {
+/// The HTTP client every network fetch in this crate goes through.
+///
+/// `pub(crate)` rather than private because the Viewer's remote documents need
+/// the SAME client: a bare `AgentBuilder` has no TLS backend in this build and
+/// every `https://` request fails with "no TLS backend" — the connector built
+/// below is what makes one work.
+pub(crate) fn agent() -> ureq::Agent {
     let mut builder = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(15));
     if let Some(connector) = tls_connector() {
         builder = builder.tls_connector(connector);
