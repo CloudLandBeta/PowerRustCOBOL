@@ -1,5 +1,53 @@
 # PowerRustCOBOL — Changelog
 
+> **Note — the fix number ran twice.** The Viewer (spec 058, on `features`)
+> and the debugger and macOS build work (spec 061, on `main`) each advanced
+> the fix number independently between 1.70.85 and 1.70.100, so sixteen of
+> those numbers name two different changes. Both records are kept, the
+> Viewer's first where they collide, and nothing has been renumbered: every
+> entry still matches the version the code actually carried when it was
+> written. Numbering is continuous again from 1.70.103.
+
+## [PowerRustCOBOL 1.70.103] — 2026-09-20
+
+### PowerDemo3 gains a Viewer example that drives the whole control
+
+`forms/Common/viewer-form.cfrm`, 50 controls, generating 1465 lines of COBOL
+that parse and analyse with no errors.
+
+Two FileDropZones open the native OS picker on a click, and accept a drag and
+drop through the same event. They read `StagedFiles`, which holds what was
+chosen BEFORE any copying, so the Viewer opens the operator's own file and
+nothing is duplicated anywhere. Choosing a second file turns on split view.
+
+From there every surface the control has is reachable from a button: the five
+layouts including `Streamed`, split side by side and stacked, the card grid,
+the filmstrip, zoom, font size apart from zoom, page navigation, Find with its
+match counter and case and highlight switches, and Save As, Print and Share.
+`onLoaded`, `onError` and `onConversationSelected` are bound, the last one
+answering the control's request with content, which is the round trip history
+is designed around: the Viewer stores an id and a title, never the text.
+
+A Timer streams a genuinely long conversation. Each tick appends Markdown and
+the shape rotates through prose, a task list, a table and fenced code, so the
+stream exercises the renderer rather than repeating one paragraph. It stops
+at 150 messages.
+
+Two documents ship with the project so the demo stands on its own rather than
+reaching into the repository: a Markdown sample, and a plain text sample of 12
+pages separated by real form feeds, so Previous and Next page move between
+pages the file itself declares.
+
+`viewer_demo_compiles` guards all of it — that the form reloads as a Viewer and
+not as `Custom`, that its generated COBOL compiles, that 26 named capabilities
+are still exercised, and that the samples resolve to the formats the form
+expects. It reads the example from the repository's own `examples/PowerDemo3`,
+unlike its sibling demo guards, which look in `~/Documents/PowerDemo3` and have
+therefore never run on a machine without one.
+
+The version skips to .103 rather than taking .101: `main` and `fixes` already
+hold .101 and .102, and a third meaning for the same number helps nobody.
+
 ## [PowerRustCOBOL 1.70.101] — 2026-09-19
 
 ### The macOS .dmg no longer fails the build by succeeding
@@ -21,6 +69,26 @@ loop stops as soon as the mount point is gone, and a forced detach that
 errors is only a failure if the volume is **still mounted** — in which case
 the step refuses to convert a live image and says so. Nothing about the
 happy path changes, and a genuinely stuck volume still fails loudly.
+
+## [PowerRustCOBOL 1.70.100] — 2026-09-19
+
+### Find marks its matches on formatted documents too
+
+Spec 058 R29, closed. Searching a formatted Markdown or HTML document used to
+tell you how many matches there were and where you were among them, while
+showing you none of them — the coloured marks were drawn only on unformatted
+text. Now every match is marked wherever it is: in a heading, in a paragraph,
+in a list, inside a code block, in a table cell. The current match is picked
+out from the rest, and moving to the next one moves the distinguishing colour
+with it.
+
+Counting and marking are now the same walk, so the number in the Find bar and
+the marks on the page cannot disagree about how many there are. A Mermaid
+diagram — whose source is searchable while what you see is a picture — is
+counted as the walk passes it, so a match after a diagram still marks the
+right one rather than the one beside it.
+
+cobolt-forms 1076 passed, cobolt-form-host 137 passed; 0 failed.
 
 ## [PowerRustCOBOL 1.70.100] — 2026-09-19
 
@@ -49,6 +117,34 @@ so GOLDEN RULE #8 leaves nothing further to remove.
 **Two new `Tr` keys in all six languages** for the Output panel's notices
 about a form that cannot be placed — they were English literals when first
 written.
+
+## [PowerRustCOBOL 1.70.99] — 2026-09-19
+
+### A Viewer opens a huge document without the form stopping
+
+Spec 058 R5.1, closed. Reading and indexing a document now happens on the
+Viewer's **own background thread**, where it always should have: the form asks
+for a document and carries straight on painting, and the document appears when
+it is ready.
+
+Measured on a 6.3 MB, four-hundred-page log: asking costs **nine
+microseconds**, and the fifty-five milliseconds of actual reading happen
+somewhere the form never waits for. That is the difference between a window
+that keeps answering the mouse and one that stops dead — and it is what makes
+the promise of opening a two-gigabyte log and jumping to its end a real
+promise rather than a hopeful one.
+
+Asking twice for the same page costs one read, not two, so a form running at
+sixty frames a second does not re-read its document sixty times a second. Each
+Viewer gets its own thread, named after the control, so a slow document in one
+cannot delay another. A document that fails to open leaves the one already on
+screen exactly where it is.
+
+The Form Designer's canvas has no such thread and needs none: it still reads
+what it shows directly, and both it and the running form paint through the
+same code, so a form looks the same in the designer as it does running.
+
+cobolt-forms 1074 passed, cobolt-form-host 137 passed; 0 failed.
 
 ## [PowerRustCOBOL 1.70.99] — 2026-09-19
 
@@ -93,6 +189,40 @@ PowerDemo3's `call-form-demo` / `called-form-demo` pair.
 
 ## [PowerRustCOBOL 1.70.98] — 2026-09-19
 
+### Spec 058 complete: the Viewer control
+
+The last of the thirty-seven tasks. A Viewer now opens plain text, Markdown
+with diagrams in it, every common image format, PDFs and HTML pages; lays them
+out four ways; zooms, scrolls and throws; finds text; shows two documents at
+once or one document twice; saves, prints and shares through the operating
+system; and — set to its fifth layout — hosts a live chatbot conversation that
+your own COBOL appends to. Every one of those is reachable from COBOL: there
+is no capability in this control that only a mouse can get at.
+
+Finishing it meant writing the one test whose whole job is to check that every
+event fires when the documentation says it does — and that test immediately
+earned its place by finding two defects. A document that failed to open raised
+its error event **twice**, because the two spellings of its source property
+were copying each other in a circle; and a property written under its short
+name could read back differently from the same property written under its long
+one. Both fixed.
+
+Two known gaps are recorded rather than quietly left: the per-control decode
+thread is built and tested but not yet on the drawing path (the decode that
+runs instead is bounded, reading only page offsets and only the pages actually
+shown), and the coloured Find highlight is drawn on plain documents but not yet
+on formatted ones, where the count and the Next/Previous navigation are already
+correct.
+
+Across the whole workspace: cobolt-forms 1072 passed, cobolt-runtime 936,
+cobolt-ide 1215, cobolt-form-host 133, cobolt-compiler 132, cobolt-codegen 67.
+Two failures, both predating this work and neither belonging to it — the
+documentation language-coverage guard, which is the expected signal while
+translations await their regeneration, and an external-crates test that builds
+against the network.
+
+## [PowerRustCOBOL 1.70.98] — 2026-09-19
+
 ### Spec 061 T8 — the debugger panel can hold a listing per form
 
 The panel kept one listing for a whole session, and `set_source` — which
@@ -120,6 +250,28 @@ listing nobody loaded is refused rather than blanking the pane.
 
 ## [PowerRustCOBOL 1.70.97] — 2026-09-19
 
+### The Developer's Guide explains the Viewer
+
+Spec 058 T33. The guide gains a Viewer section written for a developer coming
+from PowerCOBOL or isCOBOL: what it replaces (an OLE container or an embedded
+preview — with no container to register and no second process to fail), how to
+open a document by path or from bytes, what **each format actually gives you
+and what it does not**, the layouts, everything about getting around it, Find,
+two documents side by side, saving and printing, and the conversation surface —
+including a worked minimal chatbot form built from a Viewer, a list and two
+buttons, because that is the one part a reader has no prior instinct for.
+
+Writing it found a real gap in the control. The streaming example needed the
+id of the message an append had just created, and the append methods returned
+nothing — which would have left "extend that message" unusable unless the
+program invented ids of its own. `AppendHtml`, `AppendMarkdown` and
+`AppendRaw` now hand back the new message's id.
+
+The Viewer's toolbar tooltips are translated into all six languages, and a
+test refuses to let any of them quietly ship the English text.
+
+## [PowerRustCOBOL 1.70.97] — 2026-09-19
+
 ### Spec 061 T7 — the IDE reads the envelope, and stops merging debug runs
 
 Debugging works again: the IDE parses the `DebugWire` envelope, with a bare
@@ -142,6 +294,26 @@ defined in `cobolt-form-host`, which the IDE depends on only as a
 dev-dependency — a deliberate boundary — while the file's own rule says the
 protocol lives with the protocol, "where the IDE … and this crate can both
 see one spelling of the name". Types only; `debug_link` re-exports them.
+
+## [PowerRustCOBOL 1.70.96] — 2026-09-19
+
+### The AI knows about the Viewer
+
+Spec 058 T32. The System Knowledge Base now carries the whole control: what
+it is for, all sixteen of its property groups, all twenty-two of its events
+and all seventeen of its methods, in both published references. Grace and the
+specialists can therefore write a Viewer into a form without inventing a
+property that does not exist.
+
+The entry says plainly what each format does **not** deliver, as well as what
+it does — that a PDF gives its text and page geometry but not a faithful
+raster of a complex page, that Mermaid means flowcharts and sequence diagrams
+and that anything else is refused by name, that the HTML mode is a subset and
+emphatically not a browser. A developer should learn a boundary from the
+control's own documentation rather than from a specification.
+
+Regenerating the knowledge store also cleared a staleness that predated this
+work: the shipped store had been out of date for the control reference.
 
 ## [PowerRustCOBOL 1.70.96] — 2026-09-19
 
@@ -184,6 +356,33 @@ restored when the IDE side lands (T7).
 
 ## [PowerRustCOBOL 1.70.95] — 2026-09-19
 
+### A Viewer is editable in the designer, and paints the same everywhere
+
+Spec 058 T28 to T31. The Properties panel now carries the whole control:
+its document and format, its layout, font size, zoom, view mode, card size,
+filmstrip and fullscreen, its split view, its Find settings and its
+conversation switch. The second view's properties — and the divider position
+— appear only once the control is actually split, because until then there is
+no second view for them to mean anything about.
+
+Generated code needed no change at all. A Viewer with every one of its
+fifty-one events bound produces fifty-one handler stubs, and the program that
+comes out parses and checks clean; one with no events bound still generates a
+valid program, so dropping the control on a form can never break a build.
+
+**A Viewer now paints identically on the designer canvas and in a running
+form** — measured shape for shape, position for position and colour for
+colour, across plain text, Markdown with a diagram in it, an image, a PDF and
+an HTML page, in every layout, and split both ways. Getting there found a real
+defect: the running form had been painting the control itself and skipping the
+frame the designer draws around it, leaving it five shapes short. It now makes
+exactly one painting call — the same one the canvas makes — and reads back
+what that paint measured instead of drawing its own second version.
+
+cobolt-forms 1071 passed, cobolt-codegen 67 passed; 0 failed.
+
+## [PowerRustCOBOL 1.70.95] — 2026-09-19
+
 ### Spec 061 S1 — the debug router (inert; nothing behaves differently yet)
 
 `DebugRouter` in `cobolt-form-host::debug_link` can hand out the
@@ -214,6 +413,40 @@ per debuggee, and attach/detach are announced once each.
 
 ## [PowerRustCOBOL 1.70.94] — 2026-09-19
 
+### Streamed layout, and a conversation history the developer drives
+
+Spec 058 Stage J. `Layout` set to `Streamed` gives a Viewer one content pane
+and nothing else — no toolbar, no Find bar, no thumbnails, no filmstrip,
+whatever was showing before — and what it shows is the conversation rather
+than a document. Measured with every piece of chrome switched on: the four
+document layouts each paint 171 chrome shapes and `Streamed` paints none.
+
+Managing conversations is the developer's own UI, wired to four things the
+control provides. `NewConversation()` files the open conversation away and
+clears the pane; called on a pane that is already empty it does nothing at all,
+so a history list never fills with blanks. `SelectConversation(id)` files the
+open one away, takes the chosen one out of history, clears the pane and says
+so — which is the host's cue to start sending that conversation's content
+back. `RegisterConversation(id, title)` seeds an entry left over from an
+earlier run, and `HistoryList` reads the whole list back as `id|title`, one
+per line.
+
+**History holds an id and a title, and nothing else.** There is no field for
+content to hide in, so selecting a past conversation cannot repaint anything
+from a cache — it always asks the host. That is what keeps a session that runs
+all day from growing without limit. Ten entries are kept; an eleventh evicts
+the oldest. An entry titles itself from its conversation's own first line,
+because a list of "Conversation 1 to 10" tells a reader nothing.
+
+The pane is cleared **before** either event is raised, so a COBOL handler
+bound to one of them sees an empty pane rather than the conversation that was
+just filed away.
+
+cobolt-forms 1069 passed, cobolt-runtime 934 passed, cobolt-form-host 133
+passed; 0 failed.
+
+## [PowerRustCOBOL 1.70.94] — 2026-09-19
+
 ### Spec 061 tasks — thirteen, ordered so the tree stays green throughout
 
 `specs/061-multi-form-debugging/tasks.md`. Six stages: the router and its
@@ -230,6 +463,43 @@ existing debugger tests are the gate, green **unedited**, never adjusted to
 fit. The shipping constraint from the plan is repeated where it bites: five
 of the thirteen are one behavioural change and cannot land singly. No code
 has moved.
+
+## [PowerRustCOBOL 1.70.93] — 2026-09-19
+
+### A Viewer can host a live chatbot conversation
+
+Spec 058 Stage I. A COBOL program can now build a conversation in a Viewer
+piece by piece: `AppendHtml`, `AppendMarkdown` and `AppendRaw` each add a
+message, and `AppendToMessage` extends one already on screen by its own stable
+id — which is what a streamed reply arriving a token at a time needs.
+
+**The mode is stated per append and never guessed from the content.** Content
+sent as raw stays raw even when it is perfectly good markup, so a program
+showing text from somewhere it does not control can say so once and be
+believed. `RenderAsHtml` set to false makes *every* append raw whatever was
+called, and content already on screen is never reinterpreted when it is turned
+back on.
+
+**Appending does not rebuild the conversation.** Adding a message to a
+two-thousand-message conversation lays out that one message — measured at one
+layout pass in 833 ns, against the two thousand and one a rebuild would cost.
+Consecutive chunks in the same mode are merged before layout, so a reply
+arriving word by word is one block rather than five hundred.
+
+**The viewport follows new content only when the reader is already at the
+end.** A reader five points from the bottom is carried along; a reader three
+hundred points up is not moved by so much as a pixel, and a "jump to latest"
+affordance appears instead. It clears itself, scrolls to the end and turns
+following back on — all three — when used, and following resumes by itself the
+moment the reader scrolls back down. A late layout change, such as an image
+finishing its decode, obeys the same rule rather than yanking the page.
+
+Scripts, stylesheets, frames, embedded objects and form controls are dropped
+with their contents. Inline event handlers cannot run because nothing ever
+reads them. A link to `javascript:`, `vbscript:`, `file:` or a `data:` URL
+that is not an image loses its link and keeps its words.
+
+cobolt-forms 1068 passed, cobolt-runtime 928 passed; 0 failed.
 
 ## [PowerRustCOBOL 1.70.93] — 2026-09-19
 
@@ -259,6 +529,38 @@ called out. No code has moved.
 
 ## [PowerRustCOBOL 1.70.92] — 2026-09-19
 
+### The Viewer reads HTML — as a subset, and it says so
+
+Spec 058 T21 and T22, the last of the four fidelity waves. A Viewer pointed at
+an HTML document lays out its headings, paragraphs, lists, tables, block
+quotes, preformatted text, rules, links and images — onto exactly the same
+layout the Markdown reader produces, so a rendering fix made for one is a fix
+for both, and neither can drift from the other.
+
+It is not a browser, and does not pretend to be one. JavaScript is neither run
+nor shown; a stylesheet is not prose and is dropped with it. An element the
+subset does not know — a `<div>`, a `<section>`, a grid-laid-out wrapper — is
+**descended into rather than dropped**, so a page laid out in ways this
+renderer cannot follow loses its layout and keeps every word of its content.
+
+A run's own colour is read where a subset renderer honestly can: from a
+`<font color>` or an inline `style="color: …"`. A stylesheet is not consulted,
+because that is a cascade, and a cascade is a browser.
+
+Parsing never fails. HTML a COBOL program received over HTTP is not guaranteed
+to be well-formed, and refusing to show a page because a tag was left unclosed
+is the wrong answer for a viewer: whatever parses, renders. Unclosed tags,
+stray closing tags and text outside any element all come through.
+
+Find, Save As, Print and Share needed nothing HTML-specific. Find searches an
+HTML page through the same engine that searches text, Markdown and PDF — a
+table cell and an image's alt text are both findable — and Save As names the
+file from the same rule.
+
+cobolt-forms 1052 passed, cobolt-runtime 920 passed; 0 failed.
+
+## [PowerRustCOBOL 1.70.92] — 2026-09-19
+
 ### Spec 061 clarified — every question settled, ready for `/plan`
 
 The operator settled the one that shaped the rest: **while any form is
@@ -277,6 +579,32 @@ stopped form's own user lines, one watch list with unresolvable watches shown
 unavailable, the supervisor handle as the wire identity with a one-time
 announcement mapping it to the form's generated `.cbl`, and the compiled
 binary in scope per `interpreter-binary-parity`. No code has moved.
+
+## [PowerRustCOBOL 1.70.91] — 2026-09-19
+
+### A Markdown document's Mermaid diagrams are drawn, not listed
+
+Spec 058 T20. A fenced ```mermaid block inside a Markdown document the Viewer
+is showing is now drawn as a diagram rather than printed as source. Flowcharts
+(`flowchart` and its older `graph` spelling, in every direction) and sequence
+diagrams are what the control draws — measured at 403×112 and 450×265 pixels
+for the test's own examples.
+
+A diagram type the control does not publish — class, state, gantt — is
+**refused by name**, with the reason and the diagram's own source shown in its
+place. It is neither half-drawn nor silently left blank, so a developer whose
+class diagram did not appear learns why from the control itself. (The
+underlying renderer can in fact draw those three; the Viewer draws what its
+documentation promises, and widening that promise is a decision, not an
+accident.)
+
+A diagram's labels are part of what Find searches, so looking for a node by
+name finds it.
+
+Drawing costs no new dependency: the diagram becomes an SVG, and SVG is a
+format this control already rasterises.
+
+cobolt-forms 1042 passed, 0 failed.
 
 ## [PowerRustCOBOL 1.70.91] — 2026-09-19
 
@@ -301,6 +629,38 @@ the debugger already claims to debug the developer's application.
 
 ## [PowerRustCOBOL 1.70.90] — 2026-09-19
 
+### The Viewer opens PDFs — and saves them back untouched
+
+Spec 058 T18 and T19. A Viewer pointed at a PDF now shows it: the page count
+comes from the document's own page tree, each page's text from its text
+layer, each page's size from its MediaBox (inherited from its ancestors when
+the page itself declares none), and the straight lines and rectangles it
+draws from its content stream. Page breaks are the PDF's own — nothing is
+computed.
+
+Find needed no change whatsoever to work on a PDF. The same search, the same
+case toggle, the same Next and Previous, over a PDF's extracted text.
+
+What a PDF does **not** give, it is not pretended to give. Curves, shading
+and clipping are not decoded rather than half-drawn; a page with no text
+layer — a scan — reports no text instead of an invented string, and the Find
+bar then honestly says nothing was found.
+
+Save As on a PDF writes the original file byte for byte. This is the format
+where a "helpful" re-encode would be most tempting, since the Viewer reads
+the document's structure in order to paint it; it saves the **file**, never
+that derived reading. The test asserts on bytes rather than on whether the
+result still opens, because a re-encoded PDF opens perfectly well and is
+still the wrong answer. The source document is never written to, and not so
+much as touched.
+
+All pure Rust: the reader is `lopdf`, already proven in this workspace's
+build, with no C toolchain anywhere near it.
+
+cobolt-forms 1036 passed, cobolt-runtime 920 passed; 0 failed.
+
+## [PowerRustCOBOL 1.70.90] — 2026-09-19
+
 ### The debugger toolbar no longer strobes while animating; Pause stops the animation
 
 Every button in the debugger toolbar was gated on `is_paused`, and while
@@ -316,6 +676,38 @@ ends the animation and leaves the program stopped where it is; pressing
 Over** take over by hand. **Continue** ends an animation too — it means run,
 not keep stepping. Two panel tests pin the availability rules and the
 pause-then-resume cycle.
+
+## [PowerRustCOBOL 1.70.89] — 2026-09-19
+
+### A Viewer can show two documents at once — or one document twice
+
+Spec 058 T16 and T17. `SplitMode` set to `LeftRight` or `TopBottom` gives a
+Viewer two views with a draggable divider between them, and each view is
+genuinely its own: its own document, page, zoom, scroll position, view mode,
+filmstrip, and its own Find — query, case toggle, highlight toggle, current
+match and match count alike. Moving or searching one side does not move or
+affect the other, including when both sides are showing the **same** document,
+which is the case the split exists for: read one section while browsing
+another.
+
+Pointing the second view at a document the first already has open **attaches
+to that document rather than decoding it again**. Every open document is held
+by path behind one shared handle; a view asking for a path someone already
+holds gets that same handle, and only a path nobody holds is decoded at all.
+A document no view is showing any more is released rather than held for the
+session's life.
+
+Each view's properties are its own — `View1Zoom` and `View2Zoom`, and so on
+through the whole per-view group — while the plain names (`Zoom`,
+`SearchText`, …) stay aliases for the **first** view, so a form written before
+split view existed goes on meaning exactly what it did.
+
+A control too narrow to give both views a usable width shows one rather than
+two unreadable slivers, and a divider dragged to either edge still leaves
+enough of both to drag it back by.
+
+cobolt-forms 1029 passed, cobolt-runtime 918 passed, cobolt-form-host 108
+passed; 0 failed anywhere.
 
 ## [PowerRustCOBOL 1.70.89] — 2026-09-19
 
@@ -346,6 +738,39 @@ and that a plain step on an unmarked line keeps animating.
 
 ## [PowerRustCOBOL 1.70.88] — 2026-09-19
 
+### The Viewer can be searched, from the keyboard or from COBOL
+
+Spec 058 T14 and T15. `Ctrl+F` (`Cmd+F`) opens a Find bar under the toolbar:
+a query field, Previous and Next, a live "current of total" counter, a
+case-sensitivity toggle, a highlight toggle and Close. Every match is marked,
+with the current one picked out; `F3` and `Shift+F3` walk them, wrapping past
+both ends; `Esc` closes the bar and **takes priority over** its usual job of
+returning the zoom to 100 %, so one key does the nearer thing first.
+
+Everything Find can do, COBOL can do: `Find`, `FindNext`, `FindPrevious` and
+`FindClose` are callable, and the search text, case sensitivity, highlight
+toggle, current match and match count are all ordinary properties that read
+back what was written — under either the plain name or the `View1` one, which
+are now kept in step for every per-view property.
+
+A format with no text to search — a standalone image — reports no matches
+rather than an error. Searching a formatted document searches the prose a
+reader actually sees: a heading is findable whether or not its source line
+began with a `#`, and inert raw markup is not.
+
+Case-insensitive search never lowercases the document. Lowercasing can change
+a string's byte length, and every highlight after such a character would then
+sit one byte to the left — marking `STANBUL ` instead of `ISTANBUL`. The
+search walks lowercase characters while remembering where each came from, so
+a highlight always lands on the text that matched.
+
+One new icon: a capital A beside a lowercase a, for the case toggle.
+
+cobolt-forms 1016 passed, cobolt-runtime 918 passed, cobolt-form-host 124
+passed; 0 failed anywhere.
+
+## [PowerRustCOBOL 1.70.88] — 2026-09-19
+
 ### In a project, Debug is enabled only after a build
 
 Operator ruling (2026-09-19), settling the assumption 1.70.87 flagged:
@@ -362,6 +787,47 @@ in six languages) — the old "Open a COBOL file to debug" remains for a lone
 file outside any project, which keeps its gate. What Debug launches is
 unchanged from 1.70.87. Unit tests pin the gate and the stamp predicate; the
 Guide's Debugging chapter says when the button is live.
+
+## [PowerRustCOBOL 1.70.87] — 2026-09-19
+
+### The Viewer gets its toolbar, and can save, print and share
+
+Spec 058 T13. Twelve buttons across the top of a Viewer — layout, the two
+view modes, two font sizes, the filmstrip, split, Find, fullscreen, Print,
+Share and Save As — each a hand-drawn vector icon with its own tooltip, and
+each showing pressed when the state it names is on. Zoom and card size are
+deliberately absent: the one bottom-right slider per view is their only
+control.
+
+Only two new icons were needed. The catalogue already published a magnifier,
+a layout glyph, thumbnails, a card grid and a document page, so `font-smaller`
+and `font-larger` are the additions — a letterform plus a sign, kept
+deliberately unlike `zoom-in`/`zoom-out`, because a Viewer's `FontSize` and
+its `Zoom` are independent and their buttons must not be confusable.
+
+Save As writes the document's **original bytes, unmodified** — a copy, never
+a re-encode — and from COBOL always writes to the path it was given. For a
+document loaded from a byte buffer with no filename to inherit, the save
+dialog proposes the first three words of its text plus the extension its
+format calls for, falls back to a generic name when there is no text to read,
+and restores the right extension at save time whatever the user typed. Print
+and Share hand the document to the operating system; their Complete and
+Cancelled events come back from what the OS actually reported, because only
+its dialog knows whether the user went through with it.
+
+Loading now reports itself to COBOL. Writing a Viewer's `Source` opens the
+document on the interpreter's own thread, raises `onLoadProgress` as it goes
+and `onLoaded` when it finishes, with `Format` carrying the format it
+resolved. A document that cannot be opened sets `LastError`, raises `onError`
+and **leaves the previously loaded document displayed** — the failed name does
+not replace what is on screen.
+
+`LoadBytes` reads its argument untrimmed. The shared argument helper trims,
+which is right for a padded `PIC X(80)` holding a path and silently ate a
+document's final newline when the argument was the document itself.
+
+cobolt-forms 1003 passed, cobolt-runtime 914 passed, cobolt-form-host 124
+passed; 0 failed anywhere.
 
 ## [PowerRustCOBOL 1.70.87] — 2026-09-19
 
@@ -383,6 +849,48 @@ Guide's Debugging chapter says when the button is live.
 
 ## [PowerRustCOBOL 1.70.86] — 2026-09-19
 
+### The Viewer can be zoomed, thrown, browsed as cards and put fullscreen
+
+Spec 058 T12's second half wires 1.70.85's navigation model to the pixels and
+the pointer. A Viewer now paints its toolbar band, its filmstrip rail, its
+card grid and one slider per view, and answers the wheel, the keyboard and a
+grab-and-throw.
+
+`Cmd`/`Ctrl` + wheel zooms about the pointer, a double-click zooms one step to
+a 16x ceiling, and `Esc` leaves fullscreen first and returns to 100 % after.
+Entering fullscreen hands the toolbar's height to the document. `Cards` mode
+replaces the document with a grid of one card per page whose rows and columns
+follow **the control's own width** — resizing the window around it changes
+nothing. The filmstrip docks to the content's left edge and closes either from
+its button or by dragging its splitter to that edge, without leaving `Full`
+mode. Arrow keys, Page Up/Down, Home/End and a thrown page all behave exactly
+as the IDE's Documentation viewer does, and none of them fire while another
+control holds the caret.
+
+Every value the developer can see moves through the ordinary property channel,
+so COBOL reads `Zoom`, `CardSize`, `ViewMode`, `ScrollPosition`, `Fullscreen`
+and `ShowFilmstrip` back after a gesture — and `onZoomChanged`,
+`onCardSizeChanged`, `onScrolled`, `onViewModeChanged`, `onFilmstripToggled`
+and `onFullscreenEntered`/`onFullscreenExited` fire once each when the value
+**settles**, never once per wheel notch or glide frame.
+
+A card grid or a filmstrip decodes only the pages it actually shows, so a
+filmstrip beside a two-gigabyte log costs the handful of pages on the rail
+rather than the document.
+
+The rounded-corner harness went red the moment the toolbar band and the rail
+landed — measured 113 px past the arc — so `Viewer` joins `DataGrid`,
+`FileDropZone`, `Maps`, `TabControl` and `ToolBar` in the self-clipping
+exclusion list, with the measurement and its date recorded beside it. That is
+spec 057's rule working as written: the paint that earned the exclusion is
+what triggered it.
+
+Six new engine tests alongside 1.70.85's 23 model tests. `cobolt-forms` is 992
+green across 42 test binaries, 0 failed; the IDE, `rcrun` and the form host all
+build.
+
+## [PowerRustCOBOL 1.70.86] — 2026-09-19
+
 ### A chart's face takes the developer's background gradient — and the theme's card until they colour it
 
 Two defects in one painter (operator, 2026-09-19: "the gradient backcolor
@@ -400,6 +908,34 @@ eight-direction gradient mesh in place of the flat fill, at the chart's own
 `Transparency`; the chart's ink is then resolved against the gradient's
 middle colour. A paint regression covers the uncoloured face, a chosen
 colour, the gradient at 0 and at 50 % transparency.
+
+## [PowerRustCOBOL 1.70.85] — 2026-09-19
+
+### The Viewer knows how to zoom, reflow cards and throw a page
+
+Spec 058 T12, first half: the Viewer control's whole navigation model, as
+pure arithmetic in `cobolt-forms`. Zoom steps on a 1.25 ratio and stops at
+exactly 16x (R12), and a wheel notch keeps the document point under the
+pointer fixed (R11). `Cards` mode's grid reflows its rows **and** columns
+from the card size and **the view's own width** — never the window or the
+screen (R14, AC19) — and the one bottom-right slider per view drives `Zoom`
+in `Full` mode and `CardSize` in `Cards` mode without either mode ever
+disturbing the other's remembered value (R14.1/R14.2). The filmstrip closes
+when its splitter is dragged to the view's left edge (R14.4), and entering
+fullscreen hands the toolbar's height to the content (R15, AC5).
+
+Scrolling reproduces the IDE's own Documentation viewer, constant for
+constant: a tap moves one line, a held arrow key ramps from its base pace to
+a 4x ceiling over two seconds after a short delay, Page Up/Down move a
+viewport minus two lines, and a thrown page decelerates under **constant**
+friction — so a fast throw travels further and takes longer, both ending at
+exactly zero or exactly at the scroll limit (R33-R33.2, AC31/AC32). Time is
+passed in as an explicit `dt` rather than read from a clock, so the tests
+measure two seconds of held key in microseconds instead of sleeping.
+
+23 new tests, each reporting what it measured; the `cobolt-forms` suite is
+852 green. Painting and input wiring are the task's second half and are not
+in this commit.
 
 ## [PowerRustCOBOL 1.70.85] — 2026-09-19
 

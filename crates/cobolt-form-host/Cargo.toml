@@ -46,5 +46,7 @@ pollster = "0.3"
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+# Spec 058 R5.1's own tests write real documents and time a real decode.
+tempfile = "3"
 cobolt-lexer  = { path = "../cobolt-lexer" }
 cobolt-parser = { path = "../cobolt-parser" }

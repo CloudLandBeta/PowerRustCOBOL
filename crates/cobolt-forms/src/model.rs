@@ -5677,6 +5677,11 @@ impl Control {
                 props.insert("Layout".into(), PropValue::String("Page".into()));
                 props.insert("Fullscreen".into(), PropValue::Bool(false));
                 props.insert("SplitMode".into(), PropValue::String("None".into()));
+                // R21's divider position, as a percentage of the span the
+                // two views divide. Only meaningful once `SplitMode` is set,
+                // but always addressable — the same rule the `View2*` group
+                // already follows.
+                props.insert("SplitPercent".into(), PropValue::Int(crate::viewer::SPLIT_DEFAULT_PCT));
                 props.insert("RenderAsHtml".into(), PropValue::Bool(true));
                 props.insert("HistoryList".into(), PropValue::String("".into()));
                 props.insert("Progress".into(), PropValue::Int(0));

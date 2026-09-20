@@ -13756,6 +13756,14 @@ impl eframe::App for CoboltApp {
         // stops all of them at once rather than a list of gates that rots.
         self.walkthrough.take_keys(ctx);
 
+        // Spec 058 T33 — publish this frame's language to the render engine's
+        // Viewer tooltips. `cobolt-forms` has no `Tr` table of its own (a
+        // compiled COBOL binary has none either, which is why it ships the
+        // English text), so the IDE installs the translated one, the same
+        // shape `theme::set_active` already uses to publish the palette. Per
+        // frame and cheap: it is twelve strings into a thread-local.
+        cobolt_forms::viewer::set_toolbar_tooltips(&self.lang.viewer_tooltips());
+
         let frame_start = std::time::Instant::now();
 
         // Every error shown to the developer also lands in the console

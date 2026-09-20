@@ -26,13 +26,41 @@ hmac        = { workspace = true }
 sha2        = { workspace = true }
 indexmap    = { workspace = true }
 thiserror   = { workspace = true }
+# The Viewer's Markdown walker (spec 058, T9) — unconditional like the rest
+# of viewer.rs (not egui, so not behind `render`). Version matched to
+# cobolt-ide's own pin so the two never resolve to different releases.
+pulldown-cmark = { version = "0.12", default-features = false }
+# The Viewer's PDF reader (spec 058, T18). Pure Rust, no C toolchain — R25's
+# bar is unconditional for this control, because its dependencies compile
+# into EVERY binary that drops a Viewer on a form (plan.md §4). Already
+# resolved in this workspace's lock file via cobolt-ide's `genpdf`, so this
+# promotes a crate the build already proves rather than introducing one.
+# `default-features = false` drops `chrono` and the `pom` parser: the reader
+# uses the `nom` one, and nothing here needs a PDF's creation date.
+lopdf = { version = "0.26", default-features = false, features = ["nom_parser"] }
+# The Viewer's Mermaid subset (spec 058, T20). Pure Rust: diagram source in,
+# SVG out — `resvg`, already here behind `render`, turns that into pixels.
+# Version matched to cobolt-ide's own pin so the two never resolve to
+# different releases.
+mermaid-rs-renderer = "0.2"
+# The Viewer's HTML subset (spec 058, T21). **`tl`, not `html5ever`** —
+# plan.md §4 chose html5ever and explicitly flagged this crate as the
+# fallback "for implementation-time reconsideration". Reconsidered, and
+# taken: `tl` is pure Rust with ZERO dependencies, where html5ever brings
+# markup5ever, string_cache (with build-time codegen), tendril, phf, futf
+# and more. plan.md §4's own argument decides it — a Viewer's dependencies
+# compile into EVERY binary that drops the control on a form, with no
+# "strip it if unused" escape hatch — and spec.md §3 already disclaims W3C
+# conformance in as many words ("Not a browser"). The mapping work on top
+# is identical either way, which was html5ever's only real advantage.
+tl = "0.7"
 egui        = { version = "0.36", optional = true }
 fontdb      = { version = "0.23", optional = true }
 # Validate font faces with the SAME parser egui/epaint >=0.34 uses (skrifa),
 # so we never feed it a face it cannot rasterise (e.g. bitmap-only fonts).
 skrifa      = { version = "0.42", optional = true }
 cobolt-media = { path = "../cobolt-media", optional = true }
-image       = { version = "0.25", default-features = false, features = ["png", "jpeg"], optional = true }
+image       = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"], optional = true }
 resvg       = { version = "0.46", optional = true }
 egui-elegance = { version = "0.15.0", optional = true }
 # Matches cobolt-runtime's ureq major version (2, native-tls not rustls —

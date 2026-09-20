@@ -1414,6 +1414,20 @@ enum WaitOutcome {
 }
 
 /// Tree-walking COBOL interpreter.
+/// Spec 058 R19/R20/R18 — which OS handoff a Viewer reported back on.
+///
+/// Print, Share and Save As are the three actions this control cannot
+/// resolve by itself: the host performs them and only the OS dialog knows
+/// whether the user went through with it, which is why their events arrive
+/// through [`Interpreter::report_viewer_os_outcome`] instead of being raised
+/// from a flag here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewerOsAction {
+    Print,
+    Share,
+    Save,
+}
+
 pub struct Interpreter {
     /// The parsed program (retained for metadata access).
     pub program: Program,
@@ -1573,6 +1587,33 @@ pub struct Interpreter {
     /// say 'onResponse will fire'. It never did").
     control_ids: std::collections::HashMap<String, String>,
     async_dispatch_queue: std::collections::VecDeque<(String, String)>,
+    /// Spec 058 §8 — the conversation a Streamed-layout Viewer is showing,
+    /// per control.
+    ///
+    /// Held here rather than in a property because a conversation is a
+    /// *structure*, not a string: §8.2 item 5 forbids rebuilding it on
+    /// every append, and only a real model can append incrementally. What
+    /// the engine is told is the assembled stream (`_ConversationHtml`),
+    /// republished whenever it changes.
+    viewer_conversations: std::collections::HashMap<String, cobolt_forms::viewer::Conversation>,
+    /// Spec 058 — re-entrancy guard for a Viewer's `Source` load.
+    ///
+    /// Writing `Source` starts a load AND mirrors onto `View1Source`, which
+    /// mirrors back. On a FAILED load the restore leaves the two disagreeing
+    /// for an instant, so the mirror wrote `Source` again and the document
+    /// was opened — and refused — twice, raising `onError` twice. The guard
+    /// makes the hook run once per write, which is what a developer counting
+    /// their own error handler's calls expects.
+    viewer_loading: bool,
+    /// Spec 058 §8.8 — each Streamed Viewer's conversation history: ids and
+    /// titles, **never** content.
+    viewer_history: std::collections::HashMap<String, cobolt_forms::viewer::ConversationHistory>,
+    /// Spec 058 R1 — bytes a `LoadBytes` call supplied, per Viewer control.
+    ///
+    /// Beside the object rather than in a property: a control property is a
+    /// `String`, and R18's byte-identical Save As cannot survive a round
+    /// trip through one for anything that is not text.
+    viewer_bytes: std::collections::HashMap<String, Vec<u8>>,
 
     // ── Debugger channels (Phase 7) ───────────────────────────────────────────
     /// Receives `DebugCmd` from the IDE debugger panel (Continue, StepOver, Pause).
@@ -1960,6 +2001,10 @@ impl Interpreter {
             async_generations: HashMap::new(),
             control_ids: std::collections::HashMap::new(),
             async_dispatch_queue: std::collections::VecDeque::new(),
+            viewer_bytes: std::collections::HashMap::new(),
+            viewer_conversations: std::collections::HashMap::new(),
+            viewer_history: std::collections::HashMap::new(),
+            viewer_loading: false,
             debug_cmd_rx: None,
             debug_event_tx: None,
             breakpoints: None,
@@ -12138,6 +12183,336 @@ impl Interpreter {
             // it will read the (just-set or prior) count from dims.
             let _ = self.refresh_control_array_binding(obj);
         }
+        // Spec 058 R3/R4/R6 — a Viewer's `Source` is what STARTS a load, so
+        // writing it is what raises onLoadProgress/onLoaded, or onError.
+        //
+        // This runs on the INTERPRETER's thread, which is not the UI thread:
+        // `form_runtime.rs`, `rcrun run-form` and the compiled binary all run
+        // the interpreter in a thread of its own, so indexing a large
+        // document here never stalls a paint (R5). R5.1's per-instance
+        // decode thread is a separate concern, in the host.
+        if self.is_viewer(obj) && !self.viewer_loading {
+            self.viewer_loading = true;
+            // Either spelling of the source starts a load.
+            let is_source =
+                prop.eq_ignore_ascii_case("Source") || prop.eq_ignore_ascii_case("View1Source");
+            let opened = if is_source {
+                self.viewer_open_source(&obj.to_string(), &val)
+            } else {
+                true
+            };
+            // A FAILED load has already put both spellings back to the
+            // document that is still on screen (R4); mirroring the name that
+            // failed would undo exactly that.
+            if opened {
+                self.viewer_mirror_alias(&obj.to_string(), prop, &val);
+            }
+            self.viewer_loading = false;
+        }
+    }
+
+    /// Spec 058 plan §3/§4 — the unprefixed property names are **aliases**
+    /// onto `View1*`, the single canonical store for one view's state.
+    ///
+    /// A COBOL program may write either spelling; both must then read back
+    /// the same, or R31's "no Find capability reachable only by mouse"
+    /// becomes "reachable, but only if you guessed the right of two names".
+    fn viewer_mirror_alias(&mut self, obj: &str, prop: &str, val: &str) {
+        const ALIASED: &[&str] = &[
+            "Source",
+            "Page",
+            "Zoom",
+            "ViewMode",
+            "CardSize",
+            "ShowFilmstrip",
+            "ScrollPosition",
+            "SearchText",
+            "SearchCaseSensitive",
+            "SearchHighlightEnabled",
+            "SearchCurrentMatch",
+            "SearchMatchCount",
+            "FindOpen",
+        ];
+        let other = if let Some(rest) = prop.strip_prefix("View1") {
+            if !ALIASED.iter().any(|a| a.eq_ignore_ascii_case(rest)) {
+                return;
+            }
+            rest.to_string()
+        } else if ALIASED.iter().any(|a| a.eq_ignore_ascii_case(prop)) {
+            format!("View1{prop}")
+        } else {
+            return;
+        };
+        if self.obj_get(obj, &other) != val {
+            self.obj_set(obj, &other, val.to_string());
+        }
+
+        // The `View1*` spelling is the CANONICAL store (plan.md §3/§4), and
+        // it is the one with a seeded type — so it is the one
+        // `canonical_prop_value` normalises (a boolean written as `1` reads
+        // back `true`). The unprefixed alias has no seeded type and would
+        // otherwise keep the raw `1`, leaving the two spellings of one value
+        // disagreeing about it. Copied straight into the registry, because
+        // this is a mirror finishing its own write, not a new one.
+        let canonical = if prop.starts_with("View1") { prop.to_string() } else { other.clone() };
+        let alias = canonical.trim_start_matches("View1").to_string();
+        let settled = self.obj_get(obj, &canonical);
+        if self.obj_get(obj, &alias) != settled {
+            let key = self.canonical_prop_name(obj, &alias);
+            self.objects.set_property(obj, &key, settled);
+        }
+    }
+
+    /// Read one of a Viewer's view properties under **either** spelling.
+    ///
+    /// `seed_objects` writes the designed properties straight into the
+    /// registry, so a form that designed `View1SearchMatchCount` never went
+    /// through [`Self::viewer_mirror_alias`] and the short name is empty.
+    /// Preferring the canonical `View1*` and falling back to the alias makes
+    /// a read correct however the value arrived.
+    fn viewer_prop(&self, obj: &str, name: &str) -> String {
+        let prefixed = self.obj_get(obj, &format!("View1{name}"));
+        if prefixed.is_empty() {
+            self.obj_get(obj, name)
+        } else {
+            prefixed
+        }
+    }
+
+    /// Spec 058 R28/R31 — move Find to the next or previous match, wrapping.
+    ///
+    /// The **match count is the view's**, not the interpreter's: the engine
+    /// is what knows which text is on screen, and it publishes the total as
+    /// `SearchMatchCount`. One authority, read from a property a COBOL
+    /// program can see for itself.
+    fn viewer_step_find(&mut self, obj: &str, forward: bool) {
+        let as_index = |v: String| v.trim().parse::<i64>().unwrap_or(0).max(0) as usize;
+        let total = as_index(self.viewer_prop(obj, "SearchMatchCount"));
+        let current = as_index(self.viewer_prop(obj, "SearchCurrentMatch"));
+        if let Some(next) = cobolt_forms::viewer::step_match(current, total, forward) {
+            self.obj_set(obj, "View1SearchCurrentMatch", next.to_string());
+        }
+    }
+
+    /// Spec 058 — is `obj` a Viewer control?
+    fn is_viewer(&self, obj: &str) -> bool {
+        self.object_class(obj).is_some_and(|c| c.eq_ignore_ascii_case("Viewer"))
+    }
+
+    /// How often a load reports progress, in percent (R6).
+    ///
+    /// The indexer itself reports every whole percent; forwarding all 101 of
+    /// them would put a hundred events on the dispatch queue for one `MOVE`,
+    /// and a COBOL handler cannot use that resolution for anything. Every
+    /// tenth percent, plus a guaranteed final 100, is a progress bar a
+    /// developer can actually drive.
+    const VIEWER_PROGRESS_STEP: i64 = 10;
+
+    /// Open the document `source` names, reporting it the way R3/R4/R6 say.
+    ///
+    /// On success `Format` carries R3's resolved format, `Progress` reaches
+    /// 100 and `onLoaded` is queued. On failure `LastError` carries R4's
+    /// message, `onError` is queued, and **the previously loaded document is
+    /// left displayed** — `Source` is put back to whatever last loaded, so
+    /// every surface goes on painting the document that is actually there
+    /// rather than a name that failed.
+    /// Returns whether the document opened — `false` means R4's restore has
+    /// run and the caller must leave both spellings of `Source` alone.
+    fn viewer_open_source(&mut self, obj: &str, source: &str) -> bool {
+        use cobolt_forms::viewer::{open_document, DocumentSource};
+
+        let path = source.trim().to_string();
+        if path.is_empty() {
+            // Clearing the source is not a failed load.
+            self.obj_set(obj, "Format", String::new());
+            self.obj_set(obj, "Progress", "0".into());
+            return true;
+        }
+        let resolved = cobolt_forms::assets::resolve(&path);
+        let src = DocumentSource::Path(resolved.to_string_lossy().into_owned());
+
+        let mut ticks: Vec<i64> = Vec::new();
+        let mut last_step = -1i64;
+        let result = open_document(&src, |pct| {
+            let step = pct / Self::VIEWER_PROGRESS_STEP;
+            if step != last_step {
+                last_step = step;
+                ticks.push(pct);
+            }
+        });
+        for pct in ticks {
+            self.obj_set(obj, "Progress", pct.to_string());
+            self.queue_control_event(obj, "onLoadProgress");
+        }
+
+        match result {
+            Ok(index) => {
+                self.obj_set(obj, "Format", index.format.as_str().to_string());
+                self.obj_set(obj, "Progress", "100".into());
+                self.obj_set(obj, "LastError", String::new());
+                self.obj_set(obj, "_LoadedSource", path);
+                self.obj_set(obj, "_PageCount", index.page_count().to_string());
+                self.queue_control_event(obj, "onLoaded");
+                true
+            }
+            Err(e) => {
+                self.obj_set(obj, "LastError", e.to_message());
+                // R4: the failed name must not replace the document on
+                // screen. Written straight to the registry — `obj_set` would
+                // re-enter this hook and try to load it all over again.
+                // BOTH spellings go back: a program may have written either.
+                let previous = self.obj_get(obj, "_LoadedSource");
+                for name in ["Source", "View1Source"] {
+                    let canon = self.canonical_prop_name(obj, name);
+                    self.objects.set_property(obj, &canon, previous.clone());
+                }
+                self.queue_control_event(obj, "onError");
+                false
+            }
+        }
+    }
+
+    /// Spec 058 §8 — this control's conversation, created on first use.
+    fn viewer_conversation(&mut self, obj: &str) -> &mut cobolt_forms::viewer::Conversation {
+        let render_as_html = self
+            .objects
+            .get_property(obj, "RenderAsHtml")
+            .map(|v| {
+                let t = v.to_string();
+                let t = t.trim();
+                !(t.is_empty() || t == "0" || t.eq_ignore_ascii_case("false"))
+            })
+            .unwrap_or(true);
+        let conv = self
+            .viewer_conversations
+            .entry(obj.to_string())
+            .or_insert_with(cobolt_forms::viewer::Conversation::new);
+        // §8.1's blanket override is a PROPERTY, so it can change between
+        // appends; the conversation reads it each time rather than
+        // remembering whatever it was when the first chunk arrived.
+        conv.set_render_as_html(render_as_html);
+        conv
+    }
+
+    /// Republish the stream WITHOUT `onContentRendered` — clearing a pane
+    /// is not content arriving, and §8.2 item 6's event is specifically
+    /// about newly appended content finishing its layout.
+    fn viewer_publish_conversation_quietly(&mut self, obj: &str) {
+        let (html, empty) = {
+            let conv = self.viewer_conversation(obj);
+            (conv.to_html(), conv.is_empty())
+        };
+        self.obj_set(obj, "_ConversationHtml", html);
+        self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
+    }
+
+    /// A control event carrying a value — §8.8's `onConversationSelected`
+    /// is the first Viewer event that has one.
+    fn queue_control_event_with(&mut self, obj: &str, event: &str, value: &str) {
+        self.obj_set(obj, "ConversationId", value.to_string());
+        self.queue_control_event(obj, event);
+    }
+
+    /// Publish what the engine paints, and raise §8.2 item 6's event.
+    ///
+    /// `onContentRendered` fires **after the layout pass**, not after the
+    /// data was accepted — which here is literal: `Conversation::append`
+    /// computes the new chunk's layout before returning, so this line runs
+    /// after it by construction.
+    fn viewer_publish_conversation(&mut self, obj: &str) {
+        let (html, empty) = {
+            let conv = self.viewer_conversation(obj);
+            (conv.to_html(), conv.is_empty())
+        };
+        self.obj_set(obj, "_ConversationHtml", html);
+        self.obj_set(obj, "_ConversationEmpty", if empty { "1" } else { "0" }.to_string());
+        self.queue_control_event(obj, "onContentRendered");
+    }
+
+    /// Spec 058 §8.8 — archive whatever is open, then clear the pane.
+    ///
+    /// **A no-op on an already-empty pane** (AC26): archiving nothing would
+    /// put a spurious entry in a list the developer's own UI enumerates.
+    /// The title is the conversation's own first line, trimmed — a history
+    /// list of "Conversation 1..10" tells a reader nothing.
+    fn viewer_archive_current(&mut self, obj: &str) {
+        let (has_content, title, id) = {
+            let conv = self.viewer_conversation(obj);
+            let text = conv.text();
+            let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string();
+            let title: String = first.chars().take(60).collect();
+            (
+                !conv.is_empty(),
+                if title.is_empty() { "Conversation".to_string() } else { title },
+                conv.current_message_id().unwrap_or("").to_string(),
+            )
+        };
+        if !has_content {
+            return;
+        }
+        let current = self.obj_get(obj, "ConversationId");
+        let entry_id = if current.trim().is_empty() {
+            if id.is_empty() { "conversation".to_string() } else { id }
+        } else {
+            current
+        };
+        let history = self.viewer_history.entry(obj.to_string()).or_default();
+        history.push(cobolt_forms::viewer::ConversationEntry { id: entry_id, title });
+        self.viewer_publish_history(obj);
+    }
+
+    /// §8.8's `HistoryList` — republished whenever it changes, so a COBOL
+    /// program reads it as an ordinary property.
+    fn viewer_publish_history(&mut self, obj: &str) {
+        let list = self
+            .viewer_history
+            .get(obj)
+            .map(|h| h.to_list())
+            .unwrap_or_default();
+        self.obj_set(obj, "HistoryList", list);
+    }
+
+    /// Spec 058 R32 — the OS reported back on a Print / Share / Save As
+    /// handoff.
+    ///
+    /// These three are the only events this control cannot raise from a flag
+    /// of its own: only the OS dialog knows whether the user went through
+    /// with it. The host performs the handoff (`RenderOutput::toolbar_actions`
+    /// carries the request) and calls this with what it was told.
+    pub fn report_viewer_os_outcome(&mut self, ctrl: &str, action: ViewerOsAction, completed: bool) {
+        let event = match (action, completed) {
+            (ViewerOsAction::Print, true) => "onPrintComplete",
+            (ViewerOsAction::Print, false) => "onPrintCancelled",
+            (ViewerOsAction::Share, true) => "onShareComplete",
+            (ViewerOsAction::Share, false) => "onShareCancelled",
+            (ViewerOsAction::Save, true) => "onSaveComplete",
+            (ViewerOsAction::Save, false) => "onSaveCancelled",
+        };
+        self.queue_control_event(ctrl, event);
+    }
+
+    /// Spec 058 R18 — write the document's ORIGINAL bytes to `path`,
+    /// unmodified, and never a rendered or re-encoded one.
+    ///
+    /// A `Source`-loaded document is copied byte for byte from the file it
+    /// came from, which is what makes AC6 true by construction rather than
+    /// by a re-encoder being careful. A `LoadBytes` document writes the
+    /// bytes COBOL supplied.
+    fn viewer_save_as(&mut self, obj: &str, path: &str) -> Result<(), String> {
+        let dest = path.trim();
+        if dest.is_empty() {
+            return Err("no destination path".to_string());
+        }
+        let source = self.obj_get(obj, "Source");
+        let bytes: Vec<u8> = if !source.trim().is_empty() {
+            let resolved = cobolt_forms::assets::resolve(source.trim());
+            std::fs::read(&resolved).map_err(|e| format!("could not read document: {e}"))?
+        } else if let Some(b) = self.viewer_bytes.get(obj) {
+            b.clone()
+        } else {
+            return Err("no document loaded".to_string());
+        };
+        std::fs::write(dest, &bytes).map_err(|e| format!("could not write document: {e}"))
     }
 
     /// Whether `obj` names a TOOLBAR BUTTON — an object the host seeded under a
@@ -13371,6 +13746,218 @@ impl Interpreter {
             "DISMISSALL" => {
                 let n = parse_i(self.obj_get(obj, "_DismissAllSnackbar")) + 1;
                 self.obj_set(obj, "_DismissAllSnackbar", n.to_string());
+                none
+            }
+            // ── Viewer (spec 058) ──
+            "LOADBYTES" => {
+                // R1's byte-buffer load. The bytes live beside the object
+                // rather than in a property: a property is a `String`, and a
+                // PDF put through one would not come back byte for byte,
+                // which R18's Save As depends on.
+                // NOT `arg(0)`: that helper trims, and for every other
+                // method that is right — a COBOL `PIC X(80)` holding a path
+                // arrives padded with spaces. Here the argument IS the
+                // payload, so a trim would silently drop a document's
+                // leading indent or its final newline (caught by
+                // `loadbytes_resolves_a_format_and_save_as_writes_those_bytes_back`,
+                // which compares the written bytes against what it supplied).
+                //
+                // ⚠️ A COBOL item is still fixed-length: `PIC X(100)` holding
+                // 42 characters delivers 100, padded. That is the developer's
+                // to size, not something this method can guess at.
+                let data = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                let bytes = data.clone().into_bytes();
+                let format = cobolt_forms::viewer::detect_format(None, &bytes);
+                self.viewer_bytes.insert(obj.to_string(), bytes);
+                match format {
+                    Some(f) => {
+                        self.obj_set(obj, "Format", f.as_str().to_string());
+                        self.obj_set(obj, "Progress", "100".into());
+                        self.obj_set(obj, "LastError", String::new());
+                        self.queue_control_event(obj, "onLoaded");
+                    }
+                    None => {
+                        self.obj_set(
+                            obj,
+                            "LastError",
+                            cobolt_forms::viewer::ViewerLoadError::UnsupportedFormat.to_message(),
+                        );
+                        self.queue_control_event(obj, "onError");
+                    }
+                }
+                none
+            }
+            // R18: always the given path — R18.1's proposed default filename
+            // is the interactive dialog's convenience, never this method's
+            // contract (plan.md §3).
+            "SAVEAS" => {
+                match self.viewer_save_as(obj, &arg(0)) {
+                    Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
+                    Err(e) => {
+                        self.obj_set(obj, "LastError", e);
+                        self.queue_control_event(obj, "onError");
+                    }
+                }
+                none
+            }
+            // R19/R20: the OS does the printing and the sharing. The request
+            // is left for the host to pick up; the Complete/Cancelled event
+            // comes back through `report_viewer_os_outcome`, because only the
+            // OS dialog knows which of the two happened.
+            "PRINT" => {
+                let n = parse_i(self.obj_get(obj, "_PrintRequest")) + 1;
+                self.obj_set(obj, "_PrintRequest", n.to_string());
+                none
+            }
+            "SHARE" => {
+                let n = parse_i(self.obj_get(obj, "_ShareRequest")) + 1;
+                self.obj_set(obj, "_ShareRequest", n.to_string());
+                none
+            }
+            // ── §8.2's append surface ──
+            //
+            // The mode is SPECIFIED per call and never inferred from the
+            // content (§8.5): a chunk sent as Raw stays raw even when it is
+            // valid markup.
+            "APPENDHTML" | "APPEND-HTML" => {
+                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                // RETURNS the new message's id, so the caller can extend
+                // it with `AppendToMessage` as a streamed reply arrives —
+                // without an id the streaming half of §8.2 is unusable.
+                let new_id = self
+                    .viewer_conversation(obj)
+                    .append(cobolt_forms::viewer::AppendMode::Html, &content);
+                self.viewer_publish_conversation(obj);
+                val(new_id)
+            }
+            "APPENDMARKDOWN" | "APPEND-MARKDOWN" => {
+                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                // RETURNS the new message's id, so the caller can extend
+                // it with `AppendToMessage` as a streamed reply arrives —
+                // without an id the streaming half of §8.2 is unusable.
+                let new_id = self
+                    .viewer_conversation(obj)
+                    .append(cobolt_forms::viewer::AppendMode::Markdown, &content);
+                self.viewer_publish_conversation(obj);
+                val(new_id)
+            }
+            "APPENDRAW" | "APPEND-RAW" => {
+                let content = args.first().map(|v| v.as_display_string()).unwrap_or_default();
+                // RETURNS the new message's id, so the caller can extend
+                // it with `AppendToMessage` as a streamed reply arrives —
+                // without an id the streaming half of §8.2 is unusable.
+                let new_id = self
+                    .viewer_conversation(obj)
+                    .append(cobolt_forms::viewer::AppendMode::Raw, &content);
+                self.viewer_publish_conversation(obj);
+                val(new_id)
+            }
+            // `AppendToMessage(messageId, content, mode)` — mode last, as
+            // §8.2 spells it.
+            "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE" => {
+                let id = arg(0);
+                let content = args.get(1).map(|v| v.as_display_string()).unwrap_or_default();
+                let mode = cobolt_forms::viewer::AppendMode::from_str(&arg(2));
+                let extended = self.viewer_conversation(obj).append_to_message(&id, mode, &content);
+                if extended {
+                    self.viewer_publish_conversation(obj);
+                } else {
+                    // A streamed chunk for a message that never started is a
+                    // caller error worth reporting, not something to
+                    // silently mint a new message for.
+                    self.obj_set(obj, "LastError", format!("no conversation message with id {id:?}"));
+                    self.queue_control_event(obj, "onError");
+                }
+                none
+            }
+            // ── §8.8's conversation management ──
+            //
+            // The ORDER matters and is tested: the pane is cleared FIRST,
+            // then the event is raised, so a handler bound to either event
+            // sees an empty pane and never stale content.
+            "NEWCONVERSATION" | "NEW-CONVERSATION" => {
+                let was_empty = self.viewer_conversation(obj).is_empty();
+                self.viewer_archive_current(obj);
+                if was_empty {
+                    // AC26: no history entry, and no event.
+                    none
+                } else {
+                    self.viewer_conversation(obj).clear();
+                    self.obj_set(obj, "ConversationId", String::new());
+                    self.viewer_publish_conversation_quietly(obj);
+                    self.queue_control_event(obj, "onConversationCreated");
+                    none
+                }
+            }
+            "SELECTCONVERSATION" | "SELECT-CONVERSATION" => {
+                let id = arg(0);
+                self.viewer_archive_current(obj);
+                // The selected entry leaves history and becomes current.
+                if let Some(h) = self.viewer_history.get_mut(obj) {
+                    h.take(&id);
+                }
+                self.viewer_publish_history(obj);
+                self.viewer_conversation(obj).clear();
+                self.obj_set(obj, "ConversationId", id.clone());
+                self.viewer_publish_conversation_quietly(obj);
+                // §8.8: this is the signal telling the host to start calling
+                // the append methods. The control never restores content
+                // from a cache of its own — there is no cache to restore
+                // from, by design.
+                self.queue_control_event_with(obj, "onConversationSelected", &id);
+                none
+            }
+            "REGISTERCONVERSATION" | "REGISTER-CONVERSATION" => {
+                let id = arg(0);
+                let title = arg(1);
+                let history = self.viewer_history.entry(obj.to_string()).or_default();
+                history.push(cobolt_forms::viewer::ConversationEntry {
+                    id,
+                    title: if title.trim().is_empty() { "Conversation".into() } else { title },
+                });
+                self.viewer_publish_history(obj);
+                none
+            }
+            // §8.4's "Jump to latest", COBOL-callable — R22's "no viewer
+            // capability reachable only by mouse" reaches the conversation
+            // surface too. The VIEWPORT is the engine's (it is the only
+            // side that knows how tall the content is), so this leaves a
+            // request the way Print and Share do.
+            "JUMPTOLATEST" | "JUMP-TO-LATEST" => {
+                let n = parse_i(self.obj_get(obj, "_JumpToLatest")) + 1;
+                self.obj_set(obj, "_JumpToLatest", n.to_string());
+                none
+            }
+            "FINDNEXT" | "FIND-NEXT" => {
+                self.viewer_step_find(obj, true);
+                none
+            }
+            "FINDPREVIOUS" | "FIND-PREVIOUS" => {
+                self.viewer_step_find(obj, false);
+                none
+            }
+            // R26/R31: opening and closing Find from COBOL, with the same
+            // events the toolbar button raises.
+            "FIND" => {
+                if !args.is_empty() {
+                    self.obj_set(obj, "View1SearchText", arg(0));
+                    self.obj_set(obj, "View1SearchCurrentMatch", "0".into());
+                }
+                // `canonical_prop_value` normalises a boolean to
+                // "true"/"false", so comparing against "1" here matched
+                // nothing and raised onFindOpened on EVERY call — caught by
+                // `find_and_findclose_open_the_bar_and_fire_once_each`.
+                if !truthy(&self.viewer_prop(obj, "FindOpen")) {
+                    self.obj_set(obj, "View1FindOpen", "1".into());
+                    self.queue_control_event(obj, "onFindOpened");
+                }
+                none
+            }
+            "FINDCLOSE" | "FIND-CLOSE" => {
+                if truthy(&self.viewer_prop(obj, "FindOpen")) {
+                    self.obj_set(obj, "View1FindOpen", "0".into());
+                    self.queue_control_event(obj, "onFindClosed");
+                }
                 none
             }
             // ── Timer ──
@@ -16400,6 +16987,19 @@ fn is_known_method(name: &str) -> bool {
         // so `SNACK-1::AddButton("id=undo")` would silently mean "element … of
         // AddButton" rather than a call.
             | "SHOW" | "DISMISSALL" | "ADDBUTTON" | "ADD-BUTTON"
+        // Viewer (058) — same rule as Snackbar's above: an unlisted name
+        // parses its parens as a collection subscript, so `VWR-1::Print()`
+        // would silently mean "element … of Print".
+            | "LOADBYTES" | "SAVEAS" | "PRINT" | "SHARE"
+            | "FIND" | "FINDNEXT" | "FIND-NEXT" | "FINDPREVIOUS" | "FIND-PREVIOUS"
+            | "FINDCLOSE" | "FIND-CLOSE"
+        // Viewer conversation mode (058 §8)
+            | "APPENDHTML" | "APPEND-HTML" | "APPENDMARKDOWN" | "APPEND-MARKDOWN"
+            | "APPENDRAW" | "APPEND-RAW" | "APPENDTOMESSAGE" | "APPEND-TO-MESSAGE"
+            | "JUMPTOLATEST" | "JUMP-TO-LATEST"
+            | "NEWCONVERSATION" | "NEW-CONVERSATION"
+            | "SELECTCONVERSATION" | "SELECT-CONVERSATION"
+            | "REGISTERCONVERSATION" | "REGISTER-CONVERSATION"
         // Timer / animation
             | "START" | "STOP" | "SETINTERVAL" | "ISENABLED"
             | "PLAYANIMATION" | "PLAY" | "STOPANIMATION" | "PAUSE"
@@ -16719,6 +17319,962 @@ mod tests {
     use cobolt_ast::expr::{CmpOp, Literal};
     use cobolt_lexer::{tokenize, SourceFormat};
     use cobolt_parser::parse;
+
+    // ── Viewer (spec 058 T13): Save As, the OS handoffs, and loading ─────
+    //
+    // R18's byte-identical Save As, R19/R20's Print and Share handoffs, and
+    // R3/R4/R6's load reporting. Each test prints what it measured — the
+    // byte counts it compared, which events it saw, in which order.
+
+    /// An interpreter with one Viewer control carrying `props`.
+    fn viewer_interp(props: &[(&str, &str)]) -> Interpreter {
+        let source = "\
+IDENTIFICATION DIVISION.
+PROGRAM-ID. VIEWER-T13.
+PROCEDURE DIVISION.
+MAIN.
+    STOP RUN.
+";
+        let parsed = parse(tokenize(source, SourceFormat::Free));
+        let program = parsed.program.expect("program should parse");
+        let mut interp = Interpreter::new(program);
+        interp.seed_objects([(
+            "VWR-1".to_owned(),
+            "Viewer".to_owned(),
+            props.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<Vec<_>>(),
+        )]);
+        interp
+    }
+
+    /// Every event queued for `ctrl` so far, in order.
+    fn queued_for(interp: &Interpreter, ctrl: &str) -> Vec<String> {
+        interp
+            .async_dispatch_queue
+            .iter()
+            .filter(|(c, _)| c == ctrl)
+            .map(|(_, e)| e.clone())
+            .collect()
+    }
+
+    /// **AC6** — "Save As produces a file byte-identical to the source
+    /// (asserted by comparing bytes, not by opening the result)."
+    ///
+    /// The fixture is deliberately BINARY, with bytes no text encoder would
+    /// round-trip: a re-encode would be visible as a length or content
+    /// difference rather than having to be taken on trust.
+    #[test]
+    fn viewer_save_as_writes_the_source_bytes_unmodified() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("original.bin");
+        let mut original: Vec<u8> = b"%PDF-1.7\n".to_vec();
+        original.extend((0u16..512).map(|b| (b % 256) as u8));
+        original.extend(b"\n%%EOF\n");
+        std::fs::write(&src_path, &original).unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let dest = dir.path().join("copy.bin");
+        let res = interp.exec_method(
+            "VWR-1",
+            "SAVEAS",
+            &[CobolValue::from_str(dest.to_str().unwrap(), 260)],
+        );
+        let _ = res;
+
+        let written = std::fs::read(&dest).expect("Save As must have written the file");
+        println!(
+            "AC6: source {} bytes, saved {} bytes, identical = {}",
+            original.len(),
+            written.len(),
+            written == original
+        );
+        assert_eq!(written.len(), original.len(), "a re-encode would change the length");
+        assert_eq!(written, original, "AC6: byte-for-byte, never a rendered or re-encoded document");
+        assert_eq!(
+            queued_for(&interp, "VWR-1"),
+            vec!["onSaveComplete".to_string()],
+            "a successful write reports onSaveComplete and nothing else"
+        );
+    }
+
+    /// plan.md §3's scope note: `SaveAs(path)` from COBOL **always** uses the
+    /// path it was given. R18.1's proposed default filename is specifically
+    /// the interactive dialog's convenience, not this method's contract.
+    #[test]
+    fn viewer_save_as_always_uses_the_given_path_with_no_defaulting() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("notes.txt");
+        std::fs::write(&src_path, b"Quarterly sales report for the north region").unwrap();
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+
+        // A name with no extension at all, and nothing like the R18.1
+        // proposal ("Quarterly-sales-report.txt") the dialog would offer.
+        let dest = dir.path().join("whatever-i-asked-for");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+
+        let listing: Vec<String> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+            .collect();
+        println!("after SaveAs(\"whatever-i-asked-for\") the folder holds {listing:?}");
+        assert!(dest.exists(), "the given path is the path written");
+        assert!(
+            !listing.iter().any(|n| n.starts_with("Quarterly-sales-report")),
+            "the method must NOT apply the dialog's proposed name"
+        );
+    }
+
+    /// R18's failure path: nothing to save is an `onError`, never a silent
+    /// no-op, and never a half-written file.
+    #[test]
+    fn viewer_save_as_with_nothing_loaded_reports_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut interp = viewer_interp(&[]);
+        let dest = dir.path().join("nothing.txt");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+        let events = queued_for(&interp, "VWR-1");
+        println!("SaveAs with no document -> events {events:?}, LastError {:?}", interp.obj_get("VWR-1", "LastError"));
+        assert_eq!(events, vec!["onError".to_string()]);
+        assert!(!dest.exists(), "nothing is written when there is nothing to write");
+    }
+
+    // The three Complete/Cancelled pairs, one test each — R32's own wording
+    // is that only the OS dialog knows which happened, so each pair is
+    // driven from a simulated outcome rather than assumed symmetric with
+    // its neighbours.
+
+    #[test]
+    fn viewer_print_reports_complete_and_cancelled_separately() {
+        let mut interp = viewer_interp(&[]);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, true);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, false);
+        let events = queued_for(&interp, "VWR-1");
+        println!("Print outcomes (completed, then cancelled) -> {events:?}");
+        assert_eq!(events, vec!["onPrintComplete".to_string(), "onPrintCancelled".to_string()]);
+    }
+
+    #[test]
+    fn viewer_share_reports_complete_and_cancelled_separately() {
+        let mut interp = viewer_interp(&[]);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, false);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, true);
+        let events = queued_for(&interp, "VWR-1");
+        println!("Share outcomes (cancelled, then completed) -> {events:?}");
+        assert_eq!(events, vec!["onShareCancelled".to_string(), "onShareComplete".to_string()]);
+    }
+
+    #[test]
+    fn viewer_save_reports_complete_and_cancelled_separately() {
+        let mut interp = viewer_interp(&[]);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Save, true);
+        interp.report_viewer_os_outcome("VWR-1", ViewerOsAction::Save, false);
+        let events = queued_for(&interp, "VWR-1");
+        println!("Save As outcomes (completed, then cancelled) -> {events:?}");
+        assert_eq!(events, vec!["onSaveComplete".to_string(), "onSaveCancelled".to_string()]);
+    }
+
+    /// R19/R20: `Print()`/`Share()` leave a request for the host and raise
+    /// nothing themselves — the event waits for what the OS reports back.
+    #[test]
+    fn viewer_print_and_share_leave_a_request_for_the_host_and_fire_nothing_yet() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "PRINT", &[]);
+        interp.exec_method("VWR-1", "PRINT", &[]);
+        interp.exec_method("VWR-1", "SHARE", &[]);
+        let (p, sh) = (interp.obj_get("VWR-1", "_PrintRequest"), interp.obj_get("VWR-1", "_ShareRequest"));
+        let events = queued_for(&interp, "VWR-1");
+        println!("two Print() and one Share() -> _PrintRequest={p:?}, _ShareRequest={sh:?}, events {events:?}");
+        assert_eq!(p, "2", "each call is its own request, never coalesced");
+        assert_eq!(sh, "1");
+        assert!(events.is_empty(), "R32: the event waits for the OS, it is not faked from a local flag");
+    }
+
+    // ── R3/R4/R6: loading reports itself to COBOL ───────────────────────
+
+    /// R6 — "while a document is opening, raise `onLoadProgress` with a
+    /// 0-100 `Progress`, and `onLoaded` on completion"; R3 — `Format` carries
+    /// the resolved format.
+    #[test]
+    fn setting_a_viewers_source_reports_progress_then_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("report.txt");
+        // Big enough that the indexer reports progress more than once.
+        std::fs::write(&path, "x".repeat(400_000)).unwrap();
+
+        let mut interp = viewer_interp(&[]);
+        interp.obj_set("VWR-1", "Source", path.to_string_lossy().into_owned());
+
+        let events = queued_for(&interp, "VWR-1");
+        let progress_count = events.iter().filter(|e| *e == "onLoadProgress").count();
+        println!(
+            "loading a {} byte document -> {progress_count} onLoadProgress event(s), then {:?}",
+            400_000,
+            events.last()
+        );
+        println!("Format={:?}, Progress={:?}, LastError={:?}",
+            interp.obj_get("VWR-1", "Format"),
+            interp.obj_get("VWR-1", "Progress"),
+            interp.obj_get("VWR-1", "LastError"));
+        assert!(progress_count >= 2, "R6: progress must actually be reported, got {progress_count}");
+        assert!(progress_count <= 11, "and throttled, not one event per percent: got {progress_count}");
+        assert_eq!(events.last(), Some(&"onLoaded".to_string()), "R6: onLoaded comes last");
+        assert_eq!(interp.obj_get("VWR-1", "Format"), "Text", "R3: the resolved format");
+        assert_eq!(interp.obj_get("VWR-1", "Progress"), "100");
+        assert_eq!(interp.obj_get("VWR-1", "LastError"), "");
+    }
+
+    /// **R4** — "when a document cannot be opened or its format is
+    /// unsupported, raise `onError` with `LastError` set, and **leave any
+    /// previously loaded document displayed**."
+    #[test]
+    fn an_unsupported_source_raises_onerror_and_leaves_the_previous_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.txt");
+        std::fs::write(&good, b"a readable document\n").unwrap();
+        let bad = dir.path().join("mystery.bin");
+        std::fs::write(&bad, (0..256u16).map(|b| (b % 256) as u8).collect::<Vec<u8>>()).unwrap();
+
+        let mut interp = viewer_interp(&[]);
+        interp.obj_set("VWR-1", "Source", good.to_string_lossy().into_owned());
+        let after_good = interp.obj_get("VWR-1", "Source");
+        interp.obj_set("VWR-1", "Source", bad.to_string_lossy().into_owned());
+        let after_bad = interp.obj_get("VWR-1", "Source");
+
+        let events = queued_for(&interp, "VWR-1");
+        println!("events in order: {events:?}");
+        assert_eq!(
+            events.iter().filter(|e| *e == "onError").count(),
+            1,
+            "R4: ONE failed load is ONE onError — a developer counts their own handler's calls"
+        );
+        println!("Source after the good load: {:?}", std::path::Path::new(&after_good).file_name());
+        println!("Source after the bad  load: {:?}", std::path::Path::new(&after_bad).file_name());
+        println!("LastError: {:?}", interp.obj_get("VWR-1", "LastError"));
+        assert_eq!(events.last(), Some(&"onError".to_string()));
+        assert!(!interp.obj_get("VWR-1", "LastError").is_empty(), "R4: LastError must be set");
+        assert_eq!(after_bad, after_good, "R4: the previously loaded document stays displayed");
+    }
+
+    /// R1's byte-buffer load, and R18 saving those bytes back out.
+    #[test]
+    fn loadbytes_resolves_a_format_and_save_as_writes_those_bytes_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut interp = viewer_interp(&[]);
+        let body = "# Release Notes\n\nEverything that changed.\n";
+        interp.exec_method("VWR-1", "LOADBYTES", &[CobolValue::from_str(body, body.len())]);
+        println!("LoadBytes -> Format={:?}, events {:?}", interp.obj_get("VWR-1", "Format"), queued_for(&interp, "VWR-1"));
+        assert_eq!(interp.obj_get("VWR-1", "Format"), "Markdown", "R3: content-first resolution");
+
+        let dest = dir.path().join("out.md");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+        let written = std::fs::read(&dest).unwrap();
+        println!("SaveAs wrote {} bytes (supplied {})", written.len(), body.len());
+        assert_eq!(written, body.as_bytes(), "R18: the bytes COBOL supplied, unmodified");
+    }
+
+    // ── Viewer conversation mode (spec 058 T23): §8.2, AC12/13/16/17 ────
+
+    /// **AC12** — "HTML content can be appended and rendered correctly;
+    /// Markdown is converted before insertion." **AC13** — "raw content is
+    /// displayed literally and never interpreted as markup."
+    #[test]
+    fn html_markdown_and_raw_each_land_as_their_own_mode() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDHTML", &[CobolValue::from_str("<h2>Heading</h2>", 16)]);
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("## Also a heading", 17)]);
+        let raw = "<script>alert('x')</script>";
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(raw, raw.len())]);
+
+        let conv = interp.viewer_conversation("VWR-1");
+        println!("{} message(s):", conv.messages.len());
+        for m in &conv.messages {
+            println!("  {} [{}] -> {} block(s): {:?}", m.id, m.chunks[0].mode.as_str(), m.blocks.len(),
+                m.blocks.iter().map(|b| match b {
+                    cobolt_forms::viewer::Block::Heading { level, .. } => format!("Heading{level}"),
+                    cobolt_forms::viewer::Block::CodeBlock { .. } => "CodeBlock".into(),
+                    other => format!("{other:?}").split_whitespace().next().unwrap().to_string(),
+                }).collect::<Vec<_>>());
+        }
+        assert_eq!(conv.messages.len(), 3, "three appends, three messages");
+        assert!(
+            matches!(conv.messages[0].blocks.first(), Some(cobolt_forms::viewer::Block::Heading { level: 2, .. })),
+            "AC12: HTML renders as HTML"
+        );
+        assert!(
+            matches!(conv.messages[1].blocks.first(), Some(cobolt_forms::viewer::Block::Heading { level: 2, .. })),
+            "AC12: Markdown becomes the same heading"
+        );
+        // AC13: the raw chunk is a literal block, and its markup survives.
+        let text = conv.text();
+        println!("conversation text: {text:?}");
+        assert!(text.contains("<script>alert('x')</script>"), "AC13: shown literally, got {text:?}");
+        assert_eq!(interp.obj_get("VWR-1", "_ConversationEmpty"), "0");
+    }
+
+    /// **AC13**'s whitespace clause — "whitespace preserved".
+    #[test]
+    fn raw_content_keeps_its_whitespace_exactly() {
+        let mut interp = viewer_interp(&[]);
+        let raw = "  indented\n\n\tand tabbed   \n";
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(raw, raw.len())]);
+        let stored = &interp.viewer_conversation("VWR-1").messages[0].chunks[0].content;
+        println!("appended {raw:?}\n   stored {stored:?}");
+        assert_eq!(stored, raw, "AC13: not a character of whitespace lost");
+    }
+
+    /// **AC16** — "streamed chunks extend an existing chatbot message
+    /// (`append_to_message`), and content stays in correct arrival order",
+    /// under interleaved calls.
+    #[test]
+    fn streamed_chunks_extend_their_own_message_in_arrival_order() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("A:", 2)]);
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("B:", 2)]);
+        let ids: Vec<String> =
+            interp.viewer_conversation("VWR-1").messages.iter().map(|m| m.id.clone()).collect();
+        println!("two messages: {ids:?}");
+
+        // Interleave: A gets 1 and 3, B gets 2 and 4.
+        let extend = |interp: &mut Interpreter, id: &str, text: &str| {
+            interp.exec_method(
+                "VWR-1",
+                "APPENDTOMESSAGE",
+                &[
+                    CobolValue::from_str(id, id.len()),
+                    CobolValue::from_str(text, text.len()),
+                    CobolValue::from_str("Raw", 3),
+                ],
+            );
+        };
+        extend(&mut interp, &ids[0], " one");
+        extend(&mut interp, &ids[1], " two");
+        extend(&mut interp, &ids[0], " three");
+        extend(&mut interp, &ids[1], " four");
+
+        let conv = interp.viewer_conversation("VWR-1");
+        let a = conv.messages[0].chunks.iter().map(|c| c.content.as_str()).collect::<String>();
+        let b = conv.messages[1].chunks.iter().map(|c| c.content.as_str()).collect::<String>();
+        println!("message {} -> {a:?}", ids[0]);
+        println!("message {} -> {b:?}", ids[1]);
+        assert_eq!(a, "A: one three", "AC16: each chunk extended the RIGHT message, in order");
+        assert_eq!(b, "B: two four");
+        assert_eq!(conv.messages.len(), 2, "and no extra message was minted");
+    }
+
+    /// §8.2's error path: a chunk for a message that never started is
+    /// reported, never silently turned into a new message.
+    #[test]
+    fn a_chunk_for_an_unknown_message_is_reported_rather_than_invented() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("hello", 5)]);
+        let before = interp.viewer_conversation("VWR-1").messages.len();
+        interp.exec_method(
+            "VWR-1",
+            "APPENDTOMESSAGE",
+            &[
+                CobolValue::from_str("no-such-id", 10),
+                CobolValue::from_str("orphan", 6),
+                CobolValue::from_str("Raw", 3),
+            ],
+        );
+        let after = interp.viewer_conversation("VWR-1").messages.len();
+        let events = queued_for(&interp, "VWR-1");
+        println!("{before} message(s) before, {after} after; events {events:?}");
+        println!("LastError: {:?}", interp.obj_get("VWR-1", "LastError"));
+        assert_eq!(after, before, "no message was invented");
+        assert_eq!(events.last(), Some(&"onError".to_string()));
+        assert!(interp.obj_get("VWR-1", "LastError").contains("no-such-id"));
+    }
+
+    /// **AC17** — "appending content does not clear the conversation... and
+    /// does not rebuild/reparse the whole conversation."
+    ///
+    /// The second half is the measurable one: `relayouts` counts messages
+    /// laid out, so a rebuild shows up as a jump rather than a +1.
+    #[test]
+    fn appending_never_rebuilds_the_conversation() {
+        let mut interp = viewer_interp(&[]);
+        for i in 0..20 {
+            let s = format!("message {i}");
+            interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(&s, s.len())]);
+        }
+        let after_twenty = interp.viewer_conversation("VWR-1").relayouts();
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("one more", 8)]);
+        let after_twentyone = interp.viewer_conversation("VWR-1").relayouts();
+        let messages = interp.viewer_conversation("VWR-1").messages.len();
+        println!(
+            "{messages} messages: {after_twenty} layouts after 20 appends, {after_twentyone} after 21 \
+             (a rebuild would have cost {})",
+            after_twenty + messages
+        );
+        assert_eq!(after_twenty, 20, "one layout per append, never the stream");
+        assert_eq!(after_twentyone - after_twenty, 1, "AC17: the 21st append lays out ONE message");
+        assert_eq!(messages, 21, "and nothing was cleared");
+        assert!(interp.viewer_conversation("VWR-1").text().contains("message 0"), "the first is still there");
+    }
+
+    /// §8.2 item 6 — `onContentRendered` fires **after the layout pass**,
+    /// ordered against a layout-completion marker rather than a timer.
+    #[test]
+    fn oncontentrendered_fires_after_the_layout_not_after_the_accept() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("# Title", 7)]);
+        let events = queued_for(&interp, "VWR-1");
+        let conv = interp.viewer_conversation("VWR-1");
+        let laid_out = conv.relayouts();
+        let blocks = conv.messages[0].blocks.len();
+        println!(
+            "after one append: {laid_out} layout pass(es), {blocks} block(s) ready, events {events:?}"
+        );
+        assert_eq!(events, vec!["onContentRendered".to_string()], "exactly one, for the one chunk");
+        assert_eq!(laid_out, 1, "the layout had already run when the event was queued");
+        assert!(blocks > 0, "and produced real content — not merely accepted data");
+    }
+
+    /// §8.2 in practice: an append must hand back the message's id, or the
+    /// streaming half of the API — `AppendToMessage` — has nothing to aim
+    /// at. Documented in the Guide, so it is asserted here.
+    #[test]
+    fn an_append_returns_the_new_messages_id_so_it_can_be_extended() {
+        let mut interp = viewer_interp(&[]);
+        let first = interp
+            .exec_method("VWR-1", "APPENDMARKDOWN", &[CobolValue::from_str("**Assistant:**", 14)])
+            .as_display_string();
+        let second = interp
+            .exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("second", 6)])
+            .as_display_string();
+        println!("two appends returned ids {first:?} and {second:?}");
+        assert!(!first.trim().is_empty(), "the id must be real");
+        assert_ne!(first, second, "each message gets its own id");
+
+        // And that id is the one `AppendToMessage` extends.
+        let extended = interp.exec_method(
+            "VWR-1",
+            "APPENDTOMESSAGE",
+            &[
+                CobolValue::from_str(first.trim(), first.trim().len()),
+                CobolValue::from_str(" ...thinking", 12),
+                CobolValue::from_str("Raw", 3),
+            ],
+        );
+        let _ = extended;
+        let text = interp.viewer_conversation("VWR-1").text();
+        println!("conversation text: {text:?}");
+        assert!(text.contains("...thinking"), "the returned id extended the right message");
+        assert!(!queued_for(&interp, "VWR-1").contains(&"onError".to_string()), "and was accepted");
+    }
+
+    /// §8.4 from COBOL: `JumpToLatest()` leaves a request for the surface
+    /// that owns the viewport, and each call is its own.
+    #[test]
+    fn jump_to_latest_is_callable_from_cobol() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "JUMPTOLATEST", &[]);
+        interp.exec_method("VWR-1", "JUMPTOLATEST", &[]);
+        let requests = interp.obj_get("VWR-1", "_JumpToLatest");
+        println!("two JumpToLatest() calls -> _JumpToLatest = {requests:?}");
+        assert_eq!(requests, "2", "R22: reachable from COBOL, and never coalesced");
+    }
+
+    /// **AC14 / plan.md §7's flagged reading, confirmed here rather than
+    /// after the fact:** `RenderAsHtml = false` forces Raw **even for an
+    /// explicit `AppendHtml` call**.
+    #[test]
+    fn render_as_html_false_forces_raw_whatever_mode_was_called() {
+        let mut interp = viewer_interp(&[("RenderAsHtml", "0")]);
+        let html = "<b>bold</b>";
+        interp.exec_method("VWR-1", "APPENDHTML", &[CobolValue::from_str(html, html.len())]);
+        let text = interp.viewer_conversation("VWR-1").text();
+        println!("RenderAsHtml=false, AppendHtml({html:?}) -> {text:?}");
+        assert!(text.contains("<b>bold</b>"), "AC14: shown literally, not rendered");
+
+        // And with the override on, the same call renders.
+        let mut on = viewer_interp(&[("RenderAsHtml", "1")]);
+        on.exec_method("VWR-1", "APPENDHTML", &[CobolValue::from_str(html, html.len())]);
+        let rendered = on.viewer_conversation("VWR-1").text();
+        println!("RenderAsHtml=true,  AppendHtml({html:?}) -> {rendered:?}");
+        assert!(!rendered.contains("<b>"), "the tag is markup here, not text");
+        assert!(rendered.contains("bold"));
+    }
+
+    /// **Spec 058 AC30, the interpreter's half** — "every event in R32's
+    /// table fires at its documented moment and never at another one,
+    /// verified per event, not by sampling a few."
+    ///
+    /// One table-driven test rather than a function per event (plan.md §5's
+    /// own mitigation): sixteen near-identical hand-written tests is exactly
+    /// where one gets silently skipped, and the table is then the single
+    /// place a missing case would have to hide. Each row reports PASS or
+    /// FAIL **by name**, so a gap is visible rather than inferred from an
+    /// absent test function.
+    ///
+    /// The engine's half — the events a gesture raises — is `cobolt-forms`'
+    /// test of the same name.
+    #[test]
+    fn every_event_in_r32s_table_fires_at_its_documented_moment() {
+        let dir = tempfile::tempdir().unwrap();
+        let good = dir.path().join("good.txt");
+        std::fs::write(&good, "A readable document, long enough to report progress.\n".repeat(4000)).unwrap();
+        let bad = dir.path().join("mystery.bin");
+        std::fs::write(&bad, (0..256u16).map(|b| (b % 256) as u8).collect::<Vec<u8>>()).unwrap();
+        let good = good.to_string_lossy().into_owned();
+        let bad = bad.to_string_lossy().into_owned();
+        let dest = dir.path().join("copy.txt").to_string_lossy().into_owned();
+
+        // Every row: the event, what makes it happen, and the trigger.
+        type Trigger = Box<dyn Fn(&mut Interpreter)>;
+        let rows: Vec<(&str, &str, Trigger)> = vec![
+            ("onLoadProgress", "a document opens", {
+                let g = good.clone();
+                Box::new(move |i: &mut Interpreter| i.obj_set("VWR-1", "Source", g.clone()))
+            }),
+            ("onLoaded", "it finishes opening", {
+                let g = good.clone();
+                Box::new(move |i: &mut Interpreter| i.obj_set("VWR-1", "Source", g.clone()))
+            }),
+            ("onError", "a document cannot be opened", {
+                let b = bad.clone();
+                Box::new(move |i: &mut Interpreter| i.obj_set("VWR-1", "Source", b.clone()))
+            }),
+            ("onSaveComplete", "SaveAs writes the file", {
+                let (g, d) = (good.clone(), dest.clone());
+                Box::new(move |i: &mut Interpreter| {
+                    i.obj_set("VWR-1", "Source", g.clone());
+                    i.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(&d, d.len())]);
+                })
+            }),
+            ("onSaveCancelled", "the OS reports the save dialog was cancelled",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Save, false))),
+            ("onPrintComplete", "the OS reports printing finished",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, true))),
+            ("onPrintCancelled", "the OS reports printing was cancelled",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Print, false))),
+            ("onShareComplete", "the OS reports sharing finished",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, true))),
+            ("onShareCancelled", "the OS reports sharing was cancelled",
+                Box::new(|i: &mut Interpreter| i.report_viewer_os_outcome("VWR-1", ViewerOsAction::Share, false))),
+            ("onFindOpened", "Find() opens the bar",
+                Box::new(|i: &mut Interpreter| { i.exec_method("VWR-1", "FIND", &[CobolValue::from_str("x", 1)]); })),
+            ("onFindClosed", "FindClose() closes it",
+                Box::new(|i: &mut Interpreter| {
+                    i.exec_method("VWR-1", "FIND", &[CobolValue::from_str("x", 1)]);
+                    i.exec_method("VWR-1", "FINDCLOSE", &[]);
+                })),
+            ("onContentRendered", "an appended chunk finishes laying out",
+                Box::new(|i: &mut Interpreter| { i.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("hello", 5)]); })),
+            ("onConversationCreated", "NewConversation() archives a non-empty pane",
+                Box::new(|i: &mut Interpreter| {
+                    i.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str("a thread", 8)]);
+                    i.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+                })),
+            ("onConversationSelected", "SelectConversation(id) makes one current",
+                Box::new(|i: &mut Interpreter| {
+                    i.exec_method("VWR-1", "SELECTCONVERSATION", &[CobolValue::from_str("chat-1", 6)]);
+                })),
+        ];
+
+        println!("AC30 (interpreter half) — one row per event in R32's table:");
+        let mut failures: Vec<String> = Vec::new();
+        for (event, moment, trigger) in &rows {
+            let mut interp = viewer_interp(&[]);
+            trigger(&mut interp);
+            let seen = queued_for(&interp, "VWR-1");
+            let count = seen.iter().filter(|e| *e == event).count();
+            let ok = count >= 1;
+            println!(
+                "  {:<24} {:<46} fired {count}   {}",
+                event,
+                moment,
+                if ok { "PASS" } else { "FAIL" }
+            );
+            if !ok {
+                failures.push(format!("{event} ({moment}) — saw {seen:?}"));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "AC30: these events did not fire at their documented moment: {failures:?}"
+        );
+
+        // The other half of "and never at another one": a quiet control
+        // that is merely READ raises nothing at all.
+        let mut quiet = viewer_interp(&[]);
+        let _ = quiet.obj_get("VWR-1", "Layout");
+        let _ = quiet.obj_get("VWR-1", "HistoryList");
+        quiet.exec_method("VWR-1", "FINDNEXT", &[]);
+        let idle = queued_for(&quiet, "VWR-1");
+        println!("  {:<24} {:<46} fired {}   {}", "(nothing)", "a control that is only read", idle.len(), if idle.is_empty() { "PASS" } else { "FAIL" });
+        assert!(idle.is_empty(), "AC30: reading a Viewer must raise nothing, saw {idle:?}");
+    }
+
+    // ── Viewer conversation management (spec 058 T36/T37): §8.8 ─────────
+
+    fn append_raw(interp: &mut Interpreter, text: &str) {
+        interp.exec_method("VWR-1", "APPENDRAW", &[CobolValue::from_str(text, text.len())]);
+    }
+
+    /// **AC26** — "`NewConversation()` archives a non-empty pane into
+    /// history, clears it, and raises `onConversationCreated`; calling it on
+    /// an empty pane raises no event and creates no history entry."
+    ///
+    /// Both branches, reported separately, because assuming the empty one
+    /// behaves like the other is exactly how a spurious history entry gets
+    /// in.
+    #[test]
+    fn new_conversation_reports_its_two_branches_differently() {
+        // Branch 1 — an EMPTY pane.
+        let mut empty = viewer_interp(&[]);
+        empty.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let empty_events = queued_for(&empty, "VWR-1");
+        let empty_history = empty.obj_get("VWR-1", "HistoryList");
+        println!("NewConversation() on an EMPTY pane -> events {empty_events:?}, history {empty_history:?}");
+        assert!(empty_events.is_empty(), "AC26: no event");
+        assert!(empty_history.is_empty(), "AC26: and no history entry");
+
+        // Branch 2 — a pane with content.
+        let mut full = viewer_interp(&[]);
+        append_raw(&mut full, "Quarterly figures please");
+        let before = queued_for(&full, "VWR-1").len();
+        full.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let new_events: Vec<String> = queued_for(&full, "VWR-1").split_off(before);
+        let history = full.obj_get("VWR-1", "HistoryList");
+        let pane_empty = full.obj_get("VWR-1", "_ConversationEmpty");
+        println!("NewConversation() on a FULL pane  -> events {new_events:?}");
+        println!("  history now {history:?}, pane empty = {pane_empty:?}");
+        assert_eq!(new_events, vec!["onConversationCreated".to_string()], "AC26: exactly one event");
+        assert_eq!(pane_empty, "1", "AC26: the pane is cleared");
+        assert!(history.contains("Quarterly figures please"), "AC26: archived under its own first line");
+        assert!(full.viewer_conversation("VWR-1").is_empty());
+    }
+
+    /// **AC27** — "`SelectConversation(id)` archives the currently-open
+    /// conversation, removes the selected id from history, clears the pane,
+    /// and raises `onConversationSelected(id)` — the control never repaints
+    /// content from anywhere but a subsequent host-supplied append call."
+    #[test]
+    fn select_conversation_swaps_current_into_history_and_takes_the_selected_one_out() {
+        let mut interp = viewer_interp(&[]);
+        // Seed a past conversation the host remembers from an earlier run.
+        interp.exec_method(
+            "VWR-1",
+            "REGISTERCONVERSATION",
+            &[CobolValue::from_str("chat-7", 6), CobolValue::from_str("Payroll questions", 17)],
+        );
+        append_raw(&mut interp, "Today's thread");
+        interp.obj_set("VWR-1", "ConversationId", "chat-9".into());
+
+        let before = queued_for(&interp, "VWR-1").len();
+        interp.exec_method("VWR-1", "SELECTCONVERSATION", &[CobolValue::from_str("chat-7", 6)]);
+        let events: Vec<String> = queued_for(&interp, "VWR-1").split_off(before);
+        let history = interp.obj_get("VWR-1", "HistoryList");
+
+        println!("history after selecting chat-7:\n{history}");
+        println!("events {events:?}, ConversationId {:?}", interp.obj_get("VWR-1", "ConversationId"));
+        println!("pane empty = {:?}", interp.obj_get("VWR-1", "_ConversationEmpty"));
+        assert!(history.contains("chat-9|Today's thread"), "AC27: the open one was archived");
+        assert!(!history.contains("chat-7"), "AC27: the selected one LEFT history");
+        assert_eq!(events, vec!["onConversationSelected".to_string()]);
+        assert_eq!(interp.obj_get("VWR-1", "ConversationId"), "chat-7", "carrying the id");
+        assert_eq!(interp.obj_get("VWR-1", "_ConversationEmpty"), "1", "AC27: the pane is cleared");
+        assert!(
+            interp.obj_get("VWR-1", "_ConversationHtml").is_empty(),
+            "AC27: nothing was restored from a cache — there is no cache"
+        );
+    }
+
+    /// **T37** — the clear happens, *then* the event: a handler bound to
+    /// either one sees an empty pane, never stale content.
+    #[test]
+    fn the_pane_is_cleared_before_either_conversation_event_is_raised() {
+        for method in ["NEWCONVERSATION", "SELECTCONVERSATION"] {
+            let mut interp = viewer_interp(&[]);
+            append_raw(&mut interp, "stale content");
+            let args: Vec<CobolValue> = if method == "SELECTCONVERSATION" {
+                vec![CobolValue::from_str("other", 5)]
+            } else {
+                vec![]
+            };
+            let before = queued_for(&interp, "VWR-1").len();
+            interp.exec_method("VWR-1", method, &args);
+            let events: Vec<String> = queued_for(&interp, "VWR-1").split_off(before);
+            // The pane state a handler would observe, at the moment the
+            // event is sitting in the queue waiting to be dispatched.
+            let html = interp.obj_get("VWR-1", "_ConversationHtml");
+            println!("{method} -> events {events:?}, pane html {html:?}");
+            assert_eq!(events.len(), 1, "one event");
+            assert!(html.is_empty(), "T37: the pane is already empty when the event fires");
+            assert!(!html.contains("stale content"));
+        }
+    }
+
+    /// **AC28** — "history never exceeds 10 entries; archiving or
+    /// registering an 11th evicts the oldest, verified by id."
+    #[test]
+    fn history_never_exceeds_ten_and_evicts_the_oldest_by_id() {
+        let mut interp = viewer_interp(&[]);
+        for i in 0..12 {
+            interp.exec_method(
+                "VWR-1",
+                "REGISTERCONVERSATION",
+                &[
+                    CobolValue::from_str(&format!("chat-{i}"), 8),
+                    CobolValue::from_str(&format!("Thread {i}"), 9),
+                ],
+            );
+        }
+        let list = interp.obj_get("VWR-1", "HistoryList");
+        let ids: Vec<&str> = list.lines().filter_map(|l| l.split('|').next()).collect();
+        println!("12 registered -> {} kept: {ids:?}", ids.len());
+        assert_eq!(ids.len(), 10, "AC28: never more than ten");
+        assert!(!list.contains("chat-0|") && !list.contains("chat-1|"), "AC28: the two oldest went");
+        assert_eq!(ids.first(), Some(&"chat-2"), "and the rest kept their order");
+        assert_eq!(ids.last(), Some(&"chat-11"));
+    }
+
+    /// **AC29** — "`HistoryList` lists every current entry as `id|title`,
+    /// one per line, staying in sync after every archive, selection and
+    /// eviction."
+    #[test]
+    fn historylist_stays_in_sync_through_archive_selection_and_eviction() {
+        let mut interp = viewer_interp(&[]);
+        let register = |i: &mut Interpreter, id: &str, title: &str| {
+            i.exec_method(
+                "VWR-1",
+                "REGISTERCONVERSATION",
+                &[CobolValue::from_str(id, id.len()), CobolValue::from_str(title, title.len())],
+            );
+        };
+        register(&mut interp, "a", "Alpha");
+        register(&mut interp, "b", "Beta");
+        println!("after two registers:\n{}", interp.obj_get("VWR-1", "HistoryList"));
+        assert_eq!(interp.obj_get("VWR-1", "HistoryList"), "a|Alpha\nb|Beta", "AC29's exact format");
+
+        // An archive adds one.
+        append_raw(&mut interp, "Live thread");
+        interp.obj_set("VWR-1", "ConversationId", "c".into());
+        interp.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        println!("after archiving the live one:\n{}", interp.obj_get("VWR-1", "HistoryList"));
+        assert_eq!(interp.obj_get("VWR-1", "HistoryList"), "a|Alpha\nb|Beta\nc|Live thread");
+
+        // A selection removes one.
+        interp.exec_method("VWR-1", "SELECTCONVERSATION", &[CobolValue::from_str("b", 1)]);
+        let after = interp.obj_get("VWR-1", "HistoryList");
+        println!("after selecting b:\n{after}");
+        assert_eq!(after, "a|Alpha\nc|Live thread", "AC29: in sync after a selection too");
+    }
+
+    /// §8.8's own rule, in one line: history holds an id and a title, and
+    /// **never** a conversation's content.
+    #[test]
+    fn history_never_holds_a_conversations_content() {
+        let mut interp = viewer_interp(&[]);
+        let secret = "the body of this conversation must never be in history";
+        append_raw(&mut interp, secret);
+        interp.obj_set("VWR-1", "ConversationId", "c1".into());
+        interp.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let list = interp.obj_get("VWR-1", "HistoryList");
+        println!("history: {list:?}");
+        assert!(list.starts_with("c1|"), "an id and a title");
+        // The title IS the first line, by design — what must not be there is
+        // everything else.
+        append_raw(&mut interp, "second thread with more lines\nand a second line of it");
+        interp.obj_set("VWR-1", "ConversationId", "c2".into());
+        interp.exec_method("VWR-1", "NEWCONVERSATION", &[]);
+        let list = interp.obj_get("VWR-1", "HistoryList");
+        println!("history: {list:?}");
+        assert!(!list.contains("and a second line of it"), "§8.8: content is not stored");
+        assert!(list.lines().count() == 2, "one line per entry, whatever the conversation held");
+    }
+
+    // ── Viewer PDF (spec 058 T19): AC6, where re-encoding would tempt ───
+
+    /// **AC6, the PDF case (T19).** A PDF is the format most likely to
+    /// tempt a "helpful" re-encode: the Viewer reads its pages, its text,
+    /// its geometry and its vectors to paint it, and a saver that went
+    /// through that derived model instead of the file would produce a
+    /// different — and probably smaller — document.
+    ///
+    /// The assertion is on BYTES, not on whether the result still opens:
+    /// a re-encoded PDF opens perfectly well and is still the wrong answer
+    /// (R18: "shall **not** write a rendered or re-encoded document").
+    #[test]
+    fn saving_a_pdf_writes_the_original_file_byte_for_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("statement.pdf");
+        // A real PDF: header, binary comment line, an object stream with a
+        // compressible run, a cross-reference table and a trailer. The
+        // binary comment is deliberate — it is the byte sequence a
+        // text-mode copy would mangle.
+        let mut pdf: Vec<u8> = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.7\n");
+        pdf.extend_from_slice(&[b'%', 0xE2, 0xE3, 0xCF, 0xD3, b'\n']);
+        pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+        pdf.extend_from_slice(b"3 0 obj\n<< /Length 64 >>\nstream\n");
+        pdf.extend(std::iter::repeat(b'A').take(64));
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        // Every byte value, so any encoding-aware copy shows up as a
+        // difference rather than as a plausible-looking file.
+        pdf.extend_from_slice(b"4 0 obj\n<< /Binary true >>\nstream\n");
+        pdf.extend((0..=255u8).collect::<Vec<u8>>());
+        pdf.extend_from_slice(b"\nendstream\nendobj\n");
+        pdf.extend_from_slice(b"trailer\n<< /Root 1 0 R >>\n%%EOF\n");
+        std::fs::write(&src_path, &pdf).unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let dest = dir.path().join("saved-copy.pdf");
+        interp.exec_method(
+            "VWR-1",
+            "SAVEAS",
+            &[CobolValue::from_str(dest.to_str().unwrap(), 260)],
+        );
+
+        let written = std::fs::read(&dest).expect("Save As must have written a file");
+        let first_difference = pdf
+            .iter()
+            .zip(written.iter())
+            .position(|(a, b)| a != b);
+        println!(
+            "AC6/T19: source {} bytes, saved {} bytes, first differing byte {:?}",
+            pdf.len(),
+            written.len(),
+            first_difference
+        );
+        println!(
+            "  source starts {:?}, saved starts {:?}",
+            &pdf[..16.min(pdf.len())],
+            &written[..16.min(written.len())]
+        );
+        assert_eq!(written.len(), pdf.len(), "a re-encode would change the length");
+        assert_eq!(first_difference, None, "R18: not one byte may differ");
+        assert_eq!(written, pdf, "AC6: byte-identical to the source");
+        assert_eq!(
+            queued_for(&interp, "VWR-1"),
+            vec!["onSaveComplete".to_string()],
+            "and the save reports itself once"
+        );
+    }
+
+    /// R24 — "the control shall **not** modify the source document." Saving
+    /// is a read of the source, never a write to it.
+    #[test]
+    fn saving_a_pdf_leaves_the_source_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("original.pdf");
+        let mut pdf = b"%PDF-1.4\n".to_vec();
+        pdf.extend((0..512u16).map(|b| (b % 256) as u8));
+        pdf.extend_from_slice(b"\n%%EOF\n");
+        std::fs::write(&src_path, &pdf).unwrap();
+        let before = std::fs::read(&src_path).unwrap();
+        let before_mtime = std::fs::metadata(&src_path).unwrap().modified().unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let dest = dir.path().join("copy.pdf");
+        interp.exec_method("VWR-1", "SAVEAS", &[CobolValue::from_str(dest.to_str().unwrap(), 260)]);
+
+        let after = std::fs::read(&src_path).unwrap();
+        let after_mtime = std::fs::metadata(&src_path).unwrap().modified().unwrap();
+        println!(
+            "R24: source {} bytes before, {} after; modified time unchanged = {}",
+            before.len(),
+            after.len(),
+            before_mtime == after_mtime
+        );
+        assert_eq!(after, before, "R24: the source is never modified");
+        assert_eq!(after_mtime, before_mtime, "not even touched");
+    }
+
+    // ── Viewer Find (spec 058 T15): the COBOL surface, R31/AC24 ─────────
+
+    /// **AC24**, properties — "search text, case sensitivity, highlight
+    /// toggle, and match count/index all round-trip through the COBOL API."
+    ///
+    /// Both spellings are checked in both directions: plan.md §3 makes the
+    /// unprefixed names aliases onto `View1*`, and an alias a program can
+    /// write but not read back would satisfy R31 only on paper.
+    #[test]
+    fn every_search_property_round_trips_through_either_spelling() {
+        // The written value and what it reads back as: the runtime
+        // canonicalises a boolean property to "true"/"false", so a program
+        // that writes 1 reads back "true". That is the registry's rule for
+        // every control, not something Find gets to opt out of.
+        let pairs: &[(&str, &str, &str)] = &[
+            ("SearchText", "invoice", "invoice"),
+            ("SearchCaseSensitive", "1", "true"),
+            ("SearchHighlightEnabled", "0", "false"),
+            ("SearchCurrentMatch", "3", "3"),
+            ("SearchMatchCount", "9", "9"),
+            ("FindOpen", "1", "true"),
+        ];
+        for (name, value, reads_as) in pairs {
+            // Write the SHORT name, read the prefixed one.
+            let mut interp = viewer_interp(&[]);
+            interp.obj_set("VWR-1", name, value.to_string());
+            let prefixed = interp.obj_get("VWR-1", &format!("View1{name}"));
+            let short = interp.obj_get("VWR-1", name);
+            println!("wrote {name}={value:?} -> {name}={short:?}, View1{name}={prefixed:?}");
+            assert_eq!(short, *reads_as, "{name} must read back what was written");
+            assert_eq!(prefixed, *reads_as, "R31: the View1 spelling must agree");
+
+            // And the other way round.
+            let mut interp = viewer_interp(&[]);
+            interp.obj_set("VWR-1", &format!("View1{name}"), value.to_string());
+            let short = interp.obj_get("VWR-1", name);
+            println!("wrote View1{name}={value:?} -> {name}={short:?}");
+            assert_eq!(short, *reads_as, "R31: the short spelling must agree");
+        }
+    }
+
+    /// **AC24**, methods — "Find, Next and Previous are all COBOL-callable",
+    /// and Next/Previous wrap (R28).
+    #[test]
+    fn findnext_and_findprevious_wrap_from_cobol() {
+        let mut interp = viewer_interp(&[("View1SearchMatchCount", "3")]);
+        let mut forward = Vec::new();
+        for _ in 0..5 {
+            interp.exec_method("VWR-1", "FINDNEXT", &[]);
+            forward.push(interp.obj_get("VWR-1", "SearchCurrentMatch"));
+        }
+        let mut backward = Vec::new();
+        for _ in 0..3 {
+            interp.exec_method("VWR-1", "FINDPREVIOUS", &[]);
+            backward.push(interp.obj_get("VWR-1", "SearchCurrentMatch"));
+        }
+        println!("3 matches — FindNext x5  -> {forward:?}");
+        println!("            FindPrevious x3 -> {backward:?}");
+        assert_eq!(forward, ["1", "2", "0", "1", "2"], "R28: wraps past the last");
+        assert_eq!(backward, ["1", "0", "2"], "R28: and past the first");
+    }
+
+    /// R26.1 from COBOL's side: with nothing to find, Next is a no-op rather
+    /// than an error or a fabricated index.
+    #[test]
+    fn findnext_with_no_matches_does_nothing_at_all() {
+        let mut interp = viewer_interp(&[("View1SearchMatchCount", "0")]);
+        interp.exec_method("VWR-1", "FINDNEXT", &[]);
+        interp.exec_method("VWR-1", "FINDPREVIOUS", &[]);
+        let current = interp.obj_get("VWR-1", "SearchCurrentMatch");
+        println!("0 matches — FindNext then FindPrevious -> SearchCurrentMatch {current:?}");
+        assert!(current.is_empty() || current == "0", "R26.1: nowhere to go, cleanly");
+    }
+
+    /// R26/R31 — Find opens and closes from COBOL, raising its events once
+    /// each, and `Find(text)` seeds the query.
+    #[test]
+    fn find_and_findclose_open_the_bar_and_fire_once_each() {
+        let mut interp = viewer_interp(&[]);
+        interp.exec_method("VWR-1", "FIND", &[CobolValue::from_str("invoice", 7)]);
+        interp.exec_method("VWR-1", "FIND", &[]); // already open: no second event
+        let after_open = queued_for(&interp, "VWR-1");
+        interp.exec_method("VWR-1", "FINDCLOSE", &[]);
+        interp.exec_method("VWR-1", "FINDCLOSE", &[]); // already closed
+        let all = queued_for(&interp, "VWR-1");
+        println!("Find(\"invoice\") twice -> {after_open:?}");
+        println!("then FindClose twice -> {all:?}");
+        println!("SearchText={:?}, FindOpen={:?}", interp.obj_get("VWR-1", "SearchText"), interp.obj_get("VWR-1", "FindOpen"));
+        assert_eq!(after_open, vec!["onFindOpened".to_string()], "opened once, not twice");
+        assert_eq!(all, vec!["onFindOpened".to_string(), "onFindClosed".to_string()]);
+        assert_eq!(interp.obj_get("VWR-1", "SearchText"), "invoice", "Find(text) seeds the query");
+        assert_eq!(interp.obj_get("VWR-1", "View1SearchText"), "invoice", "through both spellings");
+    }
 
     // ── RestClient: the control's own configuration reaches the request ──────
     //

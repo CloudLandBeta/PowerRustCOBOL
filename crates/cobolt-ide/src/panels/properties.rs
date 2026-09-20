@@ -7591,6 +7591,86 @@ impl PropertiesPanel {
             // ── Timer ─────────────────────────────────────────────────────────
             // Non-visual: the inspector stops after type-specific, so both
             // passes are adjacent and Basic is the natural home.
+            // ── Viewer (spec 058) ─────────────────────────────────────────────
+            //
+            // R22: every function is settable from COBOL, and every one of
+            // them is settable HERE too — a property a developer can only
+            // reach from code is half a control. The `View2*` group is shown
+            // only when `SplitMode != None`, because until then there is no
+            // second view for it to mean anything about.
+            ControlType::Viewer if phase == TypeSection::Basic => {
+                section_header(ui, tr.sec_viewer_document);
+                text_prop_row(ui, id, "Source", "Source", ctrl, action, &mut self.text_bufs);
+                combo_row_inline(
+                    ui, id, "Format", ctrl, action,
+                    &["", "Text", "Markdown", "Image", "Pdf", "HtmlSubset"],
+                );
+
+                section_header(ui, tr.sec_viewer_view);
+                combo_row_inline(
+                    ui, id, "Layout", ctrl, action,
+                    &["Raw", "Web", "Print", "Page", "Streamed"],
+                );
+                int_prop_row(ui, id, "FontSize", "FontSize", ctrl, action, 4..=72, None, 14);
+                int_prop_row(ui, id, "View1Zoom", "Zoom (%)", ctrl, action, 25..=1600, None, 100);
+                combo_row_inline(ui, id, "View1ViewMode", ctrl, action, &["Full", "Cards"]);
+                int_prop_row(
+                    ui, id, "View1CardSize", "CardSize (%)", ctrl, action, 0..=100, None, 55,
+                );
+                bool_row_inline(ui, id, "View1ShowFilmstrip", "Show filmstrip", ctrl, action);
+                bool_row_inline(ui, id, "Fullscreen", "Fullscreen", ctrl, action);
+                ui.add_space(4.0);
+            }
+
+            ControlType::Viewer if phase == TypeSection::Rest => {
+                section_header(ui, tr.sec_viewer_split);
+                combo_row_inline(
+                    ui, id, "SplitMode", ctrl, action, &["None", "LeftRight", "TopBottom"],
+                );
+                let split = ctrl
+                    .get_prop("SplitMode")
+                    .map(|v| v.as_str().to_owned())
+                    .unwrap_or_default();
+                let split_on = !split.trim().is_empty() && !split.trim().eq_ignore_ascii_case("None");
+                if split_on {
+                    int_prop_row(
+                        ui, id, "SplitPercent", "Divider (%)", ctrl, action, 0..=100, None, 50,
+                    );
+                    ui.label(egui::RichText::new(tr.viewer_second_view_hint).small().weak());
+                    text_prop_row(
+                        ui, id, "View2Source", "View2 Source", ctrl, action, &mut self.text_bufs,
+                    );
+                    int_prop_row(
+                        ui, id, "View2Zoom", "View2 Zoom (%)", ctrl, action, 25..=1600, None, 100,
+                    );
+                    combo_row_inline(ui, id, "View2ViewMode", ctrl, action, &["Full", "Cards"]);
+                    int_prop_row(
+                        ui, id, "View2CardSize", "View2 CardSize (%)", ctrl, action, 0..=100, None, 55,
+                    );
+                    bool_row_inline(
+                        ui, id, "View2ShowFilmstrip", "View2 filmstrip", ctrl, action,
+                    );
+                }
+                ui.add_space(4.0);
+
+                section_header(ui, tr.sec_viewer_find);
+                bool_row_inline(ui, id, "View1FindOpen", "Find bar open", ctrl, action);
+                text_prop_row(
+                    ui, id, "View1SearchText", "SearchText", ctrl, action, &mut self.text_bufs,
+                );
+                bool_row_inline(
+                    ui, id, "View1SearchCaseSensitive", "Match case", ctrl, action,
+                );
+                bool_row_inline(
+                    ui, id, "View1SearchHighlightEnabled", "Highlight matches", ctrl, action,
+                );
+                ui.add_space(4.0);
+
+                section_header(ui, tr.sec_viewer_conversation);
+                bool_row_inline(ui, id, "RenderAsHtml", "RenderAsHtml", ctrl, action);
+                ui.add_space(6.0);
+            }
+
             // ── Snackbar (spec 055) ───────────────────────────────────────────
             // The dropped control is the TEMPLATE (D1/D2): everything here is
             // what the next `Show()` will mint from. The colour rows start empty
@@ -11650,6 +11730,39 @@ fn busy_row_readonly(ui: &mut Ui, ctrl: &Control) {
     });
 }
 
+/// A single-line text property row (spec 058 T28).
+///
+/// The buffer lives in the panel's own `text_bufs` so typing is not lost to
+/// a repaint, and the write lands on `lost_focus` — the same shape the
+/// Snackbar's `Text` row already uses, lifted out so three Viewer rows do
+/// not each repeat it.
+fn text_prop_row(
+    ui: &mut Ui,
+    ctrl_id: &str,
+    key: &str,
+    label: &str,
+    ctrl: &Control,
+    action: &mut InspectorAction,
+    bufs: &mut std::collections::HashMap<String, String>,
+) {
+    let cur = ctrl.get_prop(key).map(|v| v.as_str().to_owned()).unwrap_or_default();
+    let buf_key = format!("{ctrl_id}-{key}");
+    let wid = egui::Id::new(&buf_key);
+    let focused = ui.memory(|m| m.has_focus(wid));
+    let buf = bufs.entry(buf_key).or_insert_with(|| cur.clone());
+    if *buf != cur && !focused {
+        *buf = cur;
+    }
+    property_row(ui, label, |ui| {
+        let resp = ui.add(
+            egui::TextEdit::singleline(buf).id(wid).desired_width(ui.available_width()),
+        );
+        if resp.lost_focus() {
+            action.set_props.push((ctrl_id.to_owned(), key.into(), PropValue::String(buf.clone())));
+        }
+    });
+}
+
 fn bool_row_inline(
     ui: &mut Ui,
     ctrl_id: &str,
@@ -13495,6 +13608,100 @@ mod folder_row_tests {
 mod snackbar_colour_row_tests {
     use super::*;
     use cobolt_forms::model::{Control, ControlType, PropValue};
+
+    // ── Viewer (spec 058 T28) ───────────────────────────────────────────
+
+    /// Every text a Viewer's type-specific rows actually PAINT, for one
+    /// control. Four frames, for the reason recorded below `painted`.
+    fn viewer_painted(ctrl: &Control) -> Vec<String> {
+        let ctx = egui::Context::default();
+        let mut panel = PropertiesPanel::new();
+        let tr = crate::i18n::Language::English.tr();
+        let mut texts: Vec<String> = Vec::new();
+        for _ in 0..4 {
+            texts.clear();
+            let mut input = egui::RawInput::default();
+            input.screen_rect = Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 6000.0),
+            ));
+            let mut out = ctx.run_ui(input, |root| {
+                egui::Area::new(egui::Id::new("viewer_property_probe"))
+                    .fixed_pos(egui::Pos2::ZERO)
+                    .show(root.ctx(), |ui| {
+                        ui.set_max_width(360.0);
+                        let mut action = InspectorAction::default();
+                        for phase in [TypeSection::Basic, TypeSection::Rest] {
+                            panel.show_type_specific(ui, ctrl, "VWR-1", &[], &mut action, &tr, phase);
+                        }
+                    });
+            });
+            for cs in &out.shapes {
+                if let egui::epaint::Shape::Text(t) = &cs.shape {
+                    texts.push(t.galley.text().to_owned());
+                }
+            }
+            out.textures_delta.clear();
+        }
+        texts
+    }
+
+    /// **R22 reaches the Properties panel too.** Every function is settable
+    /// from COBOL *and* from the designer — a property a developer can only
+    /// reach from code is half a control.
+    #[test]
+    fn a_viewers_properties_are_all_editable_from_the_designer() {
+        let ctrl = Control::new("VWR-1", ControlType::Viewer, 0, 0);
+        let painted = viewer_painted(&ctrl);
+        println!("{} row label(s) painted for an unsplit Viewer", painted.len());
+        for want in [
+            "Source",
+            "Format",
+            "Layout",
+            "FontSize",
+            "Zoom (%)",
+            "View1ViewMode",
+            "CardSize (%)",
+            "Show filmstrip",
+            "Fullscreen",
+            "SplitMode",
+            "Find bar open",
+            "SearchText",
+            "Match case",
+            "Highlight matches",
+            "RenderAsHtml",
+        ] {
+            let found = painted.iter().any(|t| t.contains(want));
+            println!("  {:<20} {}", want, if found { "editable" } else { "MISSING" });
+            assert!(found, "R22: {want:?} must be editable from the Properties panel");
+        }
+    }
+
+    /// The `View2*` group appears **only** when `SplitMode != None` — until
+    /// then there is no second view for it to mean anything about.
+    #[test]
+    fn the_second_views_properties_appear_only_once_the_control_is_split() {
+        let unsplit = Control::new("VWR-1", ControlType::Viewer, 0, 0);
+        let mut split = Control::new("VWR-1", ControlType::Viewer, 0, 0);
+        split.set_prop("SplitMode", PropValue::String("LeftRight".into()));
+
+        let before = viewer_painted(&unsplit);
+        let after = viewer_painted(&split);
+        let has = |rows: &[String], needle: &str| rows.iter().any(|t| t.contains(needle));
+        for row in ["View2 Source", "View2 Zoom (%)", "View2ViewMode", "Divider (%)"] {
+            println!(
+                "  {:<18} SplitMode=None: {:<7} SplitMode=LeftRight: {}",
+                row,
+                has(&before, row),
+                has(&after, row)
+            );
+            assert!(!has(&before, row), "{row:?} must not show before the control is split");
+            assert!(has(&after, row), "{row:?} must show once it is");
+        }
+        // And the first view's rows are there either way.
+        assert!(has(&before, "SplitMode") && has(&after, "SplitMode"));
+        assert!(has(&before, "Zoom (%)") && has(&after, "Zoom (%)"));
+    }
 
     /// Every text the Snackbar's type-specific rows actually PAINT.
     ///

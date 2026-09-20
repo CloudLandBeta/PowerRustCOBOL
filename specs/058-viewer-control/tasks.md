@@ -127,7 +127,7 @@ not a claim about what §8.1 means architecturally.
 
 ## Stage C — Wave 1: text, Markdown, images (one view, no split, no search yet)
 
-- [ ] **T8 — Plain text: load, index, paginate** (R1, R2, R3, R4, R6, R9)
+- [x] **T8 — Plain text: load, index, paginate** (R1, R2, R3, R4, R6, R9)
   - Files: `crates/cobolt-forms/src/viewer.rs` (new)
   - Do: `Source`/`LoadBytes` loading; format resolution (content first,
         extension second) into `ViewerFormat`; **the loaded bytes/text are
@@ -140,7 +140,7 @@ not a claim about what §8.1 means architecturally.
         (**AC1**, tied to T7); an unsupported format raises `onError` and
         leaves any prior document displayed (R4).
 
-- [ ] **T9 — Markdown walker → internal layout model** (R7, R9, AC2)
+- [x] **T9 — Markdown walker → internal layout model** (R7, R9, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (`pulldown-cmark`,
         matching `cobolt-ide`'s `0.12`, `default-features = false`)
   - Do: walk `pulldown-cmark` events into a layout model — paragraphs,
@@ -150,7 +150,7 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-forms` — reports node counts per construct
         checked; each of the "common extensions" has its own case.
 
-- [ ] **T10 — Image decoding** (R7, AC2)
+- [x] **T10 — Image decoding** (R7, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (extend `image`
         features: `gif`, `webp`, `bmp`, `tiff` — `png`/`jpeg` and `resvg`/SVG
         already present)
@@ -164,7 +164,7 @@ not a claim about what §8.1 means architecturally.
         reporting dimensions/frame counts per format, checked against what §3
         promises (nothing silently over- or under-delivered).
 
-- [ ] **T11 — `paint::draw_viewer`: layouts, and the design-canvas preview**
+- [x] **T11 — `paint::draw_viewer`: layouts, and the design-canvas preview**
       (R7, R8, R10, R32, AC3, AC11)
   - Files: `crates/cobolt-forms/src/paint.rs`
   - Do: the four non-Streamed `Layout` modes (`Raw`/`Web`/`Print`/`Page`)
@@ -184,7 +184,7 @@ not a claim about what §8.1 means architecturally.
         T30 — this is the first check, not the last); changing `Layout` fires
         `onLayoutChanged` exactly once per change.
 
-- [ ] **T12 — Navigation: zoom/card slider, ViewMode, fullscreen, filmstrip,
+- [x] **T12 — Navigation: zoom/card slider, ViewMode, fullscreen, filmstrip,
       scrolling** (R11–R15, R33–R33.3, R32, AC4, AC5, AC19, AC31, AC32)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `src/paint.rs`
   - Do: wheel-zoom about the pointer; double-click zoom to a 16× cap; Esc → 100%
@@ -233,8 +233,48 @@ not a claim about what §8.1 means architecturally.
         the limit or zero, a non-moving release throws nothing, and a press
         mid-glide stops it (**AC32**); each
         settle-event fires once per actual change, not per input tick.
+  - **DONE — 2026-09-19, in two commits** (an operator hold split the task
+    mid-flight; the halves are 1.70.85 and 1.70.86). The pure model lives in
+    `crates/cobolt-forms/src/viewer.rs` under `// ── Navigation: zoom, cards,
+    filmstrip, scrolling (T12) ──`: `ViewMode`; the zoom ladder/cap/anchor;
+    `card_grid`; `slider_target`/`slider_position`/`apply_slider`;
+    `filmstrip_width_after_drag`; `ViewRect`/`ChromeOpts`/`ChromeLayout`/
+    `chrome_layout`; `ScrollKinetics` + `KeyScrollInput` + `key_accel_factor`/
+    `throw_speed`; and `SettleWatch`. The wiring is
+    `paint::ViewerPaintState`/`draw_viewer` (toolbar band, filmstrip rail,
+    card grid, per-view slider) and `render::viewer_interactive`.
+  - **Three decisions taken here, recorded so they are not re-derived:**
+    1. **`Streamed` is honoured by `chrome_layout` from the start**, so T35 is
+       a paint change rather than a second geometry model that could disagree
+       with this one.
+    2. **`SharedValue` reconciles the engine against COBOL.** A property write
+       that differs from last frame's wins; otherwise the engine's own live
+       value stands. Without it a gesture is undone one frame later by any
+       host that has not echoed `prop_updates` back, and the value flip-flops
+       — which made `onZoomChanged` fire twice for one double-click until
+       `one_zoom_gesture_raises_exactly_one_onzoomchanged` caught it.
+    3. **T31's corner measurement was answered here, not deferred.** T12's
+       chrome is what made Viewer paint past the arc (113 px), so
+       `a_child_at_a_rounded_corner_stays_inside_the_arc` went red the moment
+       the band and the rail landed. `render::self_clipping_type` now excludes
+       `Viewer`, with the measurement and its date in the comment. T31 is
+       therefore a re-run and a read, not new work.
+  - **The R5.1 gap stays open, deliberately, until T16.** The background
+    thread (`ViewerSession` → render path) is **not** wired: both surfaces
+    still use `paint`'s synchronous decode. T16 is the first task whose own
+    file list already includes `viewer_session.rs` and whose AC8 decode-call
+    counter forces that plumbing to be real, so doing it there is one change
+    instead of two. The intended shape is a defaulted `FormState` hook
+    (`fn viewer_document(&self, _base: &Control) -> Option<…> { None }`) the
+    host overrides and the designer canvas does not — which keeps AC11 parity,
+    since both surfaces still end at the same `draw_viewer`. **What T12 did do
+    is make the interim path bounded:** `paint::viewer_index` memoizes only
+    page *offsets*, and `viewer_page_preview` decodes exactly the pages a card
+    grid or a filmstrip actually shows, so neither costs the document.
+  - **Not yet painted, by design:** the toolbar band is reserved and drawn but
+    **empty** — its icons, tooltips and actions are T13's whole subject.
 
-- [ ] **T13 — Toolbar chrome and actions: Save As, Share, Print** (R16–R20,
+- [x] **T13 — Toolbar chrome and actions: Save As, Share, Print** (R16–R20,
       R18.1, R32, AC6, AC10, AC20)
   - Files: `crates/cobolt-forms/src/paint.rs` (toolbar), `src/viewer.rs`,
         `crates/cobolt-runtime/src/interpreter.rs` (`"SAVEAS"`, `"PRINT"`,
@@ -267,9 +307,57 @@ not a claim about what §8.1 means architecturally.
         proposed name each time (**AC20**). Every toolbar icon has a tooltip
         (**AC10**).
 
+  - **DONE — 2026-09-19 (1.70.87).** Twelve toolbar buttons
+    (`viewer::TOOLBAR_ITEMS`), each with a catalogue icon and a tooltip,
+    painted by `paint::draw_viewer_toolbar_band` and sensed in
+    `render::viewer_interactive`. R18's Save As, R19/R20's Print and Share
+    handoffs and R18.1's proposed filename all landed; the interpreter gained
+    `LoadBytes`, `SaveAs`, `Print` and `Share`.
+  - **Icon finding — plan.md §2 was wrong, and the catalogue is the authority.**
+    §2 expected to author a Find/magnifying-glass glyph and to "verify
+    layout-switcher/font-size/filmstrip icons exist or author them". Measured:
+    `magnifier`, `layout-dashboard`, `thumbnails`, `grid-view` and `doc-text`
+    all already exist, so **only two new icons were drawn** — `font-smaller`
+    and `font-larger` (a letterform plus a sign; `zoom-in`/`zoom-out` already
+    mean *Zoom* on this control, and R10 keeps FontSize and Zoom independent,
+    so the two must not look alike). Authoring near-duplicates of five
+    existing icons would have grown a 600-icon set for nothing.
+  - **Tooltips: English in the engine, with a seam.** spec §7 asks for a `Tr`
+    field per tooltip, but `cobolt-forms` has no i18n table and cannot reach
+    `cobolt-ide`'s (a binary crate) — the DataGrid's own hardcoded
+    `"Export CSV"` is the standing precedent. So the engine ships English and
+    `viewer::set_toolbar_tooltips` installs a translated table per thread
+    (the shape `theme::set_active()` already uses). **T33 supplies the six
+    languages and calls it.**
+  - **Two buttons landed ahead of their own tasks, deliberately:** `Split`
+    toggles `SplitMode` and raises `onSplitModeChanged`, `Find` toggles
+    `FindOpen` and raises `onFindOpened`/`onFindClosed`. Both properties and
+    both events are R16/R32's, not T15's or T16's; wiring them here means the
+    toolbar never shows a button that does nothing. T15 adds the Find *bar*
+    and T16 the second *viewport*.
+  - **The deferred R4/R6 COBOL dispatch was folded in here**, as the brief
+    directed. Writing a Viewer's `Source` now opens the document on the
+    **interpreter's** thread (not the UI thread — `form_runtime.rs`, `rcrun
+    run-form` and the compiled binary all run it separately), reports
+    `onLoadProgress` every tenth percent, then `onLoaded` with `Format` and
+    `Progress` set. A failure sets `LastError`, raises `onError` and **puts
+    `Source` back to the last document that loaded**, which is how R4's
+    "leave any previously loaded document displayed" becomes true rather than
+    merely intended.
+  - **Print/Share/SaveAs events come from the OS, never from a flag.**
+    `Interpreter::report_viewer_os_outcome(ctrl, ViewerOsAction, completed)`
+    is the one door those six events come through, because only the OS dialog
+    knows whether the user went through with it. Three tests, one per pair.
+  - **Finding: `arg(0)` trims, and for `LoadBytes` that is wrong.** The shared
+    method-argument helper trims — right for a padded `PIC X(80)` path, fatal
+    for a byte payload, where it silently ate a document's final newline.
+    `LoadBytes` reads the argument untrimmed. A COBOL item is still
+    fixed-length, so `PIC X(100)` holding 42 characters delivers 100 padded;
+    that is the developer's to size and is documented at the call site.
+
 ## Stage D — Search (built against Wave 1's extracted text)
 
-- [ ] **T14 — Find match-computation** (R26.1, R27)
+- [x] **T14 — Find match-computation** (R26.1, R27)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: a pure function — case-sensitive/insensitive substring matching over a
         format's extracted text, returning spans — modeled on
@@ -279,7 +367,7 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-forms` — case on/off reports different match
         counts for the same query; a textless format reports zero cleanly.
 
-- [ ] **T15 — Find bar: navigation, highlighting, COBOL surface** (R26, R28–R31,
+- [x] **T15 — Find bar: navigation, highlighting, COBOL surface** (R26, R28–R31,
       R32, AC22, AC23, AC24)
   - Files: `crates/cobolt-forms/src/paint.rs` (the bar), `src/viewer.rs` (state:
         `find_idx`/`find_total`/active-match handoff, modeled on
@@ -301,9 +389,69 @@ not a claim about what §8.1 means architecturally.
         exactly once each. `cargo test -p cobolt-runtime` — every Search
         property/method round-trips from COBOL (**AC24**).
 
+  - **DONE — 2026-09-19 (1.70.88).** `viewer::find_matches` is the whole of
+    Find's searching: one pure function no format knows about, which is why
+    T18 (PDF) and T21 (HTML) should need no change in it. The bar itself is
+    `paint::draw_viewer_find_bar` + the Find block in
+    `render::viewer_interactive`; the COBOL surface is `Find`, `FindNext`,
+    `FindPrevious`, `FindClose` and the whole `Search*` property group.
+  - **One new icon:** `case-sensitive` (a capital A beside a lowercase a —
+    the two letterforms *are* the distinction). plan.md §2 also expected to
+    author a Find glyph; `magnifier` already existed, so it was reused.
+  - **Case-insensitive search never lowercases the haystack.** Lowercasing
+    changes byte lengths (`İ` is two bytes and lowercases to three), which
+    would put every span after it one byte off — highlighting `STANBUL `
+    instead of `ISTANBUL`. The haystack is walked as a stream of lowercase
+    characters, each remembering its **source** char's byte range. The test
+    asserts exact offsets, because "two matches" would pass with both of
+    them misplaced.
+  - ~~**Known gap — highlights are painted on the single-galley path
+    only.**~~ **CLOSED — 2026-09-19 (1.70.100).** R29's overlay now reaches
+    formatted Markdown and HTML as well.
+    **The obvious approach was rejected:** mapping `SearchableText`'s global
+    spans onto each galley needs two independent walkers to agree, character
+    for character, about what a document's text is — and they would drift the
+    first time either changed. `FindPaint` instead searches **each galley's
+    own text** as it is painted, keeping a running count in document order to
+    say which match is the current one. The two counts agree because both
+    walkers see the same runs in the same order, and `find_total` is now what
+    the **walk** counted, so the counter and the marks cannot disagree about
+    how many there are.
+    A block that is *searched but not painted as text* — a Mermaid diagram,
+    whose source is findable while what is drawn is a picture — calls
+    `FindPaint::skip`, so every match **after** a diagram still highlights
+    the right one instead of shifting by one.
+    Measured on one Markdown document with a match in each construct that
+    owns a galley (heading, paragraph, list item, code block, table cell):
+    `Web` 5 marks / count 5, `Page` 5 / 5, `Raw` 5 / 5 — the formatted
+    layouts agreeing with each other and with the raw one. A second test
+    walks the current match through three positions and asserts exactly one
+    is distinguished each time, at a different place.
+  - **Three engine bugs the tests caught, all worth remembering:**
+    1. **Change-detection must compare against LAST FRAME's value, not the
+       property.** `diverged()` stays true forever against a host that has
+       not echoed `prop_updates` back, so one Ctrl+F raised **four**
+       `onFindOpened` events.
+    2. **The match total is the engine's own measurement**, not a property
+       round trip. Routed through `SearchMatchCount` alone, Next/Previous did
+       nothing until the host echoed the count back.
+    3. **Shift comes from the key EVENT, never `InputState::modifiers`** —
+       that field is the platform's last reported state, not the one that
+       accompanied this press, so Shift+F3 stepped *forward*. The same
+       distinction that bit `consume_key` before.
+  - **Two runtime findings:** `canonical_prop_value` normalises a boolean to
+    `"true"`/`"false"`, so comparing `FindOpen` against `"1"` matched nothing
+    and raised `onFindOpened` on every call; and `seed_objects` writes
+    designed properties straight into the registry, bypassing the alias
+    mirror, so a read must prefer `View1*` and fall back to the short name
+    (`Interpreter::viewer_prop`).
+  - **The test harness now applies `prop_updates`**, the way a real host
+    does. Without that it modelled a host that ignores them — which no host
+    does — and every engine test read a control frozen at its designed state.
+
 ## Stage E — Split view (depends on Search)
 
-- [ ] **T16 — Two independent viewports** (R21, R21.1, R32, AC8)
+- [x] **T16 — Two independent viewports** (R21, R21.1, R32, AC8)
   - Files: `crates/cobolt-forms/src/viewer.rs` (the `View1`/`View2`-prefixed
         properties, aliased from the plain names when `SplitMode = None` — plan
         §4's naming decision), `src/paint.rs` (divider, reusing
@@ -321,7 +469,7 @@ not a claim about what §8.1 means architecturally.
         page/zoom/scroll leaves the other's untouched (**AC8**'s independence
         clause); switching `SplitMode` fires `onSplitModeChanged` exactly once.
 
-- [ ] **T17 — Per-view independent search** (R21.2, AC8)
+- [x] **T17 — Per-view independent search** (R21.2, AC8)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: each `ViewState` carries its own `SearchState` (T14/T15's engine,
         instantiated per view) — falls out naturally from where the state
@@ -330,9 +478,39 @@ not a claim about what §8.1 means architecturally.
         other's query/matches/current-index untouched, including when both
         views hold the same document (**AC8**'s search clause, **R21.2**).
 
+  - **DONE — 2026-09-19 (1.70.89).** `viewer::split_geometry` reimplements
+    `splitter::geometry()`'s percent-split arithmetic (the math only — that
+    control owns two developer-droppable child Panels, the wrong shape
+    entirely for one control with two viewports of its own state).
+  - **The refactor was smaller than expected, and that is the design.**
+    `draw_viewer` never knew how big the control was, only which rect it was
+    given — so splitting is handing it half a rect twice, not teaching it
+    about split mode. The same held in `render.rs`: the interaction body
+    became `viewer_view_interactive(…, view_index, …)`, called once or twice.
+  - **Independence is structural, not remembered.** Each view has its own
+    live state slot, its own egui widget ids (`vid = ctrl_id.with(("viewer-
+    view", i))` — two views of one control must never share an interaction
+    id) and its own `View{n}*` properties, written through one `View#`
+    marker in the push helper. **The unprefixed aliases are view 1's alone**,
+    so view 2 can never quietly overwrite `Zoom` or `SearchText`. R21.2 then
+    needed no work at all: per-view search falls out of where the state
+    lives, which is exactly what T17 predicted.
+  - **One deliberate compromise, recorded:** control-wide state (`Layout`,
+    `FontSize`, `Fullscreen`, `SplitMode`) is *written* by whichever view's
+    toolbar was clicked, but its change **event** is raised by view 1's pass
+    — so a click in view 2 reports one frame later. The alternative was two
+    views both reporting the same change.
+  - **AC8's decode-once clause is measured, not asserted.**
+    `viewer_session::DocumentRegistry` holds every open document behind an
+    `Arc` keyed by path: a view asking for a path someone already holds gets
+    a clone, and only an unheld path is decoded. The test's `decode`
+    closure for the second view **panics if it is ever called**, and the
+    registry's own decode counter is asserted `== 1`. `release_unused` keeps
+    "attach, don't reload" from becoming "attach, and never let go".
+
 ## Stage F — PDF (fidelity wave 2)
 
-- [ ] **T18 — PDF: text, basic vector, page geometry** (R7, R9, AC2)
+- [x] **T18 — PDF: text, basic vector, page geometry** (R7, R9, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (`lopdf ~0.26`,
         promoted from transitive-only to a direct, read-capable dependency)
   - Do: page/text/basic-vector extraction into the same layout model Wave 1
@@ -352,7 +530,7 @@ not a claim about what §8.1 means architecturally.
         scanned-image cases are confirmed **not** delivered (§3's "Not
         delivered" column), not silently attempted.
 
-- [ ] **T19 — PDF Save As is where byte-fidelity actually gets exercised**
+- [x] **T19 — PDF Save As is where byte-fidelity actually gets exercised**
       (R18, AC6)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: confirm T13's byte-identical Save As holds for a PDF specifically —
@@ -360,9 +538,45 @@ not a claim about what §8.1 means architecturally.
   - Verify: `cargo test -p cobolt-runtime` — a PDF Save As compared byte-for-
         byte against the source (**AC6**, PDF case).
 
+  - **GO. The spike's verdict, in numbers (2026-09-19, 1.70.90).** plan.md §5
+    called PDF "the largest technical unknown" and asked for the first
+    attempt to be treated as a go/no-go. `lopdf 0.26`'s read API delivers
+    every item in §3's **delivered** column: page count from the document's
+    own tree, per-page text via `extract_text`, page geometry from the
+    MediaBox (inherited up the page tree when a page declares none), and
+    "basic vector" as `re` rectangles and `m`/`l` segments decoded from the
+    content stream. A 7-page fixture reads 7 pages; a 2-page one with a rect
+    and a line each reads 4 vectors and, without them, 0. **No C dependency
+    was needed and none was reached for** (R25).
+  - **§3's not-delivered column is refused, not half-attempted.** Curves
+    (`c`/`v`/`y`), shading, patterns and clipping are not decoded — a
+    half-drawn Bézier is worse than an honestly absent one. A page with no
+    text layer answers `None`, never an invented string, so R26.1's "zero
+    matches, cleanly" is reached with no special case.
+  - **Find needed no change at all**, which is what T14's design predicted:
+    `PdfDocument` implements `SearchableText` and T14's engine searches it,
+    case toggle included. A PDF's search is 3 hits for "balance" across 3
+    pages, 0 with case sensitivity on — the same engine, the same numbers.
+  - **`PageAddressing` is new, and load-bearing.** Plain text's pages ARE
+    byte ranges, which is what lets `decode_text_page` jump to the last page
+    of a 2 GB log for one page's I/O. A PDF's are not — they live inside
+    compressed object streams — so a `DocumentIndex` now says which kind it
+    holds rather than every caller inferring it from `format` and handing a
+    byte reader the middle of a Flate stream.
+  - **T19's byte-fidelity is asserted on BYTES.** The fixture carries a
+    binary comment line and a stream holding every one of the 256 byte
+    values, so an encoding-aware copy would show up as a difference rather
+    than as a plausible-looking file: 518 bytes in, 518 out, first differing
+    byte `None`. A second test confirms R24 — the source's contents *and its
+    modification time* are untouched.
+  - **Fixtures are written by `lopdf`'s own writer**, not by hand: a PDF's
+    cross-reference table is a list of byte offsets, and a hand-written
+    fixture tests the arithmetic in the test far more than it tests the
+    reader.
+
 ## Stage G — Mermaid subset (fidelity wave 3 — after PDF, per spec.md's order)
 
-- [ ] **T20 — Mermaid flowchart + sequence, inside fenced Markdown blocks**
+- [x] **T20 — Mermaid flowchart + sequence, inside fenced Markdown blocks**
       (R7, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml`
         (`mermaid-rs-renderer`, matching `cobolt-ide`'s pin)
@@ -375,9 +589,30 @@ not a claim about what §8.1 means architecturally.
         both render, reporting produced pixel dimensions; a `class`/`state`/
         `gantt` block is confirmed **not** attempted, not silently ignored.
 
+  - **DONE — 2026-09-19 (1.70.91).** A ```` ```mermaid ```` fence is now its
+    own `Block::Mermaid` (not a `CodeBlock` with a language), so the painter
+    never sniffs a fence's language to know whether to draw a diagram or a
+    listing. Rendering goes diagram source → `mermaid-rs-renderer` → SVG →
+    the **existing** `resvg` path an SVG document already takes, so no new
+    raster dependency (§3's own note). Measured: a flowchart renders 403×112
+    px, a sequence diagram 450×265 px.
+  - **⚠️ Finding for the operator: the library draws more than §3 promises.**
+    `mermaid-rs-renderer 0.2` also renders **class, state and gantt**
+    diagrams. §3's contract is "flowchart and sequence" with
+    class/state/gantt/ER/journey on the not-delivered side, and AC2's rule
+    is that nothing is over- or under-delivered against that table — so this
+    control **refuses the others by name** ("Mermaid 'classdiagram' diagrams
+    are not supported — this Viewer draws flowchart and sequence diagrams")
+    and shows that reason beside the diagram's own source, which is T20's
+    "not attempted, not silently ignored". **If the operator wants the wider
+    set, §3 is the thing to widen — the code is two match arms behind it.**
+  - A diagram's source is part of its searchable text, so a node's label is
+    findable. The layout keywords come along with it; that is the honest
+    trade against parsing the diagram a second time just for Find.
+
 ## Stage H — HTML subset (fidelity wave 4)
 
-- [ ] **T21 — HTML parse → the shared layout model** (R7, AC2)
+- [x] **T21 — HTML parse → the shared layout model** (R7, AC2)
   - Files: `crates/cobolt-forms/src/viewer.rs`, `Cargo.toml` (`html5ever`)
   - Do: parse into a DOM-ish tree, map block/inline layout, typography,
         colours, borders, tables and images onto the **same** layout
@@ -390,7 +625,7 @@ not a claim about what §8.1 means architecturally.
         shared primitives; a JS-bearing or grid-laid-out fixture is confirmed
         to degrade to the supported subset rather than silently break.
 
-- [ ] **T22 — Confirm Find/Save-As/Print/Share need nothing HTML-specific**
+- [x] **T22 — Confirm Find/Save-As/Print/Share need nothing HTML-specific**
       (R18–R20, R26–R31)
   - Files: none expected — this is a verification task
   - Do: run Stage D/Stage C's tests against an HTML-subset document.
@@ -398,9 +633,48 @@ not a claim about what §8.1 means architecturally.
         needs an HTML-specific branch, that's new scope to fold back in here,
         not silently patched elsewhere later.
 
+  - **DONE — 2026-09-19 (1.70.92).** HTML maps onto the **same** `Block`/
+    `Inline` primitives the Markdown walker produces — plan.md §4's decision
+    expressed in the type system (`pub type LayoutDocument =
+    MarkdownDocument`). One layout model, one painter, and every rendering
+    fix reaching both formats.
+  - **⚠️ plan.md §4's parser choice REVERSED, deliberately: `tl`, not
+    `html5ever`.** §4 chose html5ever and explicitly left `tl` flagged "for
+    implementation-time reconsideration". Reconsidered and taken, on §4's
+    *own* argument: a Viewer's dependencies compile into **every** binary
+    that drops the control on a form, with no "strip it if unused" escape
+    hatch. `tl` has **zero dependencies**; html5ever brings markup5ever,
+    string_cache (with build-time codegen), tendril, phf and futf. spec.md
+    §3 already disclaims W3C conformance in as many words ("Not a browser"),
+    and the mapping work on top is identical either way — which was
+    html5ever's only real advantage.
+  - **An unknown element is descended into, never dropped.** A `<div>`, a
+    `<section>`, a custom element contribute their children — which is what
+    "degrade to the supported subset" means in practice: a grid-laid-out
+    page loses its grid and keeps its content. `<script>`, `<style>`,
+    `<head>`, `<title>`, `<meta>` and `<noscript>` are dropped with their
+    contents, so JavaScript is neither run nor shown.
+  - **§3's "colours" are honoured where a subset renderer can honestly read
+    them** — `<font color>` and an inline `style="color: …"`. A stylesheet
+    is not consulted: that is a cascade, and a cascade is a browser.
+    `TextStyle` gained `color: Option<String>`, `None` on every Markdown run
+    (meaning "the theme's ink"), and `parse_html_color` reads `#rgb`,
+    `#rrggbb`, `rgb(…)` and the sixteen original HTML colour names.
+  - **Parsing never fails.** HTML a COBOL program received from a
+    `RestClient` is not guaranteed well-formed, and refusing to show a page
+    because a tag was unclosed is the wrong answer for a *viewer*: whatever
+    parses, renders.
+  - **T22's answer: nothing needed an HTML-specific branch.** Find searches
+    an HTML document through the same `find_matches`/`SearchableText` that
+    serve text, Markdown and PDF, with the same case toggle and the same
+    wraparound — a table cell and an image's alt text are both findable.
+    R18/R18.1's naming follows the resolved format with no branch either.
+    Print and Share never look at the document at all: they hand the OS a
+    file, so a format cannot change what they do.
+
 ## Stage I — Conversation mode (§8, sequenced last — reuses Stage H's HTML layer)
 
-- [ ] **T23 — `append_html`/`append_markdown`/`append_raw`/`append_to_message`**
+- [x] **T23 — `append_html`/`append_markdown`/`append_raw`/`append_to_message`**
       (§8.1, §8.2, R32, AC12, AC13, AC16, AC17)
   - Files: `crates/cobolt-forms/src/viewer.rs` (append-only incremental layout-
         model update — **not** a full rebuild each call, the actual point of
@@ -422,7 +696,7 @@ not a claim about what §8.1 means architecturally.
         `onContentRendered` fires strictly after the layout pass, verified by
         ordering it against a layout-completion marker, not a timer.
 
-- [ ] **T24 — Auto-follow scrolling** (§8.3, AC15, AC18)
+- [x] **T24 — Auto-follow scrolling** (§8.3, AC15, AC18)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: capture the **pre-append** scroll-at-end state with a 24–32px
         threshold; pin to the new end only if it was already there; never move
@@ -435,7 +709,7 @@ not a claim about what §8.1 means architecturally.
         scrolled up leaves their position untouched, but pins to the end when
         they were following (**AC18**).
 
-- [ ] **T25 — New-content indicator, and the `RenderAsHtml` override** (§8.1,
+- [x] **T25 — New-content indicator, and the `RenderAsHtml` override** (§8.1,
       §8.4, AC14)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: a non-intrusive indicator when content arrives off-screen; activating
@@ -449,7 +723,7 @@ not a claim about what §8.1 means architecturally.
         three things in order; `RenderAsHtml = false` forces Raw behaviour even
         for an explicit `append_html` call (**AC14**).
 
-- [ ] **T26 — Sanitisation** (§8.5)
+- [x] **T26 — Sanitisation** (§8.5)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: strip scripts, inline event handlers and unsafe URL schemes from HTML/
         Markdown-derived content before it's appended; Raw's escaping (T23)
@@ -458,7 +732,7 @@ not a claim about what §8.1 means architecturally.
         (script tags, `onclick=`, `javascript:` URLs) each confirmed stripped
         or neutralised, reporting which rule caught each case.
 
-- [ ] **T27 — Performance: batching, incremental layout, stable ids** (§8.6)
+- [x] **T27 — Performance: batching, incremental layout, stable ids** (§8.6)
   - Files: `crates/cobolt-forms/src/viewer.rs`
   - Do: coalesce rapid successive appends within a frame; the layout model
         only re-lays-out the newly appended tail, not the whole conversation
@@ -471,6 +745,46 @@ not a claim about what §8.1 means architecturally.
         proportional to conversation length (this project's quantify-
         performance rule, applied to §8.6's own requirement).
 
+  - **Stage I DONE — 2026-09-19 (1.70.93).** `viewer::Conversation` is the
+    model: messages with stable ids, each made of chunks that keep **the
+    mode they arrived in**, with layout derived per chunk. The interpreter
+    owns one per control and exposes `AppendHtml`, `AppendMarkdown`,
+    `AppendRaw`, `AppendToMessage(id, content, mode)` and `JumpToLatest`.
+  - **Storage stays native, per chunk — a deviation from this file's own
+    preamble, and a deliberate one.** The preamble says a conversation's
+    substrate for stitching is HTML. Applied one level down (plan.md §3's
+    actual rule) each chunk keeps its own form — HTML text, Markdown text,
+    or raw literal text — and `Conversation::to_html()` assembles the stream
+    **on demand** rather than holding a second copy that could drift.
+    Converting Markdown to HTML on arrival would discard the source for
+    nothing: the layout is derived from the chunk either way, and a
+    Markdown→HTML serializer is pure loss.
+  - **§8.2 item 5 is measured, not asserted.** `Conversation::relayouts()`
+    counts messages laid out. Building 2000 messages costs 2000 passes; the
+    2001st append costs **1 pass in 833 ns**, where a rebuild would have
+    cost 2001. Consecutive same-mode chunks merge before layout, so a
+    token-at-a-time stream is one chunk and one block, not five hundred.
+  - **Auto-follow and the indicator are one state machine** (`AutoFollow`) —
+    they are two faces of the same question ("is the reader at the end?"),
+    and splitting them is how they drift apart. Threshold 28 px, inside
+    §8.3's 24–32. The same append pins a reader 5 px from the end to 1400
+    and leaves a reader 300 px up at exactly 300.
+  - **§8.5's inline handlers are neutralised structurally**, not stripped:
+    the HTML walker reads only `href`, `src`, `alt`, `title`, `color`,
+    `style` and `start`, so an `on*` attribute is never looked at.
+    `html_has_event_handler` exists so a test can prove that rule, and so a
+    future attribute reader cannot quietly widen the surface without it
+    noticing. `iframe`/`object`/`embed`/`form` and friends join
+    `script`/`style` on the dropped list; an unsafe URL scheme
+    (`javascript:`, `vbscript:`, `file:`, `data:` other than an image)
+    loses the LINK and keeps the words.
+  - **⚠️ The engine-side incremental path is the deferred host-session work.**
+    The interpreter publishes `_ConversationHtml` (the assembled stream) for
+    the painter, which T35 memoize-parses by that string. That is one parse
+    per *append*, not per frame — bounded, but not the incremental path the
+    model itself implements. Closing it is the same `ViewerSession`
+    plumbing R5.1 is waiting on (see T12's note).
+
 ## Stage J — Streamed layout and conversation management (§8.8)
 
 *(Numbered T35–T37, past Stage K's T28–T34, to avoid renumbering the wrap-up
@@ -479,7 +793,7 @@ stage — the same out-of-sequence pattern this project's specs already use
 Stage I's append machinery existing and belongs right after it in reading
 order.)*
 
-- [ ] **T35 — `Layout = Streamed`: one pane, no chrome** (R7, §8.8, AC25)
+- [x] **T35 — `Layout = Streamed`: one pane, no chrome** (R7, §8.8, AC25)
   - Files: `crates/cobolt-forms/src/paint.rs`
   - Do: the fifth `Layout` value paints only the conversation content — no
         toolbar, Find bar, thumbnail or filmstrip chrome, regardless of what
@@ -490,7 +804,7 @@ order.)*
         shape count under `Streamed` compared against every other `Layout`
         value, asserting zero chrome shapes (**AC25**).
 
-- [ ] **T36 — Conversation management: `NewConversation`, `SelectConversation`,
+- [x] **T36 — Conversation management: `NewConversation`, `SelectConversation`,
       `RegisterConversation`, `HistoryList`** (§8.8, AC26, AC27, AC28, AC29)
   - Files: `crates/cobolt-form-host/src/viewer_session.rs` (`history:
         VecDeque<HistoryEntry>`, capped at 10, id+title only — **never**
@@ -514,7 +828,7 @@ order.)*
         (**AC26**); `HistoryList` matches the live entry set after every
         archive/select/evict (**AC29**).
 
-- [ ] **T37 — The three conversation events** (§8.8, R32)
+- [x] **T37 — The three conversation events** (§8.8, R32)
   - Files: `crates/cobolt-runtime/src/interpreter.rs`,
         `crates/cobolt-forms/src/model.rs` (`SUPPORTED_EVENTS`)
   - Do: `onConversationCreated` on `NewConversation()`;
@@ -527,16 +841,47 @@ order.)*
         performs (clear happens, *then* the event — a handler bound to either
         event sees an empty pane, never stale content).
 
+  - **Stage J DONE — 2026-09-19 (1.70.94).** `Streamed` paints the
+    conversation instead of a document, through `chrome_layout`'s existing
+    refusal to place any chrome. **AC25 measured:** with every chrome switch
+    turned ON, `Raw`/`Web`/`Print`/`Page` each paint 171 chrome shapes and
+    `Streamed` paints **0** — a zero that means something because the others
+    are not zero.
+  - **The AC25 test's first classifier was wrong, and the fix is worth
+    keeping in mind:** chrome was classified by POSITION (anything in the
+    top band or the left rail), which mistook `Streamed`'s own content — it
+    legitimately starts at the top — for a toolbar. The honest discriminator
+    is each layout's **own content rect** from `chrome_layout`: chrome is
+    what falls outside it.
+  - **History is one model in `cobolt-forms`** (`ConversationHistory`,
+    `ConversationEntry`, `HISTORY_CAP`), used by **both** the interpreter and
+    `viewer_session` — T36 has to satisfy tests in two crates, and two
+    implementations of one rule is how they drift. `viewer_session` now
+    `pub use`s the type rather than declaring its own.
+  - **§8.8's memory rule is structural**: a `ConversationEntry` has an id and
+    a title and **no third field**, so a selection has nothing to restore
+    even if someone tried. The test serialises the whole entry to prove it.
+  - **Ordering, tested: the pane is cleared, *then* the event fires.** A
+    handler bound to `onConversationCreated` or `onConversationSelected`
+    sees an empty pane, never stale content — asserted for both methods.
+    Clearing republishes the stream **without** `onContentRendered`, since
+    §8.2 item 6's event is about newly appended content finishing layout,
+    not about a pane emptying.
+  - An archive titles itself from the conversation's **own first line**,
+    trimmed to 60 characters: a history list of "Conversation 1…10" tells a
+    reader nothing. Re-archiving an id **moves** it rather than duplicating
+    it.
+
 ## Stage K — surfaces, parity, docs, KB, finalize
 
-- [ ] **T28 — IDE property editors** (R22)
+- [x] **T28 — IDE property editors** (R22)
   - Files: `crates/cobolt-ide/src/panels/properties.rs`
   - Do: grouped editors — `Layout`/`Format`/`SplitMode` dropdowns; the
         `View1`/`View2` groups appear only when `SplitMode != None`.
   - Verify: `cargo test -p cobolt-ide --bins`; **manual:** every property in
         plan §3 is editable from the Properties panel.
 
-- [ ] **T29 — Codegen** (R22)
+- [x] **T29 — Codegen** (R22)
   - Files: `crates/cobolt-codegen/src/lib.rs`
   - Do: declaration + handler stubs for whichever events the developer has
         bound in the Designer, the standard banner intact — no per-event
@@ -546,7 +891,7 @@ order.)*
         `cobolt-parser` and checks clean under `cobolt-semantic` for a form
         binding at least one of the new events (not only the original three).
 
-- [ ] **T30 — Engine parity: designer canvas vs. running form** (R25, AC11)
+- [x] **T30 — Engine parity: designer canvas vs. running form** (R25, AC11)
   - Files: `crates/cobolt-forms/tests/`
   - Do: a parity test in the shape of
         `engine_reference_form_parity_static_vs_faces`, covering every format
@@ -554,7 +899,7 @@ order.)*
   - Verify: `cargo test -p cobolt-forms --features render` — same shapes/fills
         on both paths for every format (**AC11**, closing the loop T11 opened).
 
-- [ ] **T31 — Rounded-corner measurement** (steering: spec 057)
+- [x] **T31 — Rounded-corner measurement** (steering: spec 057)
   - Files: `crates/cobolt-forms/src/render.rs` (`self_clipping_type`, if the
         measurement says Viewer needs the exclusion)
   - Do: nothing assumed — run the harness, read its verdict.
@@ -562,8 +907,49 @@ order.)*
         a_child_at_a_rounded_corner_stays_inside_the_arc` green; if it reports
         Viewer painting past the arc, add the exclusion and re-run, don't
         pre-guess it in an earlier task.
+  - **Already answered at T12 (2026-09-19).** The harness went red as soon as
+    T12's toolbar band and filmstrip rail landed — measured 113 px past the
+    arc — so `Viewer` was added to `render::self_clipping_type`'s exclusion
+    list there, with the number and the date in the comment. That is this
+    task's rule working as written (measure, then act), not a pre-guess: the
+    paint that earned the exclusion is what triggered it. **T31 is now a
+    re-run and a read** — confirm the harness is still green and that the
+    allow-list still equals what it measures.
 
-- [ ] **T32 — System KB** (steering: hard constraint)
+  - **T28–T31 DONE — 2026-09-19 (1.70.95).**
+  - **T28:** grouped editors in `properties.rs` — Document, Layout & view,
+    Split view, Find and Conversation — with the `View2*` group and the
+    divider appearing **only** when `SplitMode != None`. Six new `Tr` fields
+    in all six languages, and a `text_prop_row` helper lifted out of the
+    Snackbar's own `Text` row. Two tests: every property paints an editable
+    row, and the second view's rows appear only once the control is split.
+  - **T29 needed no codegen change at all**, exactly as the task predicted.
+    **51** bound events on one Viewer produce 51 handler stubs; the
+    generated program parses with **0** diagnostics and checks clean with
+    **0** semantic errors. An unbound Viewer still generates a valid
+    program. `cobolt-parser`/`cobolt-semantic` became **dev**-dependencies
+    of `cobolt-codegen` so T29's own Verify ("parses under cobolt-parser and
+    checks clean under cobolt-semantic") could actually be run.
+  - **T30 caught a real AC11 bug, which is what it is for.** The running
+    form painted from its own arm and skipped `draw_control`'s frame
+    wrapper, leaving it **five shapes short of the canvas**. Fixed
+    structurally: the arm now makes **exactly one** painting call — the same
+    `paint::draw_control` the canvas makes, which handles the split, the
+    chrome and the divider inside itself — and then only **senses**, against
+    what that paint measured (`paint::viewer_stash_measurements` /
+    `viewer_measurements`). A gesture's visual effect is therefore one frame
+    behind, which is imperceptible, and is the price of there being one
+    paint rather than two that can disagree.
+    **Measured, exact, shape-for-shape:** text/Page 198, text/Raw 128,
+    Markdown+Mermaid/Web 135, image/Print 128, PDF/Page 198, HTML/Web 131,
+    split LeftRight 207, split TopBottom 253 — identical on both surfaces,
+    positions and fills included.
+  - **T31 was already answered at T12** (see its note): the harness measured
+    113 px past the arc as soon as the toolbar band and filmstrip landed,
+    and `Viewer` went into `render::self_clipping_type`'s exclusion list
+    there. Re-run and green.
+
+- [x] **T32 — System KB** (steering: hard constraint)
   - Files: `crates/cobolt-compiler/src/lib.rs` (all four doc tables),
         `assets/knowledge/chunked.data`
   - Do: property/method/event entries for Viewer — **all** of it: the static-
@@ -579,7 +965,26 @@ order.)*
         surface isn't silently under-published); `cargo test -p cobolt-ide
         --bins prebuilt_chunked_kb` green.
 
-- [ ] **T33 — Docs & i18n**
+  - **DONE — 2026-09-19 (1.70.96).** All four `cobolt-compiler` doc tables
+    carry the Viewer: `control_purpose` (including §3's fidelity boundary in
+    the developer's own words — a developer must learn what a format does
+    NOT deliver from the control's documentation, not from the spec),
+    `property_reference` (16 entries), `event_reference` (22 events) and
+    `control_method_docs` (17 methods), plus a `## Viewer (spec 058)`
+    section in `methods_reference_doc`.
+  - **`chunked.data` actually changed**, which is the proof the right file
+    was edited: `8807ac46…` → `7e036aed…`, 1700 records from 8 documents.
+    `prebuilt_chunked_kb_matches_the_published_documentation` is green — and
+    it had been **red before this work started**, for
+    `Knowledge Base/form_designer_controls.md`, so regenerating here fixed a
+    staleness that predates spec 058.
+  - New test `spec_058_viewer_is_fully_published_in_the_system_kb`, on
+    spec 039's template plus what its own comment asks for: the needles
+    cover the **whole** surface — at least one R32 event and at least one
+    §8.8 conversation method — so a section copied from another control
+    could not pass it.
+
+- [x] **T33 — Docs & i18n**
   - Files: `docs/developers-guide-en.md` (a `### Viewer` subsection in §8 "The
         control catalogue," alongside `### Snackbar (transient notifications)`
         at line 3518 — COBOL examples only, no Rust, Notes + ⚠️ Caveats for the
@@ -598,7 +1003,44 @@ order.)*
   - Verify: `cargo test -p cobolt-ide i18n`; the guide passes
         `iconv -f UTF-8 -t UTF-8` with zero double-encoded bytes.
 
-- [ ] **T34 — Finalize**
+  - **DONE — 2026-09-19 (1.70.97).** `docs/developers-guide-en.md` gains
+    `### Viewer (documents inside your form)` before §9, written for a
+    PowerCOBOL/isCOBOL reader: what a Viewer is *instead of* (an OLE
+    container or an embedded preview, with no container to register and no
+    second process to fail), §3's fidelity table in the developer's own
+    terms with a **You do not get** column, every navigation and Find
+    affordance, split view, Save As/Print/Share, and the Streamed
+    conversation surface with a **worked minimal chatbot form** — a Viewer, a
+    ListBox and two buttons, since that is the one part of this material a
+    reader has no prior instinct for. COBOL examples and prose only; the
+    word "Rust" does not appear in the section. Two screenshot placeholders,
+    each saying exactly what to capture. UTF-8 clean, zero double-encoded
+    bytes.
+  - **GOLDEN RULE #8: nothing to delete.** The five translations of the
+    Guide **do not exist on this branch** — `docs/` holds only `-en` files.
+    `every_document_ships_in_every_language` was therefore **already red
+    before this work began** (verified: `git diff ca0ea64..HEAD` touches no
+    file under `docs/`), which is precisely the expected signal plan.md §2
+    predicted for the regeneration cycle.
+  - **The Guide found a real API gap while being written.** The streaming
+    example needed the id of the message an append created, and the append
+    methods returned nothing — which would have left `AppendToMessage`
+    unusable without the caller inventing ids. `AppendHtml`/`AppendMarkdown`/
+    `AppendRaw` now **return the new message's id**, with a test. A second
+    example used `SelectedItem`, which no ListBox has; rewritten to
+    `SelectedIndex` against the program's own table, which is what a COBOL
+    developer would really write.
+  - **i18n:** six new `Tr` section headers (T28) plus `Language::
+    viewer_tooltips()` — R16's twelve toolbar tooltips in all six languages,
+    installed into the render engine each frame by `app.rs` the same way
+    `theme::set_active` publishes the palette. A **table**, not nineteen
+    `Tr` fields: these belong to a control's chrome and have exactly one
+    consumer. Two tests: every language supplies every tooltip in the same
+    order, and **no language quietly ships the English strings**.
+    `cobolt-forms` keeps its own English fallback, because a compiled COBOL
+    binary has no `Tr` table at all.
+
+- [x] **T34 — Finalize**
   - Do: bump `z` in `version.rs` **once** for the whole feature + one
         `CHANGELOG.md` entry.
   - Verify: `cargo test -p cobolt-forms --features render --no-fail-fast`,
@@ -621,12 +1063,86 @@ order.)*
         events actually reach a bound COBOL handler; design-canvas vs.
         running-form parity; corner rendering on every surface.
 
+  - **DONE — 2026-09-19 (1.70.98).** The full sweep, every `test result:`
+    line read, never grepped for failures:
+
+    | Crate | Binaries | Passed | Failed |
+    |---|---|---|---|
+    | cobolt-forms (`--features render`) | 43 | 1072 | 0 |
+    | cobolt-runtime | 113 | 936 | 0 |
+    | cobolt-form-host | 3 | 133 | 0 |
+    | cobolt-codegen | 5 | 67 | 0 |
+    | cobolt-compiler | 3 | 132 | **1** |
+    | cobolt-ide (`--bins`) | 1 | 1215 | **1** |
+
+  - **The two failures are both pre-existing and neither is spec 058's.**
+    - `cobolt-ide::docs_embed::every_document_ships_in_every_language` —
+      "Portuguese fell back to English for developers-guide-en.md,
+      indexed-redb-engine-en.md". `docs/` on this branch holds **only** `-en`
+      files; `git diff ca0ea64..HEAD` touches nothing under `docs/` but the
+      English Guide. This is **exactly** the red plan.md §2 predicted for
+      GOLDEN RULE #8's regeneration cycle, and it was red before this work
+      started.
+    - `cobolt-compiler::external_crates_build_run_manifest_and_determinism` —
+      "csv missing from lock". A spec 044 end-to-end test that builds a real
+      Cargo project in a shared `$TMPDIR` and vendors crates from the
+      registry. Environmental, per this project's own standing rule about
+      live-network failures; nothing in spec 058 touches it.
+  - **AC30's named test now exists, in both halves**, because it did not
+    before and T34's checklist is the only thing that would have noticed:
+    `every_event_in_r32s_table_fires_at_its_documented_moment` in
+    `cobolt-forms` (nine gesture-driven events, one table row each, PASS/FAIL
+    reported by name) and the same name in `cobolt-runtime` (fourteen
+    method- and load-driven events, plus a row proving a control that is
+    only **read** raises nothing at all).
+  - **Writing it found two real defects**, which is the argument for having
+    written it:
+    1. **`onError` fired TWICE for one failed load.** The `View1*` alias
+       mirror re-entered the load hook. Fixed with a re-entrancy guard, and
+       a failed load now leaves **both** spellings of `Source` pointing at
+       the document still on screen (R4) rather than having the mirror undo
+       the restore.
+    2. **The unprefixed alias kept a raw value where its `View1*` twin was
+       canonicalised** — `SearchCaseSensitive` read back `1` while
+       `View1SearchCaseSensitive` read `true`. The alias now adopts the
+       canonical spelling's settled value.
+  - Two test-side findings worth keeping: **R15 hides the fullscreen button
+    in fullscreen**, so `onFullscreenExited` must be reached with `Esc` (a
+    second click is impossible, and the first draft of the test tried it);
+    and **a key must be RELEASED** for `onScrolled` to fire, because the
+    event is about the content coming to *rest* and egui holds a key down
+    until a release arrives.
+  - **NIST is not required**, as the task says: every Viewer method is
+    ordinary method dispatch and nothing here touched the interpreter's
+    grammar. Re-confirmed — the parser and lexer are untouched by this
+    feature.
+
 ## Done criteria
 
 All 32 acceptance criteria in `spec.md` (AC1–AC11, AC19–AC24, AC30–AC32 from
 §6; AC12–AC18, AC25–AC29 from §8.7) are checked, every suite green, docs and
 KB updated, and the change sits in feature commit(s) on `features` (do **not**
 commit or push unless the operator asks).
+
+> **Still open for the operator, recorded rather than quietly dropped:**
+> 1. ~~**R5.1's background thread is not wired into the render path.**~~
+>    **CLOSED — 2026-09-19 (1.70.99).** Built exactly as T12 designed it: a
+>    defaulted `FormState::viewer_document(base, source)` hook the host
+>    overrides and the designer canvas does not, published once per form in
+>    `render_form_inner` and read by `draw_control_body`'s `CT::Viewer`
+>    branch. `ViewerSession` now does real work — `ViewerJob::OpenDocument`
+>    indexes, decodes the page in view and a **bounded window of 24 page
+>    previews**, all on the control's own named thread — and
+>    `FormBody::tick_viewers` asks and drains once a frame.
+>    **Measured on a 6.3 MB / 400-page log: `request()` returns in 9.125 µs,
+>    the worker finishes 54.7 ms later.** The hook takes the SOURCE as well
+>    as the control, a deliberate widening of T12's sketch: one control can
+>    show two documents (R21), and a per-control answer could only ever be
+>    right about one of them.
+> 2. ~~**R29's coloured highlight overlay is painted on the single-galley
+>    path only.**~~ **CLOSED — see the entry under T15.**
+> 3. **The manual pass below is the operator's**, per this project's standing
+>    "never drive the application" rule.
 
 **Coverage map** — AC1 T7/T34 · AC2 T9/T10/T18/T20/T21 · AC3 T11 · AC4 T12 ·
 AC5 T12 · AC6 T13/T19 · AC7 T15/T16/T28 · AC8 T16/T17 · AC9 T6 · AC10 T3/T13 ·

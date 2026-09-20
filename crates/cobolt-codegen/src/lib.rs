@@ -4560,3 +4560,107 @@ mod source_map_tests {
         assert_eq!(sections, 5, "five woven sections recorded");
     }
 }
+
+/// Spec 058 T29 — codegen for a Viewer (R22).
+///
+/// The mechanism needed **no change**: handler stubs are emitted for
+/// whichever events the developer bound, and the Viewer simply has ~16 of
+/// them to be generic over instead of three. These tests prove that claim
+/// rather than asserting it — including the part that matters most, that
+/// what comes out parses and checks clean.
+#[cfg(test)]
+mod viewer_codegen_tests {
+    use super::*;
+    use cobolt_forms::model::{Control, ControlType, EventBinding, Form};
+
+    fn viewer_form(events: &[&str]) -> Form {
+        let mut form = Form::new("ViewerForm", "Viewer Form", 640, 480);
+        let mut ctrl = Control::new("VWR-1", ControlType::Viewer, 10, 10);
+        for e in events {
+            ctrl.events.push(EventBinding {
+                event: (*e).to_string(),
+                paragraph: format!("VWR-1--{}", e.to_uppercase()),
+                code: String::new(),
+            });
+        }
+        form.controls.push(ctrl);
+        form
+    }
+
+    /// Every event R32's table lists is a handler a developer can bind, and
+    /// binding one produces a stub for it — all of them, not only the three
+    /// this control started with.
+    #[test]
+    fn every_viewer_event_generates_its_own_handler_stub() {
+        let events: Vec<&str> = ControlType::Viewer
+            .supported_events()
+            .iter()
+            .copied()
+            .filter(|e| e.starts_with("on"))
+            .collect();
+        let form = viewer_form(&events);
+        let generated = generate(&form);
+        println!("{} bound event(s) on one Viewer:", events.len());
+        let mut missing = Vec::new();
+        for e in &events {
+            let stub = format!("VWR-1--{}", e.to_uppercase());
+            if generated.contains(&stub) {
+                println!("  {e:<24} -> {stub}");
+            } else {
+                missing.push(*e);
+            }
+        }
+        assert!(missing.is_empty(), "no stub generated for: {missing:?}");
+        assert!(events.len() >= 20, "R32's table is large — got {} events", events.len());
+    }
+
+    /// **T29's real verify** — the generated program parses and checks
+    /// clean, for a form binding events that did not exist before spec 058.
+    #[test]
+    fn the_generated_program_parses_and_checks_clean() {
+        use cobolt_lexer::{tokenize, SourceFormat};
+        let form = viewer_form(&[
+            "onLoaded",
+            "onZoomChanged",
+            "onSplitModeChanged",
+            "onConversationSelected",
+            "onContentRendered",
+            "onSaveCancelled",
+        ]);
+        let source = generate(&form);
+        println!("generated {} bytes, {} lines", source.len(), source.lines().count());
+
+        let parsed = cobolt_parser::parse(tokenize(&source, SourceFormat::Free));
+        let parse_errors: Vec<String> =
+            parsed.diagnostics.iter().map(|d| d.message.clone()).collect();
+        println!("parser diagnostics: {parse_errors:?}");
+        assert!(parse_errors.is_empty(), "the generated program must parse clean");
+        let program = parsed.program.expect("a program");
+
+        let semantic = cobolt_semantic::analyze(&program);
+        let errors: Vec<String> = semantic
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, cobolt_semantic::Severity::Error))
+            .map(|d| d.message.clone())
+            .collect();
+        println!("semantic errors: {errors:?}");
+        assert!(errors.is_empty(), "and check clean: {errors:?}");
+    }
+
+    /// A Viewer with **no** bound events still generates a valid program —
+    /// dropping a control on a form must never break the build.
+    #[test]
+    fn an_unbound_viewer_still_generates_a_valid_program() {
+        use cobolt_lexer::{tokenize, SourceFormat};
+        let source = generate(&viewer_form(&[]));
+        let parsed = cobolt_parser::parse(tokenize(&source, SourceFormat::Free));
+        println!(
+            "an unbound Viewer -> {} lines, {} diagnostic(s)",
+            source.lines().count(),
+            parsed.diagnostics.len()
+        );
+        assert!(parsed.diagnostics.is_empty());
+        assert!(parsed.program.is_some());
+    }
+}

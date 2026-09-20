@@ -87,6 +87,9 @@ pub const MENU_ICON_CATEGORIES: &[(&str, &[&str])] = &[
             "pen",
             "brush",
             "type-text",
+            "font-smaller",
+            "font-larger",
+            "case-sensitive",
             "bold",
             "italic",
             "underline",
@@ -1504,6 +1507,30 @@ fn base_shapes(name: &str) -> Option<Vec<IconShape>> {
             p(&[(6.5, 9.0), (6.5, 6.0), (17.5, 6.0), (17.5, 9.0)]),
             p(&[(12.0, 6.0), (12.0, 18.5)]),
             p(&[(9.5, 18.5), (14.5, 18.5)]),
+        ],
+        // Spec 058 R17 — the Viewer's two FontSize buttons. A letterform
+        // plus a sign, rather than a second magnifier: `zoom-in`/`zoom-out`
+        // already mean Zoom on this control, and R10 keeps FontSize and
+        // Zoom independent, so the two must not look alike.
+        "font-larger" => vec![
+            p(&[(4.0, 17.5), (8.5, 5.5), (13.0, 17.5)]),
+            p(&[(5.7, 13.2), (11.3, 13.2)]),
+            p(&[(18.0, 11.5), (18.0, 17.5)]),
+            p(&[(15.0, 14.5), (21.0, 14.5)]),
+        ],
+        "font-smaller" => vec![
+            p(&[(4.0, 17.5), (8.5, 5.5), (13.0, 17.5)]),
+            p(&[(5.7, 13.2), (11.3, 13.2)]),
+            p(&[(15.0, 14.5), (21.0, 14.5)]),
+        ],
+        // Spec 058 R26/R27 — the Find bar's case-sensitivity toggle. A
+        // capital A beside a lowercase a: the two letterforms ARE the
+        // distinction the toggle makes, which no abstract glyph conveys.
+        "case-sensitive" => vec![
+            p(&[(3.0, 17.5), (6.5, 6.0), (10.0, 17.5)]),
+            p(&[(4.3, 13.8), (8.7, 13.8)]),
+            c(16.5, 14.0, 3.5),
+            p(&[(20.0, 10.5), (20.0, 17.5)]),
         ],
         "bold" => vec![
             p(&[(8.0, 5.0), (8.0, 19.0)]),

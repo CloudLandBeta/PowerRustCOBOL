@@ -81,6 +81,28 @@ pub trait FormState {
     fn currency(&self) -> char {
         '$'
     }
+
+    /// Spec 058 R5/R5.1 — the document a Viewer view should paint, decoded
+    /// **off the UI thread** by the host.
+    ///
+    /// The default is `None`, and that default is the whole design: the
+    /// designer canvas has no thread, no clock and no `ViewerSession` to ask,
+    /// so it never overrides this and falls back to `paint`'s synchronous
+    /// decode. A running form's host does own one, overrides it, and hands
+    /// back what its worker already read. **Both then paint through the same
+    /// `draw_viewer`**, which is what keeps AC11's parity exact rather than
+    /// making it something two code paths have to agree about.
+    ///
+    /// It takes the SOURCE as well as the control because one control can
+    /// show two documents (R21) — `View1Source` and `View2Source` — and a
+    /// per-control answer could only ever be right about one of them.
+    fn viewer_document(
+        &self,
+        _base: &Control,
+        _source: &str,
+    ) -> Option<std::sync::Arc<crate::paint::ViewerDocument>> {
+        None
+    }
 }
 
 /// A live render transform for one control (animation). `dx`/`dy` shift it in
@@ -852,6 +874,14 @@ pub fn self_clipping_type(ct: &ControlType) -> bool {
     //                  (up to 303 px with the Neumorphic halo);
     //   ToolBar      — with a background colour or border, the live bar paints
     //                  its own face past the arc (93 px).
+    //   Viewer       — measured 2026-09-19 (spec 058 T12, 1.70.86): the
+    //                  toolbar band, the filmstrip rail and a card face are
+    //                  all square-cornered and reach the control's own corners
+    //                  (113 px). Viewer stayed inside the arc while T11 painted
+    //                  nothing but a clipped text galley; adding R14/R15/R16's
+    //                  chrome is what changed the measurement, and the harness
+    //                  is what said so — T31's job, answered where the paint
+    //                  that earned it landed rather than guessed at in advance.
     !matches!(
         ct,
         ControlType::DataGrid
@@ -859,6 +889,7 @@ pub fn self_clipping_type(ct: &ControlType) -> bool {
             | ControlType::Maps
             | ControlType::TabControl
             | ControlType::ToolBar
+            | ControlType::Viewer
             | ControlType::Custom { .. }
     )
 }
@@ -2073,6 +2104,35 @@ fn render_form_inner(
     let controls: &[Control] = expanded.as_deref().unwrap_or(input.controls);
     let order = containers::render_order(controls);
     let interactive = input.mode == RenderMode::Interactive;
+
+    // ── Spec 058 R5/R5.1 — hand the paint whatever the host has already
+    // decoded, before a single control is drawn.
+    //
+    // Once per form rather than once per control arm: this is a question
+    // about the FORM's state ("what has your worker finished?"), and asking
+    // it here means `render_interactive` needs no `FormState` of its own.
+    //
+    // **Interactive surfaces only.** The designer canvas has no thread, no
+    // clock and no `ViewerSession` to ask, so it publishes nothing and falls
+    // back to `paint`'s synchronous decode. That asymmetry is the design,
+    // not an oversight — and both paths still end at the same `draw_viewer`,
+    // which is what keeps AC11's parity exact.
+    if interactive {
+        for ctrl in live_controls.iter().filter(|c| c.control_type == ControlType::Viewer) {
+            let mode = crate::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            );
+            for view in 0..mode.view_count() {
+                let source =
+                    crate::paint::ViewerPaintState::from_control(ctrl, view, None, 1.0).source;
+                if source.is_empty() {
+                    continue;
+                }
+                let doc = input.state.viewer_document(ctrl, &source);
+                crate::paint::publish_viewer_document(ui.ctx(), &source, doc);
+            }
+        }
+    }
     // ComboBox dropdowns are drawn in a second pass so they float above every
     // other control. The Control itself is out of reach by then, so everything
     // the popup needs travels with it.
@@ -3812,6 +3872,770 @@ fn push_toggle_events(out: &mut RenderOutput, id: &str, checked: bool) {
     ));
     out.events
         .push(UiEvent::with_value(id, "onCheckedChanged", &checked.to_string()));
+}
+
+/// One value both this engine and a COBOL program may write.
+///
+/// The **property wins whenever it differs from what it said last frame** —
+/// that is a real write by the program, the designer, or a host applying
+/// someone else's change. Otherwise the engine's own live value stands.
+///
+/// Without this, a gesture is silently undone one frame later by any host
+/// that has not yet echoed `prop_updates` back onto the control — and the
+/// value then flips between the two, which made `onZoomChanged` fire twice
+/// for one double-click until a test caught it.
+#[derive(Clone, Copy)]
+struct SharedValue<T> {
+    seen: T,
+    own: T,
+}
+
+impl<T: Copy + PartialEq> SharedValue<T> {
+    fn new(v: T) -> Self {
+        Self { seen: v, own: v }
+    }
+
+    /// Reconcile against this frame's property value and return the value to
+    /// use.
+    fn resolve(&mut self, prop: T) -> T {
+        if prop != self.seen {
+            self.own = prop;
+        }
+        self.seen = prop;
+        self.own
+    }
+
+    /// True when the engine's value is no longer what the property holds —
+    /// exactly when a write-back is owed.
+    fn diverged(&self, v: T) -> bool {
+        v != self.seen
+    }
+}
+
+/// Spec 058 T12 — a Viewer's live navigation state, kept between frames.
+///
+/// Every value a COBOL program can read — `Zoom`, `CardSize`, `ViewMode`,
+/// `ScrollPosition`, `Fullscreen`, `ShowFilmstrip` — is still written back
+/// through `RenderOutput::prop_updates`, the channel this engine already
+/// uses, so nothing a program is entitled to see is hidden here (R22).
+/// What this holds is the engine's *side* of each of those, plus the purely
+/// transient parts: the scroll kinematics mid-glide, the settle watches, and
+/// the previous values change-events compare against.
+#[derive(Clone)]
+struct StringValue {
+    seen: String,
+    own: String,
+}
+
+#[derive(Clone)]
+struct ViewerLive {
+    scroll: crate::viewer::ScrollKinetics,
+    zoom_watch: crate::viewer::SettleWatch<i64>,
+    card_watch: crate::viewer::SettleWatch<i64>,
+    zoom: SharedValue<i64>,
+    card: SharedValue<i64>,
+    mode: SharedValue<crate::viewer::ViewMode>,
+    full: SharedValue<bool>,
+    strip: SharedValue<Option<f32>>,
+    page: SharedValue<usize>,
+    font: SharedValue<i64>,
+    split: SharedValue<bool>,
+    find: SharedValue<bool>,
+    /// `Layout` is a String, so it gets `SharedValue`'s two fields by hand
+    /// rather than the generic (which needs `Copy`).
+    layout_seen: String,
+    layout_own: String,
+    /// Same, for the Find query (R26).
+    find_text: StringValue,
+    find_case: SharedValue<bool>,
+    find_highlight: SharedValue<bool>,
+    find_current: SharedValue<usize>,
+    pushed_total: usize,
+    /// What this engine last pushed, so a COBOL write is told apart from its
+    /// own echo arriving a frame later.
+    pushed_scroll: i64,
+    /// `None` until the first frame has been seen: a change event must never
+    /// fire for a value merely *observed* for the first time, because there
+    /// is nothing yet for it to have changed from.
+    last_layout: Option<String>,
+    last_mode: Option<crate::viewer::ViewMode>,
+    last_fullscreen: Option<bool>,
+    last_filmstrip: Option<bool>,
+}
+
+impl ViewerLive {
+    /// Seeded from the control's own designed state on the frame it is first
+    /// seen, so nothing fires for a value that was simply designed that way.
+    fn seed(st: &crate::paint::ViewerPaintState<'_>) -> Self {
+        Self {
+            scroll: crate::viewer::ScrollKinetics::default(),
+            zoom_watch: crate::viewer::SettleWatch::new(st.zoom_pct),
+            card_watch: crate::viewer::SettleWatch::new(st.card_size_pct),
+            zoom: SharedValue::new(st.zoom_pct),
+            card: SharedValue::new(st.card_size_pct),
+            mode: SharedValue::new(st.view_mode),
+            full: SharedValue::new(st.fullscreen),
+            strip: SharedValue::new(st.filmstrip),
+            page: SharedValue::new(st.current_page),
+            font: SharedValue::new(st.font_size.round() as i64),
+            split: SharedValue::new(st.split),
+            find: SharedValue::new(st.find_open),
+            layout_seen: st.layout.clone(),
+            layout_own: st.layout.clone(),
+            find_text: StringValue { seen: st.find_text.clone(), own: st.find_text.clone() },
+            find_case: SharedValue::new(st.find_case_sensitive),
+            find_highlight: SharedValue::new(st.find_highlight),
+            find_current: SharedValue::new(st.find_current),
+            pushed_total: st.find_total,
+            pushed_scroll: st.scroll.round() as i64,
+            last_layout: None,
+            last_mode: None,
+            last_fullscreen: None,
+            last_filmstrip: None,
+        }
+    }
+}
+
+/// Spec 058 T12 — the Viewer's interactive surface: wheel and double-click
+/// zoom (R11/R12), Esc (R13), the per-view `ViewMode` slider (R14.1), the
+/// filmstrip and its splitter (R14.3/R14.4), fullscreen (R15) and the whole
+/// of R33's scrolling, then one call into the same `paint::draw_viewer` the
+/// design canvas uses (AC11).
+///
+/// Gestures are told apart by **geometry**, not by egui's widget ordering:
+/// the slider track and the filmstrip grip are computed first, and a press
+/// inside either never also grabs the page. Relying on z-order here would
+/// make "drag the slider" and "throw the document" the same gesture on any
+/// frame the ordering changed.
+/// One view of a Viewer (R21). Called once for a single view, twice when
+/// `SplitMode != None` — each call owns its own live state, its own widget
+/// ids and its own `View{n}*` properties, which is what makes AC8's
+/// independence structural rather than something both sides must remember.
+///
+/// **Control-wide state (`Layout`, `FontSize`, `Fullscreen`, `SplitMode`)
+/// is written by whichever view's toolbar was clicked, and its change EVENT
+/// is raised by the first view's pass** — a click in the second view
+/// therefore reports one frame later, which beats two views both reporting
+/// the same change.
+#[allow(clippy::too_many_arguments)]
+fn viewer_view_interactive(
+    ui: &mut egui::Ui,
+    screen: Rect,
+    ctrl: &Control,
+    view_index: usize,
+    ctrl_id: egui::Id,
+    id: &str,
+    alpha: f32,
+    enabled: bool,
+    bound: &[&str],
+    out: &mut RenderOutput,
+) {
+    use crate::viewer as vw;
+    use egui::Sense;
+
+    let want = |e: &str| bound.contains(&e);
+    // Every widget id below is the VIEW's, never the control's: two views
+    // of one control must not share an interaction id.
+    let vid = ctrl_id.with(("viewer-view", view_index));
+
+    let mut st = crate::paint::ViewerPaintState::from_control(ctrl, view_index, None, alpha);
+    let source = st.source.clone();
+    let content = crate::paint::viewer_first_page_content(ui.ctx(), &ctrl.id, &source);
+    let page_count = crate::paint::viewer_page_spans(ui.ctx(), &source).max(1);
+    st.content = content.as_deref();
+    st.page_count = page_count;
+
+    let live_id = vid.with("viewer-live");
+    let mut live: ViewerLive = ui
+        .ctx()
+        .memory(|m| m.data.get_temp::<ViewerLive>(live_id))
+        .unwrap_or_else(|| ViewerLive::seed(&st));
+
+    // A COBOL write to `ScrollPosition` outranks our own remembered offset;
+    // our own echo (the value we pushed last frame) does not.
+    let prop_scroll = st.scroll.round() as i64;
+    if prop_scroll != live.pushed_scroll {
+        live.scroll.set_offset(prop_scroll as f32);
+    }
+
+    let streamed = st.layout == "Streamed";
+    let chrome = vw::chrome_layout(
+        vw::ViewRect::new(screen.min.x, screen.min.y, screen.width(), screen.height()),
+        &vw::ChromeOpts { fullscreen: st.fullscreen, streamed, filmstrip: st.filmstrip, find_open: st.find_open },
+    );
+    let to_rect = |r: vw::ViewRect| {
+        Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
+    };
+    let content_rect = to_rect(chrome.content);
+    // Grab targets, computed before any interaction so a press can be
+    // attributed to exactly one of them.
+    let slider_rect = to_rect(chrome.slider).expand2(Vec2::new(6.0, 8.0));
+    let grip_rect = chrome.filmstrip.map(|s| {
+        Rect::from_min_max(pos2(s.right() - 4.0, s.y), pos2(s.right() + 4.0, s.bottom()))
+    });
+
+    let resp = ui.interact(screen, vid, Sense::click_and_drag());
+    focus_keyboard_events(ui, &resp, id, out, bound);
+
+    let (dt, now, pointer, primary_down, wheel, command, esc, keys) = ui.input(|i| {
+        (
+            i.stable_dt.min(0.1),
+            i.time,
+            i.pointer.latest_pos(),
+            i.pointer.primary_down(),
+            i.smooth_scroll_delta.y,
+            i.modifiers.command,
+            i.key_pressed(egui::Key::Escape),
+            vw::KeyScrollInput {
+                down_held: i.key_down(egui::Key::ArrowDown),
+                up_held: i.key_down(egui::Key::ArrowUp),
+                down_tap: i.key_pressed(egui::Key::ArrowDown),
+                up_tap: i.key_pressed(egui::Key::ArrowUp),
+                page_down: i.key_pressed(egui::Key::PageDown),
+                page_up: i.key_pressed(egui::Key::PageUp),
+                home: i.key_pressed(egui::Key::Home),
+                end: i.key_pressed(egui::Key::End),
+            },
+        )
+    });
+    // R33: never while another control — the Find input, for instance —
+    // holds the caret.
+    let focus = ui.ctx().memory(|m| m.focused());
+    let keyboard_free = focus.is_none() || focus == Some(vid);
+
+    // The engine's own values, reconciled against this frame's properties —
+    // see [`SharedValue`] for why a gesture must survive a host that has not
+    // echoed the last write back yet.
+    let mut zoom = live.zoom.resolve(st.zoom_pct);
+    let mut card_size = live.card.resolve(st.card_size_pct);
+    let mut view_mode = live.mode.resolve(st.view_mode);
+    let mut fullscreen = live.full.resolve(st.fullscreen);
+    let mut filmstrip = live.strip.resolve(st.filmstrip);
+    let mut page = live.page.resolve(st.current_page).min(page_count.saturating_sub(1));
+    let mut font_size = live.font.resolve(st.font_size.round() as i64);
+    let mut split = live.split.resolve(st.split);
+    let mut find_open = live.find.resolve(st.find_open);
+    if st.layout != live.layout_seen {
+        live.layout_own = st.layout.clone();
+    }
+    live.layout_seen = st.layout.clone();
+    let mut layout_name = live.layout_own.clone();
+    let mut zoom_active = false;
+    let mut card_active = false;
+    let over_content = pointer.is_some_and(|p| content_rect.contains(p));
+
+    // ── R16/R17: the toolbar. Sensed before the paint so a press acts on
+    // the frame it happened, and each button carries its own tooltip
+    // (AC10) — hung off the button's rect, never the control's.
+    let toolbar_slots = chrome
+        .toolbar
+        .map(vw::toolbar_slots)
+        .unwrap_or_default();
+    let mut toolbar_busy = false;
+    for (action, slot) in &toolbar_slots {
+        let r = to_rect(*slot);
+        let br = ui
+            .interact(r, vid.with(("viewer-tb", action.as_str())), Sense::click())
+            .on_hover_text(vw::toolbar_tooltip(*action));
+        if br.is_pointer_button_down_on() || br.hovered() {
+            toolbar_busy = true;
+        }
+        if !(enabled && br.clicked()) {
+            continue;
+        }
+        match action {
+            vw::ToolbarAction::CycleLayout => layout_name = vw::next_layout(&layout_name).to_owned(),
+            vw::ToolbarAction::ViewFull => view_mode = vw::ViewMode::Full,
+            vw::ToolbarAction::ViewCards => view_mode = vw::ViewMode::Cards,
+            vw::ToolbarAction::FontSmaller => font_size = vw::font_size_step(font_size, false),
+            vw::ToolbarAction::FontLarger => font_size = vw::font_size_step(font_size, true),
+            vw::ToolbarAction::Filmstrip => {
+                filmstrip = match filmstrip {
+                    Some(_) => None,
+                    None => Some(vw::FILMSTRIP_DEFAULT_WIDTH),
+                }
+            }
+            vw::ToolbarAction::Fullscreen => fullscreen = !fullscreen,
+            // T16 grows the second viewport; the property and its event are
+            // R16/R32's and belong with the button that drives them, so the
+            // button is never a control that does nothing.
+            vw::ToolbarAction::Split => split = !split,
+            // Likewise T15 builds the Find bar itself.
+            vw::ToolbarAction::Find => find_open = !find_open,
+            // R19/R20/R18: the OS does the deed. `cobolt-forms` knows the
+            // button was pressed and takes no dependency on a print panel,
+            // a share sheet or a save dialog to find that out — the same
+            // division of labour `toolbar_actions` already carries for
+            // ToolBar and `file_picker_requests` for FileDropZone.
+            vw::ToolbarAction::Print | vw::ToolbarAction::Share | vw::ToolbarAction::SaveAs => {
+                out.toolbar_actions.push((
+                    id.to_string(),
+                    action.as_str().to_string(),
+                    action.as_str().to_string(),
+                ));
+            }
+        }
+    }
+
+    // ── R26–R30: the Find bar ───────────────────────────────────────────
+    //
+    // The query field is painted, not an `egui::TextEdit`: the whole Viewer
+    // is drawn by the shared engine so the designer canvas and the running
+    // form cannot diverge (AC11), and a hosted widget exists on only one of
+    // them. Typing is therefore read straight off the event stream while the
+    // field holds focus — which is also what makes AC31's "never while the
+    // Find input has the caret" true, since focus then belongs to the
+    // field's own id and not the control's.
+    let mut find_text = live.find_text.own.clone();
+    if st.find_text != live.find_text.seen {
+        find_text = st.find_text.clone();
+    }
+    live.find_text.seen = st.find_text.clone();
+    let mut find_case = live.find_case.resolve(st.find_case_sensitive);
+    let mut find_highlight = live.find_highlight.resolve(st.find_highlight);
+    let mut find_current = live.find_current.resolve(st.find_current);
+    // The total is what THIS engine measured last frame, not what the
+    // property says: Next/Previous must work whether or not the host echoed
+    // `SearchMatchCount` back. `pushed_total` is seeded from the property,
+    // so a designed value is still honoured on the first frame.
+    let find_total = live.pushed_total;
+
+    let field_id = vid.with("viewer-find-field");
+    let field_focused = ui.ctx().memory(|m| m.focused()) == Some(field_id);
+    let mut find_busy = false;
+
+    if enabled && !streamed {
+        // R26: Ctrl+F / Cmd+F opens the bar and puts the caret in it.
+        let open_shortcut = ui.input_mut(|i| {
+            i.consume_key(egui::Modifiers::COMMAND, egui::Key::F)
+        });
+        if open_shortcut && (resp.hovered() || resp.has_focus() || field_focused) {
+            find_open = true;
+            ui.ctx().memory_mut(|m| m.request_focus(field_id));
+        }
+    }
+
+    if find_open && !streamed {
+        for (control, slot) in chrome.find_bar.map(vw::find_slots).unwrap_or_default() {
+            let r = to_rect(slot);
+            let sense = if control == vw::FindControl::Field {
+                Sense::click()
+            } else {
+                Sense::click()
+            };
+            let br = ui
+                .interact(r, vid.with(("viewer-find", control.as_str())), sense)
+                .on_hover_text(control.default_tooltip());
+            if br.hovered() || br.is_pointer_button_down_on() {
+                find_busy = true;
+            }
+            if !(enabled && br.clicked()) {
+                continue;
+            }
+            match control {
+                vw::FindControl::Field => ui.ctx().memory_mut(|m| m.request_focus(field_id)),
+                vw::FindControl::Previous => {
+                    if let Some(n) = vw::step_match(find_current, find_total, false) {
+                        find_current = n;
+                    }
+                }
+                vw::FindControl::Next => {
+                    if let Some(n) = vw::step_match(find_current, find_total, true) {
+                        find_current = n;
+                    }
+                }
+                // R27/R29: both toggles change the answer WITHOUT the query
+                // being retyped, and without disturbing where Next is.
+                vw::FindControl::CaseSensitive => find_case = !find_case,
+                vw::FindControl::Highlight => find_highlight = !find_highlight,
+                vw::FindControl::Counter => {}
+                vw::FindControl::Close => find_open = false,
+            }
+        }
+
+        if enabled {
+            // R28: F3 / Shift+F3 anywhere on the control, Enter / Shift+Enter
+            // while the field has the caret.
+            // Shift is read off the KEY EVENT, never `InputState::modifiers`.
+            // That field is the modifier state the platform last reported,
+            // which is not necessarily the one that accompanied this press —
+            // this project has been caught by the same distinction before
+            // (`consume_key` ignoring an extra Shift). Matching the event's
+            // own modifiers is the fix that holds.
+            let (f3, shift_f3, enter, shift_enter, backspace, typed) = ui.input(|i| {
+                let key_with = |key: egui::Key, shift: bool| {
+                    i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key { key: k, pressed: true, modifiers, .. }
+                                if *k == key && modifiers.shift == shift
+                        )
+                    })
+                };
+                (
+                    key_with(egui::Key::F3, false),
+                    key_with(egui::Key::F3, true),
+                    key_with(egui::Key::Enter, false),
+                    key_with(egui::Key::Enter, true),
+                    i.key_pressed(egui::Key::Backspace),
+                    i.events
+                        .iter()
+                        .filter_map(|e| match e {
+                            egui::Event::Text(t) => Some(t.clone()),
+                            _ => None,
+                        })
+                        .collect::<String>(),
+                )
+            });
+            let forward = f3 || (enter && field_focused);
+            let back = shift_f3 || (shift_enter && field_focused);
+            if forward || back {
+                if let Some(n) = vw::step_match(find_current, find_total, forward) {
+                    find_current = n;
+                }
+            }
+            if field_focused {
+                if backspace {
+                    find_text.pop();
+                }
+                if !typed.is_empty() {
+                    find_text.push_str(&typed);
+                }
+            }
+        }
+    }
+
+    // R26: "Esc closes it and takes priority over R13's Zoom/fullscreen Esc
+    // behaviour while the bar is open" — so this runs BEFORE R13's own Esc,
+    // and swallows the key when it acts.
+    let mut esc = esc;
+    if enabled && esc && find_open {
+        find_open = false;
+        esc = false;
+    }
+    if !find_open && field_focused {
+        ui.ctx().memory_mut(|m| m.surrender_focus(field_id));
+    }
+    // A changed query always restarts at the first match: leaving the index
+    // where it was would point into a match list that no longer exists.
+    if find_text != live.find_text.own || find_case != live.find_case.seen {
+        find_current = 0;
+    }
+
+    // ── R14.1: the one slider per view ──────────────────────────────────
+    let slider_resp = (!streamed && slider_rect.width() > 1.0)
+        .then(|| ui.interact(slider_rect, vid.with("viewer-slider"), Sense::click_and_drag()));
+    let slider_busy = slider_resp.as_ref().is_some_and(|r| r.dragged() || r.is_pointer_button_down_on());
+    if enabled {
+        if let Some(r) = slider_resp.as_ref() {
+            if r.dragged() || r.clicked() {
+                if let Some(p) = pointer {
+                    let track = to_rect(chrome.slider);
+                    let t = ((p.x - track.min.x) / track.width().max(1.0)).clamp(0.0, 1.0);
+                    let (z, c) = vw::apply_slider(view_mode, t, zoom, card_size);
+                    zoom = z;
+                    card_size = c;
+                }
+            }
+            // Still dragging means "not settled yet" — R32's own wording,
+            // and what keeps one drag to one event rather than sixty.
+            match view_mode {
+                vw::ViewMode::Full => zoom_active |= r.dragged(),
+                vw::ViewMode::Cards => card_active |= r.dragged(),
+            }
+        }
+    }
+
+    // ── R14.4: the filmstrip's splitter resizes it, or closes it ────────
+    let grip_resp = grip_rect
+        .map(|g| ui.interact(g, vid.with("viewer-strip-grip"), Sense::click_and_drag()));
+    let grip_busy = grip_resp.as_ref().is_some_and(|r| r.dragged() || r.is_pointer_button_down_on());
+    if enabled {
+        if let Some(r) = grip_resp.as_ref() {
+            if r.dragged() {
+                if let Some(p) = pointer {
+                    filmstrip = vw::filmstrip_width_after_drag(p.x - screen.min.x);
+                }
+            }
+        }
+    }
+
+    if enabled && !streamed {
+        // ── R11: wheel with the zoom modifier, about the pointer ────────
+        if resp.hovered() && command && wheel != 0.0 {
+            // egui reports a scroll delta in points; one notch is ~50 of
+            // them on every platform this runs on.
+            let new_zoom = vw::zoom_by_notches(zoom, wheel / 50.0);
+            if new_zoom != zoom {
+                if let Some(p) = pointer {
+                    let cursor = (p.y - content_rect.min.y).max(0.0);
+                    let anchored =
+                        vw::zoom_anchored_offset(live.scroll.offset(), cursor, zoom, new_zoom);
+                    live.scroll.set_offset(anchored);
+                }
+                zoom = new_zoom;
+            }
+            zoom_active = true;
+        } else if resp.hovered() && wheel != 0.0 {
+            // Plain wheel scrolls, in both view modes.
+            live.scroll.set_offset(live.scroll.offset() - wheel);
+        }
+
+        // ── R12: double-click zooms in one step, capped at 16x ──────────
+        if resp.double_clicked() && over_content {
+            zoom = vw::zoom_in_step(zoom);
+        }
+
+        // ── R13: Esc leaves fullscreen first, then returns to 100 % ─────
+        if esc && (resp.has_focus() || resp.hovered()) {
+            if fullscreen {
+                fullscreen = false;
+            } else {
+                zoom = vw::ZOOM_DEFAULT_PCT;
+            }
+        }
+    }
+
+    // ── R33/R33.1/R33.2: keys, drag and throw — `Full` mode only ────────
+    if enabled && !streamed && view_mode == vw::ViewMode::Full {
+        if keyboard_free && keys.any() {
+            let line = vw::line_height(st.font_size);
+            live.scroll.apply_keys(&keys, dt, line, chrome.content.h);
+        } else {
+            // Re-arm the ramp: a key released, or focus taken by another
+            // control, must not leave the hold time banked for next time.
+            live.scroll.apply_keys(&vw::KeyScrollInput::default(), dt, 1.0, chrome.content.h);
+        }
+
+        let gesture_elsewhere = slider_busy || grip_busy || toolbar_busy || find_busy;
+        match (live.scroll.is_grabbed(), primary_down && !gesture_elsewhere) {
+            (false, true) => {
+                if let Some(p) = pointer.filter(|p| content_rect.contains(*p)) {
+                    live.scroll.press(now, p.y);
+                }
+            }
+            (true, true) => {
+                if let Some(p) = pointer {
+                    live.scroll.drag(now, p.y);
+                }
+            }
+            // Let go — anywhere. What happens next is decided by how the
+            // hand was moving, never by where it stopped (R33.2).
+            (true, false) => live.scroll.release(),
+            (false, false) => {}
+        }
+        live.scroll.glide_tick(dt);
+    }
+
+    // ── A card or a thumbnail click selects that page ───────────────────
+    let card_grid = vw::card_grid(chrome.content.w, card_size, page_count);
+    if enabled && resp.clicked() && !slider_busy && !grip_busy {
+        if let Some(p) = pointer {
+            if view_mode == vw::ViewMode::Cards && content_rect.contains(p) {
+                let local = p - content_rect.min;
+                let col = ((local.x - vw::CARD_GAP) / (card_grid.card_w + vw::CARD_GAP)).floor();
+                let row = ((local.y + live.scroll.offset() - vw::CARD_GAP)
+                    / (card_grid.card_h + vw::CARD_GAP))
+                    .floor();
+                if col >= 0.0 && row >= 0.0 && card_grid.cols > 0 {
+                    let hit = row as usize * card_grid.cols + col as usize;
+                    if hit < page_count && (col as usize) < card_grid.cols {
+                        page = hit;
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Paint, through the same entry point the design canvas uses ──────
+    st.zoom_pct = zoom;
+    st.card_size_pct = card_size;
+    st.view_mode = view_mode;
+    st.fullscreen = fullscreen;
+    st.filmstrip = filmstrip;
+    st.current_page = page;
+    st.font_size = font_size.max(4) as f32;
+    st.layout = layout_name.clone();
+    st.split = split;
+    st.find_open = find_open;
+    st.find_text = find_text.clone();
+    st.find_case_sensitive = find_case;
+    st.find_highlight = find_highlight;
+    st.find_current = find_current;
+    st.find_total = find_total;
+    st.scroll = live.scroll.offset();
+    // What the ONE paint of this control measured for this view. Absent
+    // only on the very first frame, before anything has been drawn.
+    let painted = crate::paint::viewer_measurements(ui.ctx(), &ctrl.id, view_index)
+        .unwrap_or_default();
+
+    // A thumbnail click needs the rects the paint just produced — the strip
+    // has no scroll model of its own, so its rows are wherever it drew them.
+    if enabled && resp.clicked() && !grip_busy {
+        if let Some(p) = pointer {
+            if let Some((hit, _)) = painted.strip_hits.iter().find(|(_, r)| r.contains(p)) {
+                page = *hit;
+            }
+        }
+    }
+
+    // R33: the scrollable range is what the paint measured, against this
+    // view's own content height.
+    live.scroll.set_max((painted.content_height - chrome.content.h).max(0.0));
+
+    // ── Write back every COBOL-visible value, then raise R32's events ───
+    // A per-view property is written under its own `View{n}` name (the
+    // `View#` marker below); the unprefixed alias is the FIRST view's alone
+    // (plan.md §3/§4), so view 2 never writes it and cannot quietly
+    // overwrite view 1's value.
+    let mut push = |key: &str, val: String| {
+        if let Some(name) = key.strip_prefix("View#") {
+            out.prop_updates.push((id.to_string(), vw::view_prop(name, view_index), val.clone()));
+            if view_index == 0 {
+                out.prop_updates.push((id.to_string(), name.to_string(), val));
+            }
+        } else {
+            out.prop_updates.push((id.to_string(), key.to_string(), val));
+        }
+    };
+    let strip_on = filmstrip.is_some();
+    // Control-wide change EVENTS are the first view's to raise; both views
+    // may still write the control-wide property.
+    let shared_view = view_index == 0;
+    if live.zoom.diverged(zoom) {
+        push("View#Zoom", zoom.to_string());
+    }
+    if live.card.diverged(card_size) {
+        push("View#CardSize", card_size.to_string());
+    }
+    if live.mode.diverged(view_mode) {
+        push("View#ViewMode", view_mode.as_str().to_string());
+    }
+    if live.full.diverged(fullscreen) {
+        push("Fullscreen", fullscreen.to_string());
+    }
+    if live.strip.diverged(filmstrip) {
+        push("View#ShowFilmstrip", strip_on.to_string());
+        if let Some(w) = filmstrip {
+            push("View#FilmstripWidth", (w.round() as i64).to_string());
+        }
+    }
+    if live.page.diverged(page) {
+        push("View#Page", (page + 1).to_string());
+    }
+    if live.font.diverged(font_size) {
+        push("FontSize", font_size.to_string());
+    }
+    if layout_name != live.layout_seen {
+        push("Layout", layout_name.clone());
+    }
+    if live.split.diverged(split) {
+        // T16 gives the second view its own content; `LeftRight` is the
+        // side-by-side arrangement R21 names first.
+        push("SplitMode", if split { "LeftRight".into() } else { "None".to_string() });
+    }
+    if live.find.diverged(find_open) {
+        push("View#FindOpen", find_open.to_string());
+    }
+    // R31: no Find capability reachable only by mouse — every one of these
+    // is a property a COBOL program reads back and can write.
+    if find_text != live.find_text.seen {
+        push("View#SearchText", find_text.clone());
+    }
+    if live.find_case.diverged(find_case) {
+        push("View#SearchCaseSensitive", find_case.to_string());
+    }
+    if live.find_highlight.diverged(find_highlight) {
+        push("View#SearchHighlightEnabled", find_highlight.to_string());
+    }
+    if live.find_current.diverged(find_current) {
+        push("View#SearchCurrentMatch", find_current.to_string());
+    }
+    let offset = live.scroll.offset().round() as i64;
+    if offset != live.pushed_scroll {
+        push("View#ScrollPosition", offset.to_string());
+        live.pushed_scroll = offset;
+    }
+    live.zoom.own = zoom;
+    live.card.own = card_size;
+    live.mode.own = view_mode;
+    live.full.own = fullscreen;
+    live.strip.own = filmstrip;
+    live.page.own = page;
+    live.font.own = font_size;
+    let split_changed = live.split.diverged(split) || live.split.own != split;
+    let find_changed = live.find.diverged(find_open) || live.find.own != find_open;
+    live.split.own = split;
+    live.find.own = find_open;
+    live.layout_own = layout_name.clone();
+    live.find_text.own = find_text.clone();
+    live.find_case.own = find_case;
+    live.find_highlight.own = find_highlight;
+    // R30: the total is what the paint just measured over the text on
+    // screen. Clamp the current index into it so the counter can never read
+    // "7 / 3" after a query narrowed the list.
+    let measured_total = painted.find_total;
+    if measured_total != live.pushed_total {
+        push("View#SearchMatchCount", measured_total.to_string());
+        live.pushed_total = measured_total;
+    }
+    if measured_total == 0 && find_current != 0 {
+        find_current = 0;
+        push("View#SearchCurrentMatch", "0".to_string());
+    } else if measured_total > 0 && find_current >= measured_total {
+        find_current = measured_total - 1;
+        push("View#SearchCurrentMatch", find_current.to_string());
+    }
+    live.find_current.own = find_current;
+    if split_changed && shared_view && want("onSplitModeChanged") {
+        out.events.push(UiEvent::ev(id, "onSplitModeChanged"));
+    }
+    if find_changed {
+        let ev = if find_open { "onFindOpened" } else { "onFindClosed" };
+        if want(ev) {
+            out.events.push(UiEvent::ev(id, ev));
+        }
+    }
+
+    live.zoom_watch.observe(zoom, zoom_active);
+    if live.zoom_watch.take_settled() && want("onZoomChanged") {
+        out.events.push(UiEvent::ev(id, "onZoomChanged"));
+    }
+    live.card_watch.observe(card_size, card_active);
+    if live.card_watch.take_settled() && want("onCardSizeChanged") {
+        out.events.push(UiEvent::ev(id, "onCardSizeChanged"));
+    }
+    if live.scroll.take_settled() && want("onScrolled") {
+        out.events.push(UiEvent::ev(id, "onScrolled"));
+    }
+    if shared_view && live.last_layout.as_deref().is_some_and(|p| p != st.layout) && want("onLayoutChanged") {
+        out.events.push(UiEvent::ev(id, "onLayoutChanged"));
+    }
+    live.last_layout = Some(st.layout.clone());
+    if live.last_mode.is_some_and(|p| p != view_mode) && want("onViewModeChanged") {
+        out.events.push(UiEvent::ev(id, "onViewModeChanged"));
+    }
+    live.last_mode = Some(view_mode);
+    if live.last_filmstrip.is_some_and(|p| p != strip_on) && want("onFilmstripToggled") {
+        out.events.push(UiEvent::ev(id, "onFilmstripToggled"));
+    }
+    live.last_filmstrip = Some(strip_on);
+    if let Some(prev) = live.last_fullscreen.filter(|_| shared_view) {
+        if prev != fullscreen {
+            let ev = if fullscreen { "onFullscreenEntered" } else { "onFullscreenExited" };
+            if want(ev) {
+                out.events.push(UiEvent::ev(id, ev));
+            }
+        }
+    }
+    live.last_fullscreen = Some(fullscreen);
+
+    // A held key and a glide produce no input events of their own; ask for
+    // the frames they need to keep moving.
+    if live.scroll.is_moving() {
+        ui.ctx().request_repaint();
+    }
+    ui.ctx().memory_mut(|m| m.data.insert_temp(live_id, live));
 }
 
 fn focus_keyboard_events(
@@ -10078,25 +10902,71 @@ fn render_interactive(
         // carry it — one step earlier than the Snackbar/WebSearch/IndexedFile
         // lesson above, same shape.
         CT::Viewer => {
-            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
-            let resp = ui.interact(screen, ctrl_id, Sense::click());
-            focus_keyboard_events(ui, &resp, id, out, &bound);
-            if resp.clicked() {
-                let mem = ctrl_id.with("viewer-click-count");
-                let n = ui
-                    .ctx()
-                    .memory(|m| m.data.get_temp::<u32>(mem))
-                    .unwrap_or(0)
-                    + 1;
-                ui.ctx().memory_mut(|m| m.data.insert_temp(mem, n));
-            }
-            painter.text(
-                screen.center(),
-                Align2::CENTER_CENTER,
-                "Viewer — no document loaded",
-                FontId::proportional(13.0),
-                Color32::from_gray(140),
+            let mode = crate::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
             );
+            let percent = ctrl
+                .get_prop("SplitPercent")
+                .map(|v| v.as_i64())
+                .filter(|p| *p > 0)
+                .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
+            let bounds = crate::viewer::ViewRect::new(
+                screen.min.x,
+                screen.min.y,
+                screen.width(),
+                screen.height(),
+            );
+            let geom = crate::viewer::split_geometry(bounds, mode, percent);
+            let to_rect = |r: crate::viewer::ViewRect| {
+                Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
+            };
+
+            // **AC11.** The control is painted by exactly ONE call — the
+            // same `paint::draw_control` the designer canvas makes, which
+            // handles the split, the chrome and the divider inside itself.
+            // The interactive surface then only SENSES, against what that
+            // paint measured (`paint::viewer_measurements`).
+            //
+            // An earlier arrangement painted from this arm directly and
+            // skipped `draw_control`'s own frame wrapper, leaving a running
+            // form five shapes short of the canvas — `viewer_engine_parity`
+            // caught it, which is what it is for.
+            paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+
+            viewer_view_interactive(
+                ui, to_rect(geom.view1), ctrl, 0, ctrl_id, id, alpha, enabled, &bound, out,
+            );
+            if let Some(second) = geom.view2 {
+                viewer_view_interactive(
+                    ui, to_rect(second), ctrl, 1, ctrl_id, id, alpha, enabled, &bound, out,
+                );
+            }
+
+            // R21's divider is drawn by that one paint; this only makes it
+            // draggable, after both views have been sensed so a drag never
+            // fights a view for the same pointer.
+            if let Some(divider) = geom.divider {
+                let d = to_rect(divider).expand2(Vec2::new(3.0, 3.0));
+                let resp = ui.interact(d, ctrl_id.with("viewer-divider"), Sense::drag());
+                let cursor = if mode == crate::viewer::SplitMode::LeftRight {
+                    egui::CursorIcon::ResizeHorizontal
+                } else {
+                    egui::CursorIcon::ResizeVertical
+                };
+                let resp = resp.on_hover_cursor(cursor);
+                if enabled && resp.dragged() {
+                    if let Some(p) = ui.input(|i| i.pointer.latest_pos()) {
+                        let pct = crate::viewer::split_percent_at(bounds, mode, p.x, p.y);
+                        if pct != percent {
+                            out.prop_updates.push((
+                                id.to_string(),
+                                "SplitPercent".to_string(),
+                                pct.to_string(),
+                            ));
+                        }
+                    }
+                }
+            }
         }
 
         _ => {
@@ -10203,23 +11073,33 @@ mod tests {
         fills
     }
 
-    /// Spec 058 T4 — `ControlType::Viewer` gets its OWN `render_interactive`
-    /// arm, not the generic wildcard fallback (`paint::draw_control` alone,
-    /// with no per-type behaviour). A paint-diff can't prove that — the
-    /// wildcard paints the same face — so this simulates a real press then
-    /// release on the control and asserts the arm's own click-tracking
-    /// fired, which only runs from inside the dedicated `CT::Viewer` arm.
+    /// Spec 058 T4/T12 — `ControlType::Viewer` gets its OWN
+    /// `render_interactive` arm, not the generic wildcard fallback
+    /// (`paint::draw_control` alone, with no per-type behaviour). A
+    /// paint-diff can't prove that — the wildcard paints the same face — so
+    /// this drives a real interaction and asserts a real state change came
+    /// back out.
+    ///
+    /// The observable is R13's Esc: a Viewer sitting at 250 % returns to
+    /// 100 % and reports it through `prop_updates`, the channel COBOL reads
+    /// the value back from. T4 originally asserted a click counter kept in
+    /// egui's memory; T12 replaced that placeholder with the real navigation
+    /// wiring, so the proof moved with it — and got stronger, since a
+    /// property write is something a program can actually see.
     #[test]
-    fn a_click_on_the_viewer_reaches_its_own_arm_not_the_wildcard() {
-        let viewer = ctrl("VWR-1", ControlType::Viewer, 0, 0, 400, 300);
+    fn an_interaction_with_the_viewer_reaches_its_own_arm_not_the_wildcard() {
+        let mut viewer = ctrl("VWR-1", ControlType::Viewer, 0, 0, 400, 300);
+        viewer.set_prop("View1Zoom", PropValue::Int(250));
+        viewer.set_prop("Zoom", PropValue::Int(250));
         let controls = vec![viewer];
         let ctx = egui::Context::default();
         let active = ActiveTabs::new();
 
-        let run = |time: f64, evs: Vec<egui::Event>| {
+        let run = |time: f64, evs: Vec<egui::Event>| -> Vec<(String, String, String)> {
             let mut input = egui::RawInput::default();
             input.time = Some(time);
             input.events = evs;
+            let mut updates = Vec::new();
             let mut out = ctx.run_ui(input, |root_ui| {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
@@ -10233,38 +11113,1345 @@ mod tests {
                             active_tabs: &active,
                             backdrop: Default::default(),
                         };
-                        let _ = render_form(ui, &rin);
+                        updates = render_form(ui, &rin).prop_updates;
                     });
             });
             out.textures_delta.clear();
+            updates
         };
 
-        let click_count = || {
-            let id = rt_id_in(None, "VWR-1").with("viewer-click-count");
-            ctx.memory(|m| m.data.get_temp::<u32>(id)).unwrap_or(0)
+        let zoom_writes = |ups: &[(String, String, String)]| -> Vec<String> {
+            ups.iter()
+                .filter(|(id, key, _)| id == "VWR-1" && key == "Zoom")
+                .map(|(_, _, v)| v.clone())
+                .collect()
         };
 
         let center = egui::Pos2::new(200.0, 150.0);
-        let button = |pressed| egui::Event::PointerButton {
+        run(0.0, vec![]); // first frame lays the control out
+        let hovered = run(0.05, vec![egui::Event::PointerMoved(center)]);
+        println!("frame 2 (hover only): Zoom writes {:?}", zoom_writes(&hovered));
+        assert!(zoom_writes(&hovered).is_empty(), "hovering alone must change nothing");
+
+        let after_esc = run(
+            0.10,
+            vec![egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            }],
+        );
+        let writes = zoom_writes(&after_esc);
+        println!("after Esc over the control: Zoom writes {writes:?}");
+        assert_eq!(
+            writes,
+            vec!["100".to_string()],
+            "R13: Esc returns Zoom to 100 %, and the dedicated Viewer arm — \
+             not the wildcard fallback — is what reports it"
+        );
+    }
+
+    // ── Spec 058 T12: navigation, driven through the real engine ────────
+    //
+    // The pure arithmetic is covered in `viewer::nav_tests`. These are the
+    // WIRING: that a gesture reaches the model, that the result comes back
+    // out through `prop_updates`/`events`, and — for AC19's sharpest clause
+    // — that the card grid answers to the CONTROL's width and to nothing
+    // else.
+
+    /// A Viewer control with the given designed size and property overrides,
+    /// rendered for `frames` frames; returns the last frame's
+    /// `(prop_updates, events)` plus the shapes it painted.
+    struct ViewerHarness {
+        ctx: egui::Context,
+        controls: Vec<Control>,
+        active: ActiveTabs,
+        form: Vec2,
+    }
+
+    impl ViewerHarness {
+        fn new(form: Vec2, w: i32, h: i32, props: &[(&str, PropValue)]) -> Self {
+            let mut v = ctrl("VWR-1", ControlType::Viewer, 0, 0, w, h);
+            for (k, val) in props {
+                v.set_prop(*k, val.clone());
+            }
+            Self { ctx: egui::Context::default(), controls: vec![v], active: ActiveTabs::new(), form }
+        }
+
+        fn bind(&mut self, event: &str) {
+            self.controls[0].events.push(crate::model::EventBinding {
+                event: event.to_string(),
+                paragraph: format!("VWR-1--{}", event.to_uppercase()),
+                code: String::new(),
+            });
+        }
+
+        /// What the control's property says now — after every
+        /// `prop_update` the engine asked for has been applied, the way a
+        /// real host applies them between frames.
+        fn prop(&self, key: &str) -> String {
+            self.controls[0].get_prop(key).map(|v| v.to_xml_string()).unwrap_or_default()
+        }
+
+        /// One frame, then **apply what the engine asked for** — without
+        /// that, the harness models a host that ignores `prop_updates`,
+        /// which no real one does, and every test reads a control frozen at
+        /// its designed state.
+        fn frame(&mut self, time: f64, evs: Vec<egui::Event>) -> (RenderOutput, Vec<egui::Shape>) {
+            let mut input = egui::RawInput::default();
+            input.time = Some(time);
+            input.events = evs;
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, self.form + Vec2::new(40.0, 40.0)));
+            let mut captured: Option<RenderOutput> = None;
+            let mut out = self.ctx.run_ui(input, |root_ui| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root_ui, |ui| {
+                    let rin = RenderInput {
+                        controls: &self.controls,
+                        state: &DesignedVisibility,
+                        form_size: self.form,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &self.active,
+                        backdrop: Default::default(),
+                    };
+                    captured = Some(render_form(ui, &rin));
+                });
+            });
+            out.textures_delta.clear();
+            let shapes = out.shapes.into_iter().map(|cs| cs.shape).collect();
+            let captured = captured.expect("render_form ran");
+            for (id, key, val) in &captured.prop_updates {
+                if &self.controls[0].id == id {
+                    self.controls[0].set_prop(key.clone(), PropValue::String(val.clone()));
+                }
+            }
+            (captured, shapes)
+        }
+    }
+
+    fn writes_of(out: &RenderOutput, key: &str) -> Vec<String> {
+        out.prop_updates
+            .iter()
+            .filter(|(_, k, _)| k == key)
+            .map(|(_, _, v)| v.clone())
+            .collect()
+    }
+
+    fn event_names(out: &RenderOutput) -> Vec<String> {
+        out.events.iter().map(|e| e.event.clone()).collect()
+    }
+
+    /// Every page-number label a Viewer painted this frame, as `(x, y)`.
+    /// Card and thumbnail faces both carry one, so counting them counts the
+    /// faces without guessing at rect sizes.
+    fn page_labels(shapes: &[egui::Shape]) -> Vec<(f32, f32)> {
+        fn walk(s: &egui::Shape, into: &mut Vec<(f32, f32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                egui::Shape::Text(t) => {
+                    if t.galley.job.text.trim().parse::<usize>().is_ok() {
+                        into.push((t.pos.x, t.pos.y));
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for s in shapes {
+            walk(s, &mut out);
+        }
+        out
+    }
+
+    /// Columns in the first row of cards: the labels sharing the topmost y.
+    fn first_row_columns(shapes: &[egui::Shape]) -> usize {
+        let labels = page_labels(shapes);
+        let Some(top) = labels.iter().map(|(_, y)| *y).fold(None, |acc: Option<f32>, y| {
+            Some(acc.map_or(y, |a| a.min(y)))
+        }) else {
+            return 0;
+        };
+        labels.iter().filter(|(_, y)| (y - top).abs() < 1.0).count()
+    }
+
+    /// A temp text file of `pages` form-feed-separated pages.
+    fn paged_text_file(dir: &tempfile::TempDir, pages: usize) -> String {
+        use std::io::Write;
+        let path = dir.path().join("paged.txt");
+        let mut f = std::fs::File::create(&path).unwrap();
+        for i in 0..pages {
+            write!(f, "Page number {}\nsome body text\n", i + 1).unwrap();
+            if i + 1 < pages {
+                f.write_all(&[crate::viewer::FORM_FEED]).unwrap();
+            }
+        }
+        path.to_string_lossy().into_owned()
+    }
+
+    /// A temp text file of one page holding `lines` lines.
+    fn long_text_file(dir: &tempfile::TempDir, lines: usize) -> String {
+        use std::io::Write;
+        let path = dir.path().join("long.txt");
+        let mut f = std::fs::File::create(&path).unwrap();
+        for i in 0..lines {
+            writeln!(f, "line {i:04} of a document long enough to scroll").unwrap();
+        }
+        path.to_string_lossy().into_owned()
+    }
+
+    /// **AC19's sharpest clause.** The card grid's column count is a
+    /// function of the CONTROL's own width — "resizing the *control*, not
+    /// the window, changes the count." Both halves are asserted: a narrower
+    /// control reflows, and a bigger *window* around the same control does
+    /// not.
+    #[test]
+    fn the_card_grid_answers_to_the_controls_width_and_to_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = paged_text_file(&dir, 12);
+        let build = |form: Vec2, w: i32| {
+            let owned: Vec<(&str, PropValue)> = vec![
+                ("Source", PropValue::String(source.clone())),
+                ("View1ViewMode", PropValue::String("Cards".into())),
+                ("View1CardSize", PropValue::Int(20)),
+                ("Layout", PropValue::String("Web".into())),
+            ];
+            let mut h = ViewerHarness::new(form, w, 400, &owned);
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.05, vec![]);
+            first_row_columns(&shapes)
+        };
+
+        let wide_control = build(Vec2::new(900.0, 700.0), 760);
+        let narrow_control = build(Vec2::new(900.0, 700.0), 300);
+        let same_control_bigger_window = build(Vec2::new(1500.0, 1100.0), 760);
+
+        println!("AC19 — cards in the first row:");
+        println!("  control 760 pt wide, window  900x700 -> {wide_control} columns");
+        println!("  control 300 pt wide, window  900x700 -> {narrow_control} columns");
+        println!("  control 760 pt wide, window 1500x1100 -> {same_control_bigger_window} columns");
+        assert!(wide_control > 0, "the grid must actually have painted cards");
+        assert!(
+            narrow_control < wide_control,
+            "resizing the CONTROL must change the column count"
+        );
+        assert_eq!(
+            same_control_bigger_window, wide_control,
+            "AC19: resizing anything but the control must NOT change it"
+        );
+    }
+
+    /// R12/AC4 through the engine: a double-click zooms in one step, and a
+    /// Viewer already at the cap does not move.
+    #[test]
+    fn a_double_click_zooms_the_viewer_one_step_and_the_cap_holds() {
+        let center = egui::Pos2::new(200.0, 200.0);
+        let click = |pressed| egui::Event::PointerButton {
             pos: center,
             button: egui::PointerButton::Primary,
             pressed,
             modifiers: Default::default(),
         };
+        let double_click_from = |start: i64| -> Vec<String> {
+            let mut h = ViewerHarness::new(
+                Vec2::new(500.0, 500.0),
+                400,
+                400,
+                &[
+                    ("View1Zoom", PropValue::Int(start)),
+                    ("Zoom", PropValue::Int(start)),
+                    ("Layout", PropValue::String("Web".into())),
+                ],
+            );
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![egui::Event::PointerMoved(center)]);
+            h.frame(0.04, vec![click(true)]);
+            h.frame(0.06, vec![click(false)]);
+            h.frame(0.08, vec![click(true)]);
+            let (out, _) = h.frame(0.10, vec![click(false)]);
+            writes_of(&out, "Zoom")
+        };
 
-        run(0.0, vec![]); // first frame lays the control out
-        assert_eq!(click_count(), 0, "no click yet");
+        let from_100 = double_click_from(100);
+        let from_cap = double_click_from(crate::viewer::ZOOM_MAX_PCT);
+        println!("double-click from 100 % -> Zoom writes {from_100:?}");
+        println!("double-click from {} % -> Zoom writes {from_cap:?}", crate::viewer::ZOOM_MAX_PCT);
+        assert_eq!(from_100, vec!["125".to_string()], "R12: one step in");
+        assert!(
+            from_cap.is_empty() || from_cap == vec!["1600".to_string()],
+            "AC4: a Viewer at 16x does not zoom further, it reports {from_cap:?}"
+        );
+    }
 
-        run(0.05, vec![egui::Event::PointerMoved(center)]);
-        run(0.10, vec![button(true)]);
-        assert_eq!(click_count(), 0, "a press alone is not a click");
+    /// R32: one gesture, one event. A double-click settles once, so exactly
+    /// one `onZoomChanged` reaches a bound handler — not one per frame the
+    /// value was merely observed at.
+    #[test]
+    fn one_zoom_gesture_raises_exactly_one_onzoomchanged() {
+        let center = egui::Pos2::new(200.0, 200.0);
+        let click = |pressed| egui::Event::PointerButton {
+            pos: center,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let mut h = ViewerHarness::new(
+            Vec2::new(500.0, 500.0),
+            400,
+            400,
+            &[("Layout", PropValue::String("Web".into()))],
+        );
+        h.bind("onZoomChanged");
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(center)]);
+        h.frame(0.04, vec![click(true)]);
+        h.frame(0.06, vec![click(false)]);
+        h.frame(0.08, vec![click(true)]);
+        let (dbl, _) = h.frame(0.10, vec![click(false)]);
+        let mut fired = event_names(&dbl).iter().filter(|e| *e == "onZoomChanged").count();
+        // Four quiet frames afterwards must add nothing.
+        for i in 0..4 {
+            let (quiet, _) = h.frame(0.2 + i as f64 * 0.02, vec![]);
+            fired += event_names(&quiet).iter().filter(|e| *e == "onZoomChanged").count();
+        }
+        println!("one double-click plus four quiet frames -> {fired} onZoomChanged event(s)");
+        assert_eq!(fired, 1, "R32: fires once when the value settles, never per frame");
+    }
 
-        run(0.15, vec![button(false)]);
-        assert_eq!(
-            click_count(),
-            1,
-            "release completes the click, and the dedicated Viewer arm — \
-             not the wildcard fallback — is what records it"
+    /// AC31's last clause: none of R33's scrolling fires while another
+    /// control holds the caret. The gate is checked directly — focus is
+    /// given to an unrelated id and the arrow key must reach nothing.
+    #[test]
+    fn arrow_keys_do_not_scroll_the_viewer_while_another_control_holds_focus() {
+        let dir = tempfile::tempdir().unwrap();
+        // One long page, deliberately: the scroll range is what a page's own
+        // content overflows the viewport by, so a file of forty SHORT pages
+        // would give the first page nothing to scroll and the test would
+        // pass for the wrong reason.
+        let source = long_text_file(&dir, 400);
+        let arrow = || egui::Event::Key {
+            key: egui::Key::ArrowDown,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        let run = |steal_focus: bool| -> Vec<String> {
+            let mut h = ViewerHarness::new(
+                Vec2::new(500.0, 400.0),
+                400,
+                300,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                    ("FontSize", PropValue::Int(14)),
+                ],
+            );
+            // Two quiet frames so the paint has measured a scroll range.
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![]);
+            if steal_focus {
+                let other = egui::Id::new("some-other-control");
+                h.ctx.memory_mut(|m| m.request_focus(other));
+            }
+            let (out, _) = h.frame(0.04, vec![arrow()]);
+            writes_of(&out, "ScrollPosition")
+        };
+
+        let free = run(false);
+        let stolen = run(true);
+        println!("ArrowDown with nothing focused      -> ScrollPosition writes {free:?}");
+        println!("ArrowDown while another id has focus -> ScrollPosition writes {stolen:?}");
+        assert!(!free.is_empty(), "R33: a tap must move the content when the keyboard is free");
+        assert!(stolen.is_empty(), "AC31: never while another control holds the caret");
+    }
+
+    /// R14.4 through the engine: dragging the filmstrip's splitter to the
+    /// view's left edge closes the rail — and does **not** leave `Full` mode.
+    #[test]
+    fn dragging_the_filmstrip_splitter_to_the_left_edge_closes_it() {
+        let mut h = ViewerHarness::new(
+            Vec2::new(600.0, 500.0),
+            500,
+            400,
+            &[
+                ("View1ShowFilmstrip", PropValue::Bool(true)),
+                ("Layout", PropValue::String("Web".into())),
+            ],
+        );
+        h.bind("onFilmstripToggled");
+        h.frame(0.0, vec![]);
+        // The rail opens at its default width, so its grip is there.
+        let grip_x = crate::viewer::FILMSTRIP_DEFAULT_WIDTH;
+        let at = |x: f32| egui::Pos2::new(x, 200.0);
+        h.frame(0.02, vec![egui::Event::PointerMoved(at(grip_x))]);
+        h.frame(
+            0.04,
+            vec![egui::Event::PointerButton {
+                pos: at(grip_x),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            }],
+        );
+        let (out, _) = h.frame(0.06, vec![egui::Event::PointerMoved(at(6.0))]);
+        let closed = writes_of(&out, "View1ShowFilmstrip");
+        let mode = writes_of(&out, "View1ViewMode");
+        println!("splitter dragged to x=6 -> ShowFilmstrip writes {closed:?}, ViewMode writes {mode:?}");
+        println!("events: {:?}", event_names(&out));
+        assert_eq!(closed, vec!["false".to_string()], "R14.4: the rail closes at the left edge");
+        assert!(mode.is_empty(), "R14.4: and it stays in Full mode");
+        assert!(
+            event_names(&out).contains(&"onFilmstripToggled".to_string()),
+            "R32: closing the rail is reported"
+        );
+    }
+
+    // ── Spec 058 T15: the Find bar, through the real engine ─────────────
+
+    /// The marker rects R29 paints under matched text. Matched by colour:
+    /// the highlight is the only thing on a Viewer painted in amber.
+    fn highlight_rects(shapes: &[egui::Shape]) -> Vec<egui::Rect> {
+        fn walk(s: &egui::Shape, into: &mut Vec<egui::Rect>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                egui::Shape::Rect(r) => {
+                    let f = r.fill;
+                    if f.r() > 180 && (120..190).contains(&f.g()) && f.b() < 60 {
+                        into.push(r.rect);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for s in shapes {
+            walk(s, &mut out);
+        }
+        out
+    }
+
+    /// A Viewer showing `text`, with the Find bar already open on `query`.
+    fn find_harness(dir: &tempfile::TempDir, text: &str, query: &str, case: bool) -> ViewerHarness {
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, text).unwrap();
+        ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560.0 as i32,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String(query.into())),
+                ("View1SearchCaseSensitive", PropValue::Bool(case)),
+            ],
+        )
+    }
+
+    const FIND_DOC: &str = "COBOL is not cobol, and Cobol is neither.\nA COBOL program in cobol stays COBOL.\n";
+
+    /// **AC22** — typing highlights every match and the counter updates live.
+    #[test]
+    fn typing_in_the_find_bar_highlights_matches_and_updates_the_counter() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = find_harness(&dir, FIND_DOC, "cobol", false);
+        h.frame(0.0, vec![]);
+        let (_, shapes) = h.frame(0.02, vec![]);
+        let marks = highlight_rects(&shapes);
+        // Read the PROPERTY, not one frame's write list: the engine pushes a
+        // changed total once and the harness applies it, exactly as a host
+        // does, so a later frame correctly has nothing to say about it.
+        let total = h.prop("SearchMatchCount");
+        println!(
+            "query \"cobol\" (case-insensitive) over {:?}...: {} highlight rect(s), SearchMatchCount = {total:?}",
+            &FIND_DOC[..24],
+            marks.len()
+        );
+        assert_eq!(marks.len(), 6, "R29: every match is marked");
+        assert_eq!(total, "6", "R30: the total is published for the counter");
+    }
+
+    /// **AC23**, first half — the case toggle changes which matches are
+    /// found, **without the query being retyped**.
+    #[test]
+    fn toggling_case_sensitivity_changes_the_count_without_retyping() {
+        let dir = tempfile::tempdir().unwrap();
+        let counts = |case: bool| -> (usize, String) {
+            let mut h = find_harness(&dir, FIND_DOC, "COBOL", case);
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.02, vec![]);
+            (highlight_rects(&shapes).len(), h.prop("SearchMatchCount"))
+        };
+        let (off_marks, off_total) = counts(false);
+        let (on_marks, on_total) = counts(true);
+        println!("query \"COBOL\", case OFF -> {off_marks} marks, total {off_total:?}");
+        println!("query \"COBOL\", case ON  -> {on_marks} marks, total {on_total:?}");
+        assert_eq!(off_marks, 6);
+        assert_eq!(on_marks, 3, "AC23: the toggle alone changes the answer");
+        assert_eq!(off_total, "6");
+        assert_eq!(on_total, "3");
+    }
+
+    /// **AC23**, second half — turning highlighting off stops the marks but
+    /// breaks neither the count nor Next/Previous.
+    #[test]
+    fn turning_highlighting_off_keeps_the_count_and_navigation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String("cobol".into())),
+                ("View1SearchHighlightEnabled", PropValue::Bool(false)),
+            ],
+        );
+        h.frame(0.0, vec![]);
+        let (_, shapes) = h.frame(0.02, vec![]);
+        let marks = highlight_rects(&shapes);
+        let total = h.prop("SearchMatchCount");
+        println!("highlight OFF -> {} mark(s), SearchMatchCount = {total:?}", marks.len());
+        assert!(marks.is_empty(), "R29: nothing is marked when highlighting is off");
+        assert_eq!(total, "6", "AC23: the count is unaffected");
+
+        // And Next still moves.
+        let bar_y = 34.0 + 15.0; // toolbar band, then the middle of the bar
+        let next_x = 4.0 + 180.0 + 4.0 + 22.0 + 4.0 + 11.0;
+        let at = egui::Pos2::new(next_x, bar_y);
+        h.frame(0.04, vec![egui::Event::PointerMoved(at)]);
+        h.frame(0.06, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        let (after, _) = h.frame(0.08, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        let moved = writes_of(&after, "SearchCurrentMatch");
+        println!("Next clicked with highlighting off -> SearchCurrentMatch {moved:?}");
+        assert_eq!(moved, vec!["1".to_string()], "AC23: navigation still works");
+    }
+
+    /// **AC22**, wraparound — F3 walks forward past the last match and back
+    /// round to the first; Shift+F3 the other way.
+    #[test]
+    fn f3_and_shift_f3_wrap_at_both_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = find_harness(&dir, FIND_DOC, "COBOL", true); // 3 matches
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![]);
+        let f3 = |shift: bool| egui::Event::Key {
+            key: egui::Key::F3,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: if shift { egui::Modifiers::SHIFT } else { Default::default() },
+        };
+        let mut forward = Vec::new();
+        for i in 0..5 {
+            let (out, _) = h.frame(0.1 + i as f64 * 0.02, vec![f3(false)]);
+            forward.extend(writes_of(&out, "SearchCurrentMatch"));
+        }
+        let mut backward = Vec::new();
+        for i in 0..3 {
+            let (out, _) = h.frame(0.3 + i as f64 * 0.02, vec![f3(true)]);
+            backward.extend(writes_of(&out, "SearchCurrentMatch"));
+        }
+        println!("3 matches — F3 x5 -> {forward:?}");
+        println!("           Shift+F3 x3 -> {backward:?}");
+        assert_eq!(forward, ["1", "2", "0", "1", "2"], "R28: wraps past the last");
+        assert_eq!(backward, ["1", "0", "2"], "R28: and past the first");
+    }
+
+    /// **R26** — "`Esc` closes it and takes priority over R13's Zoom/
+    /// fullscreen Esc behaviour while the bar is open."
+    #[test]
+    fn esc_closes_find_before_it_touches_zoom_or_fullscreen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1Zoom", PropValue::Int(250)),
+                ("Zoom", PropValue::Int(250)),
+            ],
+        );
+        let centre = egui::Pos2::new(280.0, 250.0);
+        let esc = || egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Default::default(),
+        };
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(centre)]);
+        let (first, _) = h.frame(0.04, vec![esc()]);
+        println!("first Esc  -> FindOpen {:?}, Zoom {:?}", writes_of(&first, "FindOpen"), writes_of(&first, "Zoom"));
+        assert_eq!(writes_of(&first, "FindOpen"), vec!["false".to_string()], "R26: Find closes");
+        assert!(writes_of(&first, "Zoom").is_empty(), "R26: and Zoom is NOT touched by that same Esc");
+
+        let (second, _) = h.frame(0.06, vec![esc()]);
+        println!("second Esc -> Zoom {:?}", writes_of(&second, "Zoom"));
+        assert_eq!(writes_of(&second, "Zoom"), vec!["100".to_string()], "R13 resumes once the bar is closed");
+    }
+
+    /// R32 — opening and closing the bar fires the matching event exactly
+    /// once each.
+    #[test]
+    fn opening_and_closing_the_find_bar_fires_each_event_exactly_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, FIND_DOC).unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(620.0, 420.0),
+            560,
+            360,
+            &[
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("Layout", PropValue::String("Raw".into())),
+            ],
+        );
+        h.bind("onFindOpened");
+        h.bind("onFindClosed");
+        let centre = egui::Pos2::new(280.0, 250.0);
+        let ctrl_f = || egui::Event::Key {
+            key: egui::Key::F,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::COMMAND,
+        };
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(centre)]);
+        let (opened, _) = h.frame(0.04, vec![ctrl_f()]);
+        let mut opens = event_names(&opened).iter().filter(|e| *e == "onFindOpened").count();
+        for i in 0..3 {
+            let (quiet, _) = h.frame(0.1 + i as f64 * 0.02, vec![]);
+            opens += event_names(&quiet).iter().filter(|e| *e == "onFindOpened").count();
+        }
+        let esc = egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        let (closed, _) = h.frame(0.2, vec![esc]);
+        let mut closes = event_names(&closed).iter().filter(|e| *e == "onFindClosed").count();
+        for i in 0..3 {
+            let (quiet, _) = h.frame(0.3 + i as f64 * 0.02, vec![]);
+            closes += event_names(&quiet).iter().filter(|e| *e == "onFindClosed").count();
+        }
+        println!("Ctrl+F then Esc, with three quiet frames after each -> {opens} onFindOpened, {closes} onFindClosed");
+        assert_eq!(opens, 1, "R32: opened exactly once");
+        assert_eq!(closes, 1, "R32: and closed exactly once");
+    }
+
+    // ── Spec 058 T16/T17: split view, through the real engine ───────────
+
+    /// A Viewer split left/right, each view on its own document.
+    fn split_harness(dir: &tempfile::TempDir, left: &str, right: &str, extra: &[(&str, PropValue)]) -> ViewerHarness {
+        let a = dir.path().join("left.txt");
+        let b = dir.path().join("right.txt");
+        std::fs::write(&a, left).unwrap();
+        std::fs::write(&b, right).unwrap();
+        let mut props: Vec<(&str, PropValue)> = vec![
+            ("SplitMode", PropValue::String("LeftRight".into())),
+            ("SplitPercent", PropValue::Int(50)),
+            ("Layout", PropValue::String("Raw".into())),
+            ("View1Source", PropValue::String(a.to_string_lossy().into_owned())),
+            ("View2Source", PropValue::String(b.to_string_lossy().into_owned())),
+        ];
+        props.extend(extra.iter().cloned());
+        ViewerHarness::new(Vec2::new(700.0, 460.0), 640, 400, &props)
+    }
+
+    /// **AC8**, the independence clause — "moving or searching in one view
+    /// does not move or affect the other".
+    #[test]
+    fn zooming_one_split_view_leaves_the_others_zoom_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = split_harness(&dir, "left document\n", "right document\n", &[]);
+        let click = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        // A double-click well inside the LEFT view's content.
+        let in_left = egui::Pos2::new(120.0, 220.0);
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(in_left)]);
+        h.frame(0.04, vec![click(in_left, true)]);
+        h.frame(0.06, vec![click(in_left, false)]);
+        h.frame(0.08, vec![click(in_left, true)]);
+        let (out, _) = h.frame(0.10, vec![click(in_left, false)]);
+
+        println!(
+            "double-click in view 1 -> View1Zoom {:?}, View2Zoom {:?}, Zoom (alias) {:?}",
+            writes_of(&out, "View1Zoom"),
+            writes_of(&out, "View2Zoom"),
+            writes_of(&out, "Zoom")
+        );
+        println!("  properties now: View1Zoom={:?}, View2Zoom={:?}", h.prop("View1Zoom"), h.prop("View2Zoom"));
+        assert_eq!(writes_of(&out, "View1Zoom"), vec!["125".to_string()], "view 1 zoomed");
+        assert!(writes_of(&out, "View2Zoom").is_empty(), "AC8: view 2 must not move");
+        assert_eq!(h.prop("View2Zoom"), "100", "view 2 is still where it was");
+        assert_eq!(writes_of(&out, "Zoom"), vec!["125".to_string()], "the alias follows view 1, as plan §3 says");
+    }
+
+    /// The other side of the same rule: a double-click in view 2 moves view
+    /// 2, and leaves the unprefixed alias — which is view 1's — alone.
+    #[test]
+    fn zooming_the_second_split_view_never_touches_the_first_or_its_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = split_harness(&dir, "left document\n", "right document\n", &[]);
+        let click = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        let in_right = egui::Pos2::new(500.0, 220.0);
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(in_right)]);
+        h.frame(0.04, vec![click(in_right, true)]);
+        h.frame(0.06, vec![click(in_right, false)]);
+        h.frame(0.08, vec![click(in_right, true)]);
+        let (out, _) = h.frame(0.10, vec![click(in_right, false)]);
+        println!(
+            "double-click in view 2 -> View1Zoom {:?}, View2Zoom {:?}, Zoom (alias) {:?}",
+            writes_of(&out, "View1Zoom"),
+            writes_of(&out, "View2Zoom"),
+            writes_of(&out, "Zoom")
+        );
+        assert_eq!(writes_of(&out, "View2Zoom"), vec!["125".to_string()], "view 2 zoomed");
+        assert!(writes_of(&out, "View1Zoom").is_empty(), "AC8: view 1 must not move");
+        assert!(writes_of(&out, "Zoom").is_empty(), "the alias is view 1's alone (plan §3)");
+    }
+
+    /// **R21.2 / AC8's search clause** — each view searches its own
+    /// document with its own query, and neither count disturbs the other.
+    #[test]
+    fn each_split_view_searches_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut h = split_harness(
+            &dir,
+            "alpha alpha alpha beta\n",
+            "beta beta gamma\n",
+            &[
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String("alpha".into())),
+                ("View2FindOpen", PropValue::Bool(true)),
+                ("View2SearchText", PropValue::String("beta".into())),
+            ],
+        );
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![]);
+        let (one, two) = (h.prop("View1SearchMatchCount"), h.prop("View2SearchMatchCount"));
+        println!("view 1 searching {:?} -> {one} match(es)", "alpha");
+        println!("view 2 searching {:?} -> {two} match(es)", "beta");
+        println!("  View1SearchText={:?}, View2SearchText={:?}", h.prop("View1SearchText"), h.prop("View2SearchText"));
+        assert_eq!(one, "3", "view 1 counts its OWN document's matches");
+        assert_eq!(two, "2", "and view 2 counts its own");
+        assert_eq!(h.prop("View1SearchText"), "alpha", "R21.2: neither query moved");
+        assert_eq!(h.prop("View2SearchText"), "beta");
+    }
+
+    /// **R21.1 + R21.2 together** — the *same* document in both views, each
+    /// with its own search. This is the case the spec singles out.
+    #[test]
+    fn the_same_document_in_both_views_still_searches_independently() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("shared.txt");
+        std::fs::write(&path, "alpha alpha beta gamma gamma gamma\n").unwrap();
+        let src = path.to_string_lossy().into_owned();
+        let mut h = ViewerHarness::new(
+            Vec2::new(700.0, 460.0),
+            640,
+            400,
+            &[
+                ("SplitMode", PropValue::String("LeftRight".into())),
+                ("Layout", PropValue::String("Raw".into())),
+                ("View1Source", PropValue::String(src.clone())),
+                ("View2Source", PropValue::String(src.clone())),
+                ("View1FindOpen", PropValue::Bool(true)),
+                ("View1SearchText", PropValue::String("alpha".into())),
+                ("View2FindOpen", PropValue::Bool(true)),
+                ("View2SearchText", PropValue::String("gamma".into())),
+            ],
+        );
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![]);
+        println!(
+            "one document in both views: view 1 {:?} -> {}, view 2 {:?} -> {}",
+            "alpha",
+            h.prop("View1SearchMatchCount"),
+            "gamma",
+            h.prop("View2SearchMatchCount")
+        );
+        assert_eq!(h.prop("View1SearchMatchCount"), "2");
+        assert_eq!(h.prop("View2SearchMatchCount"), "3");
+    }
+
+    /// R32 — `onSplitModeChanged` fires exactly once when the toolbar's
+    /// Split button is used.
+    #[test]
+    fn the_split_button_fires_onsplitmodechanged_exactly_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, "a document\n").unwrap();
+        let mut h = ViewerHarness::new(
+            Vec2::new(700.0, 460.0),
+            640,
+            400,
+            &[
+                ("Layout", PropValue::String("Raw".into())),
+                ("Source", PropValue::String(path.to_string_lossy().into_owned())),
+                ("View1Source", PropValue::String(path.to_string_lossy().into_owned())),
+            ],
+        );
+        h.bind("onSplitModeChanged");
+        // The Split button is the 7th in `TOOLBAR_ITEMS` (index 6).
+        let x = crate::viewer::TOOLBAR_PAD
+            + 6.0 * (crate::viewer::TOOLBAR_BUTTON + crate::viewer::TOOLBAR_GAP)
+            + crate::viewer::TOOLBAR_BUTTON / 2.0;
+        let at = egui::Pos2::new(x, crate::viewer::TOOLBAR_HEIGHT / 2.0);
+        h.frame(0.0, vec![]);
+        h.frame(0.02, vec![egui::Event::PointerMoved(at)]);
+        h.frame(0.04, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() }]);
+        let (clicked, _) = h.frame(0.06, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }]);
+        let mut fired = event_names(&clicked).iter().filter(|e| *e == "onSplitModeChanged").count();
+        for i in 0..4 {
+            let (quiet, _) = h.frame(0.2 + i as f64 * 0.02, vec![]);
+            fired += event_names(&quiet).iter().filter(|e| *e == "onSplitModeChanged").count();
+        }
+        println!("Split button clicked -> SplitMode is now {:?}, {fired} onSplitModeChanged event(s)", h.prop("SplitMode"));
+        assert_eq!(h.prop("SplitMode"), "LeftRight", "R21: the button splits the control");
+        assert_eq!(fired, 1, "R32: exactly once");
+    }
+
+    /// **Spec 058 AC30, the engine's half** — "every event in R32's table
+    /// fires at its documented moment and never at another one, verified
+    /// per event, not by sampling a few."
+    ///
+    /// One table-driven test rather than a function per event (plan.md §5's
+    /// own mitigation): sixteen near-identical hand-written tests is exactly
+    /// where one gets silently skipped, and **the table is then the single
+    /// place a missing case would have to hide**. A row reports pass or fail
+    /// by name, so a gap is visible rather than inferred from an absent
+    /// test function.
+    ///
+    /// The interpreter's half — the load, OS-handoff and conversation
+    /// events — is `cobolt-runtime`'s test of the same name.
+    #[test]
+    fn every_event_in_r32s_table_fires_at_its_documented_moment() {
+        /// The centre of toolbar button `i`, in the control's own space.
+        fn toolbar_button(i: usize) -> egui::Pos2 {
+            egui::Pos2::new(
+                crate::viewer::TOOLBAR_PAD
+                    + i as f32 * (crate::viewer::TOOLBAR_BUTTON + crate::viewer::TOOLBAR_GAP)
+                    + crate::viewer::TOOLBAR_BUTTON / 2.0,
+                crate::viewer::TOOLBAR_HEIGHT / 2.0,
+            )
+        }
+        fn press(pos: egui::Pos2, down: bool) -> egui::Event {
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: down,
+                modifiers: Default::default(),
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("doc.txt");
+        std::fs::write(&path, "A document with several words in it.\n").unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        // (event, the button that triggers it, how many clicks to get there)
+        let rows: &[(&str, usize, usize)] = &[
+            ("onLayoutChanged", 0, 1),      // the layout cycler
+            ("onViewModeChanged", 2, 1),    // "show page cards"
+            ("onFilmstripToggled", 5, 1),
+            ("onSplitModeChanged", 6, 1),
+            ("onFindOpened", 7, 1),
+            ("onFullscreenEntered", 8, 1),
+        ];
+
+        let mut failures: Vec<String> = Vec::new();
+        println!("AC30 (engine half) — one row per event in R32's table:");
+        for (event, button, clicks) in rows {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                ],
+            );
+            h.bind(event);
+            let at = toolbar_button(*button);
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![egui::Event::PointerMoved(at)]);
+            let mut fired = 0usize;
+            let mut t = 0.04;
+            for _ in 0..*clicks {
+                h.frame(t, vec![press(at, true)]);
+                let (out, _) = h.frame(t + 0.02, vec![press(at, false)]);
+                fired += event_names(&out).iter().filter(|e| *e == event).count();
+                t += 0.1;
+            }
+            // Quiet frames afterwards must add nothing: an event that keeps
+            // firing is as wrong as one that never does.
+            let mut after_quiet = 0usize;
+            for i in 0..3 {
+                let (quiet, _) = h.frame(t + 0.02 * i as f64, vec![]);
+                after_quiet += event_names(&quiet).iter().filter(|e| *e == event).count();
+            }
+            let ok = fired == 1 && after_quiet == 0;
+            println!(
+                "  {:<22} button {button:>2} x{clicks} -> fired {fired}, then {after_quiet} on quiet frames   {}",
+                event,
+                if ok { "PASS" } else { "FAIL" }
+            );
+            if !ok {
+                failures.push(format!("{event} (fired {fired}, {after_quiet} afterwards)"));
+            }
+        }
+
+        // `onFullscreenExited` cannot be a second click on the same
+        // button: **R15 hides the toolbar in fullscreen**, so the button is
+        // not there to click. Esc is the documented way out (R13), and this
+        // is the row that says so.
+        {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                    ("Fullscreen", PropValue::Bool(true)),
+                ],
+            );
+            h.bind("onFullscreenExited");
+            let centre = egui::Pos2::new(350.0, 250.0);
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![egui::Event::PointerMoved(centre)]);
+            let (out, _) = h.frame(
+                0.04,
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }],
+            );
+            let mut fired = event_names(&out).iter().filter(|e| *e == "onFullscreenExited").count();
+            for i in 0..3 {
+                let (quiet, _) = h.frame(0.1 + 0.02 * i as f64, vec![]);
+                fired += event_names(&quiet).iter().filter(|e| *e == "onFullscreenExited").count();
+            }
+            let ok = fired == 1;
+            println!("  {:<22} Esc               -> fired {fired}   {}", "onFullscreenExited", if ok { "PASS" } else { "FAIL" });
+            if !ok {
+                failures.push(format!("onFullscreenExited (fired {fired})"));
+            }
+        }
+
+        // `onCardSizeChanged` needs the slider, not a button: it settles
+        // when the drag ends, which is a different documented moment.
+        {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Raw".into())),
+                    ("View1ViewMode", PropValue::String("Cards".into())),
+                ],
+            );
+            h.bind("onCardSizeChanged");
+            h.frame(0.0, vec![]);
+            let (_, _) = h.frame(0.02, vec![]);
+            // The slider sits bottom-right of the content; drag its middle.
+            let chrome = crate::viewer::chrome_layout(
+                crate::viewer::ViewRect::new(0.0, 0.0, 700.0, 440.0),
+                &crate::viewer::ChromeOpts::default(),
+            );
+            let track = chrome.slider;
+            let start = egui::Pos2::new(track.x + track.w * 0.5, track.y + track.h * 0.5);
+            let end = egui::Pos2::new(track.x + track.w * 0.9, start.y);
+            h.frame(0.04, vec![egui::Event::PointerMoved(start)]);
+            h.frame(0.06, vec![press(start, true)]);
+            h.frame(0.08, vec![egui::Event::PointerMoved(end)]);
+            let (released, _) = h.frame(0.10, vec![press(end, false)]);
+            let mut fired = event_names(&released).iter().filter(|e| *e == "onCardSizeChanged").count();
+            for i in 0..3 {
+                let (quiet, _) = h.frame(0.2 + 0.02 * i as f64, vec![]);
+                fired += event_names(&quiet).iter().filter(|e| *e == "onCardSizeChanged").count();
+            }
+            let ok = fired == 1;
+            println!("  {:<22} slider drag       -> fired {fired}   {}", "onCardSizeChanged", if ok { "PASS" } else { "FAIL" });
+            if !ok {
+                failures.push(format!("onCardSizeChanged (fired {fired})"));
+            }
+        }
+
+        // `onScrolled` settles when the content comes to rest.
+        {
+            let long = dir.path().join("long.txt");
+            std::fs::write(&long, (0..400).map(|i| format!("line {i}\n")).collect::<String>()).unwrap();
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 520.0),
+                700,
+                440,
+                &[
+                    ("Source", PropValue::String(long.to_string_lossy().into_owned())),
+                    ("View1Source", PropValue::String(long.to_string_lossy().into_owned())),
+                    ("Layout", PropValue::String("Raw".into())),
+                ],
+            );
+            h.bind("onScrolled");
+            // THREE warm-up frames, not two. A view's scroll limit comes
+            // from what the paint measured, which the input pass reads back
+            // the frame after — so frame 1 paints, frame 2 measures, and
+            // only from frame 3 is there a range for a key to move within.
+            h.frame(0.0, vec![]);
+            h.frame(0.02, vec![]);
+            h.frame(0.03, vec![]);
+            let arrow = egui::Event::Key {
+                key: egui::Key::ArrowDown,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let release = egui::Event::Key {
+                key: egui::Key::ArrowDown,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Default::default(),
+            };
+            let (out, _) = h.frame(0.04, vec![arrow]);
+            let mut fired = event_names(&out).iter().filter(|e| *e == "onScrolled").count();
+            // The key has to be RELEASED. egui holds a key down until a
+            // release arrives, and `onScrolled` fires when the content comes
+            // to REST — a key still down is not rest. Forgetting the release
+            // is a test artefact; the model is right to wait.
+            let (released, _) = h.frame(0.06, vec![release]);
+            fired += event_names(&released).iter().filter(|e| *e == "onScrolled").count();
+            for i in 0..3 {
+                let (quiet, _) = h.frame(0.1 + 0.02 * i as f64, vec![]);
+                fired += event_names(&quiet).iter().filter(|e| *e == "onScrolled").count();
+            }
+            let ok = fired == 1;
+            println!(
+                "    (moved to ScrollPosition {})",
+                h.prop("ScrollPosition")
+            );
+            println!("  {:<22} one arrow tap     -> fired {fired}   {}", "onScrolled", if ok { "PASS" } else { "FAIL" });
+            if !ok {
+                failures.push(format!("onScrolled (fired {fired})"));
+            }
+        }
+
+        assert!(failures.is_empty(), "AC30: these events did not fire at their documented moment: {failures:?}");
+    }
+
+    // ── Spec 058 R29: the overlay reaches FORMATTED documents too ───────
+
+    /// **R29 / AC22 on a formatted document** — "while Find has one or more
+    /// matches, the control shall highlight EVERY match, with the current
+    /// match visually distinguished from the rest."
+    ///
+    /// A formatted document is many galleys, not one, and the marks used to
+    /// be painted only on the single-galley path — so a Markdown or HTML
+    /// document counted its matches correctly and showed none of them. This
+    /// is the test that says otherwise, and it checks the layouts side by
+    /// side so a regression on one is visible against the other.
+    #[test]
+    fn every_match_is_marked_on_a_formatted_document_as_well_as_a_raw_one() {
+        let dir = tempfile::tempdir().unwrap();
+        // Five occurrences of "ledger", one in each construct the block
+        // painter draws with a galley of its own: a heading, a paragraph, a
+        // list item, a code block and a table cell.
+        let md = "# The ledger\n\nA ledger is a book.\n\n- the ledger opens\n- and closes\n\n\
+                  ```\nledger.cbl\n```\n\n| Item | Where |\n|---|---|\n| Total | ledger |\n";
+        let path = dir.path().join("doc.md");
+        std::fs::write(&path, md).unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let marks_for = |layout: &str| -> (usize, String) {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 560.0),
+                700,
+                500,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String(layout.into())),
+                    ("View1FindOpen", PropValue::Bool(true)),
+                    ("View1SearchText", PropValue::String("ledger".into())),
+                ],
+            );
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.02, vec![]);
+            (highlight_rects(&shapes).len(), h.prop("SearchMatchCount"))
+        };
+
+        let (web_marks, web_total) = marks_for("Web");
+        let (page_marks, page_total) = marks_for("Page");
+        let (raw_marks, raw_total) = marks_for("Raw");
+        println!("query \"ledger\" over a Markdown document:");
+        println!("  Web  (formatted) -> {web_marks} mark(s), SearchMatchCount {web_total}");
+        println!("  Page (formatted) -> {page_marks} mark(s), SearchMatchCount {page_total}");
+        println!("  Raw  (source)    -> {raw_marks} mark(s), SearchMatchCount {raw_total}");
+
+        assert!(web_marks > 0, "R29: a formatted document must MARK its matches, not merely count them");
+        assert_eq!(web_marks.to_string(), web_total, "every counted match is a marked one");
+        assert_eq!(web_marks, page_marks, "the two formatted layouts agree");
+        assert!(raw_marks > 0, "and the raw path still marks its own");
+    }
+
+    /// R29's "with the current match visually distinguished from the rest",
+    /// on a formatted document: moving Next repaints a DIFFERENT match in
+    /// the active colour, and only one at a time.
+    #[test]
+    fn the_current_match_is_the_distinguished_one_on_a_formatted_document() {
+        /// The brighter of the two marker colours is the current match.
+        fn active_marks(shapes: &[egui::Shape]) -> Vec<egui::Rect> {
+            fn walk(s: &egui::Shape, into: &mut Vec<egui::Rect>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                    egui::Shape::Rect(r) => {
+                        let f = r.fill;
+                        // active = (230,140,20) premultiplied at 4/5 alpha.
+                        if f.r() > 200 && (120..160).contains(&f.g()) && f.b() < 40 {
+                            into.push(r.rect);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for s in shapes {
+                walk(s, &mut out);
+            }
+            out
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let md = "# ledger one\n\nledger two here.\n\nAnd ledger three.\n";
+        let path = dir.path().join("doc.md");
+        std::fs::write(&path, md).unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let at = |which: i64| -> Vec<egui::Rect> {
+            let mut h = ViewerHarness::new(
+                Vec2::new(760.0, 560.0),
+                700,
+                500,
+                &[
+                    ("Source", PropValue::String(source.clone())),
+                    ("View1Source", PropValue::String(source.clone())),
+                    ("Layout", PropValue::String("Web".into())),
+                    ("View1FindOpen", PropValue::Bool(true)),
+                    ("View1SearchText", PropValue::String("ledger".into())),
+                    ("View1SearchCurrentMatch", PropValue::Int(which)),
+                ],
+            );
+            h.frame(0.0, vec![]);
+            let (_, shapes) = h.frame(0.02, vec![]);
+            active_marks(&shapes)
+        };
+
+        let first = at(0);
+        let second = at(1);
+        let third = at(2);
+        println!("the ACTIVE mark, as the current match moves:");
+        for (i, marks) in [&first, &second, &third].iter().enumerate() {
+            println!("  match {i}: {} active mark(s) at {:?}", marks.len(), marks.first().map(|r| (r.min.x, r.min.y)));
+        }
+        assert_eq!(first.len(), 1, "exactly ONE match is the current one");
+        assert_eq!(second.len(), 1);
+        assert_eq!(third.len(), 1);
+        assert_ne!(first[0].min, second[0].min, "R29: Next distinguishes a DIFFERENT match");
+        assert_ne!(second[0].min, third[0].min);
+    }
+
+    // ── Spec 058 R5/R5.1: the host's decoded document reaches the paint ──
+
+    /// A `FormState` that answers `viewer_document` the way a running
+    /// form's host does — the one override that tells the two surfaces
+    /// apart.
+    struct HostedViewer {
+        doc: std::sync::Arc<crate::paint::ViewerDocument>,
+        source: String,
+    }
+
+    impl FormState for HostedViewer {
+        fn viewer_document(
+            &self,
+            _base: &Control,
+            source: &str,
+        ) -> Option<std::sync::Arc<crate::paint::ViewerDocument>> {
+            (source == self.source).then(|| self.doc.clone())
+        }
+    }
+
+    /// Every text a form painted, for one pass, under a given `FormState`.
+    fn painted_text_under(
+        controls: &[Control],
+        state: &dyn FormState,
+        mode: RenderMode,
+        ctx: &egui::Context,
+    ) -> Vec<String> {
+        let active = ActiveTabs::new();
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            texts.clear();
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(760.0, 560.0)));
+            let mut out = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let rin = RenderInput {
+                        controls,
+                        state,
+                        form_size: Vec2::new(700.0, 500.0),
+                        glass: true,
+                        mode,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = render_form(ui, &rin);
+                });
+            });
+            out.textures_delta.clear();
+            fn walk(s: &egui::Shape, into: &mut Vec<String>) {
+                match s {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                    egui::Shape::Text(t) => into.push(t.galley.text().to_owned()),
+                    _ => {}
+                }
+            }
+            for cs in &out.shapes {
+                walk(&cs.shape, &mut texts);
+            }
+        }
+        texts
+    }
+
+    /// **R5/R5.1** — a running form paints the document its HOST decoded, and
+    /// does not open the file itself.
+    ///
+    /// The proof is a host document whose content the file on disk does not
+    /// contain: if the paint were still reading the file, the words it drew
+    /// would be the file's. Only the hook can put them there.
+    #[test]
+    fn a_running_form_paints_the_document_its_host_decoded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("on-disk.txt");
+        std::fs::write(&path, "WHAT THE FILE SAYS\n").unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let mut ctrl = ctrl("VWR-1", ControlType::Viewer, 20, 20, 600, 400);
+        ctrl.set_prop("Source", PropValue::String(source.clone()));
+        ctrl.set_prop("View1Source", PropValue::String(source.clone()));
+        ctrl.set_prop("Layout", PropValue::String("Raw".into()));
+        let controls = vec![ctrl];
+
+        let hosted = HostedViewer {
+            source: source.clone(),
+            doc: std::sync::Arc::new(crate::paint::ViewerDocument {
+                format: crate::viewer::ViewerFormat::Text,
+                page_count: 7,
+                current_page: 0,
+                content: std::sync::Arc::new(crate::paint::ViewerPageContent::Text(
+                    "WHAT THE WORKER DECODED".into(),
+                )),
+                previews: Default::default(),
+            }),
+        };
+
+        // A running form: the host answers the hook.
+        let running = painted_text_under(&controls, &hosted, RenderMode::Interactive, &egui::Context::default());
+        // The designer canvas: nothing overrides it, so it reads the file.
+        let canvas = painted_text_under(&controls, &DesignedVisibility, RenderMode::Static, &egui::Context::default());
+
+        let says = |texts: &[String], needle: &str| texts.iter().any(|t| t.contains(needle));
+        println!("running form painted the worker's text: {}", says(&running, "WHAT THE WORKER DECODED"));
+        println!("running form painted the file's text:   {}", says(&running, "WHAT THE FILE SAYS"));
+        println!("designer canvas painted the file's text: {}", says(&canvas, "WHAT THE FILE SAYS"));
+
+        assert!(
+            says(&running, "WHAT THE WORKER DECODED"),
+            "R5.1: the running form must paint what its host decoded, got {running:?}"
+        );
+        assert!(
+            !says(&running, "WHAT THE FILE SAYS"),
+            "and must NOT have opened the file itself"
+        );
+        assert!(
+            says(&canvas, "WHAT THE FILE SAYS"),
+            "the designer canvas has no host, so it still falls back to reading the file"
+        );
+    }
+
+    /// The host's page count reaches the chrome too — a filmstrip and a card
+    /// grid are drawn from what the worker counted, never from a second
+    /// count taken on the UI thread.
+    #[test]
+    fn the_hosts_page_count_is_what_the_card_grid_draws() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("one-page.txt");
+        // ONE page on disk; the host says nine. The grid must believe the
+        // host, or it is counting for itself somewhere.
+        std::fs::write(&path, "a single short page\n").unwrap();
+        let source = path.to_string_lossy().into_owned();
+
+        let mut ctrl = ctrl("VWR-1", ControlType::Viewer, 20, 20, 600, 400);
+        ctrl.set_prop("Source", PropValue::String(source.clone()));
+        ctrl.set_prop("View1Source", PropValue::String(source.clone()));
+        ctrl.set_prop("Layout", PropValue::String("Raw".into()));
+        ctrl.set_prop("View1ViewMode", PropValue::String("Cards".into()));
+        ctrl.set_prop("View1CardSize", PropValue::Int(0));
+        let controls = vec![ctrl];
+
+        let mut previews = std::collections::HashMap::new();
+        previews.insert(3usize, "the fourth page, as the worker read it".to_string());
+        let hosted = HostedViewer {
+            source,
+            doc: std::sync::Arc::new(crate::paint::ViewerDocument {
+                format: crate::viewer::ViewerFormat::Text,
+                page_count: 9,
+                current_page: 0,
+                content: std::sync::Arc::new(crate::paint::ViewerPageContent::Text("page one".into())),
+                previews,
+            }),
+        };
+
+        let texts = painted_text_under(&controls, &hosted, RenderMode::Interactive, &egui::Context::default());
+        let numbers: Vec<usize> =
+            texts.iter().filter_map(|t| t.trim().parse::<usize>().ok()).collect();
+        println!("card numbers painted: {numbers:?}");
+        println!("the worker's preview reached a card: {}", texts.iter().any(|t| t.contains("fourth page")));
+        assert!(numbers.contains(&9), "the host said nine pages, so there is a card 9: {numbers:?}");
+        assert!(
+            texts.iter().any(|t| t.contains("fourth page")),
+            "and a preview the worker decoded is drawn on its card"
         );
     }
 

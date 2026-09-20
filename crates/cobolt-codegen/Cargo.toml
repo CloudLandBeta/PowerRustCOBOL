@@ -23,3 +23,8 @@ serde          = { workspace = true }
 # UN-escapes it. The two rules have to agree, so the round-trip guard in
 # `tests` lexes the generated source back.
 cobolt-lexer = { path = "../cobolt-lexer" }
+# Spec 058 T29's own Verify: the generated program must PARSE and CHECK
+# CLEAN, not merely look right. Dev-only, so nothing new ships; neither
+# crate depends on this one, so there is no cycle.
+cobolt-parser   = { path = "../cobolt-parser" }
+cobolt-semantic = { path = "../cobolt-semantic" }

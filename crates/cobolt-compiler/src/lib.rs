@@ -4524,6 +4524,33 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
             "`0`–`40` (pixels)",
             "Charts only. A soft glow outward from the frame border, this many pixels wide, in the border's colour (the gradient's mid colour when the gradient is on) — the shadow stack's own falloff, faintest outermost. `0` (the default) draws none. Drawn at the chart's inherited alpha, never at its own `Transparency`, so it stays with the border on a see-through chart.",
         ),
+        // ── Viewer (spec 058) ──
+        "Layout" => (
+            "`Raw` | `Web` | `Print` | `Page` | `Streamed`",
+            "Viewer. How the document is laid out. `Raw` shows the literal stored source, monospace and unformatted. `Web` formats it with no page margins. `Print` adds page margins, a paper border and a paper shadow. `Page` is print layout PLUS a black-on-white document body, whatever the form's theme. `Streamed` is the conversation surface (§8.8): one content pane and NO chrome at all — no toolbar, no Find bar, no thumbnails, no filmstrip — regardless of what was showing before. `Page` applies to any paginated content, Markdown and plain text included; it is not tied to a document class.",
+        ),
+        "Fullscreen" => (BOOL_DOMAIN, "Viewer. While on, the toolbar is hidden and the document takes its height; leaving restores it. Esc leaves fullscreen first and returns `Zoom` to 100 % on a second press."),
+        "SplitMode" => (
+            "`None` | `LeftRight` | `TopBottom`",
+            "Viewer. `None` shows one view. `LeftRight` and `TopBottom` show TWO, each with its own source, page, zoom, scroll position, view mode, filmstrip and Find state — so one section can be read while another is browsed. Pointing both views at the SAME document attaches to the one decode rather than reading it twice, and searching one side never disturbs the other. A control too narrow to give both views a usable width shows one rather than two unreadable slivers.",
+        ),
+        "SplitPercent" => ("`0`–`100`", "Viewer. Where the divider sits along the span the two views divide. Only meaningful once `SplitMode` is set; the divider is also draggable, and neither view is ever squeezed below a grabbable width."),
+        "ViewMode" => (
+            "`Full` | `Cards`",
+            "Viewer, per view (`View1ViewMode`/`View2ViewMode`). `Full` shows the document under whichever `Layout` is active. `Cards` REPLACES it with a reflowing grid of one card per page. The grid's row AND column counts depend on the card size and **the control's own width** — never the window or the screen. Two toolbar buttons switch it, per view, so one side can browse cards while the other reads.",
+        ),
+        "CardSize" => ("`0`–`100` (percent)", "Viewer, per view. How big a page card is drawn in `Cards` mode. Larger means fewer, bigger cards per row. It shares ONE slider with `Zoom` — the slider at the bottom-right of each view drives whichever the view's `ViewMode` selects — and switching modes never disturbs the other value."),
+        "ShowFilmstrip" => (BOOL_DOMAIN, "Viewer, per view. A resizable rail of page thumbnails docked to the LEFT EDGE of that view's content, in `Full` mode only (`Cards` mode is already a page browser). It closes two ways: its own toolbar button again, or dragging its splitter to the view's left edge — both leaving `Full` mode showing just the document."),
+        "ScrollPosition" => ("`0`–content height (points)", "Viewer, per view. Where the content is scrolled to. Arrow keys move one line per tap and accelerate to four times that when held; Page Up/Down move a viewport minus two lines; Home/End jump to either end; and a left-drag pans the content 1:1 and throws it, decelerating under constant friction. None of it fires while the Find input has the caret."),
+        "RenderAsHtml" => (BOOL_DOMAIN, "Viewer, conversation mode (§8.1). A blanket safety override, default ON. Turned OFF, EVERY append behaves as `Raw` whichever method was called, so a program showing content it does not control can say so once and be believed. Content already appended is never reinterpreted when it is turned back on."),
+        "HistoryList" => ("read-only, one `id|title` per line", "Viewer, conversation mode (§8.8). Up to ten past conversations, as `id|title`, one per line — the same multi-line convention `Buttons` uses on Snackbar — so the developer's own UI can enumerate, sort or search them. History holds an id and a title and **never a conversation's content**: selecting one is always a fresh request back to your program, never a cache restore, which is what keeps a session that runs all day from growing without limit."),
+        "ConversationId" => ("free text", "Viewer, conversation mode. The id of the conversation currently open, and what `onConversationSelected` carries. Set it before `NewConversation()` so the archived entry is filed under a name your program chose."),
+        "SearchCaseSensitive" => (BOOL_DOMAIN, "Viewer, per view. Off (case-insensitive) by default. Changing it changes which matches are found WITHOUT the query being retyped."),
+        "SearchHighlightEnabled" => (BOOL_DOMAIN, "Viewer, per view. On by default: every match is marked, with the current one picked out. Turning it off stops the marking and breaks neither the match count nor Next/Previous."),
+        "SearchCurrentMatch" => ("`0`-based index, read/write", "Viewer, per view. Which match is current. `FindNext()`/`FindPrevious()` move it, wrapping past either end."),
+        "SearchMatchCount" => ("read-only", "Viewer, per view. How many matches the text on screen holds — `0` for a format with no extractable text, such as a standalone image, which is not an error."),
+        "FindOpen" => (BOOL_DOMAIN, "Viewer, per view. Whether the Find bar is showing. `Ctrl+F`/`Cmd+F` opens it and `Esc` closes it — and while it is open, `Esc` closes the bar rather than doing its usual job of returning the zoom to 100 %."),
+        "Progress" => ("`0`–`100`, read-only", "Viewer. How far a document is through opening. `onLoadProgress` reports it as it climbs and `onLoaded` follows at 100."),
         "BorderTransparency" => (
             "`0`–`100`",
             "Charts only. The frame border's own transparency: `0` (the default) opaque, `100` invisible. It fades the border line, the gradient ring and the blur rings together — separately from the chart's `Transparency`, which reaches only the face — so a frame can fade independently of what it frames.",
@@ -5243,6 +5270,29 @@ fn event_reference(name: &str) -> &'static str {
         "onNodeDblClick" | "onNodeDoubleClick" => "a tree node was double-clicked",
         "onNodeSelect" => "a tree node became selected",
         "onTick" => "fires every `Interval` ms while `Enabled` = 1",
+        // ── Viewer (spec 058 R32) ──
+        "onLoadProgress" => "a document is opening; `Progress` carries 0-100",
+        "onLoaded" => "a document finished opening; `Format` carries what it resolved to",
+        "onLayoutChanged" => "`Layout` changed (Raw/Web/Print/Page/Streamed)",
+        "onZoomChanged" => "`Zoom` SETTLED after a wheel, a double-click, the slider or a programmatic change — once per gesture, never once per notch",
+        "onCardSizeChanged" => "`CardSize` settled after the slider or a programmatic change",
+        "onScrolled" => "the content came to rest — after a key, a throw's glide, or a programmatic move; never mid-glide",
+        "onViewModeChanged" => "a view switched between `Full` and `Cards`",
+        "onFilmstripToggled" => "a view's filmstrip opened or closed",
+        "onFullscreenEntered" => "the Viewer went fullscreen and hid its toolbar",
+        "onFullscreenExited" => "the Viewer left fullscreen and restored its toolbar",
+        "onFindOpened" => "the Find bar opened",
+        "onFindClosed" => "the Find bar closed",
+        "onSplitModeChanged" => "`SplitMode` changed between one view and two",
+        "onPrintComplete" => "the OS print handoff finished — only the OS dialog knows, so this is what IT reported",
+        "onPrintCancelled" => "the user cancelled the OS print dialog",
+        "onShareComplete" => "the OS share handoff finished",
+        "onShareCancelled" => "the user cancelled the OS share sheet",
+        "onSaveComplete" => "Save As finished writing the document's original bytes",
+        "onSaveCancelled" => "the user cancelled the save dialog",
+        "onConversationCreated" => "`NewConversation()` archived the open conversation and cleared the pane — which is already empty when this fires",
+        "onConversationSelected" => "`SelectConversation(id)` made a past conversation current, carrying its id in `ConversationId`. This is your cue to send that conversation's content back with the Append methods: the control holds none of it",
+        "onContentRendered" => "appended content finished LAYING OUT — not merely being accepted",
         "onImageLoaded" => "the image finished loading",
         "onImageError" => "the image failed to load",
         "onStarted" => "animation started",
@@ -5308,6 +5358,7 @@ fn control_purpose(name: &str) -> &'static str {
         "DateTimePicker" => "Date/time input with calendar or spinner.",
         "NumericUpDown" => "Integer input with spinner arrows.",
         "TreeView" => "Hierarchical node list. `Items` IS the tree: one node per line, TWO SPACES (or one tab) of indent per level. It is drawn by one renderer on the designer canvas and in the running form, so what you lay out is what runs — before 1.61.153 the canvas showed only a `[TreeView]` placeholder and the running form a flat bulleted list. The tree writes its nodes in the control's own FontName/FontSize/ForegroundColor, draws its connector lines per `ShowLines`/`ShowRootLines` in `LineColor`, ticks per `CheckBoxes`/`CheckedNodes`, and highlights per `HotTracking`. A click selects (`SelectedNode`, `onNodeClick`/`onNodeSelect`); a click on a tick box checks (`CheckedNodes`, `onNodeCheck`). EXPAND/COLLAPSE (1.61.157): a node with children draws a disclosure arrow — right when shut, down when open — and clicking it writes `CollapsedNodes` and fires `onNodeCollapse`/`onNodeExpand`. The arrow's slot is reserved on every row, so labels line up whether or not a node folds. ICONS: on by default from the platform's catalogue, a node naming its own after a TAB in its `Items` line and the rest taking `ParentIcon`/`ParentIconOpen`/`LeafIcon`. Every metric is a property — `RowHeight`, `IndentWidth`, `IconSize`, `CheckBoxSize` — and so are `SelectionColor`, `HotTrackColor` and `IconColor`. A NODE'S OWN DRESS (1.61.159): an `Items` line is `label`, then up to three TAB-separated fields of its own — `label\\ticon\\tcolour\\tbackground` — so `Overdue\\t\\t#C81E1E` is a node written in red with its icon left to the tree; an empty field means 'as the tree draws it', and the row colour paints UNDER the selection band so a coloured row still shows that it is selected. TICK BOX (1.61.159): it wears the CheckBox's own five properties — `CheckBoxColor`, `CheckBoxBorderStyle`, `CheckBoxBorderColor`, `CheckBoxBorderWidth`, `CheckColor`, `CheckSize` — and draws the same tick mark; before that it was a black-alpha well, a 1px rim and a tick at 28 % of the box, none of them reachable. WALKING THE TREE (1.61.159): `NodeParent`, `NodeFirstChild`/`NodeLastChild`, `NodeNextSibling`/`NodePrevSibling`, `NodeChildCount`, plus `NodeText`/`NodePath`/`NodeLevel`/`NodeIcon`/`NodeColor`/`NodeBackColor`/`NodeChecked`/`NodeCollapsed` and `NodeCount`/`NodeIndexOf` — every one keyed by the node INDEX the event already hands the handler, and the traversal calls return an index so they chain. Build a tree from COBOL with `AddNode(level, text)`, NOT `AddItem` (which trims its argument, so an indented literal cannot make a child). SCROLLING (1.61.160): a tree taller than its control scrolls — the wheel while the pointer is over it, a DRAG anywhere on it, and Up/Down/Home/End once it has focus (a click gives it focus), with the view following a keyboard selection only as far as it must. Before that the overflow was simply dropped and those nodes could not be reached at all. How far it scrolls is measured against the rows it SHOWS, so folding a tree shortens it. There is no scroll property: the offset is view state and is deliberately NOT saved in the `.cfrm`.",
+        "Viewer" => "A document viewer inside the form: plain text, Markdown, images, PDF and an HTML subset, shown with a toolbar, page navigation, zoom, a filmstrip of page thumbnails, Find, Print, Share and Save As. It exists because a COBOL program that produces or receives a document had nowhere to SHOW it — it wrote a PDF or a report and handed it to an external program. **Format is resolved from CONTENT first and the extension second**, so a PNG named `.txt` still opens as an image; the resolved name lands in `Format`. **Fidelity is a published contract, not a hope**: plain text and Markdown (tables, task lists, footnotes, strikethrough) in full at any size; every common image format including animation; PDF as its TEXT, basic vector, page geometry and page breaks — not a faithful raster of a complex page, not forms or annotations; Mermaid as FLOWCHART and SEQUENCE diagrams only, with any other diagram type refused by name rather than half-drawn; HTML as a SUBSET renderer — block and inline layout, typography, colours, borders, tables and images — and emphatically **not a browser**: no JavaScript, no CSS grid or flex. A layout this renderer cannot follow loses its layout and keeps every word of its content. Office documents are out of scope entirely. `Layout` picks `Raw` (the literal source), `Web` (formatted, no margins), `Print` (page margins, a paper border and a shadow), `Page` (print layout on a black-on-white body) or `Streamed` (§8.8: ONE content pane, no chrome at all, for hosting a chatbot conversation). `SplitMode` shows TWO views at once, each with its own document, page, zoom, scroll position, view mode, filmstrip and Find — and pointing both at the same document ATTACHES to the one decode rather than reading it twice. Every view property is addressable as `View1X`/`View2X`; the plain names (`Zoom`, `SearchText`, …) are aliases for the FIRST view. `Save As` writes the source's ORIGINAL BYTES, never a re-encode, and the control never modifies the document it is showing. Print and Share hand the document to the operating system, so their Complete/Cancelled events report what the OS dialog actually did. Decoding and indexing run off the UI thread: a large document never stalls the form.",
         "Snackbar" => "Non-visual: a transient, NON-MODAL notification — a short message, an optional category icon and up to three action buttons, shown over the form for a few seconds and then gone. It never blocks the program and never demands an answer: a handler raises one and carries straight on. The control you drop is the TEMPLATE, not the notification — it carries the defaults and paints nothing where it sits; every `Show()` mints a NEW notification from the values current at that moment and adds it to the stack, so two calls in one handler put up two messages. Several live at once, stacked VERTICALLY (never horizontally) against one of nine `Anchor` positions. Every move is animated: the ones already up GLIDE over 300 ms to make room or to close a gap, a message that leaves FADES over 300 ms where it stood, and an arriving one zooms and fades in over 600 ms — 200 ms for `Critical`, the only effect a category changes. They arrive ONE AT A TIME: a second `Show()` waits until the first message has finished arriving, then the stack glides clear and it appears into that room, so three raised together take about two and a half seconds to all be up. The queue is per anchor — messages in opposite corners never wait for each other — and a `Timeout` counts from when the message BECOMES VISIBLE, so a queued one is still read in full. The anchor is resolved against the FORM'S OWN SURFACE — an Embedded form's messages stay inside its ContentPane and never cover the shell's rail or breadcrumb. `Category` (Info | Question | Warning | Error | Critical) supplies the colours, the icon and the timeout; every one of those is overridable, and setting one overrides that one alone. Leave a colour EMPTY to mean \"the category decides\". `Timeout` is milliseconds: `-1` takes the category's own (4000/6000/6000/8000, and Critical's 0), and `0` means it stays until dismissed. Build the message in COBOL with STRING or MOVE before `Show()` — `Text` is data, not a format string.",
         "Timer" => "Non-visual: fires `onTick` every Interval ms. Steady cadence — each tick schedules the next ONE INTERVAL on, so the rate does not drift with frame timing — and it never repays missed time: a handler slower than the interval, or a stalled form, gets ONE tick on return, not a burst. A handler eight events behind has its ticks coalesced until it catches up; a click, an edit or a focus change is never coalesced. `Enabled` is the timer's OWN property — the on/off switch the runtime reads and the one codegen seeds `WS-<timer>-ENABLED` from — and it is settable at design time (inspector: `Enabled at start`) and from COBOL at run time (`SET TIMER-1::Enabled TO 0` stops it). It is NOT the chrome enabled flag every control has; before 1.61.164 both spellings landed on the chrome flag and the timer could not be stopped at all.",
         "Splitter" => "A themed PANEL divided in two by a draggable line — as of 1.61.164 it IS a container, and the two halves are real controls. Dropping one creates `<id>-Pane1` and `<id>-Pane2`: borderless, transparent Panels parented to the splitter, which you drop controls into exactly like any other Panel. Their geometry is DERIVED from the division and is not editable — moving the line moves them. `Orientation` names how the PANES sit, not the line: `Horizontal` = pane 1 LEFT, pane 2 RIGHT, divided by a vertical line; `Vertical` = pane 1 TOP, pane 2 BOTTOM. (This is the opposite of what `Orientation` meant before 1.61.164, when the control was a bar between two neighbouring controls; a form saved earlier opens with its panes the other way round.) `SplitPosition` is a PERCENTAGE 0–100 of the inner span, not a pixel offset, so it survives the splitter being resized; 0 and 100 are legal and close one pane completely, and the grip is clipped by the splitter's edge so half of it stays visible there. Drag the line (or its grip) to redistribute, double-click it to go back to 50 %, and the pointer becomes a grab hand over it — on the designer canvas and in the running form alike. Style it with `LineColor`, `LineSize`, `GripStyle` (FilledPill | HollowPill | FilledCircle | HollowCircle), `GripSize` and `GripColor`; the panel itself follows the form theme until `BackgroundColor` / `BorderStyle` / `BorderColor` say otherwise. Each pane also carries `ResizeBehavior` — what it does with the controls inside it when the line moves (Translate with divider by default, or Scale within the pane, or Anchor to the outer edge), set per pane so the two halves can differ; dragging the division in the RAD rewrites those children's X/Y for real, as one undo step. A CONTAINER inside a pane (Panel, GroupBox, TabControl) carries its whole subtree: the container reflows per the pane's ResizeBehavior and its contents travel rigidly with it — under Scale too, where spreading a container's contents by their own fractions would tear them out of it — on the canvas, in preview and at run time alike. This holds to ANY depth, a SPLITTER INSIDE A PANE included: the inner splitter travels with the outer division, and its own panes and their contents travel with it. A PANE NEVER RESIZES WHAT IS IN IT: moving the division changes the pane's own rectangle and the POSITIONS of its contents, never their Width or Height — the pane is a viewport, and a control too big for it is clipped by the pane's edge, not shrunk to fit. STILL NOT: `AllowEdit` (no in-place rename surface) — never tell a developer it works.",
@@ -5460,6 +5511,57 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
         // toggle: on every OTHER control `Show()` still means "make this
         // control appear", and only a Snackbar — which is non-visual and has no
         // `Visible` to set — diverts it.
+        "Viewer" => vec![
+            (
+                "LoadBytes(data: String)",
+                "Open a document from bytes your program already holds, instead of from a file (`Source`). The format is resolved from the CONTENT, so a PDF, a PNG or Markdown all open correctly without a filename to go on. A COBOL item is fixed-length: `PIC X(100)` holding 42 characters delivers 100, padded — size the item to the document.",
+            ),
+            (
+                "SaveAs(path: String)",
+                "Write the document's ORIGINAL BYTES to `path`, unmodified — a copy, never a rendered or re-encoded document. This matters most for a PDF, where the Viewer reads the file's structure in order to paint it and could so easily save that reading instead; it saves the FILE. From COBOL the path you give is always the path written: the proposed default filename is the interactive dialog's convenience, not this method's contract. Raises `onSaveComplete`, or `onError` with `LastError` set.",
+            ),
+            (
+                "Print()",
+                "Hand the document to the operating system's own print path — its dialog and its spooler. The Viewer implements no printing of its own. `onPrintComplete` or `onPrintCancelled` follows, from what the OS reported: only its dialog knows whether the user went through with it.",
+            ),
+            (
+                "Share()",
+                "Hand the document to the operating system's share facility. `onShareComplete` or `onShareCancelled` follows, from what the OS reported.",
+            ),
+            (
+                "Find(text: String)",
+                "Open the Find bar, optionally seeding the query, and start at the first match. Everything Find can do is COBOL-callable: no Find capability is reachable only by mouse.",
+            ),
+            ("FindNext()", "Move to the next match, wrapping past the last back to the first. With no matches it does nothing — that is not an error."),
+            ("FindPrevious()", "Move to the previous match, wrapping past the first back to the last."),
+            ("FindClose()", "Close the Find bar. Raises `onFindClosed`."),
+            (
+                "AppendHtml(content: String)",
+                "Conversation mode (§8.2). Add a new message, rendered as HTML through the same subset renderer a `.html` document gets. The mode is stated by the call and NEVER inferred from the content. Only the new message is laid out — appending to a two-thousand-message conversation costs one layout pass, not two thousand and one.",
+            ),
+            ("AppendMarkdown(content: String)", "Conversation mode. Add a new message, rendered as Markdown."),
+            (
+                "AppendRaw(content: String)",
+                "Conversation mode. Add a new message shown LITERALLY: markup inside it is displayed, never interpreted, however valid it is, and its whitespace is preserved exactly. This is the safe mode for text your program did not write.",
+            ),
+            (
+                "AppendToMessage(messageId: String, content: String, mode: String)",
+                "Conversation mode. Extend a message already on screen, by its own id — what a streamed reply arriving a token at a time needs. `mode` is `Html`, `Markdown` or `Raw`. Consecutive chunks in the same mode are merged before layout, so a reply arriving word by word is one block rather than hundreds. An id no message carries raises `onError` rather than silently minting a new message.",
+            ),
+            (
+                "NewConversation()",
+                "Conversation mode (§8.8). File the open conversation into history under `ConversationId`, clear the pane, and raise `onConversationCreated` — in that order, so a handler bound to the event sees an empty pane. On a pane that is ALREADY empty it does nothing at all: no history entry, no event.",
+            ),
+            (
+                "SelectConversation(id: String)",
+                "Conversation mode. File the open conversation into history, take `id` back OUT of history to become current, clear the pane and raise `onConversationSelected` carrying that id. The control restores nothing: history holds an id and a title and no content, so this is your cue to send that conversation back with the Append methods.",
+            ),
+            (
+                "RegisterConversation(id: String, title: String)",
+                "Conversation mode. Seed a history entry for a conversation left over from an earlier run, so your own UI can list it. Its content, like every entry's, is fetched on selection and never held by the control.",
+            ),
+            ("JumpToLatest()", "Conversation mode (§8.4). Scroll to the end of the conversation, clear the new-content indicator and turn automatic following back on — all three."),
+        ],
         "Snackbar" => vec![
             (
                 "Show()",
@@ -6533,6 +6635,24 @@ fn methods_reference_doc() -> String {
                 ("TopTitle() / TopSnippet() / TopLink() → String", "First result's fields, empty before any search."),
                 ("GetResult(index: Integer) → String", "1-based indexed result as `title\\tsnippet\\tlink`; out-of-range → empty."),
                 ("Cancel() / IsBusy() → Boolean", "Async control."),
+            ],
+        ),
+        (
+            "Viewer (spec 058)",
+            "A document viewer: text, Markdown, images, PDF and an HTML subset, with Find, Save As, Print, Share, split view and — under `Layout = Streamed` — an append-only chatbot conversation surface. Decoding runs off the UI thread. Every property is readable and writable too (`View1X`/`View2X` per view, with the plain names aliasing the FIRST view), so nothing here is reachable only by mouse.",
+            &[
+                ("LoadBytes(data: String)", "Open a document from bytes instead of a path; the format is resolved from the content."),
+                ("SaveAs(path: String)", "Write the source's ORIGINAL bytes to `path` — a copy, never a re-encode. `onSaveComplete`, or `onError` with `LastError`."),
+                ("Print() / Share()", "Hand the document to the OS print path / share facility. `onPrintComplete`/`onPrintCancelled`, `onShareComplete`/`onShareCancelled` — from what the OS reported."),
+                ("Find(text: String)", "Open the Find bar and search for `text`."),
+                ("FindNext() / FindPrevious()", "Move between matches, wrapping at both ends. No matches is a no-op, not an error."),
+                ("FindClose()", "Close the Find bar."),
+                ("AppendHtml(content) / AppendMarkdown(content) / AppendRaw(content: String)", "Conversation mode: add a message in that mode. Raw is shown literally — markup inside it is displayed, never interpreted. Only the new message is laid out."),
+                ("AppendToMessage(messageId: String, content: String, mode: String)", "Extend a message already on screen, by id — what a streamed reply needs. `mode` is `Html`, `Markdown` or `Raw`."),
+                ("NewConversation()", "File the open conversation into history, clear the pane, raise `onConversationCreated`. A no-op on an already-empty pane."),
+                ("SelectConversation(id: String)", "Make a past conversation current and raise `onConversationSelected` — your cue to send its content back with the Append methods. The control caches none of it."),
+                ("RegisterConversation(id: String, title: String)", "Seed a history entry from an earlier run."),
+                ("JumpToLatest()", "Scroll to the end of the conversation, clear the new-content indicator and re-enable automatic following."),
             ],
         ),
         (
@@ -9102,6 +9222,77 @@ generated = ["generated/inner-form1.cbl"]
     }
 
     #[test]
+    /// **Spec 058 T32** — the Viewer is fully published in the System KB.
+    ///
+    /// The template `spec_039_six_controls_are_fully_published_in_the_system_kb`
+    /// sets, with one addition its own comment asks for: the needles cover
+    /// the **whole** surface, not just the static-document half — at least
+    /// one R32 event and at least one §8.8 conversation method — so the
+    /// expanded API cannot be silently under-published.
+    #[test]
+    fn spec_058_viewer_is_fully_published_in_the_system_kb() {
+        let dir = temp_dir("spec058kb");
+        assert!(publish_system_documentation(&dir).is_ok());
+        let kb = dir.join("Knowledge Base");
+
+        let controls_doc = fs::read_to_string(kb.join("form_designer_controls.md")).unwrap();
+        assert!(
+            controls_doc.contains("## Control: Viewer"),
+            "Viewer section missing from form_designer_controls.md"
+        );
+        for needle in [
+            // Properties, across every part of the surface.
+            "SplitMode",
+            "SplitPercent",
+            "ViewMode",
+            "CardSize",
+            "ShowFilmstrip",
+            "SearchCaseSensitive",
+            "RenderAsHtml",
+            "HistoryList",
+            // Events — including two from R32's table that no earlier
+            // control has, so a copied Snackbar section could not pass this.
+            "onLoadProgress",
+            "onSplitModeChanged",
+            "onConversationSelected",
+            "onContentRendered",
+            // Methods — including §8.8's conversation management.
+            "SaveAs(path: String)",
+            "FindNext()",
+            "AppendToMessage",
+            "NewConversation()",
+            "SelectConversation(id: String)",
+        ] {
+            assert!(
+                controls_doc.contains(needle),
+                "form_designer_controls.md missing expected Viewer content: {needle}"
+            );
+        }
+
+        let methods_doc = fs::read_to_string(kb.join("control_methods_reference.md")).unwrap();
+        for needle in ["## Viewer", "SaveAs(path: String)", "NewConversation()", "JumpToLatest()"] {
+            assert!(
+                methods_doc.contains(needle),
+                "control_methods_reference.md missing: {needle}"
+            );
+        }
+
+        // §3's fidelity boundary must be published too — a developer has to
+        // learn what a format does NOT deliver from the control's own
+        // documentation, not from the spec.
+        for needle in ["not a browser", "flowchart and sequence"] {
+            assert!(
+                controls_doc.to_lowercase().contains(&needle.to_lowercase()),
+                "the fidelity boundary is unpublished: {needle}"
+            );
+        }
+        println!(
+            "Viewer published: {} bytes of control reference, {} of method reference",
+            controls_doc.len(),
+            methods_doc.len()
+        );
+    }
+
     fn spec_039_six_controls_are_fully_published_in_the_system_kb() {
         // Spec 039 T17/R3/AC12: Maps/Knob/Gauge/Switch/FileDropZone/WebSearch
         // must appear in BOTH published KB documents — the per-control

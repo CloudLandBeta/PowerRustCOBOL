@@ -58,6 +58,7 @@ forms = [
     "forms/Common/filedropzone-form.cfrm",
     "forms/Common/knob-form.cfrm",
     "forms/Common/gauge-form.cfrm",
+    "forms/Common/viewer-form.cfrm",
     "forms/Containers/groupbox-form.cfrm",
     "forms/Containers/panel-form.cfrm",
     "forms/Containers/tabcontrol-form.cfrm",

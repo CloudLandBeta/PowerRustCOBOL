@@ -32,6 +32,59 @@ pub enum Language {
 }
 
 impl Language {
+    /// Spec 058 T33 — the Viewer's toolbar and Find-bar tooltips, in this
+    /// language.
+    ///
+    /// A **table** rather than nineteen `Tr` fields: the strings belong to
+    /// a control's own chrome and are consumed by one caller
+    /// (`cobolt_forms::viewer::set_toolbar_tooltips`), not sprinkled
+    /// through the IDE's panels. The six-language rule is unchanged — every
+    /// language supplies every entry, and
+    /// `viewer_tooltips_are_translated_in_every_language` proves it.
+    ///
+    /// `cobolt-forms` ships the English text itself and falls back to it,
+    /// because a compiled COBOL binary has no `Tr` table at all; this is
+    /// what the IDE installs on top.
+    pub fn viewer_tooltips(self) -> Vec<(cobolt_forms::viewer::ToolbarAction, String)> {
+        use cobolt_forms::viewer::ToolbarAction as TA;
+        let t: [&str; 12] = match self {
+            Language::English => [
+                "Layout", "Show the document", "Show page cards", "Smaller text",
+                "Larger text", "Page thumbnails", "Split view", "Find", "Fullscreen",
+                "Print", "Share", "Save As",
+            ],
+            Language::Portuguese => [
+                "Layout", "Mostrar o documento", "Mostrar cartões de página", "Texto menor",
+                "Texto maior", "Miniaturas de páginas", "Visualização dividida", "Localizar",
+                "Tela cheia", "Imprimir", "Compartilhar", "Salvar como",
+            ],
+            Language::Spanish => [
+                "Diseño", "Mostrar el documento", "Mostrar tarjetas de página", "Texto más pequeño",
+                "Texto más grande", "Miniaturas de páginas", "Vista dividida", "Buscar",
+                "Pantalla completa", "Imprimir", "Compartir", "Guardar como",
+            ],
+            Language::French => [
+                "Mise en page", "Afficher le document", "Afficher les vignettes de page",
+                "Texte plus petit", "Texte plus grand", "Miniatures de pages", "Vue partagée",
+                "Rechercher", "Plein écran", "Imprimer", "Partager", "Enregistrer sous",
+            ],
+            Language::Japanese => [
+                "レイアウト", "ドキュメントを表示", "ページカードを表示", "文字を小さく",
+                "文字を大きく", "ページのサムネイル", "分割表示", "検索", "全画面表示",
+                "印刷", "共有", "名前を付けて保存",
+            ],
+            Language::Chinese => [
+                "布局", "显示文档", "显示页面卡片", "缩小文字", "放大文字", "页面缩略图",
+                "拆分视图", "查找", "全屏", "打印", "共享", "另存为",
+            ],
+        };
+        let actions = [
+            TA::CycleLayout, TA::ViewFull, TA::ViewCards, TA::FontSmaller, TA::FontLarger,
+            TA::Filmstrip, TA::Split, TA::Find, TA::Fullscreen, TA::Print, TA::Share, TA::SaveAs,
+        ];
+        actions.iter().copied().zip(t.iter().map(|s| (*s).to_string())).collect()
+    }
+
     /// All variants in display order.
     pub const ALL: &'static [Language] = &[
         Language::English,
@@ -1322,6 +1375,19 @@ pub struct Tr {
     pub sec_snackbar_stack: &'static str,
     /// Section header for the Snackbar's message settings.
     pub sec_snackbar_message: &'static str,
+    // ── Viewer (spec 058) ───────────────────────────────────────────
+    /// Section header for the Viewer's document source and format.
+    pub sec_viewer_document: &'static str,
+    /// Section header for the Viewer's layout, zoom and view mode.
+    pub sec_viewer_view: &'static str,
+    /// Section header for the Viewer's split view.
+    pub sec_viewer_split: &'static str,
+    /// Section header for the Viewer's Find settings.
+    pub sec_viewer_find: &'static str,
+    /// Section header for the Viewer's conversation (Streamed layout).
+    pub sec_viewer_conversation: &'static str,
+    /// Hint shown beside the second view's properties.
+    pub viewer_second_view_hint: &'static str,
     /// Label + format hint for the `Buttons` collection editor. The FIELD names
     /// inside it stay English — they are values COBOL compares against, not
     /// labels (the CRITICAL constraint).
@@ -2766,6 +2832,12 @@ const EN: Tr = Tr {
     sec_items:              "📝 Items",
     sec_snackbar_stack:     "🔔 Stack",
     sec_snackbar_message:   "💬 Message",
+    sec_viewer_document: "📄 Document",
+    sec_viewer_view: "🔍 Layout && view",
+    sec_viewer_split: "⬍ Split view",
+    sec_viewer_find: "🔎 Find",
+    sec_viewer_conversation: "💬 Conversation",
+    viewer_second_view_hint: "Shown because SplitMode is not None",
     snackbar_buttons_label: "Buttons (one per line: id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "More than 3 buttons: only the first 3 are shown.",
     sec_columns:            "📑 Columns",
@@ -4106,6 +4178,12 @@ const ES: Tr = Tr {
     sec_items:              "📝 Elementos",
     sec_snackbar_stack:     "🔔 Pila",
     sec_snackbar_message:   "💬 Mensaje",
+    sec_viewer_document: "📄 Documento",
+    sec_viewer_view: "🔍 Diseño y vista",
+    sec_viewer_split: "⬍ Vista dividida",
+    sec_viewer_find: "🔎 Buscar",
+    sec_viewer_conversation: "💬 Conversación",
+    viewer_second_view_hint: "Visible porque SplitMode no es None",
     snackbar_buttons_label: "Botones (uno por línea: id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "Más de 3 botones: solo se muestran los 3 primeros.",
     sec_columns:            "📑 Columnas",
@@ -5446,6 +5524,12 @@ const PT: Tr = Tr {
     sec_items:              "📝 Itens",
     sec_snackbar_stack:     "🔔 Pilha",
     sec_snackbar_message:   "💬 Mensagem",
+    sec_viewer_document: "📄 Documento",
+    sec_viewer_view: "🔍 Layout e exibição",
+    sec_viewer_split: "⬍ Visualização dividida",
+    sec_viewer_find: "🔎 Localizar",
+    sec_viewer_conversation: "💬 Conversa",
+    viewer_second_view_hint: "Visível porque SplitMode não é None",
     snackbar_buttons_label: "Botões (um por linha: id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "Mais de 3 botões: apenas os 3 primeiros são exibidos.",
     sec_columns:            "📑 Colunas",
@@ -6785,6 +6869,12 @@ const JA: Tr = Tr {
     sec_items:              "📝 項目",
     sec_snackbar_stack:     "🔔 スタック",
     sec_snackbar_message:   "💬 メッセージ",
+    sec_viewer_document: "📄 ドキュメント",
+    sec_viewer_view: "🔍 レイアウトと表示",
+    sec_viewer_split: "⬍ 分割表示",
+    sec_viewer_find: "🔎 検索",
+    sec_viewer_conversation: "💬 会話",
+    viewer_second_view_hint: "SplitMode が None ではないため表示されています",
     snackbar_buttons_label: "ボタン（1行に1つ: id|text|icon|position|dismiss）",
     warn_snackbar_too_many_buttons: "ボタンが3個を超えています。最初の3個のみ表示されます。",
     sec_columns:            "📑 列",
@@ -8131,6 +8221,12 @@ const ZH: Tr = Tr {
     sec_items:              "📝 项目",
     sec_snackbar_stack:     "🔔 堆叠",
     sec_snackbar_message:   "💬 消息",
+    sec_viewer_document: "📄 文档",
+    sec_viewer_view: "🔍 布局与视图",
+    sec_viewer_split: "⬍ 拆分视图",
+    sec_viewer_find: "🔎 查找",
+    sec_viewer_conversation: "💬 对话",
+    viewer_second_view_hint: "因为 SplitMode 不是 None，所以显示",
     snackbar_buttons_label: "按钮（每行一个: id|text|icon|position|dismiss）",
     warn_snackbar_too_many_buttons: "按钮超过 3 个：仅显示前 3 个。",
     sec_columns:            "📑 列",
@@ -9472,6 +9568,12 @@ const FR: Tr = Tr {
     sec_items:              "📝 Éléments",
     sec_snackbar_stack:     "🔔 Pile",
     sec_snackbar_message:   "💬 Message",
+    sec_viewer_document: "📄 Document",
+    sec_viewer_view: "🔍 Mise en page et vue",
+    sec_viewer_split: "⬍ Vue partagée",
+    sec_viewer_find: "🔎 Rechercher",
+    sec_viewer_conversation: "💬 Conversation",
+    viewer_second_view_hint: "Affiché car SplitMode n'est pas None",
     snackbar_buttons_label: "Boutons (un par ligne : id|text|icon|position|dismiss)",
     warn_snackbar_too_many_buttons: "Plus de 3 boutons : seuls les 3 premiers sont affichés.",
     sec_columns:            "📑 Colonnes",
@@ -10103,6 +10205,63 @@ mod i18n_tests {
                     "{lang:?}/{name}: unexpected placeholder in {label:?}"
                 );
             }
+        }
+    }
+}
+
+/// Spec 058 T33 — the Viewer's tooltips exist, and differ, in all six
+/// languages.
+#[cfg(test)]
+mod viewer_tooltip_tests {
+    use super::*;
+
+    #[test]
+    fn viewer_tooltips_are_translated_in_every_language() {
+        let english = Language::English.viewer_tooltips();
+        assert_eq!(english.len(), 12, "R16's twelve toolbar buttons");
+
+        for lang in Language::ALL {
+            let table = lang.viewer_tooltips();
+            println!(
+                "{:<12} {} tooltip(s), e.g. Print = {:?}",
+                format!("{lang:?}"),
+                table.len(),
+                table.iter().find(|(a, _)| *a == cobolt_forms::viewer::ToolbarAction::Print).map(|(_, t)| t)
+            );
+            assert_eq!(table.len(), english.len(), "{lang:?} must supply every tooltip");
+            for (action, text) in &table {
+                assert!(!text.trim().is_empty(), "{lang:?}/{action:?} has no text");
+            }
+            // The same actions, in the same order, so a zip can never
+            // silently pair a label with the wrong button.
+            let actions: Vec<_> = table.iter().map(|(a, _)| *a).collect();
+            let want: Vec<_> = english.iter().map(|(a, _)| *a).collect();
+            assert_eq!(actions, want, "{lang:?} lists the actions in a different order");
+        }
+    }
+
+    /// A translation that is silently English is worse than a missing one
+    /// (GOLDEN RULE #8's own wording). Every non-English language must
+    /// actually differ.
+    #[test]
+    fn no_language_quietly_ships_the_english_strings() {
+        let english = Language::English.viewer_tooltips();
+        for lang in Language::ALL.iter().filter(|l| **l != Language::English) {
+            let table = lang.viewer_tooltips();
+            let same: Vec<&str> = table
+                .iter()
+                .zip(english.iter())
+                .filter(|((_, t), (_, e))| t == e)
+                .map(|((a, _), _)| a.as_str())
+                .collect();
+            println!("{lang:?}: {} of {} identical to English {same:?}", same.len(), english.len());
+            // "Layout" is genuinely the same word in Portuguese, and that
+            // is a translation decision, not an omission — so the bar is
+            // that a language must be MOSTLY its own.
+            assert!(
+                same.len() * 4 <= english.len(),
+                "{lang:?} looks untranslated: {same:?}"
+            );
         }
     }
 }
