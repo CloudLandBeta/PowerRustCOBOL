@@ -8,6 +8,45 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.119] — 2026-09-20
+
+### The page casts a shadow, not a frame
+
+"Page layout shadow is ugly as hell" (operator, 2026-09-20), with a reference
+image of what one should look like: a pale fall-off, weighted downward.
+
+It had been **35 % of black spread ten pixels in every direction** against an
+offset of four — so the page wore a thick dark band on all four sides, heaviest
+exactly where a real shadow is lightest. Two numbers decide how a drop shadow
+reads, and both were wrong:
+
+* **`opacity` is the edge tone.** The ring stack runs from the widest and
+  faintest inward to zero expansion at full strength, so the darkest the shadow
+  ever gets is right against the paper. A tenth of black on white is the grey a
+  sheet casts; a third of it is a border.
+* **`offset` against `blur_strength` decides the weight.** An offset well
+  inside the spread keeps a whisper on all four sides — paper lifted off a
+  surface does that — while the extra travel gathers the tone below, where
+  light says it should be.
+
+Measured on the painted rings rather than taken on trust:
+
+| | before | after |
+|---|---|---|
+| darkest ring | 66 / 255 | **26 / 255** |
+| reach above the sheet | 6 px | 11 px |
+| reach below the sheet | 14 px | 17 px |
+
+The sheet's own edge was part of the same complaint: inked at half strength but
+composited at three-quarters alpha, which is not a translucency at all — the
+two numbers disagreed, and the result was a hard dark rim that read as the
+inner edge of the shadow rather than as the edge of a page. It is premultiplied
+properly now, so one factor sets both tone and coverage.
+
+Guarded by `the_page_shadow_is_pale_and_falls_downward`, which asserts on the
+rings the paint actually emitted: a test that read the `DropShadowSpec` back
+would only be restating the constants it was checking.
+
 ## [PowerRustCOBOL 1.70.118] — 2026-09-20
 
 ### Save As asks where to save

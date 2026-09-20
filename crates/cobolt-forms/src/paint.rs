@@ -9209,11 +9209,28 @@ pub(crate) fn draw_viewer(
     }
 
     if paged {
+        // R8's paper shadow, as a sheet of paper actually casts one: a soft,
+        // pale fall-off weighted DOWNWARD. It was 35 % black spread ten pixels
+        // in every direction against an offset of four, so the page wore a
+        // thick dark frame on all four sides — heaviest exactly where a real
+        // shadow is lightest (operator, 2026-09-20: "Page layout shadow is
+        // ugly as hell").
+        //
+        // The two numbers that matter, and why:
+        //
+        // * `opacity` IS the edge tone. The ring stack runs from the widest and
+        //   faintest inward to `expand = 0` at full strength, so the darkest
+        //   the shadow ever gets is right against the paper. A tenth of black
+        //   on white is the grey a sheet casts; a third of it is a border.
+        // * `offset` against `blur_strength` decides the WEIGHT. An offset well
+        //   inside the spread keeps a whisper on all four sides — paper lifted
+        //   off a surface does that — while the extra travel gathers the tone
+        //   below, where light says it should be.
         let shadow = DropShadowSpec {
-            offset: egui::vec2(0.0, 4.0),
+            offset: egui::vec2(0.0, 3.0),
             color: Color32::BLACK,
-            opacity: 0.35,
-            blur_strength: 10,
+            opacity: 0.11,
+            blur_strength: 14,
             corner_radius: VIEWER_PAGE_RADIUS,
             overlay: false,
         };
@@ -9291,7 +9308,22 @@ pub(crate) fn draw_viewer(
     }
 
     if paged {
-        let border = Color32::from_rgba_premultiplied(ink.r() / 2, ink.g() / 2, ink.b() / 2, (a as u32 * 3 / 4) as u8);
+        // The sheet's own edge, a hairline — and part of the same complaint.
+        // It was inked at half strength but composited at three-quarters
+        // alpha, which is not a translucency at all: the two numbers disagreed,
+        // and the result was a hard dark rim that read as the inner edge of the
+        // shadow rather than as the edge of a page.
+        //
+        // Premultiplied properly now, so one factor sets both: the tone and its
+        // coverage move together, the way every other translucent stroke in
+        // this renderer already works.
+        const PAGE_EDGE: f32 = 0.45;
+        let border = Color32::from_rgba_premultiplied(
+            (ink.r() as f32 * PAGE_EDGE) as u8,
+            (ink.g() as f32 * PAGE_EDGE) as u8,
+            (ink.b() as f32 * PAGE_EDGE) as u8,
+            (a as f32 * PAGE_EDGE) as u8,
+        );
         painter.rect_stroke(content_rect, round, Stroke::new(1.0, border), egui::StrokeKind::Middle);
     }
 
@@ -17425,6 +17457,90 @@ method. Nothing in the control is reachable only by mouse.";
         assert!(
             kept_cards.is_some(),
             "the developer's ShowFilmstrip must survive Cards untouched"
+        );
+    }
+
+    /// Spec 058 R8 — **the page casts a shadow, not a frame.**
+    ///
+    /// "Page layout shadow is ugly as hell" (operator, 2026-09-20), with a
+    /// reference image: a pale fall-off weighted downward. It had been 35 % of
+    /// black spread ten pixels in every direction against an offset of four, so
+    /// the page wore a thick dark band on all four sides.
+    ///
+    /// Measured on the painted rings, because "soft" and "weighted downward"
+    /// are both quantities: the darkest ring's alpha, and how much further the
+    /// stack reaches below the sheet than above it. A test that read the
+    /// `DropShadowSpec` back would only be restating the constants.
+    #[test]
+    fn the_page_shadow_is_pale_and_falls_downward() {
+        let content = ViewerPageContent::Text("A page.".into());
+        let rect = egui::Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(420.0, 340.0));
+        let ctx = egui::Context::default();
+        let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 440.0)));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                let painter = ui.painter().clone();
+                let st = test_viewer_state(&content, "Page", 14.0);
+                draw_viewer(&painter, rect, &ctrl, &st);
+            });
+        });
+        full.textures_delta.clear();
+
+        // The paper itself: the one opaque near-white rect inside the view.
+        fn walk(s: &egui::Shape, into: &mut Vec<(egui::Rect, Color32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, into)),
+                egui::Shape::Rect(r) if r.fill.a() > 0 => into.push((r.rect, r.fill)),
+                _ => {}
+            }
+        }
+        let mut filled = Vec::new();
+        for cs in &full.shapes {
+            walk(&cs.shape, &mut filled);
+        }
+        let paper = filled
+            .iter()
+            .filter(|(_, c)| c.a() == 255 && c.r() > 240)
+            .map(|(r, _)| *r)
+            .max_by(|a, b| a.area().partial_cmp(&b.area()).unwrap())
+            .expect("the page body is painted");
+
+        // Every ring that is BEHIND the paper and darker than it — the shadow.
+        let rings: Vec<&(egui::Rect, Color32)> = filled
+            .iter()
+            .filter(|(r, c)| c.a() > 0 && c.a() < 255 && r.contains_rect(paper.shrink(1.0)))
+            .collect();
+        assert!(!rings.is_empty(), "the page must cast a shadow at all");
+
+        let darkest = rings.iter().map(|(_, c)| c.a()).max().unwrap();
+        let above = paper.min.y - rings.iter().map(|(r, _)| r.min.y).fold(f32::MAX, f32::min);
+        let below = rings.iter().map(|(r, _)| r.max.y).fold(f32::MIN, f32::max) - paper.max.y;
+
+        println!("  rings painted        {}", rings.len());
+        println!("  darkest ring alpha   {darkest} / 255");
+        println!("  reach above the page {above:.1} px");
+        println!("  reach below the page {below:.1} px");
+
+        assert!(
+            darkest <= 40,
+            "the darkest ring is the tone against the paper's edge — {darkest}/255 \
+             reads as a border, not a shadow"
+        );
+        assert!(
+            rings.len() >= 12,
+            "too few rings to fall off smoothly: {} — a shadow in steps is the \
+             other way this looks wrong",
+            rings.len()
+        );
+        assert!(
+            below > above + 2.0,
+            "a shadow falls DOWNWARD: {below:.1} px below against {above:.1} above"
+        );
+        assert!(
+            above > 0.0,
+            "a sheet lifted off a surface still casts a whisper above it"
         );
     }
 
