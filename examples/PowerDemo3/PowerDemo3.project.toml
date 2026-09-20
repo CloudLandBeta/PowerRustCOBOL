@@ -165,7 +165,7 @@ exit-ms = 400
 exit-easing = "ease-in"
 entrance-on-restore = true
 main-form = "SIDEBAR-FORM"
-main-form-seal = "7c993ae1a1eebd1c8a8bf1a7a14d311063ef6aa8ee59dcae5fa3557262496b92"
+main-form-seal = "7a32e547d5231dfdb1749c554f204d9fbc9da4a6e965bf53bac6867ded5a09a3"
 
 [ai]
 schema_version = 1

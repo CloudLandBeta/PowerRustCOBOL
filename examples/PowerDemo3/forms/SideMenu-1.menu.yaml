@@ -102,6 +102,12 @@ menu:
       icon: map-pin
       action: open-form:maps-demo
       enabled: true
+    - id: item-viewer-058
+      label: Viewer
+      type: action
+      icon: control-viewer
+      action: open-form:viewer-form
+      enabled: true
   - id: sample-folder-1002
     label: Containers
     type: action
@@ -313,4 +319,4 @@ menu:
       icon: window
       action: open-form:call-form-demo
       enabled: true
-hash: 9b57011189dfe88542667f8d22dc3d8122a06cca157a7104236cdc1e05cc588e
+hash: 1aee42de5735bcf9f15e552c53309d6021f09359d72a4ab511f732dabf5a2c17

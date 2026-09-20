@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.106] — 2026-09-20
+
+### The Viewer demo is reachable, and the project is sealed again
+
+Two faults, both introduced by adding the example to PowerDemo3.
+
+**There was no way into it.** Every demo in PowerDemo3 is opened from the side
+menu, and `rcrun run-form` refuses any form that is not the application's main
+one — "An application always starts at its main form." The example was
+registered in the project but never added to the menu, so nothing could open
+it. It now sits in the Common folder with the `control-viewer` icon.
+
+The menu file is HMAC-sealed, so it was written through `save_menu`, which
+recomputes the seal, and read back to verify.
+
+**The main-form seal no longer matched.** That seal covers the project name,
+the main form and EVERY form id, so adding one invalidates it — and a
+mismatch is fatal, not a warning: "CORRUPTED APPLICATION — the main-form seal
+does not match this project's forms. This application will not start." The
+manifest carries a freshly computed seal again.
+
+Worth knowing for the next time a form is added to a sealed project: the IDE
+reseals on save, so a project edited in the designer repairs itself. One
+edited by hand, as this one was, does not.
+
 ## [PowerRustCOBOL 1.70.104] — 2026-09-20
 
 ### One build carrying both lines of work
