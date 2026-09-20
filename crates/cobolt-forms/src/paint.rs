@@ -9493,12 +9493,13 @@ pub(crate) fn draw_viewer(
         //
         // The two numbers that matter, and why:
         //
-        // * `opacity` IS the edge tone. The ring stack runs from the widest and
-        //   faintest inward to `expand = 0` at full strength, so the darkest
-        //   the shadow ever gets is right against the paper. A third of black
-        //   is a border and a tenth is the grey a sheet casts; this is half of
-        //   that again — "diminish the dropshadow intensity by 50%" (operator,
-        //   2026-09-20), leaving the darkest ring at 13 of 255.
+        // * `opacity` scales EVERY ring, and what the reader sees is the whole
+        //   stack composited, not the darkest ring in it. Nineteen rings of
+        //   13/255 each read as 39 % black right against the paper — measured
+        //   off the operator's own screenshot, luma 143 against a 235
+        //   surround, which is why a shadow already halved once was still "too
+        //   strong" (2026-09-20). Halving `opacity` halves that tone, because
+        //   alphas this small compose almost linearly.
         // * `offset` against `blur_strength` decides the WEIGHT. An offset well
         //   inside the spread keeps a whisper on all four sides — paper lifted
         //   off a surface does that — while the extra travel gathers the tone
@@ -9506,13 +9507,24 @@ pub(crate) fn draw_viewer(
         let shadow = DropShadowSpec {
             offset: egui::vec2(0.0, 3.0),
             color: Color32::BLACK,
-            opacity: 0.055,
+            opacity: 0.0275,
             blur_strength: 14,
             corner_radius: VIEWER_PAGE_RADIUS,
             overlay: false,
         };
         shadow.paint(painter, content_rect, alpha_mul);
         painter.rect_filled(content_rect, round, surface);
+        // The sheet's edge is a LINE, and the shadow only says how far off the
+        // surface it sits (operator, 2026-09-20: "a solid border (black) of
+        // 1px, with a dropshadow 50% lighter"). Drawn inside the rect so the
+        // page keeps the size the layout gave it, and faded with the control
+        // like everything else on it.
+        painter.rect_stroke(
+            content_rect,
+            round,
+            Stroke::new(1.0, Color32::BLACK.gamma_multiply(alpha_mul)),
+            egui::StrokeKind::Inside,
+        );
     }
 
     // A PDF's extracted text is what paints. It is a DERIVED read: the
@@ -17844,8 +17856,19 @@ method. Nothing in the control is reachable only by mouse.";
         let above = paper.min.y - rings.iter().map(|(r, _)| r.min.y).fold(f32::MAX, f32::min);
         let below = rings.iter().map(|(r, _)| r.max.y).fold(f32::MIN, f32::max) - paper.max.y;
 
+        // What the reader SEES is the whole stack composited, not the darkest
+        // ring in it. Nineteen rings of 13/255 each read as 39 % black right
+        // against the paper — every assertion below passed while the operator
+        // was looking at exactly that and calling it too strong (2026-09-20,
+        // with a screenshot: the band measured luma 143 against a 235
+        // surround). The per-ring bound cannot see an accumulation; this can.
+        let composited = rings
+            .iter()
+            .fold(0.0_f32, |acc, (_, c)| acc + (1.0 - acc) * (c.a() as f32 / 255.0));
+
         println!("  rings painted        {}", rings.len());
         println!("  darkest ring alpha   {darkest} / 255");
+        println!("  composited tone      {:.1} % black", composited * 100.0);
         println!("  reach above the page {above:.1} px");
         println!("  reach below the page {below:.1} px");
 
@@ -17867,6 +17890,44 @@ method. Nothing in the control is reachable only by mouse.";
         assert!(
             above > 0.0,
             "a sheet lifted off a surface still casts a whisper above it"
+        );
+        assert!(
+            composited <= 0.22,
+            "the stack composites to {:.0} % black against the page's surround — \
+             the reader sees the accumulation, not the {darkest}/255 ring it is \
+             built from",
+            composited * 100.0
+        );
+
+        // **And the sheet's edge is a line.** The shadow says how far off the
+        // surface the paper sits; it is not the thing that tells you where the
+        // paper ENDS (operator, 2026-09-20: "a solid border (black) of 1px").
+        fn strokes(s: &egui::Shape, into: &mut Vec<(egui::Rect, f32, Color32)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| strokes(s, into)),
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 => {
+                    into.push((r.rect, r.stroke.width, r.stroke.color))
+                }
+                _ => {}
+            }
+        }
+        let mut stroked = Vec::new();
+        for cs in &full.shapes {
+            strokes(&cs.shape, &mut stroked);
+        }
+        let edge = stroked.iter().find(|(r, w, c)| {
+            (*w - 1.0).abs() < 0.01
+                && c.a() > 200
+                && c.r() < 20
+                && c.g() < 20
+                && c.b() < 20
+                && r.expand(0.6).contains_rect(paper)
+                && paper.expand(0.6).contains_rect(*r)
+        });
+        assert!(
+            edge.is_some(),
+            "the page needs a 1 px solid black edge on the sheet's own rect; \
+             the strokes painted were {stroked:?}"
         );
 
         // **A sheet of paper has square corners** (operator, 2026-09-20), and so

@@ -8,6 +8,35 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.131] — 2026-09-20
+
+### The page has an edge, and the shadow only says how far off the surface it sits
+
+"a solid border (black) of 1px, with a dropshadow 50% lighter than the one in
+the image" (operator, 2026-09-20). Both, and the screenshot was measurable: the
+band beside the sheet reads **luma 143 against a 235 surround**, which is 39 %
+black.
+
+**That was already the halved shadow** — 1.70.129 took the opacity from 0.11 to
+0.055 and this is what that looks like. The number that was halved is not the
+number anyone sees: `opacity` scales each of NINETEEN rings, and the rings
+overlap, so 13/255 apiece composites to 39 % black right against the paper. The
+guard test measured the darkest *ring* and the count and the fall direction, and
+every one of them passed while the operator was looking at exactly that and
+calling it too strong. A per-ring bound cannot see an accumulation.
+
+`the_page_shadow_is_pale_and_falls_downward` now composites the stack and
+asserts the tone a reader actually meets. Against the shadow in the screenshot
+it fails at **37 %**; at `opacity = 0.0275` it passes at **20.5 %**, which is
+the requested half — alphas this small compose almost linearly, so halving the
+opacity halves the tone.
+
+The sheet also gets a **1 px solid black edge**, stroked inside its own rect so
+the page keeps the size the layout gave it and fades with the control like
+everything on it. That is the right division of labour: the border says where
+the paper ENDS, and the shadow only says how far off the surface it sits —
+which is also why a fainter shadow is correct now rather than merely asked for.
+
 ## [PowerRustCOBOL 1.70.130] — 2026-09-20
 
 ### A saved control gets its Back colour row back
