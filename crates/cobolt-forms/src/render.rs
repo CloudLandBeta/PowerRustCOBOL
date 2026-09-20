@@ -3996,28 +3996,29 @@ impl ViewerLive {
     }
 }
 
-/// R13/AC5 — the Viewer, on the whole screen, in a window of its own.
+/// R13/AC5 — the Viewer, on the whole screen.
 ///
-/// Everything inside is the ordinary Viewer: the same `draw_control`, the same
-/// per-view interaction, the same split geometry. Only two things differ, and
-/// both follow from the window rather than being decided again here:
+/// **A window of its own was the wrong shape**, and two reports said so
+/// (operator, 2026-09-20): the toolbar came out clipped under the menu bar,
+/// because a decorationless fullscreen window covers screen the platform does
+/// not mean you to draw in; and leaving fullscreen left a blank form behind,
+/// because `show_viewport_immediate` was being called from deep inside the
+/// parent's own pass rather than at the top of a frame, which is not where it
+/// belongs.
 ///
-/// * the control is given the SCREEN's rect, because `draw_control` takes a
-///   control's size from the control — so "fullscreen" is expressed by handing
-///   it a control that is the size of the screen, not by a flag threaded
-///   through the painter;
-/// * the window is filled with an opaque ground first. A form may be
-///   translucent; a document filling a screen may not, or the desktop reads
-///   through the page.
+/// So there is no second window. The FORM's window goes fullscreen through the
+/// platform's own command — the same fullscreen the green button gives, with
+/// the menu bar behaving as the platform intends and a real way back — and the
+/// Viewer covers it with a foreground area. One window, one pass, no clipping,
+/// and nothing to leave behind.
 ///
-/// A dismissed window (the OS close request, on a platform that still offers
-/// one without decorations) turns `Fullscreen` off rather than leaving a
-/// control that believes it is on screen when it is not.
-///
-/// On a backend with no real viewports egui answers `EmbeddedWindow` and draws
-/// this inside the form instead. That is a smaller screen than asked for, not a
-/// failure: the same content, the same way out.
-fn viewer_fullscreen_viewport(
+/// **This is the one place a window's size changes without a grip**, and it is
+/// not the defect that rule is about: the operator pressed a button that says
+/// "fullscreen", and the window returns the moment they press it again, press
+/// `Esc`, or leave fullscreen from the platform's own control — which is
+/// noticed here and written back, so the property never claims a state the
+/// window is not in.
+fn viewer_fullscreen_overlay(
     ui: &mut egui::Ui,
     ctrl: &Control,
     id: &str,
@@ -4027,81 +4028,122 @@ fn viewer_fullscreen_viewport(
     out: &mut RenderOutput,
 ) {
     let ctx = ui.ctx().clone();
-    let vp_id = egui::ViewportId::from_hash_of(("viewer-fullscreen", id));
-    let builder = egui::ViewportBuilder::default()
-        .with_title(format!("{id} — full screen"))
-        .with_fullscreen(true)
-        .with_decorations(false);
+    let asked = egui::Id::new(("viewer-fullscreen-asked", id));
+    let already = ctx.memory(|m| m.data.get_temp::<bool>(asked)).unwrap_or(false);
+    if !already {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+        ctx.memory_mut(|m| m.data.insert_temp(asked, true));
+    }
 
-    ctx.show_viewport_immediate(vp_id, builder, |vui, _class| {
-        let rect = vui.max_rect();
-        if rect.width() < 1.0 || rect.height() < 1.0 {
-            return;
-        }
-        // The control, at the size of the screen.
-        let mut full = ctrl.clone();
-        full.rect = crate::model::Rect::new(
-            0,
-            0,
-            rect.width().round() as i32,
-            rect.height().round() as i32,
-        );
+    // The CONTENT rect, not the window: it is the area the platform means us
+    // to draw in, with the menu bar and the notch already taken out — which is
+    // exactly what a decorationless fullscreen window did NOT give, and why
+    // the toolbar came out clipped along its top edge.
+    let screen = ctx.content_rect();
+    if screen.width() < 1.0 || screen.height() < 1.0 {
+        return;
+    }
 
-        let painter = vui.painter().clone();
-        painter.rect_filled(rect, egui::CornerRadius::ZERO, Color32::from_gray(28));
-        crate::paint::draw_control(&painter, rect.min, &full, false, glass, alpha, 1.0, None);
+    // Left fullscreen from the platform's control rather than ours: the
+    // property follows the window, never the other way round.
+    let still_fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(true);
+    if already && !still_fullscreen {
+        ctx.memory_mut(|m| m.data.insert_temp(asked, false));
+        out.prop_updates
+            .push((id.to_string(), "Fullscreen".to_string(), "false".to_string()));
+        return;
+    }
 
-        // Its own id space: the in-form copy keeps the widget ids it has had
-        // all along, and two surfaces of one control must never share one.
-        let fs_id = egui::Id::new(("viewer-fullscreen-widgets", id));
-        let mode = crate::viewer::SplitMode::from_str(
-            &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
-        );
-        let percent = ctrl
-            .get_prop("SplitPercent")
-            .map(|v| v.as_i64())
-            .filter(|p| *p > 0)
-            .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
-        let bounds = crate::viewer::ViewRect::new(
-            rect.min.x,
-            rect.min.y,
-            rect.width(),
-            rect.height(),
-        );
-        let geom = crate::viewer::split_geometry(bounds, mode, percent);
-        let to_rect = |r: crate::viewer::ViewRect| {
-            Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
-        };
-        viewer_view_interactive(
-            vui, to_rect(geom.view1), &full, 0, fs_id, id, alpha, true, bound, out,
-        );
-        if let Some(second) = geom.view2 {
-            viewer_view_interactive(
-                vui, to_rect(second), &full, 1, fs_id, id, alpha, true, bound, out,
+    let area_id = egui::Id::new(("viewer-fullscreen-area", id));
+    egui::Area::new(area_id)
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .constrain(false)
+        .interactable(true)
+        .show(&ctx, |aui| {
+            aui.set_clip_rect(screen);
+            // Claim the whole screen, so nothing under it answers the pointer.
+            let _ = aui.allocate_rect(screen, egui::Sense::click_and_drag());
+
+            // The control, at the size of the screen — `draw_control` takes a
+            // control's size from the control, so fullscreen is expressed by
+            // handing it one that is the size of the screen.
+            let mut full = ctrl.clone();
+            full.rect = crate::model::Rect::new(
+                0,
+                0,
+                screen.width().round() as i32,
+                screen.height().round() as i32,
             );
-        }
-        if let Some(divider) = geom.divider {
-            let d = to_rect(divider).expand2(Vec2::new(3.0, 3.0));
-            let resp = vui.interact(d, fs_id.with("viewer-divider"), egui::Sense::drag());
-            if resp.dragged() {
-                if let Some(p) = vui.input(|i| i.pointer.latest_pos()) {
-                    let pct = crate::viewer::split_percent_at(bounds, mode, p.x, p.y);
-                    if pct != percent {
-                        out.prop_updates.push((
-                            id.to_string(),
-                            "SplitPercent".to_string(),
-                            pct.to_string(),
-                        ));
+
+            let painter = aui.painter().clone();
+            // An opaque ground: a form may be translucent, and a document
+            // filling a screen may not.
+            painter.rect_filled(screen, egui::CornerRadius::ZERO, Color32::from_gray(28));
+            crate::paint::draw_control(&painter, screen.min, &full, false, glass, alpha, 1.0, None);
+
+            // Its own id space: the copy in the form keeps the widget ids it
+            // has had all along, and two surfaces of one control must never
+            // share one.
+            let fs_id = egui::Id::new(("viewer-fullscreen-widgets", id));
+            let mode = crate::viewer::SplitMode::from_str(
+                &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+            );
+            let percent = ctrl
+                .get_prop("SplitPercent")
+                .map(|v| v.as_i64())
+                .filter(|p| *p > 0)
+                .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
+            let bounds = crate::viewer::ViewRect::new(
+                screen.min.x,
+                screen.min.y,
+                screen.width(),
+                screen.height(),
+            );
+            let geom = crate::viewer::split_geometry(bounds, mode, percent);
+            let to_rect = |r: crate::viewer::ViewRect| {
+                Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
+            };
+            viewer_view_interactive(
+                aui, to_rect(geom.view1), &full, 0, fs_id, id, alpha, true, bound, out,
+            );
+            if let Some(second) = geom.view2 {
+                viewer_view_interactive(
+                    aui, to_rect(second), &full, 1, fs_id, id, alpha, true, bound, out,
+                );
+            }
+            if let Some(divider) = geom.divider {
+                let d = to_rect(divider).expand2(Vec2::new(3.0, 3.0));
+                let resp = aui.interact(d, fs_id.with("viewer-divider"), egui::Sense::drag());
+                if resp.dragged() {
+                    if let Some(p) = aui.input(|i| i.pointer.latest_pos()) {
+                        let pct = crate::viewer::split_percent_at(bounds, mode, p.x, p.y);
+                        if pct != percent {
+                            out.prop_updates.push((
+                                id.to_string(),
+                                "SplitPercent".to_string(),
+                                pct.to_string(),
+                            ));
+                        }
                     }
                 }
             }
-        }
+        });
+}
 
-        if vui.ctx().input(|i| i.viewport().close_requested()) {
-            out.prop_updates
-                .push((id.to_string(), "Fullscreen".to_string(), "false".to_string()));
-        }
-    });
+/// Give the window back when a Viewer stops being fullscreen.
+///
+/// Separate from the overlay because it must run on the frame the property
+/// turns OFF, which is precisely the frame the overlay is not drawn.
+fn viewer_release_fullscreen(ctx: &egui::Context, id: &str) {
+    let asked = egui::Id::new(("viewer-fullscreen-asked", id));
+    if ctx.memory(|m| m.data.get_temp::<bool>(asked)).unwrap_or(false) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
+        ctx.memory_mut(|m| m.data.insert_temp(asked, false));
+        // The window is about to change size under a frame that has already
+        // been laid out; ask for the next one.
+        ctx.request_repaint();
+    }
 }
 
 /// Spec 058 T12 — the Viewer's interactive surface: wheel and double-click
@@ -11195,9 +11237,10 @@ fn render_interactive(
             // operator pressed a button that says so, and it closes again when
             // they press it or `Esc`.
             if enabled && ctrl.get_prop("Fullscreen").map(|v| v.as_bool()).unwrap_or(false) {
-                viewer_fullscreen_viewport(ui, ctrl, id, glass, alpha, &bound, out);
+                viewer_fullscreen_overlay(ui, ctrl, id, glass, alpha, &bound, out);
                 return;
             }
+            viewer_release_fullscreen(ui.ctx(), id);
 
             viewer_view_interactive(
                 ui, to_rect(geom.view1), ctrl, 0, ctrl_id, id, alpha, enabled, &bound, out,

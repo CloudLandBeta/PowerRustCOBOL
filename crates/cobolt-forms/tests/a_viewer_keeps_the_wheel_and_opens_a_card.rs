@@ -379,3 +379,83 @@ fn a_fullscreen_viewer_stops_sensing_the_copy_left_in_the_form() {
         "fullscreen, the copy left in the form must not answer the pointer: {full:?}"
     );
 }
+
+/// **Fullscreen is the form's own window, and it is given back.**
+///
+/// Two reports against the first attempt, which opened a window of its own
+/// (operator, 2026-09-20): the toolbar came out clipped under the menu bar,
+/// and leaving fullscreen left a blank form behind. Both came from the second
+/// window — a decorationless fullscreen one covers screen the platform does
+/// not mean you to draw in, and it was being opened from deep inside the
+/// parent's own pass rather than at the top of a frame.
+///
+/// There is no second window now: the form's window goes fullscreen through
+/// the platform's own command and the Viewer covers it. Asserted on the
+/// commands the frame actually emitted, because "the window was asked" is the
+/// whole of this crate's half — what the platform then does is its own.
+#[test]
+fn fullscreen_asks_the_window_and_gives_it_back() {
+    let commands = |fullscreen: bool, ctx: &egui::Context| -> Vec<String> {
+        let mut c = viewer(false);
+        c.set_prop("Fullscreen", PropValue::Bool(fullscreen));
+        let controls = [c];
+        let active = ActiveTabs::new();
+        let mut input = egui::RawInput::default();
+        input.screen_rect = Some(Rect::from_min_size(pos2(0.0, 0.0), FORM));
+        let mut full = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE)
+                .show(root, |ui| {
+                    let inp = RenderInput {
+                        controls: &controls,
+                        state: &DesignedState,
+                        form_size: FORM,
+                        glass: true,
+                        mode: RenderMode::Interactive,
+                        active_tabs: &active,
+                        backdrop: Default::default(),
+                    };
+                    let _ = cobolt_forms::render::render_form(ui, &inp);
+                });
+        });
+        full.textures_delta.clear();
+        full.viewport_output
+            .values()
+            .flat_map(|v| v.commands.iter())
+            .filter_map(|c| match c {
+                egui::ViewportCommand::Fullscreen(on) => Some(format!("Fullscreen({on})")),
+                _ => None,
+            })
+            .collect()
+    };
+
+    let ctx = egui::Context::default();
+    let entering = commands(true, &ctx);
+    println!("  entering fullscreen: {entering:?}");
+    assert!(
+        entering.iter().any(|c| c == "Fullscreen(true)"),
+        "turning Fullscreen on must ask the window for it: {entering:?}"
+    );
+
+    // Asked ONCE: a command re-sent every frame is a window told to do
+    // something it is already doing, sixty times a second.
+    let staying = commands(true, &ctx);
+    println!("  a second fullscreen frame: {staying:?}");
+    assert!(
+        staying.is_empty(),
+        "already fullscreen, nothing more should be asked: {staying:?}"
+    );
+
+    let leaving = commands(false, &ctx);
+    println!("  leaving fullscreen: {leaving:?}");
+    assert!(
+        leaving.iter().any(|c| c == "Fullscreen(false)"),
+        "turning Fullscreen off must give the window back — this is what left a \
+         blank form behind: {leaving:?}"
+    );
+
+    // And once back, it stays back.
+    let after = commands(false, &ctx);
+    println!("  a second windowed frame: {after:?}");
+    assert!(after.is_empty(), "nothing further to ask: {after:?}");
+}

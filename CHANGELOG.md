@@ -8,6 +8,45 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.124] — 2026-09-20
+
+### Fullscreen is the form's own window, and it is given back
+
+Two reports against 1.70.121, and both came from the same decision (operator,
+2026-09-20):
+
+* "Fullscreen: buttons on top are being clipped" — a **decorationless**
+  fullscreen window covers screen the platform does not mean you to draw in, so
+  the toolbar was laid out under the menu bar and the notch;
+* "leaving fullscreen … is showing a blank screen instead the app" —
+  `show_viewport_immediate` was being called from deep inside the parent's own
+  pass rather than at the top of a frame, which is not where it belongs, and
+  the parent did not survive the child closing.
+
+A window of its own was the wrong shape. There is no second window now: the
+**form's** window goes fullscreen through the platform's own command — the same
+fullscreen its green button gives, with the menu bar behaving as the platform
+intends — and the Viewer covers it with a foreground area. One window, one
+pass, no clipping, and nothing to leave behind.
+
+The area is measured from `content_rect`, which is the region the platform
+means us to draw in with its own chrome already taken out. That is precisely
+what the old window did not give.
+
+Leaving fullscreen from the platform's control rather than ours is noticed and
+written back, so `Fullscreen` never claims a state the window is not in. The
+command is sent **once** on each transition: a window told sixty times a second
+to do what it is already doing is its own defect.
+
+**This is the one place a window's size changes without a grip**, and it is not
+the defect that rule is about — the operator pressed a button that says
+"fullscreen", and the window returns the moment they press it again, press
+`Esc`, or use the platform's own control.
+
+Guarded by `fullscreen_asks_the_window_and_gives_it_back`, which reads the
+`ViewportCommand`s the frame actually emitted: asked on entering, silent while
+it stays, given back on leaving, silent once back.
+
 ## [PowerRustCOBOL 1.70.123] — 2026-09-20
 
 ### The Viewer keeps its own laid-out page

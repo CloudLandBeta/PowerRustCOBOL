@@ -3955,12 +3955,13 @@ no capability in this control that COBOL cannot reach.
        MOVE "Cards" TO VWR-1::View1ViewMode
 ```
 
-- **Fullscreen means the screen.** Turning it on opens the Viewer in a window
-  of its own, filling the display; the copy in your form stays where it is and
-  stops answering the mouse, because one of them owns the pointer at a time.
-  The toolbar comes along — its Fullscreen button, pressed, is the way back,
-  and `Esc` does the same. `Fullscreen` is an ordinary property, so a COBOL
-  program opens and closes it exactly as the operator does.
+- **Fullscreen means the screen.** Turning it on puts your form's own window
+  into the platform's fullscreen and covers it with the Viewer. The toolbar
+  comes along — its Fullscreen button, pressed, is the way back, and `Esc` does
+  the same, as does leaving fullscreen from the platform's own control, which
+  the control notices and writes back so the property never claims a state the
+  window is not in. `Fullscreen` is an ordinary property, so a COBOL program
+  opens and closes it exactly as the operator does.
 - **Zoom** runs to a maximum of sixteen times. The wheel with your platform's
   zoom modifier magnifies about the pointer — whatever is under it stays under
   it. A double-click zooms one step, in `Full` mode; over a card it opens that
