@@ -8,6 +8,35 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.128] — 2026-09-20
+
+### Arrow keys move the selection
+
+"Selected items should be moved with arrow keys in addition to the mouse"
+(operator, 2026-09-20). They do now, and they do what a drop does, minus the
+pointer: a selected container carries its whole subtree, the selection moves
+rigidly by one delta, and each selected control is re-homed to whatever
+container its body now sits over.
+
+**The step is the mouse's step.** With snapping on a drag lands on a grid line,
+so an arrow moves by a whole cell — a nudge that quietly took a control off the
+grid the developer asked for would be a different tool from the one beside it.
+**Shift** is the way down to a single pixel, and with snapping off there is only
+the one step, because no grid is being kept.
+
+**An anchored control stays put.** `Anchor` locks a control against being
+dragged and an arrow key is dragging without the mouse, so the property pane
+stays the deliberate way to move one — the same rule the drop path has always
+applied, reached from the keyboard.
+
+Guarded like every other shortcut in the designer: while a property field has
+the caret, the arrows belong to it. One press is one undoable step.
+
+`nudge_tests` covers the step arithmetic, the carried subtree, the rigid
+multi-selection, the anchored control that does not move (and leaves no undo
+step behind), and the undo that puts the children back. The Developer's Guide
+gained a section beside the clipboard's.
+
 ## [PowerRustCOBOL 1.70.127] — 2026-09-20
 
 ### The Viewer paints from the atlas its galleys were laid out in

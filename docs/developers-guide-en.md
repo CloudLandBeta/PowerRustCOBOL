@@ -1928,6 +1928,30 @@ children are re-parented to that new container. Event handler code is preserved
 on copied controls, but pasted controls receive regenerated handler names based
 on their new IDs.
 
+#### Nudging with the arrow keys
+
+A selected control does not have to be dragged. The **arrow keys** move
+everything that is selected, one step per press:
+
+- With **Snap to grid** on, a step is one grid cell — the same place a drag
+  would have put the control, so the keyboard and the mouse agree with each
+  other.
+- With snapping off, a step is one pixel.
+- Hold **Shift** for a single pixel whatever the grid says, for the times you
+  want a control deliberately off it.
+
+A selected container takes its children with it, and each press is one undo
+(`Cmd/Ctrl+Z`). A control nudged until its body sits over a container becomes
+that container's child, exactly as if you had dragged it there.
+
+Controls whose **Anchor** is set stay where they are: an anchor locks a control
+against being moved by hand, and an arrow key is moving it by hand. Type into
+**X** and **Y** in the properties pane to reposition an anchored control.
+
+> **Note** — the arrow keys belong to whatever you are typing in. While the
+> caret is in a property field, the arrows move the caret and nothing on the
+> canvas moves.
+
 #### Corner radius (all bordered controls)
 
 Every control that draws a border — buttons, text boxes, combo/list boxes,

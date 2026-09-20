@@ -973,6 +973,22 @@ fn snap(v: i32, grid_px: i32, enabled: bool) -> i32 {
     }
 }
 
+/// How far one arrow key moves the selection.
+///
+/// The keyboard steps the way the mouse does: with snapping on a drag lands on
+/// a grid line, so an arrow moves by a whole cell. A nudge that quietly took a
+/// control off the grid the developer asked for would be a different tool from
+/// the one beside it. **Shift** is the way down to a single pixel, which is
+/// what anyone reaching for the arrow keys usually wants — and with snapping
+/// off there is only the one step, because the grid is not being kept.
+fn nudge_step(grid_px: i32, snap_on: bool, fine: bool) -> i32 {
+    if fine || !snap_on || grid_px <= 0 {
+        1
+    } else {
+        grid_px
+    }
+}
+
 /// How far the pointer must travel before a press counts as a DRAG.
 ///
 /// Without it, the smallest tremor between press and release is a one-pixel
@@ -4583,6 +4599,44 @@ impl DesignerPanel {
             return;
         }
         self.delete_ids_now(&ids);
+    }
+
+    /// Move the selection by `(dx, dy)` as one undoable step — the arrow keys'
+    /// half of "selected items should be moved with arrow keys in addition to
+    /// the mouse" (operator, 2026-09-20).
+    ///
+    /// It commits what a drop commits, minus the pointer: a selected container
+    /// carries its whole subtree, an **anchored** control stays where it is —
+    /// `Anchor` locks a control against being dragged, and an arrow key is
+    /// dragging without the mouse, so the property pane stays the deliberate
+    /// way to move one — and each selected control is then re-homed to whatever
+    /// container its body now sits over, exactly as a drop would re-home it.
+    pub fn nudge_selection(&mut self, dx: i32, dy: i32) {
+        if (dx, dy) == (0, 0) || self.selected_ids.is_empty() {
+            return;
+        }
+        let moves: Vec<(String, i32, i32, i32, i32)> = self
+            .cascade_ids_for(&self.selected_ids)
+            .iter()
+            .filter_map(|id| self.form.find_control(id))
+            .filter(|c| !c.is_anchored())
+            .map(|c| {
+                (
+                    c.id.clone(),
+                    c.rect.x,
+                    c.rect.y,
+                    c.rect.x + dx,
+                    c.rect.y + dy,
+                )
+            })
+            .collect();
+        if moves.is_empty() {
+            return;
+        }
+        self.apply(Cmd::MoveMany { moves });
+        for id in self.selected_ids.clone() {
+            self.reparent_to_drop(&id);
+        }
     }
 
     pub fn copy_selected(&self, clipboard: &mut Option<DesignerClipboard>) {
@@ -8826,6 +8880,34 @@ impl DesignerPanel {
         if no_text_focus && ctx.input(|i| i.key_pressed(egui::Key::V) && i.modifiers.command) {
             self.paste_from_clipboard(clipboard);
             selection_changed = true;
+        }
+        // Arrow keys move the selection — guarded by `no_text_focus` like every
+        // shortcut above, because an arrow inside a property field belongs to
+        // the caret. Opposite keys in the same frame cancel, which is what the
+        // arithmetic already says.
+        if no_text_focus && !self.selected_ids.is_empty() {
+            let (dx, dy) = ctx.input(|i| {
+                let step = nudge_step(
+                    self.form.grid_size as i32,
+                    self.form.snap_to_grid,
+                    i.modifiers.shift,
+                );
+                let mut d = (0, 0);
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    d.0 -= step;
+                }
+                if i.key_pressed(egui::Key::ArrowRight) {
+                    d.0 += step;
+                }
+                if i.key_pressed(egui::Key::ArrowUp) {
+                    d.1 -= step;
+                }
+                if i.key_pressed(egui::Key::ArrowDown) {
+                    d.1 += step;
+                }
+                d
+            });
+            self.nudge_selection(dx, dy);
         }
 
         // ── Deletion confirmation (spec 020) ─────────────────────────────────
@@ -15780,6 +15862,124 @@ mod drag_move_tests {
         let a = group_move_delta(o, 40, 0, GRID, true).expect("a drag");
         let b = group_move_delta(o, 40, 0, GRID, true).expect("same gesture again");
         assert_eq!(a, b, "re-evaluating the same pointer position must not drift");
+    }
+}
+
+#[cfg(test)]
+mod nudge_tests {
+    use super::*;
+
+    const GRID: i32 = 16;
+
+    /// The arrow key steps where the mouse would have landed: with snapping on,
+    /// a drag lands on a grid line, so an arrow moves by a whole cell.
+    #[test]
+    fn an_arrow_steps_by_the_grid_the_mouse_snaps_to() {
+        assert_eq!(nudge_step(GRID, true, false), GRID);
+    }
+
+    /// Shift is the way down to a single pixel — deliberately off the grid,
+    /// which is the only reason to ask for it.
+    #[test]
+    fn shift_is_the_way_down_to_a_single_pixel() {
+        assert_eq!(nudge_step(GRID, true, true), 1);
+    }
+
+    /// With snapping off there is only the one step, because no grid is being
+    /// kept and a sixteen-pixel jump would be a rule out of nowhere.
+    #[test]
+    fn without_snapping_there_is_only_the_one_step() {
+        assert_eq!(nudge_step(GRID, false, false), 1);
+        assert_eq!(nudge_step(GRID, false, true), 1);
+        assert_eq!(nudge_step(0, true, false), 1, "a form with no grid");
+    }
+
+    fn panel_with_child() -> DesignerPanel {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let mut panel = Control::new("P1", ControlType::Panel, 10, 10);
+        panel.rect.w = 300;
+        panel.rect.h = 300;
+        let mut child = Control::new("C1", ControlType::Button, 20, 20);
+        child.parent = Some("P1".into());
+        let outside = Control::new("O1", ControlType::Label, 400, 400);
+        d.form.controls.push(panel);
+        d.form.controls.push(child);
+        d.form.controls.push(outside);
+        d
+    }
+
+    fn pos(d: &DesignerPanel, id: &str) -> (i32, i32) {
+        let c = d.form.find_control(id).expect(id);
+        (c.rect.x, c.rect.y)
+    }
+
+    /// A selected container carries its subtree, exactly as dragging it does —
+    /// and nothing outside the selection moves.
+    #[test]
+    fn a_nudged_container_carries_its_children() {
+        let mut d = panel_with_child();
+        d.selected_ids = vec!["P1".to_owned()];
+
+        d.nudge_selection(GRID, 0);
+
+        assert_eq!(pos(&d, "P1"), (26, 10));
+        assert_eq!(pos(&d, "C1"), (36, 20), "the child travelled with its panel");
+        assert_eq!(pos(&d, "O1"), (400, 400), "an unselected control stayed put");
+    }
+
+    /// The whole selection moves by the SAME delta, so its shape survives the
+    /// trip — the keyboard's version of the rigid-motion rule the drag learned
+    /// at 2026-08-21.
+    #[test]
+    fn a_multi_selection_keeps_its_shape() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        // None of them on a grid line, all at different offsets in their cell.
+        for (i, (x, y)) in [(37, 91), (100, 7), (213, 155)].iter().enumerate() {
+            d.form
+                .controls
+                .push(Control::new(&format!("B{i}"), ControlType::Button, *x, *y));
+        }
+        d.selected_ids = vec!["B0".to_owned(), "B1".to_owned(), "B2".to_owned()];
+
+        d.nudge_selection(0, -GRID);
+
+        assert_eq!(pos(&d, "B0"), (37, 75));
+        assert_eq!(pos(&d, "B1"), (100, -9), "a nudge may leave the form, as a drag may");
+        assert_eq!(pos(&d, "B2"), (213, 139));
+    }
+
+    /// `Anchor` locks a control against being dragged, and an arrow key is
+    /// dragging without the mouse. The property pane stays the way to move one.
+    #[test]
+    fn an_anchored_control_is_not_nudged() {
+        let mut d = DesignerPanel::new(Form::new("F", "T", 640, 480));
+        let mut pinned = Control::new("A1", ControlType::Button, 10, 10);
+        pinned.set_prop("Anchor", PropValue::Bool(true));
+        d.form.controls.push(pinned);
+        d.selected_ids = vec!["A1".to_owned()];
+
+        d.nudge_selection(GRID, GRID);
+
+        assert_eq!(pos(&d, "A1"), (10, 10));
+        assert!(
+            d.undo_stack.is_empty(),
+            "a nudge that moved nothing must not leave an undo step behind"
+        );
+    }
+
+    /// One press, one undoable step — and it puts every control back, the
+    /// carried ones included.
+    #[test]
+    fn a_nudge_is_one_undoable_step() {
+        let mut d = panel_with_child();
+        d.selected_ids = vec!["P1".to_owned()];
+
+        d.nudge_selection(GRID, GRID);
+        assert_eq!(d.undo_stack.len(), 1);
+
+        d.undo();
+        assert_eq!(pos(&d, "P1"), (10, 10));
+        assert_eq!(pos(&d, "C1"), (20, 20));
     }
 }
 
