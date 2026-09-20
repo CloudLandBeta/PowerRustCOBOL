@@ -148,10 +148,10 @@
     <Property name="FontName">Arial</Property>
     <Property name="BackgroundColor">#00000000</Property>
   </Control>
-  <Control id="Btn-Raw" type="Button" x="24" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Layout-Raw" type="Button" x="24" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Raw</Property>
     <Property name="FontSize">11</Property>
-    <Event name="onClick" paragraph="BTN-RAW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="BTN-LAYOUT-RAW--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-NL PIC X.
@@ -162,10 +162,10 @@
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
   </Control>
-  <Control id="Btn-Web" type="Button" x="204" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Layout-Web" type="Button" x="204" y="222" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Web</Property>
     <Property name="FontSize">11</Property>
-    <Event name="onClick" paragraph="BTN-WEB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="BTN-LAYOUT-WEB--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-NL PIC X.
@@ -176,10 +176,10 @@
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
   </Control>
-  <Control id="Btn-Print" type="Button" x="24" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Layout-Print" type="Button" x="24" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Print</Property>
     <Property name="FontSize">11</Property>
-    <Event name="onClick" paragraph="BTN-PRINT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="BTN-LAYOUT-PRINT--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-NL PIC X.
@@ -190,10 +190,10 @@
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
   </Control>
-  <Control id="Btn-Page" type="Button" x="204" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Layout-Page" type="Button" x="204" y="254" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Page</Property>
     <Property name="FontSize">11</Property>
-    <Event name="onClick" paragraph="BTN-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="BTN-LAYOUT-PAGE--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-NL PIC X.
@@ -204,10 +204,10 @@
            Txt-Log::AppendText(WS-NL).
 ]]></Event>
   </Control>
-  <Control id="Btn-Streamed" type="Button" x="24" y="286" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
+  <Control id="Btn-Layout-Streamed" type="Button" x="24" y="286" w="172" h="26" tab-order="0" z-order="0" visible="true" enabled="true">
     <Property name="Caption">Streamed</Property>
     <Property name="FontSize">11</Property>
-    <Event name="onClick" paragraph="BTN-STREAMED--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
+    <Event name="onClick" paragraph="BTN-LAYOUT-STREAMED--ONCLICK"><![CDATA[       ENVIRONMENT DIVISION.
        DATA DIVISION.
        WORKING-STORAGE SECTION.
        01 WS-NL PIC X.

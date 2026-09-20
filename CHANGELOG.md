@@ -8,6 +8,30 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.108] — 2026-09-20
+
+### The Viewer example used one id for two buttons, and Build refused it
+
+The Data Binding Guardian blocked the build:
+
+```
+[Blocker] ambiguous-target-control: Controls 'Btn-Print' and 'Btn-Print' differ only by case
+```
+
+It read oddly because both sides were the same string. The example had
+`Btn-Print` twice — once for the Print LAYOUT and once for the Print ACTION —
+and the Guardian keys on the uppercased id, so an exact duplicate collides
+with itself. It is right to refuse: one id for two controls is also one
+generated paragraph name for two handlers, so a click runs the wrong code or
+none. The five layout buttons are now `Btn-Layout-*`, which also says what
+they are.
+
+`viewer_demo_compiles` gained the check that should have caught this. It
+asserted the generated program parses and analyses cleanly, and it did — a
+duplicate id produces valid COBOL, just not the COBOL anyone wanted. The test
+now asserts every control id is distinct case-insensitively, keyed exactly as
+the Guardian keys it.
+
 ## [PowerRustCOBOL 1.70.107] — 2026-09-20
 
 ### One build with the demo reachable and the three UI fixes

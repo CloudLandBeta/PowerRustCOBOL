@@ -53,6 +53,27 @@ fn the_viewer_example_generates_a_program_that_compiles() {
         viewer.control_type
     );
 
+    // No two controls may share an id, NOR differ only by case. The Data
+    // Binding Guardian refuses to build such a form — "ambiguous-target-
+    // control" — and it is right to: one id for two controls is also one
+    // generated paragraph name for two handlers, so a click would run the
+    // wrong code, or none. This example shipped with `Btn-Print` used for
+    // both the Print LAYOUT and the Print ACTION, and the compile check
+    // below did not notice, because the generated program still parsed
+    // (operator, 2026-09-20).
+    let mut seen: std::collections::HashMap<String, Vec<&str>> = std::collections::HashMap::new();
+    for c in &form.controls {
+        seen.entry(c.id.to_ascii_lowercase())
+            .or_default()
+            .push(c.id.as_str());
+    }
+    let clashes: Vec<_> = seen.values().filter(|v| v.len() > 1).collect();
+    assert!(
+        clashes.is_empty(),
+        "control ids must be unique, case-insensitively — clashing: {clashes:?}"
+    );
+    eprintln!("  {} controls, all ids distinct", form.controls.len());
+
     let src = cobolt_codegen::generate(&form);
 
     let parsed = cobolt_parser::parse(cobolt_lexer::tokenize(
