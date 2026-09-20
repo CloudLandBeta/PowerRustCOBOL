@@ -8,6 +8,42 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.132] — 2026-09-20
+
+### A staged drop reports the files THAT drop brought
+
+"drop file to load in the view works only the first time" (operator,
+2026-09-20). It worked every time; it kept loading the same file.
+
+A FileDropZone with `StageOnly` on wrote **the whole basket** into both
+`StagedFiles` and `DroppedFiles`. The first is what a basket means. The second
+is not: `onFilesDropped` is an event about one drop, and a handler reads
+`DroppedFiles` to learn what that drop carried — the System KB has said so all
+along ("one or more files were dropped or picked (read `DroppedFiles`)"). With
+both holding everything ever staged, the FIRST line stayed the first file for
+ever, so a handler that takes the first line — one document into a Viewer,
+which is the ordinary shape of this — opened the same file on every drop after
+the first.
+
+`DroppedFiles` is now the files that drop newly staged, at their original paths
+since a staged drop copies nothing. `StagedFiles` still accumulates, still
+de-duplicates, and still feeds `FileListControl` and `CommitSummary`.
+`a_staged_zone_reports_what_this_drop_brought` fails against the old code with
+the second drop reporting the first drop's file ahead of its own.
+
+The Viewer side was already right: a session is keyed by path, so a source that
+changes to a new file loads it. Nothing there needed touching.
+
+**The demo's own handler still reads `StagedFiles`.** `Fdz-View1` and
+`Fdz-View2` in `examples/PowerDemo3/forms/Common/viewer-form.cfrm` take the
+first line of the basket, which is the first file dropped whatever this change
+does. One word each — `StagedFiles` → `DroppedFiles` — and they open what was
+just dropped. Left alone here because the working copy carries the operator's
+own edits.
+
+System KB and the Developer's Guide both now state the distinction, and
+`assets/knowledge/chunked.data` was regenerated with them.
+
 ## [PowerRustCOBOL 1.70.131] — 2026-09-20
 
 ### The page has an edge, and the shadow only says how far off the surface it sits

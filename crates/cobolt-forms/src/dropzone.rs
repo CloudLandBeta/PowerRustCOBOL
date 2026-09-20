@@ -413,9 +413,14 @@ pub fn apply_drop(zone_id: &str, paths: &[String], rules: ZoneRules<'_>) -> Drop
         .filter(|l| !l.is_empty())
         .map(str::to_owned)
         .collect();
+    // …and, separately, what THIS drop brought. The two are not the same thing
+    // from the second drop onwards, and conflating them is what made a staging
+    // zone report the first file for ever.
+    let mut arrived: Vec<String> = Vec::new();
     for path in &intake.accepted {
         if !staged.iter().any(|s| s == path) {
             staged.push(path.clone());
+            arrived.push(path.clone());
             writes.accepted += 1;
         }
     }
@@ -433,7 +438,15 @@ pub fn apply_drop(zone_id: &str, paths: &[String], rules: ZoneRules<'_>) -> Drop
     set(&mut writes, zone_id, "StagedFiles", staged.join("\n"));
     // A staged drop has copied nothing, so `DroppedFiles` is where the files
     // still are — the handler sees what arrived without being told it moved.
-    set(&mut writes, zone_id, "DroppedFiles", staged.join("\n"));
+    //
+    // WHAT ARRIVED, not the whole basket. `onFilesDropped` is an event about
+    // one drop, and a handler reads `DroppedFiles` to find out what it carried;
+    // handing it everything ever staged meant the first line stayed the FIRST
+    // file forever, so a handler that opens the first line — one document into
+    // a Viewer, which is the ordinary shape of this — opened the same file
+    // every time ("drop file to load in the view works only the first time",
+    // operator, 2026-09-20). The basket is `StagedFiles`, and it is right above.
+    set(&mut writes, zone_id, "DroppedFiles", arrived.join("\n"));
     set(
         &mut writes,
         zone_id,
@@ -701,6 +714,74 @@ mod tests {
              1 of 1 (1.500 MB) and left beta.csv alone; an unwritable destination \
              reported \"0 of 1 copied\" and kept the original path\n"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **A second drop has to report the SECOND drop's files.**
+    ///
+    /// `onFilesDropped` fires and the handler reads `DroppedFiles` to learn
+    /// what arrived — that is the documented way in. A STAGING zone set it to
+    /// the whole basket instead, so from the second drop onwards its first line
+    /// was still the first file ever dropped. A handler that takes the first
+    /// line — which is exactly what loading one document into a Viewer looks
+    /// like — therefore loaded the same file every time: "drop file to load in
+    /// the view works only the first time" (operator, 2026-09-20).
+    ///
+    /// `StagedFiles` keeps accumulating, because a basket is what it is for.
+    #[test]
+    fn a_staged_zone_reports_what_this_drop_brought() {
+        let root = std::env::temp_dir().join(format!("prc-dz-second-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("scratch");
+        let write = |name: &str| {
+            let p = root.join(name);
+            std::fs::write(&p, b"x").expect("write");
+            p.display().to_string()
+        };
+        let one = write("one.md");
+        let two = write("two.md");
+        // A plain fn, not a closure: the result borrows its argument, and a
+        // closure's inferred signature cannot say so.
+        fn rules(staged: &str) -> ZoneRules<'_> {
+            ZoneRules {
+                filter: "",
+                max_kb: 0,
+                destination: "",
+                stage_only: true,
+                list_id: "",
+                already_staged: staged,
+            }
+        }
+        let got = |w: &DropWrites, key: &str| -> Option<String> {
+            w.updates
+                .iter()
+                .find(|(i, k, _)| i == "FDZ-1" && k == key)
+                .map(|(_, _, v)| v.clone())
+        };
+
+        let first = apply_drop("FDZ-1", &[one.clone()], rules(""));
+        assert_eq!(got(&first, "DroppedFiles"), Some(one.clone()));
+
+        let second = apply_drop("FDZ-1", &[two.clone()], rules(&one));
+        assert_eq!(
+            got(&second, "DroppedFiles"),
+            Some(two.clone()),
+            "the second drop must report the file the second drop brought"
+        );
+        assert_eq!(
+            got(&second, "StagedFiles"),
+            Some(format!("{one}\n{two}")),
+            "…while the basket still holds both"
+        );
+
+        // The handler pattern this exists for: one document, opened by name.
+        let opened = got(&second, "DroppedFiles").unwrap();
+        assert_eq!(
+            opened.lines().next(),
+            Some(two.as_str()),
+            "a handler that takes the first line opens the file just dropped"
+        );
+
         let _ = std::fs::remove_dir_all(&root);
     }
 

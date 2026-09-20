@@ -3149,8 +3149,15 @@ Tick **Confirm before copying** (`StageOnly`) and a drop copies *nothing*:
 
 1. The drop is judged exactly as above — refused files still fire
    `onFilesRejected` — and the accepted ones are **held** at their original
-   paths in `StagedFiles`. `onFilesDropped` fires. `DestinationFolder` is not
+   paths in `StagedFiles`. `onFilesDropped` fires, and `DroppedFiles` holds
+   what *that* drop brought, at its original path since nothing was copied,
+   while `StagedFiles` is everything held so far. `DestinationFolder` is not
    even created.
+
+   > **Note** — read `DroppedFiles` when your handler wants the file that was
+   > just dropped, such as opening one document into a Viewer; read
+   > `StagedFiles` when you want the basket. They are the same on the first
+   > drop and differ on every drop after it.
 2. They appear in the ListBox named by `FileListControl`, one tick-boxed row
    each, reading the path and the size: `/Users/ana/report.csv (12.345 MB)`.
    `CommitSummary` reads `3 files staged, 24.310 MB`.

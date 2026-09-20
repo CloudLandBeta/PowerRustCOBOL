@@ -5061,7 +5061,7 @@ pub fn property_reference(name: &str) -> Option<(&'static str, &'static str)> {
         ),
         "DroppedFiles" => (
             "newline-separated absolute paths (runtime-only, never a design-time default)",
-            "Files ACCEPTED since the last read — one absolute path per line, the copy in DestinationFolder when one is set.",
+            "The files THIS drop accepted — one absolute path per line, the copy in DestinationFolder when one is set, the original when the zone is staging. Not the basket: a staging zone's running total is StagedFiles.",
         ),
         "RejectedFiles" => (
             "newline-separated `path<TAB>reason` (runtime-only, never a design-time default)",
@@ -5782,7 +5782,7 @@ Accepted files appear in `DroppedFiles` — at their NEW path when a destination
 ### Letting the operator confirm first (`StageOnly`)\n\
 By default the copy happens the instant the file lands, which gives the operator no chance to change their mind. Turn `StageOnly` on and a drop copies **nothing**:\n\
 \n\
-1. The drop is judged as usual — refused files still fire `onFilesRejected` — and the accepted ones are HELD at their original paths in `StagedFiles`. `onFilesDropped` fires. `DestinationFolder` is not even created.\n\
+1. The drop is judged as usual — refused files still fire `onFilesRejected` — and the accepted ones are HELD at their original paths in `StagedFiles`. `onFilesDropped` fires, and `DroppedFiles` holds what THAT drop brought — at its original path, since nothing was copied — while `StagedFiles` is everything held so far. Read `DroppedFiles` when your handler wants the file just dropped, such as opening one document into a Viewer; read `StagedFiles` when you want the basket. `DestinationFolder` is not even created.\n\
 2. They are listed in the ListBox named by `FileListControl`, one tick-boxed row each, reading `<path> (12.345 MB)`. `CommitSummary` reads `3 files staged, 24.310 MB`.\n\
 3. The operator unticks anything they did not mean to send. An unticked row stays in the list, so the exclusion is visible and reversible.\n\
 4. Your own COBOL decides when the form goes ahead — a Submit button, a validated field, whatever the form means by confirmation — and calls `INVOKE FDZ-1 'CommitFiles'`. Ticked files are copied by exactly the rules above; unticked ones are skipped.\n\
