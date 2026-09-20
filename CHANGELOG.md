@@ -8,6 +8,54 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.118] — 2026-09-20
+
+### Save As asks where to save
+
+"Save As requested / error: no destination path / Save As should open the OS
+save as dialog box" (operator, 2026-09-20). `SaveAs()` with no argument raised
+`onError`, which is a refusal where the control promises a Save As — and the
+Viewer's own toolbar button was inert, because it pushed onto `toolbar_actions`
+where the host parses the action against the **ToolBar control's** vocabulary.
+`save-as` is not in it, so the button had done nothing since the day it was
+drawn.
+
+R18's contract is unchanged: **a path given is always the path written**, with
+no defaulting, so a program that computes a destination gets exactly it. It is
+`SaveAs()` with *nothing* that is the dialog's case, and it now opens the
+platform's own Save panel. The toolbar button makes the same request by the
+same route.
+
+The work is split where the knowledge is. The **runtime** holds the document,
+so it owns the saving and the suggested filename; the **host** owns the dialog
+and nothing else. Neither crate can call the other, so they speak through the
+state channel that already carries `Show()` to a Snackbar and `PlayAnimation`
+to an Animator — no new channel and no new message type:
+
+| property | written by | means |
+|---|---|---|
+| `_SaveAsAsk` | the engine's toolbar button | ask for a destination |
+| `_SaveAsRequest` | the runtime | asking; the value is the suggested name |
+| `_SaveAsAnswer` | the host | a path, or EMPTY for a dismissed panel |
+
+**R18.1's proposed filename**, computed where the document actually is: a
+document opened from a `Source` proposes the name it already has; a `LoadBytes`
+document has none, so it proposes the first three words of its own content plus
+the extension its resolved `Format` implies. A proposal made of the document
+beats `untitled`, and the operator may type over it either way.
+
+A dismissed panel writes nothing and raises `onSaveCancelled` — never
+`onError`. The operator did exactly what they meant to.
+
+Guarded by `save_as_with_no_path_asks_the_host_for_one_and_never_errors`, which
+drives the request, the answer and the dismissal, and by
+`a_loaded_bytes_document_proposes_a_name_made_of_its_own_first_words`.
+
+**Still absent: Print and Share.** Nothing makes them impossible — the OS
+mechanism for each was approved during `/clarify` — but `_PrintRequest` and
+`_ShareRequest` are still written by the runtime and read by nobody. They are
+the next item.
+
 ## [PowerRustCOBOL 1.70.117] — 2026-09-20
 
 ### A closed split can be reopened

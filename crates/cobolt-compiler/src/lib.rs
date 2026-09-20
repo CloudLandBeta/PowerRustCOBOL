@@ -5518,7 +5518,7 @@ pub fn control_method_docs(name: &str) -> Vec<(&'static str, &'static str)> {
             ),
             (
                 "SaveAs(path: String)",
-                "Write the document's ORIGINAL BYTES to `path`, unmodified — a copy, never a rendered or re-encoded document. This matters most for a PDF, where the Viewer reads the file's structure in order to paint it and could so easily save that reading instead; it saves the FILE. From COBOL the path you give is always the path written: the proposed default filename is the interactive dialog's convenience, not this method's contract. Raises `onSaveComplete`, or `onError` with `LastError` set.",
+                "Write the document's ORIGINAL BYTES to `path`, unmodified — a copy, never a rendered or re-encoded document. Called with NO argument it asks the operator instead: the platform's own Save panel opens, with R18.1's proposed filename in the box — the document's own name when it came from a `Source`, and otherwise the first three words of its content plus the extension its `Format` implies. Dismissing the panel writes nothing and raises `onSaveCancelled`, which is not an error. The toolbar's Save As button is the same request. This matters most for a PDF, where the Viewer reads the file's structure in order to paint it and could so easily save that reading instead; it saves the FILE. From COBOL the path you give is always the path written: the proposed default filename is the interactive dialog's convenience, not this method's contract. Raises `onSaveComplete`, or `onError` with `LastError` set.",
             ),
             (
                 "Print()",

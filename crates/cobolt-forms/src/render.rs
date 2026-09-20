@@ -4216,11 +4216,30 @@ fn viewer_view_interactive(
             // a share sheet or a save dialog to find that out — the same
             // division of labour `toolbar_actions` already carries for
             // ToolBar and `file_picker_requests` for FileDropZone.
-            vw::ToolbarAction::Print | vw::ToolbarAction::Share | vw::ToolbarAction::SaveAs => {
+            vw::ToolbarAction::Print | vw::ToolbarAction::Share => {
                 out.toolbar_actions.push((
                     id.to_string(),
                     action.as_str().to_string(),
                     action.as_str().to_string(),
+                ));
+            }
+            // Save As goes to the RUNTIME, not straight to the host — and
+            // deliberately, because the runtime is the only side that holds the
+            // document. It owns both the saving and R18.1's suggested filename;
+            // the host owns the dialog and nothing else. `_SaveAsAsk` is an
+            // ordinary property write, which the host already forwards down the
+            // state channel, so the button and `VWR-1::SaveAs()` from COBOL
+            // arrive at exactly the same place by exactly the same route.
+            //
+            // It used to be pushed onto `toolbar_actions`, where the host parses
+            // the action against the TOOLBAR control's vocabulary — "save-as" is
+            // not in it, so the button had been inert since it was drawn
+            // (operator, 2026-09-20).
+            vw::ToolbarAction::SaveAs => {
+                out.prop_updates.push((
+                    id.to_string(),
+                    "_SaveAsAsk".to_string(),
+                    "1".to_string(),
                 ));
             }
         }

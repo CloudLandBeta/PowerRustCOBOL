@@ -531,6 +531,7 @@ impl FormHost {
                 hovered: std::collections::HashSet::new(),
                 parked_timer_clocks: HashMap::new(),
                 toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+            pending_save_as: Vec::new(),
                 action_notice: None,
                 last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
@@ -751,6 +752,9 @@ pub(crate) struct FormBody {
     /// screenshot is its own. It used to live on the host, which is part of why
     /// only the root form ever ran a toolbar action at all.
     pub(crate) toolbar_runner: cobolt_forms::toolbar_actions::Runner,
+    /// Save As dialogs asked for while draining the state channel, which has no
+    /// `egui::Context` — opened by `start_pending_save_as` on the same frame.
+    pub(crate) pending_save_as: Vec<(String, crate::file_dialog::DialogSpec)>,
     /// The latest platform-action outcome, shown briefly in the form window
     /// (message, is_error, egui time it appeared). A Failed print or an
     /// empty-clipboard paste used to go only to stderr — to the operator that
@@ -1037,6 +1041,94 @@ impl FormBody {
     ///
     /// Returns true when the write was a Snackbar command and must NOT be
     /// stored as ordinary control state.
+    /// The key a Viewer's Save As dialog is tracked under.
+    pub(crate) fn viewer_save_as_key(ctrl_id: &str) -> String {
+        format!("viewersaveas:{ctrl_id}")
+    }
+
+    /// Spec 058 R18.1 — the runtime asking this crate for a destination.
+    ///
+    /// The division of labour is the one `file_picker_requests` and
+    /// `csv_export_requests` already draw, one step further along: the RUNTIME
+    /// owns the document, so it owns the saving and the suggested filename;
+    /// this crate owns the dialog and nothing else; and neither can call the
+    /// other, so they speak through the state channel.
+    ///
+    /// `value` is the suggested filename, computed where the document actually
+    /// is. The answer goes back as `_SaveAsAnswer` — a path, or EMPTY for a
+    /// dialog the operator dismissed, which is `onSaveCancelled` and not an
+    /// error.
+    ///
+    /// Returns true when the write was that request and must NOT be stored as
+    /// ordinary control state.
+    pub(crate) fn viewer_save_as_request(
+        &mut self,
+        ctrl_id: &str,
+        prop: &str,
+        value: &str,
+    ) -> bool {
+        if !prop.eq_ignore_ascii_case("_SaveAsRequest") {
+            return false;
+        }
+        // The runtime CLEARS the request once it has been answered, and that
+        // clear crosses the channel like any other write. Opening a dialog for
+        // it would raise a second one the moment the first was answered.
+        let suggested = value.trim();
+        if suggested.is_empty() {
+            return true;
+        }
+        let suggested = Path::new(suggested);
+        let mut spec = crate::file_dialog::DialogSpec::save();
+        if let Some(name) = suggested.file_name().and_then(|n| n.to_str()) {
+            spec = spec.file_name(name);
+        }
+        if let Some(dir) = suggested.parent().filter(|p| !p.as_os_str().is_empty()) {
+            spec = spec.directory(dir);
+        }
+        // Queued rather than opened here: this runs while draining the state
+        // channel, which has no `egui::Context` to hand — and a dialog needs
+        // one to wake the frame its answer arrives on.
+        self.pending_save_as.push((ctrl_id.to_owned(), spec));
+        true
+    }
+
+    /// Open whatever Save As dialogs the state drain queued this frame.
+    pub(crate) fn start_pending_save_as(&mut self, ctx: &egui::Context) {
+        for (id, spec) in std::mem::take(&mut self.pending_save_as) {
+            crate::file_dialog::begin(ctx, &Self::viewer_save_as_key(&id), spec);
+        }
+    }
+
+    /// Hand back whatever the operator did with a Save As dialog.
+    ///
+    /// Polled every frame, exactly as the DataGrid's CSV panel is: a native
+    /// dialog is non-blocking here (spec 042 R25), so its answer arrives on
+    /// some later frame and has to be collected rather than awaited.
+    pub(crate) fn collect_viewer_save_as(&mut self) {
+        let viewers: Vec<String> = self
+            .controls
+            .iter()
+            .filter(|c| matches!(c.control_type, cobolt_forms::ControlType::Viewer))
+            .map(|c| c.id.clone())
+            .collect();
+        for id in viewers {
+            let Some(answer) = crate::file_dialog::take(&Self::viewer_save_as_key(&id)) else {
+                continue;
+            };
+            // A dismissed dialog answers with the EMPTY string rather than not
+            // answering at all: the runtime has to hear about it, or the
+            // control waits for a save that is never coming and no
+            // `onSaveCancelled` is ever raised.
+            let path = answer
+                .map(|p| p.display().to_string())
+                .unwrap_or_default();
+            self.state_entry_mut(&id).set("_SaveAsAnswer", path.clone());
+            let _ = self
+                .input_tx
+                .send(StateUpdate::new(id.clone(), "_SaveAsAnswer", path));
+        }
+    }
+
     pub(crate) fn snackbar_command(&mut self, ctrl_id: &str, prop: &str, value: &str) -> bool {
         if prop.eq_ignore_ascii_case("_ShowSnackbar") {
             // Mint from the control's CURRENT property values (D2). The state
@@ -1841,6 +1933,11 @@ impl FormBody {
         if self.snackbar_command(&key, &u.prop, &u.value) {
             return;
         }
+        // 058 R18.1 — the Viewer asking where to save. Same shape and the same
+        // reason as the Snackbar's `Show()` above: a COMMAND, not state.
+        if self.viewer_save_as_request(&key, &u.prop, &u.value) {
+            return;
+        }
         // An OBSERVER event reports that a value is now different, whoever made it
         // different — so a Timer handler doing `MOVE 5 TO KNOB-1::Value` has to
         // fire the Knob's `onValueChanged` exactly as a drag does.
@@ -2297,6 +2394,13 @@ impl FormBody {
             // host reads it once at start-up, a body reads it here.
             self.apply_interpreter_update(u, crate::diagnostics::frame_diagnostics_enabled());
         }
+
+        // 058 R18.1 — a Save As the drain above asked for, and the answer to
+        // one asked for earlier. Both here, next to the drain that raises them,
+        // because a native dialog is non-blocking: it is opened on one frame
+        // and answered on some later one.
+        self.start_pending_save_as(ctx);
+        self.collect_viewer_save_as();
 
         // DISPLAY → stdout (the IDE's Output pane reads it there).
         {
@@ -3574,6 +3678,7 @@ impl FormHost {
             hovered: std::collections::HashSet::new(),
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+            pending_save_as: Vec::new(),
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),
@@ -7605,6 +7710,7 @@ mod parity {
             hovered: std::collections::HashSet::new(),
             parked_timer_clocks: HashMap::new(),
             toolbar_runner: cobolt_forms::toolbar_actions::Runner::default(),
+            pending_save_as: Vec::new(),
             action_notice: None,
             last_control_rects: HashMap::new(),
                 snackbars: Default::default(),

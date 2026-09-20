@@ -2674,6 +2674,23 @@ impl Interpreter {
     /// by the renderer, read here and nowhere else.
     const DATAGRID_EXPORT_REQUEST: &'static str = "_ExportCSVRequested";
 
+    /// Spec 058 R18.1 — the Viewer's Save As, in three pseudo-properties.
+    ///
+    /// The runtime holds the document and so owns both the SAVING and the
+    /// suggested name; the host owns the dialog and nothing else. Neither
+    /// crate can call the other, so they speak through the state channel that
+    /// already carries `Show()` to a Snackbar and `PlayAnimation` to an
+    /// Animator — no new channel and no new message type.
+    ///
+    /// * `_SaveAsAsk` — the ENGINE's toolbar button, forwarded by the host.
+    /// * `_SaveAsRequest` — this crate asking for a destination; its value is
+    ///   the suggested filename.
+    /// * `_SaveAsAnswer` — the host's reply: a path, or EMPTY for a dialog the
+    ///   operator dismissed, which is `onSaveCancelled` and not an error.
+    const VIEWER_SAVE_AS_ASK: &'static str = "_SaveAsAsk";
+    const VIEWER_SAVE_AS_REQUEST: &'static str = "_SaveAsRequest";
+    const VIEWER_SAVE_AS_ANSWER: &'static str = "_SaveAsAnswer";
+
     /// Drain any pending UI-driven property updates into the object registry.
     /// Called just before an event handler runs so getters see the live value.
     fn drain_input(&mut self) {
@@ -2685,17 +2702,112 @@ impl Interpreter {
         // exported inline because the export needs `&mut self` for the whole
         // interpreter, not just the registry.
         let mut csv_exports: Vec<String> = Vec::new();
+        // Viewers whose Save As reached a conclusion this batch: the toolbar
+        // button asking for a dialog, or the host answering one. Collected
+        // rather than acted on inline for the same reason the CSV export is —
+        // each needs `&mut self` for the whole interpreter, not the registry.
+        let mut save_asks: Vec<String> = Vec::new();
+        let mut save_answers: Vec<(String, String)> = Vec::new();
         for upd in pending {
             let asked_for_csv = upd.prop == Self::DATAGRID_EXPORT_REQUEST
                 && !matches!(upd.value.trim(), "" | "0");
             if asked_for_csv {
                 csv_exports.push(upd.ctrl_id.clone());
             }
+            if upd.prop == Self::VIEWER_SAVE_AS_ASK && !matches!(upd.value.trim(), "" | "0") {
+                save_asks.push(upd.ctrl_id.clone());
+            }
+            // An EMPTY answer is a real answer — the operator dismissed the
+            // dialog — so this cannot test for a non-empty value the way the
+            // CSV flag does.
+            if upd.prop == Self::VIEWER_SAVE_AS_ANSWER {
+                save_answers.push((upd.ctrl_id.clone(), upd.value.clone()));
+            }
             self.objects
                 .set_property(&upd.ctrl_id, &upd.prop, upd.value);
         }
         for obj in csv_exports {
             self.run_datagrid_csv_export(&obj);
+        }
+        for obj in save_asks {
+            let suggested = self.viewer_suggested_filename(&obj);
+            self.obj_set(&obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
+        }
+        for (obj, path) in save_answers {
+            self.run_viewer_save_as_answer(&obj, &path);
+        }
+    }
+
+    /// Carry out — or abandon — the Save As the host just answered.
+    ///
+    /// An empty path is a dismissed dialog, and a dismissed dialog is
+    /// `onSaveCancelled`, never an error: the operator did exactly what they
+    /// meant to.
+    fn run_viewer_save_as_answer(&mut self, obj: &str, path: &str) {
+        // Cleared either way, so the next Save As is a fresh request rather
+        // than a repeat of this one.
+        self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, String::new());
+        self.obj_set(obj, Self::VIEWER_SAVE_AS_ANSWER, String::new());
+        if path.trim().is_empty() {
+            self.report_viewer_os_outcome(obj, ViewerOsAction::Save, false);
+            return;
+        }
+        match self.viewer_save_as(obj, path) {
+            Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
+            Err(e) => {
+                self.obj_set(obj, "LastError", e);
+                self.queue_control_event(obj, "onError");
+            }
+        }
+    }
+
+    /// Spec 058 R18.1 — the filename a Save As dialog opens with.
+    ///
+    /// A document loaded from a `Source` proposes its OWN name: the operator
+    /// asked to save this file, so the name they know it by is the one that
+    /// should be in the box.
+    ///
+    /// A `LoadBytes` document has no name at all, and the clarified R18.1 says
+    /// what to do instead: the **first three words of its own content**, plus
+    /// the extension its resolved `Format` implies. A proposal only — the
+    /// dialog lets the operator type whatever they like — but a proposal made
+    /// of the document beats `untitled`.
+    fn viewer_suggested_filename(&self, obj: &str) -> String {
+        let source = self.obj_get(obj, "Source");
+        let source = source.trim();
+        if !source.is_empty() {
+            if let Some(name) = source
+                .rsplit(['/', '\\'])
+                .next()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+            {
+                return name.to_owned();
+            }
+        }
+        let ext = cobolt_forms::viewer::extension_for(
+            cobolt_forms::viewer::ViewerFormat::from_str(&self.obj_get(obj, "Format")),
+        );
+        let words: String = self
+            .viewer_bytes
+            .get(obj)
+            .map(|b| String::from_utf8_lossy(&b[..b.len().min(4096)]).into_owned())
+            .unwrap_or_default()
+            .split_whitespace()
+            .filter(|w| w.chars().any(|c| c.is_alphanumeric()))
+            .take(3)
+            .map(|w| {
+                w.chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                    .collect::<String>()
+            })
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        if words.is_empty() {
+            format!("{obj}.{ext}")
+        } else {
+            format!("{words}.{ext}")
         }
     }
 
@@ -13787,15 +13899,30 @@ impl Interpreter {
                 }
                 none
             }
-            // R18: always the given path — R18.1's proposed default filename
-            // is the interactive dialog's convenience, never this method's
-            // contract (plan.md §3).
+            // R18: a path GIVEN is always the path written — R18.1's proposed
+            // default filename is the interactive dialog's convenience, never
+            // this method's contract (plan.md §3).
+            //
+            // `SaveAs()` with NO path is the dialog's own case, and it used to
+            // be an error: "Save As requested / error: no destination path"
+            // (operator, 2026-09-20), which is a refusal where the control
+            // promises a Save As. It asks the host for a destination instead —
+            // the same way `Show()` reaches a Snackbar and `PlayAnimation`
+            // reaches an Animator: a pseudo-property crosses the state channel
+            // and the host acts on it. The suggested name is computed HERE
+            // because only the runtime holds the document.
             "SAVEAS" => {
-                match self.viewer_save_as(obj, &arg(0)) {
-                    Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
-                    Err(e) => {
-                        self.obj_set(obj, "LastError", e);
-                        self.queue_control_event(obj, "onError");
+                let path = arg(0);
+                if path.trim().is_empty() {
+                    let suggested = self.viewer_suggested_filename(obj);
+                    self.obj_set(obj, Self::VIEWER_SAVE_AS_REQUEST, suggested);
+                } else {
+                    match self.viewer_save_as(obj, &path) {
+                        Ok(()) => self.report_viewer_os_outcome(obj, ViewerOsAction::Save, true),
+                        Err(e) => {
+                            self.obj_set(obj, "LastError", e);
+                            self.queue_control_event(obj, "onError");
+                        }
                     }
                 }
                 none
@@ -17393,6 +17520,93 @@ MAIN.
             queued_for(&interp, "VWR-1"),
             vec!["onSaveComplete".to_string()],
             "a successful write reports onSaveComplete and nothing else"
+        );
+    }
+
+    /// **`SaveAs()` with no path asks for a dialog** — it does not refuse.
+    ///
+    /// It used to answer "no destination path" and raise `onError`, which is a
+    /// refusal where the control promises a Save As (operator, 2026-09-20:
+    /// "Save As requested / error: no destination path / Save As should open
+    /// the OS save as dialog box").
+    ///
+    /// The runtime holds the document, so it owns both the saving and R18.1's
+    /// suggested filename; the host owns the dialog and nothing else. They
+    /// speak through the state channel that already carries `Show()` to a
+    /// Snackbar — so this test asserts the REQUEST, which is the runtime's
+    /// whole half of the exchange.
+    #[test]
+    fn save_as_with_no_path_asks_the_host_for_one_and_never_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_path = dir.path().join("september-report.pdf");
+        std::fs::write(&src_path, b"%PDF-1.7\n%%EOF\n").unwrap();
+
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let _ = interp.exec_method("VWR-1", "SAVEAS", &[]);
+
+        let asked = interp.obj_get("VWR-1", "_SaveAsRequest");
+        let events = queued_for(&interp, "VWR-1");
+        println!("  SaveAs() with no path → _SaveAsRequest = {asked:?}, events {events:?}");
+        assert_eq!(
+            asked, "september-report.pdf",
+            "a document loaded from a Source proposes its own name"
+        );
+        assert!(
+            !events.iter().any(|e| e == "onError"),
+            "asking for a destination is not an error: {events:?}"
+        );
+
+        // The host answers with a path → the file is written and the outcome
+        // reported, exactly as `SaveAs(path)` would have.
+        let dest = dir.path().join("chosen.pdf");
+        interp.run_viewer_save_as_answer("VWR-1", dest.to_str().unwrap());
+        assert!(dest.exists(), "answering the dialog must write the file");
+        assert!(
+            queued_for(&interp, "VWR-1").iter().any(|e| e == "onSaveComplete"),
+            "a completed save reports onSaveComplete"
+        );
+        assert_eq!(
+            interp.obj_get("VWR-1", "_SaveAsRequest"),
+            "",
+            "the request is cleared, so the next Save As is a fresh one"
+        );
+
+        // And a DISMISSED dialog is a cancellation, never an error.
+        let mut interp = viewer_interp(&[("Source", src_path.to_str().unwrap())]);
+        let _ = interp.exec_method("VWR-1", "SAVEAS", &[]);
+        interp.run_viewer_save_as_answer("VWR-1", "");
+        let events = queued_for(&interp, "VWR-1");
+        println!("  a dismissed dialog → events {events:?}");
+        assert!(
+            events.iter().any(|e| e == "onSaveCancelled"),
+            "a dismissed dialog raises onSaveCancelled: {events:?}"
+        );
+        assert!(
+            !events.iter().any(|e| e == "onError"),
+            "the operator did exactly what they meant to: {events:?}"
+        );
+    }
+
+    /// R18.1 for a document that has no name at all: the first three words of
+    /// its own content, plus the extension its resolved `Format` implies.
+    #[test]
+    fn a_loaded_bytes_document_proposes_a_name_made_of_its_own_first_words() {
+        let mut interp = viewer_interp(&[]);
+        let text = "Quarterly revenue summary for the northern region, in full.";
+        let _ = interp.exec_method(
+            "VWR-1",
+            "LOADBYTES",
+            &[CobolValue::from_str(text, text.len())],
+        );
+        let _ = interp.exec_method("VWR-1", "SAVEAS", &[]);
+        let asked = interp.obj_get("VWR-1", "_SaveAsRequest");
+        println!(
+            "  format {:?}, proposed name {asked:?}",
+            interp.obj_get("VWR-1", "Format")
+        );
+        assert_eq!(
+            asked, "Quarterly-revenue-summary.txt",
+            "three words of the document, and the extension its format implies"
         );
     }
 

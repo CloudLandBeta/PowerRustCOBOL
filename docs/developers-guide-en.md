@@ -4048,8 +4048,30 @@ statement, at no extra cost.
 
 ```cobol
        INVOKE VWR-1::SaveAs("archive/september-copy.pdf")
+       INVOKE VWR-1::SaveAs()
        INVOKE VWR-1::Print()
        INVOKE VWR-1::Share()
+```
+
+**`SaveAs` two ways.** Given a path, that is the path written — always, with no
+defaulting, so a program that saves to a folder it computed gets what it asked
+for. Given **nothing**, the operator is asked: your platform's own Save panel
+opens, and the toolbar's Save As button does exactly the same thing.
+
+The name in the box is a proposal, and the operator may change it. A document
+opened from a `Source` proposes the name it already has. A document handed over
+with `LoadBytes` has no name, so it proposes the **first three words of its own
+content** plus the extension its resolved `Format` implies — a proposal made of
+the document beats `untitled`.
+
+Dismissing the panel is not an error: nothing is written and `onSaveCancelled`
+is raised, because the operator did exactly what they meant to.
+
+```cobol
+       PROGRAM-ID. VWR-1--ONSAVECANCELLED.
+       PROCEDURE DIVISION.
+           MOVE "Nothing saved" TO LBL-STATUS::Caption
+           .
 ```
 
 > ⚠️ **Caveat — Save As writes the original bytes, and only those.** It copies
