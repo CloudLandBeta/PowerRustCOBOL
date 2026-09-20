@@ -9495,8 +9495,10 @@ pub(crate) fn draw_viewer(
         //
         // * `opacity` IS the edge tone. The ring stack runs from the widest and
         //   faintest inward to `expand = 0` at full strength, so the darkest
-        //   the shadow ever gets is right against the paper. A tenth of black
-        //   on white is the grey a sheet casts; a third of it is a border.
+        //   the shadow ever gets is right against the paper. A third of black
+        //   is a border and a tenth is the grey a sheet casts; this is half of
+        //   that again — "diminish the dropshadow intensity by 50%" (operator,
+        //   2026-09-20), leaving the darkest ring at 13 of 255.
         // * `offset` against `blur_strength` decides the WEIGHT. An offset well
         //   inside the spread keeps a whisper on all four sides — paper lifted
         //   off a surface does that — while the extra travel gathers the tone
@@ -9504,7 +9506,7 @@ pub(crate) fn draw_viewer(
         let shadow = DropShadowSpec {
             offset: egui::vec2(0.0, 3.0),
             color: Color32::BLACK,
-            opacity: 0.11,
+            opacity: 0.055,
             blur_strength: 14,
             corner_radius: VIEWER_PAGE_RADIUS,
             overlay: false,

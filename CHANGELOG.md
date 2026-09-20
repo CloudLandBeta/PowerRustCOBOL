@@ -8,6 +8,22 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.129] — 2026-09-20
+
+### The page's shadow is half the weight
+
+"Viewer: diminish the dropshadow intensity by 50%" (operator, 2026-09-20). The
+`Page` sheet's shadow opacity goes from 0.11 to 0.055 — everything else about
+it is unchanged, because everything else about it was right: the same downward
+offset, the same fourteen-step fall-off, the same square corners.
+
+Measured on the painted rings rather than read back from the spec: the darkest
+ring — the tone right against the paper's edge, which is as dark as the shadow
+ever gets — is now **13 of 255**. Nineteen rings still fall off smoothly, and
+the stack still reaches 17 px below the sheet against 11 above, so it is still
+a shadow and still falls downward. `the_page_shadow_is_pale_and_falls_downward`
+holds all four of those.
+
 ## [PowerRustCOBOL 1.70.128] — 2026-09-20
 
 ### Arrow keys move the selection
