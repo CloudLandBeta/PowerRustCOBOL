@@ -8,6 +8,34 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.120] — 2026-09-20
+
+### A sheet of paper has square corners
+
+The other half of what made the Page layout look wrong, alongside the shadow:
+the page was drawn with a 6 px corner radius, which is a card's corner, not a
+page's.
+
+And it turns out the correction I offered was wrong in a way worth recording.
+I said squaring the page would also change the cards and thumbnails "that share
+the constant" — they did not share it. `VIEWER_PAGE_RADIUS` reached the page
+body and its shadow; the card and thumbnail faces carried a literal `4` of
+their own. So a card had been rounded differently from the page it is a
+miniature of, and nothing said so.
+
+One constant now, because they are one object at three sizes: the page, the
+cards and the thumbnails all take `VIEWER_PAGE_RADIUS`, and it is zero. The
+rounded rect under a pressed toolbar button is not paper and keeps its own.
+
+The shadow's rings still carry rounding, and should: each is rounded by however
+far it was expanded, which is not a rounded page — it is how a blurred square
+is built, and the corners of a blurred square really are round. The guard
+therefore reads the corner off the **opaque** sheets only, which is the
+distinction that makes it assert the right thing.
+
+`the_page_shadow_is_pale_and_falls_downward` now covers both halves of the
+report: how the shadow falls, and what shape it falls around.
+
 ## [PowerRustCOBOL 1.70.119] — 2026-09-20
 
 ### The page casts a shadow, not a frame

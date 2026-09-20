@@ -8035,7 +8035,19 @@ const VIEWER_CODE_COLOR: Color32 = Color32::from_rgb(170, 70, 150);
 
 const VIEWER_OUTER_GUTTER: f32 = 14.0;
 const VIEWER_TEXT_INSET: f32 = 16.0;
-const VIEWER_PAGE_RADIUS: f32 = 6.0;
+/// The corner a sheet of paper has: **none** (operator, 2026-09-20).
+///
+/// It was 6 px, which is a card's corner, not a page's — and against the
+/// reference image of a real page it was the other half of what made the Page
+/// layout look wrong, alongside the shadow.
+///
+/// Used by the page body, the page's own shadow, and the card and thumbnail
+/// faces that stand for it. Those last two carried a literal `4` of their own
+/// until now, so a card was rounded differently from the page it is a
+/// miniature of — one constant, because they are one object at three sizes.
+/// (The rounded rect under a PRESSED TOOLBAR BUTTON is not paper and keeps its
+/// own radius.)
+const VIEWER_PAGE_RADIUS: f32 = 0.0;
 const VIEWER_BLOCK_SPACING: f32 = 8.0;
 const VIEWER_LIST_INDENT: f32 = 20.0;
 const VIEWER_LIST_ITEM_SPACING: f32 = 4.0;
@@ -9715,7 +9727,7 @@ fn draw_viewer_page_face(
     a: u8,
     current: bool,
 ) {
-    let round = egui::CornerRadius::same(4);
+    let round = egui::CornerRadius::same(VIEWER_PAGE_RADIUS as u8);
     painter.rect_filled(rect, round, Color32::from_rgba_premultiplied(surface.r(), surface.g(), surface.b(), a));
     let stroke_a = if current { a } else { (a as u32 / 2) as u8 };
     let border = if current {
@@ -17541,6 +17553,44 @@ method. Nothing in the control is reachable only by mouse.";
         assert!(
             above > 0.0,
             "a sheet lifted off a surface still casts a whisper above it"
+        );
+
+        // **A sheet of paper has square corners** (operator, 2026-09-20), and so
+        // does everything that stands for one — the page, and the cards and
+        // thumbnails that are the same sheet at another size. Read off the
+        // shapes: a rounding set in three places and asserted in none is a
+        // rounding that drifts.
+        //
+        // OPAQUE rects only. The shadow's own rings are translucent and each is
+        // rounded by however far it was expanded, which is not a rounded page —
+        // it is how a blurred square is built, and the corners of a blurred
+        // square really are round.
+        let mut rounded: Vec<(egui::Rect, egui::CornerRadius)> = Vec::new();
+        fn corners(s: &egui::Shape, into: &mut Vec<(egui::Rect, egui::CornerRadius)>) {
+            match s {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| corners(s, into)),
+                egui::Shape::Rect(r) if r.fill.a() == 255 && r.rect.width() > 60.0 => {
+                    into.push((r.rect, r.corner_radius))
+                }
+                _ => {}
+            }
+        }
+        for cs in &full.shapes {
+            corners(&cs.shape, &mut rounded);
+        }
+        let square = rounded.iter().filter(|(_, c)| *c == egui::CornerRadius::ZERO).count();
+        println!(
+            "  {square} of {} painted sheets have square corners",
+            rounded.len()
+        );
+        let curved: Vec<_> = rounded
+            .iter()
+            .filter(|(_, c)| *c != egui::CornerRadius::ZERO)
+            .map(|(r, c)| (r.width().round(), r.height().round(), *c))
+            .collect();
+        assert!(
+            curved.is_empty(),
+            "paper is square-cornered — these are not: {curved:?}"
         );
     }
 
