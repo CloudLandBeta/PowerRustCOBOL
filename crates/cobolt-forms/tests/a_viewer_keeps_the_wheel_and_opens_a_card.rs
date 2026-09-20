@@ -328,3 +328,54 @@ fn the_split_can_be_reopened_after_a_view_closed_it() {
         "a reopened split must stay open — no view may write it shut on its own"
     );
 }
+
+/// **Fullscreen moves the Viewer somewhere else, and the pointer with it.**
+///
+/// The control opens a window of its own (`R13/AC5` — "Fullscreen is not
+/// working as it is supposed to. It is maximizing the view inside the viewer
+/// instead of the entire screen", operator 2026-09-20). The copy left in the
+/// form is still PAINTED — a form must not show a hole where a control is —
+/// but it must not be SENSED, because one surface owns the pointer at a time
+/// and it is the one the operator is looking at.
+///
+/// Asserted by clicking the in-form toolbar: windowed, that press lands and
+/// writes a property; fullscreen, the same press at the same point writes
+/// nothing, because the control is not there any more.
+#[test]
+fn a_fullscreen_viewer_stops_sensing_the_copy_left_in_the_form() {
+    let at = |fullscreen: bool| -> Vec<String> {
+        let mut c = viewer(false);
+        c.set_prop("Fullscreen", PropValue::Bool(fullscreen));
+        let ctx = egui::Context::default();
+        let controls = [c];
+        frame(&ctx, &controls, Vec::new());
+        // The Find button in the IN-FORM toolbar, which toggles a property.
+        let view = Rect::from_min_size(pos2(40.0, 40.0), Vec2::new(700.0, 560.0));
+        let slots = cobolt_forms::viewer::toolbar_slots(cobolt_forms::viewer::ViewRect::new(
+            view.min.x,
+            view.min.y,
+            view.width(),
+            cobolt_forms::viewer::TOOLBAR_HEIGHT,
+        ));
+        let (_, slot) = slots
+            .into_iter()
+            .find(|(a, _)| *a == cobolt_forms::viewer::ToolbarAction::Find)
+            .expect("the toolbar carries Find");
+        let p = pos2(slot.x + slot.w / 2.0, slot.y + slot.h / 2.0);
+        let (out, _) = frame(&ctx, &controls, click_at(p));
+        out.prop_updates.iter().map(|(_, k, _)| k.clone()).collect()
+    };
+
+    let windowed = at(false);
+    let full = at(true);
+    println!("  in-form toolbar click, windowed:   {windowed:?}");
+    println!("  in-form toolbar click, fullscreen: {full:?}");
+    assert!(
+        windowed.iter().any(|k| k == "View1FindOpen"),
+        "windowed, the in-form toolbar must work: {windowed:?}"
+    );
+    assert!(
+        !full.iter().any(|k| k == "View1FindOpen"),
+        "fullscreen, the copy left in the form must not answer the pointer: {full:?}"
+    );
+}

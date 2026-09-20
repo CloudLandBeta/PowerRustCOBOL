@@ -1426,9 +1426,20 @@ pub struct ChromeLayout {
 }
 
 /// Splits a view's rect into toolbar / filmstrip / content / slider, in that
-/// docking order. One function, used by every surface — so "fullscreen hides
-/// the toolbar" is one fact, checked once (AC5), not a condition repeated at
-/// each call site.
+/// docking order. One function, used by every surface, so each of those facts
+/// is checked once rather than repeated at each call site.
+///
+/// **`fullscreen` no longer takes the toolbar away**, and the reason is that
+/// what fullscreen MEANS changed (operator, 2026-09-20: "Fullscreen is not
+/// working as it is supposed to. It is maximizing the view inside the viewer
+/// instead of the entire screen"). Hiding the toolbar bought the document a
+/// toolbar's height out of a control; it buys nothing out of a whole screen,
+/// and it costs the only visible way back — a fullscreen view whose exit is an
+/// unadvertised `Esc` is a trap. The button stays, drawn pressed, and pressing
+/// it returns.
+///
+/// The field is kept because a caller still says whether this view is the
+/// fullscreen one; it simply no longer decides the chrome.
 pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     if opts.streamed {
         return ChromeLayout {
@@ -1443,7 +1454,7 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
     let mut y = bounds.y;
     let mut remaining_h = bounds.h;
 
-    let toolbar = if opts.fullscreen || remaining_h < TOOLBAR_HEIGHT * 2.0 {
+    let toolbar = if remaining_h < TOOLBAR_HEIGHT * 2.0 {
         None
     } else {
         let r = ViewRect::new(bounds.x, y, bounds.w, TOOLBAR_HEIGHT);
@@ -1452,9 +1463,10 @@ pub fn chrome_layout(bounds: ViewRect, opts: &ChromeOpts) -> ChromeLayout {
         Some(r)
     };
 
-    // R26: the bar sits under the toolbar, above the content — and stays
-    // put when the toolbar is hidden by fullscreen, because Find is a
-    // reader's tool, not part of the chrome R15 takes away.
+    // R26: the bar sits under the toolbar, above the content. It never
+    // depended on the toolbar being there — Find is a reader's tool, not part
+    // of the chrome — which is why nothing here changed when fullscreen
+    // stopped taking the toolbar away.
     let find_bar = if opts.find_open && remaining_h > FIND_BAR_HEIGHT * 2.0 {
         let r = ViewRect::new(bounds.x, y, bounds.w, FIND_BAR_HEIGHT);
         y += FIND_BAR_HEIGHT;
@@ -4408,8 +4420,20 @@ mod nav_tests {
 
     // ── Chrome geometry, fullscreen (R15, R16, AC5) ─────────────────────
 
+    /// **Fullscreen keeps the toolbar**, because fullscreen changed meaning.
+    ///
+    /// This test used to assert the opposite, and was right to while
+    /// "fullscreen" meant the control's own rect with the chrome taken away:
+    /// a toolbar's height out of a control is worth having. It is worth
+    /// nothing out of a whole screen, and it costs the only visible way back —
+    /// a fullscreen view whose exit is an unadvertised `Esc` is a trap
+    /// (operator, 2026-09-20).
+    ///
+    /// Inverted rather than deleted: the fact it guards is still a fact, it is
+    /// just the other one now, and a layout that silently stopped placing a
+    /// toolbar would otherwise have nothing to catch it.
     #[test]
-    fn entering_fullscreen_hides_the_toolbar_and_gives_its_height_to_the_content() {
+    fn a_fullscreen_view_keeps_the_toolbar_that_lets_the_reader_leave() {
         let bounds = ViewRect::new(0.0, 0.0, 800.0, 600.0);
         let windowed = chrome_layout(bounds, &ChromeOpts::default());
         let full = chrome_layout(bounds, &ChromeOpts { fullscreen: true, ..Default::default() });
@@ -4420,12 +4444,15 @@ mod nav_tests {
             full.toolbar.map(|t| t.h),
             full.content.h
         );
-        assert!(windowed.toolbar.is_some(), "AC5: the toolbar shows when not fullscreen");
-        assert!(full.toolbar.is_none(), "AC5: entering fullscreen hides the toolbar");
+        assert!(windowed.toolbar.is_some(), "the toolbar shows when not fullscreen");
+        assert!(
+            full.toolbar.is_some(),
+            "fullscreen must keep the toolbar — it carries the way out"
+        );
         assert_eq!(
-            full.content.h - windowed.content.h,
-            TOOLBAR_HEIGHT,
-            "the hidden toolbar's height must go to the content, not be lost"
+            full.content.h, windowed.content.h,
+            "and the content keeps exactly the height it had: the chrome no \
+             longer moves when fullscreen is entered, only the WINDOW does"
         );
     }
 

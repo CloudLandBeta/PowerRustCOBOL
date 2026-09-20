@@ -8,6 +8,60 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.121] — 2026-09-20
+
+### Fullscreen means the screen
+
+"Fullscreen is not working as it is supposed to. It is maximizing the view
+inside the viewer instead of the entire screen" (operator, 2026-09-20). It was
+doing exactly what it had been built to do — take the toolbar away and give the
+document the control's own height — and that is not what the word says.
+
+The control now opens **a window of its own**, filling the display, and paints
+itself into it through the same entry points it uses in the form: the same
+`draw_control`, the same per-view interaction, the same split geometry. Only
+two things differ, and both follow from the window rather than being decided
+again:
+
+* the control is handed the SCREEN's rect, because `draw_control` takes a
+  control's size from the control — so fullscreen is expressed by giving it a
+  control that is the size of the screen, not by a flag threaded through the
+  painter;
+* the window is filled with an opaque ground first, because a form may be
+  translucent and a document filling a screen may not.
+
+The copy left in the form is still **painted** — a form must not show a hole
+where a control is — but it is no longer **sensed**. One surface owns the
+pointer at a time, and it is the one the operator is looking at.
+
+This is not the forbidden self-resize. A window that grows on its own is a
+defect; this one is *created* fullscreen because the operator pressed a button
+that says so, and it closes when they press it again, press `Esc`, or the
+platform asks it to.
+
+### Fullscreen keeps its toolbar
+
+Two tests asserted that entering fullscreen removed the toolbar band, and both
+were right while fullscreen meant a control's rect: a toolbar's height is worth
+reclaiming from a control. It is worth nothing out of a whole screen — and it
+costs the only visible way back, since a fullscreen view whose exit is an
+unadvertised `Esc` is a trap.
+
+Both assertions are **inverted, not deleted**: the fact each guards is still a
+fact, it is simply the other one now, and a layout that silently stopped
+placing a toolbar would otherwise have nothing to catch it. The content keeps
+exactly the height it had, because the chrome no longer moves when fullscreen
+is entered — only the window does.
+
+Guarded additionally by
+`a_fullscreen_viewer_stops_sensing_the_copy_left_in_the_form`, which clicks the
+in-form toolbar in both states: windowed the press lands and writes a property,
+fullscreen the same press at the same point writes nothing.
+
+On a backend with no real viewports egui answers `EmbeddedWindow` and draws the
+fullscreen Viewer inside the form instead. That is a smaller screen than asked
+for, not a failure: the same content, the same way out.
+
 ## [PowerRustCOBOL 1.70.120] — 2026-09-20
 
 ### A sheet of paper has square corners

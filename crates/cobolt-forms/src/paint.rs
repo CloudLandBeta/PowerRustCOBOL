@@ -17092,12 +17092,18 @@ mod theme_render_tests {
         }
     }
 
-    /// Spec 058 T12/AC5 — the toolbar is a painted band, and fullscreen
-    /// removes it. Checked on the SHAPES, not on the geometry helper alone:
-    /// `chrome_layout` already says the band is not placed, and this says
-    /// nothing draws it either.
+    /// Spec 058 T12 — the toolbar is a painted band, and fullscreen **keeps**
+    /// it. Checked on the SHAPES, not on the geometry helper alone:
+    /// `chrome_layout` says where the band is placed, and this says something
+    /// actually draws it there.
+    ///
+    /// The assertion is inverted from what it was, because the word changed
+    /// meaning: fullscreen is a WINDOW now, not a way of reclaiming a toolbar's
+    /// height from a control (operator, 2026-09-20). See
+    /// `a_fullscreen_view_keeps_the_toolbar_that_lets_the_reader_leave` for the
+    /// geometry half of the same fact.
     #[test]
-    fn entering_fullscreen_removes_the_viewers_painted_toolbar_band() {
+    fn a_fullscreen_view_still_paints_the_toolbar_band_that_leads_out() {
         let content = ViewerPageContent::Text("A document.".into());
         let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(400.0, 300.0));
         let band_rects = |fullscreen: bool| -> Vec<egui::Rect> {
@@ -17138,13 +17144,18 @@ mod theme_render_tests {
         let windowed = band_rects(false);
         let fullscreen = band_rects(true);
         println!(
-            "AC5 — toolbar bands painted: windowed {} {:?}, fullscreen {}",
+            "toolbar bands painted: windowed {} {:?}, fullscreen {}",
             windowed.len(),
             windowed.first().map(|r| (r.width(), r.height())),
             fullscreen.len()
         );
         assert_eq!(windowed.len(), 1, "the toolbar band is painted when not fullscreen");
-        assert!(fullscreen.is_empty(), "AC5: entering fullscreen paints no toolbar band");
+        assert_eq!(
+            fullscreen.len(),
+            1,
+            "and it is still painted in fullscreen — the band carries the button \
+             that leads back out, and a view with no advertised exit is a trap"
+        );
     }
 
     /// Spec 058 — the Viewer's chrome wears the **control's own face**, so the

@@ -3996,6 +3996,114 @@ impl ViewerLive {
     }
 }
 
+/// R13/AC5 — the Viewer, on the whole screen, in a window of its own.
+///
+/// Everything inside is the ordinary Viewer: the same `draw_control`, the same
+/// per-view interaction, the same split geometry. Only two things differ, and
+/// both follow from the window rather than being decided again here:
+///
+/// * the control is given the SCREEN's rect, because `draw_control` takes a
+///   control's size from the control — so "fullscreen" is expressed by handing
+///   it a control that is the size of the screen, not by a flag threaded
+///   through the painter;
+/// * the window is filled with an opaque ground first. A form may be
+///   translucent; a document filling a screen may not, or the desktop reads
+///   through the page.
+///
+/// A dismissed window (the OS close request, on a platform that still offers
+/// one without decorations) turns `Fullscreen` off rather than leaving a
+/// control that believes it is on screen when it is not.
+///
+/// On a backend with no real viewports egui answers `EmbeddedWindow` and draws
+/// this inside the form instead. That is a smaller screen than asked for, not a
+/// failure: the same content, the same way out.
+fn viewer_fullscreen_viewport(
+    ui: &mut egui::Ui,
+    ctrl: &Control,
+    id: &str,
+    glass: bool,
+    alpha: f32,
+    bound: &[&str],
+    out: &mut RenderOutput,
+) {
+    let ctx = ui.ctx().clone();
+    let vp_id = egui::ViewportId::from_hash_of(("viewer-fullscreen", id));
+    let builder = egui::ViewportBuilder::default()
+        .with_title(format!("{id} — full screen"))
+        .with_fullscreen(true)
+        .with_decorations(false);
+
+    ctx.show_viewport_immediate(vp_id, builder, |vui, _class| {
+        let rect = vui.max_rect();
+        if rect.width() < 1.0 || rect.height() < 1.0 {
+            return;
+        }
+        // The control, at the size of the screen.
+        let mut full = ctrl.clone();
+        full.rect = crate::model::Rect::new(
+            0,
+            0,
+            rect.width().round() as i32,
+            rect.height().round() as i32,
+        );
+
+        let painter = vui.painter().clone();
+        painter.rect_filled(rect, egui::CornerRadius::ZERO, Color32::from_gray(28));
+        crate::paint::draw_control(&painter, rect.min, &full, false, glass, alpha, 1.0, None);
+
+        // Its own id space: the in-form copy keeps the widget ids it has had
+        // all along, and two surfaces of one control must never share one.
+        let fs_id = egui::Id::new(("viewer-fullscreen-widgets", id));
+        let mode = crate::viewer::SplitMode::from_str(
+            &ctrl.get_prop("SplitMode").map(|v| v.as_str().to_owned()).unwrap_or_default(),
+        );
+        let percent = ctrl
+            .get_prop("SplitPercent")
+            .map(|v| v.as_i64())
+            .filter(|p| *p > 0)
+            .unwrap_or(crate::viewer::SPLIT_DEFAULT_PCT);
+        let bounds = crate::viewer::ViewRect::new(
+            rect.min.x,
+            rect.min.y,
+            rect.width(),
+            rect.height(),
+        );
+        let geom = crate::viewer::split_geometry(bounds, mode, percent);
+        let to_rect = |r: crate::viewer::ViewRect| {
+            Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
+        };
+        viewer_view_interactive(
+            vui, to_rect(geom.view1), &full, 0, fs_id, id, alpha, true, bound, out,
+        );
+        if let Some(second) = geom.view2 {
+            viewer_view_interactive(
+                vui, to_rect(second), &full, 1, fs_id, id, alpha, true, bound, out,
+            );
+        }
+        if let Some(divider) = geom.divider {
+            let d = to_rect(divider).expand2(Vec2::new(3.0, 3.0));
+            let resp = vui.interact(d, fs_id.with("viewer-divider"), egui::Sense::drag());
+            if resp.dragged() {
+                if let Some(p) = vui.input(|i| i.pointer.latest_pos()) {
+                    let pct = crate::viewer::split_percent_at(bounds, mode, p.x, p.y);
+                    if pct != percent {
+                        out.prop_updates.push((
+                            id.to_string(),
+                            "SplitPercent".to_string(),
+                            pct.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+
+        if vui.ctx().input(|i| i.viewport().close_requested()) {
+            out.prop_updates
+                .push((id.to_string(), "Fullscreen".to_string(), "false".to_string()));
+        }
+    });
+}
+
 /// Spec 058 T12 — the Viewer's interactive surface: wheel and double-click
 /// zoom (R11/R12), Esc (R13), the per-view `ViewMode` slider (R14.1), the
 /// filmstrip and its splitter (R14.3/R14.4), fullscreen (R15) and the whole
@@ -11070,6 +11178,26 @@ fn render_interactive(
             // form five shapes short of the canvas — `viewer_engine_parity`
             // caught it, which is what it is for.
             paint::draw_control(&painter, screen.min, ctrl, false, glass, alpha, 1.0, None);
+
+            // R13/AC5 — **fullscreen means the SCREEN.** It used to mean the
+            // control's own rect with the toolbar taken away, which is
+            // "maximizing the view inside the viewer" and not what the word
+            // says (operator, 2026-09-20).
+            //
+            // The control opens a window of its own and paints itself into it,
+            // through the same entry points it uses in the form. The in-form
+            // copy above is still PAINTED — the form must not show a hole where
+            // a control is — but it is not sensed: one surface owns the pointer
+            // at a time, and it is the one the operator is looking at.
+            //
+            // This is not the forbidden self-resize. A window that grows on its
+            // own is a defect; this one is CREATED fullscreen because the
+            // operator pressed a button that says so, and it closes again when
+            // they press it or `Esc`.
+            if enabled && ctrl.get_prop("Fullscreen").map(|v| v.as_bool()).unwrap_or(false) {
+                viewer_fullscreen_viewport(ui, ctrl, id, glass, alpha, &bound, out);
+                return;
+            }
 
             viewer_view_interactive(
                 ui, to_rect(geom.view1), ctrl, 0, ctrl_id, id, alpha, enabled, &bound, out,
