@@ -8912,6 +8912,30 @@ impl<'a> ViewerPaintState<'a> {
         self.layout == "Streamed"
     }
 
+    /// The filmstrip this view actually SHOWS, which is not always the one the
+    /// property asks for.
+    ///
+    /// `Cards` replaces the document with a grid of one card per page, so a
+    /// rail of page thumbnails beside it is the same thing twice — and the two
+    /// disagree about size, spacing and which page is current while claiming to
+    /// be the same list (operator, 2026-09-20: "no filmstrip if showing
+    /// cards").
+    ///
+    /// Suppressed at LAYOUT time, never by writing the property: the developer's
+    /// `ShowFilmstrip` is left exactly as they set it, so leaving `Cards` brings
+    /// the rail back without anything having to remember to restore it.
+    ///
+    /// One accessor rather than the same condition at each call site, because
+    /// the rail, its splitter grip and the toolbar button that toggles it must
+    /// agree — a pressed button beside a rail that is not there is precisely the
+    /// kind of disagreement being reported.
+    pub(crate) fn filmstrip_shown(&self) -> Option<f32> {
+        if self.view_mode == crate::viewer::ViewMode::Cards {
+            return None;
+        }
+        self.filmstrip
+    }
+
     /// `FontSize` scales text independently of `Zoom` (R10), so the painted
     /// size is their product, not either one alone.
     fn painted_font_size(&self) -> f32 {
@@ -9110,7 +9134,7 @@ pub(crate) fn draw_viewer(
         &crate::viewer::ChromeOpts {
             fullscreen: st.fullscreen,
             streamed: st.is_streamed(),
-            filmstrip: st.filmstrip,
+            filmstrip: st.filmstrip_shown(),
             find_open: st.find_open,
         },
     );
@@ -9385,7 +9409,7 @@ fn draw_viewer_toolbar_band(
         let on = match action {
             TA::ViewFull => st.view_mode == crate::viewer::ViewMode::Full,
             TA::ViewCards => st.view_mode == crate::viewer::ViewMode::Cards,
-            TA::Filmstrip => st.filmstrip.is_some(),
+            TA::Filmstrip => st.filmstrip_shown().is_some(),
             TA::Fullscreen => st.fullscreen,
             TA::Split => st.split,
             TA::Find => st.find_open,
@@ -17337,6 +17361,70 @@ method. Nothing in the control is reachable only by mouse.";
         assert!(
             rows.iter().any(|r| r.contains("10\u{00a0}kg")),
             "a non-breaking space must not be a wrap point — rows: {rows:?}"
+        );
+    }
+
+    /// Spec 058 — **`Cards` and the filmstrip are the same list**, so only one
+    /// of them is shown (operator, 2026-09-20: "no filmstrip if showing
+    /// cards").
+    ///
+    /// Asserted on the painted chrome, and in both directions: the rail is gone
+    /// in `Cards` and back in `Full`, from the same control with the same
+    /// `ShowFilmstrip` — which is what proves the property was suppressed at
+    /// layout time rather than written away.
+    #[test]
+    fn a_cards_view_shows_no_filmstrip_and_gets_it_back_in_full() {
+        let content = ViewerPageContent::Text("A document.".into());
+        let rect = egui::Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(420.0, 320.0));
+
+        let strip_rects = |mode: crate::viewer::ViewMode| -> (Vec<egui::Rect>, Option<f32>) {
+            let ctx = egui::Context::default();
+            let ctrl = Control::new("V1", crate::model::ControlType::Viewer, 0, 0);
+            let mut input = egui::RawInput::default();
+            input.screen_rect =
+                Some(egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(520.0, 420.0)));
+            let mut kept = None;
+            let mut full = ctx.run_ui(input, |root| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(root, |ui| {
+                    let painter = ui.painter().clone();
+                    let mut st = test_viewer_state(&content, "Web", 14.0);
+                    st.filmstrip = Some(crate::viewer::FILMSTRIP_DEFAULT_WIDTH);
+                    st.view_mode = mode;
+                    st.page_count = 6;
+                    let r = draw_viewer(&painter, rect, &ctrl, &st);
+                    // The PROPERTY is untouched either way — that is the half
+                    // of this that makes leaving `Cards` restore the rail.
+                    kept = st.filmstrip;
+                    let _ = r;
+                });
+            });
+            full.textures_delta.clear();
+            let measured = viewer_measurements(&ctx, "V1", 0).unwrap_or_default();
+            let strips = measured
+                .chrome
+                .and_then(|c| c.filmstrip)
+                .map(|s| {
+                    vec![egui::Rect::from_min_size(
+                        Pos2::new(s.x, s.y),
+                        Vec2::new(s.w, s.h),
+                    )]
+                })
+                .unwrap_or_default();
+            (strips, kept)
+        };
+
+        let (cards, kept_cards) = strip_rects(crate::viewer::ViewMode::Cards);
+        let (full_mode, kept_full) = strip_rects(crate::viewer::ViewMode::Full);
+        println!("  view mode   filmstrip laid out   ShowFilmstrip still");
+        println!("  ---------   ------------------   -------------------");
+        println!("  Cards       {:<18}   {kept_cards:?}", cards.len());
+        println!("  Full        {:<18}   {kept_full:?}", full_mode.len());
+
+        assert!(cards.is_empty(), "Cards must lay out no filmstrip: {cards:?}");
+        assert_eq!(full_mode.len(), 1, "Full must still lay one out");
+        assert!(
+            kept_cards.is_some(),
+            "the developer's ShowFilmstrip must survive Cards untouched"
         );
     }
 

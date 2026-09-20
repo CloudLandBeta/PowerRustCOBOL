@@ -3975,7 +3975,10 @@ no capability in this control that COBOL cannot reach.
   value you left the other one at.
 - **The filmstrip** is a rail of page thumbnails docked to the left edge of the
   content. It closes two ways: its toolbar button again, or dragging its
-  splitter all the way to the left edge.
+  splitter all the way to the left edge. One click on a thumbnail selects that
+  page; two show it, at its top. It is not drawn in `Cards` mode — the grid is
+  already that list — and `ShowFilmstrip` keeps whatever you set it to, so
+  returning to `Full` brings the rail back.
 - **Text wraps by the word**, at the width the layout gives it. A word too
   long for a whole line is broken rather than allowed to overflow, and a
   non-breaking space is never a wrapping point — which is the reason to type

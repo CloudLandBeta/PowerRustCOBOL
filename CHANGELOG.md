@@ -8,6 +8,31 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.116] — 2026-09-20
+
+### Cards and the filmstrip are the same list, so only one is shown
+
+"no filmstrip if showing cards" (operator, 2026-09-20). `Cards` replaces the
+document with a grid of one card per page; a rail of page thumbnails beside it
+is that list twice, and the two disagree about size, spacing and which page is
+current while claiming to be the same thing.
+
+Suppressed at **layout** time, never by writing the property: `ShowFilmstrip`
+is left exactly as the developer set it, so leaving `Cards` brings the rail
+back without anything having to remember to restore it. One accessor,
+`filmstrip_shown()`, decides for the rail, its splitter grip, the toolbar
+button's pressed state and the hit-test rects alike — a pressed button beside a
+rail that is not there is the same class of disagreement.
+
+### Double-clicking a thumbnail shows that page
+
+Same gesture and same meaning as a double-clicked card: the page opens **at its
+top**, rather than at whatever offset the page before it had been left at.
+
+Guarded by `a_cards_view_shows_no_filmstrip_and_gets_it_back_in_full`, which
+asserts in both directions from one control with one `ShowFilmstrip` — that is
+what proves the property was suppressed rather than written away.
+
 ## [PowerRustCOBOL 1.70.115] — 2026-09-20
 
 ### A Viewer's prose wraps by the word

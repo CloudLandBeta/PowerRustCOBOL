@@ -4061,7 +4061,16 @@ fn viewer_view_interactive(
     let streamed = st.layout == "Streamed";
     let chrome = vw::chrome_layout(
         vw::ViewRect::new(screen.min.x, screen.min.y, screen.width(), screen.height()),
-        &vw::ChromeOpts { fullscreen: st.fullscreen, streamed, filmstrip: st.filmstrip, find_open: st.find_open },
+        // `filmstrip_shown()`, not the raw property: `Cards` replaces the
+        // document with its own grid of pages, so the rail is not laid out
+        // there — and the rects this frame SENSES against have to be the rects
+        // the last paint produced.
+        &vw::ChromeOpts {
+            fullscreen: st.fullscreen,
+            streamed,
+            filmstrip: st.filmstrip_shown(),
+            find_open: st.find_open,
+        },
     );
     let to_rect = |r: vw::ViewRect| {
         Rect::from_min_size(pos2(r.x, r.y), Vec2::new(r.w, r.h))
@@ -4527,10 +4536,19 @@ fn viewer_view_interactive(
 
     // A thumbnail click needs the rects the paint just produced — the strip
     // has no scroll model of its own, so its rows are wherever it drew them.
-    if enabled && resp.clicked() && !grip_busy {
+    let thumbnail_opened = resp.double_clicked();
+    if enabled && (resp.clicked() || thumbnail_opened) && !grip_busy {
         if let Some(p) = pointer {
             if let Some((hit, _)) = painted.strip_hits.iter().find(|(_, r)| r.contains(p)) {
                 page = *hit;
+                // "double clicking a thumbnail on filmstrip shows that page in
+                // the content pane" (operator, 2026-09-20) — and SHOWING a page
+                // means starting at its top, not at whatever offset the page
+                // before it happened to be left at. Same gesture, same meaning,
+                // as a double-clicked card.
+                if thumbnail_opened {
+                    live.scroll.set_offset(0.0);
+                }
             }
         }
     }
