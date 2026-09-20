@@ -137,3 +137,87 @@ fn the_seeded_border_style_is_the_renderers_own_fallback() {
     }
 }
 
+
+/// **And a control read from a FILE carries them too.**
+///
+/// `Control::new` never runs for a control loaded from a `.cfrm`, so the rule
+/// above was true of every control the designer creates and false of nearly
+/// every control a saved project actually contains. The load-time backfill in
+/// `xml::seed_missing_props` wrote five keys by hand — the four gradient ones
+/// and `ShadowLightColor` — and `BackgroundColor` was not among them, so a
+/// control stripped of it by the pre-1.63.15 removal bug came back with a
+/// gradient to set and no plain colour: the Appearance section had a
+/// "Background gradient" switch and no Back colour row at all ("where is the
+/// textbox backcolor? there is only gradient backcolor", operator,
+/// 2026-09-20 — 42 of the 50 controls in `viewer-form.cfrm` are in that state).
+#[test]
+fn a_control_loaded_from_a_file_carries_every_theme_owned_property() {
+    // The operator's own TextBox, exactly as the file holds it.
+    let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Form name="F" title="T" width="640" height="480">
+  <Control id="Txt-Find" type="TextBox" x="24" y="576" w="352" h="26">
+    <Property name="Text">COBOL</Property>
+    <Property name="FontSize">11</Property>
+    <Property name="BackgroundGradientEnabled">false</Property>
+    <Property name="BackgroundGradientStartColor">#F0F0F0</Property>
+    <Property name="BackgroundGradientEndColor">#C8D0DC</Property>
+    <Property name="BackgroundGradientDirection">South</Property>
+    <Property name="ShadowLightColor">#FFFFFFFF</Property>
+    <Property name="CornerRadius">0</Property>
+    <Property name="BorderStyle">Fixed3D</Property>
+  </Control>
+</Form>"#;
+
+    let form = cobolt_forms::xml::load_form_from_str(xml).expect("the form loads");
+    let loaded = &form.controls[0];
+    let fresh = Control::new("Txt-Find", ControlType::TextBox, 24, 576);
+
+    let missing: Vec<&&str> = THEME_OWNED_PROPS
+        .iter()
+        .filter(|key| loaded.get_prop(key).is_none())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "a loaded control is missing theme-owned properties, so the inspector \
+         has no row for them: {missing:?}"
+    );
+    assert_eq!(
+        loaded.get_prop("BackgroundColor"),
+        fresh.get_prop("BackgroundColor"),
+        "the restored value must be the one a new control of the type carries"
+    );
+
+    // What the FILE said still wins — a backfill fills gaps, it does not stamp.
+    assert_eq!(
+        loaded.get_prop("BorderStyle").map(|v| v.as_str().to_owned()),
+        Some("Fixed3D".to_owned())
+    );
+    assert_eq!(
+        loaded.get_prop("Text").map(|v| v.as_str().to_owned()),
+        Some("COBOL".to_owned()),
+        "the developer's content is untouched"
+    );
+}
+
+/// **The backfill cannot change how a form looks.**
+///
+/// It restores a property, not an appearance: every value it can write is one
+/// the renderer reads as "the developer has not chosen", so a control that had
+/// no `BackgroundColor` paints exactly as it did — with its own type's face —
+/// and simply gains the row for choosing one. If a control type ever seeds a
+/// real colour instead of a sentinel, this fails, and the backfill would be
+/// repainting old forms behind the developer's back.
+#[cfg(feature = "render")]
+#[test]
+fn every_seeded_background_reads_as_unchosen() {
+    for ct in face_painting() {
+        let c = Control::new("X-1", ct.clone(), 0, 0);
+        assert!(
+            cobolt_forms::paint::user_background_color(&c).is_none(),
+            "{ct:?} seeds a BackgroundColor the renderer takes for a deliberate \
+             choice ({:?}), so restoring it on load would repaint every saved \
+             form that lacked the property",
+            c.get_prop("BackgroundColor")
+        );
+    }
+}

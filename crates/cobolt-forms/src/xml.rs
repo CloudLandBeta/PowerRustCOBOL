@@ -643,25 +643,43 @@ fn relativize_asset_paths(form: &mut crate::model::Form) {
 fn seed_missing_props(form: &mut Form) {
     use crate::model::{ControlType, PropValue};
     for c in &mut form.controls {
-        let universal_defaults = [
-            ("BackgroundGradientEnabled", PropValue::Bool(false)),
-            (
-                "BackgroundGradientStartColor",
-                PropValue::String(crate::model::DEFAULT_BACKGROUND_COLOR.into()),
-            ),
-            (
-                "BackgroundGradientEndColor",
-                PropValue::String("#C8D0DC".into()),
-            ),
-            (
-                "BackgroundGradientDirection",
-                PropValue::String("South".into()),
-            ),
-            ("ShadowLightColor", PropValue::String("#FFFFFFFF".into())),
-        ];
-        for (key, value) in universal_defaults {
-            if c.get_prop(key).is_none() {
-                c.set_prop(key, value);
+        // Every appearance property a theme owns, taken from what a NEW control
+        // of this type carries — the rule
+        // `a_theme_reset_can_always_put_every_property_back` already states, now
+        // true of a control read from a file as well as one just dropped.
+        //
+        // This list used to be five keys written out by hand: the four gradient
+        // ones and `ShadowLightColor`. `BackgroundColor` was not among them, so
+        // a control saved without it — 42 of the 50 in the operator's own demo,
+        // stripped by the property-REMOVAL bug that
+        // `every_control_seeds_every_theme_owned_property` was written to close
+        // in 1.63.15 — came back with a gradient to set and no plain colour to
+        // set, and the Appearance section had no Back colour row at all
+        // ("where is the textbox backcolor? there is only gradient backcolor",
+        // operator, 2026-09-20). Reading the values from `Control::new` instead
+        // of restating them is what stops the two lists drifting again, which is
+        // the same fix `seed_theme_owned_appearance` made for `CornerRadius`.
+        //
+        // It cannot change how a form LOOKS. Every value restored here is one
+        // the renderer reads as "the developer has not chosen": the `#F0F0F0`
+        // background sentinel (`paint::user_background_color`), the white
+        // foreground one, a transparent or empty face for the controls seeded
+        // that way, and `ShadowEnabled = false`, whose companions do nothing
+        // until it is true. What arrives is the ROW, not a new appearance.
+        //
+        // `CornerRadius` and `BorderStyle` are NOT filled here:
+        // `seed_theme_owned_appearance`, at the end of this function, owns both
+        // and knows the one rule this loop cannot — a pre-spec-016 container
+        // carrying the legacy `BorderRadius` must not be given a `CornerRadius`
+        // beside it, because the canonical key is read first and a seeded 0
+        // would shadow the developer's real radius.
+        let seeded = crate::model::Control::new("seed", c.control_type.clone(), 0, 0);
+        for key in crate::model::THEME_OWNED_PROPS {
+            if matches!(*key, "CornerRadius" | "BorderStyle") || c.get_prop(key).is_some() {
+                continue;
+            }
+            if let Some(value) = seeded.get_prop(key) {
+                c.set_prop(*key, value.clone());
             }
         }
         match c.control_type {

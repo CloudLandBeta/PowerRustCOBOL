@@ -8,6 +8,46 @@
 > entry still matches the version the code actually carried when it was
 > written. Numbering is continuous again from 1.70.103.
 
+## [PowerRustCOBOL 1.70.130] — 2026-09-20
+
+### A saved control gets its Back colour row back
+
+"where is the textbox backcolor? there is only gradient backcolor" (operator,
+2026-09-20). Exactly that, and the wording turned out to be the diagnosis: the
+load-time backfill in `xml::seed_missing_props` listed five properties by hand
+— the four **gradient** keys and `ShadowLightColor` — and `BackgroundColor` was
+not among them.
+
+The inspector shows a colour row only for a property the control actually has.
+`Control::new` seeds `BackgroundColor` on every control, but **`Control::new`
+never runs for a control read from a `.cfrm`**, so the row depended entirely on
+the file still carrying the key — and the pre-1.63.15 theme-reset bug, the one
+`every_control_seeds_every_theme_owned_property` was written to close, had
+*removed* it from controls already saved. **42 of the 50 controls in the
+operator's own `viewer-form.cfrm` carry no `BackgroundColor`**, and all 50 carry
+the gradient keys the backfill did supply. There was only gradient backcolor.
+
+The backfill now restores every property in `THEME_OWNED_PROPS` from what a new
+control of that type carries, rather than from a second hand-kept list — the
+same fix `seed_theme_owned_appearance` already made for `CornerRadius`, and the
+reason the two lists could drift apart in the first place.
+
+**It cannot change how a form looks**, which is the whole risk in touching a
+load path. Every value it can write is one the renderer reads as *the developer
+has not chosen*: the `#F0F0F0` background sentinel, the white foreground one, a
+transparent or empty face for the controls seeded that way, and
+`ShadowEnabled = false`, whose companions do nothing until it is true.
+`every_seeded_background_reads_as_unchosen` asserts that across all 41
+face-painting control types, so a type that ever seeds a real colour fails the
+test instead of repainting saved forms.
+
+`CornerRadius` and `BorderStyle` stay with `seed_theme_owned_appearance`, which
+knows the rule this loop cannot: a pre-spec-016 container carrying the legacy
+`BorderRadius` must not be given a `CornerRadius` beside it, because the
+canonical key is read first and a seeded 0 would shadow the developer's real
+radius. `roundtrip_corner_radius_and_legacy_alias_016` caught exactly that
+during the change.
+
 ## [PowerRustCOBOL 1.70.129] — 2026-09-20
 
 ### The page's shadow is half the weight
